@@ -29,7 +29,7 @@
 import { ApiError } from "./api_answers.mjs";
 import * as store from "./project_store.mjs";
 import { BrowserUnsupported, PyFloat, pyJson, pyStrip, research, researchRequest } from "./research.mjs";
-import { FORMAT, RunWriter, SAVE_EVERY } from "./run_store.mjs";
+import { RunWriter, SAVE_EVERY } from "./run_store.mjs";
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -385,21 +385,19 @@ export class ScenarioRoutes {
       modelVersions,
       evidenceBytes: evidence,
     });
-    const simulation = new this.wasm.Simulation(entry);
-    let duration;
-    try {
-      duration = simulation.duration();
-    } finally {
-      simulation.free();
-    }
     const backend = await store.branchBackend(this.tree, projectId, runId, "main");
-    const writer = await RunWriter.create(this.wasm, backend);
+    const simulation = new this.wasm.Simulation(entry);
     let head;
     try {
-      writer.line({ kind: "run", format: FORMAT, export_sha256: this.wasm.sha256Hex(entry), export_bytes: entry.length, world: null, duration_minutes: duration, save_every: SAVE_EVERY });
-      head = await writer.piece("export", entry);
+      const writer = await RunWriter.create(this.wasm, backend);
+      try {
+        writer.core.start(simulation, entry, null, SAVE_EVERY);
+        head = await writer.flush();
+      } finally {
+        writer.close();
+      }
     } finally {
-      writer.close();
+      simulation.free();
     }
     await store.writeBranch(this.tree, projectId, runId, { branch_id: "main", parent_branch_id: null, fork_minute: 0, computed_until: 0, checkpoint_hash: head, status: null });
     return store.runResponse(this.tree, projectId, runId);

@@ -1,48 +1,13 @@
-// What a Run in the browser stores, and reading it back (Issue #252, PR 6-5), with saved points to
-// seek to a minute (Issue #251).
+// A Run in the browser stored as it is computed, and read back (Issue #252, PR 6-5), with saved
+// points to seek to a minute (Issue #251).
 //
-// A Run's folder holds two files that are only ever appended to:
-//   data.pack      the pieces, each compressed with CompressionStream("deflate-raw")
-//   journal.jsonl  one line per piece or event: its JSON, a tab, the sha256 of that JSON, "\n"
-// A piece is written to data.pack and flushed before its journal line is, so a line never points at
-// bytes that are not there. Reading stops at the first line that is cut short or whose sha256 is
-// not its JSON's (a write the page did not finish); bytes of data.pack no line points at are
-// ignored. Each piece's line holds the sha256 of its bytes before compression, which reading
-// checks: compressed bytes may differ between browsers, the bytes they hold may not.
-//
-// The pieces, in the order they are written (`runAndStore`):
-//   export        the exported world at minute 0 the Run started from (its JSON bytes)
-//   log_tables    the log's string and shape tables' new entries (Packer::write_tables)
-//   log_block     a sealed block of the packed log (EventLog::packed_store), by its index
-//   sample_tables, sample_block   the same of the metric samples (MetricSamples::store)
-//   saved         a saved point (#251): the Run at a minute (Simulation.saved_point,
-//                 archive::SavedPoint, a versioned binary: the world without its log and the counts
-//                 of records and samples up to then), every `saveEvery` minutes and at the end
-//   world         the world at the last minute without its log (archive::world_parts)
-// and the lines without a piece: "run" first (the format and what the Run is of) and "end" last
-// (the minute and the digests the Run gave). Tables come before the blocks that use them. Blocks
-// are taken as they seal, after a call to `advance` (no transaction is open then), and every block
-// at the end. A "saved" line has the minute, the counts of records and samples, the saved point's
-// version, and how many log and sample blocks hold those records and samples (`log_blocks`,
-// `sample_blocks`): the blocks there were when it was saved, the last of them maybe not stored yet.
-//
-// Formats: "sheltersim-browser-run-v4" (#306) is written. It is v3 with the Run of a branch made by
-// a fork (an intervention's child): such a Run starts at the fork's minute. Its "run" line also
-// holds `fork_minute` and `parent_branch_id`, a "fork" line after it holds the fork (its origin
-// in the parent, the EffectProgram applied and the receipt), and its pieces are the parent's
-// exported world at minute 0, the log's and samples' tables and blocks up to the fork's minute,
-// and a saved point at the fork's minute after the program was applied; the Run goes on from there.
-// A minute before the fork's is not one of it (`RunReader.seek` refuses it). A Run without
-// `fork_minute` is a Run from minute 0, as in v3.
-// "sheltersim-browser-run-v3" (#266), still read and gone on from, is the same without forks: a
-// metric sample of a world with a resource ledger also holds the ledger's KPI columns
-// (`MetricSamples` of the core), which the API's KPI history answers with.
-// "sheltersim-browser-run-v2" (#251) is v3 without those columns, and
-// "sheltersim-browser-run-v1" (#252) also without saved points; both are still read (seeking in v1
-// computes from minute 0), but the KPI history refuses them. Any other is an error. The log and the samples are only appended to, so a saved point holds no copy of them:
-// seeking (`RunReader.seek`) restores the nearest saved point at or before the minute from it and
-// the stored log's and samples' first records and samples up to its counts, then computes the
-// ticks up to the minute (at most `saveEvery` - 1).
+// The format is the core's (`sheltersim_core::run_store`, #368; its module documentation says what
+// a Run's folder holds): which pieces are written and when, the journal's lines, the heads, where a
+// seek starts and what it reads, and the checks of each piece. This file is the host's side: it
+// opens the files (a backend), compresses each piece with CompressionStream("deflate-raw") before
+// writing it and decompresses it after reading it, and passes the bytes to the core through WASM
+// (`RunWriter`, `Journal`, `VerifyRun`, `Restore`). A piece is written to data.pack and flushed
+// before its journal line is, and each line is flushed before the next is written.
 //
 // Storage is a backend: `opfsBackend` (the browser's origin private file system, through the
 // synchronous access handles a dedicated Worker has) or `memoryBackend` (Node's tests). A backend
@@ -50,21 +15,12 @@
 // flush() and close(), all synchronous.
 //
 // `wasm` is the module wasm-bindgen made of sheltersim_wasm (any target): its Simulation,
-// StoredRun, Restore, worldPartDigests and sha256Hex.
+// RunWriter, Journal, VerifyRun, Restore and the saved points' schedule (savedPointStep,
+// savedPointDue).
 
+/// The format written (the core's `run_store::Format::CURRENT`).
 export const FORMAT = "sheltersim-browser-run-v4";
-/// The format of #266, without forks: read and gone on from, never written.
-export const FORMAT_V3 = "sheltersim-browser-run-v3";
-/// The format of #252, without saved points: read, never written.
-export const FORMAT_V1 = "sheltersim-browser-run-v1";
-/// The format of #251, whose samples do not hold the ledger's columns: read, never written.
-export const FORMAT_V2 = "sheltersim-browser-run-v2";
-/// The formats this code reads.
-export const FORMATS = [FORMAT_V1, FORMAT_V2, FORMAT_V3, FORMAT];
-/// The formats whose samples hold the ledger's columns: the KPI history answers them and a
-/// computation goes on in them.
-export const CURRENT_FORMATS = [FORMAT_V3, FORMAT];
-/// Minutes between saved points by default: 6 hours (#263).
+/// Minutes between saved points by default: 6 hours (#263; the core's `run_store::SAVE_EVERY`).
 export const SAVE_EVERY = 360;
 const DATA = "data.pack";
 const JOURNAL = "journal.jsonl";
@@ -133,19 +89,24 @@ export function opfsBackend(directory) {
   };
 }
 
-/// Writes a Run's pieces and journal lines (see the top of this file).
+/// The JSON object of an encoded journal line (its JSON, a tab, its sha256, "\n").
+const lineObject = (bytes) => JSON.parse(decoder.decode(bytes.subarray(0, bytes.lastIndexOf(9))));
+
+/// Writes a Run's pieces and journal lines: `core` (the core's RunWriter, made here unless given)
+/// queues them, `flush` writes them. The writing methods return the sha256 of the last line
+/// written (a branch's head is one, #267).
 export class RunWriter {
-  constructor(wasm, data, journal) {
+  constructor(wasm, data, journal, core = null) {
     this.wasm = wasm;
     this.data = data;
     this.journal = journal;
-    this.log = { strings: 0, shapes: 0, blocks: 0 };
-    this.samples = { strings: 0, shapes: 0, blocks: 0 };
+    this.owned = core === null;
+    this.core = core ?? new wasm.RunWriter();
     this.sizes = {};
     this.compressMs = 0;
     this.writeMs = 0;
     this.saveMs = 0;
-    this.saved = [];
+    this.lastLine = null;
   }
 
   /// A writer of a new Run in the backend's files, which it empties.
@@ -155,85 +116,84 @@ export class RunWriter {
     return new RunWriter(wasm, data, journal);
   }
 
-  /// Appends a journal line and flushes it. Returns the sha256 the line holds (a branch's head is
-  /// one, #267).
-  line(entry) {
-    const json = JSON.stringify(entry);
-    const sha = this.wasm.sha256Hex(encoder.encode(json));
-    const bytes = encoder.encode(`${json}\t${sha}\n`);
-    const started = performance.now();
-    this.journal.write(bytes, this.journal.size());
-    this.journal.flush();
-    this.writeMs += performance.now() - started;
-    return sha;
+  /// The saved points' lines written, as objects of their fields.
+  get saved() {
+    return JSON.parse(this.core.savedJson());
   }
 
-  /// Appends a piece to data.pack, compressed, flushes it, then writes its journal line.
-  async piece(kind, raw, extra = {}) {
-    let started = performance.now();
-    const compressed = await deflateRaw(raw);
-    this.compressMs += performance.now() - started;
-    started = performance.now();
-    const offset = this.data.size();
-    this.data.write(compressed, offset);
-    this.data.flush();
-    this.writeMs += performance.now() - started;
-    const size = (this.sizes[kind] ??= { pieces: 0, raw: 0, stored: 0 });
-    size.pieces += 1;
-    size.raw += raw.length;
-    size.stored += compressed.length;
-    return this.line({ kind, offset, length: compressed.length, raw_length: raw.length, sha256: this.wasm.sha256Hex(raw), ...extra });
+  /// Writes what the core queued, in order: a piece compressed and appended to data.pack and
+  /// flushed, then its journal line appended and flushed; a line without a piece appended and
+  /// flushed. `copied` is the compressed bytes of a piece copied from another stored Run, as they
+  /// are. Returns the sha256 of the last line written.
+  async flush(copied = null) {
+    for (let kind = this.core.nextKind(); kind !== undefined; kind = this.core.nextKind()) {
+      let line;
+      if (kind === "line") {
+        line = this.core.commitLine();
+      } else {
+        let stored;
+        if (kind.startsWith("copy:")) {
+          if (copied === null) throw new Error(`${kind}: no bytes to copy`);
+          stored = copied;
+          copied = null;
+        } else {
+          const raw = this.core.nextRaw();
+          const started = performance.now();
+          stored = await deflateRaw(raw);
+          this.compressMs += performance.now() - started;
+          const size = (this.sizes[kind] ??= { pieces: 0, raw: 0, stored: 0 });
+          size.pieces += 1;
+          size.raw += raw.length;
+          size.stored += stored.length;
+        }
+        const started = performance.now();
+        const offset = this.data.size();
+        this.data.write(stored, offset);
+        this.data.flush();
+        this.writeMs += performance.now() - started;
+        line = this.core.commitPiece(offset, stored.length);
+      }
+      const started = performance.now();
+      this.journal.write(line, this.journal.size());
+      this.journal.flush();
+      this.writeMs += performance.now() - started;
+      this.lastLine = line;
+    }
+    return this.core.lastSha256();
   }
 
   /// The tables' new entries and the newly sealed blocks (every block when `last`) of the log and
   /// the samples of `simulation`. Call it between calls to `advance`.
   async take(simulation, last) {
-    const stores = [
-      ["log", this.log, () => simulation.log_block_counts(), (s, h) => simulation.log_tables(s, h), () => simulation.log_table_counts(), (i) => simulation.log_block(i)],
-      ["sample", this.samples, () => simulation.sample_block_counts(), (s, h) => simulation.sample_tables(s, h), () => simulation.sample_table_counts(), (i) => simulation.sample_block(i)],
-    ];
-    for (const [name, at, blockCounts, tables, tableCounts, block] of stores) {
-      const [blocks, sealed] = blockCounts();
-      const end = last ? blocks : sealed;
-      if (end <= at.blocks) continue;
-      const [strings, shapes] = tableCounts();
-      await this.piece(`${name}_tables`, tables(at.strings, at.shapes), { strings_from: at.strings, shapes_from: at.shapes, strings, shapes });
-      at.strings = strings;
-      at.shapes = shapes;
-      for (let index = at.blocks; index < end; index++) {
-        await this.piece(`${name}_block`, block(index), { index });
-      }
-      at.blocks = end;
-    }
+    this.core.take(simulation, last);
+    return this.flush();
   }
 
   /// A saved point of `simulation` now (#251), after the tables and blocks sealed so far. Call it
   /// between calls to `advance`. `saveMs` counts its time, its compression and writing included.
-  /// With `seal` (#267) the blocks are sealed first (`Simulation.seal_blocks`), so every block the
-  /// point needs is stored before its line and it can be restored, and gone on from, at once.
-  /// Returns its line's sha256.
+  /// With `seal` (#267) the blocks are sealed first, so every block the point needs is stored
+  /// before its line and it can be restored, and gone on from, at once.
   async save(simulation, { seal = false } = {}) {
-    if (seal) simulation.seal_blocks();
-    await this.take(simulation, false);
     const started = performance.now();
-    const point = simulation.saved_point();
-    const line = {
-      minute: simulation.minute(),
-      records: simulation.log_records(),
-      samples: simulation.metric_count(),
-      point_version: this.wasm.savedPointVersion(),
-      log_blocks: simulation.log_block_counts()[0],
-      sample_blocks: simulation.sample_block_counts()[0],
-    };
-    const sha = await this.piece("saved", point, line);
+    this.core.save(simulation, seal);
+    const sha = await this.flush();
     this.saveMs += performance.now() - started;
-    this.saved.push(line);
     return sha;
+  }
+
+  /// The last pieces of a Run stored to its end: the world at its last minute without its log, and
+  /// the "end" line with the digests the Run gave. Call it after every block is stored. Returns the
+  /// "end" line and its sha256.
+  async finish(simulation) {
+    this.core.finish(simulation);
+    const sha = await this.flush();
+    return { end: lineObject(this.lastLine), sha };
   }
 
   close() {
     this.data.close();
     this.journal.close();
+    if (this.owned) this.core.free();
   }
 }
 
@@ -247,25 +207,23 @@ export async function runAndStore({ wasm, exportBytes, world = null, backend, ti
   const writer = await RunWriter.create(wasm, backend);
   const simulation = world === null ? new wasm.Simulation(exportBytes) : wasm.Simulation.fromWorlds(exportBytes, world);
   try {
-    if (!simulation.log_all_packed()) throw new Error("the exported world's log is not all packed");
     const duration = simulation.duration();
-    writer.line({ kind: "run", format: FORMAT, export_sha256: wasm.sha256Hex(exportBytes), export_bytes: exportBytes.length, world, duration_minutes: duration, save_every: saveEvery });
-    await writer.piece("export", exportBytes);
+    writer.core.start(simulation, exportBytes, world, saveEvery);
+    await writer.flush();
     let tickMs = 0;
     for (;;) {
-      const minute = simulation.minute();
-      const step = saveEvery > 0 ? Math.min(ticks, (Math.floor(minute / saveEvery) + 1) * saveEvery - minute) : ticks;
+      const step = wasm.savedPointStep(simulation.minute(), ticks, saveEvery, undefined);
       const started = performance.now();
       const ran = simulation.advance(step);
       tickMs += performance.now() - started;
       progress(simulation.minute(), duration);
       await writer.take(simulation, false);
       if (ran < step) break;
-      if (saveEvery > 0 && simulation.minute() % saveEvery === 0 && simulation.minute() < duration) await writer.save(simulation);
+      if (wasm.savedPointDue(simulation.minute(), duration, saveEvery)) await writer.save(simulation);
     }
     await writer.take(simulation, true);
     if (saveEvery > 0) await writer.save(simulation);
-    const { end } = await writeEnd(writer, simulation);
+    const { end } = await writer.finish(simulation);
     return {
       end,
       digests: JSON.parse(simulation.digests_json()),
@@ -283,179 +241,90 @@ export async function runAndStore({ wasm, exportBytes, world = null, backend, ti
   }
 }
 
-/// The last pieces of a Run stored to its end: the world at its last minute without its log, and
-/// the "end" line with the digests the Run gave. Call it after every block is stored. Returns the
-/// "end" line and its sha256.
-export async function writeEnd(writer, simulation) {
-  await writer.piece("world", simulation.world_parts());
-  if (!simulation.log_all_packed()) throw new Error("a record of the log is not packed");
-  const parts = JSON.parse(simulation.part_digests_json());
-  const end = {
-    kind: "end",
-    minute: simulation.minute(),
-    records: simulation.log_records(),
-    samples: simulation.metric_count(),
-    parts,
-    metrics: simulation.metrics_digest(),
-  };
-  return { end, sha: writer.line(end) };
-}
-
-/// The journal's lines up to the first that is cut short or does not match its sha256.
+/// The journal's lines up to the first that is cut short or does not match its sha256, as
+/// objects: `{ lines, torn }`.
 export function journalLines(wasm, text) {
-  const lines = [];
-  let torn = false;
-  for (const line of text.split("\n")) {
-    if (line === "") continue;
-    const tab = line.lastIndexOf("\t");
-    const json = tab < 0 ? "" : line.slice(0, tab);
-    if (tab < 0 || wasm.sha256Hex(encoder.encode(json)) !== line.slice(tab + 1)) {
-      torn = true;
-      break;
-    }
-    lines.push(JSON.parse(json));
+  const journal = new wasm.Journal(encoder.encode(text));
+  try {
+    return { lines: JSON.parse(journal.linesJson()), torn: journal.torn() };
+  } finally {
+    journal.free();
   }
-  return { lines, torn };
 }
 
-/// Reads a stored Run back from `backend` and checks it: each piece's bytes against its sha256, and
-/// the digests the log, the samples and the world read back to against the ones the "end" line
-/// holds. Returns the digests read, whether the Run is complete (it has its "end" line) and
-/// whether everything matched; an error for a piece whose bytes are not what its line says.
+/// The piece `index` of `journal` as data.pack holds it, checked to be all there.
+function storedPiece(journal, data, index) {
+  const [offset, length] = journal.place(index);
+  const stored = data.read(offset, length);
+  journal.checkStored(index, stored.length);
+  return stored;
+}
+
+/// Reads a stored Run back from `backend` and checks it (the core's `VerifyRun`): each piece's
+/// bytes against its line, and the digests the log, the samples and the world read back to against
+/// the ones the "end" line holds. Returns the digests read, whether the Run is complete (it has its
+/// "end" line) and whether everything matched; an error for a piece whose bytes are not what its
+/// line says.
 export async function readAndVerify({ wasm, backend }) {
   const data = await backend.open(DATA);
-  const journal = await backend.open(JOURNAL);
+  const journalFile = await backend.open(JOURNAL);
   const started = performance.now();
   try {
-    const { lines, torn } = journalLines(wasm, decoder.decode(journal.read(0, journal.size())));
-    checkRunLine(lines);
-    const reader = new wasm.StoredRun();
-    let world = null;
-    let exportSha = null;
-    let end = null;
-    let savedPoints = 0;
+    const journal = new wasm.Journal(journalFile.read(0, journalFile.size()));
+    const verify = new wasm.VerifyRun();
     let readMs = 0;
     let inflateMs = 0;
     try {
-      for (const line of lines.slice(1)) {
-        if (line.kind === "end") {
-          end = line;
-          break;
-        }
-        // A fork's line (v4) holds no piece.
-        if (line.kind === "fork" && lines[0].format === FORMAT) continue;
+      journal.checkRun();
+      for (const index of verify.reads(journal)) {
         let at = performance.now();
-        const stored = data.read(line.offset, line.length);
+        const stored = storedPiece(journal, data, index);
         readMs += performance.now() - at;
-        if (stored.length !== line.length) throw new Error(`${line.kind}: data.pack ends before the piece`);
         at = performance.now();
         const raw = await inflateRaw(stored);
         inflateMs += performance.now() - at;
-        if (raw.length !== line.raw_length || wasm.sha256Hex(raw) !== line.sha256) throw new Error(`${line.kind}: the bytes are not the ones written`);
-        switch (line.kind) {
-          case "export":
-            exportSha = wasm.sha256Hex(raw);
-            break;
-          case "log_tables":
-            reader.read_log_tables(raw);
-            break;
-          case "log_block":
-            reader.read_log_block(raw);
-            break;
-          case "sample_tables":
-            reader.read_sample_tables(raw);
-            break;
-          case "sample_block":
-            reader.read_sample_block(raw);
-            break;
-          case "world":
-            world = JSON.parse(wasm.worldPartDigests(raw));
-            break;
-          case "saved":
-            if (lines[0].format === FORMAT_V1) throw new Error("a saved point in a Run of format v1");
-            checkSavedPoint(wasm, line, raw);
-            savedPoints += 1;
-            break;
-          default:
-            throw new Error(`a piece of an unknown kind: ${line.kind}`);
-        }
+        verify.read(journal, index, raw);
       }
-      const parts = world ? { ...world, event_log: reader.log_digest() } : null;
-      const mismatches = [];
-      if (end) {
-        if (exportSha !== lines[0].export_sha256) mismatches.push("export");
-        for (const [part, digest] of Object.entries(end.parts)) {
-          if (!parts || parts[part] !== digest) mismatches.push(part);
-        }
-        if (parts && Object.keys(parts).length !== Object.keys(end.parts).length) mismatches.push("parts");
-        if (reader.log_records() !== end.records) mismatches.push("records");
-        if (reader.metrics_digest() !== end.metrics || reader.sample_count() !== end.samples) mismatches.push("metrics");
-      }
-      return {
-        complete: end !== null,
-        torn,
-        verified: end !== null && mismatches.length === 0,
-        mismatches,
-        parts,
-        metrics: reader.metrics_digest(),
-        records: reader.log_records(),
-        samples: reader.sample_count(),
-        savedPoints,
-        storedBytes: data.size() + journal.size(),
-        readMs,
-        inflateMs,
-        totalMs: performance.now() - started,
-      };
+      const { saved_points: savedPoints, ...result } = JSON.parse(verify.resultJson(journal));
+      return { ...result, savedPoints, storedBytes: data.size() + journalFile.size(), readMs, inflateMs, totalMs: performance.now() - started };
     } finally {
-      reader.free();
+      verify.free();
+      journal.free();
     }
   } finally {
     data.close();
-    journal.close();
+    journalFile.close();
   }
 }
 
-/// The journal's "run" line is of a format this code reads; an error otherwise.
-function checkRunLine(lines) {
-  if (lines.length === 0 || lines[0].kind !== "run") throw new Error("not a stored Run");
-  if (!FORMATS.includes(lines[0].format)) throw new Error(`a stored Run of format ${lines[0].format}: this code reads ${FORMATS.join(", ")}`);
-}
-
-/// A saved point's bytes are one (`Restore`) of the minute and counts its line says.
-function checkSavedPoint(wasm, line, raw) {
-  const restore = new wasm.Restore(raw);
-  try {
-    if (restore.minute() !== line.minute || restore.records() !== line.records || restore.samples() !== line.samples) {
-      throw new Error(`saved: the point is not the one its line says (minute ${line.minute})`);
-    }
-  } finally {
-    restore.free();
-  }
-}
-
-/// A stored Run opened to seek to its minutes (#251): `RunReader.open`, then `seek(minute)` as often
-/// as needed, then `close()`. It reads the journal once and keeps the exported world's bytes.
+/// A stored Run opened to read it (#251): `RunReader.open`, then `seek(minute)` as often as needed,
+/// then `close()`. It reads the journal once (`journal`, the core's Journal; `lines`, its lines as
+/// objects) and keeps the exported world's bytes.
 export class RunReader {
-  constructor(wasm, data, journal, lines, torn) {
+  constructor(wasm, data, journalFile, journal, lines) {
     this.wasm = wasm;
     this.data = data;
+    this.journalFile = journalFile;
     this.journal = journal;
     this.lines = lines;
-    this.torn = torn;
+    this.torn = journal.torn();
+    this.indexes = new Map(lines.map((line, index) => [line, index]));
     this.exported = null;
   }
 
   /// The stored Run in `backend`; an error for one of a format this code does not read.
   static async open({ wasm, backend }) {
     const data = await backend.open(DATA);
-    const journal = await backend.open(JOURNAL);
+    const journalFile = await backend.open(JOURNAL);
+    let journal = null;
     try {
-      const { lines, torn } = journalLines(wasm, decoder.decode(journal.read(0, journal.size())));
-      checkRunLine(lines);
-      return new RunReader(wasm, data, journal, lines, torn);
+      journal = new wasm.Journal(journalFile.read(0, journalFile.size()));
+      journal.checkRun();
+      return new RunReader(wasm, data, journalFile, journal, JSON.parse(journal.linesJson()));
     } catch (error) {
+      journal?.free();
       data.close();
-      journal.close();
+      journalFile.close();
       throw error;
     }
   }
@@ -465,78 +334,94 @@ export class RunReader {
     return this.lines[0];
   }
 
+  /// Whether the Run's samples hold the ledger's columns (format v3 on): the KPI history answers
+  /// it and a computation goes on in it.
+  current() {
+    return this.journal.isCurrent();
+  }
+
   /// The minute the Run starts at: the fork's minute of a branch made by a fork, else 0.
   forkMinute() {
-    return this.run.fork_minute ?? 0;
+    return this.journal.forkMinute();
   }
 
   /// The minute the Run's clock is complete at.
   duration() {
-    return this.run.duration_minutes;
+    return this.journal.duration();
+  }
+
+  /// Minutes between saved points (the default where the "run" line has none).
+  saveEvery() {
+    return this.journal.saveEvery();
   }
 
   /// The "end" line, or null for a Run not stored to its end.
   end() {
-    return this.lines.find((line) => line.kind === "end") ?? null;
+    const index = this.journal.find("end");
+    return index === undefined ? null : this.lines[index];
   }
 
   /// The "saved" lines a seek can restore, by minute: those whose log and sample blocks are all
   /// stored (in a Run not stored to its end, the last ones may not be).
   savedPoints() {
-    const stored = (kind) => this.lines.filter((line) => line.kind === kind).length;
-    const logBlocks = stored("log_block");
-    const sampleBlocks = stored("sample_block");
-    return this.lines.filter((line) => line.kind === "saved" && line.log_blocks <= logBlocks && line.sample_blocks <= sampleBlocks);
+    return Array.from(this.journal.savedPoints(), (index) => this.lines[index]);
   }
 
-  /// A piece's bytes, checked against its line: an error for bytes that are not the ones written.
-  async raw(line) {
-    const stored = this.data.read(line.offset, line.length);
-    if (stored.length !== line.length) throw new Error(`${line.kind}: data.pack ends before the piece`);
-    const raw = await inflateRaw(stored);
-    if (raw.length !== line.raw_length || this.wasm.sha256Hex(raw) !== line.sha256) throw new Error(`${line.kind}: the bytes are not the ones written`);
+  /// The compressed bytes of the piece `index`, checked to hold the bytes written.
+  async compressed(index) {
+    const stored = storedPiece(this.journal, this.data, index);
+    this.journal.checkRaw(index, await inflateRaw(stored));
+    return stored;
+  }
+
+  /// The piece `index` decompressed, not yet checked against its line.
+  async inflated(index) {
+    return inflateRaw(storedPiece(this.journal, this.data, index));
+  }
+
+  /// The piece `index`'s bytes, checked against its line: an error for bytes that are not the
+  /// ones written.
+  async rawAt(index) {
+    const raw = await this.inflated(index);
+    this.journal.checkRaw(index, raw);
     return raw;
+  }
+
+  /// A piece's bytes, by its line (one of `lines`).
+  async raw(line) {
+    const index = this.indexes.get(line);
+    if (index === undefined) throw new Error("not a line of this stored Run");
+    return this.rawAt(index);
   }
 
   /// The exported world the Run started from, read once.
   async exportBytes() {
     if (this.exported === null) {
-      const line = this.lines.find((each) => each.kind === "export");
-      if (!line) throw new Error("the stored Run has no exported world");
-      this.exported = await this.raw(line);
+      const index = this.journal.find("export");
+      if (index === undefined) throw new Error("the stored Run has no exported world");
+      this.exported = await this.rawAt(index);
     }
     return this.exported;
   }
 
-  /// The Run at `minute` (an integer from 0 to the duration): restored from the nearest saved
-  /// point at or before it, or from the exported world when there is none, then computed to it.
-  /// Returns { simulation, from, restoreMs, recomputeMs }: a `Simulation` the caller frees, the
-  /// minute it was computed from, and the time restoring and computing took.
+  /// The Run at `minute` (an integer from the fork's minute to the duration): restored from the
+  /// nearest saved point at or before it, or from the exported world when there is none, then
+  /// computed to it. Returns { simulation, from, restoreMs, recomputeMs }: a `Simulation` the
+  /// caller frees, the minute it was computed from, and the time restoring and computing took.
   async seek(minute) {
-    const { wasm } = this;
-    if (!Number.isInteger(minute) || minute < this.forkMinute() || minute > this.duration()) {
-      throw new Error(`minute ${minute} is not one of the Run (${this.forkMinute()} to ${this.duration()})`);
-    }
+    const { wasm, journal } = this;
+    const [point, , from] = journal.seek(minute);
     const started = performance.now();
-    const point = this.savedPoints().filter((line) => line.minute <= minute).at(-1) ?? null;
     const exportBytes = await this.exportBytes();
     const world = this.run.world ?? null;
     let simulation;
-    if (point === null) {
+    if (point < 0) {
       simulation = world === null ? new wasm.Simulation(exportBytes) : wasm.Simulation.fromWorlds(exportBytes, world);
     } else {
-      const restore = new wasm.Restore(await this.raw(point));
+      const restore = new wasm.Restore(await this.rawAt(point));
       try {
-        for (const line of this.lines) {
-          const log = line.kind === "log_tables" || line.kind === "log_block";
-          const sample = line.kind === "sample_tables" || line.kind === "sample_block";
-          if (!(log && restore.log_needed()) && !(sample && restore.samples_needed())) continue;
-          const raw = await this.raw(line);
-          if (line.kind === "log_tables") restore.read_log_tables(raw);
-          else if (line.kind === "log_block") restore.read_log_block(raw);
-          else if (line.kind === "sample_tables") restore.read_sample_tables(raw);
-          else restore.read_sample_block(raw);
-          if (!restore.log_needed() && !restore.samples_needed()) break;
+        for (let index = journal.nextRestoreRead(0, restore); index !== undefined; index = journal.nextRestoreRead(index + 1, restore)) {
+          restore.readEntry(journal, index, await this.inflated(index));
         }
         simulation = world === null ? wasm.Simulation.restore(exportBytes, restore) : wasm.Simulation.restoreFromWorlds(exportBytes, world, restore);
       } finally {
@@ -551,11 +436,12 @@ export class RunReader {
       simulation.free();
       throw error;
     }
-    return { simulation, from: point?.minute ?? 0, restoreMs: restored - started, recomputeMs: performance.now() - restored };
+    return { simulation, from, restoreMs: restored - started, recomputeMs: performance.now() - restored };
   }
 
   close() {
+    this.journal.free();
     this.data.close();
-    this.journal.close();
+    this.journalFile.close();
   }
 }

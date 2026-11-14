@@ -5,7 +5,7 @@
 //! stores them as they are, a sealed block at a time, with the tables' new entries before the
 //! blocks that use them (`Packer::write_tables`, `Blocks::sealed`); and beside them the world at
 //! its last minute without its log (`world_parts`). The page writes them, compressed, to its
-//! storage (OPFS) with a journal of where each piece is.
+//! storage (OPFS) with a journal of where each piece is (the format: `run_store`).
 //!
 //! The readers here take those pieces back, in the order they were written, and give the digests
 //! a Run gives (`canonical::digests`, `PlainHost::metrics_digest`): `LogReader` the `event_log`

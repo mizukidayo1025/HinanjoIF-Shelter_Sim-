@@ -23,7 +23,7 @@
 // computed in chunks of at most `chunkTicks` ticks. Each chunk is a task of the store's queue (the
 // requests' queue of browser_api.mjs, inside its Web Lock), so the Worker answers timeline,
 // history and the records between chunks. At every `save_every` minutes (360, #263), at the
-// target and when cancelled, the blocks are sealed (`Simulation.seal_blocks`) and a saved point
+// target and when cancelled, the blocks are sealed (`RunWriter.save` with `seal`) and a saved point
 // is stored: the record then moves its head there, the frame of that minute is kept for the
 // screen's next `timeline` of it, and the Run's records stay `running` until the computation
 // ends: `completed` at the end of the clock (with the "world" and "end" lines, as runAndStore
@@ -40,7 +40,7 @@
 
 import { ApiError } from "./api_answers.mjs";
 import * as store from "./project_store.mjs";
-import { CURRENT_FORMATS, FORMAT, RunReader, RunWriter, SAVE_EVERY, writeEnd } from "./run_store.mjs";
+import { RunReader, RunWriter } from "./run_store.mjs";
 
 /// The id of the Run the site offers to compute, beside the sample's.
 export const COMPUTE_RUN = "run-browser-compute";
@@ -48,7 +48,6 @@ export const COMPUTE_RUN = "run-browser-compute";
 export const CHUNK_TICKS = 60;
 const DATA = "data.pack";
 const JOURNAL = "journal.jsonl";
-const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 const refused = (message) => new store.ProjectStoreError(message);
 /// Python's status of a Run that is computing, and of one a computation left (`_advance`).
@@ -78,107 +77,53 @@ export function postDocument(body) {
 
 // ---- Journals and heads ------------------------------------------------------------------------
 
-/// A journal's lines, up to the first that is cut short (no "\n") or does not match its sha256:
-/// `{ entry, sha, end }`, `end` the byte just after the line.
-export function journalEntries(wasm, bytes) {
-  const entries = [];
-  let at = 0;
-  while (at < bytes.length) {
-    const newline = bytes.indexOf(10, at);
-    if (newline < 0) break;
-    const text = decoder.decode(bytes.subarray(at, newline));
-    const tab = text.lastIndexOf("\t");
-    if (tab < 0) break;
-    const json = text.slice(0, tab);
-    const sha = text.slice(tab + 1);
-    if (wasm.sha256Hex(encoder.encode(json)) !== sha) break;
-    let entry;
-    try {
-      entry = JSON.parse(json);
-    } catch {
-      break;
-    }
-    entries.push({ entry, sha, end: newline + 1 });
-    at = newline + 1;
-  }
-  return entries;
-}
-
-/// The lines of a journal a branch's head may be (see the top of this file), in order, each with
-/// its minute and its place among the entries (`index`).
-export function journalHeads(entries) {
-  const heads = [];
-  let logBlocks = 0;
-  let sampleBlocks = 0;
-  entries.forEach(({ entry, sha }, index) => {
-    if (entry.kind === "log_block") logBlocks += 1;
-    else if (entry.kind === "sample_block") sampleBlocks += 1;
-    // A branch made by a fork (#306) starts at its saved point at the fork's minute.
-    else if (entry.kind === "export" && !(entries[0]?.entry.fork_minute > 0)) heads.push({ minute: 0, sha, index, kind: "export" });
-    else if (entry.kind === "saved" && entry.log_blocks <= logBlocks && entry.sample_blocks <= sampleBlocks) heads.push({ minute: entry.minute, sha, index, kind: "saved" });
-    else if (entry.kind === "end") heads.push({ minute: entry.minute, sha, index, kind: "end" });
-  });
-  return heads;
-}
-
-async function readEntries(wasm, backend) {
-  const journal = await backend.open(JOURNAL);
+/// The lines of a branch's stored Run its head may be (the core's `Journal::heads`), in order:
+/// `{ kind, minute, index, sha }`. A journal whose lines cannot be read has none.
+async function readHeads(wasm, backend) {
+  const file = await backend.open(JOURNAL);
+  let journal;
   try {
-    return journalEntries(wasm, journal.read(0, journal.size()));
+    journal = new wasm.Journal(file.read(0, file.size()));
+  } catch {
+    return [];
   } finally {
-    journal.close();
+    file.close();
+  }
+  try {
+    return JSON.parse(journal.headsJson());
+  } finally {
+    journal.free();
   }
 }
 
-/// Cuts a branch's stored Run back to the head `hash`: the journal's lines after it, then the
-/// bytes of data.pack no line up to it points at. Returns the lines kept and the head.
+/// Cuts a branch's stored Run back to the head `hash` (the core's `Journal::cut`): the journal's
+/// lines after it, then the bytes of data.pack no line up to it points at. Returns the head and the
+/// core's writer that goes on after it.
 async function cutToHead(wasm, backend, hash) {
-  const journal = await backend.open(JOURNAL);
+  const file = await backend.open(JOURNAL);
   const data = await backend.open(DATA);
   try {
-    const entries = journalEntries(wasm, journal.read(0, journal.size()));
-    const head = journalHeads(entries).find((each) => each.sha === hash);
-    if (!head) throw new Error("the branch's head is not a line its stored Run can go on from");
-    const kept = entries.slice(0, head.index + 1);
-    let dataEnd = 0;
-    for (const { entry } of kept) {
-      if (Number.isSafeInteger(entry.offset) && Number.isSafeInteger(entry.length)) dataEnd = Math.max(dataEnd, entry.offset + entry.length);
+    const journal = new wasm.Journal(file.read(0, file.size()));
+    try {
+      const [index, journalEnd, dataEnd] = journal.cut(hash);
+      const head = JSON.parse(journal.headsJson()).find((each) => each.index === index);
+      if (file.size() > journalEnd) {
+        file.truncate(journalEnd);
+        file.flush();
+      }
+      if (data.size() > dataEnd) {
+        data.truncate(dataEnd);
+        data.flush();
+      }
+      return { head, writer: journal.writerAfter(index) };
+    } finally {
+      journal.free();
     }
-    const end = kept.at(-1).end;
-    if (journal.size() > end) {
-      journal.truncate(end);
-      journal.flush();
-    }
-    if (data.size() > dataEnd) {
-      data.truncate(dataEnd);
-      data.flush();
-    }
-    return { entries: kept, head };
   } finally {
-    journal.close();
+    file.close();
     data.close();
   }
 }
-
-/// Where a writer going on after `entries` stands: the tables' sizes the last tables lines give and
-/// the blocks stored, of the log and of the samples (RunWriter's `log` and `samples`).
-function writerPlace(entries) {
-  const log = { strings: 0, shapes: 0, blocks: 0 };
-  const samples = { strings: 0, shapes: 0, blocks: 0 };
-  for (const { entry } of entries) {
-    const at = entry.kind.startsWith("log_") ? log : entry.kind.startsWith("sample_") ? samples : null;
-    if (!at) continue;
-    if (entry.kind.endsWith("_tables")) {
-      at.strings = entry.strings;
-      at.shapes = entry.shapes;
-    } else if (entry.kind.endsWith("_block")) {
-      at.blocks += 1;
-    }
-  }
-  return { log, samples };
-}
-
-const sameCounts = (a, b) => a.length === b.length && a.every((value, index) => value === b[index]);
 
 // ---- The Run to compute ------------------------------------------------------------------------
 
@@ -189,7 +134,7 @@ async function sourceRun(wasm, tree, projectId, runId) {
   for (const run of runs) {
     if (run.run_id === runId || !run.branches.some((branch) => branch.branch_id === "main" && branch.checkpoint_hash !== null)) continue;
     const backend = await store.branchBackend(tree, projectId, run.run_id, "main");
-    if (journalHeads(await readEntries(wasm, backend)).some((head) => head.kind === "export")) return run;
+    if ((await readHeads(wasm, backend)).some((head) => head.kind === "export")) return run;
   }
   return null;
 }
@@ -198,35 +143,18 @@ async function createComputeRun(wasm, tree, projectId, runId) {
   const source = await sourceRun(wasm, tree, projectId, runId);
   if (!source) return null;
   const reader = await RunReader.open({ wasm, backend: await store.branchBackend(tree, projectId, source.run_id, "main") });
-  let runLine;
-  let exportLine;
-  let compressed;
-  try {
-    runLine = reader.run;
-    exportLine = reader.lines.find((line) => line.kind === "export");
-    await reader.raw(exportLine);
-    compressed = reader.data.read(exportLine.offset, exportLine.length);
-  } finally {
-    reader.close();
-  }
-  const backend = await store.branchBackend(tree, projectId, runId, "main");
-  const writer = new RunWriter(wasm, await backend.open(DATA, { truncate: true }), await backend.open(JOURNAL, { truncate: true }));
   let head;
   try {
-    writer.line({
-      kind: "run",
-      format: FORMAT,
-      export_sha256: runLine.export_sha256,
-      export_bytes: runLine.export_bytes,
-      world: runLine.world ?? null,
-      duration_minutes: runLine.duration_minutes,
-      save_every: runLine.save_every || SAVE_EVERY,
-    });
-    writer.data.write(compressed, 0);
-    writer.data.flush();
-    head = writer.line({ kind: "export", offset: 0, length: compressed.length, raw_length: exportLine.raw_length, sha256: exportLine.sha256 });
+    const compressed = await reader.compressed(reader.journal.find("export"));
+    const writer = await RunWriter.create(wasm, await store.branchBackend(tree, projectId, runId, "main"));
+    try {
+      writer.core.sameStart(reader.journal);
+      head = await writer.flush(compressed);
+    } finally {
+      writer.close();
+    }
   } finally {
-    writer.close();
+    reader.close();
   }
   const evidence = await tree.read([projectId, "runs", source.run_id, "evidence.json"]);
   if (evidence === null) throw refused("saved artifact is missing or corrupt");
@@ -264,7 +192,7 @@ export async function ensureComputeRun({ wasm, tree, projectId, runId = COMPUTE_
   const runBytes = await tree.read([...runFolder, "run.json"]);
   if (runBytes === null) return createComputeRun(wasm, tree, projectId, runId);
   const backend = await store.branchBackend(tree, projectId, runId, "main");
-  const heads = journalHeads(await readEntries(wasm, backend));
+  const heads = await readHeads(wasm, backend);
   if (parsedRecord(runBytes)?.run_id !== runId || heads.length === 0) {
     await tree.remove(runFolder);
     const made = await createComputeRun(wasm, tree, projectId, runId);
@@ -420,6 +348,7 @@ export class Computing {
       .enqueue(async () => {
         try {
           state?.simulation.free();
+          state?.writer.free();
           const { tree } = this.api;
           const record = await store.branchRecord(tree, job.projectId, job.runId, job.branchId);
           await store.writeBranch(tree, job.projectId, job.runId, { ...record, status });
@@ -450,31 +379,30 @@ export class Computing {
     const { wasm, tree } = this.api;
     const record = await store.branchRecord(tree, job.projectId, job.runId, job.branchId);
     const backend = await store.branchBackend(tree, job.projectId, job.runId, job.branchId);
-    const { entries, head } = await cutToHead(wasm, backend, record.checkpoint_hash);
-    const reader = await RunReader.open({ wasm, backend });
-    let sought;
+    const { head, writer } = await cutToHead(wasm, backend, record.checkpoint_hash);
     try {
-      if (!CURRENT_FORMATS.includes(reader.run.format)) throw new Error(`browser_run_outdated: the branch was stored as ${reader.run.format}; compute it again`);
-      sought = await reader.seek(head.minute);
-    } finally {
-      reader.close();
-    }
-    const simulation = sought.simulation;
-    const place = writerPlace(entries);
-    if (head.kind === "saved") {
-      const fits =
-        simulation.minute() === head.minute &&
-        sought.from === head.minute &&
-        sameCounts(simulation.log_table_counts(), [place.log.strings, place.log.shapes]) &&
-        sameCounts(simulation.log_block_counts(), [place.log.blocks, place.log.blocks]) &&
-        sameCounts(simulation.sample_table_counts(), [place.samples.strings, place.samples.shapes]) &&
-        sameCounts(simulation.sample_block_counts(), [place.samples.blocks, place.samples.blocks]);
-      if (!fits) {
+      const reader = await RunReader.open({ wasm, backend });
+      let sought;
+      let duration;
+      let saveEvery;
+      try {
+        if (!reader.current()) throw new Error(`browser_run_outdated: the branch was stored as ${reader.run.format}; compute it again`);
+        sought = await reader.seek(head.minute);
+        duration = reader.duration();
+        saveEvery = reader.saveEvery();
+      } finally {
+        reader.close();
+      }
+      const simulation = sought.simulation;
+      if (head.kind === "saved" && !(simulation.minute() === head.minute && sought.from === head.minute && writer.fits(simulation))) {
         simulation.free();
         throw new Error("the Run restored at the branch's head does not hold what its stored Run holds there");
       }
+      return { simulation, backend, writer, record, duration, saveEvery, head: head.minute, tickMs: 0, saveMs: 0 };
+    } catch (error) {
+      writer.free();
+      throw error;
     }
-    return { simulation, backend, place, record, duration: reader.duration(), saveEvery: reader.run.save_every || SAVE_EVERY, head: head.minute, tickMs: 0, saveMs: 0 };
   }
 
   /// One chunk: at most `chunkTicks` ticks, not past the next saved point or the target, then
@@ -483,17 +411,14 @@ export class Computing {
   async chunk(job, state) {
     const { wasm } = this.api;
     const { simulation, duration, saveEvery } = state;
-    const writer = new RunWriter(wasm, await state.backend.open(DATA), await state.backend.open(JOURNAL));
-    writer.log = state.place.log;
-    writer.samples = state.place.samples;
+    const writer = new RunWriter(wasm, await state.backend.open(DATA), await state.backend.open(JOURNAL), state.writer);
     try {
       let minute = simulation.minute();
       if (job.cancel) {
         if (minute > state.head) await this.commit(job, state, minute, await this.save(writer, state));
         return minute === duration ? "completed" : "paused";
       }
-      const next = (Math.floor(minute / saveEvery) + 1) * saveEvery;
-      const step = Math.min(this.chunkTicks, next - minute, job.target - minute);
+      const step = wasm.savedPointStep(minute, this.chunkTicks, saveEvery, job.target);
       const started = performance.now();
       const ran = simulation.advance(step);
       state.tickMs += performance.now() - started;
@@ -502,11 +427,11 @@ export class Computing {
       await writer.take(simulation, false);
       if (minute === duration) {
         await this.save(writer, state);
-        const { sha } = await writeEnd(writer, simulation);
+        const { sha } = await writer.finish(simulation);
         await this.commit(job, state, minute, sha);
         return "completed";
       }
-      if (minute === job.target || minute % saveEvery === 0) await this.commit(job, state, minute, await this.save(writer, state));
+      if (minute === job.target || wasm.isSavedPointMinute(minute, saveEvery)) await this.commit(job, state, minute, await this.save(writer, state));
       return minute === job.target ? "paused" : null;
     } finally {
       writer.close();

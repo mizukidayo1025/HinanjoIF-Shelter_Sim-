@@ -105,9 +105,15 @@ def test_the_site_holds_the_screen_the_browser_api_and_the_sample_in_parts(
         # Built without the shelter index, the site cannot make Scenarios and says so (#372).
         ' data-compute-run="run-browser-compute" data-scenarios="unavailable"></script>',
     ]
-    assert (output / "LICENSE.txt").read_bytes() == (STATIC.parents[3] / "LICENSE").read_bytes()
+    # The .txt files begin with UTF-8's byte order mark: a host answers them without a charset
+    # (Workers' static assets do), and the browser then reads the license's Japanese in another
+    # encoding (#410).
+    bom = b"\xef\xbb\xbf"
+    license_text = (STATIC.parents[3] / "LICENSE").read_bytes()
+    assert "避難所IF！".encode() in license_text
+    assert (output / "LICENSE.txt").read_bytes() == bom + license_text
     for name, data in NOTICES.items():
-        assert (output / name).read_bytes() == data
+        assert (output / name).read_bytes() == (bom + data if name.endswith(".txt") else data)
     assert browser_html.index("/browser/api_fetch.js") < browser_html.index("/demo-v2-scene.js")
     for name in ("api_fetch.js", "api_worker.mjs", "browser_api.mjs", "compute.mjs"):
         assert (output / "browser" / name).is_file()

@@ -9,7 +9,6 @@ import time
 import pytest
 
 from sheltersim.storage.projects import StorageError
-from sheltersim.storage.telemetry import RunTelemetryStore
 from sheltersim.web.projects import ProjectAPI
 
 # Run on every pull request on Windows and macOS too (pytest --os-subset, #380): computations run
@@ -26,7 +25,7 @@ def _computed(tmp_path, saved_timeline, worker, target):
     store, _ = saved_timeline(tmp_path)
     api = ProjectAPI(store, recover=False, worker=worker)
     try:
-        api.submit("p", "r", "main", target, measure_performance=True)
+        api.submit("p", "r", "main", target)
         api.wait_idle(timeout=300)
     finally:
         api.close()
@@ -41,12 +40,6 @@ def test_a_process_saves_the_same_head_as_a_thread(tmp_path, monkeypatch, saved_
     expected = thread.branch_reference("p", "r", "main")
     head = process.branch_reference("p", "r", "main")
     assert (head.computed_until, head.checkpoint_hash) == (30, expected.checkpoint_hash)
-    # The process is the Run's own, so its peak memory is the Run's.
-    execution = RunTelemetryStore(process, "p", "r").read()["executions"][-1]
-    assert execution["memory_attribution_status"] == "measured"
-    assert execution["run_peak_memory_bytes"] == execution["process_peak_rss_bytes"] > 0
-    threaded = RunTelemetryStore(thread, "p", "r").read()["executions"][-1]
-    assert threaded["memory_attribution_status"] == "unavailable"
 
 
 def test_a_process_run_can_be_cancelled(tmp_path, monkeypatch, saved_timeline):

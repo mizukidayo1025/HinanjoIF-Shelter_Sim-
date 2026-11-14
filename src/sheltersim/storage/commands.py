@@ -28,7 +28,6 @@ def configure_parser(subparsers: Any) -> None:
         "resume",
         "frame",
         "fork",
-        "archive",
         "delete",
         "prepare",
         "approve-draft",
@@ -84,8 +83,6 @@ def configure_parser(subparsers: Any) -> None:
             command.add_argument("--minute", type=int, required=True)
         if action == "fork":
             command.add_argument("--child-id", required=True)
-        if action == "archive":
-            command.add_argument("--run-id")
         if action == "delete":
             command.add_argument(
                 "--confirmation", required=True, help="repeat exact inactive Run ID"
@@ -192,9 +189,6 @@ def execute(arguments: Any) -> dict[str, Any]:
             )
         finally:
             api.close()
-    if action == "archive":
-        store.archive(project_id, arguments.run_id)
-        return store.project(project_id)
     if action == "delete":
         store.delete_run(project_id, arguments.run_id, confirmation=arguments.confirmation)
         return {"deleted": arguments.run_id}

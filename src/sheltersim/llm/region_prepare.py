@@ -22,7 +22,6 @@ from sheltersim.region.conditions import (
 )
 from sheltersim.region.facility import FacilityZoneCondition
 from sheltersim.region.models import RegionModel, RegionResearchResult
-from sheltersim.region.plan_import import ImportedPlanGeometry
 from sheltersim.region.population import (
     AgeBand,
     EvacuationSelection,
@@ -166,7 +165,6 @@ def build_scenario_from_text(
     age_bands: tuple[AgeBand, ...] | None = None,
     household_mix: HouseholdSizeMix | None = None,
     selected_shelter_id: str | None = None,
-    plan_override: ImportedPlanGeometry | None = None,
 ) -> tuple[ScenarioIntentParse, InitialScenarioDraft | None]:
     """Build a detached preview after required scope fields are explicitly present."""
     parsed = parse_scenario_text(text, router=router)
@@ -196,7 +194,6 @@ def build_scenario_from_text(
         age_bands=age_bands,
         household_mix=household_mix,
         selected_shelter_id=selected_shelter_id,
-        plan_override=plan_override,
     )
     document = draft.scenario.model_dump(mode="json")
     document["provenance"]["scenario_input"] = {

@@ -135,7 +135,13 @@ split PR by PR; its last section sums up what is where.
   contracts (E15) answered as the native host's pydantic (`contracts::validate`, #346), the whole-world
   validation (E6) answered by the core's `validate` (#250: all of `WorldState.validate`,
   `validate_simulator_extensions` and the candidate's wrapping, with Python's classes and texts), no
-  LLM, and the metric samples kept as lines for their digest.
+  LLM, and the metric samples kept as lines for their digest. Its decision sink is silent unless the
+  Run collects its decisions (`PlainRun::collect_decisions`, #368): then it is an indexed sink that
+  keeps the JSON bytes the core writes of each decision (`Decision::Indexed`, the rows the native
+  path's `_IndexedMetricSink.observations` holds as bytes, with `policy_sources` answered from the
+  Model Catalog's `assumption_source_id` in `core/src/validate/catalog.json`), taken out with
+  `take_decisions`; a decision the core leaves to a sink in Python is only counted
+  (`decisions_missed`). The world is the same either way (`core/tests/tick_core.rs`).
   `plain::PlainRun` reads an export, runs one tick at a time (`engine::step`: `run_tick`, the
   minute moved on, the end-of-tick check, as `TickEngine.step`; the check is what
   `validate_after_tick` answers, `engine::EndCheck::Whole`: the kernel's check `after_tick::check`
@@ -145,7 +151,25 @@ split PR by PR; its last section sums up what is where.
   core's `validate(validate_event_history=False)`, which passes or gives Python's error) and gives
   the digests of the
   world's parts (`canonical::digests`) and of the samples; on the worlds of `tick_core.json` they
-  are the native path's (`core/tests/tick_core.rs`).
+  are the native path's (`core/tests/tick_core.rs`). `PlainRun::advance` runs up to a number of
+  ticks and stops at the end of the clock; a tick's failure or the end-of-tick check's is `Stopped`,
+  whose text (`minute {m}: {step}: {error}`) both wrappers give. What both wrappers hand out is the
+  core's too: the digests as JSON (`canonical::digests_json`), the EffectProgram's check and
+  receipt as JSON, the stored pieces (`log_tables`, `log_block`, `MetricSamples::tables`, ...) and
+  a restore taken once (`archive::RestoreOnce`).
+- **`PlainRun` for Python** (#368, step 2): `src/rules/plain.rs` is the WASM `Simulation`'s surface
+  for Python, `sheltersim_native.rules.plain` (read it with `sheltersim.native.rules("plain")`):
+  `PlainRun(entry_json)` and `PlainRun.from_worlds`, `minute`, `duration`, `advance` (a failure is
+  `RuntimeError` with `Stopped`'s text, caused by the error as its own class), `digests_json`,
+  `part_digests_json`, `metrics_digest`, `metric_count`, `metric_line`, `frame`, `state_digest`,
+  `scenario_summary`, `validate_effect_program`, `apply_effect_program`, `collect_decisions`,
+  `take_decisions`, `decisions_missed`, the stored pieces, `world_parts`, `saved_point`,
+  `seal_blocks`, and `Restore` with `PlainRun.restore` / `restore_from_worlds`. A `PlainRun` holds
+  `Rc`s, so it is `unsendable` and runs its ticks holding the GIL; the core keeps its feature
+  `parallel`. `tests/integration/test_plain_run.py` runs the worlds of `core_tick.py` through it and
+  through `TickEngine` to the same digests, compares its decision records with a Project route's
+  `_IndexedMetricSink` rows, restores a saved point, and checks the error texts. The local and VM
+  versions do not use it yet (step 3 of #368).
 - **The core in WASM** (#244, PR 4-4): `wasm/` (`sheltersim_wasm`) is the JS boundary of a
   `PlainRun`, made with wasm-bindgen (decision 8, pinned to the CLI's version): `Simulation`
   reads an export's JSON bytes (or one world of a file of worlds, `fromWorlds`), runs ticks
@@ -229,7 +253,7 @@ split PR by PR; its last section sums up what is where.
   `schedule_effect_program` (#305): the program's record and events written, all or none, and its
   receipt the `command_log` entry `BranchRuntime.apply_effect_program` appends
   (`PlainRun::apply_effect_program`, `Simulation.applyEffectProgram`).
-- **Saved points** (#251, for the browser only; not Python's Checkpoints): `PlainRun::saved_point`
+- **Saved points** (#251; not Python's Checkpoints, which #368 replaces with them later): `PlainRun::saved_point`
   writes the Run at a minute as `archive::SavedPoint`, a versioned binary of the world without its
   log (`archive::world_parts`) and the counts of the log's records and the metric samples (version
   2; version 1 also held the contracts' counts, which a reader skips, #346). `archive::Restore` reads the stored log and samples back up to those counts

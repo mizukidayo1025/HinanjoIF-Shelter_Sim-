@@ -20,7 +20,7 @@ from sheltersim.experiments.initial_scenario import InitialScenarioRequest
 from sheltersim.experiments.timeline import TimelineStore
 from sheltersim.llm.config import LLMMode, LLMSettings
 from sheltersim.llm.contracts import ProviderResponse
-from sheltersim.storage.projects import ProjectStore, StorageError, digest
+from sheltersim.storage.projects import ProjectStore, digest
 from sheltersim.web.projects import ProjectAPI
 from sheltersim.web.workspace import ProjectWorkspace
 
@@ -204,23 +204,6 @@ def test_repeated_identical_intervention_preview_reuses_the_saved_reply(
     # Before stored compiler tapes, the ledger refused this identical paid request.
     assert second["fallback_used"] is False
     assert len(calls) == calls_after_first
-
-
-def test_household_corrections_and_imported_plans_are_not_offered(
-    ui_project_api, generated_request
-) -> None:
-    """The household correction route and the plan fields of a preview went with the older
-    screens (#376): the route is unknown and the fields are refused."""
-    with pytest.raises(StorageError, match="unknown project operation"):
-        ui_project_api.post(
-            ["project", "scenario-household-corrections"],
-            {"preview_id": "x", "correction": {}},
-        )
-    for field in ("geometry_id", "plan_override"):
-        with pytest.raises(StorageError, match="request fields do not match"):
-            ui_project_api.workspace.preview(
-                "project", {"text": "", "request": generated_request(), field: "hall"}
-            )
 
 
 def _researched_preview(api, generated_request, **selections) -> dict:

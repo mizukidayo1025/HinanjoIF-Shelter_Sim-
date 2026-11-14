@@ -1,6 +1,6 @@
 # テストと検証
 
-テストは、決定的な状態遷移、Checkpointの保存と復元、独立したBranch、イベントの順序、施設・資源・職員の操作、履歴と時系列の検索、モデルの出典、LLMのfallbackと応答テープ、Projectの保存、Webの経路、図面と地域データの取り込みを確かめます。
+テストは、決定的な状態遷移、Checkpointの保存と復元、独立したBranch、イベントの順序、施設・資源・職員の操作、履歴と時系列の検索、モデルの出典、LLMのfallbackと応答テープ、Projectの保存、Webの経路、地域データの取り込みを確かめます。
 
 この文書には、決まりと手順だけを書きます。テストは変わり続けるので、件数・網羅率・計測時間のように変わる数は載せません。これまでの分析と経緯は、git履歴とIssue（テストの整理は#53・#57・#126、網羅の確認は#176・#178）を見てください。
 
@@ -85,7 +85,7 @@ python -m coverage report --sort=cover
 同じ名前のファイルを別のディレクトリに置けるよう、pytestは`--import-mode=importlib`で動かします（`pyproject.toml`）。テストファイル同士ではimportできないので、共有する準備は`tests/support/`に題材ごとのモジュールとして置き、`tests/conftest.py`の`pytest_plugins`で読み込みます（#138）。`pyproject.toml`の`pythonpath`に`tests`を入れているので、`support.<モジュール名>`として読み込めます。
 
 - 状態や後片付けがある準備（保存先、API、偽のサービス、保存済みRunなど）は、fixtureにします。テストファイルはfixtureとして受け取ります。
-- 状態を持たないものは、テストファイルから直接importしてかまいません。`fixtures/`のファイルのパス（`support/paths.py`の`SCENARIO_100_AGENTS`など。テストの中で`Path(__file__).parents[N]`から組み立てません）と、合成データの定数とそれを作る関数（`support/plans.py`の`SHELTER_TRACE`・`shelter_plan_png`、`support/public_data.py`の`MUNICIPALITY`など）です。
+- 状態を持たないものは、テストファイルから直接importしてかまいません。`fixtures/`のファイルのパス（`support/paths.py`の`SCENARIO_100_AGENTS`など。テストの中で`Path(__file__).parents[N]`から組み立てません）と、合成データの定数とそれを作る関数（`support/public_data.py`の`MUNICIPALITY`など）です。
 - `tests/conftest.py`に残すのは、すべてのテストに効く設定（ローカルの状態の隔離、`--shard`による分割と`--os-subset`による選り分け、並列実行のときの長いテストの並べ替え）と、結果を残すplugin `tests/results_log.py`の読み込みだけです。
 - 新しい準備は、題材が合うモジュールに足します。合うモジュールがなければ、新しいモジュールを作って`pytest_plugins`に加え、下の表にも足します。
 
@@ -128,7 +128,7 @@ tickの規則はRustのkernelだけで、Pythonの本体はありません（`ke
 - Rustのテストは、`load::entry(ファイル名, 世界の名前)`で書き出しを読み、`load::loaded`で世界とRunとその方策を、`load::host`でPythonが解釈する節と図面（`Geo`）を持つ`TestHost`を作ります。図面は書き出した時点の世界のものです。テストで重ね書き（`geometry_overlay_v1`）を変えたら、`sections::plan_of`で作り直します。
 - tickを動かすテストや、ネイティブのホストが世界から読み直すことを通る規則のテストは、`load::following_host`で`TestHost`を作ります。ネイティブの経路のホストがPythonの世界から読むことを、読み込んだ世界から読みます。図面は呼ばれるたびに今の重ね書きから作り（重ね書きが変わったときだけ作り直します）、`find_record`は、`records`にない記録を、呼ばれた時点の世界の記録（同じ呼び出しの中で規則が書いたものも）から探します。規則が始める名前空間と`world.resources`は中核が自分で書き、ホストには知らせるだけです（#244）。
 - Runの途中の世界が要るテストは、Pythonで書き出さずに、中核でtickを進めて作れます。`support/ticks.rs`の`run`が、中核のcrateの`engine::step`で`TickEngine.step`と同じことをします（`run_tick`、分を進める、終わりの検査）。`load::following_host`のホストで進めた世界は、ネイティブの経路で進めた世界と同じbytesになります（`tick_core.rs`）。ネイティブの経路と同じ世界を通ることを確かめれば、pytestがRunの世界で取ったdigestを元の値のまま比べられます（`generated_run.rs`）。
-- Pythonのないホストは中核のcrateの`plain::PlainHost`です（#244。ブラウザーで動かすWASMの試作が使います）。節と図面は書き出しから、記録は世界のログから読み、契約は中核の`contracts::validate`でネイティブのホストのpydanticと同じに答え（#346）、世界の検証は中核の`validate`でPythonと同じクラスと文で行い（#250）、各tickの終わりは`validate_after_tick`と同じ答えです（`engine::EndCheck::Whole`：中核のkernelの検査が、名前空間の検証器などの問いを中核の`rules::tick_checks::CoreChecks`に聞き、断ったときだけ履歴なしの`validate`が決めます）。`end_of_tick.rs`が、記録した壊れた世界（`validate_*.json`）のすべてで、tickの終わりが履歴なしの`validate`と同じ答えになることと、検証器だけが守る名前空間を壊した世界でPythonと同じ誤りで止まることを確かめます。LLMは使いません。`plain::PlainRun`が書き出しを読み、1 tickずつ進め、世界の部分のdigestと指標のdigestを返します。ネイティブの経路と同じdigestになることは`tick_core.rs`で確かめます。テストの`TestHost`は、呼ばれたことを記録し、テストの関数を差し込めるホストとして残します。
+- Pythonのないホストは中核のcrateの`plain::PlainHost`です（#244。ブラウザーで動かすWASMの試作が使います）。節と図面は書き出しから、記録は世界のログから読み、契約は中核の`contracts::validate`でネイティブのホストのpydanticと同じに答え（#346）、世界の検証は中核の`validate`でPythonと同じクラスと文で行い（#250）、各tickの終わりは`validate_after_tick`と同じ答えです（`engine::EndCheck::Whole`：中核のkernelの検査が、名前空間の検証器などの問いを中核の`rules::tick_checks::CoreChecks`に聞き、断ったときだけ履歴なしの`validate`が決めます）。`end_of_tick.rs`が、記録した壊れた世界（`validate_*.json`）のすべてで、tickの終わりが履歴なしの`validate`と同じ答えになることと、検証器だけが守る名前空間を壊した世界でPythonと同じ誤りで止まることを確かめます。LLMは使いません。`plain::PlainRun`が書き出しを読み、1 tickずつ進め、世界の部分のdigestと指標のdigestを返します。ネイティブの経路と同じdigestになることは`tick_core.rs`で確かめます。判断の記録は、Runが集めるとき（`collect_decisions`、#368）だけ索引のsinkとして持ち、集めても世界が変わらないことも`tick_core.rs`で確かめます。PyO3の窓口の`PlainRun`（`sheltersim_native.rules.plain`）は、`tests/integration/test_plain_run.py`が`core_tick.py`の世界でネイティブの経路と比べます（世界と指標のdigest、ProjectのRunの`_IndexedMetricSink`のbytesの行と判断の記録、残す点からの再開、誤りの文）。テストの`TestHost`は、呼ばれたことを記録し、テストの関数を差し込めるホストとして残します。
 - 中核の世界の検証（`sheltersim_core::validate`、#250）は、`tests/support/core_validate.py`の壊れた世界で確かめます。`validate_worlds.json`が正しい世界（生成Scenarioと`h00_small_replay`を数tick進めたもの）を持ち、各ファイル（`validate_<範囲>.json`）が、正しい世界に変更を1つ加えた世界を変更の差分（`core_texts.variant`）として持ち、入り口ごと（`validate`、履歴なしの`validate`、`validate_simulator_extensions`、`_txn_validate`の候補、進行中のイベントつきの`validate`）にPythonが出したクラスと文（`str(exc)`）を記録します。記録のときは検証のRustの双子を切り、Pythonの規則の文を残します（`python_validators`）。`native/core/tests/validate_<範囲>.rs`が、`support/validate.rs`の`check_file`で中核の答えと比べます。型のある行に入らない名前空間は、読み込みで`ValueRow`のまま持ちます（`load::Namespaces::Lenient`）。検証が読む導入済みのコードの表（Model Catalog、既定のモデル、suite、状態の契約）は`native/core/src/validate/catalog.json`で、`core_validate.py`の`validate_catalog`がPythonから書きます。Pythonの文は、世界が持つlistとdictを`TrackedList`・`TrackedDict`と書くので、中核もそう書きます。
   - 拡張の名前空間のうち`movement_v1`・`geometry_overlay_v1`・`facility_queues_v1`・`temporary_spaces_v1`（`validate_places.json`）と`shared_operations_v1`とその履歴（`validate_shared_operations.json`）の事例は`tests/support/core_validate_places.py`が書きます（#350）。fixtureに入らない大きさの上限（10,001件の予約など）は、`native/core/tests/validate_places.rs`が読み込んだ事例の世界を変えて確かめます。pydanticの`ValidationError`は中核の`Error::Validation`（`ValueError`の仲間）で、事例では`ValidationError`として比べます。
   - 拡張の名前空間（agent_dynamics_v1、body_state_v1、staff_dynamics_v1、staff_operations_v1、social_network_v1、population_dynamics_v1、population_lifecycle_v1、#349）は`tests/support/core_validate_namespaces.py`の`validate_namespaces.json`と`validate_staff_tasks.json`（命じた職員の作業がある世界）で確かめます。Pythonが名前空間を自分で持つとき、リストと辞書は`TrackedList`と`TrackedDict`なので、ハッシュできない値の`TypeError`の文もその名前になります。
@@ -185,7 +185,7 @@ UIで作るScenarioは、必ず図面（`facility_geometry`）と認知（`agent
 - `generated_scenario_preview`：元になったpreviewの結果（`scenario`、`approved_hash`、`can_start`、`request`など）です。session単位で1回だけ作るので、変更してはいけません。module単位のfixtureから使うときは、`copy.deepcopy(generated_scenario_preview["scenario"])`から`ScenarioSpec`を作ります。
 - `generated_scenario_with(**fields)`：画面の入力欄の一部を変えたときのScenarioを、テストごとに新しく作って返します。たとえば`generated_scenario_with(duration_days=4)`は、期間の欄に4と入力した場合です。変えた欄は利用者の入力として扱います。画面にない`InitialScenarioRequest`の項目（`seed`、`operational_conditions.scheduled`、`population_conditions`など）も渡せます。
 - `generated_previews(**fields)`：上のpreviewの結果を返します。session単位で、同じ入力のpreviewは1回だけ作って共有するので、変更してはいけません。
-- `ui_project_api`と`generated_request(**fields)`：作ったpreviewにさらに画面の操作（世帯の修正、承認、図面の指定など）を続けるテスト用です。`ui_project_api`は、空の地域調査に差し替えた`ProjectAPI`（project名`project`）をテストの間だけ開いておきます。地域調査そのものを通すときは、`support/public_data.py`の`researching_project_api`を使います。
+- `ui_project_api`と`generated_request(**fields)`：作ったpreviewにさらに画面の操作（承認など）を続けるテスト用です。`ui_project_api`は、空の地域調査に差し替えた`ProjectAPI`（project名`project`）をテストの間だけ開いておきます。地域調査そのものを通すときは、`support/public_data.py`の`researching_project_api`を使います。
 
 共通fixtureは、demo-v2のScenario画面が送る入力（`GENERATED_SCENARIO_REQUEST`：合成市・地震・20人・0.25日。各項目は利用者の入力として扱います）を、UIと同じ`ProjectAPI`のpreviewに渡して作ります。違いは地域調査だけで、本物は公開Webサービスに接続するため、空の調査結果に差し替えています。
 
@@ -263,7 +263,7 @@ python benchmarks/compare_behaviour.py 変更前の出力先 変更後の出力�
 
 - 不具合で今は確かめられない振る舞いは、期待する形でテストを書き、`pytest.mark.xfail(strict=True)`にIssue番号を付けて置きます。失敗の種類が決まっているときは`raises=…`で限ります。不具合を直したのに期待と違う結果になった場合も気づけます。直したら印を外します。
 - テストの前提（その時刻にトイレが使われている、など）が崩れたときは、`assert`ではなく`pytest.fail`で失敗させます。`xfail`の印が前提の崩れを隠さないようにするためです。
-- 外部から来る入力（LLMの出力、取り込む図面、公開データ）の拒否は、理由付きで拒否されること（`StorageError`や契約の検証エラー）を確かめます。ほかの例外で落ちることを見逃さないためです。
+- 外部から来る入力（LLMの出力、公開データ）の拒否は、理由付きで拒否されること（`StorageError`や契約の検証エラー）を確かめます。ほかの例外で落ちることを見逃さないためです。
 
 ## 出典台帳と根拠IDの整合
 
@@ -280,7 +280,7 @@ AGENTS.mdは、新しい係数の根拠を`fixtures/source-manifest.json`に記�
 - 有料のProviderを呼ぶライブのテストは、通常の確認では実行しません。
 - Windows・macOSの実機上での起動は確認していません。
 - 30日間の性能結果は確立していません。過去の30人・30日試行は10分以内に完了しませんでした。
-- 画面の操作のうち、すべての地図レイヤー、実在施設の図面の取り込み、介護・会話・職員の組み合わせ、大規模人口を含む一連の操作は、ブラウザーで確かめていません。
+- 画面の操作のうち、すべての地図レイヤー、介護・会話・職員の組み合わせ、大規模人口を含む一連の操作は、ブラウザーで確かめていません。
 - 地域人口、避難所、天候、医療、結果の照合データを用いた外部検証はできていません。
 - 心理、健康、社会、容量、incidentの係数は実測校正されていません。合成Branchの差は、条件付き出力であり、予測や現実の因果効果ではありません。
 

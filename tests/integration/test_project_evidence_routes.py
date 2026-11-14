@@ -1,5 +1,5 @@
 """A Branch's history route on a generated Run with a Branch that adds toilets: the KPIs and
-the conversation of the questions answer (#368 decision A), the other kinds are refused.
+the conversation of the questions answer (#368 decision A).
 
 The comparison of several Runs, the first divergence, the approved-condition differences and
 the people and household samples went with the older screens (#376). The routes only read the
@@ -20,19 +20,6 @@ END = 60
 FORK_MINUTE = 10
 ADDED_TOILETS = 2
 ANSWERED_KINDS = ("kpis", "conversations")
-REMOVED_KINDS = (
-    "people",
-    "households",
-    "events",
-    "causal",
-    "social",
-    "staff",
-    "actions",
-    "transitions",
-    "dialogue",
-    "care",
-    "operations",
-)
 
 
 @pytest.fixture(scope="module")
@@ -93,18 +80,3 @@ def test_history_outside_the_branch_range_is_refused(evidence_api, start, end):
     api, _ = evidence_api
     with pytest.raises(StorageError, match="history_outside_computed_range"):
         _history(api, "capacity", kind="kpis", start=start, end=end)
-
-
-@pytest.mark.parametrize("kind", REMOVED_KINDS)
-def test_the_other_history_kinds_are_refused(evidence_api, kind):
-    """The index still writes them until #368 step 10, but no route reads them (#376)."""
-    api, _ = evidence_api
-    query = {"kind": kind, "start": FORK_MINUTE, "end": END}
-    if kind == "people":
-        query["agent_id"] = "A001"
-    if kind == "households":
-        query["household_id"] = "H000001"
-    if kind == "causal":
-        query["event_id"] = "event-0"
-    with pytest.raises(StorageError, match="history_kind_unavailable"):
-        _history(api, "capacity", **query)

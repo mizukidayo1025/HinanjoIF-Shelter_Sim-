@@ -13,7 +13,7 @@
 //!   (`NoPython`) passes.
 //! - On valid worlds the check says yes at every tick (`tick_core.rs`).
 
-mod support;
+use crate::support;
 
 use std::sync::Arc;
 

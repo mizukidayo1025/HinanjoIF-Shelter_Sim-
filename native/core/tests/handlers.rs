@@ -2,7 +2,7 @@
 //! The PyO3 crate's handlers are glue over these, so the gate and the offline tests run them; these
 //! say what each reads, decides, refuses and writes, and what it asks the host.
 
-mod support;
+use crate::support;
 
 use std::sync::Arc;
 

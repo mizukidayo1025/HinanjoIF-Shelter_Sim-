@@ -26,7 +26,7 @@
 //! that is a `KernelRefusal`, events scheduled as Python objects, the registered validator's
 //! refusal, and the constructors of an admitted agent.
 
-mod support;
+use crate::support;
 
 use std::rc::Rc;
 use std::sync::Arc;

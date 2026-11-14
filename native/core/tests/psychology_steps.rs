@@ -15,7 +15,7 @@
 //! 45a9bc9): the tests write the same texts with `Dumps` (`json.dumps` of each delta's fields, and
 //! of each trace's document with its contributions), so each value is still the Python rule's.
 
-mod support;
+use crate::support;
 
 use std::sync::{Arc, OnceLock};
 

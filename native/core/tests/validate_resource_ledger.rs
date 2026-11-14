@@ -4,7 +4,7 @@
 //! and text for each broken ledger of `validate_resource_ledger.json`
 //! (`tests/support/core_validate_resource_ledger.py`), and pass the valid ones.
 
-mod support;
+use crate::support;
 
 use support::validate;
 

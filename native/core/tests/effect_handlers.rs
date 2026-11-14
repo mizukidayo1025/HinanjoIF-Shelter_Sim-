@@ -10,7 +10,7 @@
 //! contracts take their parameters as given (decision (c)), the whole world's validation passes
 //! (policy E6), and the floor plan is a plan of the fixture's four zones and six routes.
 
-mod support;
+use crate::support;
 
 use std::sync::Arc;
 

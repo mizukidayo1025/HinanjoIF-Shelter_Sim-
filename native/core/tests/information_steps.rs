@@ -13,7 +13,7 @@
 //! version 2 (step 4, L11): the tests write the same text with `Dumps` (`json.dumps` of the draws,
 //! the contacts, the events the step scheduled and the namespace with its keys sorted).
 
-mod support;
+use crate::support;
 
 use std::collections::HashMap;
 use std::sync::{Arc, OnceLock};

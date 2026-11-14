@@ -12,7 +12,7 @@
 //! the same text with `Dumps`, the trees with each record's fields in the order of the tree
 //! (`NAMES`), as the PyO3 crate gives them to Python.
 
-mod support;
+use crate::support;
 
 use std::sync::{Arc, OnceLock};
 

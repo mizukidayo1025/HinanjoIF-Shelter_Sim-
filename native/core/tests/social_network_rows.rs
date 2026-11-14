@@ -12,7 +12,7 @@
 //! `sort_keys` of what a rule wrote or returned) are kept: the tests write the same text with
 //! `Dumps`.
 
-mod support;
+use crate::support;
 
 use std::sync::{Arc, OnceLock};
 

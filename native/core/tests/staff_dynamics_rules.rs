@@ -11,7 +11,7 @@
 //! `random.Random` stay there (decision 5 of #225), with the entries' tests and the comparisons
 //! with the Python checks of a config and of a saved namespace.
 
-mod support;
+use crate::support;
 
 use std::sync::Arc;
 

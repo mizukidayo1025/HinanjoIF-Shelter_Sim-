@@ -9,7 +9,7 @@
 //! kernel with the Python check (a yes of the kernel means the Python rules pass), the Python
 //! writes that reach the rows, and the patches of the Python rules.
 
-mod support;
+use crate::support;
 
 use std::rc::Rc;
 use std::sync::Arc;

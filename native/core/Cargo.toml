@@ -3,10 +3,20 @@ name = "sheltersim_core"
 version = "0.1.0"
 edition = "2021"
 publish = false
+# The tests are one binary, tests/main.rs (Issue #388).
+autotests = false
 description = "The simulation core of 避難所IF！ without Python (Issue #152): no pyo3 dependency."
 
 [lib]
 crate-type = ["rlib"]
+
+[[test]]
+name = "core"
+path = "tests/main.rs"
+
+[[test]]
+name = "effect_guard_dispatch"
+path = "tests/effect_guard_dispatch.rs"
 
 [dependencies]
 # The offline intervention parser's patterns (Issue #303): Python's `re` with lookarounds. Only the

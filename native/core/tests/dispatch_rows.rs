@@ -12,7 +12,7 @@
 //! (45a9bc9), written again here with `Dumps`. The cases of the handler alone (`support/cases.rs`)
 //! are a walk home spoiled, and one named for another purpose, with the deleted Python rule's texts.
 
-mod support;
+use crate::support;
 
 use std::rc::Rc;
 use std::sync::Arc;

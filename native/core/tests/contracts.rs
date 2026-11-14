@@ -7,7 +7,7 @@
 //! change a path and the value to set there (a new key goes last, as Python's dict puts it; the
 //! index past a list's end appends), or a path alone to remove.
 
-mod support;
+use crate::support;
 
 use serde_json::Value;
 use sheltersim_core::contracts;

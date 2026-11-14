@@ -12,7 +12,7 @@
 //! with `Dumps` (`json.dumps` of the namespace's tree, the trace's document, the deltas with each
 //! stress by `float.hex`), so each value is still the Python rule's answer.
 
-mod support;
+use crate::support;
 
 use std::collections::HashMap;
 use std::sync::{Arc, OnceLock};

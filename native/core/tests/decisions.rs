@@ -8,7 +8,7 @@
 //! decision, draw and probabilities (as `float.hex`), its candidates with their trigger texts and
 //! the draw's key, and the bytes of its indexed record. Here the core gives the same.
 
-mod support;
+use crate::support;
 
 use std::sync::Arc;
 

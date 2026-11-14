@@ -12,7 +12,7 @@
 //! rule did, that copy is the fixture's `after` world and the core must leave the same bytes
 //! (`canonical::parts`); a handler's case goes through `support/cases.rs`.
 
-mod support;
+use crate::support;
 
 use std::sync::{Arc, OnceLock};
 

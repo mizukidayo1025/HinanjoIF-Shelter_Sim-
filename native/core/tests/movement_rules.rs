@@ -20,7 +20,7 @@
 //! #225 lane M9; on the same kernel the pytest of the same name passed with the digest whose first
 //! 12 hex digits its doc comment gives.
 
-mod support;
+use crate::support;
 
 use std::rc::Rc;
 use std::sync::{Arc, OnceLock};

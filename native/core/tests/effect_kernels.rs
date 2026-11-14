@@ -19,7 +19,7 @@
 //! entries gave these digests on the worlds the pytest file built (checked when they were recorded).
 //! What the pytest file checked by name besides the digest is checked here by name too.
 
-mod support;
+use crate::support;
 
 use std::rc::Rc;
 

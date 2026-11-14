@@ -9,7 +9,7 @@
 //! records, distress records and monitor values after the long-term step and the writing of the
 //! final deltas. Here the core gives the same.
 
-mod support;
+use crate::support;
 
 use std::sync::Arc;
 

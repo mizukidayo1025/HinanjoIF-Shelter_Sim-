@@ -2,7 +2,7 @@
 //! `tests/support/core_validate_world.py` gives Python's first error, with its class and text, at
 //! each entry point (`sheltersim_core::validate`).
 
-mod support;
+use crate::support;
 
 use support::validate::check_file;
 

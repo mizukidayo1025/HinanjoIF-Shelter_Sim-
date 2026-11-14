@@ -98,7 +98,8 @@ def test_fork_saves_the_child_of_the_source_checkpoint(
             head = store.load_branch("p", "r", "main")[1]
             expected.runtime_state["replay_source"] = copy.deepcopy(head.runtime_state["llm"])
 
-        result = api.post(["p", "runs", "r", "branches", "main", "fork"], request)
+        # ProjectAPI.fork, which intervention-apply calls (the bare fork route went in #376).
+        result = api.fork("p", "r", "main", request)
     finally:
         api.close()
 
@@ -270,7 +271,8 @@ def test_history_read_while_a_save_is_indexed_answers_as_of_the_indexed_head(
     previous = store.branch_reference("p", "r", "main").checkpoint_hash
     api = ProjectAPI(store, recover=False)
     branch = ["p", "runs", "r", "branches", "main"]
-    first = {"kind": ["events"], "start": ["0"], "end": ["30"], "limit": ["5"]}
+    # The route answers the KPIs and the conversations only (#376); the KPIs page as events did.
+    first = {"kind": ["kpis"], "start": ["0"], "end": ["30"], "limit": ["5"]}
 
     def history(page=None):
         return api.get([*branch, "history"], {**first, **({"cursor": [page]} if page else {})})

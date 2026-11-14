@@ -20,9 +20,10 @@
 //   Python's branch without a computation has none). The browser computes
 //   the Run on `resume` (compute.mjs).
 //
-// What Python reads that the screen never sends (a plan, a geometry, a selected shelter, e-Stat
-// selections, a target date, a weather area, an execution mode other than offline) is refused as
-// `browser_unsupported`. Values are written as Python's JSON: the core's bytes are put in as they
+// What Python reads that the screen never sends (a selected shelter, e-Stat selections, a target
+// date, a weather area, an execution mode other than offline) is refused as `browser_unsupported`.
+// An imported plan or geometry (`plan_override`, `geometry_id`) is an unknown field to both since
+// #376. Values are written as Python's JSON: the core's bytes are put in as they
 // are, never parsed and written again by JS.
 
 import { ApiError } from "./api_answers.mjs";
@@ -42,8 +43,6 @@ const PREVIEW_OPTIONAL = [
   "estat_period_code",
   "estat_category_codes",
   "selected_shelter_id",
-  "plan_override",
-  "geometry_id",
   "draft_id",
   "target_date",
   "weather_area_code",

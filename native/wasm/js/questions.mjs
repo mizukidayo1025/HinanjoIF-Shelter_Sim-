@@ -10,9 +10,8 @@
 // The turn is kept in the branch's folder as a line of `conversations.jsonl`, with the question as
 // the server keeps it (contact details and entity names redacted, `questionText` of the core).
 //
-// Where the browser differs: a `history_query` (the screen never sends one) is refused, 409
-// `browser_unsupported`, after the checks of the branch and the minute; the server would cite the
-// saved history.
+// A `history_query` (questions citing saved history pages) is an unknown field to both since #376
+// (#368 decision A).
 
 import { ApiError } from "./api_answers.mjs";
 import { comparisonContext } from "./comparison.mjs";
@@ -21,7 +20,7 @@ import * as store from "./project_store.mjs";
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 const MAX_QUESTION = 2000;
-const ALLOWED = ["run_id", "project_id", "comparison_branch_ids", "history_query", "demo_branch_id", "branch_id", "minute", "agent_id", "question", "context_id"];
+const ALLOWED = ["run_id", "project_id", "comparison_branch_ids", "demo_branch_id", "branch_id", "minute", "agent_id", "question", "context_id"];
 const ANSWER = "Claude APIが利用できないため、結果に関する質問へ回答できません。レポートと記録済み根拠は引き続き確認できます。";
 // The server's 400 for a request its checks refuse (a WebQueryError is a ValueError).
 const invalid = () => new ApiError(400, "invalid project request");
@@ -79,7 +78,6 @@ export async function questionResponse(api, projectId, runId, branchId, document
   minute = minute ?? record.computed_until;
   if (minute < record.fork_minute || minute > record.computed_until) throw new store.ProjectStoreError("minute is outside this branch's computed range");
   const frame = JSON.parse(await api.frameText(projectId, runId, await api.branch(projectId, runId, branchId), minute));
-  if (body.history_query !== undefined && body.history_query !== null) throw new ApiError(409, "ブラウザー版では未対応です（質問の履歴の根拠）", "browser_unsupported");
   if (agentId && !frame.people.some((person) => person.id === agentId)) throw invalid();
   const comparisons = body.comparison_branch_ids ?? [];
   if (!Array.isArray(comparisons) || comparisons.length > 7 || comparisons.some((id) => typeof id !== "string")) throw invalid();

@@ -130,6 +130,10 @@ jobs:
           check /sample/sample.json "200 application/json"
           rows=("$RUNNER_TEMP"/site/browser/gsi-shelters/*.json)
           check "/browser/gsi-shelters/${rows[0]##*/}" "200 application/json"
+          # The LLM relay (#419) answers its own paths: a session without a passphrase is refused.
+          got=$(curl -s -o /dev/null -w "%{http_code} %{content_type}" -X POST "$SITE_URL/llm/v1/session")
+          echo "POST /llm/v1/session -> $got"
+          case "$got" in "401 application/json"*) ;; *) echo "::error::POST /llm/v1/session: expected 401 application/json, got $got"; fail=1 ;; esac
           exit $fail
       # Playwright is not a dependency of the project (docs/development.md); the version is the one
       # the checks were written with.

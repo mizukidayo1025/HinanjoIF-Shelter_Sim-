@@ -330,17 +330,30 @@ def test_the_notices_of_the_repository_s_wasm_name_every_crate_it_links(
 def test_the_published_config_answers_the_site_s_paths_as_the_local_server_does(
     site: tuple[Path, bytes, dict[str, Any]], builder: dict[str, Any]
 ) -> None:
-    """deploy/workers/wrangler.jsonc (#289): an assets-only Worker (no script) whose files come
-    from `--assets` (the site is built outside the repository), serving `/demo-v2` from
-    demo-v2.html and a missing path with the site's 404.html; no file is larger than Workers'
-    25 MiB, and the site holds none of the files that would change how Workers answer."""
+    """deploy/workers/wrangler.jsonc (#289): a Worker whose files come from `--assets` (the site
+    is built outside the repository), serving `/demo-v2` from demo-v2.html and a missing path
+    with the site's 404.html; its script (the LLM relay, #419) answers `/llm/*` only, so every
+    other path is the files' as before. No file is larger than Workers' 25 MiB, and the site
+    holds none of the files that would change how Workers answer."""
     output, _, _ = site
     config = json.loads((ROOT / "deploy" / "workers" / "wrangler.jsonc").read_text("utf-8"))
-    assert set(config) == {"name", "compatibility_date", "assets"}
+    assert set(config) == {
+        "name",
+        "main",
+        "compatibility_date",
+        "assets",
+        "durable_objects",
+        "migrations",
+    }
+    assert (ROOT / "deploy" / "workers" / config["main"]).is_file()
     assert config["assets"] == {
+        "binding": "ASSETS",
         "html_handling": "auto-trailing-slash",
         "not_found_handling": "404-page",
+        "run_worker_first": ["/llm/*"],
     }
+    # The site's own paths never start with /llm/, so the script never answers one of them.
+    assert not (output / "llm").exists()
     assert (output / "404.html").is_file()
     assert builder["LIMIT_MIB"] <= 25
     for name in ("_headers", "_redirects", ".assetsignore", "_worker.js", "_routes.json"):

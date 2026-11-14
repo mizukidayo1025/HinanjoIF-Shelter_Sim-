@@ -45,6 +45,19 @@ def test_the_workflow_publishes_only_main_with_the_repository_s_config() -> None
     assert text.count("secrets.CLOUDFLARE_API_TOKEN }}") == 1
 
 
+def test_the_relay_s_durable_object_is_the_script_s_sqlite_class() -> None:
+    """The LLM relay's ledger (#419): the binding the script reads (env.LEDGER), the class it
+    exports, created as a SQLite-backed class by the first migration."""
+    config = json.loads((ROOT / "deploy" / "workers" / "wrangler.jsonc").read_text("utf-8"))
+    assert config["durable_objects"] == {
+        "bindings": [{"name": "LEDGER", "class_name": "LlmLedger"}]
+    }
+    assert config["migrations"] == [{"tag": "v1", "new_sqlite_classes": ["LlmLedger"]}]
+    script = (ROOT / "deploy" / "workers" / config["main"]).read_text("utf-8")
+    assert "export class LlmLedger extends DurableObject" in script
+    assert "env.LEDGER.get(" in script and "env.ASSETS.fetch(" in script
+
+
 def test_the_checked_url_is_the_config_s_worker_and_the_docs_url() -> None:
     config = json.loads((ROOT / "deploy" / "workers" / "wrangler.jsonc").read_text("utf-8"))
     url = re.search(r"^  SITE_URL: (\S+)$", DEPLOY.read_text("utf-8"), re.M)

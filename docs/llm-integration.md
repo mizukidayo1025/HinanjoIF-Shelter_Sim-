@@ -95,6 +95,16 @@ fallbackの理由はoutcome別（max_api_calls、shared_allowance_unavailable、
 
 受理したresponse tapeはstate/input hash、model、prompt、schema版に結び付きます。対応runtime状態はCheckpointに保存できます。過去seekは記録結果を使い、暗黙にProviderを呼びません。Branch stateが変わった場合、異なるinputにresponseを再利用しません。
 
+## ブラウザー版の中継（#419）
+
+ブラウザー版（静的なサイト）にはAPIキーを置けないため、同じCloudflareのWorkerのscript（`deploy/workers/relay.mjs`）が中継します。決めたことは#287にあります。開発と公開の手順は`docs/development.md`の「LLMの中継」です。
+
+- 道：`POST /llm/v1/session`（合言葉を確かめ、相手の名前と今日の残りを返す）と、`POST /llm/v1/tasks/{作業}`（`{"input": …}`）。合言葉は`Authorization: Bearer`で送ります。同じoriginからだけ受け、64 KiBより大きい本文は断ります。断るときは`{"error", "code"}`で、`error`は画面にそのまま出せる日本語です。
+- プロンプトは中継の中で作業ごとに作ります（`deploy/workers/relay_tasks.mjs`）。画面が送るのはデータだけです。答えはモデルの文をそのまま返し、作業名、プロンプトの版、モデル、tokenと費用を添えます。画面は、Pythonと同じく、信頼しない入力として型と意味を確かめてから使い、ScenarioやBranchを変える前に利用者の承認を求めます。
+- 費用：サイト全体で、日本時間の1日に$5までです。PythonのLLMRouterと同じく、呼ぶ前に最大の費用（送る文のUTF-8のbytes＋256を1時間のcache書き込みの値段で、`max_tokens`を出力の値段で）を予約し、答えのusageで精算します。値段はPythonの`_OFFICIAL_MODEL_PRICE_FLOORS`と同じ表を`relay.mjs`の`PRICES`に持ち、`tests/unit/llm/test_relay.py`が同じであることを確かめます。Opusは、Pythonと同じく、thinkingの分として4,096 tokenを足して求めます。APIが誤りを返したときは0で、答えが来なかったときは予約した額で精算します。予約と精算は、サイトに1つのDurable Object（SQLite）で行います。
+- 合言葉は配る相手ごとに別で、中継はそのSHA-256と相手の名前だけを持ちます（secret `LLM_PASSPHRASES`）。比べるときは、全部の項目を最後まで比べます。相手ごとの回数・費用・tokenを記録し、ログにも合言葉、APIキー、送った文は出しません。
+- 標準のpytestとCIは本物のAPIを呼びません。中継のテストは、Anthropicへの接続を決めた答えに差し替えます。
+
 ## プライバシーと安全性
 
 - key、.env、実在避難者の記録、機微な生prompt、未確認の施設図面をcommitしないでください。

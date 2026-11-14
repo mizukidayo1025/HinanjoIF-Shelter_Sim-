@@ -1,8 +1,15 @@
 {
   "name": "hinanjo-if",
+  "main": "relay.mjs",
   "compatibility_date": "2026-11-10",
   "assets": {
+    "binding": "ASSETS",
     "html_handling": "auto-trailing-slash",
-    "not_found_handling": "404-page"
-  }
+    "not_found_handling": "404-page",
+    "run_worker_first": ["/llm/*"]
+  },
+  "durable_objects": {
+    "bindings": [{ "name": "LEDGER", "class_name": "LlmLedger" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["LlmLedger"] }]
 }

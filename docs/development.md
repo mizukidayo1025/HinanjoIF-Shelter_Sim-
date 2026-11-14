@@ -219,7 +219,7 @@ python scripts/serve_static_site.py ../hinanjo-if-site --port 8000
 - `/demo-v2`を`demo-v2.html`で答えるhost：Cloudflare Workersの静的なファイルの配信（`html_handling`が既定の`auto-trailing-slash`のとき）、Cloudflare Pages、GitHub Pages（独自ドメインか、`<user>.github.io`のサイト）、Netlifyは、拡張子のない道を同じ名前の`.html`で答えます。Pagesは`404.html`がないと、ないファイルの道にも最上位の`index.html`を返すので、サイトには`404.html`を置き、ないファイルは404にします（Workersでは`not_found_handling: "404-page"`で同じになります）。GitHub PagesがJekyllを通さないよう`.nojekyll`も置きます。
 - ほかのserverでは、拡張子のない道を`.html`で答える設定が要ります。例えばnginxなら`try_files $uri $uri.html =404;`です。`.mjs`は`text/javascript`、`.wasm`は`application/wasm`で送ります。
 - 1つのファイルは`--part-mib`以下か、それより小さく保ちます（道具は20 MiBを超えると止まります。Cloudflare Workersの静的なファイルの配信とCloudflare Pagesの上限は、1ファイル25 MiBです）。
-- サーバーの機能（認証、PDF、LLMの中継）はありません。
+- サーバーの機能（認証、PDF）はありません。LLMは、同じWorkerの中継（下の「LLMの中継」、#419）を通して使います。
 - 例は、ホームで選んだときに、そのファイル全体を取り寄せてブラウザーのOPFSに保存します（大きさと時間は#266）。OPFSを使えないブラウザー（設定やprivateの窓によっては。PlaywrightのWebKitの使い捨てのcontextでは`navigator.storage.getDirectory()`が`UnknownError`になります）では、Workerが最初にOPFSを開いて失敗を見分け、APIは503の`browser_storage_unavailable`で、お知らせ欄は「このブラウザーでは、計算の結果を保存する場所（OPFS）を使えません。…通常のウインドウで開いてください。」と答えます（#393）。ほかの準備の失敗は`browser_unavailable`です。どちらのときも、画面は「URLのproject/run指定を確認」の文を付けません。
 
 サイトが画面の道に正しく答えるかは、`benchmarks/static_site_check.py`で確かめます。サイトを上のserverで配り、PlaywrightのChromiumとFirefoxで、それぞれ空のOPFSから開きます。`/`のホームで「計算済みの例を取得する」から例を選んで読み込み、時刻の帯で分へ飛び、240×で数秒再生し、レポートの頁の時系列のグラフが出ること、ページの誤り・consoleの誤り・お知らせ欄の誤りがないことを確かめます。`--python-projects`に、`scripts/build_project_sample.py`で作ったProjectStore（例のmainと同じScenarioをPythonのProjectの経路で計算したもの）を渡すと、記録、保存した点とその間の分のtimeline、飛んだ後と続く再生の窓、いくつかの`step`とページ送りの時系列、report、llm-statusについて、ブラウザーの答えのJSONとPythonのserverの答え（同じプロセスの`ProjectAPI`）を、値の型まで比べます。違って当然の項目（置き場の大きさ、Branchの`checkpoint_hash`と時系列の`anchor_hash`・cursorの中のanchor）は除き、除いた項目と理由を結果に書きます。Runの記録とRunの一覧も、そのまま比べます。0分の`state_hash`も比べます。Scenarioから作った世界は、0分から乱数の名前（`rng_state`、`CounterRNG`の`algorithm`と`seed`）を持つので（#281）、PythonのProjectの経路の最初の保存と、ブラウザーが始める書き出した世界は同じです。PlaywrightとそのbrowserはProjectの依存ではないので、確かめる環境に入れます。計った時間は#266に記録しています。
@@ -259,12 +259,40 @@ python benchmarks/static_site_e2e.py --url https://hinanjo-if.water7.workers.dev
 |---|---|---|
 | `name` | `hinanjo-if` | Workerの名前。URLは`https://<name>.<アカウントのsubdomain>.workers.dev/`です |
 | `compatibility_date` | `2026-11-10` | 最初に公開した日。変えたときは、下の公開の後の確かめをやり直します |
-| `main` | なし | scriptのない、ファイルを配るだけのWorkerです |
+| `main` | `relay.mjs` | LLMの中継（#419、下の「LLMの中継」）。`/llm/*`だけに答えます |
 | `assets.directory` | なし | サイトはリポジトリーの外に作るので、`--assets`で毎回渡します。渡さないとwranglerが止まります |
 | `assets.html_handling` | `auto-trailing-slash` | `/demo-v2`を`demo-v2.html`で答えます（`scripts/serve_static_site.py`と同じ）。`/demo-v2.html`は`/demo-v2`へ307で送ります |
 | `assets.not_found_handling` | `404-page` | ないファイルの道に、サイトの`404.html`をstatus 404で答えます |
+| `assets.binding` | `ASSETS` | scriptが`/llm/`以外の道をファイルの配信へ渡すための名前です |
+| `assets.run_worker_first` | `["/llm/*"]` | scriptが先に答えるのは`/llm/*`だけです。ほかの道は、これまでどおりファイルの配信が答えます |
+| `durable_objects`、`migrations` | `LEDGER`→`LlmLedger`、`v1`で`new_sqlite_classes` | 中継の1日の費用と合言葉の誤りを数える、サイトに1つのDurable Object（SQLite）です |
 
 アカウントのID、APIトークン、`.wrangler/`（wranglerの手元の作業場所。`.gitignore`に入れています）はcommitしません。サイトは`_headers`・`_redirects`・`.assetsignore`を置かないので、配り方は上の表だけで決まります。`tests/integration/test_static_site.py`が、設定と作ったサイトがこの表のとおりであることを確かめます。
+
+#### LLMの中継（#419）
+
+ブラウザー版でLLMを使う機能のため、同じWorkerのscript（`deploy/workers/relay.mjs`）が`/llm/*`に答えます（決めたことは#287）。AnthropicのAPIキーは中継だけが持ち、画面には渡しません。使えるのは、こちらが配った合言葉を入れた人だけです。サイト全体の費用は、日本時間の1日で$5までです。道、合言葉の形、費用の数え方は`relay.mjs`の冒頭と`docs/llm-integration.md`の「ブラウザー版の中継」に書きます。作業（プロンプト）は`deploy/workers/relay_tasks.mjs`に置きます。いまは作業がなく、文からシナリオを読む作業は#421で足します。
+
+中継が使うsecretは、Workerのsecretです（GitHubのsecretではありません。`wrangler deploy`は前のsecretを残すので、1回入れれば公開し直しても消えません）。Cloudflareのアカウントに入れる人が、手元から入れます。
+
+| secret | 中身 |
+|---|---|
+| `ANTHROPIC_API_KEY` | AnthropicのAPIキー。ないと、中継は合言葉の確認だけに答え、作業は503の`llm_relay_unconfigured`で断ります |
+| `LLM_PASSPHRASES` | 合言葉を配った相手の一覧。`[{"label": "審査員A", "sha256": "…"}]`の形のJSONで、`sha256`は合言葉のSHA-256です。合言葉そのものは置きません |
+
+~~~shell
+npx wrangler@4.161.0 login
+npx wrangler@4.161.0 secret put ANTHROPIC_API_KEY --config deploy/workers/wrangler.jsonc   # 聞かれたらキーを貼る
+node deploy/workers/new_passphrase.mjs 審査員A   # 合言葉と、一覧に足す1行を出す（相手ごとに1回）
+npx wrangler@4.161.0 secret put LLM_PASSPHRASES --config deploy/workers/wrangler.jsonc     # 聞かれたら一覧のJSONを貼る
+~~~
+
+- 合言葉は相手に直接渡し、リポジトリーやIssueに書きません。`new_passphrase.mjs`は合言葉をどこにも残しません。
+- ある相手を止めるときは、一覧からその行を消して、`LLM_PASSPHRASES`を入れ直します。
+- 1つのアドレスから合言葉を10回間違えると、15分は受け付けません。
+- 相手ごとの使った量は、中継のDurable Objectの`usage`の表に残り、呼ぶたびに`wrangler tail`とWorkersのログへ1行（相手の名前、作業、結果、費用）を出します。合言葉、APIキー、送った文は出しません。
+- 公開のworkflowは、公開の後に`POST /llm/v1/session`が合言葉なしで401の`application/json`を返すことを確かめます。本物のAPIは呼びません。
+- `tests/unit/llm/test_relay.py`が、nodeで中継を動かして確かめます（Durable Objectは`node:sqlite`、Anthropicは決めた答えに差し替え。`tests/support/llm_relay_harness.mjs`）。
 
 #### GitHub Actionsで公開する
 

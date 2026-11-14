@@ -311,6 +311,37 @@ pub struct Restore {
     sample_balances: Option<bool>,
 }
 
+/// The text of a `RestoreOnce` taken again.
+pub const RESTORED: &str = "the saved point was restored already";
+
+/// A `Restore` that a binding's object holds until a Run is built of it (`PlainRun::restore`):
+/// a JS or Python object cannot give its field away, so it is taken out of here, once. The WASM
+/// crate's `Restore` and the PyO3 crate's hold one each.
+#[derive(Debug)]
+pub struct RestoreOnce(Option<Restore>);
+
+impl RestoreOnce {
+    /// A restore of the saved point of `bytes` (`Restore::new`).
+    pub fn new(bytes: &[u8]) -> Result<Self> {
+        Ok(Self(Some(Restore::new(bytes)?)))
+    }
+
+    /// The restore, or an error once it was taken.
+    pub fn get(&self) -> Result<&Restore> {
+        self.0.as_ref().ok_or_else(|| Error::Value(RESTORED.to_owned()))
+    }
+
+    /// The restore to read pieces into, or an error once it was taken.
+    pub fn get_mut(&mut self) -> Result<&mut Restore> {
+        self.0.as_mut().ok_or_else(|| Error::Value(RESTORED.to_owned()))
+    }
+
+    /// The restore, taken out: a second call is an error.
+    pub fn take(&mut self) -> Result<Restore> {
+        self.0.take().ok_or_else(|| Error::Value(RESTORED.to_owned()))
+    }
+}
+
 /// Where a piece at `offset` of the block `index` starts (`Blocks`), or an error past them.
 fn start(index: usize, offset: usize) -> Result<u64> {
     match (u32::try_from(index), u32::try_from(offset)) {

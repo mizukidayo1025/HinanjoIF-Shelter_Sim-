@@ -17,15 +17,13 @@
 //! A minute crosses the boundary as an `f64` (a JS number), not an `i64` (a `BigInt`): a world's
 //! minutes are far below 2^53.
 
-use sheltersim_core::engine::StepError;
 use sheltersim_core::error::Error;
-use sheltersim_core::events::packed::{Blocks, Packer};
 use sheltersim_core::json::Encoder;
 use sheltersim_core::plain::PlainRun;
 use sheltersim_core::program::EffectProgram;
 use sheltersim_core::value::V;
 use sheltersim_core::world::WorldCell;
-use sheltersim_core::{archive, canonical, checkpoint, frame, history};
+use sheltersim_core::{archive, checkpoint, frame, history};
 use wasm_bindgen::prelude::*;
 
 fn js_error(error: Error) -> JsError {
@@ -67,56 +65,19 @@ impl Simulation {
     /// Run up to `ticks` ticks, stopping where the clock is complete: how many ran. An error is a
     /// tick's or the end-of-tick check's failure, with its minute.
     pub fn advance(&mut self, ticks: u32) -> Result<u32, JsError> {
-        let mut ran = 0;
-        while ran < ticks {
-            match self.run.step() {
-                Ok(_) => ran += 1,
-                Err(StepError::Complete) => break,
-                Err(StepError::Tick { minute, label, error }) => {
-                    return Err(JsError::new(&format!("minute {minute}: {}: {error}", label.unwrap_or("the tick"))));
-                }
-                Err(StepError::Check { minute, error }) => {
-                    return Err(JsError::new(&format!("minute {minute}: the end-of-tick check: {error}")));
-                }
-            }
-        }
-        Ok(ran)
+        self.run.advance(u64::from(ticks)).map(|ran| ran as u32).map_err(|stopped| JsError::new(&stopped.to_string()))
     }
 
     /// The digests of the world's parts, as a JSON object in the order of `core_tick.py`'s
-    /// `world_digests` (`canonical::run_digests`).
+    /// `world_digests` (`PlainRun::run_digests_json`).
     pub fn digests_json(&self) -> Result<String, JsError> {
-        let digests = self.run.loaded.cell.with(|world| canonical::run_digests(world)).and_then(|digests| digests).map_err(js_error)?;
-        let mut encoder = Encoder::with_capacity(1024);
-        encoder.out.push(b'{');
-        for (index, (part, digest)) in digests.iter().enumerate() {
-            if index > 0 {
-                encoder.out.push(b',');
-            }
-            encoder.string(part);
-            encoder.out.push(b':');
-            encoder.string(digest);
-        }
-        encoder.out.push(b'}');
-        String::from_utf8(encoder.out).map_err(|error| JsError::new(&error.to_string()))
+        self.run.run_digests_json().map_err(js_error)
     }
 
     /// The digest of each part of the world's canonical document (`canonical::digests`), as a JSON
     /// object in the order of the parts: what a stored Run's world piece and log read back to.
     pub fn part_digests_json(&self) -> Result<String, JsError> {
-        let digests = self.run.digests().map_err(js_error)?;
-        let mut encoder = Encoder::with_capacity(2048);
-        encoder.out.push(b'{');
-        for (index, (part, digest)) in digests.iter().enumerate() {
-            if index > 0 {
-                encoder.out.push(b',');
-            }
-            encoder.string(part);
-            encoder.out.push(b':');
-            encoder.string(digest);
-        }
-        encoder.out.push(b'}');
-        String::from_utf8(encoder.out).map_err(|error| JsError::new(&error.to_string()))
+        self.run.part_digests_json().map_err(js_error)
     }
 
     /// The digest of the metric samples so far (`core_tick.py`'s `metrics_digest`).
@@ -179,11 +140,7 @@ impl Simulation {
     /// nothing.
     #[wasm_bindgen(js_name = validateEffectProgram)]
     pub fn validate_effect_program(&mut self, program: &[u8]) -> Result<String, JsError> {
-        let program = EffectProgram::of_json(program).map_err(js_error)?;
-        let issues = self.run.validate_effect_program(&program).map_err(js_error)?;
-        let value = V::List(issues.into_iter().map(|issue| V::Str(issue.into())).collect());
-        let bytes = value.to_json().map_err(js_error)?;
-        String::from_utf8(bytes).map_err(|error| JsError::new(&error.to_string()))
+        self.run.validate_effect_program_json(program).map_err(js_error)
     }
 }
 
@@ -199,10 +156,7 @@ impl Simulation {
     /// does not check.
     #[wasm_bindgen(js_name = applyEffectProgram)]
     pub fn apply_effect_program(&mut self, program: &[u8]) -> Result<String, JsError> {
-        let program = EffectProgram::of_json(program).map_err(js_error)?;
-        let receipt = self.run.apply_effect_program(&program).map_err(js_error)?;
-        let bytes = receipt.command().to_json().map_err(js_error)?;
-        String::from_utf8(bytes).map_err(|error| JsError::new(&error.to_string()))
+        self.run.apply_effect_program_json(program).map_err(js_error)
     }
 }
 
@@ -229,84 +183,64 @@ fn minute_of(minute: f64) -> Result<i64, JsError> {
 impl Simulation {
     /// The log's string and shape tables' sizes: `[strings, shapes]`.
     pub fn log_table_counts(&self) -> Result<Vec<u32>, JsError> {
-        self.with_log_store(|packer, _| vec![packer.strings().len() as u32, packer.shapes().len() as u32])
+        self.run.log_table_counts().map(counts).map_err(js_error)
     }
 
     /// The log's tables' entries from `strings` and `shapes` on (`Packer::write_tables`).
     pub fn log_tables(&self, strings: u32, shapes: u32) -> Result<Vec<u8>, JsError> {
-        self.with_log_store(|packer, _| {
-            let mut out = Vec::new();
-            packer.write_tables(strings as usize, shapes as usize, &mut out);
-            out
-        })
+        self.run.log_tables(strings as usize, shapes as usize).map_err(js_error)
     }
 
     /// How many of the log's blocks there are, and how many of them are sealed: `[blocks, sealed]`.
     pub fn log_block_counts(&self) -> Result<Vec<u32>, JsError> {
-        self.with_log_store(|_, blocks| vec![blocks.blocks().len() as u32, blocks.sealed() as u32])
+        self.run.log_block_counts().map(counts).map_err(js_error)
     }
 
     /// A copy of the log's block `index` (empty past the last).
     pub fn log_block(&self, index: u32) -> Result<Vec<u8>, JsError> {
-        self.with_log_store(|_, blocks| blocks.blocks().get(index as usize).cloned().unwrap_or_default())
+        self.run.log_block(index as usize).map_err(js_error)
     }
 
     /// How many records the log holds.
     pub fn log_records(&self) -> Result<f64, JsError> {
-        self.run.loaded.cell.with(|world| world.log().map(|log| log.len() as f64)).and_then(|count| count).map_err(js_error)
+        self.run.log_records().map(|count| count as f64).map_err(js_error)
     }
 
     /// Whether every record of the log is in its blocks: none kept its bytes instead, so the stored
     /// blocks hold the whole log.
     pub fn log_all_packed(&self) -> Result<bool, JsError> {
-        self.run.loaded.cell.with(|world| world.log().map(|log| log.all_packed())).and_then(|packed| packed).map_err(js_error)
+        self.run.log_all_packed().map_err(js_error)
     }
 
     /// The samples' string and shape tables' sizes: `[strings, shapes]`.
     pub fn sample_table_counts(&self) -> Vec<u32> {
-        let (packer, _) = self.run.host.samples.store();
-        vec![packer.strings().len() as u32, packer.shapes().len() as u32]
+        counts(self.run.host.samples.table_counts())
     }
 
     /// The samples' tables' entries from `strings` and `shapes` on.
     pub fn sample_tables(&self, strings: u32, shapes: u32) -> Vec<u8> {
-        let (packer, _) = self.run.host.samples.store();
-        let mut out = Vec::new();
-        packer.write_tables(strings as usize, shapes as usize, &mut out);
-        out
+        self.run.host.samples.tables(strings as usize, shapes as usize)
     }
 
     /// How many of the samples' blocks there are, and how many are sealed: `[blocks, sealed]`.
     pub fn sample_block_counts(&self) -> Vec<u32> {
-        let (_, blocks) = self.run.host.samples.store();
-        vec![blocks.blocks().len() as u32, blocks.sealed() as u32]
+        counts(self.run.host.samples.block_counts())
     }
 
     /// A copy of the samples' block `index` (empty past the last).
     pub fn sample_block(&self, index: u32) -> Vec<u8> {
-        let (_, blocks) = self.run.host.samples.store();
-        blocks.blocks().get(index as usize).cloned().unwrap_or_default()
+        self.run.host.samples.block(index as usize)
     }
 
     /// The world now without its log (`archive::world_parts`).
     pub fn world_parts(&self) -> Result<Vec<u8>, JsError> {
-        self.run.loaded.cell.with(|world| archive::world_parts(world)).and_then(|parts| parts).map_err(js_error)
+        self.run.world_parts().map_err(js_error)
     }
 }
 
-impl Simulation {
-    fn with_log_store<R>(&self, f: impl FnOnce(&Packer, &Blocks) -> R) -> Result<R, JsError> {
-        self.run
-            .loaded
-            .cell
-            .with(|world| -> Result<R, Error> {
-                let log = world.log()?;
-                let (packer, blocks) = log.packed_store().ok_or_else(|| Error::unsupported("the log is not packed"))?;
-                Ok(f(packer, blocks))
-            })
-            .and_then(|result| result)
-            .map_err(js_error)
-    }
+/// Two counts as a JS array of numbers.
+fn counts(pair: [usize; 2]) -> Vec<u32> {
+    pair.iter().map(|count| *count as u32).collect()
 }
 
 /// Saved points (#251; `sheltersim_core::archive::SavedPoint`): the Run now as a saved point's
@@ -332,14 +266,14 @@ impl Simulation {
     /// is used up: it cannot restore again.
     pub fn restore(entry: &[u8], restore: &mut Restore) -> Result<Simulation, JsError> {
         let entry = PlainRun::entry_of_json(entry).map_err(js_error)?;
-        Ok(Simulation { run: PlainRun::restore(entry, restore.take()?).map_err(js_error)? })
+        Ok(Simulation { run: PlainRun::restore(entry, restore.inner.take().map_err(js_error)?).map_err(js_error)? })
     }
 
     /// `restore` with the world `name` of a file of named worlds as the exported entry.
     #[wasm_bindgen(js_name = restoreFromWorlds)]
     pub fn restore_from_worlds(file: &[u8], name: &str, restore: &mut Restore) -> Result<Simulation, JsError> {
         let entry = PlainRun::entry_of_worlds_json(file, name).map_err(js_error)?;
-        Ok(Simulation { run: PlainRun::restore(entry, restore.take()?).map_err(js_error)? })
+        Ok(Simulation { run: PlainRun::restore(entry, restore.inner.take().map_err(js_error)?).map_err(js_error)? })
     }
 }
 
@@ -348,7 +282,7 @@ impl Simulation {
 /// no more (`log_needed`, `samples_needed`), then used by `Simulation.restore`.
 #[wasm_bindgen]
 pub struct Restore {
-    inner: Option<archive::Restore>,
+    inner: archive::RestoreOnce,
 }
 
 #[wasm_bindgen]
@@ -356,7 +290,7 @@ impl Restore {
     /// An error for bytes that are not a saved point of the version this core reads.
     #[wasm_bindgen(constructor)]
     pub fn new(point: &[u8]) -> Result<Restore, JsError> {
-        Ok(Restore { inner: Some(archive::Restore::new(point).map_err(js_error)?) })
+        Ok(Restore { inner: archive::RestoreOnce::new(point).map_err(js_error)? })
     }
 
     /// The saved point's minute.
@@ -403,15 +337,11 @@ impl Restore {
 
 impl Restore {
     fn inner(&self) -> Result<&archive::Restore, JsError> {
-        self.inner.as_ref().ok_or_else(|| JsError::new("the saved point was restored already"))
+        self.inner.get().map_err(js_error)
     }
 
     fn inner_mut(&mut self) -> Result<&mut archive::Restore, JsError> {
-        self.inner.as_mut().ok_or_else(|| JsError::new("the saved point was restored already"))
-    }
-
-    fn take(&mut self) -> Result<archive::Restore, JsError> {
-        self.inner.take().ok_or_else(|| JsError::new("the saved point was restored already"))
+        self.inner.get_mut().map_err(js_error)
     }
 }
 

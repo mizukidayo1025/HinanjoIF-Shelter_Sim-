@@ -108,7 +108,7 @@ class ModelVersionStatus:
                 and int(self.recorded_version) < int(self.installed_version)
             )
             return (
-                f"このRunは{'旧' if older else '別の版の'}モデル（版 {self.recorded_version}）で"
+                f"このシナリオは{'旧' if older else '別の版の'}モデル（版 {self.recorded_version}）で"
                 f"計算されました。今のモデルは版 {self.installed_version} です。{tail}"
             )
 
@@ -117,9 +117,9 @@ class ModelVersionStatus:
 
         models = [key for key in self.differences if not key.startswith("legacy:")]
         if models:
-            return f"このRunは今と異なるモデルの版（{named(models)}）で計算されました。{tail}"
+            return f"このシナリオは今と異なるモデルの版（{named(models)}）で計算されました。{tail}"
         shapes = [key.removeprefix("legacy:") for key in self.differences]
-        return f"このRunは以前の保存の形（{named(shapes)}）で保存されました。{tail}"
+        return f"このシナリオは以前の保存の形（{named(shapes)}）で保存されました。{tail}"
 
     def to_dict(self) -> dict[str, Any]:
         return {

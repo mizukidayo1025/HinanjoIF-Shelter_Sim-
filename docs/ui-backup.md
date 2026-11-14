@@ -27,6 +27,24 @@ SHELTERSIM_LLM_MODE=record SHELTERSIM_LLM_ERROR_POLICY=stop \
 
 [http://127.0.0.1:8876/demo-v2](http://127.0.0.1:8876/demo-v2) を開きます。生成Runは専用ローカル保存先へ保存されます。実際に計算したProject Runの記録を再生します。再生倍率は実時間との比率で、既定の60×は実時間1秒でシミュレーション1分です。計算速度の指定ではありません。未計算時刻へはシークできず、記録の読込待ちは時刻を保持します。
 
+## 画面の用語（#373）
+
+画面に出す文（ボタン、見出し、お知らせ、誤りの文、`title`・`aria-label`）は、次の語にそろえます。コードの識別子、APIのJSON、設計文書の語（Run、Branch、Checkpoint）は変えません。`tests/unit/web/test_static_demo_v2.py`が、画面の文にRun・Branch・世界線・Checkpointがないことを確かめます。
+
+| 内部の語 | 画面の語 |
+|---|---|
+| Run（承認して作った計算の単位） | シナリオ |
+| Branch、世界線 | 分岐 |
+| `main`の分岐 | 元のシナリオ |
+| Checkpoint | 保存した時点 |
+| KPI | 指標 |
+| tick | 各分の計算 |
+| fallback | 代替処理 |
+| Zone | 区画 |
+| EffectProgramの`support_mode` | 再現の方法（「モデルでそのまま再現」など） |
+
+同じ条件のRunが複数あるとき（作り直し、seed違い）も、それぞれを1つのシナリオと呼びます。名前（自治体・災害・人数・日数）が同じシナリオは、名前の後にseedを、seedも同じならRunのIDの末尾4文字を付けて見分けます。
+
 ## 画面とAPIの対応
 
 `P=/api/v1/projects/{project}`、`R=P/runs/{run}`、`B=R/branches/{branch}`。

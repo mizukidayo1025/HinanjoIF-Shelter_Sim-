@@ -770,7 +770,10 @@ impl<'py> Host for PyHost<'py> {
     fn space_refreshed(&mut self) -> Result<(), HostError> {
         let py = self.py();
         self.ran_python();
-        self.controller()?.call_method0(intern!(py, "_refresh_space"))?;
+        // The core began the Run's new epoch (#368): the Python views follow without another.
+        let options = PyDict::new(py);
+        options.set_item(intern!(py, "core_refreshed"), true)?;
+        self.controller()?.call_method(intern!(py, "_refresh_space"), (), Some(&options))?;
         Ok(())
     }
 

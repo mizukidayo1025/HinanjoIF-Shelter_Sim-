@@ -19,6 +19,10 @@
 * {
   box-sizing: border-box;
 }
+/* 縦スクロールバーの幅を常に取っておく。ページの高さが表示領域をまたいでも、マップの幅と縮尺を変えない（#377） */
+html {
+  scrollbar-gutter: stable;
+}
 body {
   margin: 0;
   background: radial-gradient(ellipse at 85% 0, #f8fcff, var(--bg));
@@ -1446,7 +1450,7 @@ body.is-busy #compute-pair {
     grid-template-columns: 1fr 1fr 1fr;
   }
   .simulation-grid {
-    grid-template-columns: 1.7fr 1fr;
+    grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr);
   }
   .map-wrap canvas {
     height: 440px;
@@ -2881,7 +2885,7 @@ h2 {
     display: none;
   }
   .simulation-grid {
-    grid-template-columns: 1.7fr 1fr;
+    grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr);
   }
   .layer-tabs {
     display: none;
@@ -3369,12 +3373,20 @@ h2 {
   font-size: 11px;
 }
 
-/* 発生したスタッフ対応・避難者支援：横スクロールせず、縦横に並べる */
+/* 発生したスタッフ対応・避難者支援：横スクロールせず、縦横に並べる。
+   高さは2行分で固定し、あふれは中で縦にスクロールする。件数が分ごとに変わっても、
+   再生中にページの高さを動かさない（#377） */
 .timeline-panel #events {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  align-content: start;
   gap: 8px;
-  overflow-x: visible;
+  height: 150px;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
 }
 .timeline-panel #events .event-item {
   min-width: 0;

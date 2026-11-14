@@ -1,0 +1,51 @@
+"""The simulation map of demo-v2 keeps its size while playing (#377).
+
+During playback the page must not change the map's width: the page reserves the vertical
+scrollbar's gutter, and the timeline's event box, whose record count changes every minute,
+has a fixed height and scrolls inside.
+"""
+
+from __future__ import annotations
+
+import re
+from pathlib import Path
+
+CSS = Path("src/sheltersim/web/static/demo-v2.css")
+
+
+def _declarations(css: str, selector: str) -> dict[str, str]:
+    """Declarations of the top-level rules with exactly `selector`, later ones winning."""
+    found: dict[str, str] = {}
+    css = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+    for match in re.finditer(r"(?m)^([^\s@}][^{]*)\{([^}]*)\}", css):
+        if match.group(1).strip() != selector:
+            continue
+        for declaration in match.group(2).split(";"):
+            name, _, value = declaration.partition(":")
+            if value:
+                found[name.strip()] = value.strip()
+    return found
+
+
+def test_page_reserves_the_scrollbar_gutter() -> None:
+    css = CSS.read_text(encoding="utf-8")
+    assert _declarations(css, "html").get("scrollbar-gutter") == "stable"
+
+
+def test_timeline_events_have_a_fixed_height_and_scroll_inside() -> None:
+    css = CSS.read_text(encoding="utf-8")
+    events = _declarations(css, ".timeline-panel #events")
+    assert re.fullmatch(r"\d+px", events.get("height", "")), events
+    assert events.get("overflow-y") == "auto"
+
+
+def test_simulation_columns_do_not_grow_with_their_content() -> None:
+    """A bare `fr` track's minimum is its content's, so long side content could widen
+    that column and narrow the map's."""
+    css = CSS.read_text(encoding="utf-8")
+    columns = re.findall(r"\.simulation-grid\s*\{\s*grid-template-columns:\s*([^;]+);", css)
+    assert columns
+    for value in columns:
+        tracks = re.findall(r"minmax\([^)]*\)|[\w.]+", value)
+        if len(tracks) > 1:
+            assert not any(t.endswith("fr") for t in tracks), value

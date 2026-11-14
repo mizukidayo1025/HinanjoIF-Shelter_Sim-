@@ -1053,6 +1053,8 @@
       }
       box.append(node);
     }
+    // 欄の高さは固定で、記録は古い順に並ぶ。最新の記録が見えるよう末尾へ送る（#377）
+    box.scrollTop = box.scrollHeight;
   }
 
   function personSummary(p) {

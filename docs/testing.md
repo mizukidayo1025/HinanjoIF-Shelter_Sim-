@@ -97,7 +97,6 @@ python -m coverage report --sort=cover
 | `support/web.py` | Projectの保存先を持つ、socketのないrequest handler | `bare_request_handler` |
 | `support/llm.py` | 偽のLLM Providerと、有料APIのライブの確認 | `counting_provider`、`recording_router`、`live_model_check`、`live_source_search_check` |
 | `support/reports.py` | PDFレポートの保存済みRun、根拠つきの文章、偽のOpus | `report_saved_run`、`prose_document`、`report_router`、`install_report_router` |
-| `support/plans.py` | 取り込む図面：合成の避難所の図面（画像・GeoJSON）と、手で描いたそのトレース | `shelter_trace`、`upload_plan` |
 | `support/public_data.py` | 地域の調べが呼ぶ公開サービス（国土地理院の住所検索・指定緊急避難場所、e-Stat、気象庁の予報、設定した地域の公開データ）の偽物。存在しない自治体（合成県合成市）の合成の記録を返し、`fail()`で接続の失敗を起こせる。ネットワークには出ない | `public_data`、`researching_project_api`、`research_request` |
 | `support/world.py` | WorldState・イベント・検証の部品 | `make_event`、`record_handler`、`stress_delta`、`count_validations`、`live_checkpoint_world`、`keep_trees`（切り離す名前空間に木を持たせる。kernel が書く木を鍵の順まで固定したテストに） |
 | `support/python_rules.py` | `python_rules`の印：そのテストでは検証のRustの双子を切り、Pythonの検証（`validate_*`）にすべての名前空間を読ませる | `_python_rules`（自動）、`without_kernels` |

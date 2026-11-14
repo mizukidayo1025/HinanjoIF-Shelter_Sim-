@@ -3,7 +3,7 @@
 //! extensions' wrapping, the candidate's wrapping) raise Python's class and text for each broken
 //! world of `validate_entry.json` (`tests/support/core_validate.py`).
 
-mod support;
+use crate::support;
 
 use support::validate;
 

@@ -13,7 +13,7 @@
 //! they passed (`f1bc3977da99` and `77460590f664`). When they were recorded, each Run's last world
 //! here was the one `TickEngine` reaches on the same world (its canonical bytes but `rng_state`).
 
-mod support;
+use crate::support;
 
 use std::rc::Rc;
 

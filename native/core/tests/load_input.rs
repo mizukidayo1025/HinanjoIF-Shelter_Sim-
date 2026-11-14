@@ -3,7 +3,7 @@
 //! feeds it a file. `find_record` reads a record back from the log's bytes, and `Sections::fill`
 //! leaves the sections the core parses itself to the core.
 
-mod support;
+use crate::support;
 
 use serde_json::{json, Value};
 use sheltersim_core::config::{Configs, Parser, Section, SectionId};

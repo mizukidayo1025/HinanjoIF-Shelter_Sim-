@@ -15,7 +15,7 @@
 //! Python's `repr` (`ANSWERS`). Those digests are recorded again here from the core (decision 1 of
 //! #225): `Answers` chains each call's result and the whole world after it (`support/answers.rs`).
 
-mod support;
+use crate::support;
 
 use std::cell::RefCell;
 use std::sync::{Arc, OnceLock};

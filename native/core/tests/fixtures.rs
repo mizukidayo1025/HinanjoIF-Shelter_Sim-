@@ -10,7 +10,7 @@
 //! world's (`support/sections.rs`), and its floor plan is `Geo::of` of the world. `json_dumps_*`
 //! checks the writer of Python's `json.dumps` text (`support/dumps.rs`) against Python's bytes.
 
-mod support;
+use crate::support;
 
 use std::sync::Arc;
 

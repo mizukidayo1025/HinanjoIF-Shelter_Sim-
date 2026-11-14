@@ -17,7 +17,7 @@
 //! passed with the digests it had, and the PyO3 entry left the same canonical text as the core does
 //! here.
 
-mod support;
+use crate::support;
 
 use std::sync::Arc;
 

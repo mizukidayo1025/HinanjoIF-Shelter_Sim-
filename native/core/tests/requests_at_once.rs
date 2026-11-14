@@ -16,7 +16,7 @@
 //! the core in #225 lane M6 (decision 1): on the same kernel each pytest named in a test's doc
 //! comment passed with the digests it had, and the PyO3 entry left the same canonical text.
 
-mod support;
+use crate::support;
 
 use serde_json::{json, Value};
 use sheltersim_core::config::movement::Movement;

@@ -12,7 +12,7 @@
 //! order of checks. The walks in a queue stay in the pytest file, as the test of the kernel's entry:
 //! their worlds are runs of the generated Scenario until a queue walk, too large to keep here.
 
-mod support;
+use crate::support;
 
 use serde_json::Value;
 use sheltersim_core::checkpoint::sha256_hex;

@@ -3,7 +3,7 @@
 //! (`Host::find_record`) and the floor plan (`Host::floor_plan`), each with the texts the PyO3
 //! crate's per-call reads said.
 
-mod support;
+use crate::support;
 
 use std::sync::Arc;
 

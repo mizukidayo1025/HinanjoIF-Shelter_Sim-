@@ -4,7 +4,7 @@
 //! the PyO3 crate read these (`PopulationIn`, `LifecycleIn`, the handler's `tuple(payload.get(...))`);
 //! the texts are the same, and the gate and the offline tests run them on every Run.
 
-mod support;
+use crate::support;
 
 use std::sync::Arc;
 

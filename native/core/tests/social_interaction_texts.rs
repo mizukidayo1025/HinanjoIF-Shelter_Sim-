@@ -12,7 +12,7 @@
 //! between two people runs every tick, so its kernel checks in its own order on the way to an
 //! applied action and finds Python's first failing check only when one fails.
 
-mod support;
+use crate::support;
 
 use support::cases::check_group;
 

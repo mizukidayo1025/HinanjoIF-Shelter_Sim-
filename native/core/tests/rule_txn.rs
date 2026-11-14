@@ -8,7 +8,7 @@
 //! transaction's: the host's check, the two validations of its start around the canonical order,
 //! the rule's own checks, and the rollback.
 
-mod support;
+use crate::support;
 
 use std::sync::Arc;
 

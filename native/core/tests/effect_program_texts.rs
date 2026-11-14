@@ -15,7 +15,7 @@
 //! Python entry. It keeps the start the world's check turns down too: the check is a Python
 //! validator's (`domain/environment.py`), which the host here does not run.
 
-mod support;
+use crate::support;
 
 use std::rc::Rc;
 use std::sync::Arc;

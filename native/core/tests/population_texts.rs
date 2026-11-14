@@ -21,7 +21,7 @@
 //! recorded they gave; where it starts a namespace in `model_state`, the host puts it in the world,
 //! as the native host does (`load::following_host`).
 
-mod support;
+use crate::support;
 
 use std::rc::Rc;
 use std::sync::Arc;

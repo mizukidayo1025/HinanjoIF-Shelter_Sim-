@@ -7,7 +7,7 @@
 //! samples' first records and samples, has the Run's digests at that minute and goes on to the
 //! Run's end with the same digests.
 
-mod support;
+use crate::support;
 
 use std::collections::HashMap;
 use std::sync::Arc;

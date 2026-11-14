@@ -10,7 +10,7 @@
 //! `tests/integration/test_core_fixtures.py`); `tests/unit/core/test_world_export.py` compares the
 //! bytes for the Scenario screen's requests through the PyO3 crate.
 
-mod support;
+use crate::support;
 
 use std::rc::Rc;
 

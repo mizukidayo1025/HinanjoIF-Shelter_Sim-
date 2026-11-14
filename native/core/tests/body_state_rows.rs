@@ -14,7 +14,7 @@
 //! `Dumps`, each record's fields in the order of the tree (`NAMES`) and the config's keys in the
 //! order its rule made them (`body_config_order`), as the PyO3 crate gives the trees to Python.
 
-mod support;
+use crate::support;
 
 use std::sync::{Arc, OnceLock};
 

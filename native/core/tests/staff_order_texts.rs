@@ -14,7 +14,7 @@
 //! The checks of `order_staff_operation` itself stay in pytest: they compare the kernel with that
 //! Python rule, which is still in `src`.
 
-mod support;
+use crate::support;
 
 use support::cases::check_group;
 

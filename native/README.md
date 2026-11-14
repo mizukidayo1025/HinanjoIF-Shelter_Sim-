@@ -31,9 +31,19 @@ Checkpoint document) and times them.
 
 `rustfmt.toml` sets the style of every crate in the workspace (#367): lines up to 160
 columns, each item filling the line (`use_small_heuristics = "Max"`). Run
-`cargo fmt --all` here before a commit; CI's lint job checks `cargo fmt --all -- --check`.
+`cargo fmt --all` here before a commit; CI's job 「書式・規則」 checks `cargo fmt --all -- --check`.
 The tables that `core/tools/*.py` write keep their generator's layout: the `mod` that reads
 each one carries `#[rustfmt::skip]`.
+
+## The core's tests
+
+The files of `core/tests/` are the modules of one test binary, `core` (`core/tests/main.rs`,
+#388): Cargo would otherwise build and link the core into a binary per file, and run those one
+after another. `core/Cargo.toml` sets `autotests = false`, so a new file needs its `mod <name>;`
+in `main.rs`; `core/tests/test_files.rs` fails when one is missing. Run one file's tests with
+`cargo test -p sheltersim_core --test core <name>::`. `effect_guard_dispatch.rs` stays a binary
+of its own (`--test effect_guard_dispatch`): it compares the process's dispatch counts before and
+after each case, which the other tests, on other threads of the same process, would move.
 
 ## The core's feature `parallel` and the wasm32 build
 
@@ -79,7 +89,7 @@ split PR by PR; its last section sums up what is where.
   `src/core/geometry.rs`), implements `Host` for Python (`src/host.rs`, `PyHost`) and keeps the
   `#[pyfunction]` entries of `src/rules/`. A rules file of the wrapper reads its inputs, calls one
   core function, converts the result and does nothing else.
-  `benchmarks/rust_port/glue_check.py` (CI's lint job) fails on state shims, rule arithmetic,
+  `benchmarks/rust_port/glue_check.py` (CI's job 「書式・規則」) fails on state shims, rule arithmetic,
   Python calls or a `with_world` closure of more than one core call there, unless an exemption
   of an allowed class (`CONVERSION`, `ARGUMENT`, `HOOK`) names it. `parity.rs` (tests) and the E6
   validators `after_tick.rs` and `tick_validation.rs` are exempt files.
@@ -93,7 +103,7 @@ split PR by PR; its last section sums up what is where.
   (`src/rules/tick.rs`) is the E10 check (a patched step or rule fails the tick with
   `KernelRefusal`; there is no Python path to run it instead, #221) and one call of the core's
   `run_phases` with a `PyHost`.
-- **A tick without Python**: `cargo test -p sheltersim_core --test tick_core` builds the Worlds
+- **A tick without Python**: `cargo test -p sheltersim_core --test core tick_core::` builds the Worlds
   of `core/tests/data/tick_core.json` (the crate's loader `sheltersim_core::load`, below)
   and runs their ticks with a `TestHost` (no LLM; the whole-world validation answers Ok, E6): a
   small world without a floor plan for 1,440 ticks, and a generated world with a floor plan, every
@@ -106,7 +116,7 @@ split PR by PR; its last section sums up what is where.
   (`Field::from_value`, written by `state_row!` and `str_enum!`, by hand for the leaf types and
   the hand-written fields), with the checks of the PyO3 crate's `from_py`. No tick uses it; the
   loader reads each typed namespace of `model_state` with it (`core/src/load/typed.rs`, the
-  namespace's row), and `cargo test -p sheltersim_core --test typed_rows` reads the worlds of
+  namespace's row), and `cargo test -p sheltersim_core --test core typed_rows::` reads the worlds of
   `core/tests/data/typed_rows.json` and writes them back to the same bytes.
 - **A World from JSON** (#244, decision 3 of stage 4): `sheltersim_core::load` (`core/src/load/`)
   builds a World, a Run's `Policies`, the zone neighbors and the tick's seed (`loaded`), the

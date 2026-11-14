@@ -10,7 +10,7 @@
 //! field by field (`views::exact`); the values and hashes the pytest file wrote down from the
 //! Python rule `WorldView.from_world` (gone since lane L10) are compared as they were.
 
-mod support;
+use crate::support;
 
 use std::rc::Rc;
 use std::sync::Arc;

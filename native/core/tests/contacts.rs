@@ -5,7 +5,7 @@
 //! the plain inputs of `social_plan` (its `plan_of_values`, the script in the lane's notes): the
 //! stresses' bits, the contacts in their order, the cooldowns and the observed pairs.
 
-mod support;
+use crate::support;
 
 use std::collections::HashMap;
 use std::sync::Arc;

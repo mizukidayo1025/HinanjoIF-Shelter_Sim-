@@ -3,7 +3,7 @@
 //! information model's record, the LLM's hooks through a host that writes the world (rule R6), the
 //! refusals before any write, and a resource action without a service.
 
-mod support;
+use crate::support;
 
 use std::sync::Arc;
 

@@ -3,7 +3,7 @@
 //! names are glue over these, so the gate and the offline tests run them on every Run; these say
 //! what each reads, decides and writes, and what it asks of the host.
 
-mod support;
+use crate::support;
 
 use std::sync::Arc;
 

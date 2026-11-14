@@ -12,7 +12,7 @@
 //! again here with `Dumps`. The orders of Python's dicts that the canonical document sorts (the
 //! positions, the ID counters) are in the entry (`orders`).
 
-mod support;
+use crate::support;
 
 use std::collections::HashSet;
 use std::sync::Arc;

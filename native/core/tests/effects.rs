@@ -3,7 +3,7 @@
 //! against the texts and digests of the deleted Python rules; these say what each reads, decides,
 //! refuses and writes, and what it asks the host.
 
-mod support;
+use crate::support;
 
 use std::sync::Arc;
 

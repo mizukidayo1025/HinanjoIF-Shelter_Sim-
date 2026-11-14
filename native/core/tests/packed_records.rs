@@ -4,7 +4,7 @@
 //! stay apart; and bytes that are not a record are an error, never a panic, since the browser reads
 //! them back from its storage.
 
-mod support;
+use crate::support;
 
 use std::sync::Arc;
 

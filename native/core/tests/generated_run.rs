@@ -14,7 +14,7 @@
 //! entity rules (`tick_validation::entity_rules`, the kernel of `_entity_rules_kernel`) leave to the
 //! check of a zone's capacity.
 
-mod support;
+use crate::support;
 
 use std::rc::Rc;
 use std::sync::Arc;

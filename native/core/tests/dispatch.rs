@@ -5,7 +5,7 @@
 //! handler through `apply_foreign`, `space_refreshed` after the records of what applied, the social
 //! policy's `consider_*` at the end), across a batch whose rows a transaction put in canonical order.
 
-mod support;
+use crate::support;
 
 use std::cell::RefCell;
 use std::collections::HashMap;

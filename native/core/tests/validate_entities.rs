@@ -3,7 +3,7 @@
 //! `validate_entities.json` (`tests/support/core_validate_entities.py`) gives Python's class and
 //! text at each entry point, and the accepted ones pass.
 
-mod support;
+use crate::support;
 
 use std::sync::Arc;
 

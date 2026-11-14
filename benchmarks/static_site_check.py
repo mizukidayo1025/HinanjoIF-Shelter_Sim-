@@ -17,8 +17,9 @@ SITE_DIR is the output of scripts/build_static_site.py; it is served as a static
    answers (ProjectAPI in this process, serialized as server.py does): the records, timeline at
    saved points and minutes between, replay windows (one after a jump, then consecutive ones), the
    history of the KPIs at several steps and pages, report and llm-status. Values are compared with
-   their types (1 and 1.0 differ). The fields EXCLUDED lists differ by design; any other
-   difference fails the check. The times of the browser's answers are recorded.
+   their types (1 and 1.0 differ). The fields EXCLUDED lists differ by design, and the Run only
+   the browser makes (COMPUTE_RUN, see 3) is left out of the browser's Run lists (NORMALIZED);
+   any other difference fails the check. The times of the browser's answers are recorded.
 3. With --compute (#267), the Run the browser computes itself (`/` links to it), each mode in a
    fresh profile: `pieces` starts computing to the end, cancels after a day, resumes, closes the
    page after three days and opens it again (the Run shows `interrupted` and its last head), and
@@ -87,6 +88,15 @@ EXCLUDED = [
         "is compared",
     ),
 ]
+# The routes whose browser answer is made comparable before comparing, and why. Only the Run the
+# browser alone makes is left out of the Run lists; everything else in them is compared.
+COMPUTE_RUN_ROUTES = (f"/api/v1/projects/{PROJECT}", f"/api/v1/projects/{PROJECT}/runs")
+NORMALIZED = {
+    "compute_run": f"the Run the browser computes itself ({COMPUTE_RUN}, compute.mjs COMPUTE_RUN) "
+    f"is made by the site's Worker in Project {PROJECT}; the Python ProjectStore "
+    "(build_project_sample.py) has only the sample's Run, so it is left out of the browser's "
+    "Run list",
+}
 
 
 def _routes() -> list[str]:
@@ -141,6 +151,19 @@ def _excluded(route: str, path: tuple[Any, ...]) -> str | None:
         if all(field == "*" or field == str(key) for field, key in zip(fields, path, strict=True)):
             return reason
     return None
+
+
+def _normalize(route: str, document: Any) -> tuple[Any, list[str]]:
+    """The browser's answer with what NORMALIZED lists made comparable, and which of it applied."""
+    if route not in COMPUTE_RUN_ROUTES or not isinstance(document, dict):
+        return document, []
+    runs = document.get("runs")
+    if not isinstance(runs, list):
+        return document, []
+    kept = [run for run in runs if not (isinstance(run, dict) and run.get("run_id") == COMPUTE_RUN)]
+    if len(kept) == len(runs):
+        return document, []
+    return {**document, "runs": kept}, [NORMALIZED["compute_run"]]
 
 
 class Python:
@@ -201,10 +224,12 @@ def compare(page: Any, python: Python) -> dict[str, Any]:
         status, text = python.answer(python_route)
         python_ms = (time.perf_counter() - started) * 1000
         found: list[tuple[Any, ...]] = []
+        applied: list[str] = []
         if got["status"] != status:
             found.append((("status",), status, got["status"]))
         else:
-            _differences(json.loads(text), json.loads(got["text"]), (), found)
+            ours, applied = _normalize(route, json.loads(got["text"]))
+            _differences(json.loads(text), ours, (), found)
         if "history?" in route and status == got["status"] == 200:
             # The cursors name the branch's head: compare what else they hold.
             ours, theirs = json.loads(got["text"]), json.loads(text)
@@ -222,7 +247,9 @@ def compare(page: Any, python: Python) -> dict[str, Any]:
                     )
                 )
                 print(f"  (next page of {label})", flush=True)
-        excluded = sorted({reason for path, *_ in found if (reason := _excluded(route, path))})
+        excluded = sorted(
+            {reason for path, *_ in found if (reason := _excluded(route, path))} | set(applied)
+        )
         left = [item for item in found if _excluded(route, item[0]) is None]
         results.append(
             {
@@ -538,6 +565,9 @@ def check(
     results["excluded"] = [
         {"routes": pattern, "field": ".".join(fields), "reason": reason}
         for pattern, fields, reason in EXCLUDED
+    ]
+    results["normalized"] = [
+        {"routes": list(COMPUTE_RUN_ROUTES), "reason": NORMALIZED["compute_run"]}
     ]
     return results
 

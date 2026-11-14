@@ -14,7 +14,8 @@ as a person would, in five stages:
    Scenario under another id, and of another Scenario under that id (409 run_id_conflict).
 2. compute: the first Run computed on the screen to its end: at once in the first browser
    (`--modes`, full), a day, cancel, resume to the end in the second (pieces).
-3. intervention: at Day 4 14:00 (minute 5160) the screen previews a few sentences (SENTENCES: the
+3. intervention: at Day 4 14:00 (minute 5160), 「この時刻から分岐を作る」 opens the comparison
+   page, where the screen previews a few sentences (SENTENCES: the
    offline parser's add_staff, whose Zone is then picked with the screen's chip, add_toilet,
    water_outage, one it cannot read, and facility_outage), then applies "Day 4 14:00 toilet_01
    outage" and computes the child to the end.
@@ -1362,6 +1363,9 @@ class Walk:
         stage = "intervention"
         self.open(f"/demo-v2?project={s.project}&run={s.run}&branch=main#simulation", "simulation")
         self.seek(FORK_MINUTE)
+        # The branch is made on the comparison page, from the simulation page's minute (#374).
+        self.page.click("#branch-here")
+        self.view("comparison")
         branch = f"{_run_path(s.project, s.run)}/branches/main"
         preview = None
         for label, text, choice in SENTENCES:

@@ -155,6 +155,8 @@ async function main() {
     await page.locator("#people-list button").first().click();
     assert((await page.locator("#person-detail").innerText()).includes("A001"));
     await shot("simulation");
+    await page.locator("#branch-here").click();
+    await idle();
     await page.locator("#intervention-text").fill("トイレを2基追加する");
     await page.locator("#intervention-preview").click();
     await idle();

@@ -92,7 +92,7 @@ class ArrivalApproachRoute(ExtensionModel):
 
 
 class FacilityGeometry(ExtensionModel):
-    """model_configs.facility_geometry; never infer meters from LayoutSpec pixels."""
+    """model_configs.facility_geometry; never infer meters from display pixels."""
 
     schema_version: Literal[1] = 1
     units: Literal["m"] = "m"

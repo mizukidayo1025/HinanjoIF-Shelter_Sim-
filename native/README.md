@@ -97,7 +97,9 @@ split PR by PR; its last section sums up what is where.
   and runs their ticks with a `TestHost` (no LLM; the whole-world validation answers Ok, E6): a
   small world without a floor plan for 1,440 ticks, and a generated world with a floor plan, every
   extension, the typed namespaces and moved facilities for 360 ticks, in which people walk and
-  `update_movement` replans their trips (#214). Their digests are the native path's
+  `update_movement` replans their trips (#214), and the same generated world whose sleeping area's
+  way out closes for a while (`route_closed`): the core's dispatch refreshes the Run's routers where
+  a geometry or structure event applied, whatever the host (#368). Their digests are the native path's
   (`tests/integration/test_core_fixtures.py`).
 - **Typed rows from JSON** (#225): every `Field` reads itself from the `V` of its canonical JSON
   (`Field::from_value`, written by `state_row!` and `str_enum!`, by hand for the leaf types and
@@ -673,7 +675,8 @@ split PR by PR; its last section sums up what is where.
   Branch), in `controller._run_core`. The controller makes it in `__init__` from
   `route_capacities` and itself (its `Policies` are read then by the core's `CONTROLLER` spec,
   never raising; `refresh_policies(controller)` reads them again), and each `_refresh_space` calls `refresh_routes(world)`, which starts a new
-  epoch and builds (`core/src/rules/travel.rs`, `routers_of`) the people's and the staff's router
+  epoch (or, after a dispatch, where the core's dispatch already started it, `refreshed=True`:
+  `Host::space_refreshed`, #368) and builds (`core/src/rules/travel.rs`, `routers_of`) the people's and the staff's router
   from the world's zone and edge tables right then; the staff's keeps, with a floor plan, the edges
   the core `Geo` finds clear for an independent walker. Where the tables dropped their rows or the
   capacities are no plain dict, and after `refresh_routes()` without a world, the routers are built

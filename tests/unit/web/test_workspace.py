@@ -1,9 +1,9 @@
-"""The Project screen's draft routes: the structured-form preview and household correction.
+"""The Project screen's draft routes: the structured-form preview, its saved replies and the
+regional research it uses.
 
-Household correction links unaccompanied minors to a parent. Every draft comes
-from the same Scenario preview the screen uses (tests/support/generated.py
-ui_project_api), so the people corrected here are generated ones, found in the
-draft rather than pinned by ID.
+Every draft comes from the same Scenario preview the screen uses (tests/support/generated.py
+ui_project_api). The household correction route and the imported plans went with the older
+screens (#376).
 """
 
 from __future__ import annotations
@@ -14,7 +14,6 @@ from types import SimpleNamespace
 
 import pytest
 
-from sheltersim.contracts.population import HouseholdCorrectionRequest
 from sheltersim.core.world import WorldState
 from sheltersim.experiments.branch import BranchRuntime
 from sheltersim.experiments.initial_scenario import InitialScenarioRequest
@@ -25,243 +24,9 @@ from sheltersim.storage.projects import ProjectStore, StorageError, digest
 from sheltersim.web.projects import ProjectAPI
 from sheltersim.web.workspace import ProjectWorkspace
 
-# Operator household shapes with no declared links. Generated minors then have
-# no guardian, which is the case the correction route exists for; the default
-# synthetic templates would link every minor to an adult instead.
-UNLINKED_SOURCE_ID = "SRC-TEST-UNLINKED-HOUSEHOLDS"
-UNLINKED_CONDITIONS = {
-    "household_composition": {
-        "templates": [
-            {"template_id": f"unlinked-{size}", "members": [{"role": "unspecified"}] * size}
-            for size in range(1, 6)
-        ],
-        "source_ids": [UNLINKED_SOURCE_ID],
-    },
-    "source_ids": [UNLINKED_SOURCE_ID],
-}
-MINOR_BLOCKER = "保護者を確認できない未成年者が"
-
 
 def _preview(api, request: dict) -> dict:
     return api.workspace.post(["project", "scenario-preview"], {"text": "", "request": request})
-
-
-def _unaccompanied_minors(scenario: dict) -> list[str]:
-    people = scenario["model_configs"]["population"]["people"]
-    context = scenario["model_configs"]["population_context"]["people"]
-    return [
-        agent_id
-        for agent_id, person in sorted(context.items())
-        if people[agent_id]["age_years"] < 18 and person.get("guardian_status") == "unaccompanied"
-    ]
-
-
-def _parent_in_household(scenario: dict, agent_id: str) -> str | None:
-    """An adult in the minor's household old enough to be their parent, if any."""
-    people = scenario["model_configs"]["population"]["people"]
-    age, household_id = people[agent_id]["age_years"], people[agent_id]["household_id"]
-    return next(
-        (
-            other
-            for other in sorted(people)
-            if people[other]["household_id"] == household_id
-            and people[other]["age_years"] >= max(18, age + 16)
-        ),
-        None,
-    )
-
-
-def _correctable_minor(scenario: dict) -> tuple[str, str, str]:
-    """The first unaccompanied minor with a possible parent: (minor, household, parent)."""
-    people = scenario["model_configs"]["population"]["people"]
-    for agent_id in _unaccompanied_minors(scenario):
-        parent_id = _parent_in_household(scenario, agent_id)
-        if parent_id is not None:
-            return agent_id, people[agent_id]["household_id"], parent_id
-    raise AssertionError("the draft has no unaccompanied minor with an adult in the household")
-
-
-def _correction(scenario_hash: str, *rows: dict) -> dict:
-    return {"schema_version": 1, "expected_scenario_hash": scenario_hash, "corrections": list(rows)}
-
-
-def _link(agent_id: str, household_id: str, parent_id: str) -> dict:
-    return {
-        "agent_id": agent_id,
-        "household_id": household_id,
-        "parent_ids": [parent_id],
-        "caregiver_ids": [],
-    }
-
-
-@pytest.fixture
-def unlinked_preview(ui_project_api, generated_request) -> dict:
-    """A draft whose generated minors have no guardian, so it cannot start yet."""
-    preview = _preview(ui_project_api, generated_request(population_conditions=UNLINKED_CONDITIONS))
-    assert len(_unaccompanied_minors(preview["scenario"])) >= 2
-    return preview
-
-
-def test_household_correction_creates_hash_bound_immutable_preview(
-    ui_project_api, unlinked_preview
-) -> None:
-    api, source = ui_project_api, unlinked_preview
-    minor, household_id, parent_id = _correctable_minor(source["scenario"])
-
-    response = api.workspace.post(
-        ["project", "scenario-household-corrections"],
-        {
-            "preview_id": source["preview_id"],
-            "correction": _correction(
-                source["approved_hash"], _link(minor, household_id, parent_id)
-            ),
-        },
-    )
-
-    assert response["preview_id"] != source["preview_id"]
-    assert response["source_preview_id"] == source["preview_id"]
-    assert response["source_scenario_hash"] == source["approved_hash"]
-    assert response["corrected_agent_ids"] == [minor]
-    assert response["request"] == source["request"]
-    assert not response["can_start"]  # Other unreviewed minors remain.
-    remaining = len(_unaccompanied_minors(source["scenario"])) - 1
-    assert any(
-        f"{MINOR_BLOCKER}{remaining}人います" in row for row in response["approval_blockers"]
-    )
-    corrected = response["scenario"]
-    corrected_person = corrected["model_configs"]["population_context"]["people"][minor]
-    assert corrected_person["parent_ids"] == [parent_id]
-    assert corrected_person["guardian_status"] == "accompanied"
-    assert (
-        corrected["provenance"]["household_assignment_corrections"]["seed"]
-        == (source["scenario"]["seed"])
-    )
-    # The source preview is unchanged.
-    kept = api.workspace._preview("project", source["preview_id"])
-    assert kept["hash"] == source["approved_hash"]
-    assert kept["scenario"].model_configs["population_context"]["people"][minor]["parent_ids"] == []
-
-
-def test_household_correction_rejects_stale_hash_and_cross_household_links(
-    ui_project_api, unlinked_preview
-) -> None:
-    api, source = ui_project_api, unlinked_preview
-    minor, household_id, parent_id = _correctable_minor(source["scenario"])
-    people = source["scenario"]["model_configs"]["population"]["people"]
-    stranger = next(
-        other
-        for other in sorted(people)
-        if people[other]["household_id"] != household_id and people[other]["age_years"] >= 18
-    )
-
-    with pytest.raises(StorageError, match="stale_preview"):
-        api.workspace.post(
-            ["project", "scenario-household-corrections"],
-            {
-                "preview_id": source["preview_id"],
-                "correction": _correction("0" * 64, _link(minor, household_id, parent_id)),
-            },
-        )
-    with pytest.raises(StorageError, match="same household"):
-        api.workspace.post(
-            ["project", "scenario-household-corrections"],
-            {
-                "preview_id": source["preview_id"],
-                "correction": _correction(
-                    source["approved_hash"], _link(minor, household_id, stranger)
-                ),
-            },
-        )
-
-
-def test_household_correction_request_requires_a_real_change() -> None:
-    with pytest.raises(ValueError, match="change at least one"):
-        HouseholdCorrectionRequest.model_validate(
-            {
-                "schema_version": 1,
-                "expected_scenario_hash": "a" * 64,
-                "corrections": [{"agent_id": "A005", "household_id": "H000002"}],
-            }
-        )
-
-
-def test_household_correction_keeps_other_blockers_from_a_real_preview(
-    ui_project_api, generated_request
-) -> None:
-    api = ui_project_api
-    # Every minor must be correctable here, which the shared seed does not give (one
-    # minor lives without an adult); seed 0 at 10 people does. A 30 m² building
-    # cannot hold them, so the capacity blocker must survive the correction.
-    preview = _preview(
-        api,
-        generated_request(
-            evacuees=10, seed=0, gross_area_m2=30, population_conditions=UNLINKED_CONDITIONS
-        ),
-    )
-    assert any(MINOR_BLOCKER in row for row in preview["approval_blockers"])
-    assert any("避難スペース容量" in row for row in preview["approval_blockers"])
-    people = preview["scenario"]["model_configs"]["population"]["people"]
-    links = [
-        _link(
-            minor, people[minor]["household_id"], _parent_in_household(preview["scenario"], minor)
-        )
-        for minor in _unaccompanied_minors(preview["scenario"])
-    ]
-
-    response = api.workspace.post(
-        ["project", "scenario-household-corrections"],
-        {
-            "preview_id": preview["preview_id"],
-            "correction": _correction(preview["approved_hash"], *links),
-        },
-    )
-
-    assert not any(MINOR_BLOCKER in row for row in response["approval_blockers"])
-    assert any("避難スペース容量" in row for row in response["approval_blockers"])
-    assert response["can_start"] is False
-    with pytest.raises(StorageError, match="startable reviewed scenario"):
-        api.workspace.post(
-            ["project", "scenario-approve"],
-            {
-                "preview_id": response["preview_id"],
-                "approved_hash": response["approved_hash"],
-                "approved": True,
-                "run_id": "run-blocked",
-            },
-        )
-    assert not api.store._path("project", "runs", "run-blocked").exists()
-
-
-def test_household_correction_refuses_a_draft_without_recorded_blockers(
-    ui_project_api, unlinked_preview
-) -> None:
-    api, source = ui_project_api, unlinked_preview
-    minor, household_id, parent_id = _correctable_minor(source["scenario"])
-    # A preview cached before approval blockers were recorded.
-    legacy_preview_id = api.workspace._cache(
-        {
-            "usage_account_id": "draft-account",
-            "kind": "scenario",
-            "project_id": "project",
-            "scenario": api.workspace._preview("project", source["preview_id"])["scenario"],
-            "can_start": False,
-            "hash": source["approved_hash"],
-            "facility_design": None,
-            "request": None,
-            "research": None,
-        }
-    )
-
-    with pytest.raises(StorageError, match="stale_preview"):
-        api.workspace.post(
-            ["project", "scenario-household-corrections"],
-            {
-                "preview_id": legacy_preview_id,
-                "correction": _correction(
-                    source["approved_hash"], _link(minor, household_id, parent_id)
-                ),
-            },
-        )
 
 
 def test_preparation_edits_share_account_even_without_new_client_field(
@@ -441,43 +206,21 @@ def test_repeated_identical_intervention_preview_reuses_the_saved_reply(
     assert len(calls) == calls_after_first
 
 
-def test_a_selected_plan_without_a_sleeping_zone_is_refused_with_the_reason(
-    ui_project_api, generated_request, upload_plan
+def test_household_corrections_and_imported_plans_are_not_offered(
+    ui_project_api, generated_request
 ) -> None:
-    from support.plans import shelter_plan_png
-
-    asset = upload_plan(ui_project_api, shelter_plan_png())
-    trace = {
-        "raster_pixel_width": 400,
-        "raster_pixel_height": 300,
-        "building_width_m": 40,
-        "building_height_m": 30,
-        "zones": [
-            {"zone_id": "hall", "name": "Hall", "pixel_polygon": [[20, 20], [380, 20], [380, 280]]}
-        ],
-        "facilities": [],
-        "routes": [],
-    }
-    preview = ui_project_api.post(
-        ["project", "assets", asset, "plan-preview"], {"operation": "trace", "trace": trace}
-    )
-    ui_project_api.post(
-        ["project", "geometries", "hall"],
-        {
-            "preview_id": preview["preview_id"],
-            "asset_id": asset,
-            "approved_hash": preview["value_hash"],
-            "approved": True,
-        },
-    )
-
-    with pytest.raises(StorageError) as refused:
-        ui_project_api.workspace.preview(
-            "project", {"text": "", "request": generated_request(), "geometry_id": "hall"}
+    """The household correction route and the plan fields of a preview went with the older
+    screens (#376): the route is unknown and the fields are refused."""
+    with pytest.raises(StorageError, match="unknown project operation"):
+        ui_project_api.post(
+            ["project", "scenario-household-corrections"],
+            {"preview_id": "x", "correction": {}},
         )
-
-    assert refused.value.code == "scenario_plan_invalid"
-    assert "zone named 'sleeping'" in str(refused.value)
+    for field in ("geometry_id", "plan_override"):
+        with pytest.raises(StorageError, match="request fields do not match"):
+            ui_project_api.workspace.preview(
+                "project", {"text": "", "request": generated_request(), field: "hall"}
+            )
 
 
 def _researched_preview(api, generated_request, **selections) -> dict:

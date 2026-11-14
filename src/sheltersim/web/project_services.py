@@ -4,16 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from sheltersim.contracts.workspace import (
-    AssetBegin,
-    AssetChunk,
-    ComparisonQuery,
-    DatasetInput,
-    DraftInput,
-    HistoryQuery,
-)
-from sheltersim.storage.artifacts import ArtifactStore
-from sheltersim.storage.evaluations import EvaluationStore
+from sheltersim.contracts.workspace import HistoryQuery
 from sheltersim.storage.projects import StorageError, digest
 from sheltersim.storage.usage import UsageLedger
 from sheltersim.web.project_queries import ProjectQueries, page
@@ -28,15 +19,7 @@ def one_query(query: dict[str, list[str]], allowed: set[str]) -> dict[str, str]:
 class ProjectServices:
     def __init__(self, api: Any) -> None:
         self.api, self.store = api, api.store
-        self.artifacts = ArtifactStore(self.store)
         self.queries = ProjectQueries(self.store)
-        self.evaluations = EvaluationStore(self.store)
-        from sheltersim.web.plan_services import PlanServices
-
-        self.plans = PlanServices(self.store)
-        from sheltersim.storage.experiments import ExperimentStore
-
-        self.experiments = ExperimentStore(self.store)
 
     def get(self, parts: list[str], query: dict[str, list[str]]) -> dict[str, Any] | None:
         if not parts:
@@ -61,33 +44,20 @@ class ProjectServices:
                 TemporaryRoomGeometry,
             )
             from sheltersim.contracts.policies import model_catalog
-            from sheltersim.contracts.population import (
-                HouseholdCorrectionRequest,
-                PopulationContext,
-            )
+            from sheltersim.contracts.population import PopulationContext
             from sheltersim.contracts.presence import PresenceState, PresenceTransition
             from sheltersim.contracts.runtime import ModelStateProposal, state_catalog
             from sheltersim.contracts.spatial import PopulationTransition, SpatialConstraints
-            from sheltersim.contracts.workspace import DivergenceQuery, StateDescriptor
+            from sheltersim.contracts.workspace import StateDescriptor
             from sheltersim.domain.simulator_state import simulator_state_catalog
             from sheltersim.events.effects import available_primitives
-            from sheltersim.region.plan_import import ManualPlanTrace, PlanSourceProvenance
-            from sheltersim.storage.experiments import ExperimentInput, ObservationTarget
 
             return {
                 "schema_version": 1,
                 "history_query": HistoryQuery.model_json_schema(),
-                "asset_begin": AssetBegin.model_json_schema(),
-                "asset_chunk": AssetChunk.model_json_schema(),
-                "draft_input": DraftInput.model_json_schema(),
-                "dataset_input": DatasetInput.model_json_schema(),
-                "comparison_query": ComparisonQuery.model_json_schema(),
                 "spatial_constraints": SpatialConstraints.model_json_schema(),
                 "population_transition": PopulationTransition.model_json_schema(),
                 "population_context": PopulationContext.model_json_schema(),
-                "divergence_query": DivergenceQuery.model_json_schema(),
-                "experiment_input": ExperimentInput.model_json_schema(),
-                "observation_target": ObservationTarget.model_json_schema(),
                 "presence_state": PresenceState.model_json_schema(),
                 "presence_transition": PresenceTransition.model_json_schema(),
                 "state_descriptor": StateDescriptor.model_json_schema(),
@@ -98,10 +68,7 @@ class ProjectServices:
                 "models": model_catalog(),
                 "policy_registry_schema_versions": [1, 2, 3],
                 "policy_models": model_catalog(),
-                "household_correction": HouseholdCorrectionRequest.model_json_schema(),
                 "facility_service_point": GeometryServicePoint.model_json_schema(),
-                "manual_plan_trace": ManualPlanTrace.model_json_schema(),
-                "plan_source_provenance": PlanSourceProvenance.model_json_schema(),
                 "shared_operations_config": SharedOperationsConfig.model_json_schema(),
                 "shared_operations_state": SharedOperationsState.model_json_schema(),
                 "action_lifecycle_receipt": ActionLifecycleReceipt.model_json_schema(),
@@ -155,14 +122,6 @@ class ProjectServices:
                     "operational_demand": "before_tick observed state only",
                 },
                 "errors": {
-                    "household_preview": [
-                        "stale_preview_hash",
-                        "unknown_synthetic_agent_id",
-                        "cross_household_relation",
-                        "invalid_guardian_graph",
-                        "non_synthetic_identity",
-                        "age_unavailable",
-                    ],
                     "operation_receipts": [
                         "contract_not_enabled",
                         "unapplied_or_unmatched_event",
@@ -180,22 +139,6 @@ class ProjectServices:
                         "service_point_in_other_equipment",
                         "service_point_access_route_missing",
                         "service_point_capacity_exceeds_facility",
-                    ],
-                    "plan_geometry": [
-                        "plan_geometry_revision_stale_base",
-                        "plan_geometry_revision_asset_mismatch",
-                        "plan_raster_preview_context_mismatch",
-                        "plan_raster_preview_trace_calibration_mismatch",
-                        "plan_geometry_raster_context_invalid",
-                        "plan_geometry_raster_provenance_missing",
-                        "plan_geometry_raster_provenance_mismatch",
-                        "plan_geometry_raster_asset_binding_mismatch",
-                        "plan_raster_preview_missing",
-                        "plan_raster_preview_reference_conflict",
-                        "plan_raster_provenance_missing",
-                        "plan_raster_provenance_mismatch",
-                        "plan_trace_page_reference_mismatch",
-                        "invalid_plan_trace_page_index",
                     ],
                 },
             }
@@ -220,149 +163,28 @@ class ProjectServices:
             result["project_datasets"] = [self.store._read(path) for path in paths[:100]]
             result["project_datasets_truncated"] = len(paths) > 100
             return result
-        if len(parts) == 2 and parts[1] in {
-            "drafts",
-            "assets",
-            "evaluations",
-            "datasets",
-            "usage",
-            "geometries",
-        }:
+        if len(parts) == 2 and parts[1] == "usage":
             values = one_query(query, {"limit", "cursor"})
             limit = int(values.get("limit", "25"))
             if not 1 <= limit <= 100:
                 raise StorageError("invalid_page_limit")
             self.store._read(self.store._path(project_id, "project.json"))
-            kind = parts[1]
-            if kind == "drafts":
-                rows = self.artifacts.drafts(project_id)
-            elif kind == "assets":
-                rows = [
-                    self.store._read(p)
-                    for p in sorted(self.store._path(project_id, "assets").glob("*/asset.json"))
-                ]
-            else:
-                rows = [
-                    self.store._read(p)
-                    for p in sorted(self.store._path(project_id, kind).glob("*.json"))
-                ]
-                if kind == "usage":
-                    rows = [
-                        UsageLedger(self.store, project_id, row["account_id"]).summary()
-                        for row in rows
-                    ]
-                if kind == "evaluations":
-                    rows = [
-                        {k: v for k, v in row.items() if k not in {"runs", "comparisons"}}
-                        for row in rows
-                    ]
-            result = page(
-                rows,
-                {"project_id": project_id, "kind": kind},
-                digest(rows),
-                limit=limit,
-                cursor=values.get("cursor"),
-            )
-            if kind == "usage":
-                result["project_totals"] = {
-                    key: sum(row["totals"][key] for row in rows)
-                    for key in ("calls", "input_tokens", "output_tokens", "cost_nusd")
-                }
-            return result
-        if len(parts) == 2 and parts[1] == "experiments":
-            values = one_query(query, {"limit", "cursor"})
-            limit = int(values.get("limit", "25"))
-            if not 1 <= limit <= 100:
-                raise StorageError("invalid_page_limit")
             rows = [
-                self.store._read(path)
-                for path in sorted(
-                    self.store._path(project_id, "experiments").glob("*/experiment.json")
-                )
+                UsageLedger(self.store, project_id, self.store._read(p)["account_id"]).summary()
+                for p in sorted(self.store._path(project_id, "usage").glob("*.json"))
             ]
-            return page(
+            result = page(
                 rows,
-                {"project": project_id, "kind": "experiments"},
+                {"project_id": project_id, "kind": "usage"},
                 digest(rows),
                 limit=limit,
                 cursor=values.get("cursor"),
             )
-        if len(parts) == 3 and parts[1] == "experiments" and not query:
-            return self.experiments.plan(project_id, parts[2])
-        if (
-            len(parts) == 4
-            and parts[1] == "experiments"
-            and parts[3] in {"cells", "results", "fit"}
-        ):
-            record = self.experiments.plan(project_id, parts[2])
-            if parts[3] == "fit" and not query:
-                return self.store._read(self.experiments._path(project_id, parts[2], "fit.json"))
-            values = one_query(query, {"limit", "cursor"})
-            limit = int(values.get("limit", "25"))
-            if not 1 <= limit <= 100:
-                raise StorageError("invalid_page_limit")
-            generation_path = self.experiments._path(project_id, parts[2], "result-generation.json")
-            generation = (
-                self.store._read(generation_path)["generation"] if generation_path.exists() else 0
-            )
-            anchor = digest(
-                {
-                    "plan": record["plan_hash"],
-                    "generation": generation if parts[3] == "results" else 0,
-                }
-            )
-            result = page(
-                record["cells"],
-                {"project": project_id, "experiment": parts[2], "section": parts[3]},
-                anchor,
-                limit=limit,
-                cursor=values.get("cursor"),
-            )
-            if parts[3] == "results":
-                rows = []
-                for cell in result["items"]:
-                    path = self.experiments._path(
-                        project_id, parts[2], "results", cell["cell_id"] + ".json"
-                    )
-                    rows.append(
-                        self.store._read(path)
-                        if path.exists()
-                        else {"cell_id": cell["cell_id"], "status": "not_collected"}
-                    )
-                result["items"] = rows
+            result["project_totals"] = {
+                key: sum(row["totals"][key] for row in rows)
+                for key in ("calls", "input_tokens", "output_tokens", "cost_nusd")
+            }
             return result
-        if len(parts) == 3 and parts[1] == "geometries" and not query:
-            return self.plans.geometry(project_id, parts[2])
-        if len(parts) == 3 and parts[1] == "drafts" and not query:
-            return self.artifacts.draft(project_id, parts[2])
-        if len(parts) == 3 and parts[1] == "uploads" and not query:
-            return self.store._read(
-                self.store._path(project_id, "uploads", parts[2], "upload.json")
-            )
-        if len(parts) in {3, 4} and parts[1] == "assets" and not query:
-            if len(parts) == 4 and parts[3] != "content":
-                raise StorageError("unknown_asset_operation")
-            return self.artifacts.asset(project_id, parts[2], include_content=len(parts) == 4)
-        if len(parts) == 3 and parts[1] in {"evaluations", "datasets"}:
-            record = self.store._read(self.store._path(project_id, parts[1], f"{parts[2]}.json"))
-            if parts[1] == "datasets" and not query:
-                return record
-            values = one_query(query, {"section", "limit", "cursor"})
-            section = values.get("section")
-            if section is None:
-                return {k: v for k, v in record.items() if k not in {"runs", "comparisons"}}
-            if section not in {"runs", "comparisons"}:
-                raise StorageError("invalid_evaluation_section")
-            limit = int(values.get("limit", "25"))
-            if not 1 <= limit <= 100:
-                raise StorageError("invalid_page_limit")
-            return page(
-                record[section],
-                {"project_id": project_id, "evaluation": parts[2], "section": section},
-                digest(record),
-                limit=limit,
-                cursor=values.get("cursor"),
-            )
         if (
             len(parts) == 6
             and parts[1] == "runs"
@@ -634,64 +456,6 @@ class ProjectServices:
         if len(parts) < 2:
             return None
         project_id = parts[0]
-        if len(parts) == 4 and parts[1] in {"drafts", "assets"} and parts[3] == "delete":
-            fields(body, {"confirmation"})
-            return self.artifacts.delete(
-                project_id, parts[1], parts[2], confirmation=body["confirmation"]
-            )
-        if len(parts) == 3 and parts[1] == "experiments":
-            return self.experiments.create(project_id, parts[2], body)
-        if len(parts) == 6 and parts[1] == "experiments" and parts[3] == "cells":
-            if parts[5] == "prepare":
-                return self.experiments.prepare(self.api, project_id, parts[2], parts[4], body)
-            if parts[5] == "collect":
-                fields(body, set())
-                return self.experiments.collect(project_id, parts[2], parts[4])
-        if len(parts) == 4 and parts[1] == "experiments":
-            if parts[3] == "finalize":
-                fields(body, {"evaluation_id"})
-                return self.experiments.finalize(project_id, parts[2], body["evaluation_id"])
-            if parts[3] == "fit":
-                fields(body, set())
-                return self.experiments.fit(project_id, parts[2])
-        if len(parts) == 4 and parts[1] == "assets" and parts[3] == "plan-preview":
-            return self.plans.preview(project_id, parts[2], body)
-        if len(parts) == 3 and parts[1] == "geometries":
-            return self.plans.approve(project_id, parts[2], body)
-        if len(parts) == 3 and parts[1] == "drafts":
-            return self.artifacts.save_draft(project_id, parts[2], DraftInput.model_validate(body))
-        if len(parts) == 3 and parts[1] == "uploads":
-            return self.artifacts.begin(project_id, parts[2], AssetBegin.model_validate(body))
-        if len(parts) == 4 and parts[1] == "uploads":
-            if parts[3] == "chunks":
-                return self.artifacts.chunk(project_id, parts[2], AssetChunk.model_validate(body))
-            if parts[3] in {"finish", "abort"}:
-                fields(body, set())
-                return (
-                    self.artifacts.finish(project_id, parts[2])
-                    if parts[3] == "finish"
-                    else self.artifacts.delete_upload(project_id, parts[2])
-                )
-        if len(parts) == 2 and parts[1] == "first-divergence":
-            from sheltersim.contracts.workspace import DivergenceQuery
-
-            return self.queries.first_divergence(project_id, DivergenceQuery.model_validate(body))
-        if len(parts) == 2 and parts[1] == "comparison-query":
-            return self.queries.compare(project_id, ComparisonQuery.model_validate(body))
-        if len(parts) == 2 and parts[1] == "condition-differences":
-            from sheltersim.contracts.workspace import ComparisonDifferenceQuery
-            from sheltersim.web.comparison_evidence import condition_differences
-
-            return condition_differences(
-                self.store, project_id, ComparisonDifferenceQuery.model_validate(body)
-            )
-        if len(parts) == 3 and parts[1] == "evaluations":
-            fields(body, {"report", "approved_hash"})
-            return self.evaluations.import_report(
-                project_id, parts[2], body["report"], body["approved_hash"]
-            )
-        if len(parts) == 3 and parts[1] == "datasets":
-            return self.evaluations.dataset(project_id, parts[2], body)
         if len(parts) == 4 and parts[1] == "runs" and parts[3] == "index":
             fields(body, {"branch_id"})
             from sheltersim.storage.history_index import HistoryIndex

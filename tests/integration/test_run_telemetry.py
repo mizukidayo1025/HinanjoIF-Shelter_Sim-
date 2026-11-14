@@ -1,7 +1,7 @@
-"""Measuring a Run on the Project screen: "計算" with measurement records each execution,
-"画面FPS" saves a render report, and a malformed report is refused with a reason.
+"""Measuring a Run's computations: a resume with `measure_performance` records each execution
+beside the Run, never in its Checkpoints.
 
-Measurements live beside the Run, never in its Checkpoints.
+The telemetry routes and the screen's render reports (FPS) went with the older screens (#376).
 """
 
 from __future__ import annotations
@@ -12,17 +12,10 @@ import pytest
 
 from sheltersim.experiments.scenario import ScenarioSpec
 from sheltersim.storage.projects import StorageError
+from sheltersim.storage.telemetry import RunTelemetryStore
 from sheltersim.web.projects import ProjectAPI
 
 END = 60
-RENDER = {
-    "kind": "render",
-    "branch_id": "main",
-    "samples": 120,
-    "fps": 58.5,
-    "p95_frame_ms": 21.0,
-    "visibility": "visible",
-}
 
 
 @pytest.fixture
@@ -49,12 +42,12 @@ def _compute(api: ProjectAPI, minute: int, *, measure: bool) -> None:
 
 
 def test_measured_computations_are_recorded_beside_the_run(run_api):
-    empty = run_api.get(["p", "runs", "r", "telemetry"], {})
+    empty = RunTelemetryStore(run_api.store, "p", "r").read()
     _compute(run_api, 20, measure=True)
     _compute(run_api, 40, measure=False)
     _compute(run_api, END, measure=True)
 
-    telemetry = run_api.get(["p", "runs", "r", "telemetry"], {})
+    telemetry = RunTelemetryStore(run_api.store, "p", "r").read()
 
     assert (empty["execution_count"], empty["executions"]) == (0, [])
     assert telemetry["execution_count"] == 2, "only the measured computations"
@@ -72,32 +65,18 @@ def test_measured_computations_are_recorded_beside_the_run(run_api):
     )
 
 
-def test_a_render_report_is_saved_for_its_branch(run_api):
-    saved = run_api.post(["p", "runs", "r", "telemetry"], RENDER)
-
-    (report,) = saved["render_reports"]
-    assert {key: report[key] for key in RENDER} == RENDER
-    assert run_api.get(["p", "runs", "r", "telemetry"], {}) == saved
-
-
-@pytest.mark.parametrize(
-    "change",
-    [
-        {"branch_id": "unknown"},
-        {"samples": -1},
-        {"samples": True},
-        {"fps": float("nan")},
-        {"fps": 1e9},
-        {"fps": "60"},
-        {"kind": "cpu"},
-        {"visibility": "Mozilla/5.0 (X11; Linux x86_64)"},
-        {"visibility": None},
-        {"user_agent": "Mozilla/5.0"},
-    ],
-    ids=lambda change: next(iter(change)) + "=" + repr(next(iter(change.values()))),
-)
-def test_a_malformed_render_report_is_refused(run_api, change):
-    with pytest.raises(StorageError):
-        run_api.post(["p", "runs", "r", "telemetry"], RENDER | change)
-
-    assert run_api.get(["p", "runs", "r", "telemetry"], {})["render_reports"] == []
+def test_the_telemetry_routes_are_gone(run_api):
+    with pytest.raises(StorageError, match="unknown project route"):
+        run_api.get(["p", "runs", "r", "telemetry"], {})
+    with pytest.raises(StorageError, match="unknown project operation"):
+        run_api.post(
+            ["p", "runs", "r", "telemetry"],
+            {
+                "kind": "render",
+                "branch_id": "main",
+                "samples": 1,
+                "fps": 60,
+                "p95_frame_ms": 20,
+                "visibility": "visible",
+            },
+        )

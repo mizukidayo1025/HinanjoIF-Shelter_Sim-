@@ -19,7 +19,6 @@ pytest_plugins = [
     "support.llm",
     "support.reports",
     "support.world",
-    "support.plans",
     "support.public_data",
     # The python_rules mark, which turns the Rust twins of the validators off for a test.
     "support.python_rules",

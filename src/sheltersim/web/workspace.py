@@ -141,8 +141,6 @@ class ProjectWorkspace:
                 "estat_period_code",
                 "estat_category_codes",
                 "selected_shelter_id",
-                "plan_override",
-                "geometry_id",
                 "draft_id",
                 "target_date",
                 "weather_area_code",
@@ -212,42 +210,13 @@ class ProjectWorkspace:
             ),
             router=router,
         )
-        if body.get("geometry_id") is not None:
-            if body.get("plan_override") is not None:
-                raise StorageError("select_geometry_or_plan_override")
-            body = {
-                **body,
-                "plan_override": self.api.services.plans.geometry(project_id, body["geometry_id"])[
-                    "geometry"
-                ],
-            }
-        plan = None
-        if body.get("plan_override") is not None:
-            from sheltersim.region.plan_import import ImportedPlanGeometry
-
-            plan = ImportedPlanGeometry.model_validate(body["plan_override"])
-            stored = self.artifacts.asset(project_id, plan.asset.sha256)
-            if (stored["byte_count"], stored["media_type"]) != (
-                plan.asset.byte_count,
-                plan.asset.media_type,
-            ):
-                raise StorageError("plan_asset_manifest_mismatch")
-        try:
-            draft = InitialScenarioBuilder().build(
-                request,
-                research=research,
-                selected_shelter_id=body.get("selected_shelter_id"),
-                plan_override=plan,
-                age_bands=age_bands_from_observations(research.population_observations),
-                household_mix=household_mix_from_observations(research.population_observations),
-            )
-        except ValueError as exc:
-            if plan is None or isinstance(exc, StorageError):
-                raise
-            from sheltersim.web.plan_services import plan_rejection_reason
-
-            # Tell the operator what the selected plan lacks, e.g. a sleeping zone (#204).
-            raise StorageError(f"scenario_plan_invalid: {plan_rejection_reason(exc)}") from exc
+        draft = InitialScenarioBuilder().build(
+            request,
+            research=research,
+            selected_shelter_id=body.get("selected_shelter_id"),
+            age_bands=age_bands_from_observations(research.population_observations),
+            household_mix=household_mix_from_observations(research.population_observations),
+        )
         document = draft.scenario.model_dump(mode="json")
         # A public building's address is not needed in anonymous stored experiments.
         document["provenance"].get("selected_shelter", {}).pop("address", None)
@@ -344,98 +313,6 @@ class ProjectWorkspace:
         self._bind_preparation(project_id, preview["usage_account_id"], body["run_id"])
         self.drafts.pop(body["preview_id"], None)
         return result
-
-    def correct_household_preview(self, project_id: str, body: dict[str, Any]) -> dict[str, Any]:
-        """Create a new approval-bound preview from reviewed generated-person links."""
-        from sheltersim.contracts.population import (
-            HouseholdCorrectionRequest,
-            correct_synthetic_household_relationships,
-        )
-        from sheltersim.web.projects import fields
-
-        fields(body, {"preview_id", "correction"})
-        preview = self._preview(project_id, body["preview_id"])
-        if (
-            not preview
-            or preview.get("kind") != "scenario"
-            or preview.get("project_id") != project_id
-        ):
-            raise StorageError("preview expired or does not belong to this Project")
-        try:
-            request = HouseholdCorrectionRequest.model_validate(body["correction"])
-        except ValueError as exc:
-            raise StorageError(f"household_correction_invalid: {exc}") from exc
-        if request.expected_scenario_hash != preview["hash"]:
-            raise StorageError(
-                "household_correction_stale_preview: generate a fresh Scenario preview"
-            )
-        try:
-            corrected = correct_synthetic_household_relationships(preview["scenario"], request)
-        except (TypeError, ValueError) as exc:
-            raise StorageError(f"household_correction_invalid: {exc}") from exc
-        updated_hash = digest(json.loads(corrected.canonical_json()))
-        # Drafts saved before blockers were recorded cannot show which other
-        # blockers still apply, so they are refused rather than read as clear.
-        if not isinstance(preview.get("approval_blockers"), list):
-            raise StorageError(
-                "household_correction_stale_preview: generate a fresh Scenario preview"
-            )
-        blockers = [
-            item
-            for item in preview["approval_blockers"]
-            if not item.startswith("同居世帯内の年齢・支援情報から保護者を確認できない未成年者が")
-        ]
-        context = corrected.model_configs.get("population_context", {}).get("people", {})
-        population = corrected.model_configs.get("population", {}).get("people", {})
-        unaccompanied = []
-        for identity, person in context.items():
-            age = population.get(identity, {}).get("age_years")
-            if (
-                type(age) is int
-                and age < 18
-                and person.get("guardian_status") == "unaccompanied"
-                and not person.get("parent_ids")
-                and not person.get("caregiver_ids")
-            ):
-                unaccompanied.append(identity)
-        if unaccompanied:
-            blockers.append(
-                f"同居世帯内の年齢・支援情報から保護者を確認できない未成年者が{len(unaccompanied)}人います。"
-                "家族関係を確認するまでシミュレーションを開始できません。"
-            )
-        corrected_preview_id = self._cache(
-            {
-                "usage_account_id": preview["usage_account_id"],
-                "kind": "scenario",
-                "project_id": project_id,
-                "scenario": corrected,
-                "can_start": not blockers,
-                "hash": updated_hash,
-                "approval_blockers": blockers,
-                "facility_design": preview.get("facility_design"),
-                "request": preview.get("request"),
-                "research": preview.get("research"),
-                "correction_parent_preview_id": body["preview_id"],
-            }
-        )
-        return {
-            "schema_version": 1,
-            "preview_id": corrected_preview_id,
-            "scenario": json.loads(corrected.canonical_json()),
-            "approved_hash": updated_hash,
-            "can_start": not blockers,
-            "approval_blockers": blockers,
-            "corrected_agent_ids": [row.agent_id for row in request.corrections],
-            "household_review": "operator_reviewed_synthetic_relationships",
-            "source_preview_id": body["preview_id"],
-            "source_scenario_hash": preview["hash"],
-            # The browser applies this response through the same renderer as an
-            # ordinary Scenario Preview. Preserve its operator request and facility
-            # context so correcting relationships cannot blank the reviewed setup.
-            "request": preview.get("request"),
-            "facility_design": preview.get("facility_design"),
-            "research": preview.get("research"),
-        }
 
     def comparison(
         self, project_id: str, run_id: str, branch_ids: list[str], minute: int
@@ -566,14 +443,8 @@ class ProjectWorkspace:
 
     def post(self, parts: list[str], body: dict[str, Any]) -> dict[str, Any] | None:
         with self._lock:
-            if len(parts) == 2 and parts[1] == "facility-preview":
-                from sheltersim.web.facility_services import facility_preview
-
-                return facility_preview(self, parts[0], body)
             if len(parts) == 2 and parts[1] == "scenario-preview":
                 return self.preview(parts[0], body)
-            if len(parts) == 2 and parts[1] == "scenario-household-corrections":
-                return self.correct_household_preview(parts[0], body)
             if len(parts) == 2 and parts[1] == "scenario-approve":
                 return self.approve(parts[0], body)
             if len(parts) == 6 and parts[1] == "runs" and parts[3] == "branches":

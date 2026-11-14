@@ -196,9 +196,6 @@ class ProjectAPI:
             with self._lock:
                 outcome = self._fork_outcomes.get((project_id, parts[2]))
             return {**run, "last_fork": outcome} if outcome is not None else run
-        if len(parts) == 4 and parts[1] == "runs" and parts[3] == "telemetry" and not query:
-            self.store.run(project_id, parts[2])
-            return RunTelemetryStore(self.store, project_id, parts[2]).read()
         if len(parts) == 4 and parts[1] == "runs" and parts[3] == "replay-frames":
             from sheltersim.web.replay import replay_frames
 
@@ -388,13 +385,6 @@ class ProjectAPI:
                 return self.store.run(project_id, run["run_id"])
         if len(parts) == 4 and parts[1] == "runs":
             run_id, action = parts[2], parts[3]
-            if action == "telemetry":
-                fields(
-                    document, {"kind", "branch_id", "samples", "fps", "p95_frame_ms", "visibility"}
-                )
-                self.store.run(project_id, run_id)
-                self.store.branch_reference(project_id, run_id, document["branch_id"])
-                return RunTelemetryStore(self.store, project_id, run_id).record_render(document)
             if action == "archive":
                 fields(document, set())
                 self.store.archive(project_id, run_id)
@@ -435,10 +425,6 @@ class ProjectAPI:
                             "run_worker_busy: cancellation must reach the owning worker"
                         )
                 return self.store.run(project_id, run_id)
-        if len(parts) == 6 and parts[1] == "runs" and parts[3] == "branches":
-            run_id, branch_id, action = parts[2], parts[4], parts[5]
-            if action == "fork":
-                return self.fork(project_id, run_id, branch_id, document)
         raise StorageError("unknown project operation")
 
     def fork(
@@ -450,7 +436,8 @@ class ProjectAPI:
         *,
         expected_state_hash: str | None = None,
     ) -> dict[str, Any]:
-        """The fork route; an intervention apply also passes the state its preview saw."""
+        """Fork a child Branch: an intervention apply passes the program and the state its
+        preview saw (the fork route without an intervention went with the older screens, #376)."""
         fields(
             document,
             {"minute", "child_id", "approved"},

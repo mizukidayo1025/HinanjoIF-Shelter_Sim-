@@ -1,4 +1,6 @@
-"""Opt-in, bounded telemetry for saved Project Runs and browser rendering."""
+"""Opt-in, bounded measurements of saved Project Runs' computations (resume's
+`measure_performance`). The screen's render reports (FPS) and the telemetry routes went with
+the older screens (#376); render_reports stays in the saved document, empty for new Runs."""
 
 from __future__ import annotations
 
@@ -141,48 +143,6 @@ class RunTelemetryStore:
                 "totals": totals,
                 "executions": executions,
                 "render_reports": current["render_reports"],
-            }
-            self.store._write(self._path(), safe_document(value))
-        return value
-
-    def record_render(self, body: dict[str, Any]) -> dict[str, Any]:
-        if (
-            set(body) != {"kind", "branch_id", "samples", "fps", "p95_frame_ms", "visibility"}
-            or body.get("kind") != "render"
-        ):
-            raise StorageError("render_telemetry_fields_invalid")
-        if (
-            not isinstance(body["branch_id"], str)
-            or not body["branch_id"]
-            or len(body["branch_id"]) > 64
-        ):
-            raise StorageError("invalid telemetry branch")
-        if type(body["samples"]) is not int or not 0 <= body["samples"] <= 600:
-            raise StorageError("invalid render sample count")
-        if body["fps"] is not None and _number(body["fps"], "fps") > 1000:
-            raise StorageError("invalid render fps")
-        if (
-            body["p95_frame_ms"] is not None
-            and _number(body["p95_frame_ms"], "p95_frame_ms") > 60_000
-        ):
-            raise StorageError("invalid render frame duration")
-        if not isinstance(body["visibility"], str) or body["visibility"] not in {
-            "visible",
-            "hidden",
-            "prerender",
-            "unloaded",
-        }:
-            raise StorageError("invalid render visibility")
-        report = {"recorded_at": datetime.now(UTC).isoformat(), **body}
-        with self.store.transaction():
-            current = self.read()
-            reports = [*current["render_reports"], report][-100:]
-            value = {
-                "schema_version": 1,
-                "execution_count": current["execution_count"],
-                "totals": current["totals"],
-                "executions": current["executions"],
-                "render_reports": reports,
             }
             self.store._write(self._path(), safe_document(value))
         return value

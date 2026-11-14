@@ -20,19 +20,20 @@ from support.core_tick import generated_run
 from sheltersim.core.checkpoint_cache import canonical_bytes
 from sheltersim.inspection.frames import world_frame, world_frame_bytes
 
-# The sha256 of the Python frame at each minute, by the number of people (PR #270).
+# The sha256 of the Python frame at each minute, by the number of people (PR #270; since #376 the
+# shared operations' read_route names the event log instead of removed history kinds).
 PYTHON_FRAMES: dict[int, tuple[tuple[int, str], ...]] = {
     20: (
-        (0, "bea6f586cc8ad250f7b7a2425fc357e801a095132c770ea98726c92a5dfd52b1"),
-        (1, "1397479e46fcdd3e0747bdcd831cc22fa324a3a3b6c4355a06d0a6fbf6e8b37c"),
-        (720, "fd0b008077a7f543ec55e40e18f23b7ab88cb7c7f2b6b1308a89c245d548fe67"),
-        (1439, "83fec79e246a6bfbd64af98941f51140d608705bba518a2637d95ff32401d3d7"),
+        (0, "ac6edce2eea92b76b429da6664a47798506e1e72ab660fb4f0cd775a24274279"),
+        (1, "556ad59554aac29e3452a55f9b0615d7cfbc594ccef427cf242fc72c89236195"),
+        (720, "cc15c7ebac89e7e677f8d77f7285c92955b891fb6635dbe3c138e7e610a538fa"),
+        (1439, "d61f0d7630b0be80c22c0138823adf3fe4857eac18512471f639e469026c3a08"),
     ),
     100: (
-        (0, "a4ac5bc38d64a96b2d8ff70eac36bf125075f26832cafb12fa6efa0cd40125be"),
-        (1, "0653b17e26c171760efe665a27c81cedb8be85414a66152b5cc55948360cf6e3"),
-        (720, "f2878c89fb3d5efa7ba899fe73891ac7b862c6cb21429bc13db96e399e3b9412"),
-        (1439, "76f2054e7c1fe542c52bd4c5cc9d71eed6d8b8769a133b667a8b18fd2f9a864f"),
+        (0, "33276ed58d71cfc85fde1938657e086d9d0cf8f797a092c095a53b7347fc7f95"),
+        (1, "86134312fb745fdffbd353b082505da99c664ee9298e40d6215395279c21c228"),
+        (720, "59e48a1c6967c119d053686e1922628c82bbe9d2348bcfee40f199fc702523e2"),
+        (1439, "6d72366ac6bad7bc6ba39ea742ff527102bab83562f3014811c28ec1cc4bf9c3"),
     ),
 }
 

@@ -1372,7 +1372,7 @@ fn build(world: &World, reads: &Reads, waits: &Waits, records: &Records, request
             (text("contract_enabled"), V::Bool(reads.holding.contains(SHARED))),
             (text("retained_records"), int(shared_count)),
             (text("retention_limit"), V::Int(20000)),
-            (text("read_route"), string("branch/history?kind=care or kind=operations")),
+            (text("read_route"), string("recorded in the saved Run's event log; GET branch/history answers kpis and conversations only")),
             (text("claim_boundary"), string("only event-linked applied transitions are indexed; this does not imply an unrecorded outcome")),
         ])),
     );

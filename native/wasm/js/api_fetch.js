@@ -5,9 +5,12 @@
 // requests go to the real fetch. The screen's JS is unchanged.
 //
 // The script's attributes: `data-worker` the Worker's URL (/browser/api_worker.mjs by default),
-// `data-sample` the sample's manifest (/sample/sample.json). While the sample is fetched and
-// imported on the first visit, the screen's notice (#notice) says how far it is.
-// `window.HinanjoBrowserApi` has `ready` (a Promise of { installed, ms }) and `stats()` for checks.
+// `data-sample` the sample's manifest (/sample/sample.json), `data-example-project` the sample's
+// Project and `data-compute-run` the Run the browser computes itself (compute.mjs's COMPUTE_RUN),
+// which the screen's home lists (#371). While the sample is fetched and imported on the first
+// visit, the screen's notice (#notice) says how far it is.
+// `window.HinanjoBrowserApi` has `ready` (a Promise of { installed, ms }), `site` ({ exampleProject,
+// computeRun }), `resetCompute()` (the home's 「計算をやり直す」) and `stats()` for checks.
 //
 // The first time the screen starts a computation (`POST …/runs/{run}/resume`, #267) the page asks
 // the browser to keep the store (`navigator.storage.persist()`, the decision on #265: once, when
@@ -19,6 +22,10 @@
   const script = document.currentScript;
   const workerUrl = script?.dataset.worker || "/browser/api_worker.mjs";
   const sampleUrl = new URL(script?.dataset.sample || "/sample/sample.json", location.href).href;
+  const site = {
+    exampleProject: script?.dataset.exampleProject || "sample",
+    computeRun: script?.dataset.computeRun || "run-browser-compute",
+  };
   const realFetch = window.fetch.bind(window);
   const pending = new Map();
   let next = 1;
@@ -114,8 +121,44 @@
     })();
   };
 
+  // 「計算をやり直す」: removes the folder of the Run the browser computes (api_worker.mjs's store,
+  // `projects/<example>/runs/<compute run>`) under the store's Web Lock. The Worker makes that Run
+  // again, not computed, when the page opens next (compute.mjs's ensureComputeRun), so the screen
+  // opens the page again after it. The sample is kept. A Run being computed (in this tab or
+  // another) has its files open, and is not removed.
+  async function resetCompute() {
+    const path = ["projects", site.exampleProject, "runs", site.computeRun];
+    const remove = async () => {
+      let folder = await navigator.storage.getDirectory();
+      for (const name of path.slice(0, -1)) folder = await folder.getDirectoryHandle(name);
+      await folder.removeEntry(path[path.length - 1], { recursive: true });
+    };
+    try {
+      await (navigator.locks ? navigator.locks.request("sheltersim-browser-store", remove) : remove());
+      return { removed: true, message: "消しました。このブラウザーでの計算を、0分からやり直せます。" };
+    } catch (error) {
+      const name = error?.name;
+      if (name === "NotFoundError") return { removed: false, message: "まだ計算していないので、消すものはありません。" };
+      if (name === "NoModificationAllowedError" || name === "InvalidModificationError") {
+        return {
+          removed: false,
+          message: "計算中のため消せません。計算を止めるか、計算しているタブを閉じてから、もう一度押してください。",
+        };
+      }
+      return { removed: false, message: `消せませんでした：${error?.message ?? error}` };
+    }
+  }
+
+  // A page shown again from the back-forward cache is loaded again, so a site updated since is
+  // not left showing its old page.
+  addEventListener("pageshow", (event) => {
+    if (event.persisted) location.reload();
+  });
+
   window.HinanjoBrowserApi = {
     ready,
+    site,
+    resetCompute,
     stats: () => ask({ type: "stats" }).then((data) => data.stats),
   };
 })();

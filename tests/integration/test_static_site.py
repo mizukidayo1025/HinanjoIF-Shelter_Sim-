@@ -4,7 +4,8 @@ scripts/serve_static_site.py serves it as a static host would.
 The site is built from a stand-in WASM package and a small bundle (only its header and manifest
 are read; the browser checks the rest): the screen's files are copied unchanged, demo-v2.html
 gains the one line that loads the browser's API, the bundle is split into parts no larger than
-asked that join back to it, and `/` goes to the sample's Run. The server answers `/demo-v2` with
+asked that join back to it, and `/` is the same page, which opens on its home
+(#371). The server answers `/demo-v2` with
 demo-v2.html and modules and WASM with their types over HTTP. The browser's half is checked by
 native/wasm/tests/node_browser_api.mjs and docs/development.md's browser checks.
 
@@ -100,7 +101,8 @@ def test_the_site_holds_the_screen_the_browser_api_and_the_sample_in_parts(
     added = [line for line in browser_html.splitlines() if line not in server_html.splitlines()]
     assert added == [
         '    <script src="/browser/api_fetch.js" data-worker="/browser/api_worker.mjs"'
-        ' data-sample="/sample/sample.json"></script>',
+        ' data-sample="/sample/sample.json" data-example-project="sample"'
+        ' data-compute-run="run-browser-compute"></script>',
     ]
     assert (output / "LICENSE.txt").read_bytes() == (STATIC.parents[3] / "LICENSE").read_bytes()
     for name, data in NOTICES.items():
@@ -130,14 +132,11 @@ def test_the_site_holds_the_screen_the_browser_api_and_the_sample_in_parts(
     assert summary["compute"] == (
         "/demo-v2?project=sample&run=run-browser-compute&branch=main#simulation"
     )
-    index = (output / "index.html").read_text(encoding="utf-8")
-    for target in (summary["open"], summary["compute"]):
-        assert f'href="{target.replace("&", "&amp;")}"' in index
-    # The reset button removes the folder of that Run in the Worker's store (api_worker.mjs).
-    assert '<button id="reset" type="button">計算をやり直す</button>' in index
+    # `/` is the screen itself, which opens on its home: the sample's Runs, the Run the browser
+    # computes with its reset (api_fetch.js), and the licenses the site holds.
+    assert (output / "index.html").read_text(encoding="utf-8") == browser_html
     for name in ("LICENSE.txt", *NOTICES):
-        assert f'href="/{name}"' in index
-    assert 'const path = ["projects", "sample", "runs", "run-browser-compute"];' in index
+        assert f'href="/{name}"' in browser_html and (output / name).is_file()
     worker_js = (STATIC.parents[3] / "native" / "wasm" / "js" / "api_worker.mjs").read_text("utf-8")
     assert 'root.getDirectoryHandle("projects", { create: true })' in worker_js
     # The Run the browser computes is the one compute.mjs makes.

@@ -19,11 +19,25 @@
   } catch {
     /* Invalid local preference only. */
   }
+  // The browser version (native/wasm/js/api_fetch.js) marks itself: its example Project and the
+  // Run it computes itself. The server's example is the Project `sample`
+  // (scripts/build_project_sample.py), when it has one.
+  const site = window.HinanjoBrowserApi?.site || {};
+  const exampleProject = site.exampleProject || "sample";
+  // The Project of the person's own Scenarios: new ones are made there, never in the example.
+  // A Project the address names is it, unless it is the example's.
+  const askedProject = query.get("project");
+  const ownProject =
+    askedProject && askedProject !== exampleProject
+      ? askedProject
+      : saved.own ||
+        (saved.project && saved.project !== exampleProject
+          ? saved.project
+          : `backup-${crypto.randomUUID()}`);
   const state = {
-    project:
-      query.get("project") || saved.project || `backup-${crypto.randomUUID()}`,
-    run: query.get("run") || saved.run || null,
-    branch: query.get("branch") || saved.branch || "main",
+    project: askedProject || ownProject,
+    run: query.get("run") || null,
+    branch: query.get("branch") || "main",
     minute: 0,
     data: null,
     frame: null,
@@ -44,7 +58,7 @@
     replay: null,
     visualMs: 0,
     busy: false,
-    page: "scenario",
+    page: "home",
     inputVersion: 0,
     seekVersion: 0,
     scope: 0,
@@ -53,6 +67,7 @@
     target: null,
     poll: null,
     mode: null,
+    homeVersion: 0,
   };
   const metricDefs = [
     {
@@ -200,7 +215,22 @@
     drinking: "給水中",
     toilet: "トイレ利用中",
   };
+  // The disaster as the screen says it: the text parser records an English family name
+  // (src/sheltersim/llm/region_prepare.py), the form records what was chosen.
+  const disasterName = (value) =>
+    ({
+      flood: "洪水",
+      earthquake: "地震",
+      tsunami: "津波",
+      landslide: "土砂災害",
+      storm_surge: "高潮",
+      typhoon: "台風",
+      heavy_snow: "大雪",
+      heatwave: "猛暑",
+    })[value] || value;
   const base = () => `/api/v1/projects/${enc(state.project)}`;
+  // New Scenarios go to one's own Project, whichever Run is open.
+  const ownBase = () => `/api/v1/projects/${enc(ownProject)}`;
   const runBase = () => `${base()}/runs/${enc(state.run)}`;
   const branchBase = (id = state.branch) => `${runBase()}/branches/${enc(id)}`;
   const reference = (id = state.branch) =>
@@ -301,20 +331,31 @@
       }, 1800);
   }
   function remember() {
-    localStorage.setItem(
-      "hinanjo-if-backup",
-      JSON.stringify({
-        project: state.project,
-        run: state.run,
-        branch: state.branch,
-      }),
-    );
-    const params = new URLSearchParams({ project: state.project });
+    try {
+      localStorage.setItem(
+        "hinanjo-if-backup",
+        JSON.stringify({
+          own: ownProject,
+          project: state.project,
+          run: state.run,
+          branch: state.branch,
+        }),
+      );
+    } catch {
+      /* The address below still holds what is open. */
+    }
+    // The address names what is open; the home of one's own Project with nothing open is the
+    // bare /demo-v2, which opens the home.
+    const params = new URLSearchParams();
+    if (state.run || state.project !== ownProject)
+      params.set("project", state.project);
     if (state.run) {
       params.set("run", state.run);
       params.set("branch", state.branch);
     }
-    history.replaceState(null, "", `/demo-v2?${params}#${state.page}`);
+    const search = params.size ? `?${params}` : "";
+    const hash = search || state.page !== "home" ? `#${state.page}` : "";
+    history.replaceState(null, "", `/demo-v2${search}${hash}`);
   }
   async function api(path, body) {
     const response = await fetch(path, {
@@ -376,9 +417,9 @@
     $(id).addEventListener("click", () =>
       action("処理中です。APIの応答を待っています…", callback),
     );
+  const PAGES = ["home", "scenario", "simulation", "comparison", "report"];
   function show(page) {
-    if (!["scenario", "simulation", "comparison", "report"].includes(page))
-      page = "scenario";
+    if (!PAGES.includes(page)) page = "home";
     state.page = page;
     document.body.dataset.view = page;
     stopPlayback();
@@ -397,6 +438,184 @@
     requestAnimationFrame(drawAll);
     if (page === "report" && state.run)
       void action("レポートと記録済みの根拠を取得しています…", loadReport);
+    if (page === "home") loadHome().catch((e) => note(loadFailure(e), "error"));
+  }
+  // A Run's name on the home and in the header: where, what disaster, how many people, how long.
+  function runTitle(run, scenarios) {
+    const scenario = scenarios.find(
+        (s) =>
+          s.scenario_id === run.scenario_id &&
+          s.scenario_version === run.scenario_version,
+      )?.scenario,
+      request =
+        scenario?.provenance?.natural_language_input ||
+        scenario?.provenance?.initial_scenario_request,
+      people = scenario?.profiles?.length,
+      days = scenario?.duration_minutes / 1440;
+    return {
+      name: request
+        ? `${request.municipality} · ${disasterName(request.disaster)}`
+        : run.scenario_id,
+      size: [
+        typeof people === "number" ? `${people}人` : null,
+        Number.isFinite(days) ? `${num(days)}日間` : null,
+      ]
+        .filter(Boolean)
+        .join(" · "),
+      total: scenario?.duration_minutes,
+    };
+  }
+  // How far a Run is computed, in words.
+  function runProgress(run, total) {
+    const main = run.branches?.find((b) => b.branch_id === "main"),
+      until = main?.computed_until ?? 0;
+    if (run.status === "completed" || (total && until >= total))
+      return "最後まで計算済み";
+    if (run.status === "running") return `計算中 · ${time(until)}まで`;
+    if (!until) return "まだ計算していません";
+    return `${time(until)}まで計算済み`;
+  }
+  function runLink(projectId, run, scenarios, label) {
+    const { name, size, total } = runTitle(run, scenarios),
+      params = new URLSearchParams({
+        project: projectId,
+        run: run.run_id,
+        branch: "main",
+      }),
+      link = el("a", undefined, "home-run");
+    link.href = `/demo-v2?${params}#simulation`;
+    link.append(
+      el("strong", label || name),
+      el("span", [label ? name : null, size].filter(Boolean).join(" · ")),
+      el("small", runProgress(run, total)),
+    );
+    link.addEventListener("click", (event) => {
+      if (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey)
+        return;
+      event.preventDefault();
+      void openRun(projectId, run.run_id);
+    });
+    return link;
+  }
+  // The home: the example's Runs, the Run the browser computes itself (the browser version) and
+  // one's own Scenarios. It reads the Projects and changes nothing.
+  async function loadHome() {
+    const scope = ++state.homeVersion,
+      listed = new Set(
+        (await api("/api/v1/projects")).projects.map((p) => p.project_id),
+      ),
+      read = async (id) => (listed.has(id) ? api(`/api/v1/projects/${enc(id)}`) : null),
+      [example, own] = await Promise.all([
+        read(exampleProject),
+        ownProject === exampleProject ? null : read(ownProject),
+      ]);
+    if (scope !== state.homeVersion) return;
+    const examples = (example?.runs || []).filter(
+        (r) => r.run_id !== site.computeRun && r.status === "completed",
+      ),
+      computeRun = (example?.runs || []).find(
+        (r) => r.run_id === site.computeRun,
+      );
+    $("home-example").hidden = !examples.length;
+    $("home-example-list").replaceChildren(
+      ...examples.map((r) =>
+        runLink(exampleProject, r, example.scenarios, "計算済みの例を見る"),
+      ),
+    );
+    $("home-compute").hidden = !computeRun;
+    $("home-compute-list").replaceChildren(
+      ...(computeRun
+        ? [
+            runLink(
+              exampleProject,
+              computeRun,
+              example.scenarios,
+              "このブラウザーで計算する",
+            ),
+          ]
+        : []),
+    );
+    $("home-browser-notes").hidden = !window.HinanjoBrowserApi;
+    const mine = own?.runs || [];
+    $("home-own-list").replaceChildren(
+      ...(mine.length
+        ? mine.map((r) => runLink(ownProject, r, own.scenarios))
+        : [el("p", "まだシナリオはありません。", "quiet-message")]),
+    );
+  }
+  async function openRun(projectId, runId) {
+    await action("シナリオを開いています…", async () => {
+      clearTimeout(state.poll);
+      state.scope++;
+      state.project = projectId;
+      state.run = runId;
+      state.branch = "main";
+      state.minute = 0;
+      state.loadedRun = null;
+      state.data = null;
+      state.frame = null;
+      state.comparison = null;
+      state.history = [];
+      state.context = null;
+      state.selected = null;
+      state.selectedGroup = [];
+      state.mapPan = { x: 0, y: 0 };
+      state.zoom = 1;
+      state.report = null;
+      invalidateIntervention();
+      resetChat();
+      await refreshRuns();
+      await refreshRun();
+    });
+    if (state.run === runId && state.data) show("simulation");
+  }
+  function newScenario() {
+    clearTimeout(state.poll);
+    stopPlayback();
+    state.scope++;
+    state.project = ownProject;
+    state.run = null;
+    state.branch = "main";
+    state.data = null;
+    state.frame = null;
+    state.loadedRun = null;
+    state.comparison = null;
+    state.history = [];
+    state.context = null;
+    state.report = null;
+    invalidateIntervention();
+    resetChat();
+    clearRunView();
+    $("saved-runs").replaceChildren(el("option", "新しいシナリオ"));
+    $("saved-runs").firstChild.value = "";
+    show("scenario");
+    void refreshRuns().catch(() => {
+      /* The Project is made on the first preview. */
+    });
+  }
+  // The browser version's 「計算をやり直す」: api_fetch.js removes the Run the browser computed,
+  // and the page opens again so its Worker makes that Run again, not computed (#267).
+  async function resetCompute() {
+    const question =
+      "このブラウザーで計算した結果を消して、0分から計算し直せるようにします。" +
+      "計算済みの例は消えません。計算しているタブがあれば、先に閉じてください。よろしいですか？";
+    if (!confirm(question)) return;
+    $("home-reset").disabled = true;
+    $("home-reset-note").textContent = "消しています…";
+    try {
+      const result = await window.HinanjoBrowserApi.resetCompute();
+      $("home-reset-note").textContent = result.message;
+      if (result.removed) {
+        try {
+          sessionStorage.setItem("hinanjo-if-reset", result.message);
+        } catch {
+          /* The note is only lost. */
+        }
+        location.replace("/demo-v2");
+      }
+    } finally {
+      $("home-reset").disabled = false;
+    }
   }
   function invalidateScenario() {
     state.inputVersion++;
@@ -410,6 +629,20 @@
     $("blockers").replaceChildren(
       el("p", "入力が変更されました。再プレビューしてください。", "muted"),
     );
+  }
+  // What the screen shows of a Run, emptied when none is open.
+  function clearRunView() {
+    renderKpis($("sim-kpis"));
+    renderKpis($("report-kpis"));
+    $("clock").textContent = "開始前";
+    $("branch-select").replaceChildren();
+    $("compare-branch").replaceChildren();
+    $("issues").replaceChildren();
+    $("events").replaceChildren();
+    $("people-list").replaceChildren();
+    $("person-detail").replaceChildren();
+    $("scenario-name").textContent = "避難所の「もしも」";
+    $("scenario-summary").textContent = "条件を入力して\nシミュレーションを始めましょう。";
   }
   function invalidateIntervention() {
     state.intervention = null;
@@ -509,10 +742,10 @@
       $("progress").value = upper();
     }
   }
-  async function ensureProject() {
+  async function ensureProject(id = state.project) {
     const list = await api("/api/v1/projects");
-    if (!list.projects.some((p) => p.project_id === state.project))
-      await api("/api/v1/projects", { project_id: state.project });
+    if (!list.projects.some((p) => p.project_id === id))
+      await api("/api/v1/projects", { project_id: id });
   }
   async function refreshRuns() {
     const result = await api(`${base()}/runs`);
@@ -586,7 +819,7 @@
       );
     if (!hasFields && !text)
       throw new Error("自然言語または基本設定を入力してください。");
-    await ensureProject();
+    await ensureProject(ownProject);
     if (hasFields && (!req.municipality || !req.disaster || !req.evacuees)) {
       const hints = [
         req.municipality ? `${req.municipality}で` : null,
@@ -596,7 +829,7 @@
       ]
         .filter(Boolean)
         .join("、");
-      const extracted = await api(`${base()}/scenario-preview`, {
+      const extracted = await api(`${ownBase()}/scenario-preview`, {
         text: `${text}\n入力欄の指定: ${hints}`,
       });
       if (version !== state.inputVersion)
@@ -614,7 +847,7 @@
         },
       };
     }
-    const result = await api(`${base()}/scenario-preview`, {
+    const result = await api(`${ownBase()}/scenario-preview`, {
       text,
       ...(hasFields ? { request: req } : {}),
     });
@@ -636,7 +869,6 @@
     }
     state.preview = result;
     renderPreview();
-    await refreshRuns();
   }
   function sourceRows(box, rows) {
     box.replaceChildren();
@@ -679,16 +911,17 @@
     $("preview-mode").textContent =
       `${llmModeLabel(p.llm_usage?.mode)} · 補完値を要確認`;
     if (!state.run) {
-      $("scenario-name").textContent = r.municipality + " · " + r.disaster;
+      $("scenario-name").textContent =
+        r.municipality + " · " + disasterName(r.disaster);
       $("scenario-summary").textContent =
         r.evacuees + "人 / " + num(r.duration_days) + "日間の試算";
     }
     $("preview-summary").textContent =
-      `${r.municipality}での${r.disaster}を想定し、${r.evacuees}人・${num(r.duration_days)}日間の避難所運営を試算します。施設・人口は合成モデルです。`;
+      `${r.municipality}での${disasterName(r.disaster)}を想定し、${r.evacuees}人・${num(r.duration_days)}日間の避難所運営を試算します。施設・人口は合成モデルです。`;
     $("condition-chips").replaceChildren(
       ...[
         r.municipality,
-        r.disaster,
+        disasterName(r.disaster),
         `${r.evacuees}人`,
         `${num(r.duration_days)}日間`,
       ].map((t) => el("span", t, "chip")),
@@ -790,12 +1023,17 @@
     if (!p?.can_start || !$("scenario-check").checked)
       throw new Error("確認と明示承認が必要です。");
     const runId = `run-${crypto.randomUUID()}`;
-    await api(`${base()}/scenario-approve`, {
+    await api(`${ownBase()}/scenario-approve`, {
       preview_id: p.preview_id,
       approved_hash: p.approved_hash,
       approved: true,
       run_id: runId,
     });
+    clearTimeout(state.poll);
+    state.project = ownProject;
+    state.loadedRun = null;
+    state.data = null;
+    state.frame = null;
     state.run = runId;
     state.branch = "main";
     state.minute = 0;
@@ -836,7 +1074,7 @@
         state.scenario?.provenance?.natural_language_input ||
         state.scenario?.provenance?.initial_scenario_request;
       state.displayName = req
-        ? `${req.municipality} · ${req.disaster}`
+        ? `${req.municipality} · ${disasterName(req.disaster)}`
         : data.scenario_id;
       const selectedOption = [...$("saved-runs").options].find(
         (o) => o.value === state.run,
@@ -2338,6 +2576,19 @@
   document
     .querySelectorAll("[data-page]")
     .forEach((b) => b.addEventListener("click", () => show(b.dataset.page)));
+  // The logo opens the home, keeping what is open.
+  document.querySelector(".brand").addEventListener("click", (event) => {
+    if (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey)
+      return;
+    event.preventDefault();
+    show("home");
+  });
+  $("home-new").addEventListener("click", newScenario);
+  $("home-reset").addEventListener("click", () => {
+    resetCompute().catch((e) => {
+      $("home-reset-note").textContent = `消せませんでした：${e.message}`;
+    });
+  });
   $("scenario-form").addEventListener("submit", (e) => {
     e.preventDefault();
     void action(
@@ -2671,15 +2922,7 @@
         await refreshRun();
         show("simulation");
       } else {
-        renderKpis($("sim-kpis"));
-        renderKpis($("report-kpis"));
-        $("clock").textContent = "開始前";
-        $("branch-select").replaceChildren();
-        $("compare-branch").replaceChildren();
-        $("issues").replaceChildren();
-        $("events").replaceChildren();
-        $("people-list").replaceChildren();
-        $("person-detail").replaceChildren();
+        clearRunView();
         show("scenario");
       }
       remember();
@@ -2784,7 +3027,14 @@
         "error",
       );
     }
-    show(requestedPage || (state.run ? "simulation" : "scenario"));
+    try {
+      const reset = sessionStorage.getItem("hinanjo-if-reset");
+      sessionStorage.removeItem("hinanjo-if-reset");
+      if (reset) note(reset, "success");
+    } catch {
+      /* No note to carry over. */
+    }
+    show(requestedPage || (state.run ? "simulation" : "home"));
     controls();
   }
   // What the screen says when it cannot open: the browser version's own failures (its store,

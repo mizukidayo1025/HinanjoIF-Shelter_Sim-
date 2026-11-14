@@ -191,3 +191,45 @@ assert.match(loadFailure(new Error("HTTP 500")), /URLのproject\/run指定/);
         capture_output=True,
         text=True,
     )
+
+
+def test_the_address_names_what_is_open_and_the_bare_screen_is_the_home():
+    """The home with nothing open is the bare /demo-v2, which opens the home again (#371); a Run
+    or another Project than one's own is in the query, and any other page in the hash."""
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("Node is required for the UI callback regression")
+    source = Path("src/sheltersim/web/static/demo-v2.js").resolve()
+    script = r"""
+import fs from "node:fs";
+import assert from "node:assert/strict";
+const source = fs.readFileSync(process.argv[1], "utf8");
+const body = source.split("  function remember() {")[1].split("  async function api(")[0];
+let stored = null, address = null;
+const localStorage = {setItem: (key, value) => {stored = [key, JSON.parse(value)];}};
+const history = {replaceState: (_s, _t, url) => {address = url;}};
+const ownProject = "backup-1";
+let state;
+const remember = eval("(function remember() {" + body + ")");
+for (const [given, url] of [
+  [{project: "backup-1", run: null, branch: "main", page: "home"}, "/demo-v2"],
+  [{project: "backup-1", run: null, branch: "main", page: "scenario"}, "/demo-v2#scenario"],
+  [{project: "sample", run: null, branch: "main", page: "home"}, "/demo-v2?project=sample#home"],
+  [{project: "sample", run: "r1", branch: "b2", page: "simulation"},
+    "/demo-v2?project=sample&run=r1&branch=b2#simulation"],
+  [{project: "backup-1", run: "r2", branch: "main", page: "home"},
+    "/demo-v2?project=backup-1&run=r2&branch=main#home"],
+]) {
+  state = given;
+  remember();
+  assert.equal(address, url);
+  assert.deepEqual(stored, ["hinanjo-if-backup",
+    {own: "backup-1", project: given.project, run: given.run, branch: given.branch}]);
+}
+"""
+    subprocess.run(
+        [node, "--input-type=module", "-e", script, str(source)],
+        check=True,
+        capture_output=True,
+        text=True,
+    )

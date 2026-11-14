@@ -3543,3 +3543,87 @@ h2 {
   background-size: 443px auto;
   background-position: -109.5px -31px;
 }
+
+/* ホーム（#371）：最初に開く画面。例・ブラウザーでの計算・自分のシナリオへの入口 */
+.home-hero {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 22px 26px;
+  margin-bottom: 14px;
+  background: linear-gradient(110deg, #ffffff 40%, #e3f2ff);
+}
+.home-hero small {
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+}
+.home-hero h1 {
+  margin: 4px 0 6px;
+  font-size: 24px;
+}
+.home-hero p {
+  margin: 0;
+  max-width: 46em;
+}
+.home-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 14px;
+  align-items: start;
+}
+.home-card h2 {
+  margin-bottom: 4px;
+}
+.home-list {
+  display: grid;
+  gap: 8px;
+  margin: 10px 0;
+}
+.home-run {
+  display: grid;
+  gap: 1px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f7fbff;
+  color: inherit;
+  text-decoration: none;
+}
+.home-run:hover,
+.home-run:focus-visible {
+  border-color: var(--blue);
+  background: var(--blue-light);
+}
+.home-run strong {
+  color: var(--blue);
+  font-size: 14px;
+}
+.home-run span {
+  overflow-wrap: anywhere;
+}
+.home-run small {
+  color: var(--muted);
+}
+.home-reset {
+  display: grid;
+  gap: 4px;
+  justify-items: start;
+}
+.home-reset p:empty {
+  display: none;
+}
+.home-notes {
+  margin: 14px 2px 0;
+}
+@media (max-width: 540px) {
+  .home-hero {
+    padding: 14px;
+  }
+  .home-hero h1 {
+    font-size: 19px;
+  }
+  .home-grid {
+    grid-template-columns: 1fr;
+  }
+}

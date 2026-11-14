@@ -16,7 +16,7 @@
     <script src="/demo-v2-map.js" defer></script>
     <script src="/demo-v2.js" defer></script>
   </head>
-  <body data-view="scenario">
+  <body data-view="home">
     <header class="app-header">
       <a class="brand" href="/demo-v2"
         ><span
@@ -49,7 +49,9 @@
     </header>
     <aside class="sidebar">
       <nav aria-label="メインナビゲーション">
-        <button class="nav-item active" data-page="scenario">
+        <button class="nav-item active" data-page="home">
+          <span data-icon="home"></span>ホーム</button
+        ><button class="nav-item" data-page="scenario">
           <span data-icon="scenario"></span>シナリオ設定</button
         ><button class="nav-item" data-page="simulation">
           <span data-icon="simulation"></span>シミュレーション</button
@@ -109,12 +111,56 @@
       </div>
     </aside>
     <main>
-      <div id="notice" class="notice" role="status" aria-live="polite">
-        条件を入力し、プレビューで出典と仮定を確認してください。
-      </div>
+      <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
+      <section id="page-home" class="page active" aria-labelledby="home-heading">
+        <div class="home-hero panel">
+          <div>
+            <small>合成の人物・施設によるモデル実験</small>
+            <h1 id="home-heading">避難所の「もしも」を、考えよう。</h1>
+            <p>
+              避難所の数日間を計算して地図と指標で見返し、ある時刻から条件を変えた分岐と比べます。
+            </p>
+          </div>
+        </div>
+        <div class="home-grid">
+          <article id="home-example" class="panel home-card" hidden>
+            <h2>計算済みの例</h2>
+            <p class="fine">あらかじめ計算した結果です。計算を待たずに再生できます。</p>
+            <div id="home-example-list" class="home-list"></div>
+          </article>
+          <article id="home-compute" class="panel home-card" hidden>
+            <h2>このブラウザーで計算</h2>
+            <p class="fine">
+              例と同じシナリオを0分から計算します。「終了まで計算」を押すと、時計が進むのを見ながら7日分を計算できます（数十秒）。
+            </p>
+            <div id="home-compute-list" class="home-list"></div>
+            <div class="home-reset">
+              <button id="home-reset" type="button">計算をやり直す</button>
+              <span class="fine">このブラウザーで計算した結果を消し、0分に戻します。例は消えません。</span>
+              <p id="home-reset-note" class="fine" role="status"></p>
+            </div>
+          </article>
+          <article id="home-own" class="panel home-card">
+            <h2>自分のシナリオ</h2>
+            <p class="fine">条件を入力して、新しいシナリオを作れます。作ったシナリオはここから開けます。</p>
+            <div id="home-own-list" class="home-list"></div>
+            <button id="home-new" class="primary" type="button">＋ 新しいシナリオを作る</button>
+          </article>
+        </div>
+        <p class="fine home-notes">
+          人物・施設・出来事はすべて合成のモデルで、実在の避難所や人の記録ではありません。実際の安全性や医療の結果を予測するものではありません。
+        </p>
+        <p id="home-browser-notes" class="fine home-notes" hidden>
+          計算も表示も、このブラウザーの中で動きます。初めて開くときは、例のデータ（約47 MB）を読み込んで、このブラウザーに保存します。
+          <a href="/LICENSE.txt">ライセンス</a>・<a href="/THIRD-PARTY-NOTICES.txt">外部の部品のライセンス</a>（<a
+            href="/THIRD-PARTY-NOTICES-rust-library.html"
+            >Rustの標準ライブラリー</a
+          >）
+        </p>
+      </section>
       <section
         id="page-scenario"
-        class="page active"
+        class="page"
         aria-labelledby="scenario-heading"
       >
         <h1 id="scenario-heading" class="sr-only">

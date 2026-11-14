@@ -82,7 +82,7 @@ OS_SUBSET_DIRECTORIES = ("unit", "e2e")
 
 
 def _take_os_subset(config: pytest.Config, items: list[pytest.Item]) -> None:
-    """Keep what the Windows and macOS jobs of the offline CI run on a pull request (#380).
+    """Keep what the Windows and macOS jobs of 「PRの確認」 (ci.yml) run (#380).
 
     The bytes of a Run are the same on every OS (the hashes of every path, checked on each),
     so those jobs leave out the tests that only compute: they keep the quick tests of

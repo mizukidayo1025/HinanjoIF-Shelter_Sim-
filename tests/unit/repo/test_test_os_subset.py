@@ -1,4 +1,4 @@
-"""`pytest --os-subset` keeps what the Windows and macOS jobs of the offline CI run (#380).
+"""`pytest --os-subset` keeps what the Windows and macOS jobs of 「PRの確認」 (ci.yml) run (#380).
 
 Those jobs keep tests/unit, tests/e2e and the integration tests marked os_dependent; the rest
 runs on Linux on every pull request and on each OS by hand. The subset is taken before the

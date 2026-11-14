@@ -21,7 +21,6 @@ from urllib.request import Request, urlopen
 import pytest
 from support.paths import REGRESSION_CONTRACT
 
-from sheltersim.web.inspector import InspectorService
 from sheltersim.web.server import _handler_for
 
 FORK_MINUTE = 60
@@ -58,9 +57,7 @@ class _Client:
 
 @pytest.fixture
 def client(ui_project_api, tmp_path) -> Iterator[_Client]:
-    server = HTTPServer(
-        ("127.0.0.1", 0), _handler_for(InspectorService(tmp_path / "runs"), projects=ui_project_api)
-    )
+    server = HTTPServer(("127.0.0.1", 0), _handler_for(ui_project_api))
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:

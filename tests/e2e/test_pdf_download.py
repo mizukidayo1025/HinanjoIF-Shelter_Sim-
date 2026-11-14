@@ -9,7 +9,6 @@ from __future__ import annotations
 import json
 from io import BytesIO
 
-from sheltersim.web.inspector import InspectorService
 from sheltersim.web.server import _handler_for
 
 
@@ -18,7 +17,7 @@ def test_pdf_http_attachment_and_existing_origin_guard(
 ):
     api = report_saved_run
     install_report_router(api, monkeypatch)
-    handler_type = _handler_for(InspectorService(tmp_path), projects=api)
+    handler_type = _handler_for(api)
 
     def request(origin="http://localhost:8765"):
         handler = handler_type.__new__(handler_type)

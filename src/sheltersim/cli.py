@@ -279,15 +279,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="override SHELTERSIM_LLM_MODE",
     )
 
-    web = subparsers.add_parser("web", help="serve a local read-only browser inspector")
-    web.add_argument("--runs-dir", type=Path, default=Path("runs"), help="saved run directory")
+    web = subparsers.add_parser("web", help="serve the local browser screen (/demo-v2)")
+    web.add_argument(
+        "--runs-dir",
+        type=Path,
+        default=Path("runs"),
+        help="directory whose .projects subdirectory holds the saved Projects",
+    )
     web.add_argument("--host", default="127.0.0.1", help="bind address (default: loopback)")
     web.add_argument("--port", type=int, default=8765, help="HTTP port (default: 8765)")
-    web.add_argument(
-        "--demo-scenario",
-        type=Path,
-        help="optional local JSON scenario for the offline intervention demo",
-    )
     web.add_argument(
         "--max-parallel-runs",
         type=_positive_int,
@@ -375,7 +375,6 @@ def main(argv: Sequence[str] | None = None) -> int:
             arguments.runs_dir,
             host=arguments.host,
             port=arguments.port,
-            demo_scenario=arguments.demo_scenario,
             max_parallel_runs=arguments.max_parallel_runs,
             project_storage_bytes=arguments.project_storage_gb * 1_000_000_000,
         )

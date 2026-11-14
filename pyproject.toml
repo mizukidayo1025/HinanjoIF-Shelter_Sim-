@@ -42,9 +42,7 @@ where = ["src"]
 "sheltersim.storage" = ["*.zdict"]
 "sheltersim.web" = [
     "fonts/*.ttf", "fonts/OFL.txt",
-    "static/*.html", "static/*.js", "static/*.css", "static/*.jpg", "examples/*.json",
-    "static/vendor/pdfjs/*.mjs", "static/vendor/pdfjs/LICENSE", "static/vendor/pdfjs/NOTICE.txt",
-    "static/vendor/pdfjs/cmaps/*", "static/vendor/pdfjs/standard_fonts/*",
+    "static/*.html", "static/*.js", "static/*.css", "static/*.jpg",
 ]
 
 [tool.pytest.ini_options]

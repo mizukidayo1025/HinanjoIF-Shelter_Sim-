@@ -1,8 +1,7 @@
 """Comparison reports: first divergence, causal links, paired-seed and sensitivity
 summaries, and each side's psychology model.
 
-Comparisons of saved Runs are checked in tests/integration/test_comparison.py, and the
-demo comparison's movement and capacity-wait KPIs in tests/integration/test_web_demo.py.
+Comparisons of saved Runs are checked in tests/integration/test_comparison.py.
 """
 
 from __future__ import annotations

@@ -185,10 +185,12 @@ def test_live_official_domain_search_returns_only_verifiable_source_candidates(
     assert campaign.summary()["estimated_cost_usd"] < 50
 
 
-def test_live_scenario_intervention_runtime_review_and_results_question(
-    tmp_path, monkeypatch
-) -> None:
-    """Exercise real feature schemas and saved evidence under the shared paid cap."""
+def test_live_scenario_intervention_runtime_and_review(tmp_path, monkeypatch) -> None:
+    """Exercise real feature schemas and saved evidence under the shared paid cap.
+
+    The question about the saved Run's results went with the older screens' saved-run route
+    (#376); questions are asked of a Project's Branch (`POST …/questions`).
+    """
     import json
     import uuid
     from dataclasses import replace
@@ -206,10 +208,6 @@ def test_live_scenario_intervention_runtime_review_and_results_question(
     from sheltersim.llm.prepare import generate_scenario_draft
     from sheltersim.llm.runtime import EventTriggeredSocialPolicy
     from sheltersim.llm.schemas import ParseRequest
-    from sheltersim.storage.projects import ProjectStore
-    from sheltersim.web.demo import DemoService
-    from sheltersim.web.inspector import InspectorService
-    from sheltersim.web.results_chat import ResultsChatService
 
     run_tag = uuid.uuid4().hex[:12]
     cache_path = tmp_path / f"feature-{run_tag}-qna-tape.json"
@@ -315,24 +313,10 @@ def test_live_scenario_intervention_runtime_review_and_results_question(
     if review["status"] == "validated":
         assert router.records[-1].outcome == "recorded"
     else:
-        # Preserve the failure category while still checking downstream saved-result
-        # Q&A; a fallback review is a QA finding, never a paid-review pass.
+        # Preserve the failure category; a fallback review is a QA finding, never a
+        # paid-review pass.
         assert router.records[-1].fallback_used is True, router.records[-1].error_kind
 
-    projects_root = store.root
-    demo = DemoService(usage_store=ProjectStore(projects_root))
-    chat = ResultsChatService(InspectorService(tmp_path / "runs"), demo)
-    answer = chat.ask(
-        {
-            "run_id": output.name,
-            "branch_id": "main",
-            "question": (
-                "Return one cited fact for the exact JSON value in alias S1 field stress_mean. "
-                "Use field stress_mean and copy the scalar as a JSON-serialized string. "
-                "Do not add an explanation."
-            ),
-        }
-    )
     print(
         "LIVE_FEATURE_QA="
         + json.dumps(
@@ -344,21 +328,6 @@ def test_live_scenario_intervention_runtime_review_and_results_question(
                     "event_applied": bool(decision.event_id),
                 },
                 "review_status": review["status"],
-                "q_and_a": {
-                    key: answer.get("usage", {}).get(key)
-                    for key in (
-                        "outcome",
-                        "error_kind",
-                        "accepted_fact_count",
-                        "accepted_explanation_count",
-                        "rejected_fact_batch",
-                        "rejected_explanation_batch",
-                        "input_tokens",
-                        "output_tokens",
-                        "answer_fallback_kind",
-                    )
-                },
-                "q_and_a_source_count": len(answer.get("sources", [])),
                 "calls": [
                     {
                         "stage": record.stage,
@@ -377,8 +346,3 @@ def test_live_scenario_intervention_runtime_review_and_results_question(
             sort_keys=True,
         )
     )
-    assert answer["mode"] == "record"
-    assert answer["usage"]["api_request_count"] == 1
-    assert answer["usage"]["outcome"] == "recorded"
-    assert answer["facts"]
-    assert answer["sources"]

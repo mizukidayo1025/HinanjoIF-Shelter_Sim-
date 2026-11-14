@@ -5,9 +5,8 @@
 PKG_DIR is the output of `wasm-bindgen --target web` for sheltersim_wasm.wasm, and the bundle the
 sample of scripts/build_browser_sample.py (docs/development.md, "ブラウザー版の静的サイト"). The
 screen's files (src/sheltersim/web/static/demo-v2*) are copied unchanged; the browser build's
-demo-v2.html is the server's with two more lines: the script that wraps `fetch` and answers the
-screen's `/api/v1/...` in a Worker from the browser's store and WASM (native/wasm/js/api_fetch.js),
-and a style that hides the link to the old screen (/demo), which the site does not have.
+demo-v2.html is the server's with one more line: the script that wraps `fetch` and answers the
+screen's `/api/v1/...` in a Worker from the browser's store and WASM (native/wasm/js/api_fetch.js).
 
 The site is served at the root of its domain, as the screen loads `/demo-v2.css` and the like and
 `history.replaceState`s to `/demo-v2?…`:
@@ -91,13 +90,11 @@ PKG_FILES = ("sheltersim_wasm.js", "sheltersim_wasm_bg.wasm")
 COMPUTE_RUN = "run-browser-compute"
 SAMPLE_FORMAT = "sheltersim-site-sample"
 SAMPLE_VERSION = 1
-# The lines the browser build adds to demo-v2.html, before the screen's first script: the script
-# that answers the API, and a style that hides the link to the old screen (/demo), which the static
-# site does not have.
+# The line the browser build adds to demo-v2.html, before the screen's first script: the script
+# that answers the API.
 SHIM = (
     '<script src="/browser/api_fetch.js" data-worker="/browser/api_worker.mjs"'
-    ' data-sample="/sample/sample.json"></script>\n'
-    '    <style>a[href="/demo"] { display: none; }</style>'
+    ' data-sample="/sample/sample.json"></script>'
 )
 FIRST_SCRIPT = '<script src="/demo-v2-scene.js" defer></script>'
 # The licenses of what the WASM holds (#290): its crates' in NOTICES, the Rust standard library's

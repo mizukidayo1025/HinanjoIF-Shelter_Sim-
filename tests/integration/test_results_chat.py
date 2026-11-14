@@ -101,7 +101,7 @@ def test_project_chat_accepts_verbatim_string_evidence(tmp_path) -> None:
         settings, provider=VerbatimProvider(), tape=ResponseTape()
     )
     try:
-        answer = ResultsChatService(None, None, api).ask(
+        answer = ResultsChatService(api).ask(
             {
                 "question": "What was recorded?",
                 "project_id": "project",
@@ -147,7 +147,7 @@ def test_project_evidence_compares_branches_as_the_comparison_route_does(tmp_pat
     timeline.advance("child", 30)
     api = ProjectAPI(store, recover=False)
     try:
-        evidence, _, _ = ResultsChatService(None, None, api)._project_evidence(
+        evidence, _, _ = ResultsChatService(api)._project_evidence(
             "project", "run", "main", 20, None, ["child"]
         )
         expected = api.workspace.comparison("project", "run", ["main", "child"], 20)

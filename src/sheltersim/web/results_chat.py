@@ -6,16 +6,12 @@ import hashlib
 import json
 import re
 import secrets
-import threading
 import time
 import uuid
 from typing import Any
 
 from sheltersim.llm.contracts import LLMStage, LLMTask
 from sheltersim.llm.natural_language import _sanitize_narrative
-from sheltersim.llm.report import scenario_assumption_ids
-from sheltersim.web.demo import DemoService
-from sheltersim.web.inspector import InspectorService, WebQueryError
 
 _MAX_QUESTION = 2000
 _MAX_EVIDENCE = 20
@@ -156,21 +152,20 @@ _REDACT_ENTITY = re.compile(
 )
 
 
+class WebQueryError(ValueError):
+    """An invalid or unavailable question about a Project Run's results."""
+
+
 class ResultsChatService:
     """Create read-only evidence packets and route bounded Opus questions."""
 
-    def __init__(
-        self, inspector: InspectorService | None, demo: DemoService | None, projects: Any = None
-    ) -> None:
-        self.inspector = inspector
-        self.demo = demo
+    def __init__(self, projects: Any) -> None:
         self.projects = projects
-        self._contexts: dict[str, dict[str, Any]] = {}
-        self._lock = threading.RLock()
 
     def ask(self, body: dict[str, Any]) -> dict[str, Any]:
+        """Answer `POST …/branches/{b}/questions`; body names the Project, Run and Branch."""
         if body.get("project_id") is not None and self.projects is not None:
-            # Serialize analysis snapshots with completion reviews, including the legacy URL.
+            # Serialize analysis snapshots with completion reviews.
             with self.projects.workspace._lock:
                 return self._ask(body)
         return self._ask(body)
@@ -219,64 +214,49 @@ class ResultsChatService:
                 question = question.replace(private_id, "[selected entity]")
 
         project_id = body.get("project_id")
-        if project_id is not None and (not isinstance(project_id, str) or self.projects is None):
+        if not isinstance(project_id, str) or self.projects is None:
             raise WebQueryError("project result context is unavailable")
-        if project_id is not None:
-            if not isinstance(run_id, str) or demo_branch_id is not None:
-                raise WebQueryError("Project questions require a Project Run")
-            question = question.replace(project_id, "[selected project]")
-        if "history_query" in body and project_id is None:
-            raise WebQueryError("history_query requires a Project Run")
-        evidence, sources, context = (
-            self._project_evidence(
-                project_id,
-                run_id,
-                branch_id,
-                minute,
-                agent_id,
-                body.get("comparison_branch_ids", []),
-                body.get("history_query"),
-            )
-            if project_id is not None
-            else (
-                self._demo_evidence(demo_branch_id, minute, agent_id)
-                if isinstance(demo_branch_id, str)
-                else self._run_evidence(run_id, branch_id, minute, agent_id)
-            )
+        if not isinstance(run_id, str) or demo_branch_id is not None:
+            raise WebQueryError("Project questions require a Project Run")
+        question = question.replace(project_id, "[selected project]")
+        evidence, sources, context = self._project_evidence(
+            project_id,
+            run_id,
+            branch_id,
+            minute,
+            agent_id,
+            body.get("comparison_branch_ids", []),
+            body.get("history_query"),
         )
         query_scope = context.get("history_scope")
         context_key = _digest(context)
-        context_id, history = self._context_history(body.get("context_id"), context_key)
-        if project_id is not None:
-            from sheltersim.storage.history_index import HistoryIndex
+        from sheltersim.storage.history_index import HistoryIndex
 
-            stored = HistoryIndex(self.projects.store, project_id, run_id).conversation_tail(
-                context["branch_id"], requested_context, _MAX_HISTORY
-            )
-            # Persisted turns are scoped to this exact evidence packet. A client may
-            # retain an old conversation_id after changing minute/person/branches;
-            # only this scope-derived ID can resume a stored conversation.
-            scope_prefix = context_key[:32]
-            valid_context = isinstance(requested_context, str) and re.fullmatch(
-                rf"c{scope_prefix}-[0-9a-f]{{24}}", requested_context
-            )
-            context_id = (
-                requested_context if valid_context else f"c{scope_prefix}-{secrets.token_hex(12)}"
-            )
-            history = (
-                [
-                    {"question": t["question"], "answer": t["answer"]}
-                    for t in stored
-                    if t.get("conversation_id") == context_id
-                ][-_MAX_HISTORY:]
-                if valid_context
-                else []
-            )
-            router = self.projects.workspace.analysis_router(
-                project_id, run_id, branch_id=context["branch_id"]
-            )
-        else:
-            router = self.demo.llm_router(context.get("branch_id"))
+        stored = HistoryIndex(self.projects.store, project_id, run_id).conversation_tail(
+            context["branch_id"], requested_context, _MAX_HISTORY
+        )
+        # Persisted turns are scoped to this exact evidence packet. A client may
+        # retain an old conversation_id after changing minute/person/branches;
+        # only this scope-derived ID can resume a stored conversation.
+        scope_prefix = context_key[:32]
+        valid_context = isinstance(requested_context, str) and re.fullmatch(
+            rf"c{scope_prefix}-[0-9a-f]{{24}}", requested_context
+        )
+        context_id = (
+            requested_context if valid_context else f"c{scope_prefix}-{secrets.token_hex(12)}"
+        )
+        history = (
+            [
+                {"question": t["question"], "answer": t["answer"]}
+                for t in stored
+                if t.get("conversation_id") == context_id
+            ][-_MAX_HISTORY:]
+            if valid_context
+            else []
+        )
+        router = self.projects.workspace.analysis_router(
+            project_id, run_id, branch_id=context["branch_id"]
+        )
 
         if router is None or router.mode.value == "offline":
             result = {
@@ -544,11 +524,6 @@ class ResultsChatService:
         )
         mode = router.mode.value
         model = record.model_id if record else None
-        with self._lock:
-            turns = [*history, {"question": question, "answer": answer}][-_MAX_HISTORY:]
-            self._contexts[context_id] = {"scope": context_key, "turns": turns}
-            while len(self._contexts) > 100:
-                self._contexts.pop(next(iter(self._contexts)))
         result = {
             "answer": answer,
             "sources": used_sources,
@@ -606,15 +581,12 @@ class ResultsChatService:
             if citations
             else "unavailable",
         }
-        if project_id is not None:
-            self.projects.workspace.save_analysis(project_id, run_id, router)
+        self.projects.workspace.save_analysis(project_id, run_id, router)
         return self._persist_project(project_id, question, result)
 
     def _persist_project(
-        self, project_id: str | None, question: str, result: dict[str, Any]
+        self, project_id: str, question: str, result: dict[str, Any]
     ) -> dict[str, Any]:
-        if project_id is None:
-            return result
         context = result["context"]
         self.projects.store.save_turn(
             project_id,
@@ -866,198 +838,6 @@ class ResultsChatService:
                 "history_scope": query_scope,
             },
         )
-
-    def _run_evidence(
-        self, run_id: Any, branch_id: str | None, minute: int | None, agent_id: str | None
-    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
-        if not isinstance(run_id, str):
-            raise WebQueryError("run_id is invalid")
-        overview = self.inspector.overview(run_id)
-        manifest = overview.get("manifest", {})
-        final_minute = manifest.get("final_minute")
-        if not isinstance(final_minute, int):
-            raise WebQueryError("result questions require a saved run with a final minute")
-        selected_minute = final_minute if minute is None else minute
-        if selected_minute > final_minute:
-            raise WebQueryError("minute exceeds the saved Run")
-        selected_branch = branch_id or manifest.get("branch_id", "main")
-        timeline = self.inspector.timeline(run_id, at_minute=selected_minute, limit=1)
-        metric = timeline.get("selected")
-        if not isinstance(metric, dict):
-            raise WebQueryError("no recorded KPI is available at or before this minute")
-        captured_minute = metric.get("minute_index")
-        context = {
-            "run_id": run_id,
-            "branch_id": selected_branch,
-            "requested_minute": selected_minute,
-            "captured_minute": captured_minute,
-            "agent_id": agent_id,
-        }
-        evidence: list[dict[str, Any]] = []
-        sources: list[dict[str, Any]] = []
-
-        def add(kind: str, label: str, data: dict[str, Any], reference: dict[str, Any]) -> None:
-            if len(evidence) >= _MAX_EVIDENCE:
-                return
-            alias = f"S{len(evidence) + 1}"
-            evidence.append({"alias": alias, "kind": kind, "data": data})
-            sources.append({"alias": alias, "kind": kind, "label": label, **reference})
-
-        add(
-            "recorded_kpi",
-            f"KPI · minute {captured_minute}",
-            {key: metric[key] for key in _KPI_FIELDS if key in metric},
-            {"run_id": run_id, "branch_id": selected_branch, "minute": captured_minute},
-        )
-        event_start = max(0, selected_minute - 60)
-        event_page = self.inspector.events(
-            run_id,
-            start_minute=event_start,
-            end_minute=selected_minute,
-            branch_id=selected_branch,
-            status="realized",
-            limit=12,
-        )
-        for event in event_page.get("items", []):
-            event_id = event.get("event_id")
-            add(
-                "recorded_event",
-                f"Event · {event.get('event_type')} · minute {event.get('minute')}",
-                {
-                    "minute": event.get("minute"),
-                    "event_type": event.get("event_type"),
-                    "status": event.get("status"),
-                    "reason": event.get("reason"),
-                },
-                {"run_id": run_id, "branch_id": selected_branch, "event_id": event_id},
-            )
-        if agent_id:
-            map_view = self.inspector.zone_map(
-                run_id, at_minute=selected_minute, selected_agent_id=agent_id
-            )
-            selected = map_view.get("selected_agent")
-            if isinstance(selected, dict):
-                add(
-                    "agent_state",
-                    "Selected Agent · latest recorded state at or before requested minute",
-                    {
-                        key: selected.get(key)
-                        for key in (
-                            "zone_id",
-                            "activity",
-                            "stress",
-                            "queue_kind",
-                            "queue_wait_minutes",
-                            "support_status",
-                            "support_wait_minutes",
-                        )
-                        if key in selected
-                    },
-                    {"run_id": run_id, "branch_id": selected_branch, "agent_id": agent_id},
-                )
-        audit = self.inspector.audit(run_id, limit=10)
-        llm_records = audit.get("llm_calls", [])
-        model_evidence = [
-            {
-                key: call.get(key)
-                for key in ("stage", "outcome", "model_id", "prompt_version", "schema_version")
-                if call.get(key) is not None
-            }
-            for call in llm_records[-5:]
-        ]
-        if model_evidence:
-            add(
-                "model_provenance",
-                "Recorded model provenance",
-                {"calls": model_evidence},
-                {"run_id": run_id, "branch_id": selected_branch, "source": "llm_calls.jsonl"},
-            )
-        context["captured_minute"] = captured_minute
-        return evidence, sources, context
-
-    def _demo_evidence(
-        self, branch_id: Any, minute: int | None, agent_id: str | None
-    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
-        if not isinstance(branch_id, str):
-            raise WebQueryError("demo_branch_id is invalid")
-        frame = self.demo.frame_view(branch_id, at_minute=minute)
-        if not frame.get("exact"):
-            raise WebQueryError("results questions require an exact saved Branch checkpoint")
-        if frame.get("status") != "completed":
-            raise WebQueryError("results questions require a completed Branch")
-        selected_minute = frame["minute"]
-        context = {
-            "run_id": frame.get("run_id"),
-            "branch_id": branch_id,
-            "requested_minute": selected_minute,
-            "captured_minute": selected_minute,
-            "agent_id": agent_id,
-        }
-        evidence: list[dict[str, Any]] = []
-        sources: list[dict[str, Any]] = []
-
-        def add(kind: str, label: str, data: dict[str, Any], reference: dict[str, Any]) -> None:
-            if len(evidence) >= _MAX_EVIDENCE:
-                return
-            alias = f"S{len(evidence) + 1}"
-            evidence.append({"alias": alias, "kind": kind, "data": data})
-            sources.append({"alias": alias, "kind": kind, "label": label, **reference})
-
-        metric = frame.get("kpis") or {}
-        add(
-            "recorded_kpi",
-            f"KPI · minute {selected_minute}",
-            {key: metric[key] for key in _KPI_FIELDS if key in metric},
-            {"run_id": frame.get("run_id"), "branch_id": branch_id, "minute": selected_minute},
-        )
-        for event in frame.get("events", []):
-            add(
-                "recorded_event",
-                f"Event · {event.get('event_type')} · minute {event.get('minute')}",
-                {
-                    "minute": event.get("minute"),
-                    "event_type": event.get("event_type"),
-                    "status": event.get("status"),
-                },
-                {
-                    "run_id": frame.get("run_id"),
-                    "branch_id": branch_id,
-                    "event_id": event.get("event_id"),
-                },
-            )
-        if agent_id:
-            selected = next(
-                (item for item in frame.get("people", []) if item.get("id") == agent_id), None
-            )
-            if selected is None:
-                raise WebQueryError("selected Agent is not in this Branch frame")
-            add(
-                "agent_state",
-                "Selected Agent · exact WorldState checkpoint",
-                {key: selected.get(key) for key in ("zone_id", "activity", "stress", "needs")},
-                {"run_id": frame.get("run_id"), "branch_id": branch_id, "agent_id": agent_id},
-            )
-        assumptions = scenario_assumption_ids(self.demo.scenario)
-        if assumptions:
-            add(
-                "model_assumptions",
-                "Scenario model assumption IDs",
-                {"source_ids": assumptions[:32]},
-                {
-                    "run_id": frame.get("run_id"),
-                    "branch_id": branch_id,
-                    "source": "scenario manifest",
-                },
-            )
-        return evidence, sources, context
-
-    def _context_history(self, candidate: Any, scope: str) -> tuple[str, list[dict[str, str]]]:
-        with self._lock:
-            if isinstance(candidate, str):
-                current = self._contexts.get(candidate)
-                if current and current.get("scope") == scope:
-                    return candidate, list(current.get("turns", []))[-_MAX_HISTORY:]
-            return secrets.token_urlsafe(24), []
 
 
 _MISSING = object()

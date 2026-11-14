@@ -7,8 +7,6 @@ from io import BytesIO
 
 import pytest
 
-from sheltersim.web.demo import DemoService
-from sheltersim.web.inspector import InspectorService
 from sheltersim.web.server import _handler_for
 
 
@@ -26,7 +24,7 @@ from sheltersim.web.server import _handler_for
     ],
 )
 def test_backup_assets_are_independent_and_served_locally(tmp_path, route, content_type, marker):
-    handler_type = _handler_for(InspectorService(tmp_path), DemoService())
+    handler_type = _handler_for()
     handler = handler_type.__new__(handler_type)
     statuses, headers = [], {}
     handler.send_response = statuses.append
@@ -41,5 +39,4 @@ def test_backup_assets_are_independent_and_served_locally(tmp_path, route, conte
     assert marker in body
     if route == "/demo-v2":
         assert b"/demo-v2.js" in body and b"/demo-v2.css" in body
-        assert b'src="/project.js"' not in body and b'src="/app.js"' not in body
         assert b"https://cdn" not in body

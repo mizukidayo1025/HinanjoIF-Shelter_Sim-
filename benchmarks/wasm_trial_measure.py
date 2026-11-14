@@ -40,6 +40,8 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
+from browser_profiles import FreshBrowser
+
 PAGE = Path(__file__).resolve().parent / "wasm_trial" / "index.html"
 # The page that stores a Run in OPFS as it goes and reads it back (#252, PR 6-5), and its JS.
 STORE_PAGE = PAGE.with_name("store.html")
@@ -114,7 +116,7 @@ def measure_store(
     }
     with _Site(worlds, pkg) as site, sync_playwright() as playwright:
         for name in browsers:
-            browser = getattr(playwright, name).launch()
+            browser = FreshBrowser(playwright, name)
             per_world: dict[str, Any] = {"version": browser.version, "worlds": {}}
             for world in names:
                 context = browser.new_context()
@@ -185,7 +187,7 @@ def check_projects(
     results: dict[str, Any] = {"browsers": {}}
     with _Site(worlds, pkg, bundle) as site, sync_playwright() as playwright:
         for name in browsers:
-            browser = getattr(playwright, name).launch()
+            browser = FreshBrowser(playwright, name)
             checked: dict[str, Any] = {"version": browser.version, "checks": {}}
             for check, query in queries.items():
                 context = browser.new_context()
@@ -240,7 +242,7 @@ def measure(worlds: Path, pkg: Path, browsers: list[str], repeat: int) -> dict[s
         try:
             with sync_playwright() as playwright:
                 for name in browsers:
-                    browser = getattr(playwright, name).launch()
+                    browser = FreshBrowser(playwright, name)
                     per_world: dict[str, Any] = {"version": browser.version, "worlds": {}}
                     for world in names:
                         context = browser.new_context()

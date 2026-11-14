@@ -79,6 +79,7 @@ sys.path.insert(0, str(ROOT / "benchmarks"))
 sys.path.insert(0, str(ROOT / "scripts"))
 import serve_static_site  # noqa: E402 - the local server of the site, a script
 import static_site_check as site_check  # noqa: E402 - its comparison helpers
+from browser_profiles import FreshBrowser  # noqa: E402 - fresh profiles with OPFS
 
 STAGES = ("scenario", "compute", "intervention", "compare", "report")
 PROJECT = "e2e"
@@ -1609,7 +1610,7 @@ def check(
             for index, name in enumerate(browsers):
                 mode = modes[index % len(modes)]
                 print(f"{name} (compute {mode})", flush=True)
-                browser = getattr(playwright, name).launch()
+                browser = FreshBrowser(playwright, name)
                 context = browser.new_context()
                 errors: list[str] = []
                 try:

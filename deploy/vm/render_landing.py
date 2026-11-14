@@ -46,7 +46,7 @@ if len(sys.argv) > 3:
             "branch": sample["open_branch_id"],
         }
     )
-    sample_path = f"/demo-v2?{query}#simulation"
+    sample_path = f"/?{query}#simulation"
     fork = sample["fork_minute"]
     sample_note = html.escape(
         f"「計算済みの例をすぐ見る」は、{sample['agent_count']}人・"
@@ -62,7 +62,7 @@ if len(sys.argv) > 3:
 
 def slot_item(n: int) -> str:
     base = f"https://s{n}.{domain}"
-    item = f'<a href="{html.escape(base)}/demo-v2">環境 {n}</a>'
+    item = f'<a href="{html.escape(base)}/">環境 {n}</a>'
     if sample_path is not None:
         item += f'（<a href="{html.escape(base + sample_path)}">計算済みの例をすぐ見る</a>）'
     return f"<li>{item}</li>"

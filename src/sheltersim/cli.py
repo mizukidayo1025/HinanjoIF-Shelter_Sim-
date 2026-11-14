@@ -279,7 +279,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="override SHELTERSIM_LLM_MODE",
     )
 
-    web = subparsers.add_parser("web", help="serve the local browser screen (/demo-v2)")
+    web = subparsers.add_parser("web", help="serve the local browser screen (/)")
     web.add_argument(
         "--runs-dir",
         type=Path,

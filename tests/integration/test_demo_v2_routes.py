@@ -1,4 +1,4 @@
-"""The independent backup UI (demo-v2) is served locally by the HTTP routes.
+"""The screen (demo-v2.html at /, #376) and its files are served locally by the HTTP routes.
 
 Its zone target resolution is checked in tests/unit/llm/test_natural_language.py.
 """
@@ -13,7 +13,7 @@ from sheltersim.web.server import _handler_for
 @pytest.mark.parametrize(
     ("route", "content_type", "marker"),
     [
-        ("/demo-v2", "text/html", "避難所IF！".encode()),
+        ("/", "text/html", "避難所IF！".encode()),
         ("/demo-v2.css", "text/css", b"--navy"),
         ("/demo-v2.js", "text/javascript", b"scenario-approve"),
         ("/demo-v2-map.js", "text/javascript", b"Hinanj"),
@@ -37,6 +37,6 @@ def test_backup_assets_are_independent_and_served_locally(tmp_path, route, conte
     assert statuses == [200]
     assert headers["Content-Type"].startswith(content_type)
     assert marker in body
-    if route == "/demo-v2":
+    if route == "/":
         assert b"/demo-v2.js" in body and b"/demo-v2.css" in body
         assert b"https://cdn" not in body

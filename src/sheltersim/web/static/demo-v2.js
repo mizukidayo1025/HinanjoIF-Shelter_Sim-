@@ -360,7 +360,7 @@
       /* The address below still holds what is open. */
     }
     // The address names what is open; the home of one's own Project with nothing open is the
-    // bare /demo-v2, which opens the home.
+    // bare /, which opens the home. The screen is at / since #376 (/demo-v2 before).
     const params = new URLSearchParams();
     if (state.project && (state.run || state.project !== ownId))
       params.set("project", state.project);
@@ -370,7 +370,7 @@
     }
     const search = params.size ? `?${params}` : "";
     const hash = search || state.page !== "home" ? `#${state.page}` : "";
-    history.replaceState(null, "", `/demo-v2${search}${hash}`);
+    history.replaceState(null, "", `/${search}${hash}`);
   }
   async function api(path, body) {
     const response = await fetch(path, {
@@ -542,7 +542,7 @@
         branch: "main",
       }),
       link = el("a", undefined, "home-run");
-    link.href = `/demo-v2?${params}#simulation`;
+    link.href = `/?${params}#simulation`;
     link.append(
       el("strong", label || name),
       el("span", [label ? name : null, named ? null : size].filter(Boolean).join(" · ")),
@@ -683,7 +683,7 @@
         } catch {
           /* The note is only lost. */
         }
-        location.replace("/demo-v2");
+        location.replace("/");
       }
     } finally {
       $("home-reset").disabled = false;

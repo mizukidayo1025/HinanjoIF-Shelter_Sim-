@@ -17,7 +17,7 @@ ProjectStore / TimelineStore <- Checkpoint / BranchRuntime
 Run成果物、履歴index、frame projection、比較レポート
 ~~~
 
-Python標準ライブラリのHTTPサーバーがローカルブラウザーの画面（`/demo-v2`）を配信します。ブラウザーは型付きrequestを送信し、simulation stateを直接書き換えません。読取りはstateを変えず、Project操作は別の検証済みcommandを使います。CLI Run成果物は`sheltersim inspect`（`inspection`）がread-onlyで読みます。
+Python標準ライブラリのHTTPサーバーがローカルブラウザーの画面（`/`）を配信します。ブラウザーは型付きrequestを送信し、simulation stateを直接書き換えません。読取りはstateを変えず、Project操作は別の検証済みcommandを使います。CLI Run成果物は`sheltersim inspect`（`inspection`）がread-onlyで読みます。
 
 ## モジュールの責務
 

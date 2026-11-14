@@ -1,4 +1,4 @@
-"""The precomputed sample Project (scripts/build_project_sample.py) that /demo-v2 opens.
+"""The precomputed sample Project (scripts/build_project_sample.py) that the screen opens.
 
 A short variant of the sample is built through the builder: the same ProjectAPI routes
 the new UI calls (scenario-preview and scenario-approve of a generated Scenario, resume,
@@ -99,7 +99,7 @@ def test_the_sample_holds_a_completed_run_and_an_approved_outage_branch(
     assert summary["scenario"]["has_facility_geometry"] is True
     assert "toilet_01" in summary["scenario"]["toilets"]
     assert summary["open_branch_id"] == "main"
-    assert summary["open_path"] == f"/demo-v2?project=sample&run={run_id}&branch=main#simulation"
+    assert summary["open_path"] == f"/?project=sample&run={run_id}&branch=main#simulation"
 
     store = ProjectStore(tmp_path / "projects")
     assert [p["project_id"] for p in store.projects()] == ["sample"]

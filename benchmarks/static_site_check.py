@@ -7,7 +7,7 @@
 SITE_DIR is the output of scripts/build_static_site.py; it is served as a static host would
 (scripts/serve_static_site.py). In each browser, on a fresh profile (an empty OPFS):
 
-1. The screen: `/` links to `/demo-v2?…`, the sample is fetched and imported, the simulation page
+1. The screen: its home `/` links to `/?…`, the sample is fetched and imported, the simulation page
    shows the sample's Run; seeking to a minute (the time slider), playing for a few seconds and
    the report page's history graph work, and the page reports no error (page errors, console
    errors, the notice's error state).
@@ -264,7 +264,7 @@ def _open(page: Any, base: str, link: str | None, url: str | None = None) -> dic
         page.click(f"text={link}")
     else:
         page.goto(base + url)
-    page.wait_for_url(re.compile(r"/demo-v2\?project="), timeout=TIMEOUT_MS)
+    page.wait_for_url(re.compile(r"/\?project="), timeout=TIMEOUT_MS)
     ready = page.evaluate("window.HinanjoBrowserApi.ready")
     page.wait_for_function(
         "() => document.body.dataset.view === 'simulation'"
@@ -436,7 +436,7 @@ def computing(
         page = context.new_page()
         page.set_default_timeout(TIMEOUT_MS)
         _attach(page, steps.setdefault("errors_after_reopen", []))
-        url = f"/demo-v2?project={PROJECT}&run={COMPUTE_RUN}&branch=main#simulation"
+        url = f"/?project={PROJECT}&run={COMPUTE_RUN}&branch=main#simulation"
         steps["reopen_ready"] = _open(page, base, None, url)
         steps["reopened"] = _record(page)
         reopened = steps["reopened"]

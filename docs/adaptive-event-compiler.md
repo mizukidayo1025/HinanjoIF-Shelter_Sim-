@@ -37,7 +37,7 @@ guardはfield allowlistとeq/ne/gt/gte/lt/lte/and/orだけを使う上限付き�
 5. **preview/承認:** 対応action、仮定、対応範囲、限界、approximate用parameterを表示し、利用者の確認を求める。
 6. **Branch作成:** event前のCheckpointから分岐し、compiler/model、prompt hash、承認plan、利用者修正、event記録、modifier stateを保存する。
 7. **simulation:** 決定的tick engineが組合せeffectと後段Policyを処理する。previewを観測済みmodel出力と偽らない。
-8. **管理画面:** compiled AST、検証・修正記録、対象ID、係数仮定、schedule、decision、Run hash、provenance、Provider利用を参照可能にする。
+8. **参照:** compiled AST、検証・修正記録、対象ID、係数仮定、schedule、decision、Run hash、provenance、Provider利用を、Projectの記録とAPI（evidence、audit、利用記録）から参照可能にする。画面での表示は`/demo-v2`へ移す予定です（#376）。
 
 ## 現在のcompiler動作
 
@@ -74,7 +74,7 @@ APIキーなしの規則の読み取りでは、日付（`2026-10-14`、`10/13`�
 3. 受理した全programがschemaとdomainの事前検証を通ること。
 4. parse/previewで元WorldStateが変わらず、承認適用が一括かつidempotentであること。
 5. no-op branch/replay決定性と、Checkpoint復元後もmodifier期限が一致すること。
-6. 適用effectにeffect_idとevent/LLM compiler provenanceがあり、Inspectorから確認できること。
+6. 適用effectにeffect_idとevent/LLM compiler provenanceがあり、Branchの記録から確認できること。
 7. model利用不可時に、計算する内容・しない内容を説明し、架空の数値結果を出さないこと。
 
 目標は限界を表示した上で汎用primitiveを組み合わせることです。万能な科学的妥当性や、phraseごとの固定handlerを増やすことではありません。

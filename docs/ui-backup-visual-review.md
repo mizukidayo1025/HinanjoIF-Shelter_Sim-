@@ -109,5 +109,5 @@ offlineのBranch reportは `rule_fallback` であり、ライブAI生成の成�
 - `tests/integration/test_demo_v2_routes.py`：静的ルート検証。
 - `scripts/test_demo_v2.cjs`、`scripts/review_demo_v2.py`：実ブラウザー検証。
 
-`/demo`、`/admin`、シミュレーションエンジン、承認hash、Checkpointの保存契約は維持する。
+シミュレーションエンジン、承認hash、Checkpointの保存契約は維持する（当時の`/demo`、`/admin`は#376でなくしました）。
 `main`、`feature/ui-design`は変更せず、PRは作成しない。

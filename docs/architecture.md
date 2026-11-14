@@ -5,7 +5,7 @@
 ~~~text
 CLI / ローカルHTTPサーバー
         |
-Project、Scenario、Inspector、Demoサービス
+Project、Scenario、Workspaceサービス
         |
 Scenario + Policy設定 -> WorldState -> 決定的tick engine
         |                            |                |
@@ -14,10 +14,10 @@ Scenario + Policy設定 -> WorldState -> 決定的tick engine
         |                            |
 ProjectStore / TimelineStore <- Checkpoint / BranchRuntime
         |
-Run成果物、履歴index、Inspector projection、比較レポート
+Run成果物、履歴index、frame projection、比較レポート
 ~~~
 
-Python標準ライブラリのHTTPサーバーがローカルブラウザーアプリを配信します。ブラウザーは型付きrequestを送信し、simulation stateを直接書き換えません。保存済みRunのInspectorはread-onlyです。Project操作は別の検証済みcommandを使います。
+Python標準ライブラリのHTTPサーバーがローカルブラウザーの画面（`/demo-v2`）を配信します。ブラウザーは型付きrequestを送信し、simulation stateを直接書き換えません。読取りはstateを変えず、Project操作は別の検証済みcommandを使います。CLI Run成果物は`sheltersim inspect`（`inspection`）がread-onlyで読みます。
 
 ## モジュールの責務
 
@@ -32,7 +32,7 @@ Python標準ライブラリのHTTPサーバーがローカルブラウザーア�
 | region | 地域データ、geometry検証、施設図面取込 |
 | llm | Provider adapter、型付き出力、cache、応答再生、利用額記録 |
 | storage | Project、asset、Run、Checkpoint、履歴indexの永続化 |
-| web | ローカルHTTP route、Project API、Inspector、Demo、ブラウザーasset |
+| web | ローカルHTTP route、Project API、ブラウザーasset |
 
 実装の正本はパッケージ構成です。公開入力・状態契約はsrc/sheltersim/contracts、event/world model、およびserializationと互換性を確認するテストにあります。
 
@@ -93,11 +93,7 @@ ScenarioSpec、WorldState、Checkpoint、EffectProgram、Project recordはそれ
 
 ProjectStoreとTimelineStoreは、ローカルProject、承認済みScenario、Run、Branch、Checkpoint chunk、asset、index付き証拠を保持します。CLI Run成果物にはmanifest、凍結Scenario、event記録、metrics、任意のモデル利用記録が含まれます。formatは有効化した機能によって異なります。APIリファレンスを参照してください。
 
-HTTP APIは次の3領域を分けています。
-
-- /api/v1/projects: 永続Projectと状態変更操作。
-- /api/v1/runs: 保存Run成果物の上限付きread-only参照。
-- /api/v1/demo: process内のデモBranch。
+HTTP APIは永続Projectと状態変更操作（/api/v1/projects）と、利用記録の参照（/api/v1/usage/runtime）です。以前の画面のための保存Run成果物の参照（/api/v1/runs）とprocess内のデモBranch（/api/v1/demo）は#376でなくしました。
 
 HTTPサーバーは既定で127.0.0.1にbindします。認証機能がないため、信頼できないネットワークへ公開してはいけません。
 

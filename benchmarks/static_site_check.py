@@ -7,21 +7,22 @@
 SITE_DIR is the output of scripts/build_static_site.py; it is served as a static host would
 (scripts/serve_static_site.py). In each browser, on a fresh profile (an empty OPFS):
 
-1. The screen: its home `/` links to `/?…`, the sample is fetched and imported, the simulation page
-   shows the sample's Run; seeking to a minute (the time slider), playing for a few seconds and
-   the report page's history graph work, and the page reports no error (page errors, console
-   errors, the notice's error state).
+1. The screen: on its home `/`, 「計算済みの例を取得する」 lists the site's examples, and the
+   sample is fetched and imported when chosen (#411); then the simulation page shows the
+   sample's Run; seeking to a minute (the time slider), playing for a few seconds and the report
+   page's history graph work, and the page reports no error (page errors, console errors, the
+   notice's error state).
 2. With --python-projects (a ProjectStore root holding Project `sample` with the main branch of
    the sample's Scenario, as scripts/build_project_sample.py computes it on the Python Project
    route), the stage-A routes' JSON the browser answers is compared with what the Python server
    answers (ProjectAPI in this process, serialized as server.py does): the records, timeline at
    saved points and minutes between, replay windows (one after a jump, then consecutive ones), the
    history of the KPIs at several steps and pages, report and llm-status. Values are compared with
-   their types (1 and 1.0 differ). The fields EXCLUDED lists differ by design, and the Run only
-   the browser makes (COMPUTE_RUN, see 3) is left out of the browser's Run lists (NORMALIZED);
-   any other difference fails the check. The times of the browser's answers are recorded.
-3. With --compute (#267), the Run the browser computes itself (`/` links to it), each mode in a
-   fresh profile: `pieces` starts computing to the end, cancels after a day, resumes, closes the
+   their types (1 and 1.0 differ). The fields EXCLUDED lists differ by design; any other
+   difference fails the check. The times of the browser's answers are recorded.
+3. With --compute (#267), a Run of the sample's Scenario made through the API beside the sample's
+   (COMPUTE_RUN, `POST runs`: the browser builds its world at minute 0), each mode in a fresh
+   profile: `pieces` starts computing to the end, cancels after a day, resumes, closes the
    page after three days and opens it again (the Run shows `interrupted` and its last head), and
    resumes to the end; `full` computes the 7 days at once and times it. While it computes, the
    screen's clock must move. Then seeking, playing and the history graph work on the computed Run,
@@ -53,7 +54,11 @@ import serve_static_site  # noqa: E402 - the local server of the site, a script
 from browser_profiles import FreshBrowser  # noqa: E402 - next to this script
 
 PROJECT, RUN, BRANCH = "sample", "run-sample-toilet-outage", "main"
-COMPUTE_RUN = "run-browser-compute"
+# The Run of the sample's Scenario the check makes and computes (3): the site offered one until
+# #411; now the check makes it as a person's own Run is made, through `POST runs`.
+COMPUTE_RUN = "run-check-compute"
+# What the home's list of examples says of the sample (build_browser_sample.py: 墨田区).
+EXAMPLE_PLACE = "墨田区"
 COMPUTE_PATH = f"/api/v1/projects/{PROJECT}/runs/{COMPUTE_RUN}"
 RUN_PATH = f"/api/v1/projects/{PROJECT}/runs/{RUN}"
 BRANCH_PATH = f"{RUN_PATH}/branches/{BRANCH}"
@@ -87,15 +92,6 @@ EXCLUDED = [
         "is compared",
     ),
 ]
-# The routes whose browser answer is made comparable before comparing, and why. Only the Run the
-# browser alone makes is left out of the Run lists; everything else in them is compared.
-COMPUTE_RUN_ROUTES = (f"/api/v1/projects/{PROJECT}", f"/api/v1/projects/{PROJECT}/runs")
-NORMALIZED = {
-    "compute_run": f"the Run the browser computes itself ({COMPUTE_RUN}, compute.mjs COMPUTE_RUN) "
-    f"is made by the site's Worker in Project {PROJECT}; the Python ProjectStore "
-    "(build_project_sample.py) has only the sample's Run, so it is left out of the browser's "
-    "Run list",
-}
 
 
 def _routes() -> list[str]:
@@ -150,19 +146,6 @@ def _excluded(route: str, path: tuple[Any, ...]) -> str | None:
         if all(field == "*" or field == str(key) for field, key in zip(fields, path, strict=True)):
             return reason
     return None
-
-
-def _normalize(route: str, document: Any) -> tuple[Any, list[str]]:
-    """The browser's answer with what NORMALIZED lists made comparable, and which of it applied."""
-    if route not in COMPUTE_RUN_ROUTES or not isinstance(document, dict):
-        return document, []
-    runs = document.get("runs")
-    if not isinstance(runs, list):
-        return document, []
-    kept = [run for run in runs if not (isinstance(run, dict) and run.get("run_id") == COMPUTE_RUN)]
-    if len(kept) == len(runs):
-        return document, []
-    return {**document, "runs": kept}, [NORMALIZED["compute_run"]]
 
 
 class Python:
@@ -223,12 +206,10 @@ def compare(page: Any, python: Python) -> dict[str, Any]:
         status, text = python.answer(python_route)
         python_ms = (time.perf_counter() - started) * 1000
         found: list[tuple[Any, ...]] = []
-        applied: list[str] = []
         if got["status"] != status:
             found.append((("status",), status, got["status"]))
         else:
-            ours, applied = _normalize(route, json.loads(got["text"]))
-            _differences(json.loads(text), ours, (), found)
+            _differences(json.loads(text), json.loads(got["text"]), (), found)
         if "history?" in route and status == got["status"] == 200:
             # The cursors name the branch's head: compare what else they hold.
             ours, theirs = json.loads(got["text"]), json.loads(text)
@@ -246,9 +227,7 @@ def compare(page: Any, python: Python) -> dict[str, Any]:
                     )
                 )
                 print(f"  (next page of {label})", flush=True)
-        excluded = sorted(
-            {reason for path, *_ in found if (reason := _excluded(route, path))} | set(applied)
-        )
+        excluded = sorted({reason for path, *_ in found if (reason := _excluded(route, path))})
         left = [item for item in found if _excluded(route, item[0]) is None]
         results.append(
             {
@@ -284,11 +263,28 @@ SCREEN_STATE = """() => ({
 })"""
 
 
-def _open(page: Any, base: str, link: str | None, url: str | None = None) -> dict[str, Any]:
-    """Open `/` and follow the link `link` (or open `url`), until the simulation page shows."""
+POST = """async ([route, body]) => {
+  const response = await fetch(route, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  return { status: response.status, text: await response.text() };
+}"""
+
+
+def fetch_example(page: Any, base: str) -> None:
+    """On the home `/`, 「計算済みの例を取得する」 and the sample chosen from the list (#411): the
+    sample is fetched and imported, and the screen opens its Run."""
+    page.goto(base + "/")
+    page.click("#home-fetch")
+    page.click(f"#examples-list .examples-item:has-text('{EXAMPLE_PLACE}') button")
+
+
+def _open(page: Any, base: str, url: str | None = None) -> dict[str, Any]:
+    """Fetch the sample from the home (or open `url`), until the simulation page shows."""
     if url is None:
-        page.goto(base + "/")
-        page.click(f"text={link}")
+        fetch_example(page, base)
     else:
         page.goto(base + url)
     page.wait_for_url(re.compile(r"/\?project="), timeout=TIMEOUT_MS)
@@ -306,7 +302,7 @@ def screen(page: Any, base: str, screenshots: Path | None, name: str) -> dict[st
     problems: list[str] = []
     steps: dict[str, Any] = {}
     started = time.perf_counter()
-    steps["ready"] = _open(page, base, "計算済みの例を見る")
+    steps["ready"] = _open(page, base)
     steps["open_s"] = round(time.perf_counter() - started, 2)
     state = page.evaluate(SCREEN_STATE)
     steps["opened"] = state
@@ -439,7 +435,27 @@ def computing(
     steps: dict[str, Any] = {}
     watched: list[dict[str, Any]] = []
     started = time.perf_counter()
-    steps["ready"] = _open(page, base, "このブラウザーで計算する")
+    steps["ready"] = _open(page, base)
+    sample = json.loads(page.evaluate(FETCH, RUN_PATH)["text"])
+    made = page.evaluate(
+        POST,
+        [
+            f"/api/v1/projects/{PROJECT}/runs",
+            {
+                "run_id": COMPUTE_RUN,
+                "scenario_id": sample["scenario_id"],
+                "scenario_version": sample["scenario_version"],
+            },
+        ],
+    )
+    if made["status"] != 200:
+        problems.append(f"the Run to compute was not made: {made['status']} {made['text'][:200]}")
+    page.goto(base + f"/?project={PROJECT}&run={COMPUTE_RUN}&branch=main#simulation")
+    page.wait_for_function(
+        "() => document.body.dataset.view === 'simulation'"
+        " && !document.getElementById('compute-end').disabled",
+        timeout=TIMEOUT_MS,
+    )
     steps["open_s"] = round(time.perf_counter() - started, 2)
     steps["created"] = _record(page)
     if steps["created"]["status"] != "queued" or steps["created"]["branches"][0]["computed_until"]:
@@ -464,7 +480,7 @@ def computing(
         page.set_default_timeout(TIMEOUT_MS)
         _attach(page, steps.setdefault("errors_after_reopen", []))
         url = f"/?project={PROJECT}&run={COMPUTE_RUN}&branch=main#simulation"
-        steps["reopen_ready"] = _open(page, base, None, url)
+        steps["reopen_ready"] = _open(page, base, url)
         steps["reopened"] = _record(page)
         reopened = steps["reopened"]
         if reopened["status"] != "interrupted" or reopened["branches"][0]["computed_until"] < 4320:
@@ -564,9 +580,6 @@ def check(
     results["excluded"] = [
         {"routes": pattern, "field": ".".join(fields), "reason": reason}
         for pattern, fields, reason in EXCLUDED
-    ]
-    results["normalized"] = [
-        {"routes": list(COMPUTE_RUN_ROUTES), "reason": NORMALIZED["compute_run"]}
     ]
     return results
 

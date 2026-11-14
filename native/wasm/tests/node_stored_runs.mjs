@@ -18,8 +18,8 @@
 //   no_points    the same without saved points (saveEvery 0)
 //   v1, v2, v3   the formats still read: no_points's journal with the "run" line of format v1 (as
 //                its writer wrote it, without `save_every`), from_zero's with format v2 and v3
-//   computed     the Run the site offers to compute (js/compute.mjs): its "run" line and the
-//                sample's "export" piece copied, then computed in chunks to a target between saved
+//   computed     a Run to compute (compute_run.mjs, the Run the site offered until #411): its
+//                "run" line and the sample's "export" piece copied, then computed in chunks to a target between saved
 //                points (paused) and on to the end
 //   fork         a branch made by an intervention (js/interventions.mjs) on interventions.json's
 //                world at minute 400, computed to the end
@@ -86,7 +86,7 @@ globalThis.CompressionStream = class extends TransformStream {
 const store = await import(join(here, "..", "js", "project_store.mjs"));
 const runs = await import(join(here, "..", "js", "run_store.mjs"));
 const api = await import(join(here, "..", "js", "browser_api.mjs"));
-const compute = await import(join(here, "..", "js", "compute.mjs"));
+const { COMPUTE_RUN, makeComputeRun } = await import(join(here, "compute_run.mjs"));
 
 let failures = 0;
 const check = (ok, message) => {
@@ -143,20 +143,20 @@ for (const version of ["v2", "v3"]) {
   await store.createRun(tree, "p1", { runId: "r-sample", scenarioId: "trial", scenarioVersion: 1, seed: 7, modelVersions: { m: "1" }, evidenceBytes: encoder.encode('{"schema_version":1}') });
   await store.computeBranch({ wasm, tree, projectId: "p1", runId: "r-sample", branchId: "main", run: { exportBytes: tick, world: "small_replay", ticks: 120 } });
   await store.setRunStatus(tree, "p1", "r-sample", "completed");
-  await compute.ensureComputeRun({ wasm, tree, projectId: "p1" });
+  await makeComputeRun({ wasm, tree, projectId: "p1" });
   const browser = new api.BrowserApi({ wasm, tree, chunkTicks: 60 });
-  const base = `/api/v1/projects/p1/runs/${compute.COMPUTE_RUN}`;
+  const base = `/api/v1/projects/p1/runs/${COMPUTE_RUN}`;
   for (const target of [360 + 140, duration]) {
     const answer = await browser.answer({ method: "POST", path: `${base}/resume`, body: JSON.stringify({ branch_id: "main", target_minute: target }) });
     check(answer.status === 200, `computed: resume to ${target}: ${answer.body}`);
     for (const job of [...browser.computing.jobs.values()]) await job.finished;
   }
   browser.close();
-  const record = await store.branchRecord(tree, "p1", compute.COMPUTE_RUN, "main");
+  const record = await store.branchRecord(tree, "p1", COMPUTE_RUN, "main");
   check(record.status === "completed" && record.computed_until === duration, `computed: ${JSON.stringify(record)}`);
-  const backend = await store.branchBackend(tree, "p1", compute.COMPUTE_RUN, "main");
+  const backend = await store.branchBackend(tree, "p1", COMPUTE_RUN, "main");
   await verified("computed", backend);
-  const folder = ["p1", "runs", compute.COMPUTE_RUN, "branches", "main"];
+  const folder = ["p1", "runs", COMPUTE_RUN, "branches", "main"];
   made.set("computed", { journal: decoder.decode(await tree.read([...folder, "journal.jsonl"])), data: await tree.read([...folder, "data.pack"]) });
 }
 

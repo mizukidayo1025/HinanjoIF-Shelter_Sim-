@@ -4,25 +4,31 @@
 // handles, which a stored Run is read through, are a dedicated Worker's.
 //
 // Where things are (relative to this file): the WASM (`wasm-bindgen --target web`) in pkg/, the
-// sample's manifest at `sampleUrl` (the page's `data-sample` on the script, see api_fetch.js;
-// /sample/sample.json by default). The store is OPFS's folder projects/; the marker of the sample
-// it holds (browser_api.mjs) is beside it. Every request, each chunk of a computation and the
-// sample's install hold the Web Lock "sheltersim-browser-store", so two tabs never open the same
-// files at once. After the sample's install, the Project gets the Run the site offers to compute
-// and a computation a closed page left becomes `interrupted` (js/compute.mjs, #267); a branch that
-// computes holds the Web Lock of its name (`lockName`) until its computation ends.
+// site's list of examples at `examplesUrl` (the page's `data-examples` on the script, see
+// api_fetch.js; /sample/examples.json by default) and each example's manifest beside it. The store
+// is OPFS's folder projects/; the marker of the examples it holds (browser_api.mjs) is beside it.
+// Every request, each chunk of a computation and an example's install hold the Web Lock
+// "sheltersim-browser-store", so two tabs never open the same files at once. Opening the page
+// fetches no example: one is fetched when the home's list is chosen from (`install`, #411). An
+// example the store holds of an earlier version of the site is removed at the start, as the site
+// no longer offers it. A computation a closed page left becomes `interrupted` (js/compute.mjs,
+// #267); a branch that computes holds the Web Lock of its name (`lockName`) until its computation
+// ends.
 //
-// Messages in:  { type: "start", sampleUrl } once, then { type: "request", id, method, path,
-//               search, body } or { type: "stats", id }
-// Messages out: { type: "progress", phase, bytes, total } while the sample is installed;
-//               { type: "ready", installed, ms } or { type: "failed", code, message } once
+// Messages in:  { type: "start", examplesUrl } once, then { type: "request", id, method, path,
+//               search, body }, { type: "examples", id }, { type: "install", id, projectId } or
+//               { type: "stats", id }
+// Messages out: { type: "ready", ms } or { type: "failed", code, message } once
 //               (code `browser_storage_unavailable` when the browser refuses the store, #393,
 //               otherwise `browser_unavailable`; the message is what the screen shows);
 //               { type: "answer", id, status, contentType, body } for each request;
+//               { type: "examples", id, examples } (the list, each with `installed`);
+//               { type: "progress", id, phase, bytes, total } while an example is installed, then
+//               { type: "installed", id, installed, ms } or { type: "install-failed", id, message };
 //               { type: "stats", id, stats } for { type: "stats", id } (checks).
 
-import { BrowserApi, installSample, openStore, SAMPLE_MARKER } from "./browser_api.mjs";
-import { ensureComputeRun, recoverInterrupted } from "./compute.mjs";
+import { BrowserApi, checkExamples, installSample, markerExamples, openStore, SAMPLE_MARKER } from "./browser_api.mjs";
+import { recoverInterrupted } from "./compute.mjs";
 import { opfsTree } from "./project_store.mjs";
 import { RegionProviderError } from "./research.mjs";
 
@@ -68,46 +74,84 @@ async function writeFile(folder, name, bytes) {
   }
 }
 
-async function start(sampleUrl) {
+async function start(examplesUrl) {
+  const started = performance.now();
   // The store first: a browser that refuses it (a private window, #393) gets its own answer.
   const root = await openStore(navigator.storage);
   const wasm = await import(new URL("./pkg/sheltersim_wasm.js", import.meta.url).href);
   await wasm.default();
   const tree = opfsTree(await root.getDirectoryHandle("projects", { create: true }));
-  const manifestUrl = new URL(sampleUrl, self.location.href);
-  const response = await fetch(manifestUrl, { cache: "no-cache" });
-  if (!response.ok) throw new Error(`計算済みの例の目録を読めません（HTTP ${response.status}）`);
-  const manifest = await response.json();
-  const installed = await locked(async () => {
-    const sample = await installSample({
-      wasm,
-      tree,
-      manifest,
-      async fetchBytes(path) {
-        const part = await fetch(new URL(path, manifestUrl));
-        if (!part.ok) throw new Error(`計算済みの例の ${path} を読めません（HTTP ${part.status}）`);
-        return new Uint8Array(await part.arrayBuffer());
-      },
-      async readMarker() {
-        const bytes = await readFile(root, SAMPLE_MARKER);
-        try {
-          return bytes === null ? null : JSON.parse(new TextDecoder().decode(bytes));
-        } catch {
-          return null;
-        }
-      },
-      writeMarker: (bytes) => writeFile(root, SAMPLE_MARKER, bytes),
-      progress: (state) => self.postMessage({ type: "progress", ...state }),
+  const listUrl = new URL(examplesUrl, self.location.href);
+  const examples = await fetch(listUrl, { cache: "no-cache" })
+    .then((answer) => (answer.ok ? answer.json() : null))
+    .then((list) => checkExamples(list).examples)
+    .catch((error) => {
+      console.warn("the site's list of examples cannot be read:", error);
+      return [];
     });
-    // The Run to compute, and what a page closed in the middle of a computation left.
+  const readMarker = async () => {
+    const bytes = await readFile(root, SAMPLE_MARKER);
     try {
-      sample.compute = await ensureComputeRun({ wasm, tree, projectId: manifest.project_id });
-      sample.recovered = await recoverInterrupted({ tree, branchLock });
-    } catch (error) {
-      console.warn("the Run to compute is not ready:", error);
+      return markerExamples(bytes === null ? null : JSON.parse(new TextDecoder().decode(bytes)));
+    } catch {
+      return {};
     }
-    return sample;
+  };
+  const writeMarker = (held) => writeFile(root, SAMPLE_MARKER, new TextEncoder().encode(`${JSON.stringify({ examples: held })}\n`));
+  await locked(async () => {
+    // An example of an earlier site (another sha256, or one this site no longer lists) is the
+    // site's, not the person's: it goes, and the home offers this site's to fetch.
+    const held = await readMarker();
+    const offered = new Map(examples.map((example) => [example.project_id, example.sha256]));
+    let changed = false;
+    for (const [projectId, sha256] of Object.entries(held)) {
+      if (offered.get(projectId) === sha256) continue;
+      await tree.remove([projectId]);
+      delete held[projectId];
+      changed = true;
+    }
+    if (changed) await writeMarker(held);
+    // What a page closed in the middle of a computation left.
+    try {
+      await recoverInterrupted({ tree, branchLock });
+    } catch (error) {
+      console.warn("interrupted computations are not recovered:", error);
+    }
   });
+  const listed = async () => {
+    const held = await readMarker();
+    const out = [];
+    for (const example of examples) {
+      const installed = held[example.project_id] === example.sha256 && (await tree.read([example.project_id, "project.json"])) !== null;
+      out.push({ ...example, installed });
+    }
+    return out;
+  };
+  // Fetches and imports the example of `projectId`, telling `progress` how far it is.
+  const install = (projectId, progress) =>
+    locked(async () => {
+      const example = examples.find((item) => item.project_id === projectId);
+      if (!example) throw new Error(`このサイトには例「${projectId}」がありません`);
+      const manifestUrl = new URL(example.manifest, listUrl);
+      const response = await fetch(manifestUrl, { cache: "no-cache" });
+      if (!response.ok) throw new Error(`計算済みの例の目録を読めません（HTTP ${response.status}）`);
+      const manifest = await response.json();
+      if (manifest?.sha256 !== example.sha256 || manifest?.project_id !== projectId) throw new Error("計算済みの例の目録が、例の一覧と合いません。ページを開き直してください");
+      const held = await readMarker();
+      return installSample({
+        wasm,
+        tree,
+        manifest,
+        async fetchBytes(path) {
+          const part = await fetch(new URL(path, manifestUrl));
+          if (!part.ok) throw new Error(`計算済みの例の ${path} を読めません（HTTP ${part.status}）`);
+          return new Uint8Array(await part.arrayBuffer());
+        },
+        readMarker: async () => (held[projectId] ? { sha256: held[projectId], project_id: projectId } : null),
+        writeMarker: () => writeMarker({ ...held, [projectId]: manifest.sha256 }),
+        progress,
+      });
+    });
   // The site's index of the GSI shelter CSV (scripts/build_static_site.py), read once; null when
   // the site has none (the Scenario preview then answers browser_unsupported). A municipality
   // code's rows are read when a lookup needs them (#332), and kept once read; one that cannot be
@@ -143,7 +187,7 @@ async function start(sampleUrl) {
     branchLock,
     scenario: { shelterIndex, shelterRows },
   });
-  return { api, wasm, installed };
+  return { api, wasm, listed, install, ms: performance.now() - started };
 }
 
 let ready = null;
@@ -157,9 +201,9 @@ function failure(error) {
 
 self.onmessage = async ({ data }) => {
   if (data.type === "start") {
-    ready = start(data.sampleUrl);
+    ready = start(data.examplesUrl);
     ready.then(
-      ({ installed }) => self.postMessage({ type: "ready", installed: installed.installed, ms: installed.ms }),
+      ({ ms }) => self.postMessage({ type: "ready", ms }),
       (error) => {
         if (error?.cause) console.warn("the browser's store cannot be opened:", error.cause);
         self.postMessage({ type: "failed", ...failure(error) });
@@ -171,6 +215,26 @@ self.onmessage = async ({ data }) => {
     // What the answers cost so far, for checks: seeks, ticks stepped, their times, WASM's memory.
     const { api, wasm } = await ready;
     self.postMessage({ type: "stats", id: data.id, stats: { ...api.stats, computed: api.computing.done, memoryBytes: wasm.memoryBytes() } });
+    return;
+  }
+  if (data.type === "examples") {
+    let examples = [];
+    try {
+      examples = await (await ready).listed();
+    } catch {
+      // A Worker that could not start offers no example; its requests say why.
+    }
+    self.postMessage({ type: "examples", id: data.id, examples });
+    return;
+  }
+  if (data.type === "install") {
+    try {
+      const { install } = await ready;
+      const done = await install(data.projectId, (state) => self.postMessage({ type: "progress", id: data.id, ...state }));
+      self.postMessage({ type: "installed", id: data.id, installed: done.installed, ms: done.ms });
+    } catch (error) {
+      self.postMessage({ type: "install-failed", id: data.id, message: `計算済みの例を取得できませんでした：${error?.message ?? error}` });
+    }
     return;
   }
   if (data.type !== "request") return;

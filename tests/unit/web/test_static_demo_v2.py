@@ -176,7 +176,7 @@ def test_a_browser_failure_does_not_send_the_reader_to_the_url():
 import fs from "node:fs";
 import assert from "node:assert/strict";
 const source = fs.readFileSync(process.argv[1], "utf8");
-const body = source.split("  function loadFailure(error) {")[1].split("  init().catch(")[0];
+const body = source.split("  function loadFailure(error) {")[1].split("  loading(init).catch(")[0];
 const loadFailure = eval("(function loadFailure(error) {" + body + ")");
 const opfs = "このブラウザーでは、計算の結果を保存する場所（OPFS）を使えません。";
 for (const code of ["browser_storage_unavailable", "browser_unavailable"])

@@ -1,14 +1,8 @@
 // Computing a Run in the browser (Issue #267, stage B of #263): the browser's answers to
-// `POST runs/{run}/resume` and `POST runs/{run}/cancel` (js/browser_api.mjs routes them here), the
-// Run the site offers to compute, and what a page closed in the middle leaves.
-//
-// The Run to compute (ensureComputeRun). Route B of #263 without #249: the browser does not build
-// a world from a Scenario; it goes on from the minute-0 world Python built and the sample's stored
-// Run holds (its "export" piece). Beside the sample's Run, the Project gets a Run of the same
-// Scenario that is not computed (COMPUTE_RUN): its records are the sample's with its own id and
-// Python's status of a Run just created ("queued"), and its stored Run holds the sample's "run"
-// line and its "export" piece, the compressed bytes copied as they are (never parsed). Its branch
-// `main` is computed to minute 0, its head the "export" line.
+// `POST runs/{run}/resume` and `POST runs/{run}/cancel` (js/browser_api.mjs routes them here), and
+// what a page closed in the middle leaves. A Run to compute is made from a Scenario
+// (js/scenario_routes.mjs, `POST runs`); the Run the site offered to compute beside the sample
+// (#267) is gone since #411, and the tests make theirs with native/wasm/tests/compute_run.mjs.
 //
 // A branch's head. A branch's record (`computed_until`, `checkpoint_hash`) names a line of its
 // stored Run's journal the Run can be read back at and gone on from: the "export" line (minute 0),
@@ -42,8 +36,6 @@ import { ApiError } from "./api_answers.mjs";
 import * as store from "./project_store.mjs";
 import { RunReader, RunWriter } from "./run_store.mjs";
 
-/// The id of the Run the site offers to compute, beside the sample's.
-export const COMPUTE_RUN = "run-browser-compute";
 /// Ticks per chunk by default: about a tenth of a second for 100 people.
 export const CHUNK_TICKS = 60;
 const DATA = "data.pack";
@@ -79,7 +71,7 @@ export function postDocument(body) {
 
 /// The lines of a branch's stored Run its head may be (the core's `Journal::heads`), in order:
 /// `{ kind, minute, index, sha }`. A journal whose lines cannot be read has none.
-async function readHeads(wasm, backend) {
+export async function readHeads(wasm, backend) {
   const file = await backend.open(JOURNAL);
   let journal;
   try {
@@ -123,91 +115,6 @@ async function cutToHead(wasm, backend, hash) {
     file.close();
     data.close();
   }
-}
-
-// ---- The Run to compute ------------------------------------------------------------------------
-
-/// The Run of a Project whose main branch's stored Run the compute Run starts from: the first Run
-/// (by id) other than `runId` whose branch `main` has a stored Run with an exported world.
-async function sourceRun(wasm, tree, projectId, runId) {
-  const { runs } = JSON.parse(await store.runsResponse(tree, projectId));
-  for (const run of runs) {
-    if (run.run_id === runId || !run.branches.some((branch) => branch.branch_id === "main" && branch.checkpoint_hash !== null)) continue;
-    const backend = await store.branchBackend(tree, projectId, run.run_id, "main");
-    if ((await readHeads(wasm, backend)).some((head) => head.kind === "export")) return run;
-  }
-  return null;
-}
-
-async function createComputeRun(wasm, tree, projectId, runId) {
-  const source = await sourceRun(wasm, tree, projectId, runId);
-  if (!source) return null;
-  const reader = await RunReader.open({ wasm, backend: await store.branchBackend(tree, projectId, source.run_id, "main") });
-  let head;
-  try {
-    const compressed = await reader.compressed(reader.journal.find("export"));
-    const writer = await RunWriter.create(wasm, await store.branchBackend(tree, projectId, runId, "main"));
-    try {
-      writer.core.sameStart(reader.journal);
-      head = await writer.flush(compressed);
-    } finally {
-      writer.close();
-    }
-  } finally {
-    reader.close();
-  }
-  const evidence = await tree.read([projectId, "runs", source.run_id, "evidence.json"]);
-  if (evidence === null) throw refused("saved artifact is missing or corrupt");
-  await store.createRun(tree, projectId, {
-    runId,
-    scenarioId: source.scenario_id,
-    scenarioVersion: source.scenario_version,
-    seed: source.seed,
-    modelVersions: source.model_versions,
-    evidenceBytes: evidence,
-  });
-  await store.writeBranch(tree, projectId, runId, { branch_id: "main", parent_branch_id: null, fork_minute: 0, computed_until: 0, checkpoint_hash: head, status: "queued" });
-  return { created: true, runId, source: source.run_id };
-}
-
-function parsedRecord(bytes) {
-  try {
-    const value = JSON.parse(decoder.decode(bytes));
-    return value !== null && typeof value === "object" && value.schema_version === 1 ? value : null;
-  } catch {
-    return null;
-  }
-}
-
-/// Makes sure Project `projectId` holds the Run to compute (`runId`), and that its records can be
-/// read and name a head of its stored Run: creates it when it is missing (nothing when the Project
-/// has no Run to start from), and mends what a page closed while writing may leave: a Run's record
-/// cut short or a stored Run without a head (the Run is made again), a branch's record cut short or
-/// naming no head of its stored Run (written again at the stored Run's last head, `interrupted`
-/// past minute 0). Returns `{ created, mended, runId }`, or null for no Project or no Run to start
-/// from.
-export async function ensureComputeRun({ wasm, tree, projectId, runId = COMPUTE_RUN }) {
-  if ((await tree.read([projectId, "project.json"])) === null) return null;
-  const runFolder = [projectId, "runs", runId];
-  const runBytes = await tree.read([...runFolder, "run.json"]);
-  if (runBytes === null) return createComputeRun(wasm, tree, projectId, runId);
-  const backend = await store.branchBackend(tree, projectId, runId, "main");
-  const heads = await readHeads(wasm, backend);
-  if (parsedRecord(runBytes)?.run_id !== runId || heads.length === 0) {
-    await tree.remove(runFolder);
-    const made = await createComputeRun(wasm, tree, projectId, runId);
-    return made && { ...made, mended: true };
-  }
-  const branchPath = [...runFolder, "branches", "main", "branch.json"];
-  const bytes = await tree.read(branchPath);
-  const record = bytes === null ? null : parsedRecord(bytes);
-  if (record && heads.some((head) => head.sha === record.checkpoint_hash && head.minute === record.computed_until)) return { created: false, mended: false, runId };
-  const last = heads.at(-1);
-  const status = last.kind === "end" ? "completed" : last.minute === 0 ? "queued" : "interrupted";
-  await tree.remove(branchPath);
-  await store.writeBranch(tree, projectId, runId, { branch_id: "main", parent_branch_id: null, fork_minute: 0, computed_until: last.minute, checkpoint_hash: last.sha, status });
-  await store.setRunStatus(tree, projectId, runId, status);
-  return { created: false, mended: true, runId };
 }
 
 /// A branch left `running` that no Worker computes (its lock is free: `branchLock(name)` gives a

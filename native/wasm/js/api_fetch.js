@@ -5,13 +5,15 @@
 // requests go to the real fetch. The screen's JS is unchanged.
 //
 // The script's attributes: `data-worker` the Worker's URL (/browser/api_worker.mjs by default),
-// `data-sample` the sample's manifest (/sample/sample.json), `data-example-project` the sample's
-// Project and `data-compute-run` the Run the browser computes itself (compute.mjs's COMPUTE_RUN),
-// which the screen's home lists (#371), and `data-scenarios="unavailable"` on a site that cannot
-// make Scenarios (built without the shelter index; the screen then says so, #372). While the sample is fetched and imported on the first
-// visit, the screen's notice (#notice) says how far it is.
-// `window.HinanjoBrowserApi` has `ready` (a Promise of { installed, ms }), `site` ({ exampleProject,
-// computeRun, scenarios }), `resetCompute()` (the home's 「計算をやり直す」) and `stats()` for checks.
+// `data-examples` the site's list of examples (/sample/examples.json), `data-example-project` the
+// example's Project, which the screen's home lists (#371), and `data-scenarios="unavailable"` on a
+// site that cannot make Scenarios (built without the shelter index; the screen then says so,
+// #372). Opening the page fetches no example (#411): the home lists the site's examples
+// (`examples()`) and fetches the one chosen (`install`).
+// `window.HinanjoBrowserApi` has `ready` (a Promise of { ms }), `site` ({ exampleProject,
+// scenarios }), `examples()` (a Promise of the list, each with `installed`), `install(projectId,
+// progress)` (a Promise of { installed, ms }; `progress({ phase, bytes, total })` as it goes,
+// phase "fetch", "import" or "done") and `stats()` for checks.
 //
 // The first time the screen starts a computation (`POST …/runs/{run}/resume`, #267) the page asks
 // the browser to keep the store (`navigator.storage.persist()`, the decision on #265: once, when
@@ -22,14 +24,14 @@
   "use strict";
   const script = document.currentScript;
   const workerUrl = script?.dataset.worker || "/browser/api_worker.mjs";
-  const sampleUrl = new URL(script?.dataset.sample || "/sample/sample.json", location.href).href;
+  const examplesUrl = new URL(script?.dataset.examples || "/sample/examples.json", location.href).href;
   const site = {
     exampleProject: script?.dataset.exampleProject || "sample",
-    computeRun: script?.dataset.computeRun || "run-browser-compute",
     scenarios: script?.dataset.scenarios || "available",
   };
   const realFetch = window.fetch.bind(window);
   const pending = new Map();
+  const progressOf = new Map();
   let next = 1;
   let noticeOurs = false;
 
@@ -46,7 +48,6 @@
     element.className = `notice ${kind}`;
     noticeOurs = true;
   }
-  const mib = (bytes) => (bytes / 2 ** 20).toFixed(1);
 
   const worker = new Worker(workerUrl, { type: "module" });
   let settle;
@@ -55,16 +56,16 @@
   });
   ready.catch(() => {});
   worker.onmessage = ({ data }) => {
-    if (data.type === "answer" || data.type === "stats") {
+    if (["answer", "stats", "examples", "installed", "install-failed"].includes(data.type)) {
       const waiting = pending.get(data.id);
       pending.delete(data.id);
+      progressOf.delete(data.id);
       waiting?.(data);
     } else if (data.type === "progress") {
-      if (data.phase === "fetch") notice(`計算済みの例を読み込んでいます… ${mib(data.bytes)} / ${mib(data.total)} MiB`, "loading");
-      else if (data.phase === "import") notice("計算済みの例をこのブラウザーに保存しています…", "loading");
+      progressOf.get(data.id)?.({ phase: data.phase, bytes: data.bytes, total: data.total });
     } else if (data.type === "ready") {
       if (noticeOurs) notice(null);
-      settle.resolve({ installed: data.installed, ms: data.ms });
+      settle.resolve({ ms: data.ms });
     } else if (data.type === "failed") {
       notice(data.message, "error");
       settle.reject(Object.assign(new Error(data.message), { code: data.code }));
@@ -78,7 +79,7 @@
       waiting({ status: 503, contentType: "application/json; charset=utf-8", body: JSON.stringify({ error: `ブラウザー版の準備に失敗しました：${message}` }) });
     }
   };
-  worker.postMessage({ type: "start", sampleUrl });
+  worker.postMessage({ type: "start", examplesUrl });
 
   const ASKED = "sheltersim-storage-persist-asked";
   function askToKeep() {
@@ -123,32 +124,21 @@
     })();
   };
 
-  // 「計算をやり直す」: removes the folder of the Run the browser computes (api_worker.mjs's store,
-  // `projects/<example>/runs/<compute run>`) under the store's Web Lock. The Worker makes that Run
-  // again, not computed, when the page opens next (compute.mjs's ensureComputeRun), so the screen
-  // opens the page again after it. The sample is kept. A Run being computed (in this tab or
-  // another) has its files open, and is not removed.
-  async function resetCompute() {
-    const path = ["projects", site.exampleProject, "runs", site.computeRun];
-    const remove = async () => {
-      let folder = await navigator.storage.getDirectory();
-      for (const name of path.slice(0, -1)) folder = await folder.getDirectoryHandle(name);
-      await folder.removeEntry(path[path.length - 1], { recursive: true });
-    };
-    try {
-      await (navigator.locks ? navigator.locks.request("sheltersim-browser-store", remove) : remove());
-      return { removed: true, message: "消しました。このブラウザーでの計算を、0分からやり直せます。" };
-    } catch (error) {
-      const name = error?.name;
-      if (name === "NotFoundError") return { removed: false, message: "まだ計算していないので、消すものはありません。" };
-      if (name === "NoModificationAllowedError" || name === "InvalidModificationError") {
-        return {
-          removed: false,
-          message: "計算中のため消せません。計算を止めるか、計算しているタブを閉じてから、もう一度押してください。",
-        };
-      }
-      return { removed: false, message: `消せませんでした：${error?.message ?? error}` };
-    }
+  // The home's 「計算済みの例を取得する」 (#411): the site's examples, and the one chosen fetched.
+  async function examples() {
+    await ready;
+    return (await ask({ type: "examples" })).examples;
+  }
+  async function install(projectId, progress = () => {}) {
+    await ready;
+    const id = next++;
+    progressOf.set(id, progress);
+    const done = await new Promise((resolve) => {
+      pending.set(id, resolve);
+      worker.postMessage({ type: "install", id, projectId });
+    });
+    if (done.type === "install-failed") throw new Error(done.message);
+    return { installed: done.installed, ms: done.ms };
   }
 
   // A page shown again from the back-forward cache is loaded again, so a site updated since is
@@ -160,7 +150,8 @@
   window.HinanjoBrowserApi = {
     ready,
     site,
-    resetCompute,
+    examples,
+    install,
     stats: () => ask({ type: "stats" }).then((data) => data.stats),
   };
 })();

@@ -94,23 +94,14 @@
             <p class="fine">あらかじめ計算した結果です。計算を待たずに再生できます。</p>
             <div id="home-example-list" class="home-list"></div>
           </article>
-          <article id="home-compute" class="panel home-card" hidden>
-            <h2>このブラウザーで計算</h2>
-            <p class="fine">
-              例と同じシナリオを0分から計算します。「終了まで計算」を押すと、時計が進むのを見ながら7日分を計算できます（数十秒）。
-            </p>
-            <div id="home-compute-list" class="home-list"></div>
-            <div class="home-reset">
-              <button id="home-reset" type="button">計算をやり直す</button>
-              <span class="fine">このブラウザーで計算した結果を消し、0分に戻します。例は消えません。</span>
-              <p id="home-reset-note" class="fine" role="status"></p>
-            </div>
-          </article>
           <article id="home-own" class="panel home-card">
             <h2>自分のシナリオ</h2>
             <p class="fine">条件を入力して、新しいシナリオを作れます。作ったシナリオはここから開けます。</p>
             <div id="home-own-list" class="home-list"></div>
-            <button id="home-new" class="primary" type="button">＋ 新しいシナリオを作る</button>
+            <div class="home-actions">
+              <button id="home-new" class="primary" type="button">＋ 新しいシナリオを作る</button
+              ><button id="home-fetch" type="button" hidden>計算済みの例を取得する</button>
+            </div>
             <p id="home-new-note" class="fine" hidden>
               このサイトは地域の避難所の一覧を入れずに作られているため、条件から新しいシナリオを作れません。
             </p>
@@ -120,12 +111,28 @@
           人物・施設・出来事はすべて合成のモデルで、実在の避難所や人の記録ではありません。実際の安全性や医療の結果を予測するものではありません。
         </p>
         <p id="home-browser-notes" class="fine home-notes" hidden>
-          計算も表示も、このブラウザーの中で動きます。初めて開くときは、例のデータ（約47 MB）を読み込んで、このブラウザーに保存します。
+          計算も表示も、このブラウザーの中で動きます。計算済みの例は、「計算済みの例を取得する」で選んだときに読み込んで、このブラウザーに保存します。
           <a href="/LICENSE.txt">ライセンス</a>・<a href="/THIRD-PARTY-NOTICES.txt">外部の部品のライセンス</a>（<a
             href="/THIRD-PARTY-NOTICES-rust-library.html"
             >Rustの標準ライブラリー</a
           >）
         </p>
+        <dialog id="examples-dialog" class="person-dialog examples-dialog" aria-labelledby="examples-dialog-title">
+          <div class="pd-head">
+            <h2 id="examples-dialog-title">計算済みの例を取得する</h2>
+            <button id="examples-dialog-close" type="button" aria-label="閉じる">×</button>
+          </div>
+          <div class="examples-body">
+            <p class="fine">
+              あらかじめ計算した結果です。選んだ例だけを読み込んで、このブラウザーに保存します。取得した例はホームの「計算済みの例」から開けます。
+            </p>
+            <div id="examples-list" class="home-list" aria-live="polite"></div>
+            <div id="examples-progress" class="examples-progress" hidden>
+              <progress id="examples-progress-bar" max="1" value="0"></progress>
+              <span id="examples-progress-text" role="status"></span>
+            </div>
+          </div>
+        </dialog>
       </section>
       <section
         id="page-scenario"

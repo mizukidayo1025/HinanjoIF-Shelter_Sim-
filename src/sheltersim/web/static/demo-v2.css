@@ -3544,7 +3544,7 @@ h2 {
   background-position: -109.5px -31px;
 }
 
-/* ホーム（#371）：最初に開く画面。例・ブラウザーでの計算・自分のシナリオへの入口 */
+/* ホーム（#371）：最初に開く画面。計算済みの例・自分のシナリオへの入口 */
 .home-hero {
   display: flex;
   align-items: center;
@@ -3605,13 +3605,35 @@ h2 {
 .home-run small {
   color: var(--muted);
 }
-.home-reset {
+.home-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+/* 計算済みの例を選んで取得する（#411） */
+.examples-body {
   display: grid;
   gap: 4px;
-  justify-items: start;
+  padding: 12px 18px 18px;
 }
-.home-reset p:empty {
-  display: none;
+.examples-item {
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  column-gap: 12px;
+}
+.examples-item > :not(button) {
+  grid-column: 1;
+}
+.examples-item > button {
+  grid-column: 2;
+  grid-row: 1 / span 3;
+}
+.examples-progress {
+  display: grid;
+  gap: 4px;
+}
+.examples-progress progress {
+  width: 100%;
 }
 .home-notes {
   margin: 14px 2px 0;

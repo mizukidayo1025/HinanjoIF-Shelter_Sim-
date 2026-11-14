@@ -6,9 +6,7 @@ use std::sync::Arc;
 
 use serde_json::Value;
 use sheltersim_core::checkpoint::sha256_hex;
-use sheltersim_core::scenario::conditions::{
-    with_standard_provisioning, Delivery, FacilityKind, RESOURCE_SERVICE_CONFIG_JSON,
-};
+use sheltersim_core::scenario::conditions::{with_standard_provisioning, Delivery, FacilityKind, RESOURCE_SERVICE_CONFIG_JSON};
 use sheltersim_core::scenario::connections::{population_context, spatial_constraints};
 use sheltersim_core::scenario::population::{generate_population, PopulationInput};
 use sheltersim_core::scenario::request::InitialScenarioRequest;
@@ -43,8 +41,7 @@ fn answer(document: &Value, case: &Value) -> V {
     let request = InitialScenarioRequest::of_value(&v(&request)).expect("a valid request");
     let conditions = &request.operational_conditions;
     let minutes = case["minutes"].as_i64().unwrap();
-    let (provisioned, record) =
-        with_standard_provisioning(conditions, case["people"].as_i64().unwrap(), minutes, case["supply_day"].as_i64().unwrap());
+    let (provisioned, record) = with_standard_provisioning(conditions, case["people"].as_i64().unwrap(), minutes, case["supply_day"].as_i64().unwrap());
     let kinds: Vec<String> = document["facility_sets"][case["facilities"].as_str().unwrap_or("both")]
         .as_array()
         .unwrap()
@@ -52,8 +49,7 @@ fn answer(document: &Value, case: &Value) -> V {
         .map(|kind| kind.as_str().unwrap().to_string())
         .collect();
     let ids: Vec<String> = kinds.iter().enumerate().map(|(index, kind)| format!("{kind}_{index}")).collect();
-    let facilities: Vec<FacilityKind> =
-        kinds.iter().zip(&ids).map(|(kind, id)| FacilityKind { id, kind }).collect();
+    let facilities: Vec<FacilityKind> = kinds.iter().zip(&ids).map(|(kind, id)| FacilityKind { id, kind }).collect();
     let compiled = provisioned.compile(minutes, &facilities).expect("compiled");
     let requested = sheltersim_core::scenario::conditions::Conditions::of_request(conditions);
     map(vec![
@@ -83,10 +79,7 @@ fn provisioning_and_compiling_are_python_s() {
     let document = fixture();
     let example = &document["provisioning_example"];
     let made = answer(&document, &example["case"]);
-    assert_eq!(
-        String::from_utf8(made.to_json().unwrap()).unwrap(),
-        String::from_utf8(v(&example["answer"]).to_json().unwrap()).unwrap()
-    );
+    assert_eq!(String::from_utf8(made.to_json().unwrap()).unwrap(), String::from_utf8(v(&example["answer"]).to_json().unwrap()).unwrap());
     let mut wrong = Vec::new();
     let cases = document["provisioning"].as_array().unwrap();
     for case in cases {
@@ -121,11 +114,7 @@ fn the_context_and_the_diagnostic_of_built_scenarios_are_python_s() {
             ("model_configs", v(&input["model_configs"])),
         ]);
         let diagnostic = service_capacity_diagnostic(&scenario).unwrap();
-        assert_eq!(
-            String::from_utf8(diagnostic.to_json().unwrap()).unwrap(),
-            String::from_utf8(v(&case["diagnostic"]).to_json().unwrap()).unwrap(),
-            "{name}"
-        );
+        assert_eq!(String::from_utf8(diagnostic.to_json().unwrap()).unwrap(), String::from_utf8(v(&case["diagnostic"]).to_json().unwrap()).unwrap(), "{name}");
     }
 }
 

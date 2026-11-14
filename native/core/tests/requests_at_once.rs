@@ -76,7 +76,11 @@ fn a_service_at_an_independent_queue() {
 #[test]
 fn someone_at_the_point_of_the_facility_asks_at_once() {
     let given = inputs("at_the_point_asks_at_once");
-    for (action, word, digest) in [(Action::RequestToilet, "toilet", "d47a9e285a0f8ca07a6f1469c211772bbfc5933ad5a0efd12a54ed07417f80e6"), (Action::FetchWater, "water", "4e1ee0dedc334dfa7636b4b365aa47ed76d5c2bbeb8cef322c3eee60342b2aed"), (Action::CollectMeal, "meal", "c0cc2715e0e32d5be44abb9a32ac8d9af0c31425a217a24dd42ad394736b7138")] {
+    for (action, word, digest) in [
+        (Action::RequestToilet, "toilet", "d47a9e285a0f8ca07a6f1469c211772bbfc5933ad5a0efd12a54ed07417f80e6"),
+        (Action::FetchWater, "water", "4e1ee0dedc334dfa7636b4b365aa47ed76d5c2bbeb8cef322c3eee60342b2aed"),
+        (Action::CollectMeal, "meal", "c0cc2715e0e32d5be44abb9a32ac8d9af0c31425a217a24dd42ad394736b7138"),
+    ] {
         let facility = s(&given[word]["facility"]);
         let mut case = Case::of(GENERATED, s(&given[word]["world"]));
         assert_eq!(case.apply(action, "A001", None).unwrap(), applied(Some(facility), 7, true), "{word}");
@@ -174,7 +178,10 @@ fn a_capacity_wait_comes_before_a_request_at_once() {
 #[test]
 fn a_request_of_the_last_minute_is_closed_at_once() {
     let name = s(&inputs("last_minute")["world"]).to_owned();
-    for (action, receipts, digest) in [(Action::SeekHelp, 2, "b21b50cb27a2820e89da7b87983e8a346aeab96ea17bb826b6ac24789569044a"), (Action::SeekInformation, 0, "5ddccba0535486c9afe7eb8df00e50575baa0c73b6f90f5cb3501ab1dba12f42")] {
+    for (action, receipts, digest) in [
+        (Action::SeekHelp, 2, "b21b50cb27a2820e89da7b87983e8a346aeab96ea17bb826b6ac24789569044a"),
+        (Action::SeekInformation, 0, "5ddccba0535486c9afe7eb8df00e50575baa0c73b6f90f5cb3501ab1dba12f42"),
+    ] {
         let mut case = Case::of(GENERATED, &name);
         let before = case.doc();
         let events = before["id_counters"].get("event").and_then(Value::as_i64).unwrap_or(0);

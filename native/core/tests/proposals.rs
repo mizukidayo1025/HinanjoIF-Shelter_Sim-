@@ -332,10 +332,7 @@ fn what_a_request_refuses_it_refuses_before_any_write() {
     assert_eq!(refused(&inputs(Some(none)), &proposal(Action::SeekHelp, "a1")), unsupported(NAMESPACE_IS_NONE));
     // A staff service whose value raised.
     let unread = Seek { service: RequestService { unresolved_after_minutes: None, ..service() }, ..seek(Some(0.5)) };
-    assert_eq!(
-        refused(&inputs(Some(unread)), &proposal(Action::SeekHelp, "a1")),
-        unsupported(sheltersim_core::rules::support::AFTER_UNREAD)
-    );
+    assert_eq!(refused(&inputs(Some(unread)), &proposal(Action::SeekHelp, "a1")), unsupported(sheltersim_core::rules::support::AFTER_UNREAD));
 }
 
 // ---- The LLM's hooks, through a host that writes the world (rule R6) ------------------------------

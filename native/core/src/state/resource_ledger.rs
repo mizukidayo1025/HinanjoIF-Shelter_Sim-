@@ -247,10 +247,7 @@ impl UsedIds {
     }
 
     /// Change the list with f; if it succeeds, the set follows.
-    pub fn edit<T, E>(
-        &mut self,
-        f: impl FnOnce(&mut Vec<Arc<str>>) -> std::result::Result<T, E>,
-    ) -> std::result::Result<T, E> {
+    pub fn edit<T, E>(&mut self, f: impl FnOnce(&mut Vec<Arc<str>>) -> std::result::Result<T, E>) -> std::result::Result<T, E> {
         let result = f(&mut self.ids)?;
         self.set.clear();
         self.set.extend(self.ids.iter().cloned());
@@ -341,22 +338,11 @@ impl LedgerRow {
         }
         for (index, resource_id) in RESOURCE_IDS.iter().enumerate() {
             let account = self.accounts.of(index);
-            if account.initial < 0
-                || account.delivered < 0
-                || account.served < 0
-                || account.losses < 0
-                || account.remaining < 0
-                || account.reserved < 0
-            {
+            if account.initial < 0 || account.delivered < 0 || account.served < 0 || account.losses < 0 || account.remaining < 0 || account.reserved < 0 {
                 return Ok(false);
             }
-            let expected = i128::from(account.initial) + i128::from(account.delivered)
-                - i128::from(account.served)
-                - i128::from(account.losses);
-            if expected != i128::from(account.remaining)
-                || account.reserved > account.remaining
-                || !world.resource_is(resource_id, account.remaining)?
-            {
+            let expected = i128::from(account.initial) + i128::from(account.delivered) - i128::from(account.served) - i128::from(account.losses);
+            if expected != i128::from(account.remaining) || account.reserved > account.remaining || !world.resource_is(resource_id, account.remaining)? {
                 return Ok(false);
             }
             let mut total = 0_i128;

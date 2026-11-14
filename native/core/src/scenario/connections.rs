@@ -45,9 +45,7 @@ pub fn population_context(population: &GeneratedPopulation) -> V {
         }
     }
     let parent_ids: BTreeSet<&String> = parents_by_child.values().flatten().collect();
-    let ids = |table: &BTreeMap<&str, BTreeSet<String>>, person: &str| {
-        sorted_texts(table.get(person).into_iter().flatten().cloned())
-    };
+    let ids = |table: &BTreeMap<&str, BTreeSet<String>>, person: &str| sorted_texts(table.get(person).into_iter().flatten().cloned());
     let mut people = indexmap::IndexMap::new();
     for record in &population.person_requirements {
         let mut roles: BTreeSet<&str> = BTreeSet::new();
@@ -103,16 +101,11 @@ pub fn population_context(population: &GeneratedPopulation) -> V {
             V::Map(
                 households
                     .iter()
-                    .map(|(id, members)| {
-                        (id.as_str().into(), map(vec![("member_ids", texts(members)), ("source_ids", texts(sources))]))
-                    })
+                    .map(|(id, members)| (id.as_str().into(), map(vec![("member_ids", texts(members)), ("source_ids", texts(sources))])))
                     .collect(),
             ),
         ),
-        (
-            "resident_distribution_source_ids",
-            sorted_texts(population.age_bands.iter().flat_map(|band| band.source_ids.iter().cloned())),
-        ),
+        ("resident_distribution_source_ids", sorted_texts(population.age_bands.iter().flat_map(|band| band.source_ids.iter().cloned()))),
         ("evacuation_selection_source_ids", V::List(Vec::new())),
     ])
 }
@@ -184,10 +177,8 @@ pub fn spatial_constraints(editable: Option<&V>, geometry: &V) -> Result<V, Stri
             }
         }
         let (start, end) = (field(record, "start")?, field(record, "end")?);
-        let center = map(vec![
-            ("x", V::Float((number(start, "x")? + number(end, "x")?) / 2.0)),
-            ("y", V::Float((number(start, "y")? + number(end, "y")?) / 2.0)),
-        ]);
+        let center =
+            map(vec![("x", V::Float((number(start, "x")? + number(end, "x")?) / 2.0)), ("y", V::Float((number(start, "y")? + number(end, "y")?) / 2.0))]);
         openings.push(map(vec![
             ("id", opening_id.clone()),
             ("wall_id", copy(record, "wall_id")?),
@@ -211,13 +202,7 @@ pub fn spatial_constraints(editable: Option<&V>, geometry: &V) -> Result<V, Stri
         .collect::<Result<Vec<_>, String>>()?;
     let obstacles = list(editable, "obstacles")?
         .iter()
-        .map(|item| {
-            Ok(map(vec![
-                ("id", copy(item, "obstacle_id")?),
-                ("polygon", copy(item, "polygon")?),
-                ("source_ids", copy(item, "source_ids")?),
-            ]))
-        })
+        .map(|item| Ok(map(vec![("id", copy(item, "obstacle_id")?), ("polygon", copy(item, "polygon")?), ("source_ids", copy(item, "source_ids")?)])))
         .collect::<Result<Vec<_>, String>>()?;
     let footprints = list(editable, "equipment_footprints")?
         .iter()
@@ -243,13 +228,6 @@ pub fn spatial_constraints(editable: Option<&V>, geometry: &V) -> Result<V, Stri
 
 /// `connect_generated_context(population, editable, geometry)`: the two model configs, in
 /// Python's order.
-pub fn connect_generated_context(
-    population: &GeneratedPopulation,
-    editable: Option<&V>,
-    geometry: &V,
-) -> Result<Vec<(String, V)>, String> {
-    Ok(vec![
-        ("population_context".to_string(), population_context(population)),
-        ("spatial_constraints".to_string(), spatial_constraints(editable, geometry)?),
-    ])
+pub fn connect_generated_context(population: &GeneratedPopulation, editable: Option<&V>, geometry: &V) -> Result<Vec<(String, V)>, String> {
+    Ok(vec![("population_context".to_string(), population_context(population)), ("spatial_constraints".to_string(), spatial_constraints(editable, geometry)?)])
 }

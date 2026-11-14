@@ -164,8 +164,7 @@ pub fn record_is_valid(record: &BodyRecord) -> bool {
 /// they are. None says nothing about the key, and the Python rule then reads it.
 pub fn pair_of(key: &str) -> Option<(&str, &str)> {
     fn plain(id: &str) -> bool {
-        !id.is_empty()
-            && id.bytes().all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b':' | b'-'))
+        !id.is_empty() && id.bytes().all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b':' | b'-'))
     }
     let (first, second) = key.strip_prefix("[\"")?.strip_suffix("\"]")?.split_once("\",\"")?;
     (plain(first) && plain(second)).then_some((first, second))
@@ -177,15 +176,11 @@ pub fn relationship_is_valid(record: &Relationship) -> bool {
         && record.trust.is_none_or(|trust| in_range(trust, 1.0))
         && record.last_contact_minute.is_none_or(|minute| minute >= 0)
         && record.topic_ids.len() <= MAX_TOPICS
-        && record.topic_ids.iter().all(|topic| {
-            topic.len() <= MAX_TOPIC_CHARS || topic.chars().count() <= MAX_TOPIC_CHARS
-        })
+        && record.topic_ids.iter().all(|topic| topic.len() <= MAX_TOPIC_CHARS || topic.chars().count() <= MAX_TOPIC_CHARS)
 }
 
 pub fn key_is_valid<T>(key: &str, people: &IdMap<T>) -> bool {
-    pair_of(key).is_some_and(|(first, second)| {
-        first != second && people.contains_key(first) && people.contains_key(second)
-    })
+    pair_of(key).is_some_and(|(first, second)| first != second && people.contains_key(first) && people.contains_key(second))
 }
 
 impl BodyRow {
@@ -219,8 +214,7 @@ impl BodyRow {
             return false;
         }
         let relationships = &mut self.relationships;
-        let same_people = relationships.people.len() == self.agents.len()
-            && relationships.people.iter().zip(self.agents.keys()).all(|(known, id)| known == id);
+        let same_people = relationships.people.len() == self.agents.len() && relationships.people.iter().zip(self.agents.keys()).all(|(known, id)| known == id);
         if relationships.read_all || !same_people {
             let valid = relationships.map.iter().all(|(key, record)| key_is_valid(key, &self.agents) && relationship_is_valid(record));
             if !valid {
@@ -245,12 +239,5 @@ impl BodyRow {
 
 /// The record `_record_relationship` starts a pair with.
 pub fn new_relationship() -> Relationship {
-    Relationship {
-        contact_count: 0,
-        trust: Some(0.5),
-        contact_minutes: 0,
-        last_contact_minute: None,
-        last_interaction: None,
-        topic_ids: Vec::new(),
-    }
+    Relationship { contact_count: 0, trust: Some(0.5), contact_minutes: 0, last_contact_minute: None, last_interaction: None, topic_ids: Vec::new() }
 }

@@ -188,8 +188,7 @@ fn a_new_state_has_each_agent_in_id_order_with_what_its_policy_and_awareness_giv
 fn a_decision_is_remembered_in_the_row_and_marks_it() {
     let mut world = with_dynamics(POLICY_V1, &[("a1", &["f1"])]);
     written(&mut world);
-    let decision =
-        Decision { agent_id: "a1", action: "rest", target_id: Some("f1"), minute: 10, next_decision_at: 15, trigger: None };
+    let decision = Decision { agent_id: "a1", action: "rest", target_id: Some("f1"), minute: 10, next_decision_at: 15, trigger: None };
     dynamics::remember_decision(&world, &decision).unwrap();
     {
         let row = world.row::<AgentDynamicsRow>(DYNAMICS).unwrap();
@@ -380,10 +379,7 @@ fn at_the_end_every_open_action_closes_in_agent_order() {
 #[test]
 fn a_population_event_interrupts_the_actions_of_those_it_took_away() {
     let mut world = world();
-    let history = map(&[(
-        "history",
-        V::List(vec![map(&[("event_id", string("pop-1")), ("action", string("temporary_exit")), ("agent_id", string("a3"))])]),
-    )]);
+    let history = map(&[("history", V::List(vec![map(&[("event_id", string("pop-1")), ("action", string("temporary_exit")), ("agent_id", string("a3"))])]))]);
     add_row(&mut world, "population_lifecycle_v1", Place::Value, ValueRow(history));
     let mut active = ActiveActions::default();
     lifecycle::commit_action(&world, &mut active, &proposal("a3", "rest", None, 10)).unwrap();
@@ -576,10 +572,7 @@ fn a_social_action_moves_the_directed_trust_by_the_actor_s_relief() {
 fn an_id_json_escapes_is_refused_and_a_body_s_trust_is_copied() {
     let world = with_network(&[]);
     let escaped = map(&[("recipient_agent_id", string("あ")), ("sender_agent_id", string("a1"))]);
-    assert_eq!(
-        network::observe_event(&world, "information_contact_update", &escaped, 10),
-        Err(unsupported("an ID has a character that JSON escapes"))
-    );
+    assert_eq!(network::observe_event(&world, "information_contact_update", &escaped, 10), Err(unsupported("an ID has a character that JSON escapes")));
     assert!(world.row::<SocialNetworkRow>(NETWORK).unwrap().relationships.map.is_empty());
     assert_eq!(network::action_relief(None, "a1"), Ok(0.02 * 0.5));
     network::record_observed_contacts(&world, &[("a1", "a2"), ("a2", "a1")], 9).unwrap();
@@ -587,21 +580,13 @@ fn an_id_json_escapes_is_refused_and_a_body_s_trust_is_copied() {
     assert_eq!(row.relationships.map.len(), 2);
     assert_eq!(row.interaction_count, 2);
     drop(row);
-    assert_eq!(
-        network::record_observed_contacts(&world, &[("a1", "a1")], 9),
-        Err(unsupported("a pair the kernel leaves to Python"))
-    );
+    assert_eq!(network::record_observed_contacts(&world, &[("a1", "a1")], 9), Err(unsupported("a pair the kernel leaves to Python")));
 }
 
 // ---- social_dialogue -----------------------------------------------------------------------------
 
 fn state(stress: V, affect: V) -> V {
-    let needs = map(&[
-        ("toilet_urgency", V::Float(0.1)),
-        ("hunger", V::Float(0.1)),
-        ("fatigue", V::Int(0)),
-        ("hydration_need", V::Float(1.0)),
-    ]);
+    let needs = map(&[("toilet_urgency", V::Float(0.1)), ("hunger", V::Float(0.1)), ("fatigue", V::Int(0)), ("hydration_need", V::Float(1.0))]);
     map(&[("stress", stress), ("trust", V::Float(0.5)), ("needs", needs), ("affect", affect)])
 }
 

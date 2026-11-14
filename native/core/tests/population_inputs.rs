@@ -17,7 +17,7 @@ use sheltersim_core::error::Error;
 use sheltersim_core::events::log::EventLog;
 use sheltersim_core::events::queue::Queue;
 use sheltersim_core::events::{EventKind, EventRow};
-use sheltersim_core::host::{Contract, Hold, Holding, Key, HostFailure, TABLE_NOT_PLAIN};
+use sheltersim_core::host::{Contract, Hold, Holding, HostFailure, Key, TABLE_NOT_PLAIN};
 use sheltersim_core::row::ValueRow;
 use sheltersim_core::rules::handlers;
 use sheltersim_core::rules::kit::Held;
@@ -140,7 +140,12 @@ fn geometry(routes: Result<Arc<[sheltersim_core::config::geometry::ApproachRoute
     let configs = sheltersim_core::config::Configs::new(None);
     support::fill_section(&configs, SectionId::FacilityGeometry);
     let Some(Section::Ok(found)) = configs.facility_geometry.get() else { panic!("the test host fills the geometry") };
-    Section::Ok(Arc::new(FacilityGeometry { plan: found.plan.clone(), approach_routes: routes, independent_queues: found.independent_queues.clone(), document: found.document.clone() }))
+    Section::Ok(Arc::new(FacilityGeometry {
+        plan: found.plan.clone(),
+        approach_routes: routes,
+        independent_queues: found.independent_queues.clone(),
+        document: found.document.clone(),
+    }))
 }
 
 #[test]
@@ -174,10 +179,7 @@ fn a_plan_s_read_error_and_a_write_s_refusal_say_python_s_texts() {
     assert_eq!(population::planning(failed("text")), failed("text"));
     assert_eq!(population::planning(Error::MarkedValue("v".to_owned())), Error::MarkedValue("v".to_owned()));
     assert_eq!(population::planning(Error::Value("v".to_owned())), Error::Unsupported("the plan read: v".into()));
-    assert_eq!(
-        population::writing(Error::unsupported("late")),
-        Error::Runtime("a kernel refused after it began writing: Unsupported: late".to_owned())
-    );
+    assert_eq!(population::writing(Error::unsupported("late")), Error::Runtime("a kernel refused after it began writing: Unsupported: late".to_owned()));
     assert_eq!(population::writing(failed("text")), failed("text"));
 }
 
@@ -278,7 +280,8 @@ fn selected_ids_are_sorted_once_each_and_their_count_fits_the_action() {
         ids(vec![("action", s("reunite")), ("agent_id", s("c")), ("agent_ids", V::List(vec![s("b"), s("a"), s("c")]))]),
         Ok(vec![text("a"), text("b"), text("c")])
     );
-    let parsed = Command::of_dumped(&command(vec![("expected_return_minute", V::Int(30)), ("source_ids", V::List(vec![s("SRC-1")]))]), vec![text("a")]).unwrap();
+    let parsed =
+        Command::of_dumped(&command(vec![("expected_return_minute", V::Int(30)), ("source_ids", V::List(vec![s("SRC-1")]))]), vec![text("a")]).unwrap();
     assert_eq!((parsed.expected_return, parsed.source_ids.clone(), &*parsed.action), (Some(30), vec![text("SRC-1")], "temporary_exit"));
     assert_eq!(Command::of_dumped(&command(vec![("expected_return_minute", s("30"))]), vec![]).err(), Some(Error::Unsupported("a value is not an int".into())));
 }

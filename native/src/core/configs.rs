@@ -24,12 +24,12 @@ use pyo3::intern;
 use pyo3::prelude::*;
 use pyo3::sync::GILOnceCell;
 use pyo3::types::{PyDict, PyString};
-use sheltersim_core::config::read::Read;
 use sheltersim_core::config::body::{BodyModels, CareOutcome};
 use sheltersim_core::config::environment::{Infrastructure, ZoneEnvironmentSpec};
 use sheltersim_core::config::information::InformationSpread;
 use sheltersim_core::config::overlay::OverlayRooms;
 use sheltersim_core::config::proximity::Proximity;
+use sheltersim_core::config::read::Read;
 use sheltersim_core::config::staff::StaffOperations;
 use sheltersim_core::config::{parse_configs, Configs, Fault, FaultClass, Lazy, Section, SectionId, Selection};
 
@@ -181,11 +181,7 @@ pub(crate) fn parsed_value<T>(world: &Bound<'_, PyAny>, parse: impl Fn(&V) -> Re
 /// A section the kernels parse from the configs as a `V` (`parsed_value`), kept for the stamp; its
 /// refusal is said at the read site.
 #[track_caller]
-pub(crate) fn kept_value<T>(
-    world: &Bound<'_, PyAny>,
-    section: fn(&Configs) -> &Lazy<T>,
-    parse: fn(&V) -> Read<T>,
-) -> PyResult<Arc<T>> {
+pub(crate) fn kept_value<T>(world: &Bound<'_, PyAny>, section: fn(&Configs) -> &Lazy<T>, parse: fn(&V) -> Read<T>) -> PyResult<Arc<T>> {
     match kept(world, section, || parsed_value(world, parse))? {
         Ok(value) => Ok(value),
         Err(fault) => read(Err(fault)),
@@ -194,11 +190,7 @@ pub(crate) fn kept_value<T>(
 
 /// `kept_value` without its raise: the value, or the fault for a kernel of the core to raise where
 /// its rule reads the section (`sheltersim_core::rules::kit::Kept`).
-pub(crate) fn kept_section<T>(
-    world: &Bound<'_, PyAny>,
-    section: fn(&Configs) -> &Lazy<T>,
-    parse: fn(&V) -> Read<T>,
-) -> PyResult<Result<Arc<T>, Fault>> {
+pub(crate) fn kept_section<T>(world: &Bound<'_, PyAny>, section: fn(&Configs) -> &Lazy<T>, parse: fn(&V) -> Read<T>) -> PyResult<Result<Arc<T>, Fault>> {
     kept(world, section, || parsed_value(world, parse))
 }
 
@@ -228,11 +220,7 @@ pub(crate) fn read<T>(value: Read<T>) -> PyResult<T> {
 /// member for `staff_fatigue`.
 #[pyfunction]
 #[pyo3(signature = (world, name, key=None))]
-pub(crate) fn config_section<'py>(
-    world: &Bound<'py, PyAny>,
-    name: &str,
-    key: Option<&str>,
-) -> PyResult<Bound<'py, PyAny>> {
+pub(crate) fn config_section<'py>(world: &Bound<'py, PyAny>, name: &str, key: Option<&str>) -> PyResult<Bound<'py, PyAny>> {
     use pyo3::IntoPyObjectExt;
     use sheltersim_core::config::{agent_dynamics, body, staff};
 
@@ -252,9 +240,7 @@ pub(crate) fn config_section<'py>(
             kept_value(world, |configs| &configs.staff_operations_known, staff::known_staff_operations)?;
             Ok(py.None().into_bound(py))
         }
-        "support_task_minutes" => {
-            kept_value(world, |configs| &configs.support_task_minutes, staff::support_task_minutes)?.into_bound_py_any(py)
-        }
+        "support_task_minutes" => kept_value(world, |configs| &configs.support_task_minutes, staff::support_task_minutes)?.into_bound_py_any(py),
         "support_cooldown_minutes" => support_cooldown_minutes(world)?.into_bound_py_any(py),
         "information_spread" => {
             let config = information_events::checked_config(world)?;
@@ -263,8 +249,7 @@ pub(crate) fn config_section<'py>(
         "information_pressure_gain" => social_interaction::pressure_gain(world)?.into_bound_py_any(py),
         "body_models" => body_model_names(world)?.into_bound_py_any(py),
         "social_interaction_minutes" => {
-            kept_value(world, |configs| &configs.social_interaction_minutes, body::social_interaction_minutes)?
-                .into_bound_py_any(py)
+            kept_value(world, |configs| &configs.social_interaction_minutes, body::social_interaction_minutes)?.into_bound_py_any(py)
         }
         "care_outcome" => match selected_care_formula(world)? {
             Some(formula) => (&*formula.model_id, &*formula.source_id).into_bound_py_any(py),
@@ -278,10 +263,7 @@ pub(crate) fn config_section<'py>(
             }
             None => Ok(py.None().into_bound(py)),
         },
-        "knowledge_is_limited" => {
-            kept_value(world, |configs| &configs.knowledge_is_limited, agent_dynamics::knowledge_is_limited)?
-                .into_bound_py_any(py)
-        }
+        "knowledge_is_limited" => kept_value(world, |configs| &configs.knowledge_is_limited, agent_dynamics::knowledge_is_limited)?.into_bound_py_any(py),
         "zone_environment" => {
             let spec = zone_environment_spec(world)?;
             (&*spec.policy_version, &*spec.source_id).into_bound_py_any(py)
@@ -298,18 +280,16 @@ pub(crate) fn config_section<'py>(
             let speeds = (model.independent, model.assisted, model.wheelchair, model.density_slowdown, model.maximum_slowdown);
             (movement.has_model, movement.has_geometry, speeds).into_bound_py_any(py)
         }
-        "route_capacities" => {
-            match &*kept_value(world, |configs| &configs.route_capacities, sheltersim_core::config::movement::RouteCapacities::parse)? {
-                Some(routing) => {
-                    let mut capacities = Vec::with_capacity(routing.capacities.len());
-                    for (edge, capacity) in &routing.capacities {
-                        capacities.push((&**edge, read(capacity.clone())?));
-                    }
-                    capacities.into_bound_py_any(py)
+        "route_capacities" => match &*kept_value(world, |configs| &configs.route_capacities, sheltersim_core::config::movement::RouteCapacities::parse)? {
+            Some(routing) => {
+                let mut capacities = Vec::with_capacity(routing.capacities.len());
+                for (edge, capacity) in &routing.capacities {
+                    capacities.push((&**edge, read(capacity.clone())?));
                 }
-                None => Ok(py.None().into_bound(py)),
+                capacities.into_bound_py_any(py)
             }
-        }
+            None => Ok(py.None().into_bound(py)),
+        },
         "transit_capacities" => transit_capacities_of(world)?.into_bound_py_any(py),
         "facility_queues" => crate::rules::queues::policy_text(world)?.into_bound_py_any(py),
         "overlay_schema" => crate::rules::overlay::overlay_schema(world)?.into_bound_py_any(py),
@@ -367,8 +347,7 @@ fn is_the_contract(function: &Bound<'_, PyAny>) -> PyResult<bool> {
     let named = |name: &Bound<'_, PyString>, wanted: &str| -> PyResult<bool> {
         Ok(function.getattr(name).ok().and_then(|value| value.extract::<String>().ok()).as_deref() == Some(wanted))
     };
-    let own = named(intern!(py, "__module__"), "sheltersim.contracts.policies")?
-        && named(intern!(py, "__qualname__"), "selected_models")?;
+    let own = named(intern!(py, "__module__"), "sheltersim.contracts.policies")? && named(intern!(py, "__qualname__"), "selected_models")?;
     if own {
         let _ = SELECTED_MODELS.set(py, function.clone().unbind());
     }
@@ -383,11 +362,7 @@ pub(crate) fn selection(world: &Bound<'_, PyAny>) -> PyResult<Result<Arc<Selecti
     let raw = attribute(world, intern!(py, "model_configs"))?;
     let policies = policies(py)?;
     let function = policies.module.bind(py).getattr(intern!(py, "selected_models"))?;
-    let configs = if is_the_contract(&function)? {
-        current_of(world, &raw)?
-    } else {
-        Arc::new(Configs::new(None))
-    };
+    let configs = if is_the_contract(&function)? { current_of(world, &raw)? } else { Arc::new(Configs::new(None)) };
     let section = configs.selection.get_or_parse(|| match function.call1((&raw,)) {
         Ok(selection) => match read_selection(&selection) {
             Some(selection) => Section::Ok(Arc::new(selection)),
@@ -416,9 +391,7 @@ fn read_selection(selection: &Bound<'_, PyAny>) -> Option<Selection> {
     let selection = selection.downcast_exact::<PyDict>().ok()?;
     let mut models = Vec::with_capacity(selection.len());
     for (domain, model) in selection.iter() {
-        let text = |value: &Bound<'_, PyAny>| -> Option<Arc<str>> {
-            Some(Arc::from(value.downcast_exact::<PyString>().ok()?.to_str().ok()?))
-        };
+        let text = |value: &Bound<'_, PyAny>| -> Option<Arc<str>> { Some(Arc::from(value.downcast_exact::<PyString>().ok()?.to_str().ok()?)) };
         models.push((text(&domain)?, text(&model)?));
     }
     Some(Selection::new(models))
@@ -614,10 +587,7 @@ pub(crate) fn proximity_section(world: &Bound<'_, PyAny>) -> PyResult<Result<Arc
 fn parse_proximity(world: &Bound<'_, PyAny>) -> PyResult<Option<Proximity>> {
     let py = world.py();
     let configs = attribute(world, intern!(py, "model_configs"))?;
-    let config = py
-        .import("sheltersim.domain.social_network")?
-        .getattr("canonical_proximity_contact_config")?
-        .call1((get(&configs, "social_proximity")?,))?;
+    let config = py.import("sheltersim.domain.social_network")?.getattr("canonical_proximity_contact_config")?.call1((get(&configs, "social_proximity")?,))?;
     read(Proximity::from_v(&<V as VPy>::from_py(&config)?))
 }
 
@@ -638,9 +608,7 @@ pub(crate) fn support_cooldown_section(world: &Bound<'_, PyAny>) -> PyResult<Res
 fn parse_support_cooldown(world: &Bound<'_, PyAny>) -> PyResult<i64> {
     let py = world.py();
     let configs = attribute(world, intern!(py, "model_configs"))?;
-    let cooldown = configs
-        .call_method1(intern!(py, "get"), ("staff", PyDict::new(py)))?
-        .call_method1(intern!(py, "get"), ("support_cooldown_minutes", 30))?;
+    let cooldown = configs.call_method1(intern!(py, "get"), ("staff", PyDict::new(py)))?.call_method1(intern!(py, "get"), ("support_cooldown_minutes", 30))?;
     super::row::exact_int(&cooldown)
 }
 
@@ -662,10 +630,7 @@ pub(crate) fn infrastructure_section(world: &Bound<'_, PyAny>) -> PyResult<Resul
 fn parse_infrastructure(world: &Bound<'_, PyAny>) -> PyResult<Infrastructure> {
     let py = world.py();
     let raw = attribute(world, intern!(py, "model_configs"))?.get_item("infrastructure")?;
-    let spec = py
-        .import("sheltersim.domain.infrastructure")?
-        .getattr("ScenarioInfrastructureSpec")?
-        .call_method1("model_validate", (raw,))?;
+    let spec = py.import("sheltersim.domain.infrastructure")?.getattr("ScenarioInfrastructureSpec")?.call_method1("model_validate", (raw,))?;
     let keywords = PyDict::new(py);
     keywords.set_item("mode", "json")?;
     let dumped = spec.call_method("model_dump", (), Some(&keywords))?;
@@ -679,10 +644,8 @@ fn parse_infrastructure(world: &Bound<'_, PyAny>) -> PyResult<Infrastructure> {
 pub(crate) fn parse_spread(world: &Bound<'_, PyAny>) -> PyResult<InformationSpread> {
     let py = world.py();
     let configs = attribute(world, intern!(py, "model_configs"))?;
-    let config = py
-        .import("sheltersim.domain.models")?
-        .getattr("InformationSpreadConfig")?
-        .call_method1("from_mapping", (get(&configs, "information_spread")?,))?;
+    let config =
+        py.import("sheltersim.domain.models")?.getattr("InformationSpreadConfig")?.call_method1("from_mapping", (get(&configs, "information_spread")?,))?;
     spread_of(&config, configs.contains("information_spread")?)
 }
 

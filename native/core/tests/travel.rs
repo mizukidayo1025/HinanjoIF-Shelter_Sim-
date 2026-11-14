@@ -10,14 +10,14 @@ use indexmap::IndexMap;
 use serde_json::{json, Value};
 use sheltersim_core::config::movement::Movement;
 use sheltersim_core::config::Fault;
-use sheltersim_core::entities::{Activity, AgentRow, AnyTable, Entities, FacilityRow, Mobility, NeedRow, ProfileRow, Table, TaskRow, EdgeRow, ZoneRow};
+use sheltersim_core::entities::{Activity, AgentRow, AnyTable, EdgeRow, Entities, FacilityRow, Mobility, NeedRow, ProfileRow, Table, TaskRow, ZoneRow};
 use sheltersim_core::error::Error;
 use sheltersim_core::events::log::EventLog;
 use sheltersim_core::events::queue::Queue;
 use sheltersim_core::events::{EventKind, EventRow, EventStatus};
 use sheltersim_core::geometry::Geo;
-use sheltersim_core::row::{IdMap, ValueRow};
 use sheltersim_core::routes::Router;
+use sheltersim_core::row::{IdMap, ValueRow};
 use sheltersim_core::rules::kit::movement::POLICY_VERSION;
 use sheltersim_core::rules::kit::{Events, Held, Kept, POLICY_FAULT};
 use sheltersim_core::rules::overlay::{Beds, PLAN_UNREAD};
@@ -134,15 +134,20 @@ fn world_with(configs: V) -> World {
     let mut positions = IdMap::default();
     positions.insert(text("a1"), position("z0", 0.0));
     positions.insert(text("a2"), position("z1", 10.0));
-    add(&mut world, MOVEMENT, Place::Namespace, Box::new(MovementRow {
-        schema_version: 2,
-        policy_version: text(POLICY_VERSION),
-        positions,
-        staff_positions: IdMap::default(),
-        journeys: IdMap::default(),
-        edge_usage_minutes: IdMap::default(),
-        last_updated_minute: 5,
-    }));
+    add(
+        &mut world,
+        MOVEMENT,
+        Place::Namespace,
+        Box::new(MovementRow {
+            schema_version: 2,
+            policy_version: text(POLICY_VERSION),
+            positions,
+            staff_positions: IdMap::default(),
+            journeys: IdMap::default(),
+            edge_usage_minutes: IdMap::default(),
+            last_updated_minute: 5,
+        }),
+    );
     world.hold_queue(Arc::new(Queue::new()));
     world.hold_log(Arc::new(EventLog::new()));
     world
@@ -267,21 +272,24 @@ fn the_passage_loads_count_each_walker_on_the_edge_of_its_share_of_the_time() {
     let world = world();
     {
         let mut row = world.row_mut::<MovementRow>(MOVEMENT).unwrap();
-        row.journeys.insert(text("a1"), Journey {
-            event_id: text("ev1"),
-            task_id: text("t1"),
-            purpose: text("return"),
-            facility_id: None,
-            destination_zone_id: text("z2"),
-            route_zone_ids: vec![text("z0"), text("z1"), text("z2")],
-            route_edge_ids: vec![text("e1"), text("e3")],
-            route_points: Vec::new(),
-            started_minute: 0,
-            due_minute: 6,
-            queue_id: None,
-            support_request_id: None,
-            support_staff_id: None,
-        });
+        row.journeys.insert(
+            text("a1"),
+            Journey {
+                event_id: text("ev1"),
+                task_id: text("t1"),
+                purpose: text("return"),
+                facility_id: None,
+                destination_zone_id: text("z2"),
+                route_zone_ids: vec![text("z0"), text("z1"), text("z2")],
+                route_edge_ids: vec![text("e1"), text("e3")],
+                route_points: Vec::new(),
+                started_minute: 0,
+                due_minute: 6,
+                queue_id: None,
+                support_request_id: None,
+                support_staff_id: None,
+            },
+        );
     }
     // Minute 3 of 6 over 4 + 2 minutes: e1. Minute 5: 5 / 6 * 6 = 5, past e1's 4: e3.
     assert_eq!(travel::passage_edge_loads(&world, &Held::Held, &Held::Absent, 3).unwrap(), HashMap::from([(text("e1"), 1)]));
@@ -325,7 +333,10 @@ fn a_plan_the_pyo3_crate_could_not_read_is_said_where_the_route_reads_it() {
     let graph = graph(&world, RouteCapacities::default());
     let section = movement(&V::Map(IndexMap::new()));
     let routing = Routing { graph: &graph, geo: None, movement: &section, staff: &Held::Absent };
-    assert_eq!(travel::route(&world, &routing, &text("z0"), &text("z1"), "a1").err().map(|error| format!("{error:?}")), Some(format!("{:?}", sheltersim_core::events::writer::WriteError::from(unsupported(PLAN_UNREAD)))));
+    assert_eq!(
+        travel::route(&world, &routing, &text("z0"), &text("z1"), "a1").err().map(|error| format!("{error:?}")),
+        Some(format!("{:?}", sheltersim_core::events::writer::WriteError::from(unsupported(PLAN_UNREAD))))
+    );
 }
 
 // ---- _schedule_travel ----------------------------------------------------------------------------
@@ -366,7 +377,10 @@ fn a_trip_turned_down_writes_nothing() {
     let events = Events::of(&world).unwrap();
     let plan = |trip: Trip<'_>| travel::plan_travel(&world, &events, walking, trip);
     // From elsewhere: the Python rule's ValueError.
-    assert_eq!(plan(trip("a1", route("z1", "z2", &["z1", "z2"], &["e3"], 2), "return")).err(), Some(Error::Value("travel route origin does not match Agent zone".to_owned())));
+    assert_eq!(
+        plan(trip("a1", route("z1", "z2", &["z1", "z2"], &["e3"], 2), "return")).err(),
+        Some(Error::Value("travel route origin does not match Agent zone".to_owned()))
+    );
     // No time, past the end, a full zone (z2 holds one person, and a2 walks there).
     assert!(plan(trip("a1", route("z0", "z1", &["z0", "z1"], &["e1"], 0), "return")).unwrap().is_none());
     assert!(plan(trip("a1", route("z0", "z1", &["z0", "z1"], &["e1"], 95), "return")).unwrap().is_none());
@@ -433,7 +447,8 @@ fn a_toilet_is_chosen_by_its_folded_kind_what_the_person_knows_and_its_queue() {
     // Knowledge limited, and no record of what the person knows: nothing known.
     assert_eq!(select(&open, true), Selected::NoFacility);
     // A queue of no room.
-    let full = world_with(map(vec![("facility_queues", map(vec![("schema_version", V::Int(1)), ("queue_capacity_by_facility", map(vec![("f1", V::Int(0))]))]))]));
+    let full =
+        world_with(map(vec![("facility_queues", map(vec![("schema_version", V::Int(1)), ("queue_capacity_by_facility", map(vec![("f1", V::Int(0))]))]))]));
     assert_eq!(select(&full, false), Selected::NoFacility);
     // Its zone out of reach: the lowest ID of what is known.
     let closed = world();
@@ -525,7 +540,10 @@ fn the_pairs_are_the_closest_first_within_a_zone_and_scheduled() {
     drop(queue);
     assert_eq!(counter(&world), map(vec![("event", V::Int(11))]));
     let other = proximity(contact_config(15), false, sampler(1.5, 10));
-    assert_eq!(proximity::sample_contacts(&world, &other, 30, &Held::Held).err().map(|error| format!("{error:?}")), Some(format!("{:?}", sheltersim_core::events::writer::WriteError::from(unsupported("another proximity policy")))));
+    assert_eq!(
+        proximity::sample_contacts(&world, &other, 30, &Held::Held).err().map(|error| format!("{error:?}")),
+        Some(format!("{:?}", sheltersim_core::events::writer::WriteError::from(unsupported("another proximity policy"))))
+    );
 }
 
 // ---- Replans -------------------------------------------------------------------------------------
@@ -535,31 +553,30 @@ fn a_person_whose_route_closed_stops_and_is_blocked_with_no_other_route() {
     let world = world();
     {
         let mut row = world.row_mut::<MovementRow>(MOVEMENT).unwrap();
-        row.journeys.insert(text("a1"), Journey {
-            event_id: text("ev1"),
-            task_id: text("t1"),
-            purpose: text("return"),
-            facility_id: None,
-            destination_zone_id: text("z1"),
-            route_zone_ids: vec![text("z0"), text("z1")],
-            route_edge_ids: vec![text("e1")],
-            route_points: Vec::new(),
-            started_minute: 3,
-            due_minute: 7,
-            queue_id: None,
-            support_request_id: None,
-            support_staff_id: None,
-        });
+        row.journeys.insert(
+            text("a1"),
+            Journey {
+                event_id: text("ev1"),
+                task_id: text("t1"),
+                purpose: text("return"),
+                facility_id: None,
+                destination_zone_id: text("z1"),
+                route_zone_ids: vec![text("z0"), text("z1")],
+                route_edge_ids: vec![text("e1")],
+                route_points: Vec::new(),
+                started_minute: 3,
+                due_minute: 7,
+                queue_id: None,
+                support_request_id: None,
+                support_staff_id: None,
+            },
+        );
     }
-    put(&mut world.rows_mut().unwrap().active_tasks, "t1", TaskRow {
-        id: text("t1"),
-        kind: text("travel_return"),
-        agent_id: Some(text("a1")),
-        resource_id: None,
-        start_minute: 3,
-        due_minute: 7,
-        staff_id: None,
-    });
+    put(
+        &mut world.rows_mut().unwrap().active_tasks,
+        "t1",
+        TaskRow { id: text("t1"), kind: text("travel_return"), agent_id: Some(text("a1")), resource_id: None, start_minute: 3, due_minute: 7, staff_id: None },
+    );
     world.rows_mut().unwrap().agents.get_mut("a1").unwrap().activity = Activity::Moving;
     schedule(&world, trip_event("ev1", 3, 7, "a1", &["e1"]));
     let serial = world.queue().unwrap().serial_of("ev1").unwrap();

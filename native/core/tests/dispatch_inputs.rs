@@ -18,8 +18,7 @@ use sheltersim_core::row::ValueRow;
 use sheltersim_core::rules::common_operations::{self, Logged, NOT_SELECTED};
 use sheltersim_core::rules::kit::{self, Held, NO_SUCH_SECTION};
 use sheltersim_core::rules::{
-    agent_dynamics, body_state, care_receipts, information_events, movement, social_interaction, staff_operation_events,
-    support as care, travel_completion,
+    agent_dynamics, body_state, care_receipts, information_events, movement, social_interaction, staff_operation_events, support as care, travel_completion,
 };
 use sheltersim_core::value::V;
 use sheltersim_core::world::{Place, World, METRIC_STATE};
@@ -95,11 +94,7 @@ fn the_support_rules_read_each_namespace_with_their_own_texts() {
     let read = care::Inputs::read(&cell, &mut host).unwrap();
     assert_eq!((read.shared, read.body_present, read.metric_state_held), (Held::Absent, false, true));
 
-    let mut given = (*holding(&[
-        ("shared_operations_v1", Hold::Other, true, false),
-        ("body_state_v1", Hold::Held, false, true),
-    ]))
-    .clone();
+    let mut given = (*holding(&[("shared_operations_v1", Hold::Other, true, false), ("body_state_v1", Hold::Held, false, true)])).clone();
     given.fields.insert(text(METRIC_STATE), false);
     let read = care::Inputs::read(&cell, &mut host_of(Arc::new(given))).unwrap();
     assert_eq!(read.shared, Held::Other(care::NAMESPACE_IS_NONE));
@@ -167,10 +162,7 @@ fn an_information_reaction_reads_its_trigger_and_its_model_through_the_host() {
     let mut host = host_of(holding(&[("information_spread_v1", Hold::Other, false, false)]));
     let trigger = event("information_contact_update", Vec::new());
     host.records.insert(text("T1"), Logged { status: EventStatus::Applied, realized_minute: 2, event: trigger.clone() });
-    let reaction = event(
-        "social_interaction",
-        vec![("interaction_type", str_v("information_reaction")), ("trigger_event_id", str_v("T1"))],
-    );
+    let reaction = event("social_interaction", vec![("interaction_type", str_v("information_reaction")), ("trigger_event_id", str_v("T1"))]);
     let inputs = social_interaction::Inputs::read(&cell, &mut host, &reaction).unwrap();
     let (id, found) = inputs.trigger.unwrap();
     assert_eq!((&*id, found.map(|logged| logged.realized_minute)), ("T1", Some(2)));
@@ -253,11 +245,8 @@ fn a_section_the_configs_lack_is_refused_as_the_crate_refused_it() {
 #[test]
 fn the_staff_operations_keep_what_the_plan_and_the_formula_raised() {
     let cell = cell();
-    let given = holding(&[
-        ("staff_operations_v1", Hold::Other, false, false),
-        ("movement_v1", Hold::Other, false, true),
-        ("body_state_v1", Hold::Held, false, true),
-    ]);
+    let given =
+        holding(&[("staff_operations_v1", Hold::Other, false, false), ("movement_v1", Hold::Other, false, true), ("body_state_v1", Hold::Held, false, true)]);
     let mut host = host_of(given.clone());
     host.sections.push((SectionId::StaffOperations, Box::new(|configs: &Configs| put(&configs.staff_operations, Section::Fault(fault())))));
     let read = staff_operation_events::Gathered::read(&cell, &mut host, true, true).unwrap();
@@ -371,16 +360,7 @@ impl travel_completion::Managers<TestHost> for Recording {
 }
 
 fn arrival<'a>(purpose: &'a str, origin: Option<&'a str>, validates: bool) -> travel_completion::Arrival<'a> {
-    travel_completion::Arrival {
-        agent_id: "A1",
-        purpose,
-        facility_id: "F1",
-        destination: "Z1",
-        origin,
-        has_geometry: false,
-        resource_service: true,
-        validates,
-    }
+    travel_completion::Arrival { agent_id: "A1", purpose, facility_id: "F1", destination: "Z1", origin, has_geometry: false, resource_service: true, validates }
 }
 
 #[test]

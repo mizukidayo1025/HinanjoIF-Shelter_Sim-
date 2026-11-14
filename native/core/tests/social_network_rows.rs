@@ -157,18 +157,11 @@ fn observe_event_gives_the_bits_of_the_python_rule() {
                 }
                 ("information_contact_update", map(&payload))
             }
-            1 => (
-                "proximity_contact_update",
-                map(&[("first_agent_id", first), ("second_agent_id", second), ("observed_minute", V::Int(now))]),
-            ),
+            1 => ("proximity_contact_update", map(&[("first_agent_id", first), ("second_agent_id", second), ("observed_minute", V::Int(now))])),
             2 => ("information_correction", map(&[("message_id", text("m1"))])),
             kind => (
                 "social_interaction",
-                map(&[
-                    ("interaction_type", text(interactions[kind as usize - 3])),
-                    ("agent_id", first),
-                    ("participant_agent_id", second),
-                ]),
+                map(&[("interaction_type", text(interactions[kind as usize - 3])), ("agent_id", first), ("participant_agent_id", second)]),
             ),
         };
         observe(&world, event_type, &payload, now).unwrap();

@@ -120,7 +120,9 @@ fn exact(value: &V) -> V {
         V::Float(number) => float(*number),
         V::Str(value) => string(value),
         V::List(items) => V::List(std::iter::once(text("list")).chain(items.iter().map(exact)).collect()),
-        V::Map(items) => V::List(std::iter::once(text("dict")).chain(items.iter().map(|(key, item)| V::List(vec![V::Str(key.clone()), exact(item)]))).collect()),
+        V::Map(items) => {
+            V::List(std::iter::once(text("dict")).chain(items.iter().map(|(key, item)| V::List(vec![V::Str(key.clone()), exact(item)]))).collect())
+        }
         V::Big(_) => panic!("an int past 64 bits"),
     }
 }
@@ -303,11 +305,8 @@ fn drawn(world: &mut World, record: &str) {
             let number_of = modifier[0].as_u64().unwrap() as usize;
             let action = MODIFIER_ACTIONS[number_of];
             let assumptions = ["ASM-A", "ASM-B"][..number_of % 3].iter().map(|id| text(id)).collect();
-            let parameters = map(vec![
-                ("action", text(action)),
-                ("probability_multiplier", number(&modifier[2])),
-                ("duration_multiplier", number(&modifier[3])),
-            ]);
+            let parameters =
+                map(vec![("action", text(action)), ("probability_multiplier", number(&modifier[2])), ("duration_multiplier", number(&modifier[3]))]);
             let made = map(vec![
                 ("zone_id", V::Str(zones[modifier[1].as_u64().unwrap() as usize].clone())),
                 ("start_minute", V::Int(0)),
@@ -375,7 +374,10 @@ fn utility(values: &Value, as_policy: bool) -> Arc<Obj> {
 fn behavior(record: &str) -> Behavior {
     let record: Value = serde_json::from_str(record).unwrap();
     let policy = match record.as_array().unwrap().len() {
-        2 => behavior_object("PriorityRuleBehaviorPolicy", vec![("policy_version", Ok(Held::Value(load::v(&record[0])))), ("scorer", Ok(Held::Object(utility(&record[1], false))))]),
+        2 => behavior_object(
+            "PriorityRuleBehaviorPolicy",
+            vec![("policy_version", Ok(Held::Value(load::v(&record[0])))), ("scorer", Ok(Held::Object(utility(&record[1], false))))],
+        ),
         _ => utility(&record, true),
     };
     let runner = behavior_object("BehaviorDecisionRunner", vec![("policy", Ok(Held::Object(policy)))]);
@@ -421,7 +423,8 @@ fn a_seed_past_64_bits_has_the_bits_of_python() {
     let data = load::data(FILE);
     let case = &data["past_64"];
     let (_, view, hash) = drawn_view("generated", case["world"].as_str().unwrap());
-    let seeds = [("9223372036854775808", "4eeb7955eaf7a746"), ("18446744073709551623", "b05281eb8a1f1846"), ("1000000000000000000000000000000", "09fcdfd963ea511b")];
+    let seeds =
+        [("9223372036854775808", "4eeb7955eaf7a746"), ("18446744073709551623", "b05281eb8a1f1846"), ("1000000000000000000000000000000", "09fcdfd963ea511b")];
     for (seed, digest) in seeds {
         let mut bits = Bits::default();
         assert!(!proposals(&mut bits, &view, &hash, case["policy"].as_str().unwrap(), seed).is_empty());

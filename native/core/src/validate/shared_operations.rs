@@ -292,7 +292,8 @@ static RECOVERY_RECEIPT: Model = model(
 
 fn staff_operation_is_valid(fields: &mut Fields) -> std::result::Result<(), String> {
     let at = |name: &str| field(fields, name).clone();
-    let (start, arrival, minute, travel, total) = (at("start_minute"), at("arrival_minute"), at("minute"), at("travel_minutes"), at("total_state_change_count"));
+    let (start, arrival, minute, travel, total) =
+        (at("start_minute"), at("arrival_minute"), at("minute"), at("travel_minutes"), at("total_state_change_count"));
     let le = |a: &V, b: &V| int_cmp(a, b).is_some_and(Ordering::is_le);
     if !le(&start, &arrival) || !le(&arrival, &minute) {
         return fail("staff operation completion times are inconsistent");
@@ -340,7 +341,10 @@ static STAFF_OPERATION_RECEIPT: Model = model(
         required("event_id", IDENT),
         required("task_id", IDENT),
         required("staff_id", IDENT),
-        required("task_kind", S::Lit(&[Lit::Str("cleaning"), Lit::Str("maintenance"), Lit::Str("information_outreach"), Lit::Str("intake"), Lit::Str("patrol")])),
+        required(
+            "task_kind",
+            S::Lit(&[Lit::Str("cleaning"), Lit::Str("maintenance"), Lit::Str("information_outreach"), Lit::Str("intake"), Lit::Str("patrol")]),
+        ),
         with("target_id", OPT_IDENT, null),
         required("target_zone_id", IDENT),
         required("reason", S::Str(StrS { strip: false, min: Some(1), max: Some(240), pattern: None })),
@@ -506,9 +510,9 @@ fn payload_matches(found: &Found, record: &Fields) -> bool {
 
 /// `a > b` of two values of a retained completion, or Python's `TypeError`.
 fn greater(left: &V, right: &V) -> Result<bool> {
-    num_cmp(left, right).map(|order| order == Ordering::Greater).ok_or_else(|| {
-        Error::Type(format!("'>' not supported between instances of '{}' and '{}'", type_name(left), type_name(right)))
-    })
+    num_cmp(left, right)
+        .map(|order| order == Ordering::Greater)
+        .ok_or_else(|| Error::Type(format!("'>' not supported between instances of '{}' and '{}'", type_name(left), type_name(right))))
 }
 
 /// `_validate_staff_operation_receipt`.
@@ -810,7 +814,13 @@ pub fn validate(view: &View<'_>) -> Result<()> {
         let matches = match text(&latest, "event_type") {
             "care_support_transition" => {
                 is_text(field(&latest, "request_id"), request_id)
-                    && same(&[("agent_id", "agent_id"), ("household_id", "household_id"), ("support_kind", "support_kind"), ("status", "status"), ("event_id", "latest_event_id")])
+                    && same(&[
+                        ("agent_id", "agent_id"),
+                        ("household_id", "household_id"),
+                        ("support_kind", "support_kind"),
+                        ("status", "status"),
+                        ("event_id", "latest_event_id"),
+                    ])
             }
             "staff_support_continuity" => {
                 text(&latest, "status") == "requeued"

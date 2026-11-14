@@ -238,7 +238,10 @@ fn profile(entries: Vec<(&str, V)>) -> V {
         ("support_need", V::Float(0.25)),
         ("stress_sensitivity", V::Float(0.5)),
         ("rng_key", s("arrival:1")),
-        ("initial_needs", map(vec![("toilet_urgency", V::Float(0.1)), ("hunger", V::Float(0.2)), ("fatigue", V::Float(0.3)), ("hydration_need", V::Float(0.4))])),
+        (
+            "initial_needs",
+            map(vec![("toilet_urgency", V::Float(0.1)), ("hunger", V::Float(0.2)), ("fatigue", V::Float(0.3)), ("hydration_need", V::Float(0.4))]),
+        ),
         ("provenance", map(vec![("source_id", s("SRC"))])),
     ];
     for (key, value) in entries {
@@ -311,7 +314,10 @@ fn the_constructors_value_errors_come_in_their_order() {
     }
     // The first level the check reads raises; the mobility comes before the levels.
     let needs = map(vec![("hydration_need", V::Float(2.0)), ("hunger", V::Float(2.0))]);
-    assert_eq!(raised(population::build_agent(&profile(vec![("initial_needs", needs.clone())]), &zone, 0, 6)), Error::Value("hunger must be finite and between 0 and 1".to_owned()));
+    assert_eq!(
+        raised(population::build_agent(&profile(vec![("initial_needs", needs.clone())]), &zone, 0, 6)),
+        Error::Value("hunger must be finite and between 0 and 1".to_owned())
+    );
     let both = profile(vec![("initial_needs", needs), ("mobility", s("x"))]);
     assert_eq!(raised(population::build_agent(&both, &zone, 0, 6)), Error::Value("'x' is not a valid Mobility".to_owned()));
     assert_eq!(raised(population::build_agent(&profile(vec![]), &zone, -1, 6)), Error::Value("next_decision_at must be a non-negative integer".to_owned()));
@@ -352,25 +358,26 @@ fn arrivals_with_room_are_admitted_as_rows_and_the_others_wait() {
     assert_eq!(ids[1], first);
     let admitted = world.rows().unwrap().agents.get(&*first).unwrap().clone();
     assert_eq!((&*admitted.zone_id, admitted.next_decision_at, admitted.activity), ("z0", 7, Activity::Idle));
-    assert_eq!(admitted.profile.provenance, map(vec![
-        ("source_type", s("assumption")),
-        ("source_id", s(population::SOURCE_ID)),
-        ("event_id", s("arrive-1")),
-        ("seed", V::Int(2026)),
-    ]));
+    assert_eq!(
+        admitted.profile.provenance,
+        map(vec![("source_type", s("assumption")), ("source_id", s(population::SOURCE_ID)), ("event_id", s("arrive-1")), ("seed", V::Int(2026)),])
+    );
     let dynamics = state(&world, DYNAMICS);
     let V::List(pending) = get(&dynamics, &["pending_arrivals"]) else { panic!("a list") };
     assert_eq!(pending.len(), 2);
     let V::List(arrivals) = get(&dynamics, &["arrivals"]) else { panic!("a list") };
     assert_eq!(get(&arrivals[0], &["agent_id"]), &s(&first));
-    assert_eq!(arrivals[1], map(vec![
-        ("event_id", s("arrive-1")),
-        ("zone_id", s("z0")),
-        ("requested_count", V::Int(3)),
-        ("admitted_count", V::Int(1)),
-        ("waiting_count", V::Int(2)),
-        ("minute", V::Int(7)),
-    ]));
+    assert_eq!(
+        arrivals[1],
+        map(vec![
+            ("event_id", s("arrive-1")),
+            ("zone_id", s("z0")),
+            ("requested_count", V::Int(3)),
+            ("admitted_count", V::Int(1)),
+            ("waiting_count", V::Int(2)),
+            ("minute", V::Int(7)),
+        ])
+    );
     let V::Map(traits) = get(&dynamics, &["profile_traits"]) else { panic!("a map") };
     assert_eq!(traits.len(), 3);
     let V::Map(contexts) = get(&dynamics, &["profile_context"]) else { panic!("a map") };
@@ -587,7 +594,10 @@ fn a_retry_is_scheduled_next_minute_until_its_bound() {
     assert_eq!(world.id_counter("event").unwrap(), Some(11));
     let mut last = event.clone();
     last.provenance = map(vec![("population_retry", map(vec![("count", V::Int(1440))]))]);
-    assert_eq!(population::schedule_retry(&world, &Held::Absent, &last, "departure-retry", "departure"), Err(Error::suppressed("departure reached the bounded deferral limit")));
+    assert_eq!(
+        population::schedule_retry(&world, &Held::Absent, &last, "departure-retry", "departure"),
+        Err(Error::suppressed("departure reached the bounded deferral limit"))
+    );
     world.scalars.try_borrow_mut().unwrap().minute_index = Fit::Ok(599);
     assert_eq!(
         population::schedule_retry(&world, &Held::Absent, &event, "presence-retry", "population exit"),
@@ -610,18 +620,30 @@ fn the_validation_raises_the_rule_s_texts_in_its_order() {
         population::validate(&world, &inputs)
     };
     let marked = |text: &str| Err(Error::MarkedValue(text.to_owned()));
-    assert_eq!(with(&|fields| {
-        fields.insert(text("extra"), V::Null);
-    }), marked("population_dynamics_v1 has an invalid exact schema"));
-    assert_eq!(with(&|fields| {
-        fields.insert(text("initial_agent_ids"), list(vec![s("a1")]));
-    }), marked("population_dynamics_v1 is missing an active profile"));
-    assert_eq!(with(&|fields| {
-        fields.insert(text("profile_context"), map(vec![("stranger", map(vec![]))]));
-    }), marked("population_dynamics_v1 has an invalid dynamic context index"));
-    assert_eq!(with(&|fields| {
-        fields.insert(text("pending_arrivals"), list(vec![map(vec![("broken", V::Bool(true))])]));
-    }), marked("population_dynamics_v1 pending arrival is invalid"));
+    assert_eq!(
+        with(&|fields| {
+            fields.insert(text("extra"), V::Null);
+        }),
+        marked("population_dynamics_v1 has an invalid exact schema")
+    );
+    assert_eq!(
+        with(&|fields| {
+            fields.insert(text("initial_agent_ids"), list(vec![s("a1")]));
+        }),
+        marked("population_dynamics_v1 is missing an active profile")
+    );
+    assert_eq!(
+        with(&|fields| {
+            fields.insert(text("profile_context"), map(vec![("stranger", map(vec![]))]));
+        }),
+        marked("population_dynamics_v1 has an invalid dynamic context index")
+    );
+    assert_eq!(
+        with(&|fields| {
+            fields.insert(text("pending_arrivals"), list(vec![map(vec![("broken", V::Bool(true))])]));
+        }),
+        marked("population_dynamics_v1 pending arrival is invalid")
+    );
     let waiting = map(vec![
         ("profile", map(vec![("id", s("w1"))])),
         ("traits", map(vec![("age_years", V::Int(30))])),
@@ -629,12 +651,18 @@ fn the_validation_raises_the_rule_s_texts_in_its_order() {
         ("created_minute", V::Int(0)),
         ("event_id", s("e")),
     ]);
-    assert_eq!(with(&|fields| {
-        fields.insert(text("pending_arrivals"), list(vec![waiting.clone()]));
-    }), Ok(()));
-    assert_eq!(with(&|fields| {
-        fields.insert(text("pending_arrivals"), list(vec![waiting.clone(), waiting.clone()]));
-    }), marked("population_dynamics_v1 pending arrival is invalid"));
+    assert_eq!(
+        with(&|fields| {
+            fields.insert(text("pending_arrivals"), list(vec![waiting.clone()]));
+        }),
+        Ok(())
+    );
+    assert_eq!(
+        with(&|fields| {
+            fields.insert(text("pending_arrivals"), list(vec![waiting.clone(), waiting.clone()]));
+        }),
+        marked("population_dynamics_v1 pending arrival is invalid")
+    );
 }
 
 #[test]

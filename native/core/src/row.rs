@@ -546,12 +546,7 @@ impl<T: Field> Field for Vec<T> {
 }
 
 /// A mirrored write into a map of scalars: the row and the tree, or neither for the same bits.
-pub fn map_set<T: Scalar, S: TreeSink + ?Sized>(
-    map: &mut IdMap<T>,
-    tree: &S,
-    key: &str,
-    value: T,
-) -> std::result::Result<(), S::Error> {
+pub fn map_set<T: Scalar, S: TreeSink + ?Sized>(map: &mut IdMap<T>, tree: &S, key: &str, value: T) -> std::result::Result<(), S::Error> {
     match map.get_mut(key) {
         Some(slot) if slot.same(&value) => {}
         Some(slot) => {

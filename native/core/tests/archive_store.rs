@@ -12,12 +12,12 @@ mod support;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use sheltersim_core::canonical::{state_digest, TREE_CHUNK_ITEMS};
-use sheltersim_core::frame::Request;
 use sheltersim_core::archive::{world_part_digests, world_parts, LogReader, Restore, SampleReader, SavedPoint, SAVED_POINT_VERSION};
+use sheltersim_core::canonical::{state_digest, TREE_CHUNK_ITEMS};
 use sheltersim_core::checkpoint::sha256_hex;
 use sheltersim_core::events::log::EventLog;
 use sheltersim_core::events::packed::{put_varint, put_zigzag, Blocks, Packer, Unpacked};
+use sheltersim_core::frame::Request;
 use sheltersim_core::plain::PlainRun;
 use sheltersim_core::world::WorldCell;
 use support::load;
@@ -31,7 +31,14 @@ struct Stored {
 }
 
 /// The new table entries and the newly sealed blocks (every block when `last`) of a store.
-fn take(kind: (&'static str, &'static str), packer: &Packer, blocks: &Blocks, at: &mut (usize, usize, usize), last: bool, pieces: &mut Vec<(&'static str, Vec<u8>)>) {
+fn take(
+    kind: (&'static str, &'static str),
+    packer: &Packer,
+    blocks: &Blocks,
+    at: &mut (usize, usize, usize),
+    last: bool,
+    pieces: &mut Vec<(&'static str, Vec<u8>)>,
+) {
     let (strings, shapes, written) = *at;
     let end = if last { blocks.blocks().len() } else { blocks.sealed() };
     if end > written {
@@ -200,7 +207,8 @@ fn pieces_out_of_order_or_changed_are_errors() {
     longer.push(0);
     assert!(LogReader::new().read_tables(&longer).is_err());
     // Entries that start past the table's end leave a gap.
-    let (packer, _) = run.loaded.cell.with(|world| world.log().unwrap().packed_store().map(|(packer, blocks)| (packer.clone(), blocks.clone())).unwrap()).unwrap();
+    let (packer, _) =
+        run.loaded.cell.with(|world| world.log().unwrap().packed_store().map(|(packer, blocks)| (packer.clone(), blocks.clone())).unwrap()).unwrap();
     let mut gap = Vec::new();
     packer.write_tables(1, 0, &mut gap);
     assert!(LogReader::new().read_tables(&gap).is_err());
@@ -393,7 +401,8 @@ fn a_run_s_kept_digest_of_its_log_is_the_digest_read_again() {
         assert_eq!(again.state_digest().unwrap(), uncached_digest(&again), "{name} restored at {minute}");
         for at in *minute + 1..(*minute + 30).min(ticks) {
             again.step().unwrap();
-            let frame: serde_json::Value = serde_json::from_slice(&again.frame(&Request { run_id: "run", branch_id: "main", computed_until: at, state_hash: None }).unwrap()).unwrap();
+            let frame: serde_json::Value =
+                serde_json::from_slice(&again.frame(&Request { run_id: "run", branch_id: "main", computed_until: at, state_hash: None }).unwrap()).unwrap();
             assert_eq!(frame["state_hash"], uncached_digest(&again).as_str(), "{name} restored, at {at}");
         }
     }

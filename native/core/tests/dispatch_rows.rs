@@ -116,7 +116,9 @@ fn record(loaded: &Loaded, event_id: &str) -> (String, Option<String>) {
         .cell
         .with(|world| {
             let log = world.log().unwrap();
-            let found = (0..log.len()).map(|index| serde_json::from_slice::<Value>(log.written(index).unwrap()).unwrap()).find(|record| record["event"]["event_id"] == event_id);
+            let found = (0..log.len())
+                .map(|index| serde_json::from_slice::<Value>(log.written(index).unwrap()).unwrap())
+                .find(|record| record["event"]["event_id"] == event_id);
             let found = found.unwrap_or_else(|| panic!("no record of {event_id}"));
             (found["status"].as_str().unwrap().to_owned(), found["detail"].as_str().map(str::to_owned))
         })

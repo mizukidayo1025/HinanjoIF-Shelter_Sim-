@@ -13,7 +13,9 @@ use serde_json::Value;
 use sheltersim_core::cell::Shard;
 use sheltersim_core::config::movement::Movement;
 use sheltersim_core::config::staff::StaffOperations;
-use sheltersim_core::entities::{Activity, AnyTable, AgentRow, Entities, EdgeRow, Mobility, NeedRow, ProfileRow, RequestRow, RequestStatus, Skills, StaffRow, Table, TaskRow, ZoneRow};
+use sheltersim_core::entities::{
+    Activity, AgentRow, AnyTable, EdgeRow, Entities, Mobility, NeedRow, ProfileRow, RequestRow, RequestStatus, Skills, StaffRow, Table, TaskRow, ZoneRow,
+};
 use sheltersim_core::error::Error;
 use sheltersim_core::events::log::EventLog;
 use sheltersim_core::events::queue::Queue;
@@ -87,7 +89,14 @@ fn agent(id: &str, zone: &str, stress: f64) -> AgentRow {
 }
 
 fn member(id: &str, zone: &str, skills: &[&str]) -> StaffRow {
-    StaffRow { id: text(id), zone_id: text(zone), skills: Skills(skills.iter().map(|skill| text(skill)).collect()), work_queue: Vec::new(), busy_until: 0, active_task_id: None }
+    StaffRow {
+        id: text(id),
+        zone_id: text(zone),
+        skills: Skills(skills.iter().map(|skill| text(skill)).collect()),
+        work_queue: Vec::new(),
+        busy_until: 0,
+        active_task_id: None,
+    }
 }
 
 /// Zones z0 and z1, edge e1 (z0 to z1, 4 minutes) and e2 back; a1 and a2 in z0; s1 (support) in
@@ -142,18 +151,9 @@ fn working(task: &str, kind: &str, zone: &str, due: i64) -> OperationRecord {
 }
 
 fn ops_row() -> StaffOperationsRow {
-    let durations = map(vec![
-        ("cleaning", V::Int(20)),
-        ("maintenance", V::Int(30)),
-        ("information_outreach", V::Int(15)),
-        ("intake", V::Int(10)),
-        ("patrol", V::Int(10)),
-    ]);
-    let config = map(vec![
-        ("task_duration_minutes", durations),
-        ("sanitation_use_per_person_minute", V::Float(0.01)),
-        ("effects_by_zone", map(vec![])),
-    ]);
+    let durations =
+        map(vec![("cleaning", V::Int(20)), ("maintenance", V::Int(30)), ("information_outreach", V::Int(15)), ("intake", V::Int(10)), ("patrol", V::Int(10))]);
+    let config = map(vec![("task_duration_minutes", durations), ("sanitation_use_per_person_minute", V::Float(0.01)), ("effects_by_zone", map(vec![]))]);
     let mut zones = IdMap::default();
     zones.insert(text("z0"), ZoneRecord { sanitation: 0.9, updated_minute: 0 });
     zones.insert(text("z1"), ZoneRecord { sanitation: 0.95, updated_minute: 0 });
@@ -316,7 +316,10 @@ fn a_free_worker_takes_an_aged_request_where_it_stands() {
     let member = rows.staff.get("s1").unwrap();
     assert_eq!((member.active_task_id.as_deref(), member.work_queue.len(), member.busy_until), (Some("staff-support-40"), 1, 20));
     let request = rows.support_requests.get("r1").unwrap();
-    assert_eq!((request.status, request.assigned_staff_id.as_deref(), request.last_assignment_wait_reason_code.as_deref()), (RequestStatus::Assigned, Some("s1"), None));
+    assert_eq!(
+        (request.status, request.assigned_staff_id.as_deref(), request.last_assignment_wait_reason_code.as_deref()),
+        (RequestStatus::Assigned, Some("s1"), None)
+    );
     drop(rows);
     assert_eq!(pending(&world), [("staff-support-complete-40".to_owned(), 20, 40)]);
     // Waited 5 minutes past fairness 3: promoted, and counted.
@@ -508,15 +511,19 @@ fn an_unavailable_worker_s_task_is_handed_to_one_at_the_task() {
     let mut world = world();
     let (held, none) = (Held::Held, absent());
     busy(&world, "s2", "staff-operation-30");
-    put(&mut world.rows_mut().unwrap().active_tasks, "staff-operation-30", TaskRow {
-        id: text("staff-operation-30"),
-        kind: text("staff_operation"),
-        agent_id: None,
-        resource_id: None,
-        start_minute: 0,
-        due_minute: 50,
-        staff_id: Some(text("s2")),
-    });
+    put(
+        &mut world.rows_mut().unwrap().active_tasks,
+        "staff-operation-30",
+        TaskRow {
+            id: text("staff-operation-30"),
+            kind: text("staff_operation"),
+            agent_id: None,
+            resource_id: None,
+            start_minute: 0,
+            due_minute: 50,
+            staff_id: Some(text("s2")),
+        },
+    );
     world.row_mut::<StaffOperationsRow>(NAME).unwrap().staff.insert(text("s2"), working("staff-operation-30", "cleaning", "z1", 50));
     let inputs = inputs(&held, &none, None);
     // s2 is available: nothing to hand.

@@ -5,8 +5,12 @@ use std::borrow::Cow;
 
 use crate::error::{Error, Result};
 
+// Tables written by native/core/tools/*.py: their generators own the layout, so rustfmt skips them (#367).
+#[rustfmt::skip]
 mod casefold;
+#[rustfmt::skip]
 mod classes;
+#[rustfmt::skip]
 mod printable;
 
 /// What `str.casefold` gives one character: its full case folding, or None for itself. The table
@@ -14,15 +18,22 @@ mod printable;
 /// character on its own (`native/core/tools/casefold_table.py`).
 pub fn fold_char(char: char) -> Option<&'static str> {
     let point = char as u32;
-    casefold::FOLDS
-        .binary_search_by_key(&point, |(from, _)| *from)
-        .ok()
-        .map(|index| casefold::FOLDS[index].1)
+    casefold::FOLDS.binary_search_by_key(&point, |(from, _)| *from).ok().map(|index| casefold::FOLDS[index].1)
 }
 
 fn in_ranges(ranges: &[(u32, u32)], char: char) -> bool {
     let point = char as u32;
-    ranges.binary_search_by(|(first, last)| if *last < point { std::cmp::Ordering::Less } else if *first > point { std::cmp::Ordering::Greater } else { std::cmp::Ordering::Equal }).is_ok()
+    ranges
+        .binary_search_by(|(first, last)| {
+            if *last < point {
+                std::cmp::Ordering::Less
+            } else if *first > point {
+                std::cmp::Ordering::Greater
+            } else {
+                std::cmp::Ordering::Equal
+            }
+        })
+        .is_ok()
 }
 
 /// Whether `\d` of a str pattern of Python's `re` matches the character: a Unicode decimal
@@ -45,11 +56,7 @@ pub fn re_word(char: char) -> bool {
 /// `text.casefold()`. Borrowed when no character folds, as for ASCII text without capitals.
 pub fn casefold(text: &str) -> Cow<'_, str> {
     if text.is_ascii() {
-        return if text.bytes().any(|byte| byte.is_ascii_uppercase()) {
-            Cow::Owned(text.to_ascii_lowercase())
-        } else {
-            Cow::Borrowed(text)
-        };
+        return if text.bytes().any(|byte| byte.is_ascii_uppercase()) { Cow::Owned(text.to_ascii_lowercase()) } else { Cow::Borrowed(text) };
     }
     let Some(first) = text.char_indices().find(|(_, char)| fold_char(*char).is_some()) else {
         return Cow::Borrowed(text);

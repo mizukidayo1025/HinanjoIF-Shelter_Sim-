@@ -10,10 +10,7 @@ use std::sync::Arc;
 use indexmap::IndexMap;
 use serde_json::{json, Value};
 use sheltersim_core::config::{Fault, Selection};
-use sheltersim_core::entities::{
-    Activity, AgentRow, AnyTable, FacilityRow, Mobility, NeedRow, ProfileRow, RequestRow, RequestStatus, Table, TaskRow,
-    ZoneRow,
-};
+use sheltersim_core::entities::{Activity, AgentRow, AnyTable, FacilityRow, Mobility, NeedRow, ProfileRow, RequestRow, RequestStatus, Table, TaskRow, ZoneRow};
 use sheltersim_core::error::Error;
 use sheltersim_core::row::{IdMap, ValueRow};
 use sheltersim_core::rules::person_context::{self, PersonFields};
@@ -221,8 +218,7 @@ fn world(full: bool) -> World {
         }
     });
     if full {
-        configs["population_context"] =
-            json!({"people": {"A1": {"roles": ["parent"], "usual_wake_minute": 420, "care_for_ids": ["A2"]}}});
+        configs["population_context"] = json!({"people": {"A1": {"roles": ["parent"], "usual_wake_minute": 420, "care_for_ids": ["A2"]}}});
     }
     add_value(&mut world, MODEL_CONFIGS, Place::Field, configs);
     if full {
@@ -241,8 +237,7 @@ fn world(full: bool) -> World {
             },
         );
         let index = world.slots.add(text("psychological_distress_v1"), Place::Namespace).unwrap();
-        world.slots.at(index).unwrap().try_borrow_mut().unwrap().row =
-            Some(Box::new(DistressRow { schema_version: 1, last_updated_minute: -1, agents }));
+        world.slots.at(index).unwrap().try_borrow_mut().unwrap().row = Some(Box::new(DistressRow { schema_version: 1, last_updated_minute: -1, agents }));
         add_value(&mut world, "population_presence_v1", Place::Namespace, json!({"people": {"A1": {"household_id": "h1"}}}));
     }
     add_value(
@@ -549,10 +544,7 @@ fn a_zone_without_the_policy_is_neutral_and_a_bad_modifier_is_refused() {
     let bad = ZoneInputs::read(&config, Some(&v(json!({"modifiers": {"m": {"zone_id": "hall", "start_minute": 0}}})))).unwrap();
     assert_eq!(bad.conditions("hall").err(), Some(unsupported("a zone modifier is not what the rule reads")));
     let bad_config = configs(json!({"zone_environment": {"noise_rest_efficiency_loss": 0.95}}));
-    assert_eq!(
-        ZoneInputs::read(&bad_config, Some(&v(json!({"modifiers": {}})))).err(),
-        Some(unsupported("the zone environment config does not parse"))
-    );
+    assert_eq!(ZoneInputs::read(&bad_config, Some(&v(json!({"modifiers": {}})))).err(), Some(unsupported("the zone environment config does not parse")));
     let unknown = configs(json!({"zone_environment": {}, "policy_registry": {"zone_rest": "zone-rest-other-v1"}}));
     assert_eq!(ZoneInputs::read(&unknown, Some(&v(json!({"modifiers": {}})))).err(), Some(unsupported("a zone formula of another module")));
 }

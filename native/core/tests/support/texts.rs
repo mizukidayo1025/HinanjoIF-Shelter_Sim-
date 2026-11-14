@@ -74,7 +74,13 @@ pub fn pending(entry: &Value, event_type: &str, op: Option<&str>) -> Value {
 
 /// The event of the world's queue with this ID.
 pub fn pending_id(entry: &Value, event_id: &str) -> Value {
-    entry["world"]["event_queue"].as_array().unwrap().iter().find(|event| event["event_id"] == event_id).unwrap_or_else(|| panic!("no event {event_id}")).clone()
+    entry["world"]["event_queue"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|event| event["event_id"] == event_id)
+        .unwrap_or_else(|| panic!("no event {event_id}"))
+        .clone()
 }
 
 /// The event with its payload's keys set (`DROP` drops one) and its own fields set.

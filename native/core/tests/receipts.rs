@@ -19,13 +19,9 @@ use sheltersim_core::rules::common_operations::{
 };
 use sheltersim_core::rules::resources::{self, Applied, Fail, LedgerFault, OperationArg, OperationEvent};
 use sheltersim_core::rules::staff_dynamics;
-use sheltersim_core::state::resource_ledger::{
-    Account, Accounts, Audit, AuditRecord, LedgerRow, UsedIds, AUDIT_SCHEMA_VERSION, NAME as LEDGER,
-};
+use sheltersim_core::state::resource_ledger::{Account, Accounts, Audit, AuditRecord, LedgerRow, UsedIds, AUDIT_SCHEMA_VERSION, NAME as LEDGER};
 use sheltersim_core::state::shared_operations::{CareStatus, Heads, Receipts, SharedOperationsRow, NAME as SHARED, POLICY};
-use sheltersim_core::state::staff_dynamics::{
-    ConfigRow, LastActivity, Recovery, Shift, StaffDynamicsRow, StaffRecord, NAME as DYNAMICS, POLICY_V2,
-};
+use sheltersim_core::state::staff_dynamics::{ConfigRow, LastActivity, Recovery, Shift, StaffDynamicsRow, StaffRecord, NAME as DYNAMICS, POLICY_V2};
 use sheltersim_core::state::staff_operations::NAME as OPERATIONS;
 use sheltersim_core::value::V;
 use sheltersim_core::world::{Fit, Place, ResourcesRow, World, ID_COUNTERS, MODEL_CONFIGS, RESOURCES};
@@ -76,14 +72,7 @@ fn agent(id: &str) -> AgentRow {
 }
 
 fn staff(id: &str, task: Option<&str>) -> StaffRow {
-    StaffRow {
-        id: text(id),
-        zone_id: text("z0"),
-        skills: Skills(Vec::new()),
-        work_queue: Vec::new(),
-        busy_until: 0,
-        active_task_id: task.map(text),
-    }
+    StaffRow { id: text(id), zone_id: text("z0"), skills: Skills(Vec::new()), work_queue: Vec::new(), busy_until: 0, active_task_id: task.map(text) }
 }
 
 fn facility(id: &str, capacity: i64, units: i64) -> FacilityRow {
@@ -400,10 +389,7 @@ fn what_the_python_rule_turned_down_is_its_text_with_nothing_changed() {
     );
     // A payload value is shown as Python's repr, which the PyO3 crate writes.
     let other = map(&[("warehouse_id", string("elsewhere")), ("resource_id", string("water_ml")), ("quantity", V::Int(1))]);
-    assert_eq!(
-        operate(&mut world, "delivery", other, "op-9"),
-        Err(Fail::Ledger(LedgerFault::Repr("unknown resource warehouse ID", string("elsewhere"))))
-    );
+    assert_eq!(operate(&mut world, "delivery", other, "op-9"), Err(Fail::Ledger(LedgerFault::Repr("unknown resource warehouse ID", string("elsewhere")))));
     assert_eq!(ledger_text(operate(&mut world, "reserve", reservation(Some(1), "r2", "a9"), "op-10")), "unknown resource Agent ID <Str(\"a9\")>");
     assert_eq!(
         resources::apply_operation(
@@ -426,10 +412,7 @@ fn a_ledger_the_check_turns_down_is_refused() {
     let mut world = ledger_world();
     // `world.resources` no longer holds the ledger's balance.
     world.row_mut::<ResourcesRow>(RESOURCES).unwrap().insert(text("water_ml"), 7);
-    assert_eq!(
-        operate(&mut world, "delivery", water(1), "op-1"),
-        Err(Fail::Error(unsupported("the state is one the Python rule's check turned down")))
-    );
+    assert_eq!(operate(&mut world, "delivery", water(1), "op-1"), Err(Fail::Error(unsupported("the state is one the Python rule's check turned down"))));
     assert_eq!(resources::metric_values(&world), Err(unsupported("the state is for the Python rule to judge")));
 }
 
@@ -651,10 +634,7 @@ fn a_care_transition_is_its_record_and_its_receipt() {
         assert!(bytes.contains(r#""source_ids":["ASM-CARE-TRANSITION-PRODUCER-V1","SRC-A","SRC-B"]"#), "{bytes}");
     }
     // An order the lifecycle turns down.
-    assert_eq!(
-        care_receipts::append(&mut world, transition("completed")).map_err(|_| ()),
-        Err(())
-    );
+    assert_eq!(care_receipts::append(&mut world, transition("completed")).map_err(|_| ()), Err(()));
     care_receipts::append(&mut world, transition("assigned")).unwrap();
     assert_eq!(counter(&world), Some(12));
     // A planned sequence someone took in between.
@@ -730,10 +710,7 @@ fn a_person_s_sources_are_read_from_the_context_namespaces() {
     slot(&mut world, MODEL_CONFIGS, Place::Field, Box::new(ValueRow(configs)));
     let context = map(&[("people", map(&[("a1", map(&[("source_ids", V::List(vec![string("SRC-B"), V::Int(3), string("SRC-A")]))]))]))]);
     slot(&mut world, care_receipts::POPULATION_CONTEXT, Place::Value, Box::new(ValueRow(context)));
-    assert_eq!(
-        care_receipts::source_ids_of(&world, "a1").unwrap(),
-        [text("ASM-STAFF-SUPPORT-LIFECYCLE-V1"), text("SRC-A"), text("SRC-B")]
-    );
+    assert_eq!(care_receipts::source_ids_of(&world, "a1").unwrap(), [text("ASM-STAFF-SUPPORT-LIFECYCLE-V1"), text("SRC-A"), text("SRC-B")]);
     assert_eq!(care_receipts::source_ids_of(&world, "a2").unwrap(), [text("ASM-STAFF-SUPPORT-LIFECYCLE-V1"), text("SRC-C")]);
     assert_eq!(care_receipts::source_ids_of(&world, "a9").unwrap(), [text("ASM-STAFF-SUPPORT-LIFECYCLE-V1")]);
     assert_eq!(care_receipts::person_context(&world, "a9").unwrap(), None);

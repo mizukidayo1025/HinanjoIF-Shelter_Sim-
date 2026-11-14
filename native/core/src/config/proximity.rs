@@ -21,9 +21,6 @@ impl Proximity {
         }
         let config = map(config)?;
         let field = |name: &str| config.get(name).unwrap_or(&V::Null);
-        Ok(Some(Self {
-            policy_version: text(field("policy_version"))?.clone(),
-            max_distance_m: number(field("max_distance_m")),
-        }))
+        Ok(Some(Self { policy_version: text(field("policy_version"))?.clone(), max_distance_m: number(field("max_distance_m")) }))
     }
 }

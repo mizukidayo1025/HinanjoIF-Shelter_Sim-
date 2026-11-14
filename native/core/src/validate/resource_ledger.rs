@@ -186,8 +186,7 @@ fn archived_agent_ids(view: &View<'_>) -> Result<Vec<Arc<str>>> {
     if traits.keys().any(|id| !historical.contains(&**id)) {
         return Err(Error::Value("population_dynamics_v1 contains an unknown profile ID".to_owned()));
     }
-    let mut archived: Vec<Arc<str>> =
-        initial.iter().filter_map(|item| if let V::Str(id) = item { Some(id.clone()) } else { None }).collect();
+    let mut archived: Vec<Arc<str>> = initial.iter().filter_map(|item| if let V::Str(id) = item { Some(id.clone()) } else { None }).collect();
     archived.extend(admitted.into_iter().cloned());
     Ok(archived)
 }
@@ -237,11 +236,7 @@ fn balances<'a>(ledger: &'a V, world: &Against<'_>, check_every_reservation_id: 
         return Err(ledger_error("WorldState resources must contain exactly the ledger resource IDs"));
     }
     let used_ids = match &map["used_reservation_ids"] {
-        V::List(items)
-            if items.iter().all(|item| if check_every_reservation_id { valid_id(item) } else { matches!(item, V::Str(_)) }) =>
-        {
-            texts(items)
-        }
+        V::List(items) if items.iter().all(|item| if check_every_reservation_id { valid_id(item) } else { matches!(item, V::Str(_)) }) => texts(items),
         _ => return Err(ledger_error("resource ledger reservation IDs are invalid")),
     };
     let used_set: FxHashSet<&str> = used_ids.iter().copied().collect();
@@ -288,8 +283,7 @@ fn balances<'a>(ledger: &'a V, world: &Against<'_>, check_every_reservation_id: 
                 V::Str(agent) if is_stable_id(agent) && world.agent_ids.contains(&**agent) => &**agent,
                 _ => return Err(ledger_error("resource reservation identity is invalid")),
             };
-            if !matches!(&record["reservation_id"], V::Str(id) if id == reservation_id)
-                || !matches!(&record["resource_id"], V::Str(id) if &**id == resource_id)
+            if !matches!(&record["reservation_id"], V::Str(id) if id == reservation_id) || !matches!(&record["resource_id"], V::Str(id) if &**id == resource_id)
             {
                 return Err(ledger_error("resource reservation identity is invalid"));
             }
@@ -469,8 +463,7 @@ fn replay(ledger: &V, world: &Against<'_>) -> Result<()> {
             let mut balances = [0i128; 6];
             balances[INITIAL] = record.quantity;
             balances[REMAINING] = record.quantity;
-            replays[record.resource] =
-                Some(Replay { balances, source_ids: record.source_ids.clone(), reservations: FxHashMap::default() });
+            replays[record.resource] = Some(Replay { balances, source_ids: record.source_ids.clone(), reservations: FxHashMap::default() });
         } else {
             if index < RESOURCE_IDS.len() {
                 return Err(ledger_error("initial resource audit records must lead in stable order"));

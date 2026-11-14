@@ -41,9 +41,8 @@ use crate::rules::kit::{self, Counts, Held};
 use crate::rules::tick::read::is_refusal;
 use crate::rules::tick::{RunCell, Tick};
 use crate::rules::{
-    action_lifecycle, agent_dynamics, body_state, common_operations, effects, handlers, information_events, movement, population,
-    population_lifecycle, service, social_interaction, social_network, staff_operation_events as operations, support, toilet,
-    travel_completion,
+    action_lifecycle, agent_dynamics, body_state, common_operations, effects, handlers, information_events, movement, population, population_lifecycle,
+    service, social_interaction, social_network, staff_operation_events as operations, support, toilet, travel_completion,
 };
 use crate::run::dispatch::{AfterComplete, Handler, HandlerKind, Native};
 use crate::text::py_repr;
@@ -208,9 +207,7 @@ fn counted<T, E: HostFailure>(counts: &Counts, label: &'static str, result: std:
 /// past 64 bits equal to the float of its value.
 pub fn py_eq(first: &V, second: &V) -> bool {
     match (first, second) {
-        (V::Big(big), V::Float(float)) | (V::Float(float), V::Big(big)) => {
-            float.is_finite() && float.fract() == 0.0 && format!("{float:.0}") == **big
-        }
+        (V::Big(big), V::Float(float)) | (V::Float(float), V::Big(big)) => float.is_finite() && float.fract() == 0.0 && format!("{float:.0}") == **big,
         (V::List(one), V::List(two)) => one.len() == two.len() && one.iter().zip(two).all(|(a, b)| py_eq(a, b)),
         (V::Map(one), V::Map(two)) => one.len() == two.len() && one.iter().all(|(key, value)| two.get(key).is_some_and(|other| py_eq(value, other))),
         _ => common_operations::py_eq(first, second),
@@ -401,7 +398,12 @@ where
 /// `EventDispatcher.settle` of a dispatcher a caller holds alone (decision D3): the event leaves the
 /// queue if it is there, and its outcome is recorded at `tick.minute`, unless the log holds a record
 /// of its ID, which must then be of the same event and status (`RECORD_DISAGREES`).
-pub fn settle_alone<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R>, row: &EventRow, status: EventStatus, detail: Option<&str>) -> std::result::Result<(), H::Error> {
+pub fn settle_alone<C: WorldCell, H: Host, R: RunCell>(
+    tick: &mut Tick<'_, C, H, R>,
+    row: &EventRow,
+    status: EventStatus,
+    detail: Option<&str>,
+) -> std::result::Result<(), H::Error> {
     settle(tick, row, status, detail)
 }
 
@@ -410,7 +412,11 @@ pub fn settle_alone<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H,
 /// settle, no record appended and no count (for the core's tests, Issue #225). None where it
 /// applied; else the outcome it raised, its status and `str(exc)`. A refusal is the handler's, as
 /// the dispatcher labels it.
-pub fn apply_alone<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R>, native: &Native, row: &EventRow) -> std::result::Result<Option<(EventStatus, String)>, H::Error>
+pub fn apply_alone<C: WorldCell, H: Host, R: RunCell>(
+    tick: &mut Tick<'_, C, H, R>,
+    native: &Native,
+    row: &EventRow,
+) -> std::result::Result<Option<(EventStatus, String)>, H::Error>
 where
     H::Error: From<WriteError>,
 {
@@ -637,13 +643,10 @@ fn record_social_event<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C,
         Err(fault) => return Err(tick.raise(SectionId::BodyModels, fault)),
     };
     let keys: &[&str] = match &*row.event_type {
-        "proximity_contact_update" => &[
-            "contact_minutes", "message_id", "topic_id", "interaction_duration_minutes", "first_agent_id", "second_agent_id", "observed_minute",
-            "distance_m",
-        ],
-        "information_contact_update" => {
-            &["contact_minutes", "message_id", "topic_id", "interaction_duration_minutes", "sender_agent_id", "recipient_agent_id"]
+        "proximity_contact_update" => {
+            &["contact_minutes", "message_id", "topic_id", "interaction_duration_minutes", "first_agent_id", "second_agent_id", "observed_minute", "distance_m"]
         }
+        "information_contact_update" => &["contact_minutes", "message_id", "topic_id", "interaction_duration_minutes", "sender_agent_id", "recipient_agent_id"],
         "social_interaction" => {
             &["contact_minutes", "message_id", "topic_id", "interaction_duration_minutes", "interaction_type", "agent_id", "participant_agent_id"]
         }
@@ -658,7 +661,12 @@ fn record_social_event<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C,
 /// `EventDispatcher.settle`: the event leaves the queue if it is there, and its record is appended,
 /// unless the log holds one of its ID, which the handler wrote: that one must be of the same event
 /// and status.
-fn settle<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R>, row: &EventRow, status: EventStatus, detail: Option<&str>) -> std::result::Result<(), H::Error> {
+fn settle<C: WorldCell, H: Host, R: RunCell>(
+    tick: &mut Tick<'_, C, H, R>,
+    row: &EventRow,
+    status: EventStatus,
+    detail: Option<&str>,
+) -> std::result::Result<(), H::Error> {
     let minute = tick.minute;
     let settled = tick.cell.with(|world| -> crate::events::writer::WriteResult<(Option<u64>, bool)> {
         let taken = world.queue_mut()?.take_slot(&row.event_id).map(|(serial, _)| serial);
@@ -686,7 +694,11 @@ fn settle<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R>, row: 
 /// The handler's records: each one the log holds already must be the same event with the same status,
 /// and any other is appended. The shared receipts among them are taken in
 /// (`ingest_applied_shared_operation_records`).
-fn follow_ups<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R>, records: Vec<Record>, outcomes: &mut Vec<Dispatched>) -> std::result::Result<(), H::Error> {
+fn follow_ups<C: WorldCell, H: Host, R: RunCell>(
+    tick: &mut Tick<'_, C, H, R>,
+    records: Vec<Record>,
+    outcomes: &mut Vec<Dispatched>,
+) -> std::result::Result<(), H::Error> {
     if records.is_empty() {
         return Ok(());
     }
@@ -821,7 +833,9 @@ where
             let event = support_event(row, [true, true, true, true]);
             let handler = support::Handler { cooldown_minutes: read(native.cooldown_minutes())?, require_colocated: read(native.require_colocated())? };
             let inputs = support::Inputs::read(cell, tick.host)?;
-            let complete = |tick: &mut Tick<'_, C, H, R>, formula: support::Formula<'_>| tick.world(|world| support::complete_support(world, &inputs, &event, handler, formula, 0));
+            let complete = |tick: &mut Tick<'_, C, H, R>, formula: support::Formula<'_>| {
+                tick.world(|world| support::complete_support(world, &inputs, &event, handler, formula, 0))
+            };
             let receipt = match complete(tick, support::Formula::Unread)? {
                 support::Completion::Done(planned) => planned,
                 support::Completion::NeedsFormula => {
@@ -882,7 +896,8 @@ where
                 let holding = tick.holding()?;
                 let program = holding.held(effects::MARKER, "the world holds another effect_program_v1");
                 let infrastructure = holding.held(handlers::INFRASTRUCTURE, "the world holds another infrastructure state");
-                let inputs = handlers::FacilityIn { program: &program, infrastructure: &infrastructure, shared_absent: !holding.contains("shared_operations_v1") };
+                let inputs =
+                    handlers::FacilityIn { program: &program, infrastructure: &infrastructure, shared_absent: !holding.contains("shared_operations_v1") };
                 tick.world(|world| handlers::facility_units(world, &inputs, row, restores))
             })();
             let made = counted(&handlers::COUNTS, if restores { "facility_recovery" } else { "facility_outage" }, result)?;
@@ -915,8 +930,13 @@ where
             let made = counted(&handlers::COUNTS, "staff_unavailable", result)?;
             Ok(Handled::records(made.into_iter().map(Record::from).collect()))
         }
-        HandlerKind::StaffOperationArrival | HandlerKind::StaffOperationRelief | HandlerKind::StaffOperationCompletion => staff_operation(tick, native.kind, row),
-        HandlerKind::EffectProgramFacility | HandlerKind::EffectProgramEnvironment | HandlerKind::EffectProgramTemporarySpace | HandlerKind::EffectProgramGeometry => {
+        HandlerKind::StaffOperationArrival | HandlerKind::StaffOperationRelief | HandlerKind::StaffOperationCompletion => {
+            staff_operation(tick, native.kind, row)
+        }
+        HandlerKind::EffectProgramFacility
+        | HandlerKind::EffectProgramEnvironment
+        | HandlerKind::EffectProgramTemporarySpace
+        | HandlerKind::EffectProgramGeometry => {
             let expire = read(native.expire())?;
             let (name, result) = match native.kind {
                 HandlerKind::EffectProgramFacility => ("facility", effects::facility_event(cell, tick.host, row, expire)),
@@ -932,7 +952,12 @@ where
             counted(&effects::COUNTS, name, result).map(|()| Handled::applied())
         }
         HandlerKind::EffectProgramStructure => {
-            let structure = tick.world(|world| effects::structure_of(row).map(|structure| { let _ = world; structure }))?;
+            let structure = tick.world(|world| {
+                effects::structure_of(row).map(|structure| {
+                    let _ = world;
+                    structure
+                })
+            })?;
             let (name, result): (&'static str, std::result::Result<Option<Made>, H::Error>) = match structure {
                 effects::Structure::TaskOrder => {
                     tick.host.read_queue_rows()?;
@@ -1065,7 +1090,12 @@ where
 
 /// `interrupt_staff_operation(world, staff_id, event, current_event_id=event.event_id)` and then
 /// `raise EventSuppressed(text)`.
-fn stop_and_suppress<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R>, staff_id: &str, row: &EventRow, text: &str) -> std::result::Result<Handled, H::Error> {
+fn stop_and_suppress<C: WorldCell, H: Host, R: RunCell>(
+    tick: &mut Tick<'_, C, H, R>,
+    staff_id: &str,
+    row: &EventRow,
+    text: &str,
+) -> std::result::Result<Handled, H::Error> {
     tick.host.read_queue_rows()?;
     let holding = tick.holding()?;
     let gathered = tick.gathered(&holding, true, false)?;
@@ -1199,7 +1229,14 @@ impl<C: WorldCell, H: Host> travel_completion::Managers<H> for CoreManagers<'_, 
         let holding = kit::holding(self.cell, host)?;
         let queues = holding.held("facility_queues_v1", "the world holds another queue state");
         let geo = host.floor_plan()?;
-        let needs = kit::kept_section_value(self.cell, host, &holding, SectionId::AccessibilityNeeds, |configs| &configs.accessibility_needs, AccessibilityNeeds::parse)?;
+        let needs = kit::kept_section_value(
+            self.cell,
+            host,
+            &holding,
+            SectionId::AccessibilityNeeds,
+            |configs| &configs.accessibility_needs,
+            AccessibilityNeeds::parse,
+        )?;
         let request = toilet::Request { agent_id, facility_id, queue_id: None, queues: &queues, geo: &geo, needs: &needs };
         let written = self.cell.with(|world| toilet::queue_up(world, &request).map(drop))?;
         written.map_err(<H::Error as From<crate::events::writer::WriteError>>::from)
@@ -1208,7 +1245,14 @@ impl<C: WorldCell, H: Host> travel_completion::Managers<H> for CoreManagers<'_, 
     fn resource(&mut self, host: &mut H, agent_id: &str, facility_id: &str) -> std::result::Result<Option<String>, H::Error> {
         let manager = service::manager_parts(self.cell, host, &self.policies)?;
         let holding = kit::holding(self.cell, host)?;
-        let needs = kit::kept_section_value(self.cell, host, &holding, SectionId::AccessibilityNeeds, |configs| &configs.accessibility_needs, AccessibilityNeeds::parse)?;
+        let needs = kit::kept_section_value(
+            self.cell,
+            host,
+            &holding,
+            SectionId::AccessibilityNeeds,
+            |configs| &configs.accessibility_needs,
+            AccessibilityNeeds::parse,
+        )?;
         host.read_queue_rows()?;
         let pending = self.cell.with(|world| service::reserves_of(world))??;
         let request = service::Request { agent_id, facility_id, minute: service::Minute::Absent, queue_id: None, needs: &needs };
@@ -1264,13 +1308,16 @@ fn record_applied<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R
         count(&COUNTS.completion_ran);
     }
     if event_type == "effect_program_population" {
-        let done = tick.run.with(|run| tick.cell.with(|world| action_lifecycle::population_exit(world, &mut run.actions, &row.event_id, minute)).and_then(|done| done));
+        let done = tick
+            .run
+            .with(|run| tick.cell.with(|world| action_lifecycle::population_exit(world, &mut run.actions, &row.event_id, minute)).and_then(|done| done));
         done.and_then(|done| done).map_err(|error| labelled("action_lifecycle.record_applied_population_exit", core_err::<H::Error>(error)))?;
         count(&COUNTS.population_exit_ran);
     }
     if event_type == "agent_travel_complete" {
         if let (Some(agent_id), Some(facility_id)) = (text_of(row, "agent_id"), text_of(row, "facility_id")) {
-            agent_dynamics::learn_facility_through(tick.cell, tick.host, Some(&agent_id), Some(&facility_id)).map_err(|error| labelled("agent_dynamics.learn_facility", error))?;
+            agent_dynamics::learn_facility_through(tick.cell, tick.host, Some(&agent_id), Some(&facility_id))
+                .map_err(|error| labelled("agent_dynamics.learn_facility", error))?;
             count(&COUNTS.learn_ran);
         }
         if text_of(row, "purpose").as_deref() == Some("staff_support_travel") {
@@ -1372,7 +1419,10 @@ pub fn sync_movement<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H
                     None => Some(purpose),
                     Some(agent) => {
                         let queue_trip = agent.activity == crate::entities::Activity::Queued
-                            && matches!(purpose.as_deref(), Some("toilet_queue_position" | "resource_queue_position" | "toilet_queue_service" | "resource_queue_service"));
+                            && matches!(
+                                purpose.as_deref(),
+                                Some("toilet_queue_position" | "resource_queue_position" | "toilet_queue_service" | "resource_queue_service")
+                            );
                         (agent.activity != crate::entities::Activity::Moving && !queue_trip).then_some(purpose)
                     }
                 })
@@ -1462,7 +1512,8 @@ pub fn consider_contact<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C
         let Some(state) = kit::held_row::<crate::state::information::InformationRow>(world, crate::state::information::NAME, &held)? else {
             return Ok(false);
         };
-        let (Some(message), Some(belief)) = (state.messages.get(&*message_id), state.beliefs.get(&*recipient_id).and_then(|beliefs| beliefs.get(&*message_id))) else {
+        let (Some(message), Some(belief)) = (state.messages.get(&*message_id), state.beliefs.get(&*recipient_id).and_then(|beliefs| beliefs.get(&*message_id)))
+        else {
             return Ok(false);
         };
         if !message.parses() || !belief.parses() {

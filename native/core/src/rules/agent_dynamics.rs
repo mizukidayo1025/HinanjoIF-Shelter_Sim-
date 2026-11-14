@@ -11,17 +11,16 @@ use std::sync::Arc;
 
 use crate::config::agent_dynamics::{self, Awareness};
 use crate::config::SectionId;
-use crate::host::Host;
 use crate::entities::{AgentRow, Entities};
 use crate::error::{Error, Result};
+use crate::host::Host;
 use crate::row::IdMap;
 use crate::rules::kit::{self, Kept};
 use crate::state::agent_dynamics::{AgentDynamicsRow, AgentMemory, NAME, POLICY_V1, POLICY_V3};
 use crate::world::{World, WorldCell};
 
 /// `ORIENTATION_FACILITY_KINDS`.
-const ORIENTATION_KINDS: [&str; 6] =
-    ["intake", "meal_distribution", "medical_support", "quiet_space", "toilet", "water_station"];
+const ORIENTATION_KINDS: [&str; 6] = ["intake", "meal_distribution", "medical_support", "quiet_space", "toilet", "water_station"];
 
 /// What `record_proposal` stores of an applied decision.
 pub struct Decision<'a> {
@@ -69,10 +68,7 @@ pub fn knows_facility(world: &World, limited: &Kept<bool>, agent_id: Option<&str
     }
     let (agent_id, facility_id) = (id_of(agent_id)?, id_of(facility_id)?);
     let row = world.row::<AgentDynamicsRow>(NAME)?;
-    Ok(row
-        .agents
-        .get(agent_id)
-        .is_some_and(|record| record.known_facility_ids.iter().any(|id| &**id == facility_id)))
+    Ok(row.agents.get(agent_id).is_some_and(|record| record.known_facility_ids.iter().any(|id| &**id == facility_id)))
 }
 
 // ---- What a new agent knows ---------------------------------------------------------------------
@@ -82,9 +78,7 @@ fn new_memory(rows: &Entities, agent: &AgentRow, oriented: bool, awareness: Opti
     let mut known: BTreeSet<Arc<str>> = rows
         .facilities
         .iter()
-        .filter(|(_, facility)| {
-            facility.zone_id == agent.zone_id || (oriented && ORIENTATION_KINDS.contains(&&*facility.kind))
-        })
+        .filter(|(_, facility)| facility.zone_id == agent.zone_id || (oriented && ORIENTATION_KINDS.contains(&&*facility.kind)))
         .map(|(id, _)| id.clone())
         .collect();
     if let Some(awareness) = awareness {
@@ -124,12 +118,7 @@ pub fn check_add_agent(world: &World, policy: &Kept<&'static str>, awareness: &K
 }
 
 /// `add_agent`: one new record, or the record made again, in its place.
-pub fn add_agent(
-    world: &World,
-    agent_id: Option<&str>,
-    policy: &Kept<&'static str>,
-    awareness: &Kept<Option<Awareness>>,
-) -> Result<()> {
+pub fn add_agent(world: &World, agent_id: Option<&str>, policy: &Kept<&'static str>, awareness: &Kept<Option<Awareness>>) -> Result<()> {
     if kit::namespace_absent(world, NAME)? {
         return Ok(());
     }
@@ -162,12 +151,7 @@ pub fn add_agent(
 
 /// `learn_facility`: the facility, and with `discover` every facility of its zone. A list that
 /// would come out the same is not written.
-pub fn learn_facility(
-    world: &World,
-    agent_id: Option<&str>,
-    facility_id: Option<&str>,
-    awareness: &Kept<Option<Awareness>>,
-) -> Result<()> {
+pub fn learn_facility(world: &World, agent_id: Option<&str>, facility_id: Option<&str>, awareness: &Kept<Option<Awareness>>) -> Result<()> {
     if kit::namespace_absent(world, NAME)? {
         return Ok(());
     }
@@ -212,11 +196,7 @@ pub fn announce_installed_facility(world: &World, facility_id: Option<&str>, pol
         return Ok(());
     }
     let facility_id = id_of(facility_id)?;
-    let shared = world
-        .rows()?
-        .facilities
-        .get(facility_id)
-        .is_some_and(|facility| ORIENTATION_KINDS.contains(&&*facility.kind));
+    let shared = world.rows()?.facilities.get(facility_id).is_some_and(|facility| ORIENTATION_KINDS.contains(&&*facility.kind));
     if !shared || *kit::kept(policy)? != POLICY_V3 {
         return Ok(());
     }
@@ -256,12 +236,24 @@ impl Configs {
     /// Whether what a person knows of the facilities is limited, or its fault.
     pub fn knowledge_is_limited<C: WorldCell, H: Host>(cell: &C, host: &mut H) -> std::result::Result<Kept<bool>, H::Error> {
         let holding = kit::holding(cell, host)?;
-        kit::kept_section_value(cell, host, &holding, SectionId::KnowledgeIsLimited, |configs| &configs.knowledge_is_limited, agent_dynamics::knowledge_is_limited)
+        kit::kept_section_value(
+            cell,
+            host,
+            &holding,
+            SectionId::KnowledgeIsLimited,
+            |configs| &configs.knowledge_is_limited,
+            agent_dynamics::knowledge_is_limited,
+        )
     }
 }
 
 /// `learn_facility` with its section read through the host (lane P9-1a).
-pub fn learn_facility_through<C: WorldCell, H: Host>(cell: &C, host: &mut H, agent_id: Option<&str>, facility_id: Option<&str>) -> std::result::Result<(), H::Error> {
+pub fn learn_facility_through<C: WorldCell, H: Host>(
+    cell: &C,
+    host: &mut H,
+    agent_id: Option<&str>,
+    facility_id: Option<&str>,
+) -> std::result::Result<(), H::Error> {
     let awareness = Configs::awareness(cell, host)?;
     Ok(cell.with(|world| learn_facility(world, agent_id, facility_id, &awareness))??)
 }

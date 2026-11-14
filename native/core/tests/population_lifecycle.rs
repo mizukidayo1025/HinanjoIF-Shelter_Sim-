@@ -252,7 +252,19 @@ fn inputs(population: &population::Inputs) -> Inputs<'_> {
 }
 
 fn event(id: &str) -> EventRow {
-    EventRow::new(text(id), EventKind::Intervention, 7, 0, 3, text("effect_program_population"), IndexMap::new(), Some(text("SRC-COMMAND")), None, IndexMap::new()).unwrap()
+    EventRow::new(
+        text(id),
+        EventKind::Intervention,
+        7,
+        0,
+        3,
+        text("effect_program_population"),
+        IndexMap::new(),
+        Some(text("SRC-COMMAND")),
+        None,
+        IndexMap::new(),
+    )
+    .unwrap()
 }
 
 fn command(action: &str, ids: &[&str], zone: Option<&str>) -> Command {
@@ -412,7 +424,9 @@ fn a_busy_person_s_exit_waits_and_a_return_needs_someone_away() {
 #[test]
 fn a_command_s_minute_and_its_expected_return_are_checked_first() {
     let world = world();
-    let late = EventRow::new(text("ev"), EventKind::Intervention, 8, 0, 3, text("effect_program_population"), IndexMap::new(), Some(text("S")), None, IndexMap::new()).unwrap();
+    let late =
+        EventRow::new(text("ev"), EventKind::Intervention, 8, 0, 3, text("effect_program_population"), IndexMap::new(), Some(text("S")), None, IndexMap::new())
+            .unwrap();
     assert_eq!(lifecycle::check_command(&world, &late, None), Err(Error::failed("population command minute must match the current event boundary")));
     assert_eq!(lifecycle::check_command(&world, &event("ev"), Some(6)), Err(Error::failed("expected return minute precedes the departure event")));
     let mut retried = event("ev");
@@ -515,7 +529,14 @@ fn the_validation_says_its_texts_in_its_order() {
     facts_of(&tie, None, |facts| assert_eq!(lifecycle::validate_facts(facts, None), invalid("Out of range float values are not JSON compliant: -inf")));
     // A pending return of someone not archived; then one archived but not waiting in the ledger.
     let mut waiting = empty_lifecycle();
-    let item = map(vec![("agent_id", s("a1")), ("zone_id", s("z1")), ("event_id", s("ev")), ("minute", V::Int(3)), ("household_id", V::Null), ("source_ids", V::List(vec![]))]);
+    let item = map(vec![
+        ("agent_id", s("a1")),
+        ("zone_id", s("z1")),
+        ("event_id", s("ev")),
+        ("minute", V::Int(3)),
+        ("household_id", V::Null),
+        ("source_ids", V::List(vec![])),
+    ]);
     if let V::Map(fields) = &mut waiting {
         fields.insert(text("pending_returns"), V::List(vec![item]));
     }
@@ -566,7 +587,15 @@ fn a_walk_home_ends_its_task_and_leaves_the_person_idle_there() {
         agent.target_id = Some(text("z1"));
         rows.active_tasks.insert(
             text("t1"),
-            TaskRow { id: text("t1"), kind: text("travel_return"), agent_id: Some(text("a1")), resource_id: None, start_minute: 5, due_minute: 7, staff_id: None },
+            TaskRow {
+                id: text("t1"),
+                kind: text("travel_return"),
+                agent_id: Some(text("a1")),
+                resource_id: None,
+                start_minute: 5,
+                due_minute: 7,
+                staff_id: None,
+            },
         );
     }
     let inputs = travel_inputs();

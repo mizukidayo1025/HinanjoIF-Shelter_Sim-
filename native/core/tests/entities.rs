@@ -12,9 +12,8 @@ use std::sync::Arc;
 
 use indexmap::IndexMap;
 use sheltersim_core::entities::{
-    is_zone_kind, Activity, AgentRow, AnyTable, Change, EdgeRow, Entities, EntityField, EntityRow, FacilityRow, Mobility, RowFields,
-    NeedRow, ProfileRow, RequestRow, RequestStatus, Skills, StaffRow, Table, TaskRow, ZoneRow, ACTIVITIES, AGENT,
-    EDGE, MOBILITIES, NEEDS, STATUSES, TASK, ZONE,
+    is_zone_kind, Activity, AgentRow, AnyTable, Change, EdgeRow, Entities, EntityField, EntityRow, FacilityRow, Mobility, NeedRow, ProfileRow, RequestRow,
+    RequestStatus, RowFields, Skills, StaffRow, Table, TaskRow, ZoneRow, ACTIVITIES, AGENT, EDGE, MOBILITIES, NEEDS, STATUSES, TASK, ZONE,
 };
 use sheltersim_core::json::Encoder;
 use sheltersim_core::row::{IdMap, StrEnum};
@@ -233,10 +232,7 @@ fn enum_members_keep_the_order_and_values_of_the_python_enums() {
         ["idle", "moving", "queued", "in_service", "seeking_help", "sleeping", "resting"]
     );
     assert_eq!(MOBILITIES.iter().map(|member| member.as_text()).collect::<Vec<_>>(), ["independent", "assisted", "wheelchair"]);
-    assert_eq!(
-        STATUSES.iter().map(|member| member.as_text()).collect::<Vec<_>>(),
-        ["pending", "assigned", "resolved", "unresolved"]
-    );
+    assert_eq!(STATUSES.iter().map(|member| member.as_text()).collect::<Vec<_>>(), ["pending", "assigned", "resolved", "unresolved"]);
     for (index, member) in ACTIVITIES.iter().enumerate() {
         assert_eq!(member.index(), index);
     }
@@ -300,8 +296,7 @@ fn keys_keep_the_dict_order_as_entities_come_and_go() {
     assert_eq!(table.get("r3").map(|row| row.cooldown_until), Some(9));
     assert_eq!(table.len(), 3);
     // A document orders the rows by their own IDs, whatever the dict's order.
-    let ids: Vec<&str> =
-        table.document_slots().into_iter().map(|slot| table.row_at(slot).expect("a row").id()).collect();
+    let ids: Vec<&str> = table.document_slots().into_iter().map(|slot| table.row_at(slot).expect("a row").id()).collect();
     assert_eq!(ids, ["r1", "r2", "r3"]);
 }
 
@@ -444,45 +439,15 @@ fn entities_have_changes_while_any_table_has() {
 
 #[test]
 fn zones_and_edges_write_the_bytes_of_to_dict_in_both_versions() {
-    let corridor = ZoneRow {
-        id: text("z1"),
-        name: text("共用通路"),
-        capacity: None,
-        display_x: Some(100.0),
-        display_y: Some(260.5),
-    };
-    let sleeping = ZoneRow {
-        id: text("sleeping"),
-        name: text("Sleeping \"A\""),
-        capacity: Some(30),
-        display_x: None,
-        display_y: Some(1e-05),
-    };
-    let open = EdgeRow {
-        id: text("e1"),
-        from_zone_id: text("a"),
-        to_zone_id: text("b"),
-        travel_minutes: 3,
-        closed: false,
-    };
+    let corridor = ZoneRow { id: text("z1"), name: text("共用通路"), capacity: None, display_x: Some(100.0), display_y: Some(260.5) };
+    let sleeping = ZoneRow { id: text("sleeping"), name: text("Sleeping \"A\""), capacity: Some(30), display_x: None, display_y: Some(1e-05) };
+    let open = EdgeRow { id: text("e1"), from_zone_id: text("a"), to_zone_id: text("b"), travel_minutes: 3, closed: false };
     let closed = EdgeRow { id: text("e2"), from_zone_id: text("b"), to_zone_id: text("a"), travel_minutes: 0, closed: true };
     for version in [5, 6] {
-        assert_eq!(
-            json(&corridor, version),
-            r#"{"capacity":null,"display_x":100.0,"display_y":260.5,"id":"z1","name":"共用通路"}"#
-        );
-        assert_eq!(
-            json(&sleeping, version),
-            r#"{"capacity":30,"display_x":null,"display_y":1e-05,"id":"sleeping","name":"Sleeping \"A\""}"#
-        );
-        assert_eq!(
-            json(&open, version),
-            r#"{"closed":false,"from_zone_id":"a","id":"e1","to_zone_id":"b","travel_minutes":3}"#
-        );
-        assert_eq!(
-            json(&closed, version),
-            r#"{"closed":true,"from_zone_id":"b","id":"e2","to_zone_id":"a","travel_minutes":0}"#
-        );
+        assert_eq!(json(&corridor, version), r#"{"capacity":null,"display_x":100.0,"display_y":260.5,"id":"z1","name":"共用通路"}"#);
+        assert_eq!(json(&sleeping, version), r#"{"capacity":30,"display_x":null,"display_y":1e-05,"id":"sleeping","name":"Sleeping \"A\""}"#);
+        assert_eq!(json(&open, version), r#"{"closed":false,"from_zone_id":"a","id":"e1","to_zone_id":"b","travel_minutes":3}"#);
+        assert_eq!(json(&closed, version), r#"{"closed":true,"from_zone_id":"b","id":"e2","to_zone_id":"a","travel_minutes":0}"#);
     }
     assert_eq!(corridor.id(), "z1");
     assert_eq!(closed.id(), "e2");

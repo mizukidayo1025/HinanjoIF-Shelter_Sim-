@@ -74,13 +74,13 @@ fn body_json(world: &World) -> Vec<u8> {
 /// The payload's fields the rule reads of an event of this type, as its PyO3 entry reads them.
 fn keys_of(event_type: &str) -> &'static [&'static str] {
     match event_type {
-        "proximity_contact_update" => &[
-            "contact_minutes", "message_id", "topic_id", "interaction_duration_minutes", "first_agent_id", "second_agent_id", "observed_minute", "distance_m",
-        ],
+        "proximity_contact_update" => {
+            &["contact_minutes", "message_id", "topic_id", "interaction_duration_minutes", "first_agent_id", "second_agent_id", "observed_minute", "distance_m"]
+        }
         "information_contact_update" => &["contact_minutes", "message_id", "topic_id", "interaction_duration_minutes", "sender_agent_id", "recipient_agent_id"],
-        "social_interaction" => &[
-            "contact_minutes", "message_id", "topic_id", "interaction_duration_minutes", "interaction_type", "agent_id", "participant_agent_id",
-        ],
+        "social_interaction" => {
+            &["contact_minutes", "message_id", "topic_id", "interaction_duration_minutes", "interaction_type", "agent_id", "participant_agent_id"]
+        }
         _ => &["contact_minutes", "message_id", "topic_id", "interaction_duration_minutes", "zone_id"],
     }
 }
@@ -89,10 +89,7 @@ fn keys_of(event_type: &str) -> &'static [&'static str] {
 /// the event `event-<number>`, caused by `cause` for an even number.
 fn record(cell: &Shard<World>, inputs: &Inputs, event_type: &str, payload: &Value, number: usize, minute: i64) -> Result<(), Error> {
     let models = inputs.models.as_ref().unwrap_or_else(|fault| panic!("the models raised: {fault:?}"));
-    let fields = keys_of(event_type)
-        .iter()
-        .filter_map(|key| payload.get(*key).map(|value| (Arc::from(*key), load::v(value))))
-        .collect();
+    let fields = keys_of(event_type).iter().filter_map(|key| payload.get(*key).map(|value| (Arc::from(*key), load::v(value)))).collect();
     let payload = V::Map(fields);
     let event_id = format!("event-{number}");
     let event = SocialEvent { event_id: &event_id, event_type, causation_id: if number % 2 == 1 { None } else { Some("cause") }, payload: &payload };
@@ -196,13 +193,7 @@ fn network_tree(row: &SocialNetworkRow) -> V {
         .collect();
     named(
         SocialNetworkRow::NAMES,
-        [
-            V::Int(row.schema_version),
-            text(&row.policy_version),
-            V::Map(relationships),
-            V::Int(row.interaction_count),
-            V::Int(row.information_transfer_count),
-        ],
+        [V::Int(row.schema_version), text(&row.policy_version), V::Map(relationships), V::Int(row.interaction_count), V::Int(row.information_transfer_count)],
     )
 }
 

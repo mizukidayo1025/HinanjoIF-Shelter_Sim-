@@ -25,8 +25,7 @@ pub enum EventKind {
 }
 
 impl EventKind {
-    pub const ALL: [EventKind; 4] =
-        [EventKind::Exogenous, EventKind::Completion, EventKind::Endogenous, EventKind::Intervention];
+    pub const ALL: [EventKind; 4] = [EventKind::Exogenous, EventKind::Completion, EventKind::Endogenous, EventKind::Intervention];
 
     pub fn as_str(self) -> &'static str {
         match self {
@@ -71,7 +70,5 @@ pub fn is_stable_id(value: &str) -> bool {
     !bytes.is_empty()
         && bytes.len() <= 64
         && bytes[0].is_ascii_alphanumeric()
-        && bytes[1..]
-            .iter()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b':' | b'-'))
+        && bytes[1..].iter().all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b':' | b'-'))
 }

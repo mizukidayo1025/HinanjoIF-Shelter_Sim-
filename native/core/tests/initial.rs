@@ -119,8 +119,7 @@ fn the_core_refuses_configs_its_table_lacks() {
 fn what_is_not_a_scenario_is_an_error_not_a_panic() {
     let case = world_case("twenty");
     let text = case["scenario"].as_str().unwrap();
-    let mut broken: Vec<Vec<u8>> =
-        vec![b"".to_vec(), b"[]".to_vec(), b"{}".to_vec(), b"null".to_vec(), b"\xff".to_vec(), b"{\"seed\": \"1\"}".to_vec()];
+    let mut broken: Vec<Vec<u8>> = vec![b"".to_vec(), b"[]".to_vec(), b"{}".to_vec(), b"null".to_vec(), b"\xff".to_vec(), b"{\"seed\": \"1\"}".to_vec()];
     // The Scenario cut short at many places, and each top-level member made a wrong type.
     for end in (0..text.len()).step_by(997) {
         if text.is_char_boundary(end) {

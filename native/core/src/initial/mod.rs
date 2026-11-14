@@ -188,9 +188,10 @@ fn read_table() -> std::result::Result<IndexMap<Arc<str>, Arc<TableEntry>>, Stri
 /// The table's entry of these configs, or `Unsupported`.
 pub(crate) fn entry_of(configs: &IndexMap<Arc<str>, V>) -> Result<Arc<TableEntry>> {
     let fingerprint = fingerprint(configs)?;
-    table()?.get(fingerprint.as_str()).cloned().ok_or_else(|| {
-        Error::unsupported(format!("the core's table has no entry for these configs (fingerprint {fingerprint})"))
-    })
+    table()?
+        .get(fingerprint.as_str())
+        .cloned()
+        .ok_or_else(|| Error::unsupported(format!("the core's table has no entry for these configs (fingerprint {fingerprint})")))
 }
 
 fn table() -> Result<&'static IndexMap<Arc<str>, Arc<TableEntry>>> {
@@ -201,10 +202,8 @@ fn table() -> Result<&'static IndexMap<Arc<str>, Arc<TableEntry>>> {
 /// `configs_fingerprint`: the sha256 of the canonical JSON of the configs, each of `DATA_CONFIGS`
 /// there as `true`.
 pub fn fingerprint(configs: &IndexMap<Arc<str>, V>) -> Result<String> {
-    let masked: IndexMap<Arc<str>, V> = configs
-        .iter()
-        .map(|(key, value)| (key.clone(), if DATA_CONFIGS.contains(&&**key) { V::Bool(true) } else { value.clone() }))
-        .collect();
+    let masked: IndexMap<Arc<str>, V> =
+        configs.iter().map(|(key, value)| (key.clone(), if DATA_CONFIGS.contains(&&**key) { V::Bool(true) } else { value.clone() })).collect();
     Ok(sha256_hex(&canonical(&V::Map(masked))?))
 }
 
@@ -525,11 +524,7 @@ pub fn entry(scenario: &[u8]) -> Result<Vec<u8>> {
             })
             .collect(),
     );
-    let run = vmap([
-        ("policies", table.policies.clone()),
-        ("route_capacities", table.route_capacities.clone()),
-        ("zone_neighbors", zone_neighbors(&scenario)),
-    ]);
+    let run = vmap([("policies", table.policies.clone()), ("route_capacities", table.route_capacities.clone()), ("zone_neighbors", zone_neighbors(&scenario))]);
     let mut out = Vec::with_capacity(document.len() + 64 * 1024);
     out.extend_from_slice(b"{\"run\":");
     out.extend_from_slice(&canonical(&run)?);

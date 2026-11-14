@@ -30,13 +30,13 @@ use serde_json::{json, Value};
 use sheltersim_core::checkpoint::sha256_hex;
 use sheltersim_core::entities::Activity;
 use sheltersim_core::error::Error;
+use sheltersim_core::host::Contract;
+use sheltersim_core::row::ValueRow;
 use sheltersim_core::rules::handlers;
 use sheltersim_core::rules::kit;
 use sheltersim_core::rules::population::{self, Alternates, DepartureGiven, Given, Language, Overrides, OTHER_PROGRAM};
 use sheltersim_core::rules::population_lifecycle::{self as lifecycle, Command, Logged, Read};
-use sheltersim_core::row::ValueRow;
 use sheltersim_core::value::V;
-use sheltersim_core::host::Contract;
 use sheltersim_core::world::{Fit, World, WorldCell};
 
 use support::cases;
@@ -317,8 +317,12 @@ fn route(id: &str) -> Option<Option<Arc<str>>> {
 /// The scheduled event of a population program (`_program`).
 fn program_event(entry: &Value, op: &str) -> Value {
     let program = format!("population-texts-{op}");
-    let found: Vec<&Value> =
-        entry["world"]["event_queue"].as_array().unwrap().iter().filter(|event| event["event_type"] == "effect_program_population" && event["payload"]["program_id"] == program.as_str()).collect();
+    let found: Vec<&Value> = entry["world"]["event_queue"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|event| event["event_type"] == "effect_program_population" && event["payload"]["program_id"] == program.as_str())
+        .collect();
     assert_eq!(found.len(), 1);
     found[0].clone()
 }
@@ -336,7 +340,9 @@ fn an_arrival_the_rule_refuses_says_its_text() {
     let language = "population arrival language is invalid";
     let context = "population arrival person context is invalid";
     let index = "population arrival person context index is invalid";
-    let needs = |index: i64, need: &str| V::Map([(text("member_index"), V::Int(index)), (text("care_support_needs"), V::List(vec![V::Str(text(need))]))].into_iter().collect());
+    let needs = |index: i64, need: &str| {
+        V::Map([(text("member_index"), V::Int(index)), (text("care_support_needs"), V::List(vec![V::Str(text(need))]))].into_iter().collect())
+    };
     // Each option as the PyO3 crate reads the pytest file's Python value of it.
     let cases: Vec<(&str, Box<dyn Fn(&mut Given)>, &str)> = vec![
         ("zone_id='no-such-zone'", Box::new(|given| given.zone = Ok(Some(text("no-such-zone")))), unknown),
@@ -371,7 +377,11 @@ fn an_arrival_the_rule_refuses_says_its_text() {
         ),
         // Iterating an int raises the TypeError the rule words.
         ("person_context_overrides=5", Box::new(|given| given.overrides = Some(Ok(Overrides::Caught))), context),
-        ("person_context_overrides=(index 1 of one,)", Box::new(move |given| given.overrides = Some(Ok(Overrides::Items(vec![needs(1, "medical_assessment")])))), index),
+        (
+            "person_context_overrides=(index 1 of one,)",
+            Box::new(move |given| given.overrides = Some(Ok(Overrides::Items(vec![needs(1, "medical_assessment")])))),
+            index,
+        ),
         (
             "count=3, person_context_overrides=(index 1 twice)",
             Box::new(move |given| {
@@ -419,12 +429,16 @@ fn alternate_zones_the_rule_refuses_say_its_texts() {
         case.unchanged(invalid, |case| case.arrivals(&event("arrival-event", 0, json!({})), arguments));
     }
     let arguments = Given { alternates: Ok(zones(&[&other])), route_id: route("any-route"), ..given(&here) };
-    case.unchanged("one arrival approach route cannot combine with alternate admission zones", |case| case.arrivals(&event("arrival-event", 0, json!({})), arguments));
+    case.unchanged("one arrival approach route cannot combine with alternate admission zones", |case| {
+        case.arrivals(&event("arrival-event", 0, json!({})), arguments)
+    });
     // The configs without `geometry_overlay` (a world of the fixture: the sections change).
     let mut without = self::case("no_overlay_config", "alternate_zones");
     without.gave = case.gave;
     let arguments = Given { alternates: Ok(zones(&[&other])), ..given(&here) };
-    without.unchanged("alternate room admission requires geometry_overlay schema_version=3 or 4", |case| case.arrivals(&event("arrival-event", 0, json!({})), arguments));
+    without.unchanged("alternate room admission requires geometry_overlay schema_version=3 or 4", |case| {
+        case.arrivals(&event("arrival-event", 0, json!({})), arguments)
+    });
 }
 
 #[test]
@@ -576,7 +590,9 @@ fn an_approach_completion_without_its_presence_stops_after_two_writes() {
         let V::Map(record) = map(state, "people").get_mut(&*agent_id).unwrap() else { panic!() };
         record.insert(text("status"), V::Str(text("awaiting_admission")));
     });
-    case.says("arrival approach has no matching presence state", |case| population::approach_completion(&case.loaded.cell, &mut case.host, &texts::row(&completion)));
+    case.says("arrival approach has no matching presence state", |case| {
+        population::approach_completion(&case.loaded.cell, &mut case.host, &texts::row(&completion))
+    });
     let V::Map(pending) = &case.pending_arrivals()[0] else { panic!() };
     assert_eq!(pending["approach_completed_minute"], V::Int(completion["due_minute"].as_i64().unwrap()));
     assert!(!pending.contains_key("approach_completion_event_id"));
@@ -599,7 +615,10 @@ fn a_departure_the_rule_refuses_says_its_text() {
         (DepartureGiven { include_initial: Some(None), ..given(&zone) }, "population departure include_initial must be boolean".to_owned()),
         (DepartureGiven { include_initial: Some(None), ..given(&zone) }, "population departure include_initial must be boolean".to_owned()),
         (given(&zone), "only 0 admitted dynamic residents are available to leave".to_owned()),
-        (DepartureGiven { count: Ok(Some(1000)), include_initial: Some(Some(true)), ..given(&zone) }, format!("only {people} admitted dynamic residents are available to leave")),
+        (
+            DepartureGiven { count: Ok(Some(1000)), include_initial: Some(Some(true)), ..given(&zone) },
+            format!("only {people} admitted dynamic residents are available to leave"),
+        ),
     ];
     for (arguments, expected) in cases {
         let mut case = case("generated", "a_departure");
@@ -694,7 +713,8 @@ fn a_relocation_without_a_route_says_the_rule_s_text() {
     case.set_capacity(&there, None);
     case.edit(|world| {
         let mut rows = world.rows_mut().unwrap();
-        let edges: Vec<Arc<str>> = rows.zone_edges.iter().filter(|(_, edge)| *edge.from_zone_id == *there || *edge.to_zone_id == *there).map(|(id, _)| id.clone()).collect();
+        let edges: Vec<Arc<str>> =
+            rows.zone_edges.iter().filter(|(_, edge)| *edge.from_zone_id == *there || *edge.to_zone_id == *there).map(|(id, _)| id.clone()).collect();
         for edge in edges {
             assert!(rows.zone_edges.remove_row(&edge));
         }
@@ -707,7 +727,8 @@ fn a_relocation_without_a_route_says_the_rule_s_text() {
 fn a_reunion_the_rule_refuses_says_its_text() {
     let mut case = case("generated", "a_reunion");
     case.command_says("reunion requires every person to be admitted", 0, None, "reunite", "reunite_nobody");
-    let mut people: Vec<String> = case.entry["world"]["agents"].as_array().unwrap().iter().map(|agent| agent["profile"]["id"].as_str().unwrap().to_owned()).collect();
+    let mut people: Vec<String> =
+        case.entry["world"]["agents"].as_array().unwrap().iter().map(|agent| agent["profile"]["id"].as_str().unwrap().to_owned()).collect();
     people.sort();
     let first_zone = case.agent_zone(&people[0]);
     let elsewhere = case.sorted("zones").into_iter().find(|zone| zone.as_str() != &*first_zone).unwrap();
@@ -721,7 +742,9 @@ fn a_reunion_the_rule_refuses_says_its_text() {
 fn a_relocation_completion_without_its_route_says_the_rule_s_text() {
     let mut case = case("generated", "a_relocation_completion_without_its_route");
     let arrival = event_of("relocation-arrival", 0, "agent_travel_complete", json!({"agent_id": case.person(), "purpose": "presence_relocation"}));
-    case.unchanged("relocation completion does not match its pending route", |case| lifecycle::complete_relocation_through(&case.loaded.cell, &mut case.host, &texts::row(&arrival)));
+    case.unchanged("relocation completion does not match its pending route", |case| {
+        lifecycle::complete_relocation_through(&case.loaded.cell, &mut case.host, &texts::row(&arrival))
+    });
 }
 
 // ---- EffectProgramPopulationHandler ---------------------------------------------------------
@@ -732,7 +755,11 @@ fn a_primitive_s_argument_the_rule_turns_into_its_text() {
     let program = program_event(&case.entry, "add_evacuees");
     case.handler_says(&changed(&program, json!({"admission_zone_ids": 5}), json!({})), "EventApplicationError", "'int' object is not iterable");
     case.handler_says(&changed(&program, json!({"person_context_overrides": null}), json!({})), "EventApplicationError", "'NoneType' object is not iterable");
-    case.handler_says(&changed(&program, json!({"household_size": null}), json!({})), "EventApplicationError", "population arrival household_size is outside its supported range");
+    case.handler_says(
+        &changed(&program, json!({"household_size": null}), json!({})),
+        "EventApplicationError",
+        "population arrival household_size is outside its supported range",
+    );
 }
 
 /// A list is no Mobility: the enum raised ValueError, which the rule worded.
@@ -747,6 +774,10 @@ fn a_mobility_of_another_type_is_invalid_as_the_enum_says() {
 fn a_departure_primitive_the_rule_refuses_says_its_text() {
     let mut case = case("departure_program", "a_departure");
     let program = program_event(&case.entry, "depart_evacuees");
-    case.handler_says(&changed(&program, json!({"include_initial": null}), json!({})), "EventApplicationError", "population departure include_initial must be boolean");
+    case.handler_says(
+        &changed(&program, json!({"include_initial": null}), json!({})),
+        "EventApplicationError",
+        "population departure include_initial must be boolean",
+    );
     case.handler_says(&program, "EventApplicationError", "only 0 admitted dynamic residents are available to leave");
 }

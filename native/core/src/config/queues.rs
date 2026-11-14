@@ -36,11 +36,7 @@ impl QueueConfig {
     pub fn parse(configs: &V) -> Read<Self> {
         let configs = map(configs)?;
         let raw = configs.get("facility_queues");
-        Ok(Self {
-            has_geometry: configs.contains_key("facility_geometry"),
-            strict: policy(raw, false),
-            need_weighted: policy(raw, true),
-        })
+        Ok(Self { has_geometry: configs.contains_key("facility_geometry"), strict: policy(raw, false), need_weighted: policy(raw, true) })
     }
 
     pub fn policy(&self, need_weighted: bool) -> &Read<QueuePolicy> {
@@ -104,13 +100,8 @@ fn config_errors(raw: &V, need_weighted: bool) -> Read<()> {
     if !need_weighted {
         return Ok(());
     }
-    const FIELDS: [&str; 5] = [
-        "schema_version",
-        "queue_capacity_by_facility",
-        "abandon_after_minutes_by_service",
-        "retry_delay_minutes",
-        "persistence_urgency_threshold",
-    ];
+    const FIELDS: [&str; 5] =
+        ["schema_version", "queue_capacity_by_facility", "abandon_after_minutes_by_service", "retry_delay_minutes", "persistence_urgency_threshold"];
     if config.keys().any(|key| !FIELDS.contains(&&**key)) {
         return config_error(NOT_AN_OBJECT);
     }

@@ -140,7 +140,9 @@ pub fn validate(view: &View<'_>) -> Result<()> {
         Some(V::Map(state))
             if keys_are(state, &fields)
                 && state.get("schema_version").is_some_and(|version| py_eq(version, &V::Int(1)))
-                && ["base_working_units", "outages", "environmental_stressors", "route_interruptions"].iter().all(|name| matches!(state.get(*name), Some(V::Map(_)))) =>
+                && ["base_working_units", "outages", "environmental_stressors", "route_interruptions"]
+                    .iter()
+                    .all(|name| matches!(state.get(*name), Some(V::Map(_)))) =>
         {
             state
         }
@@ -232,7 +234,8 @@ pub fn validate(view: &View<'_>) -> Result<()> {
         };
         let payload = &event.payload;
         let power = &*event.event_type == "power_outage";
-        let expected_payload: &[&str] = if power { &["outage_id", "component_id", "until_minute"] } else { &["outage_id", "facility_id", "units_out", "until_minute"] };
+        let expected_payload: &[&str] =
+            if power { &["outage_id", "component_id", "until_minute"] } else { &["outage_id", "facility_id", "units_out", "until_minute"] };
         if !ordinary(&event)
             || event.source_id.is_none()
             || !matches!(&*event.event_type, "power_outage" | "equipment_failure")
@@ -444,7 +447,8 @@ pub fn validate(view: &View<'_>) -> Result<()> {
         }
     }
 
-    let completions: FxHashSet<Arc<str>> = all_events.iter().filter(|event| COMPLETION_TYPES.contains(&&*event.event_type)).map(|event| event.event_id.clone()).collect();
+    let completions: FxHashSet<Arc<str>> =
+        all_events.iter().filter(|event| COMPLETION_TYPES.contains(&&*event.event_type)).map(|event| event.event_id.clone()).collect();
     if completions.len() != restorations.len() || !restorations.iter().all(|id| completions.contains(id)) {
         return invalid("infrastructure completion events must match active records exactly");
     }
@@ -473,7 +477,12 @@ fn known_shipments(ids: Option<&V>, known: &FxHashSet<Arc<str>>) -> Result<bool>
 
 /// `effective_facility_capacities`: the working units each facility of the base keeps under the
 /// active outages.
-fn effective_capacities(base: &IndexMap<Arc<str>, V>, outages: &IndexMap<Arc<str>, V>, graph: &Graph, is_facility: &dyn Fn(&str) -> bool) -> Result<FxHashMap<Arc<str>, i64>> {
+fn effective_capacities(
+    base: &IndexMap<Arc<str>, V>,
+    outages: &IndexMap<Arc<str>, V>,
+    graph: &Graph,
+    is_facility: &dyn Fn(&str) -> bool,
+) -> Result<FxHashMap<Arc<str>, i64>> {
     let mut forced_offline: FxHashSet<Arc<str>> = FxHashSet::default();
     let mut units_lost: FxHashMap<Arc<str>, i64> = FxHashMap::default();
     for outage in outages.values() {
@@ -502,8 +511,11 @@ fn effective_capacities(base: &IndexMap<Arc<str>, V>, outages: &IndexMap<Arc<str
             forced_offline.extend(graph.facilities(facility_id, is_facility));
         }
     }
-    Ok(equipment.into_iter().map(|(id, capacity)| {
-        let capacity = if forced_offline.contains(&id) { 0 } else { capacity };
-        (id, capacity)
-    }).collect())
+    Ok(equipment
+        .into_iter()
+        .map(|(id, capacity)| {
+            let capacity = if forced_offline.contains(&id) { 0 } else { capacity };
+            (id, capacity)
+        })
+        .collect())
 }

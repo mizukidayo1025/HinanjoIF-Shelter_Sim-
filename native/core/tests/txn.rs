@@ -12,23 +12,21 @@ use std::sync::Arc;
 
 use indexmap::IndexMap;
 use sheltersim_core::cell::{CowShard, Shard};
-use sheltersim_core::entities::{
-    Activity, AgentRow, AnyTable, EntityField, Entities, Mobility, NeedRow, ProfileRow, Table,
-};
+use sheltersim_core::entities::{Activity, AgentRow, AnyTable, Entities, EntityField, Mobility, NeedRow, ProfileRow, Table};
 use sheltersim_core::error::Error;
 use sheltersim_core::events::log::{EventLog, Fields};
 use sheltersim_core::events::queue::Queue;
 use sheltersim_core::events::writer::{self, WriteError};
 use sheltersim_core::events::{EventKind, EventRow, EventStatus};
+use sheltersim_core::host::{Contract, Decision, DecisionSink, Llm, Phase, Trace, TraceLevel};
 use sheltersim_core::json::Encoder;
 use sheltersim_core::row::{Field, IdMap, Maybe, Row, ValueRow};
+use sheltersim_core::rules::metrics::MetricSample;
 use sheltersim_core::state::body_state::{History, Relationship as BodyRelationship, Relationships as BodyRelationships};
 use sheltersim_core::state::effect_program::{EffectProgramRow, FacilityModifiers, Modifier, Program};
 use sheltersim_core::state::shared_operations::{CareHead, CareStatus, Heads};
 use sheltersim_core::state::social_network::{Relationship, Relationships};
 use sheltersim_core::state::staff_dynamics::{ConfigRow, LastActivity, Shift, StaffDynamicsRow, StaffRecord};
-use sheltersim_core::host::{Contract, Decision, DecisionSink, Llm, Phase, Trace, TraceLevel};
-use sheltersim_core::rules::metrics::MetricSample;
 use sheltersim_core::txn::{Host, Stage, Txn, TxnEnd, TxnKind, NESTED};
 use sheltersim_core::value::V;
 use sheltersim_core::world::{Fit, Place, Snapshot, World, WorldCell};
@@ -127,22 +125,8 @@ fn records_and_maps_of_records_sort_their_maps_and_keep_their_fields() {
     let modifiers = |key: &str| FacilityModifiers {
         baseline_working_units: 1,
         modifiers: vec![
-            Modifier {
-                modifier_id: text(key),
-                program_id: text("p"),
-                effect_id: text("e"),
-                working_units: 1,
-                start_minute: 0,
-                sequence: 2,
-            },
-            Modifier {
-                modifier_id: text("a"),
-                program_id: text("p"),
-                effect_id: text("e"),
-                working_units: 1,
-                start_minute: 0,
-                sequence: 1,
-            },
+            Modifier { modifier_id: text(key), program_id: text("p"), effect_id: text("e"), working_units: 1, start_minute: 0, sequence: 2 },
+            Modifier { modifier_id: text("a"), program_id: text("p"), effect_id: text("e"), working_units: 1, start_minute: 0, sequence: 1 },
         ],
     };
     let mut row = EffectProgramRow { schema_version: 1, programs: id_map(program), active_facility_modifiers: id_map(modifiers) };
@@ -184,9 +168,7 @@ fn maybe_and_option_sort_what_they_hold() {
             max_continuous_work_minutes: 1,
             max_continuous_work_minutes_by_staff: Maybe(Some(id_map(|_| 3))),
             rest_minutes: 1,
-            shift_windows_by_staff: Maybe(Some(id_map(|_| {
-                vec![Shift { start_minute: 9, end_minute: 10 }, Shift { start_minute: 1, end_minute: 2 }]
-            }))),
+            shift_windows_by_staff: Maybe(Some(id_map(|_| vec![Shift { start_minute: 9, end_minute: 10 }, Shift { start_minute: 1, end_minute: 2 }]))),
             off_shift_fatigue_recovery_per_minute: Maybe(None),
         },
         staff: id_map(|_| record),
@@ -389,14 +371,7 @@ fn a_queue_is_scheduled_again_in_queue_order_under_new_serials() {
 }
 
 fn fields(id: &str, sequence: i64, event_type: &str, minute: i64) -> Fields {
-    Fields {
-        event_id: id.to_owned(),
-        sequence,
-        event_type: event_type.to_owned(),
-        minute,
-        applied: true,
-        ..Fields::default()
-    }
+    Fields { event_id: id.to_owned(), sequence, event_type: event_type.to_owned(), minute, applied: true, ..Fields::default() }
 }
 
 /// A log of every kind of record, from `start`: care transitions, facility events, lifecycle steps,
@@ -431,10 +406,7 @@ fn append_all(log: &mut EventLog, start: i64, minute: i64) {
     next(log, provenance);
     let mut unencoded = fields("plain", 0, "delivery", minute + 1);
     unencoded.applied = false;
-    assert_eq!(
-        log.add(Fields { sequence: start + 100, event_id: format!("plain-{start}"), ..unencoded }, false, None),
-        0
-    );
+    assert_eq!(log.add(Fields { sequence: start + 100, event_id: format!("plain-{start}"), ..unencoded }, false, None), 0);
 }
 
 #[test]

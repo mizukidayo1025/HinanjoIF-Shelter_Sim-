@@ -48,9 +48,9 @@ use crate::text::casefold;
 use crate::value::V;
 use crate::world::{World, MODEL_CONFIGS};
 
+use super::person_context;
 pub use super::person_context::PersonFields;
 pub use super::zone_environment::DemandModifier;
-use super::person_context;
 use super::zone_environment::{self, ZoneConditions, ZoneInputs};
 
 /// The keys of `model_state` read as `V`.
@@ -115,15 +115,8 @@ pub struct BodyFields {
 }
 
 /// A person without a record in `body_state_v1`.
-pub const NO_BODY: BodyFields = BodyFields {
-    sleep_debt_minutes: 0.0,
-    uncertainty: 0.0,
-    reassurance: 0.0,
-    discontent: 0.0,
-    positive_affect: 0.5,
-    negative_affect: 0.0,
-    hygiene_need: 0.0,
-};
+pub const NO_BODY: BodyFields =
+    BodyFields { sleep_debt_minutes: 0.0, uncertainty: 0.0, reassurance: 0.0, discontent: 0.0, positive_affect: 0.5, negative_affect: 0.0, hygiene_need: 0.0 };
 
 /// `AgentView`, except what `zone` and `person` hold.
 #[derive(Clone)]
@@ -435,11 +428,7 @@ pub fn presence_people(world: &World) -> Result<Option<FxHashMap<Arc<str>, House
 
 /// A person's `group_id` in a view: the household of the presence record, or the profile's.
 #[track_caller]
-pub fn group_of(
-    people: Option<&FxHashMap<Arc<str>, Household>>,
-    id: &str,
-    profile_group: &Option<Arc<str>>,
-) -> Result<Option<Arc<str>>> {
+pub fn group_of(people: Option<&FxHashMap<Arc<str>, Household>>, id: &str, profile_group: &Option<Arc<str>>) -> Result<Option<Arc<str>>> {
     match people.and_then(|people| people.get(id)) {
         None | Some(Household::Profile) => Ok(profile_group.clone()),
         Some(Household::Is(household)) => Ok(household.clone()),
@@ -496,11 +485,7 @@ fn people_of(state: Option<&V>) -> Option<&IndexMap<Arc<str>, V>> {
 
 /// `_parsed_person_contexts` and `_person_fields` of a world: who has a context, and its fields,
 /// merged as `population_context_people` merges them, the later dict winning. Whether anyone has one.
-fn person_contexts(
-    world: &World,
-    configs: &ModelConfigs<'_>,
-    cache: &mut KeptPeople,
-) -> Result<(Arc<FxHashMap<Arc<str>, Arc<PersonFields>>>, bool)> {
+fn person_contexts(world: &World, configs: &ModelConfigs<'_>, cache: &mut KeptPeople) -> Result<(Arc<FxHashMap<Arc<str>, Arc<PersonFields>>>, bool)> {
     let stamps = match configs.stamp {
         Some(stamp) => Some([Some(stamp), world.stamp_of(POPULATION_CONTEXT)?, world.stamp_of(POPULATION_DYNAMICS)?]),
         None => None,
@@ -596,11 +581,7 @@ fn sorted_unique(mut items: Vec<Arc<str>>) -> Vec<Arc<str>> {
 }
 
 /// The inputs of the zones' conditions: kept while the stamps hold, else read now.
-fn kept_environment<'c>(
-    world: &World,
-    configs: &ModelConfigs<'_>,
-    cache: &'c mut Option<KeptEnvironment>,
-) -> Result<&'c mut KeptEnvironment> {
+fn kept_environment<'c>(world: &World, configs: &ModelConfigs<'_>, cache: &'c mut Option<KeptEnvironment>) -> Result<&'c mut KeptEnvironment> {
     let zone_stamp = world.stamp_of(zone_environment::STATE)?;
     let stamps = configs.stamp.map(|stamp| (stamp, zone_stamp));
     let current = match (stamps, cache.as_ref()) {
@@ -621,12 +602,7 @@ fn kept_environment<'c>(
 }
 
 /// The zones of a view: the head of `from_world`.
-fn read_zones(
-    world: &World,
-    rows: &Entities,
-    configs: &ModelConfigs<'_>,
-    cache: &mut Option<KeptEnvironment>,
-) -> Result<Vec<Arc<ViewZone>>> {
+fn read_zones(world: &World, rows: &Entities, configs: &ModelConfigs<'_>, cache: &mut Option<KeptEnvironment>) -> Result<Vec<Arc<ViewZone>>> {
     let mut zone_ids: Vec<Arc<str>> = rows.zones.iter().map(|(id, _)| id.clone()).collect();
     zone_ids.sort_unstable();
 
@@ -683,12 +659,7 @@ fn read_zones(
 }
 
 /// What the rows say of the people, in ID order, and of the facilities.
-fn read_rows(
-    rows: &Entities,
-    zones: &[Arc<ViewZone>],
-    no_person: &Arc<PersonFields>,
-    minute: i64,
-) -> Result<(Vec<ViewAgent>, Vec<ViewFacility>)> {
+fn read_rows(rows: &Entities, zones: &[Arc<ViewZone>], no_person: &Arc<PersonFields>, minute: i64) -> Result<(Vec<ViewAgent>, Vec<ViewFacility>)> {
     let mut first_tasks: FxHashMap<&str, &TaskRow> = FxHashMap::default();
     for (_, task) in rows.active_tasks.iter() {
         if let Some(agent) = &task.agent_id {
@@ -833,8 +804,7 @@ fn read_information(world: &World, applies: bool, agents: &mut [ViewAgent]) -> R
 fn read_body_and_distress(world: &World, agents: &mut [ViewAgent]) -> Result<()> {
     let distress = row_of::<DistressRow>(world, psychological_distress::NAME)?;
     for agent in agents.iter_mut() {
-        agent.chronic_distress =
-            distress.as_ref().and_then(|row| row.agents.get(&*agent.id)).map_or(0.0, |record| record.long_term_distress);
+        agent.chronic_distress = distress.as_ref().and_then(|row| row.agents.get(&*agent.id)).map_or(0.0, |record| record.long_term_distress);
     }
     drop(distress);
     let Some(row) = row_of::<BodyRow>(world, body_state::NAME)? else {
@@ -1230,8 +1200,7 @@ fn agent_parts(data: &ViewData, life: bool, information: bool, resource: bool) -
         } else {
             Ok(())
         };
-        let agents_written =
-            run.into_iter().try_for_each(|index| write_agent(&mut agents_part, index, &data.agents[index], data, information, resource));
+        let agents_written = run.into_iter().try_for_each(|index| write_agent(&mut agents_part, index, &data.agents[index], data, information, resource));
         (life_written.map(|()| life_part.out), agents_written.map(|()| agents_part.out))
     });
     let mut life_parts = Vec::with_capacity(parts.len());

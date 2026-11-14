@@ -120,40 +120,16 @@ pub struct InitialScenarioRequest {
 
 /// The policy fields, their allowed values and the default (the only value the browser computes).
 pub const POLICY_FIELDS: [(&str, &[&str], &str); 14] = [
-    (
-        "behavior_policy_id",
-        &["utility-softmax-v1", "sleep-aware-utility-softmax-v2", "priority-rule-v1"],
-        "sleep-aware-utility-softmax-v2",
-    ),
-    (
-        "social_policy_id",
-        &["sparse-family-zone-contact-v1", "degroot-contact-v1", "expressiveness-channel-openness-v1"],
-        "expressiveness-channel-openness-v1",
-    ),
-    (
-        "information_policy_id",
-        &["sparse-information-contact-v1", "hazard-information-v1", "evidence-aware-rumor-v1"],
-        "evidence-aware-rumor-v1",
-    ),
+    ("behavior_policy_id", &["utility-softmax-v1", "sleep-aware-utility-softmax-v2", "priority-rule-v1"], "sleep-aware-utility-softmax-v2"),
+    ("social_policy_id", &["sparse-family-zone-contact-v1", "degroot-contact-v1", "expressiveness-channel-openness-v1"], "expressiveness-channel-openness-v1"),
+    ("information_policy_id", &["sparse-information-contact-v1", "hazard-information-v1", "evidence-aware-rumor-v1"], "evidence-aware-rumor-v1"),
     ("queue_policy_id", &["need-weighted-physical-queue-v1", "strict-fifo-queue-v1"], "need-weighted-physical-queue-v1"),
-    (
-        "relationship_policy_id",
-        &["distance-duration-repeat-trust-v1", "duration-contact-trust-v1"],
-        "distance-duration-repeat-trust-v1",
-    ),
+    ("relationship_policy_id", &["distance-duration-repeat-trust-v1", "duration-contact-trust-v1"], "distance-duration-repeat-trust-v1"),
     ("social_proximity_policy_id", &["disabled-proximity-v1", "distance-sampled-proximity-v1"], "disabled-proximity-v1"),
-    (
-        "body_dynamics_policy_id",
-        &["body-feedback-complete-v1", "body-feedback-complete-v2", "body-feedback-sleep-debt-v1"],
-        "body-feedback-complete-v2",
-    ),
+    ("body_dynamics_policy_id", &["body-feedback-complete-v1", "body-feedback-complete-v2", "body-feedback-sleep-debt-v1"], "body-feedback-complete-v2"),
     ("staff_operations_policy_id", &["staff-urgency-first-v1", "staff-travel-first-v1"], "staff-urgency-first-v1"),
     ("staff_fatigue_policy_id", &["staff-fatigue-linear-v1", "staff-fatigue-saturating-v1"], "staff-fatigue-linear-v1"),
-    (
-        "zone_temperature_policy_id",
-        &["zone-temperature-comfort-band-v1", "zone-temperature-midpoint-v1"],
-        "zone-temperature-comfort-band-v1",
-    ),
+    ("zone_temperature_policy_id", &["zone-temperature-comfort-band-v1", "zone-temperature-midpoint-v1"], "zone-temperature-comfort-band-v1"),
     ("zone_rest_policy_id", &["zone-rest-multiplicative-v1", "zone-rest-limiting-v1"], "zone-rest-multiplicative-v1"),
     ("zone_hygiene_policy_id", &["zone-hygiene-linear-v1", "zone-hygiene-quadratic-v1"], "zone-hygiene-linear-v1"),
     ("zone_privacy_policy_id", &["zone-privacy-threshold-v1", "zone-privacy-proportional-v1"], "zone-privacy-threshold-v1"),
@@ -582,12 +558,8 @@ fn initial_resources(checks: &mut Checks, value: &V) -> InitialResources {
     let entered = quantities.iter().filter(|value| value.is_some()).count();
     match resources.status {
         InventoryStatus::Unknown if entered > 0 => checks.invalid("unknown initial inventory cannot contain quantities"),
-        InventoryStatus::Entered if entered < 2 => {
-            checks.invalid("entered initial inventory requires both water and food quantities")
-        }
-        InventoryStatus::Incomplete if entered == 0 => {
-            checks.invalid("incomplete initial inventory must preserve at least one entered quantity")
-        }
+        InventoryStatus::Entered if entered < 2 => checks.invalid("entered initial inventory requires both water and food quantities"),
+        InventoryStatus::Incomplete if entered == 0 => checks.invalid("incomplete initial inventory must preserve at least one entered quantity"),
         _ => {}
     }
     if source_ids.is_empty() && resources.status != InventoryStatus::Unknown && entered > 0 {
@@ -644,8 +616,7 @@ fn operational_conditions(checks: &mut Checks, value: &V) -> OperationalConditio
 impl InitialScenarioRequest {
     /// `InitialScenarioRequest.model_validate` of the JSON text of a request.
     pub fn of_json(raw: &[u8]) -> Result<Self, Refusal> {
-        let parsed: serde_json::Value =
-            serde_json::from_slice(raw).map_err(|error| Refusal::Invalid(format!("not JSON: {error}")))?;
+        let parsed: serde_json::Value = serde_json::from_slice(raw).map_err(|error| Refusal::Invalid(format!("not JSON: {error}")))?;
         let value = V::from_json(&parsed).ok_or_else(|| Refusal::Invalid("a number Python cannot read".into()))?;
         Self::of_value(&value)
     }
@@ -686,19 +657,10 @@ impl InitialScenarioRequest {
                 "evacuees" => request.evacuees = checks.int(field, item, 1, Some(10_000)).unwrap_or(1),
                 "duration_days" => request.duration_days = checks.positive_float(field, item, 90.0).unwrap_or(7.0),
                 "seed" => request.seed = checks.int(field, item, 0, None).unwrap_or(2026),
-                "gross_area_m2" => {
-                    request.gross_area_m2 =
-                        if matches!(item, V::Null) { None } else { checks.positive_float(field, item, 100_000.0) }
-                }
-                "accessible_toilet_count" => {
-                    request.accessible_toilet_count = checks.int(field, item, 0, Some(20)).unwrap_or(1)
-                }
-                "staff_count" => {
-                    request.staff_count = if matches!(item, V::Null) { None } else { checks.int(field, item, 0, Some(100)) }
-                }
-                "default_supply_start_day" => {
-                    request.default_supply_start_day = checks.int(field, item, 1, Some(91)).unwrap_or(4)
-                }
+                "gross_area_m2" => request.gross_area_m2 = if matches!(item, V::Null) { None } else { checks.positive_float(field, item, 100_000.0) },
+                "accessible_toilet_count" => request.accessible_toilet_count = checks.int(field, item, 0, Some(20)).unwrap_or(1),
+                "staff_count" => request.staff_count = if matches!(item, V::Null) { None } else { checks.int(field, item, 0, Some(100)) },
+                "default_supply_start_day" => request.default_supply_start_day = checks.int(field, item, 1, Some(91)).unwrap_or(4),
                 "season" => request.season = optional_text(&mut checks, field, Some(item), 40),
                 "facility_conditions" => match item {
                     V::List(items) => {
@@ -847,10 +809,7 @@ impl InitialScenarioRequest {
             ("operational_conditions", map(operational)),
             ("evacuation_selection", empties(&EVACUATION_SELECTION)),
             ("population_conditions", empties(&POPULATION_CONDITIONS)),
-            (
-                "field_origins",
-                V::Map(self.field_origins.iter().map(|(name, origin)| (Arc::from(name.as_str()), text(origin.text()))).collect()),
-            ),
+            ("field_origins", V::Map(self.field_origins.iter().map(|(name, origin)| (Arc::from(name.as_str()), text(origin.text()))).collect())),
         ])
     }
 

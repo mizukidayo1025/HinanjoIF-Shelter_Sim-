@@ -166,7 +166,9 @@ fn segments_intersect(a: Pt, b: Pt, c: Pt, d: Pt) -> bool {
     };
     let (ab_c, ab_d) = (cross(a, b, c), cross(a, b, d));
     let (cd_a, cd_b) = (cross(c, d, a), cross(c, d, b));
-    if ((ab_c > epsilon && ab_d < -epsilon) || (ab_c < -epsilon && ab_d > epsilon)) && ((cd_a > epsilon && cd_b < -epsilon) || (cd_a < -epsilon && cd_b > epsilon)) {
+    if ((ab_c > epsilon && ab_d < -epsilon) || (ab_c < -epsilon && ab_d > epsilon))
+        && ((cd_a > epsilon && cd_b < -epsilon) || (cd_a < -epsilon && cd_b > epsilon))
+    {
         return true;
     }
     (ab_c.abs() <= epsilon && on_segment(a, b, c))
@@ -276,7 +278,11 @@ static SERVICE_ACCESS: Model = model(
 );
 
 fn default_access() -> V {
-    V::Map(IndexMap::from([(Arc::from("accessibility"), text("unknown")), (Arc::from("required_access_tags"), empty()), (Arc::from("required_staff_skills"), empty())]))
+    V::Map(IndexMap::from([
+        (Arc::from("accessibility"), text("unknown")),
+        (Arc::from("required_access_tags"), empty()),
+        (Arc::from("required_staff_skills"), empty()),
+    ]))
 }
 
 static SERVICE_POINT: Model = model(
@@ -587,16 +593,8 @@ pub static SPATIAL_CONSTRAINTS: Model = model(
 
 // ---- events/effects.py: GuardExpression and _PARAMETER_MODELS ----------------------------------
 
-const GUARD_OPERATORS: S = S::Lit(&[
-    Lit::Str("eq"),
-    Lit::Str("ne"),
-    Lit::Str("gt"),
-    Lit::Str("gte"),
-    Lit::Str("lt"),
-    Lit::Str("lte"),
-    Lit::Str("and"),
-    Lit::Str("or"),
-]);
+const GUARD_OPERATORS: S =
+    S::Lit(&[Lit::Str("eq"), Lit::Str("ne"), Lit::Str("gt"), Lit::Str("gte"), Lit::Str("lt"), Lit::Str("lte"), Lit::Str("and"), Lit::Str("or")]);
 
 const GUARD_FIELDS: S = S::Lit(&[
     Lit::Str("simulation.minute"),
@@ -715,7 +713,14 @@ static DEMAND_RATE: Model = model(
     &[
         required(
             "action",
-            S::Lit(&[Lit::Str("request_toilet"), Lit::Str("rest"), Lit::Str("sleep"), Lit::Str("seek_help"), Lit::Str("fetch_water"), Lit::Str("collect_meal")]),
+            S::Lit(&[
+                Lit::Str("request_toilet"),
+                Lit::Str("rest"),
+                Lit::Str("sleep"),
+                Lit::Str("seek_help"),
+                Lit::Str("fetch_water"),
+                Lit::Str("collect_meal"),
+            ]),
         ),
         with("probability_multiplier", strict_float(0.5, 2.0), one_float),
         with("duration_multiplier", strict_float(0.5, 2.0), one_float),
@@ -753,7 +758,13 @@ fn unique_skills(fields: &mut Fields) -> Result<(), String> {
 
 static STAFF_HANDOFF: Model = model(
     "StaffHandoffParameters",
-    &[SCHEMA_VERSION, required("staff_id", IDENT), with("replacement_staff_id", S::Opt(&IDENT), null), required("task_id", IDENT), required("reason_code", IDENT)],
+    &[
+        SCHEMA_VERSION,
+        required("staff_id", IDENT),
+        with("replacement_staff_id", S::Opt(&IDENT), null),
+        required("task_id", IDENT),
+        required("reason_code", IDENT),
+    ],
     Some(handoff_changes_staff),
 );
 
@@ -768,7 +779,10 @@ fn handoff_changes_staff(fields: &mut Fields) -> Result<(), String> {
 static STAFF_TASK_ORDER: Model = model(
     "StaffTaskOrderParameters",
     &[
-        required("task_kind", S::Lit(&[Lit::Str("cleaning"), Lit::Str("maintenance"), Lit::Str("information_outreach"), Lit::Str("intake"), Lit::Str("patrol")])),
+        required(
+            "task_kind",
+            S::Lit(&[Lit::Str("cleaning"), Lit::Str("maintenance"), Lit::Str("information_outreach"), Lit::Str("intake"), Lit::Str("patrol")]),
+        ),
         required("target_zone_id", STABLE),
         with("target_id", S::Opt(&STABLE), null),
         required("reason", S::Str(StrS { strip: false, min: Some(1), max: Some(200), pattern: None })),
@@ -816,12 +830,8 @@ static ZONE_BASELINE: Model = model(
 );
 
 /// The fields of the zone environment's feedback, which a `zone-environment-v1` config holds at 0.
-const FEEDBACK_FIELDS: [&str; 4] = [
-    "lighting_sleep_efficiency_loss",
-    "ventilation_hygiene_growth_per_minute",
-    "privacy_discontent_per_minute",
-    "temperature_stress_per_degree_minute",
-];
+const FEEDBACK_FIELDS: [&str; 4] =
+    ["lighting_sleep_efficiency_loss", "ventilation_hygiene_growth_per_minute", "privacy_discontent_per_minute", "temperature_stress_per_degree_minute"];
 
 pub static ZONE_ENVIRONMENT: Model = Model {
     name: "ScenarioZoneEnvironmentConfig",

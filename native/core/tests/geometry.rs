@@ -11,8 +11,8 @@ use std::sync::Arc;
 use serde_json::Value;
 use sheltersim_core::config::{FacilityPlan, SpatialConstraints};
 use sheltersim_core::geometry::{
-    distance, point_in_polygon, point_segment_distance, polyline_length, segment_clear_of_polygon, segment_inside_polygon,
-    segment_intersection, zone_center, Geo, GeoCache, Opening, OverlayKey, Pt, Route, ServicePoint, Wall, Zone,
+    distance, point_in_polygon, point_segment_distance, polyline_length, segment_clear_of_polygon, segment_inside_polygon, segment_intersection, zone_center,
+    Geo, GeoCache, Opening, OverlayKey, Pt, Route, ServicePoint, Wall, Zone,
 };
 use sheltersim_core::row::IdMap;
 use sheltersim_core::stamp::Stamp;
@@ -201,11 +201,8 @@ fn a_plan_follows_the_overlay_order_only_in_its_facility_points() {
     let (_, partitions) = parts(&overlay);
     let point = |x: f64, y: f64| V::Map([(Arc::from("x"), V::Float(x)), (Arc::from("y"), V::Float(y))].into_iter().collect());
     let row = |x: f64, y: f64| V::Map([(Arc::from("point_m"), point(x, y))].into_iter().collect());
-    let moves = Some(V::Map(
-        [(Arc::from("water"), row(5.0, 13.0)), (Arc::from("stove"), row(10.0, 3.0)), (Arc::from("oven"), row(11.0, 3.0))]
-            .into_iter()
-            .collect(),
-    ));
+    let moves =
+        Some(V::Map([(Arc::from("water"), row(5.0, 13.0)), (Arc::from("stove"), row(10.0, 3.0)), (Arc::from("oven"), row(11.0, 3.0))].into_iter().collect()));
     let first = Geo::new(Some(&facility), Some(&constraints), moves.as_ref(), partitions.as_ref()).unwrap();
     let (moves_back, partitions_back) = (reversed(&moves), reversed(&partitions));
     let second = Geo::new(Some(&facility), Some(&constraints), moves_back.as_ref(), partitions_back.as_ref()).unwrap();

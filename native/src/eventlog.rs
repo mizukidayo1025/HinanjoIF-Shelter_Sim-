@@ -18,8 +18,8 @@ use std::collections::HashSet;
 use pyo3::gc::PyVisit;
 use pyo3::intern;
 use pyo3::prelude::*;
-use pyo3::PyTraverseError;
 use pyo3::types::{PyBytes, PyDict, PyList, PyString, PyTuple};
+use pyo3::PyTraverseError;
 use sheltersim_core::cell::{CowShard, Shard, ShardMut};
 
 pub(crate) use sheltersim_core::events::log::{EventLog, Fields, ACTION_LIFECYCLE_EVENT_TYPE, EVENT_FIELDS, RECORD_FIELDS};
@@ -63,19 +63,13 @@ pub struct EventStore {
     side: Shard<LogSide>,
 }
 
-fn mapping_get<'py>(
-    mapping: &Bound<'py, PyAny>,
-    key: &Bound<'py, PyString>,
-) -> PyResult<Option<Bound<'py, PyAny>>> {
+fn mapping_get<'py>(mapping: &Bound<'py, PyAny>, key: &Bound<'py, PyString>) -> PyResult<Option<Bound<'py, PyAny>>> {
     let value = mapping.call_method1(intern!(mapping.py(), "get"), (key,))?;
     Ok(if value.is_none() { None } else { Some(value) })
 }
 
 fn as_str(value: &Option<Bound<'_, PyAny>>) -> Option<String> {
-    value
-        .as_ref()
-        .and_then(|item| item.downcast::<PyString>().ok())
-        .and_then(|text| text.to_str().ok().map(str::to_owned))
+    value.as_ref().and_then(|item| item.downcast::<PyString>().ok()).and_then(|text| text.to_str().ok().map(str::to_owned))
 }
 
 impl EventStore {
@@ -155,11 +149,7 @@ impl EventStore {
         Ok(refused)
     }
 
-    fn records_of(
-        &self,
-        py: Python<'_>,
-        indices: impl Iterator<Item = usize>,
-    ) -> PyResult<Vec<Py<PyAny>>> {
+    fn records_of(&self, py: Python<'_>, indices: impl Iterator<Item = usize>) -> PyResult<Vec<Py<PyAny>>> {
         indices.map(|index| self.record_at(py, index)).collect()
     }
 
@@ -205,19 +195,9 @@ impl EventStore {
     /// The encoder (record -> canonical JSON bytes), the factory (bytes -> record), and the
     /// only types of record and event whose bytes are written on appending.
     #[pyo3(signature = (encoder, factory, record_type=None, event_type=None))]
-    fn set_codecs(
-        &self,
-        encoder: Py<PyAny>,
-        factory: Py<PyAny>,
-        record_type: Option<Py<PyAny>>,
-        event_type: Option<Py<PyAny>>,
-    ) -> PyResult<()> {
+    fn set_codecs(&self, encoder: Py<PyAny>, factory: Py<PyAny>, record_type: Option<Py<PyAny>>, event_type: Option<Py<PyAny>>) -> PyResult<()> {
         let mut side = self.side()?;
-        let old = (
-            side.encoder.replace(encoder),
-            side.factory.replace(factory),
-            std::mem::replace(&mut side.types, record_type.zip(event_type)),
-        );
+        let old = (side.encoder.replace(encoder), side.factory.replace(factory), std::mem::replace(&mut side.types, record_type.zip(event_type)));
         drop(side);
         drop(old);
         Ok(())
@@ -235,9 +215,7 @@ impl EventStore {
             // Anything this can not write waits for the Python encoder, which raises its own
             // error at the save, as it always did.
             Some((record_type, event_type)) => {
-                crate::checkpoint::encode_record(record, record_type.bind(py), event_type.bind(py))
-                    .unwrap_or(None)
-                    .map(Vec::into_boxed_slice)
+                crate::checkpoint::encode_record(record, record_type.bind(py), event_type.bind(py)).unwrap_or(None).map(Vec::into_boxed_slice)
             }
             None => None,
         };
@@ -263,10 +241,7 @@ impl EventStore {
         let slices: Vec<&[u8]> = saved.iter().map(|bytes| bytes.as_bytes(py)).collect();
         let parsed: Vec<Result<Fields, String>> = py.allow_threads(|| {
             use rayon::prelude::*;
-            slices
-                .par_iter()
-                .map(|bytes| sheltersim_core::events::log::fields_of_bytes(bytes))
-                .collect()
+            slices.par_iter().map(|bytes| sheltersim_core::events::log::fields_of_bytes(bytes)).collect()
         });
         for (fields, bytes) in parsed.into_iter().zip(saved) {
             let fields = fields.map_err(pyo3::exceptions::PyValueError::new_err)?;
@@ -386,12 +361,7 @@ impl EventStore {
     }
 
     /// The records of event_types at position start or later, in append order.
-    fn of_types_from(
-        &self,
-        py: Python<'_>,
-        event_types: &Bound<'_, PyAny>,
-        start: usize,
-    ) -> PyResult<Vec<Py<PyAny>>> {
+    fn of_types_from(&self, py: Python<'_>, event_types: &Bound<'_, PyAny>, start: usize) -> PyResult<Vec<Py<PyAny>>> {
         let ids = self.type_ids_of(event_types, false)?;
         let indices = self.with_log(py, |log| log.of_type_ids_from(&ids, start))?;
         self.records_of(py, indices.into_iter())
@@ -429,13 +399,7 @@ impl EventStore {
 
     /// Up to limit applied records of event_types from the end, scanning at most
     /// scan_limit records, in append order; and whether records were left unscanned.
-    fn recent_matching(
-        &self,
-        py: Python<'_>,
-        event_types: &Bound<'_, PyAny>,
-        limit: usize,
-        scan_limit: usize,
-    ) -> PyResult<(Vec<Py<PyAny>>, bool)> {
+    fn recent_matching(&self, py: Python<'_>, event_types: &Bound<'_, PyAny>, limit: usize, scan_limit: usize) -> PyResult<(Vec<Py<PyAny>>, bool)> {
         let wanted: HashSet<u32> = self.type_ids_of(event_types, false)?.into_iter().collect();
         let (found, more) = self.with_log(py, |log| log.recent_matching(&wanted, limit, scan_limit))?;
         Ok((self.records_of(py, found.into_iter())?, more))
@@ -553,11 +517,7 @@ impl EventStore {
 
     /// The saved document of the record at a position: `(event, realized_minute, status, detail)`,
     /// read from its bytes. None for a record whose bytes only Python can make.
-    pub(crate) fn saved_document(
-        &self,
-        py: Python<'_>,
-        index: usize,
-    ) -> PyResult<Option<(EventRow, i64, EventStatus, Option<std::sync::Arc<str>>)>> {
+    pub(crate) fn saved_document(&self, py: Python<'_>, index: usize) -> PyResult<Option<(EventRow, i64, EventStatus, Option<std::sync::Arc<str>>)>> {
         let side = self.side.try_borrow().or_py()?;
         self.with_log(py, |log| {
             if index >= log.len() {
@@ -623,10 +583,7 @@ fn fields_of_outcome(event: &Bound<'_, PyAny>, minute: i64, applied: bool) -> Py
             fields.request_id = as_str(&mapping_get(&payload, intern!(py, "request_id"))?);
             fields.agent_id = as_str(&mapping_get(&payload, intern!(py, "agent_id"))?);
             fields.support_kind = as_str(&mapping_get(&payload, intern!(py, "support_kind"))?);
-            fields.payload_status_completed = mapping_get(&payload, intern!(py, "status"))?
-                .map(|value| value.eq("completed"))
-                .transpose()?
-                .unwrap_or(false);
+            fields.payload_status_completed = mapping_get(&payload, intern!(py, "status"))?.map(|value| value.eq("completed")).transpose()?.unwrap_or(false);
         }
         "facility_outage" | "facility_recovery" => {
             fields.facility_id = as_str(&mapping_get(&payload, intern!(py, "facility_id"))?);

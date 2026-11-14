@@ -957,7 +957,14 @@ pub enum Selected {
 /// facilities they take, changing nothing: the capacity waits the routes would record go in
 /// `waits`, whose sequences the caller reserves before the trip it plans. `knows` is the section
 /// `knowledge_is_limited` that `agent_knows_facility` reads.
-pub fn select(world: &World, routing: &Routing<'_>, knows: &Kept<bool>, agent_id: &str, resource_kind: Option<&str>, waits: &mut Vec<CapacityWait>) -> Result<Selected> {
+pub fn select(
+    world: &World,
+    routing: &Routing<'_>,
+    knows: &Kept<bool>,
+    agent_id: &str,
+    resource_kind: Option<&str>,
+    waits: &mut Vec<CapacityWait>,
+) -> Result<Selected> {
     let resource = resource_kind.is_some();
     let (agent_zone, listed) = {
         let rows = world.rows()?;
@@ -1007,9 +1014,8 @@ pub fn select(world: &World, routing: &Routing<'_>, knows: &Kept<bool>, agent_id
         let Some(route) = route_for(world, routing, &agent_zone, &candidate.zone, agent_id, waits)? else {
             continue;
         };
-        let better = best
-            .as_ref()
-            .is_none_or(|(load, minutes, id, _)| (candidate.load, route.minutes, candidate.id.as_bytes()) < (*load, *minutes, id.as_bytes()));
+        let better =
+            best.as_ref().is_none_or(|(load, minutes, id, _)| (candidate.load, route.minutes, candidate.id.as_bytes()) < (*load, *minutes, id.as_bytes()));
         if better {
             best = Some((candidate.load, route.minutes, candidate.id.clone(), route));
         }

@@ -25,8 +25,7 @@ const CONFIG_FIELDS: [&str; 8] = [
     "shift_windows_by_staff",
     "off_shift_fatigue_recovery_per_minute",
 ];
-const RECORD_FIELDS: [&str; 6] =
-    ["consecutive_work_minutes", "total_work_minutes", "total_rest_minutes", "fatigue", "rest_until_minute", "last_activity"];
+const RECORD_FIELDS: [&str; 6] = ["consecutive_work_minutes", "total_work_minutes", "total_rest_minutes", "fatigue", "rest_until_minute", "last_activity"];
 
 type Map = IndexMap<Arc<str>, V>;
 
@@ -154,7 +153,8 @@ pub fn validate(view: &View<'_>) -> Result<()> {
         return value_error("staff_dynamics_v1 model identity does not match its config");
     }
     let saved = get(state, "config");
-    let without = |names: &[&str]| -> V { V::Map(config.iter().filter(|(key, _)| !names.contains(&&***key)).map(|(key, value)| (key.clone(), value.clone())).collect()) };
+    let without =
+        |names: &[&str]| -> V { V::Map(config.iter().filter(|(key, _)| !names.contains(&&***key)).map(|(key, value)| (key.clone(), value.clone())).collect()) };
     if !eq(&V::Map(config.clone()), saved)
         && !(eq(&without(&["max_continuous_work_minutes_by_staff"]), saved)
             || py::eq_str(config.get("policy_version"), POLICY_V1)

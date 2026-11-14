@@ -32,9 +32,12 @@ pub fn fill(host: &mut TestHost, entry: &Value) {
             continue;
         }
         let sections = Arc::clone(&sections);
-        host.sections.push((which, Box::new(move |configs: &Configs| {
-            sections.fill(configs, which).unwrap_or_else(|error| panic!("{error}"));
-        })));
+        host.sections.push((
+            which,
+            Box::new(move |configs: &Configs| {
+                sections.fill(configs, which).unwrap_or_else(|error| panic!("{error}"));
+            }),
+        ));
     }
 }
 

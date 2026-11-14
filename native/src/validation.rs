@@ -78,22 +78,12 @@ pub(crate) fn is_unit(value: Object) -> bool {
 fn contains(mapping: Object, key: Object, is_set: bool) -> bool {
     // SAFETY: mapping is a live dict or set, and hashing and comparing an exact str
     // runs no Python code. Keys of other types are left to Python.
-    unsafe {
-        is_exact_str(key)
-            && if is_set {
-                ffi::PySet_Contains(mapping, key) == 1
-            } else {
-                ffi::PyDict_Contains(mapping, key) == 1
-            }
-    }
+    unsafe { is_exact_str(key) && if is_set { ffi::PySet_Contains(mapping, key) == 1 } else { ffi::PyDict_Contains(mapping, key) == 1 } }
 }
 
 /// Walk a dict's entries. The callback returns false to stop, and the walk then
 /// returns false. The dict must not change during the walk.
-fn all_items(
-    dict: Object,
-    mut check: impl FnMut(Object, Object) -> PyResult<bool>,
-) -> PyResult<bool> {
+fn all_items(dict: Object, mut check: impl FnMut(Object, Object) -> PyResult<bool>) -> PyResult<bool> {
     if !is_exact_dict(dict) {
         return Ok(false);
     }
@@ -127,12 +117,7 @@ const KEY_OBJECTS: usize = 3;
 
 impl<'py, const N: usize> RecordReader<'py, N> {
     fn new(py: Python<'py>, fields: [&str; N]) -> Self {
-        Self {
-            names: fields.map(|name| PyString::new(py, name).into_any()),
-            known: [[null_mut(); KEY_OBJECTS]; N],
-            next_slot: [0; N],
-            held: Vec::new(),
-        }
+        Self { names: fields.map(|name| PyString::new(py, name).into_any()), known: [[null_mut(); KEY_OBJECTS]; N], next_slot: [0; N], held: Vec::new() }
     }
 
     fn field_of(&mut self, key: Object, hint: usize) -> Option<usize> {
@@ -146,15 +131,11 @@ impl<'py, const N: usize> RecordReader<'py, N> {
             return None;
         }
         // SAFETY: key is borrowed from the dict being walked, and is an exact str.
-        let field = self
-            .names
-            .iter()
-            .position(|name| unsafe { ffi::PyUnicode_Compare(name.as_ptr(), key) } == 0)?;
+        let field = self.names.iter().position(|name| unsafe { ffi::PyUnicode_Compare(name.as_ptr(), key) } == 0)?;
         self.known[field][self.next_slot[field]] = key;
         self.next_slot[field] = (self.next_slot[field] + 1) % KEY_OBJECTS;
         // SAFETY: as above; the new reference keeps the address taken.
-        self.held
-            .push(unsafe { Bound::from_borrowed_ptr(self.names[field].py(), key) });
+        self.held.push(unsafe { Bound::from_borrowed_ptr(self.names[field].py(), key) });
         Some(field)
     }
 
@@ -176,35 +157,22 @@ impl<'py, const N: usize> RecordReader<'py, N> {
             values[self.field_of(key, index)?] = value;
             index += 1;
         }
-        values
-            .iter()
-            .all(|value| !value.is_null())
-            .then_some(values)
+        values.iter().all(|value| !value.is_null()).then_some(values)
     }
 }
 
 /// Every record of movement_v1 "positions" passes validate_movement_runtime_state's
 /// rules for these zones and edges.
 #[pyfunction]
-pub fn movement_positions_valid(
-    positions: &Bound<'_, PyDict>,
-    zones: &Bound<'_, PyDict>,
-    edges: &Bound<'_, PyDict>,
-) -> PyResult<bool> {
+pub fn movement_positions_valid(positions: &Bound<'_, PyDict>, zones: &Bound<'_, PyDict>, edges: &Bound<'_, PyDict>) -> PyResult<bool> {
     let py = positions.py();
-    let mut reader = RecordReader::new(
-        py,
-        ["zone_id", "point", "edge_id", "progress", "position_kind"],
-    );
+    let mut reader = RecordReader::new(py, ["zone_id", "point", "edge_id", "progress", "position_kind"]);
     let mut point_reader = RecordReader::new(py, ["x", "y"]);
     all_items(positions.as_ptr(), |_, record| {
         let Some([zone, point, edge, progress, kind]) = reader.read(record) else {
             return Ok(false);
         };
-        if !contains(zones.as_ptr(), zone, false)
-            || !is_unit(progress)
-            || !(is_none(edge) || contains(edges.as_ptr(), edge, false))
-            || !is_position_kind(kind)
+        if !contains(zones.as_ptr(), zone, false) || !is_unit(progress) || !(is_none(edge) || contains(edges.as_ptr(), edge, false)) || !is_position_kind(kind)
         {
             return Ok(false);
         }
@@ -220,12 +188,10 @@ pub fn movement_positions_valid(
 
 fn is_position_kind(kind: Object) -> bool {
     is_exact_str(kind)
-        && [c"physical", c"display_only", c"unavailable"]
-            .iter()
-            .any(|name| {
-                // SAFETY: kind is an exact str and name is NUL-terminated ASCII.
-                unsafe { ffi::PyUnicode_CompareWithASCIIString(kind, name.as_ptr()) == 0 }
-            })
+        && [c"physical", c"display_only", c"unavailable"].iter().any(|name| {
+            // SAFETY: kind is an exact str and name is NUL-terminated ASCII.
+            unsafe { ffi::PyUnicode_CompareWithASCIIString(kind, name.as_ptr()) == 0 }
+        })
 }
 
 /// Every AgentState passes the per-Agent rules of WorldState.validate, for a world of
@@ -240,21 +206,9 @@ pub fn world_agents_valid(
 ) -> PyResult<bool> {
     let py = agents.py();
     let name = |text: &str| PyString::intern(py, text);
-    let (zone_id, activity, profile, initial_needs, needs) = (
-        name("zone_id"),
-        name("activity"),
-        name("profile"),
-        name("initial_needs"),
-        name("needs"),
-    );
-    let (toilet, hunger, fatigue, hydration, stress, trust) = (
-        name("toilet_urgency"),
-        name("hunger"),
-        name("fatigue"),
-        name("hydration_need"),
-        name("stress"),
-        name("trust"),
-    );
+    let (zone_id, activity, profile, initial_needs, needs) = (name("zone_id"), name("activity"), name("profile"), name("initial_needs"), name("needs"));
+    let (toilet, hunger, fatigue, hydration, stress, trust) =
+        (name("toilet_urgency"), name("hunger"), name("fatigue"), name("hydration_need"), name("stress"), name("trust"));
     let (next_decision, cooldown) = (name("next_decision_at"), name("support_cooldown_until"));
     all_items(agents.as_ptr(), |_, agent| {
         // SAFETY: agent is borrowed from the dict being walked.
@@ -263,14 +217,8 @@ pub fn world_agents_valid(
         if !contains(zones.as_ptr(), zone.as_ptr(), false) {
             return Ok(false);
         }
-        let plain =
-            |value: &Bound<'_, PyAny>, expected: &Bound<'_, PyAny>| value.get_type().is(expected);
-        if !plain(&agent.getattr(&activity)?, activity_type)
-            || !plain(
-                &agent.getattr(&profile)?.getattr(&initial_needs)?,
-                initial_needs_type,
-            )
-        {
+        let plain = |value: &Bound<'_, PyAny>, expected: &Bound<'_, PyAny>| value.get_type().is(expected);
+        if !plain(&agent.getattr(&activity)?, activity_type) || !plain(&agent.getattr(&profile)?.getattr(&initial_needs)?, initial_needs_type) {
             return Ok(false);
         }
         let current = agent.getattr(&needs)?;
@@ -288,4 +236,3 @@ pub fn world_agents_valid(
             && is_count(agent.getattr(&cooldown)?.as_ptr()))
     })
 }
-

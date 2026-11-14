@@ -27,6 +27,7 @@ use crate::events::writer::WriteError;
 use crate::events::{EventRow, EventStatus};
 use crate::geometry::Geo;
 use crate::mathx::MathError;
+use crate::row::ValueRow;
 use crate::rules::behavior::Proposal;
 use crate::rules::common_operations::Logged;
 use crate::rules::decisions::Observed;
@@ -34,7 +35,6 @@ use crate::rules::kit::Held;
 use crate::rules::metrics::MetricSample;
 use crate::rules::world_view::ViewData;
 use crate::value::V;
-use crate::row::ValueRow;
 use crate::world::{Place, Snapshot, World};
 
 pub use crate::run::sinks::{DecisionSink, Llm, TraceLevel};
@@ -547,13 +547,7 @@ pub trait Host {
     fn consider_cooperation(&mut self, initiator: &str, participant: &str, trigger_event_id: &str) -> Result<(), Self::Error>;
     /// `social_policy.consider_information_reaction(world, agent_id=, participant_agent_id=,
     /// message_id=, trigger_event_id=)`.
-    fn consider_information_reaction(
-        &mut self,
-        agent_id: &str,
-        participant: &str,
-        message_id: &str,
-        trigger_event_id: &str,
-    ) -> Result<(), Self::Error>;
+    fn consider_information_reaction(&mut self, agent_id: &str, participant: &str, message_id: &str, trigger_event_id: &str) -> Result<(), Self::Error>;
 
     // ---- Outside sinks ---------------------------------------------------------------------------
 

@@ -129,10 +129,7 @@ impl NetworkWrite {
         }
         for write in &self.records {
             if let Some(record) = row.relationships.map.get(write.key.as_str()) {
-                if record.contact_count > LAST_SAFE_COUNT
-                    || record.conversation_count > LAST_SAFE_COUNT
-                    || record.cooperation_count > LAST_SAFE_COUNT
-                {
+                if record.contact_count > LAST_SAFE_COUNT || record.conversation_count > LAST_SAFE_COUNT || record.cooperation_count > LAST_SAFE_COUNT {
                     return Err(Error::unsupported("a count is too large"));
                 }
             }
@@ -176,11 +173,7 @@ impl NetworkWrite {
 /// One record. Returns the information transfers it adds.
 fn write_record(row: &mut SocialNetworkRow, write: &RecordWrite, cooperation: bool) -> Result<i64> {
     row.relationships.note_write(&write.key);
-    let record = row
-        .relationships
-        .map
-        .get_mut(write.key.as_str())
-        .ok_or_else(|| Error::unsupported("the record is not in the row"))?;
+    let record = row.relationships.map.get_mut(write.key.as_str()).ok_or_else(|| Error::unsupported("the record is not in the row"))?;
     if write.contact {
         record.contact_count += 1;
     }
@@ -384,8 +377,7 @@ pub fn observe_event(world: &World, event_type: &str, payload: &V, minute: i64) 
             let body = body_of(world)?;
             let deltas = if social_action {
                 let relief = action_relief(body.as_deref(), actor)?;
-                let actor_delta =
-                    if &*interaction == "reassurance_exchange" { 0.0 } else { py_max(0.0, relief * ACTOR_RELIEF_SHARE) };
+                let actor_delta = if &*interaction == "reassurance_exchange" { 0.0 } else { py_max(0.0, relief * ACTOR_RELIEF_SHARE) };
                 [Some(actor_delta), Some(relief * PARTICIPANT_RELIEF_SHARE)]
             } else if &*interaction == "cooperation" {
                 [Some(COOPERATION_TRUST_DELTA); 2]

@@ -143,11 +143,10 @@ impl InformationRow {
     /// the rule can't raise on the messages or the beliefs. False says nothing about the state.
     pub fn beliefs_parse(&self) -> bool {
         self.messages.iter().all(|(id, message)| **id == *message.id && message.parses())
-            && self.beliefs.values().all(|records| {
-                records.iter().all(|(id, record)| {
-                    **id == *record.message_id && self.messages.contains_key(&**id) && record.parses()
-                })
-            })
+            && self
+                .beliefs
+                .values()
+                .all(|records| records.iter().all(|(id, record)| **id == *record.message_id && self.messages.contains_key(&**id) && record.parses()))
     }
 
     fn has_good_contacts(&self, agents: &HashSet<&str>, duration: i64) -> bool {
@@ -174,20 +173,13 @@ impl InformationRow {
                 && agents.contains(&*request.agent_id)
                 && (0..duration).contains(&request.minute)
                 && !request.message_ids.is_empty()
-                && request.message_ids.iter().all(|message| {
-                    messages.insert(message) && self.messages.contains_key(&**message)
-                })
+                && request.message_ids.iter().all(|message| messages.insert(message) && self.messages.contains_key(&**message))
         })
     }
 
     /// Whether validate_information_runtime_state passes the namespace. False says nothing about
     /// it: the Python rules then say what is wrong. A state of schema 1 goes to them too.
-    pub fn is_valid<E>(
-        &self,
-        agents: &HashSet<&str>,
-        duration: i64,
-        has_zone: impl Fn(&str) -> Result<bool, E>,
-    ) -> Result<bool, E> {
+    pub fn is_valid<E>(&self, agents: &HashSet<&str>, duration: i64, has_zone: impl Fn(&str) -> Result<bool, E>) -> Result<bool, E> {
         if self.schema_version != SCHEMA_VERSION
             || self.messages.len() > MAX_MESSAGES
             || self.beliefs.len() != agents.len()
@@ -202,9 +194,8 @@ impl InformationRow {
             }
         }
         let counters = &self.counters;
-        Ok(self.beliefs.iter().all(|(id, records)| {
-            agents.contains(&**id) && records.values().all(|record| record.last_contact < duration)
-        }) && self.query_pressure.iter().all(|(id, value)| agents.contains(&**id) && is_unit(*value))
+        Ok(self.beliefs.iter().all(|(id, records)| agents.contains(&**id) && records.values().all(|record| record.last_contact < duration))
+            && self.query_pressure.iter().all(|(id, value)| agents.contains(&**id) && is_unit(*value))
             && self.has_good_contacts(agents, duration)
             && self.has_good_requests(agents, duration)
             && counters.contact_attempts >= 0
@@ -220,8 +211,6 @@ impl InformationRow {
 fn pair_of_key(key: &str) -> Option<(&str, &str)> {
     let inner = key.strip_prefix("[\"")?.strip_suffix("\"]")?;
     let (first, second) = inner.split_once("\",\"")?;
-    let plain = |text: &str| {
-        text.bytes().all(|byte| (0x20..0x7f).contains(&byte) && byte != b'"' && byte != b'\\')
-    };
+    let plain = |text: &str| text.bytes().all(|byte| (0x20..0x7f).contains(&byte) && byte != b'"' && byte != b'\\');
     (plain(first) && plain(second)).then_some((first, second))
 }

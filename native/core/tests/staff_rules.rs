@@ -118,7 +118,15 @@ impl Rig {
     /// the router).
     fn operations(&mut self, minute: i64) -> WriteResult<Operations> {
         let holding = kit::holding(&self.cell, &mut self.host).unwrap();
-        let known = kit::kept_section_value(&self.cell, &mut self.host, &holding, SectionId::StaffOperationsKnown, |configs| &configs.staff_operations_known, known_staff_operations).unwrap();
+        let known = kit::kept_section_value(
+            &self.cell,
+            &mut self.host,
+            &holding,
+            SectionId::StaffOperationsKnown,
+            |configs| &configs.staff_operations_known,
+            known_staff_operations,
+        )
+        .unwrap();
         let staff = Staff::of(&holding).unwrap();
         self.cell.with(|world| staff::assign_operations(world, &staff.inputs(None), &known, minute, None)).unwrap()
     }
@@ -196,8 +204,17 @@ impl Rig {
         if waits.is_none() {
             let loads_staff = holding.held(KEY, OTHER_DOCUMENT);
             let geo = self.host.floor_plan().ok();
-            let movement = kit::kept_section_value(&self.cell, &mut self.host, &holding, SectionId::Movement, |configs| &configs.movement, Movement::parse).unwrap();
-            let support_minutes = kit::kept_section_value(&self.cell, &mut self.host, &holding, SectionId::SupportTaskMinutes, |configs| &configs.support_task_minutes, support_task_minutes).unwrap();
+            let movement =
+                kit::kept_section_value(&self.cell, &mut self.host, &holding, SectionId::Movement, |configs| &configs.movement, Movement::parse).unwrap();
+            let support_minutes = kit::kept_section_value(
+                &self.cell,
+                &mut self.host,
+                &holding,
+                SectionId::SupportTaskMinutes,
+                |configs| &configs.support_task_minutes,
+                support_task_minutes,
+            )
+            .unwrap();
             let routes = WaitRoutes { loads_staff: &loads_staff, geo: geo.as_ref(), movement: &movement, support_minutes: &support_minutes };
             waits = self.cell.with(|world| staff::open_waits(world, &inputs, Some(&routes), &ids, sample, false)).unwrap().unwrap();
         }
@@ -377,7 +394,21 @@ fn a_task_with_no_id_sends_the_relief_to_the_python_rule() {
 fn waiting_fields(rig: &Rig) -> V {
     let V::List(rows) = rig.part("support_requests") else { unreachable!() };
     let fields = ["id", "last_assignment_attempt_minute", "last_assignment_wait_reason_code"];
-    V::List(rows.iter().map(|row| V::List(fields.iter().map(|field| match row { V::Map(row) => row.get(*field).cloned().unwrap_or(V::Null), _ => unreachable!() }).collect())).collect())
+    V::List(
+        rows.iter()
+            .map(|row| {
+                V::List(
+                    fields
+                        .iter()
+                        .map(|field| match row {
+                            V::Map(row) => row.get(*field).cloned().unwrap_or(V::Null),
+                            _ => unreachable!(),
+                        })
+                        .collect(),
+                )
+            })
+            .collect(),
+    )
 }
 
 /// 30 rounds of random skills and care kinds (Python's `random.Random(11)`) where every request

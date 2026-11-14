@@ -41,25 +41,25 @@ use pyo3::ffi;
 use pyo3::gc::PyVisit;
 use pyo3::intern;
 use pyo3::prelude::*;
-use pyo3::sync::GILOnceCell;
 use pyo3::pyclass::boolean_struct::True;
+use pyo3::sync::GILOnceCell;
 use pyo3::types::{PyBytes, PyCFunction, PyDict, PyFloat, PyList, PyString, PyTuple, PyWeakrefMethods, PyWeakrefReference};
 use pyo3::{PyClass, PyTraverseError};
 use sheltersim_core::cell::{CowShard, Shard, ShardMut, BORROWED};
-use sheltersim_core::stamp::Stamp;
 use sheltersim_core::error::Error as CoreError;
+use sheltersim_core::stamp::Stamp;
 use sheltersim_core::world::{Place, Slot, World, WorldCell};
 use smallvec::SmallVec;
 
+use super::errors::OrPy;
 use super::row::{atom_to_py, Atom, PyField, PyItems, TreeSink};
 use super::tracked::{as_readable_dict, as_readable_list, is_detached, tracked_dict_type, tracked_list_type};
-use super::errors::OrPy;
-use super::value::{V, VPy};
+use super::value::{VPy, V};
 use crate::eventlog::{EventLog, EventStore};
 use crate::state::entities::EntityStore;
-use sheltersim_core::state::metric_state::MetricRow;
 use crate::state::events::{EventPart, Home, Queue, QueueStore};
 use crate::{encode, Encoder, Unsupported, MAX_DEPTH};
+use sheltersim_core::state::metric_state::MetricRow;
 
 const NO_PARENT: u32 = u32::MAX;
 
@@ -67,17 +67,34 @@ pub(crate) use sheltersim_core::row::{Part, Row, ValueRow};
 
 /// A write from Python, at the node a path leads to. Values are the tree's stored values.
 pub(crate) enum Write<'a, 'py> {
-    Set { key: Part<'a>, value: &'a Bound<'py, PyAny> },
-    Delete { key: Part<'a> },
+    Set {
+        key: Part<'a>,
+        value: &'a Bound<'py, PyAny>,
+    },
+    Delete {
+        key: Part<'a>,
+    },
     /// `del items[start:stop]`, of a list.
-    DeleteRange { start: usize, stop: usize },
+    DeleteRange {
+        start: usize,
+        stop: usize,
+    },
     Clear,
-    Append { value: &'a Bound<'py, PyAny> },
-    Extend { values: &'a Bound<'py, PyList> },
-    Insert { index: usize, value: &'a Bound<'py, PyAny> },
+    Append {
+        value: &'a Bound<'py, PyAny>,
+    },
+    Extend {
+        values: &'a Bound<'py, PyList>,
+    },
+    Insert {
+        index: usize,
+        value: &'a Bound<'py, PyAny>,
+    },
     Reverse,
     /// The list now holds these items: a slice assignment, a sort or `*=`.
-    ReplaceAll { items: &'a Bound<'py, PyList> },
+    ReplaceAll {
+        items: &'a Bound<'py, PyList>,
+    },
 }
 
 pub(crate) use sheltersim_core::error::Misfit;
@@ -137,10 +154,7 @@ impl<T: PyField> PyRow for T {
 
 /// `Items::slice_to_py` of items kept as their canonical JSON: what `json.loads` reads of each, as
 /// the list's `to_py` does.
-pub(crate) fn loads_items<'py, 'a>(
-    py: Python<'py>,
-    items: impl Iterator<Item = &'a [u8]>,
-) -> PyResult<Bound<'py, PyList>> {
+pub(crate) fn loads_items<'py, 'a>(py: Python<'py>, items: impl Iterator<Item = &'a [u8]>) -> PyResult<Bound<'py, PyList>> {
     let loads = py.import(intern!(py, "json"))?.getattr(intern!(py, "loads"))?;
     let list = PyList::empty(py);
     for item in items {
@@ -243,12 +257,8 @@ fn value_at<'v>(root: &'v mut V, path: &[Part<'_>]) -> Result<&'v mut V, Misfit>
     let mut target = root;
     for part in path {
         target = match (target, part) {
-            (V::Map(map), Part::Key(key)) => map
-                .get_mut(*key)
-                .ok_or_else(|| Misfit::new(format!("no key {key:?}")))?,
-            (V::List(items), Part::Index(index)) => items
-                .get_mut(*index)
-                .ok_or_else(|| Misfit::new(format!("no index {index}")))?,
+            (V::Map(map), Part::Key(key)) => map.get_mut(*key).ok_or_else(|| Misfit::new(format!("no key {key:?}")))?,
+            (V::List(items), Part::Index(index)) => items.get_mut(*index).ok_or_else(|| Misfit::new(format!("no index {index}")))?,
             _ => return Err(Misfit::new("the path does not lead to a container")),
         };
     }
@@ -256,11 +266,7 @@ fn value_at<'v>(root: &'v mut V, path: &[Part<'_>]) -> Result<&'v mut V, Misfit>
 }
 
 /// A forwarded write to a value: `ValueRow`'s, and the free-form part of a typed row's.
-pub(crate) fn apply_to_value(
-    root: &mut V,
-    path: &[Part<'_>],
-    write: &Write<'_, '_>,
-) -> Result<(), Misfit> {
+pub(crate) fn apply_to_value(root: &mut V, path: &[Part<'_>], write: &Write<'_, '_>) -> Result<(), Misfit> {
     let target = value_at(root, path)?;
     match (target, write) {
         (V::Map(map), Write::Set { key: Part::Key(key), value }) => {
@@ -273,21 +279,16 @@ pub(crate) fn apply_to_value(
             }
         }
         (V::Map(map), Write::Delete { key: Part::Key(key) }) => {
-            map.shift_remove(*key)
-                .ok_or_else(|| Misfit::new(format!("no key {key:?}")))?;
+            map.shift_remove(*key).ok_or_else(|| Misfit::new(format!("no key {key:?}")))?;
         }
         (V::Map(map), Write::Clear) => map.clear(),
         (V::List(items), Write::Set { key: Part::Index(index), value }) => {
-            *items
-                .get_mut(*index)
-                .ok_or_else(|| Misfit::new(format!("no index {index}")))? = <V as VPy>::from_py(value).or_misfit()?;
+            *items.get_mut(*index).ok_or_else(|| Misfit::new(format!("no index {index}")))? = <V as VPy>::from_py(value).or_misfit()?;
         }
         (V::List(items), Write::Delete { key: Part::Index(index) }) if *index < items.len() => {
             items.remove(*index);
         }
-        (V::List(items), Write::DeleteRange { start, stop })
-            if start <= stop && *stop <= items.len() =>
-        {
+        (V::List(items), Write::DeleteRange { start, stop }) if start <= stop && *stop <= items.len() => {
             items.drain(*start..*stop);
         }
         (V::List(items), Write::Clear) => items.clear(),
@@ -302,10 +303,7 @@ pub(crate) fn apply_to_value(
         }
         (V::List(items), Write::Reverse) => items.reverse(),
         (V::List(items), Write::ReplaceAll { items: new_items }) => {
-            *items = new_items
-                .iter()
-                .map(|value| <V as VPy>::from_py(&value))
-                .collect::<PyResult<Vec<V>>>().or_misfit()?;
+            *items = new_items.iter().map(|value| <V as VPy>::from_py(&value)).collect::<PyResult<Vec<V>>>().or_misfit()?;
         }
         _ => return Err(Misfit::new("the write does not fit the value at its path")),
     }
@@ -392,11 +390,7 @@ impl NodeTable {
         let mut path: SmallVec<[Part<'a>; 8]> = SmallVec::new();
         let mut current = id;
         loop {
-            let node = self
-                .nodes
-                .get(current as usize)
-                .and_then(Option::as_ref)
-                .ok_or_else(|| Misfit::new("a node left the table"))?;
+            let node = self.nodes.get(current as usize).and_then(Option::as_ref).ok_or_else(|| Misfit::new("a node left the table"))?;
             match &node.key {
                 NodeKey::Root => break,
                 NodeKey::Key(key) => path.push(Part::Key(key.bind(py).to_str().or_misfit()?)),
@@ -459,9 +453,7 @@ unsafe fn node_number_is(item: *mut ffi::PyObject, id: u32) -> bool {
 fn node_slot_name() -> *mut ffi::PyObject {
     static NAME: OnceLock<usize> = OnceLock::new();
     // SAFETY: called with the GIL held; a text with no NUL makes a new interned str.
-    *NAME.get_or_init(|| unsafe {
-        ffi::PyUnicode_InternFromString(c"_node".as_ptr()) as usize
-    }) as *mut ffi::PyObject
+    *NAME.get_or_init(|| unsafe { ffi::PyUnicode_InternFromString(c"_node".as_ptr()) as usize }) as *mut ffi::PyObject
 }
 
 /// A dict of a namespace's tree, for a rule's writes: `with_row_tree` gives the root, `child` goes
@@ -479,10 +471,7 @@ impl<'py> Tree<'py> {
 
     pub(crate) fn child(&self, key: &Bound<'py, PyString>) -> PyResult<Tree<'py>> {
         let node = match &self.node {
-            Some(node) => Some(
-                raw_dict_get(node, key.as_any())?
-                    .ok_or_else(|| PyRuntimeError::new_err("the tree does not have the row's key"))?,
-            ),
+            Some(node) => Some(raw_dict_get(node, key.as_any())?.ok_or_else(|| PyRuntimeError::new_err("the tree does not have the row's key"))?),
             None => None,
         };
         Ok(Tree { py: self.py, node })
@@ -540,11 +529,7 @@ struct TreeSide {
 
 /// A new empty tracked container of the class given, without its Python `__new__`.
 fn new_container<'py>(py: Python<'py>, list: bool) -> PyResult<Bound<'py, PyAny>> {
-    type NewFunction = unsafe extern "C" fn(
-        *mut ffi::PyTypeObject,
-        *mut ffi::PyObject,
-        *mut ffi::PyObject,
-    ) -> *mut ffi::PyObject;
+    type NewFunction = unsafe extern "C" fn(*mut ffi::PyTypeObject, *mut ffi::PyObject, *mut ffi::PyObject) -> *mut ffi::PyObject;
     static NEW: OnceLock<[usize; 2]> = OnceLock::new();
     let functions = NEW.get_or_init(|| {
         // SAFETY: both built-in types live forever, and tp_new is always set on them.
@@ -602,7 +587,6 @@ fn raw_dict_clear(dict: &Bound<'_, PyAny>) {
     unsafe { ffi::PyDict_Clear(dict.as_ptr()) }
 }
 
-
 pub(crate) fn raw_list_append(list: &Bound<'_, PyAny>, value: &Bound<'_, PyAny>) -> PyResult<()> {
     // SAFETY: as above.
     if unsafe { ffi::PyList_Append(list.as_ptr(), value.as_ptr()) } != 0 {
@@ -612,10 +596,7 @@ pub(crate) fn raw_list_append(list: &Bound<'_, PyAny>, value: &Bound<'_, PyAny>)
 }
 
 /// A strong reference to a dict's value, or None; a failed hash is an error.
-pub(crate) fn raw_dict_get<'py>(
-    dict: &Bound<'py, PyAny>,
-    key: &Bound<'py, PyAny>,
-) -> PyResult<Option<Bound<'py, PyAny>>> {
+pub(crate) fn raw_dict_get<'py>(dict: &Bound<'py, PyAny>, key: &Bound<'py, PyAny>) -> PyResult<Option<Bound<'py, PyAny>>> {
     let py = dict.py();
     // SAFETY: dict is a live dict; the value is borrowed until the new reference below.
     unsafe {
@@ -651,9 +632,7 @@ fn list_values<'py>(list: &Bound<'py, PyAny>) -> Vec<Bound<'py, PyAny>> {
     // SAFETY: list is a live list, and nothing here runs Python code.
     unsafe {
         let count = ffi::PyList_Size(list.as_ptr());
-        (0..count)
-            .map(|index| Bound::from_borrowed_ptr(py, ffi::PyList_GetItem(list.as_ptr(), index)))
-            .collect()
+        (0..count).map(|index| Bound::from_borrowed_ptr(py, ffi::PyList_GetItem(list.as_ptr(), index))).collect()
     }
 }
 
@@ -709,13 +688,7 @@ impl NamespaceMirror {
         Ok(self.tree.try_borrow().or_py()?.root.as_ref().map(|root| root.bind(py).clone()))
     }
 
-    fn add_node(
-        slf: &Bound<'_, Self>,
-        node: &Bound<'_, PyAny>,
-        parent: u32,
-        key: NodeKey,
-        list: bool,
-    ) -> PyResult<()> {
+    fn add_node(slf: &Bound<'_, Self>, node: &Bound<'_, PyAny>, parent: u32, key: NodeKey, list: bool) -> PyResult<()> {
         let py = slf.py();
         let handle = list.then(|| node.clone().unbind());
         let id = slf.get().tree_mut()?.table.add(Node { parent, key, list: handle });
@@ -726,13 +699,7 @@ impl NamespaceMirror {
 
     /// What the tree stores for value: an atom as it is and a container as nodes. Any other value
     /// is stored as it is; a row can't read it, so a namespace holding one is tainted.
-    fn adopt_value<'py>(
-        slf: &Bound<'py, Self>,
-        parent: u32,
-        key: NodeKey,
-        value: &Bound<'py, PyAny>,
-        depth: usize,
-    ) -> PyResult<Bound<'py, PyAny>> {
+    fn adopt_value<'py>(slf: &Bound<'py, Self>, parent: u32, key: NodeKey, value: &Bound<'py, PyAny>, depth: usize) -> PyResult<Bound<'py, PyAny>> {
         if is_atom(value) || depth > MAX_DEPTH {
             return Ok(value.clone());
         }
@@ -778,11 +745,7 @@ impl NamespaceMirror {
     /// Take value and everything under it out of the table. It stays a working container: its
     /// later writes are forwarded to `next_sink`, or to nobody if that is None, like the plain
     /// dict it would be.
-    fn release_value(
-        slf: &Bound<'_, Self>,
-        value: &Bound<'_, PyAny>,
-        next_sink: &Bound<'_, PyAny>,
-    ) -> PyResult<()> {
+    fn release_value(slf: &Bound<'_, Self>, value: &Bound<'_, PyAny>, next_sink: &Bound<'_, PyAny>) -> PyResult<()> {
         let Some(is_list) = tracked_kind(value) else {
             return Ok(());
         };
@@ -862,32 +825,21 @@ impl NamespaceMirror {
 
     /// Write a value into the tree from Rust, after the row took it: no override runs and nothing
     /// is forwarded. A detached namespace has no tree to write. `path` leads to a dict.
-    pub(crate) fn write_through<'py>(
-        slf: &Bound<'py, Self>,
-        path: &[&str],
-        key: &str,
-        value: &Bound<'py, PyAny>,
-    ) -> PyResult<()> {
+    pub(crate) fn write_through<'py>(slf: &Bound<'py, Self>, path: &[&str], key: &str, value: &Bound<'py, PyAny>) -> PyResult<()> {
         let py = slf.py();
         let Some(mut node) = slf.get().root(py)? else {
             return Ok(());
         };
         for part in path {
             let part = PyString::new(py, part);
-            node = raw_dict_get(&node, part.as_any())?
-                .ok_or_else(|| Unsupported::new_err("the tree has no such path"))?;
+            node = raw_dict_get(&node, part.as_any())?.ok_or_else(|| Unsupported::new_err("the tree has no such path"))?;
         }
         let key = PyString::new(py, key);
         Self::store(slf, &node, key.as_any(), value)
     }
 
     /// d[key] = value in the tree, keeping the table right, without touching the row.
-    fn store<'py>(
-        slf: &Bound<'py, Self>,
-        node: &Bound<'py, PyAny>,
-        key: &Bound<'py, PyAny>,
-        value: &Bound<'py, PyAny>,
-    ) -> PyResult<()> {
+    fn store<'py>(slf: &Bound<'py, Self>, node: &Bound<'py, PyAny>, key: &Bound<'py, PyAny>, value: &Bound<'py, PyAny>) -> PyResult<()> {
         let py = slf.py();
         slf.get().touch(py)?;
         let old = raw_dict_get(node, key)?;
@@ -903,33 +855,20 @@ impl NamespaceMirror {
         Ok(())
     }
 
-
     /// Run f on the row of type T. f must not run Python code; kernels get Unsupported from a
     /// tainted or absent namespace, and the Python rules run on the tree.
     #[inline]
-    pub(crate) fn with_row<T: Row, R>(
-        slf: &Bound<'_, Self>,
-        f: impl FnOnce(&mut T) -> PyResult<R>,
-    ) -> PyResult<R> {
+    pub(crate) fn with_row<T: Row, R>(slf: &Bound<'_, Self>, f: impl FnOnce(&mut T) -> PyResult<R>) -> PyResult<R> {
         let this = slf.get();
         let core = this.core.bind(slf.py()).try_borrow()?;
         let mut slot = core.slot(this.index)?.try_borrow_mut().or_py()?;
-        let row = slot
-            .row
-            .as_deref_mut()
-            .ok_or_else(|| Unsupported::new_err("the namespace has no row"))?;
-        let row = row
-            .as_any_mut()
-            .downcast_mut::<T>()
-            .ok_or_else(|| Unsupported::new_err("the namespace has another row"))?;
+        let row = slot.row.as_deref_mut().ok_or_else(|| Unsupported::new_err("the namespace has no row"))?;
+        let row = row.as_any_mut().downcast_mut::<T>().ok_or_else(|| Unsupported::new_err("the namespace has another row"))?;
         f(row)
     }
 
     /// with_row, with the root of the tree for mirrored setters. See `TreeSink for Tree`.
-    pub(crate) fn with_row_tree<'py, T: Row, R>(
-        slf: &Bound<'py, Self>,
-        f: impl FnOnce(&mut T, &Tree<'py>) -> PyResult<R>,
-    ) -> PyResult<R> {
+    pub(crate) fn with_row_tree<'py, T: Row, R>(slf: &Bound<'py, Self>, f: impl FnOnce(&mut T, &Tree<'py>) -> PyResult<R>) -> PyResult<R> {
         let py = slf.py();
         let this = slf.get();
         let core = this.core.bind(py).try_borrow()?;
@@ -937,31 +876,21 @@ impl NamespaceMirror {
         // What f writes through `Tree` does not pass the counted paths.
         slot.touch();
         let tree = Tree { py, node: this.root(py)? };
-        let row = slot
-            .row
-            .as_deref_mut()
-            .ok_or_else(|| Unsupported::new_err("the namespace has no row"))?;
-        let row = row
-            .as_any_mut()
-            .downcast_mut::<T>()
-            .ok_or_else(|| Unsupported::new_err("the namespace has another row"))?;
+        let row = slot.row.as_deref_mut().ok_or_else(|| Unsupported::new_err("the namespace has no row"))?;
+        let row = row.as_any_mut().downcast_mut::<T>().ok_or_else(|| Unsupported::new_err("the namespace has another row"))?;
         f(row, &tree)
     }
 
     /// Whether value is the root of this mirror's tree.
     pub(crate) fn root_is(&self, value: &Bound<'_, PyAny>) -> bool {
-        self.tree
-            .try_borrow()
-            .is_ok_and(|tree| tree.root.as_ref().is_some_and(|root| root.as_ptr() == value.as_ptr()))
+        self.tree.try_borrow().is_ok_and(|tree| tree.root.as_ref().is_some_and(|root| root.as_ptr() == value.as_ptr()))
     }
 
     /// Whether `held`, what `model_state` holds under this namespace, is the state the row
     /// follows: the tree, or the placeholder while the namespace is detached and the row alone
     /// holds it (`state_mirror._table_holds_row_of`).
     pub(crate) fn holds_state(&self, held: &Bound<'_, PyAny>) -> bool {
-        self.root_is(held)
-            || (is_detached(held)
-                && self.with_slot(held.py(), |slot| slot.detached && slot.row.is_some()).unwrap_or(false))
+        self.root_is(held) || (is_detached(held) && self.with_slot(held.py(), |slot| slot.detached && slot.row.is_some()).unwrap_or(false))
     }
 
     /// `generation_of(held)`, and the generation for the placeholder of a detached namespace too.
@@ -972,11 +901,7 @@ impl NamespaceMirror {
     /// `held_generation` as the stamp.
     pub(crate) fn held_stamp(&self, held: &Bound<'_, PyAny>) -> Option<Stamp> {
         let root = self.root_is(held);
-        self.with_slot(held.py(), |slot| {
-            (root || (slot.detached && slot.row.is_some() && is_detached(held))).then_some(slot.generation)
-        })
-        .ok()
-        .flatten()
+        self.with_slot(held.py(), |slot| (root || (slot.detached && slot.row.is_some() && is_detached(held))).then_some(slot.generation)).ok().flatten()
     }
 
     /// Run f on the `V` of a namespace whose row is a `ValueRow`, for a kernel that reads a
@@ -1014,9 +939,10 @@ impl NamespaceMirror {
         // A map of floats (`metric_state`): only the values that changed and the keys added at the
         // end are written, without making the whole row in Python (lane P8 a3).
         let floats = this.with_slot(py, |slot| {
-            slot.row.as_deref().and_then(|row| row.as_any().downcast_ref::<MetricRow>()).map(|row| {
-                row.iter().map(|(key, value)| (key.clone(), *value)).collect::<Vec<(Arc<str>, f64)>>()
-            })
+            slot.row
+                .as_deref()
+                .and_then(|row| row.as_any().downcast_ref::<MetricRow>())
+                .map(|row| row.iter().map(|(key, value)| (key.clone(), *value)).collect::<Vec<(Arc<str>, f64)>>())
         })?;
         if let Some(floats) = floats {
             if follow_float_map(&root, &floats)? {
@@ -1054,7 +980,8 @@ impl NamespaceMirror {
         let unique: Vec<&Arc<str>> = keys.iter().filter(|key| seen.insert(&***key)).collect();
         let values = this.with_slot(py, |slot| -> Option<(usize, Vec<(Arc<str>, f64, usize)>)> {
             let row = slot.row.as_deref()?.as_any().downcast_ref::<MetricRow>()?;
-            let written = unique.iter().map(|key| row.get_full(&***key).map(|(place, _, value)| ((*key).clone(), *value, place))).collect::<Option<Vec<_>>>()?;
+            let written =
+                unique.iter().map(|key| row.get_full(&***key).map(|(place, _, value)| ((*key).clone(), *value, place))).collect::<Option<Vec<_>>>()?;
             Some((row.len(), written))
         })?;
         let Some((row_len, values)) = values else {
@@ -1357,14 +1284,8 @@ pub(crate) fn attached_state<'py>(table: &Bound<'py, PyAny>, name: &str) -> PyRe
 /// Run f on `model_state.get(name)` as a `V`, building no tree: the row of a detached namespace,
 /// whose row is a `ValueRow`, or the tree read as it is; None for no such key. For a kernel that
 /// only reads the namespace. f must not run Python code (`NamespaceMirror::with_value`).
-pub(crate) fn with_state_value<R>(
-    world: &Bound<'_, PyAny>,
-    name: &str,
-    f: impl FnOnce(Option<&V>) -> PyResult<R>,
-) -> PyResult<R> {
-    let table = world
-        .getattr(intern!(world.py(), "model_state"))
-        .map_err(|_| Unsupported::new_err("an input has no such attribute"))?;
+pub(crate) fn with_state_value<R>(world: &Bound<'_, PyAny>, name: &str, f: impl FnOnce(Option<&V>) -> PyResult<R>) -> PyResult<R> {
+    let table = world.getattr(intern!(world.py(), "model_state")).map_err(|_| Unsupported::new_err("an input has no such attribute"))?;
     let dict = as_readable_dict(&table).ok_or_else(|| Unsupported::new_err("model_state is not a plain dict"))?;
     match dict.get_item(name)? {
         None => f(None),
@@ -1379,22 +1300,14 @@ pub(crate) fn state_value(world: &Bound<'_, PyAny>, name: &str) -> PyResult<Opti
 }
 
 fn part_of<'a>(key: &'a Bound<'_, PyAny>) -> Result<Part<'a>, Misfit> {
-    let text = key
-        .downcast_exact::<PyString>()
-        .map_err(|_| Misfit::new("a key is not a str"))?;
+    let text = key.downcast_exact::<PyString>().map_err(|_| Misfit::new("a key is not a str"))?;
     Ok(Part::Key(text.to_str().or_misfit()?))
 }
 
 #[pymethods]
 impl NamespaceMirror {
     /// d[key] = value on a bound TrackedDict: what stores it also forwards it.
-    fn dict_set(
-        slf: &Bound<'_, Self>,
-        node: &Bound<'_, PyAny>,
-        id: u32,
-        key: &Bound<'_, PyAny>,
-        value: &Bound<'_, PyAny>,
-    ) -> PyResult<()> {
+    fn dict_set(slf: &Bound<'_, Self>, node: &Bound<'_, PyAny>, id: u32, key: &Bound<'_, PyAny>, value: &Bound<'_, PyAny>) -> PyResult<()> {
         let py = slf.py();
         // A key that can't be hashed fails here, with dict's own error, before any change.
         let old = raw_dict_get(node, key)?;
@@ -1417,12 +1330,7 @@ impl NamespaceMirror {
     }
 
     /// items.append(value) on a bound TrackedList.
-    fn list_append(
-        slf: &Bound<'_, Self>,
-        node: &Bound<'_, PyAny>,
-        id: u32,
-        value: &Bound<'_, PyAny>,
-    ) -> PyResult<()> {
+    fn list_append(slf: &Bound<'_, Self>, node: &Bound<'_, PyAny>, id: u32, value: &Bound<'_, PyAny>) -> PyResult<()> {
         let stored = Self::adopt_value(slf, id, NodeKey::ListItem, value, 0)?;
         raw_list_append(node, &stored)?;
         Self::apply(slf, id, &Write::Append { value: &stored })
@@ -1430,12 +1338,7 @@ impl NamespaceMirror {
 
     /// What a container stores for value, for the mutators written in Python. key is None for a
     /// list item.
-    fn adopt<'py>(
-        slf: &Bound<'py, Self>,
-        id: u32,
-        key: &Bound<'py, PyAny>,
-        value: &Bound<'py, PyAny>,
-    ) -> PyResult<Bound<'py, PyAny>> {
+    fn adopt<'py>(slf: &Bound<'py, Self>, id: u32, key: &Bound<'py, PyAny>, value: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyAny>> {
         let key = if key.is_none() { NodeKey::ListItem } else { exact_str_key(key) };
         Self::adopt_value(slf, id, key, value, 0)
     }
@@ -1449,29 +1352,18 @@ impl NamespaceMirror {
     /// start and stop, `extend` the stored items, `insert` index and stored item. `slice_set` and
     /// `replace_all` say the list's items changed, and read them from node.
     #[pyo3(signature = (node, id, op, *arguments))]
-    fn forward(
-        slf: &Bound<'_, Self>,
-        node: &Bound<'_, PyAny>,
-        id: u32,
-        op: &str,
-        arguments: &Bound<'_, PyTuple>,
-    ) -> PyResult<()> {
+    fn forward(slf: &Bound<'_, Self>, node: &Bound<'_, PyAny>, id: u32, op: &str, arguments: &Bound<'_, PyTuple>) -> PyResult<()> {
         let argument = |index: usize| arguments.get_item(index);
         match op {
             "set" | "del" => {
                 let key_object = argument(0)?;
                 let part = if node.is_instance_of::<PyList>() {
-                    key_object
-                        .extract::<usize>()
-                        .map(Part::Index)
-                        .map_err(|_| Misfit::new("not an index"))
+                    key_object.extract::<usize>().map(Part::Index).map_err(|_| Misfit::new("not an index"))
                 } else {
                     part_of(&key_object)
                 };
                 match part {
-                    Ok(key) if op == "set" => {
-                        Self::apply(slf, id, &Write::Set { key, value: &argument(1)? })
-                    }
+                    Ok(key) if op == "set" => Self::apply(slf, id, &Write::Set { key, value: &argument(1)? }),
                     Ok(key) => Self::apply(slf, id, &Write::Delete { key }),
                     Err(misfit) => slf.get().with_slot_mut(slf.py(), |slot| {
                         slot.misfit(misfit.0);
@@ -2017,11 +1909,7 @@ fn release<H: EventHandle>(core: &Bound<'_, WorldCore>) -> PyResult<()> {
 /// store attached to another live world's core stays there, and so does anything else (a queue or
 /// a log held in Python): the world then holds none, and its rules reach the store through the
 /// world's attribute (`EventWriter::of`).
-fn attach<H: EventHandle>(
-    core: &Bound<'_, WorldCore>,
-    world: &Bound<'_, PyAny>,
-    value: Option<&Bound<'_, PyAny>>,
-) -> PyResult<()> {
+fn attach<H: EventHandle>(core: &Bound<'_, WorldCore>, world: &Bound<'_, PyAny>, value: Option<&Bound<'_, PyAny>>) -> PyResult<()> {
     let py = core.py();
     let store = match value {
         Some(value) if !value.is_none() => match value.getattr(intern!(py, "_store")) {
@@ -2076,10 +1964,7 @@ impl WorldCore {
         let py = slf.py();
         let name: Arc<str> = Arc::from(name);
         let index = slf.try_borrow_mut()?.world.slots.add(name.clone(), place).or_py()?;
-        let mirror = Py::new(
-            py,
-            NamespaceMirror { core: slf.clone().unbind(), index, name: name.clone(), row_type, tree: Shard::default() },
-        )?;
+        let mirror = Py::new(py, NamespaceMirror { core: slf.clone().unbind(), index, name: name.clone(), row_type, tree: Shard::default() })?;
         let mut this = slf.try_borrow_mut()?;
         this.mirrors.insert(name, mirror.clone_ref(py));
         debug_assert_eq!(this.mirrors.len(), this.world.slots.len());
@@ -2147,10 +2032,7 @@ impl WorldCore {
         };
         let queue = self.queue.as_ref().map(|store| store.clone_ref(py).into_any());
         let log = self.log.as_ref().map(|store| store.clone_ref(py).into_any());
-        Ok((
-            self.world.queue_held && holds(intern!(py, "event_queue"), queue.as_ref())?,
-            self.world.log_held && holds(intern!(py, "event_log"), log.as_ref())?,
-        ))
+        Ok((self.world.queue_held && holds(intern!(py, "event_queue"), queue.as_ref())?, self.world.log_held && holds(intern!(py, "event_log"), log.as_ref())?))
     }
 
     /// Whether this core is `world`'s (`adopt`).
@@ -2238,10 +2120,7 @@ impl WorldCore {
     /// which `adopt` attaches. Returns the new core and its bound maps by the world's field
     /// name. None, with nothing made, while a transaction is open or when the objects are not all
     /// what the rows say (`EntityStore::fork_rows`): the world is then copied as before.
-    fn fork<'py>(
-        slf: &Bound<'py, Self>,
-        world: &Bound<'py, PyAny>,
-    ) -> PyResult<Option<(Py<WorldCore>, Bound<'py, PyDict>)>> {
+    fn fork<'py>(slf: &Bound<'py, Self>, world: &Bound<'py, PyAny>) -> PyResult<Option<(Py<WorldCore>, Bound<'py, PyDict>)>> {
         let py = slf.py();
         let store = {
             let this = slf.try_borrow()?;
@@ -2269,10 +2148,7 @@ impl WorldCore {
                 .collect();
             (state, mirrors)
         };
-        let core = Py::new(
-            py,
-            WorldCore { world: state, mirrors: IndexMap::new(), store: None, txn: None, queue: None, log: None, owner: None },
-        )?;
+        let core = Py::new(py, WorldCore { world: state, mirrors: IndexMap::new(), store: None, txn: None, queue: None, log: None, owner: None })?;
         let mut made = IndexMap::with_capacity(mirrors.len());
         for (name, index, row_type) in mirrors {
             let mirror = NamespaceMirror { core: core.clone_ref(py), index, name: name.clone(), row_type, tree: Shard::default() };
@@ -2375,10 +2251,7 @@ impl WorldCore {
     /// Whether this core is another world's, alive: a store attached here stays here when a world
     /// other than `world` is given it (`attach`).
     fn belongs_to_another(&self, world: &Bound<'_, PyAny>) -> bool {
-        self.owner
-            .as_ref()
-            .and_then(|owner| owner.bind(world.py()).upgrade())
-            .is_some_and(|owner| !owner.is(world))
+        self.owner.as_ref().and_then(|owner| owner.bind(world.py()).upgrade()).is_some_and(|owner| !owner.is(world))
     }
 
     /// The store of the world's queue goes back to holding its own queue, and the world holds none
@@ -2427,9 +2300,7 @@ impl WorldCore {
 /// The core of a world, read now: call this again after any Python callback, because a
 /// copy-and-swap in the callback moves the world to another core.
 pub(crate) fn core_of<'py>(world: &Bound<'py, PyAny>) -> PyResult<Bound<'py, WorldCore>> {
-    let core = world
-        .getattr(intern!(world.py(), "_core"))
-        .map_err(|_| Unsupported::new_err("the world has no core"))?;
+    let core = world.getattr(intern!(world.py(), "_core")).map_err(|_| Unsupported::new_err("the world has no core"))?;
     Ok(core.downcast::<WorldCore>()?.clone())
 }
 
@@ -2494,11 +2365,7 @@ pub(crate) fn field_held(world: &Bound<'_, PyAny>, name: &Bound<'_, PyString>) -
 /// The stamp of the owned world field `name` while it holds `held`, the mirror's tree, and the core
 /// that holds the field: what `configs.rs` keeps the kernels' configs by. None: the world has no
 /// core, the field is not owned, or it holds another value.
-pub(crate) fn field_stamp<'py>(
-    world: &Bound<'py, PyAny>,
-    name: &str,
-    held: &Bound<'py, PyAny>,
-) -> PyResult<Option<(Bound<'py, WorldCore>, Stamp)>> {
+pub(crate) fn field_stamp<'py>(world: &Bound<'py, PyAny>, name: &str, held: &Bound<'py, PyAny>) -> PyResult<Option<(Bound<'py, WorldCore>, Stamp)>> {
     let Ok(core) = core_of(world) else {
         return Ok(None);
     };
@@ -2639,18 +2506,13 @@ pub(crate) fn holding_of_names(world: &Bound<'_, PyAny>, names: &[&str], fields:
 pub(crate) fn mirror_of<'py>(world: &Bound<'py, PyAny>, name: &str) -> PyResult<Bound<'py, NamespaceMirror>> {
     let core = core_of(world)?;
     let found = core.try_borrow()?.mirrors.get(name).map(|mirror| mirror.clone_ref(world.py()));
-    found
-        .map(|mirror| mirror.into_bound(world.py()))
-        .ok_or_else(|| Unsupported::new_err("the namespace is not owned"))
+    found.map(|mirror| mirror.into_bound(world.py())).ok_or_else(|| Unsupported::new_err("the namespace is not owned"))
 }
 
 /// The mirror of an owned world field such as `metric_state`, or Unsupported if it is not owned or
 /// the field holds something else now. `WorldState.__setattr__` catches a whole assignment to
 /// `model_state` only; a field assigned whole simply stops being Rust's, and the Python rules run.
-pub(crate) fn field_mirror_of<'py>(
-    world: &Bound<'py, PyAny>,
-    name: &Bound<'py, PyString>,
-) -> PyResult<Bound<'py, NamespaceMirror>> {
+pub(crate) fn field_mirror_of<'py>(world: &Bound<'py, PyAny>, name: &Bound<'py, PyString>) -> PyResult<Bound<'py, NamespaceMirror>> {
     let mirror = mirror_of(world, name.to_str()?)?;
     let current = world.getattr(name)?;
     if !mirror.get().root_is(&current) {

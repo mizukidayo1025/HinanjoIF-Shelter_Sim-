@@ -57,7 +57,8 @@ fn capture<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R>) -> s
     let loads_staff = holding.held("staff_operations_v1", "the world holds another document than the row's");
     let plan = tick.plan();
     let movement = tick.value_section(&holding, SectionId::Movement, |configs| &configs.movement, Movement::parse)?;
-    let support_minutes = tick.value_section(&holding, SectionId::SupportTaskMinutes, |configs| &configs.support_task_minutes, crate::config::staff::support_task_minutes)?;
+    let support_minutes =
+        tick.value_section(&holding, SectionId::SupportTaskMinutes, |configs| &configs.support_task_minutes, crate::config::staff::support_task_minutes)?;
     let routes = WaitRoutes { loads_staff: &loads_staff, geo: plan.get(), movement: &movement, support_minutes: &support_minutes };
     let again = Inputs { sample: tick.minute, requests: Requests::Unsettled(None), staff: &staff_inputs, routes: Some(&routes) };
     let found = metrics::capture(tick.cell, tick.host, &again);

@@ -19,13 +19,13 @@ use std::sync::Arc;
 
 use crate::config::information::InformationSpread;
 use crate::config::SectionId;
-use crate::host::Host;
-use crate::rules::information_events::OTHER_DOCUMENT;
 use crate::entities::{AgentRow, RequestStatus};
 use crate::error::{Error, Outcome, Result};
 use crate::events::{EventKind, EventRow, EventStatus};
+use crate::host::Host;
 use crate::mathx::{py_max, py_min};
 use crate::rules::common_operations::Logged;
+use crate::rules::information_events::OTHER_DOCUMENT;
 use crate::rules::kit::{self, Held, Kept};
 use crate::rules::social_dialogue::context_verdict;
 use crate::rules::social_network::action_relief;
@@ -183,9 +183,7 @@ fn agent_is_known(world: &World, agent_id: &str) -> Result<bool> {
 
 fn immediate_need(row: &AgentRow) -> f64 {
     // max(a, b, ...) keeps the first of equal values, as the fold does.
-    [row.needs.toilet_urgency, row.needs.hunger, row.needs.fatigue, row.needs.hydration_need]
-        .into_iter()
-        .fold(row.stress, py_max)
+    [row.needs.toilet_urgency, row.needs.hunger, row.needs.fatigue, row.needs.hydration_need].into_iter().fold(row.stress, py_max)
 }
 
 /// `model_state.get("body_state_v1")` as its row, None without it; a tainted one is refused.
@@ -240,10 +238,7 @@ pub fn apply_event(world: &World, event: &EventRow, inputs: &Inputs) -> Result<S
     let source_type = kit::mapping_get(provenance, "source_type")?.ok_or_else(lacking)?;
     let version = kit::mapping_get(provenance, "policy_version")?.ok_or_else(lacking)?;
     let event_source = || event.source_id.as_ref().ok_or_else(|| Error::unsupported("a value is not a str"));
-    if &**kit::exact_str(source)? != SOURCE_ID
-        || &**kit::exact_str(source_type)? != "assumption"
-        || **event_source()? != **kit::exact_str(version)?
-    {
+    if &**kit::exact_str(source)? != SOURCE_ID || &**kit::exact_str(source_type)? != "assumption" || **event_source()? != **kit::exact_str(version)? {
         return failure(BAD_TIME);
     }
 
@@ -576,7 +571,8 @@ fn complaint_response(typed: &Typed<'_>) -> Result<Said> {
 
 fn cooperation(typed: &Typed<'_>) -> Result<Said> {
     let Typed { world, event, payload, agent_id, action, reason, .. } = *typed;
-    let names = ["interaction_type", "agent_id", "participant_agent_id", "zone_id", "stress_threshold", "relationship", "trigger_event_id", "action", "reason_short"];
+    let names =
+        ["interaction_type", "agent_id", "participant_agent_id", "zone_id", "stress_threshold", "relationship", "trigger_event_id", "action", "reason_short"];
     if !typed_fields(payload, &names) {
         return failure("cooperation payload fields do not match");
     }
@@ -614,7 +610,11 @@ fn cooperation(typed: &Typed<'_>) -> Result<Said> {
             return Err(Error::unsupported("an unknown person"));
         };
         // `max(agent.stress, participant.stress)` keeps the first unless the second is greater.
-        if other.stress > agent.stress { other.stress } else { agent.stress }
+        if other.stress > agent.stress {
+            other.stress
+        } else {
+            agent.stress
+        }
     };
     if highest < threshold {
         return suppression("cooperation stress candidate is no longer current");

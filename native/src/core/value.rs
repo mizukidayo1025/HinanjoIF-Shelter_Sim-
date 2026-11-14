@@ -80,9 +80,7 @@ fn read(value: &Bound<'_, PyAny>, depth: usize) -> PyResult<V> {
     if let Some(object) = as_readable_dict(value) {
         let mut map = IndexMap::with_capacity(object.len());
         for (key, item) in object.iter() {
-            let key = key
-                .downcast_exact::<PyString>()
-                .map_err(|_| Unsupported::new_err("object key is not a str"))?;
+            let key = key.downcast_exact::<PyString>().map_err(|_| Unsupported::new_err("object key is not a str"))?;
             map.insert(Arc::from(key.to_str()?), read(&item, depth + 1)?);
         }
         return Ok(V::Map(map));

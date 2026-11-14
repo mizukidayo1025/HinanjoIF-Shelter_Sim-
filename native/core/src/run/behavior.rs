@@ -60,12 +60,7 @@ fn some<'a>(object: &'a Obj, name: &str, none: &'static str) -> Read<&'a Arc<Obj
 
 impl Behavior {
     pub fn of(controller: &Obj) -> Self {
-        let failed = |fault: Fault, path| Self {
-            rule: Err(fault.clone()),
-            policy: Err(fault.clone()),
-            scorer: Err(fault),
-            fault_path: path,
-        };
+        let failed = |fault: Fault, path| Self { rule: Err(fault.clone()), policy: Err(fault.clone()), scorer: Err(fault), fault_path: path };
         let runner = match some(controller, "decisions", OTHER_RUNNER) {
             Ok(runner) if runner.class.is(MODULE, "BehaviorDecisionRunner") => runner,
             Ok(_) => return failed(Fault::refused(OTHER_RUNNER), RUNNER_PATH),

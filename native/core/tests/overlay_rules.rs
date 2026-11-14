@@ -36,8 +36,8 @@ use serde_json::{json, Value};
 use sheltersim_core::cell::Shard;
 use sheltersim_core::checkpoint::sha256_hex;
 use sheltersim_core::config::movement::Movement;
-use sheltersim_core::config::population::AccessibilityNeeds;
 use sheltersim_core::config::overlay::overlay_schema;
+use sheltersim_core::config::population::AccessibilityNeeds;
 use sheltersim_core::config::service::ResourceService;
 use sheltersim_core::config::{Configs, Lazy, SectionId};
 use sheltersim_core::entities::{Activity, FacilityRow};
@@ -46,22 +46,22 @@ use sheltersim_core::events::{EventKind, EventRow};
 use sheltersim_core::geometry::{Geo, Pt};
 use sheltersim_core::host::{Contract, Holding};
 use sheltersim_core::row::{StrEnum, ValueRow};
-use sheltersim_core::rules::kit::{self, Held, Kept};
 use sheltersim_core::rules::facility_queues as fifo;
-use sheltersim_core::rules::{queues, service, toilet};
-use sheltersim_core::state::facility_queues::{QueueStall, QueuesRow};
+use sheltersim_core::rules::kit::{self, Held, Kept};
 use sheltersim_core::rules::overlay::{self, Bed, Beds, Capacity, Change, Intake, Places, OVERLAY_KEY, SPACES_KEY};
 use sheltersim_core::rules::tick::read::kept_of;
 use sheltersim_core::rules::tick::{Seed, Tick, ZoneNeighbors};
+use sheltersim_core::rules::{queues, service, toilet};
 use sheltersim_core::run::{Policies, Run};
+use sheltersim_core::state::facility_queues::{QueueStall, QueuesRow};
 use sheltersim_core::state::movement::{MovementRow, Point};
 use sheltersim_core::value::V;
 use sheltersim_core::world::{Fit, Snapshot, World, WorldCell, MODEL_CONFIGS};
 
+use support::answers::{world_bytes, Answers};
 use support::dumps::dumps;
 use support::load::{self, Loaded};
 use support::sections;
-use support::answers::{world_bytes, Answers};
 use support::{Call, TestHost};
 
 const FILE: &str = "overlay_rules";
@@ -95,9 +95,9 @@ fn v(value: Value) -> V {
 /// A value written with its dicts' order (`ordered` of the exporter) as the core's `V`.
 fn ordered(value: &Value) -> V {
     match value {
-        Value::Object(map) if map.len() == 1 && map.contains_key("pairs") => V::Map(
-            map["pairs"].as_array().unwrap().iter().map(|pair| (text(pair[0].as_str().unwrap()), ordered(&pair[1]))).collect(),
-        ),
+        Value::Object(map) if map.len() == 1 && map.contains_key("pairs") => {
+            V::Map(map["pairs"].as_array().unwrap().iter().map(|pair| (text(pair[0].as_str().unwrap()), ordered(&pair[1]))).collect())
+        }
         Value::Array(items) => V::List(items.iter().map(ordered).collect()),
         other => load::v(other),
     }
@@ -501,14 +501,28 @@ impl Case {
     /// `validate_geometry_change`.
     fn validate(&mut self, op: &str, target: &str, parameters: &Value, end: Option<i64>) -> Result<(), Error> {
         let (overlay, movement, staff_operations, resource_service, service, plan) = self.change_inputs();
-        let change = Change { overlay: &overlay, movement: &movement, staff_operations: &staff_operations, resource_service: &resource_service, service: &service, geo: plan.as_deref() };
+        let change = Change {
+            overlay: &overlay,
+            movement: &movement,
+            staff_operations: &staff_operations,
+            resource_service: &resource_service,
+            service: &service,
+            geo: plan.as_deref(),
+        };
         overlay::check_change(&self.cell, &mut self.host, &change, op, target, &v(parameters.clone()), end).map(drop)
     }
 
     /// `apply_geometry_change`.
     fn apply(&mut self, event: &EventRow, expire: bool) -> Result<(), Error> {
         let (overlay, movement, staff_operations, resource_service, service, plan) = self.change_inputs();
-        let change = Change { overlay: &overlay, movement: &movement, staff_operations: &staff_operations, resource_service: &resource_service, service: &service, geo: plan.as_deref() };
+        let change = Change {
+            overlay: &overlay,
+            movement: &movement,
+            staff_operations: &staff_operations,
+            resource_service: &resource_service,
+            service: &service,
+            geo: plan.as_deref(),
+        };
         overlay::apply_change(&self.cell, &mut self.host, &change, event, expire)
     }
 }
@@ -858,7 +872,12 @@ fn no_bed_is_none() {
 /// `bed beside 0.7500001` (`991c0f10289e`) and `bed beside 1.2` (`1c3bde66032b`) passed.
 #[test]
 fn someone_at_a_bed_is_using_it_within_its_radius() {
-    for (offset, taken, recorded) in [(0.0, true, ""), (0.7499, true, ""), (0.7500001, false, "fc2b4b4bff006598b18271fdd00d7177c63ef0882a695a0f5581854e3977f923"), (1.2, false, "4b3981eb89a38a4c7cada5b883b31bc7cc9bc32dc7f58af88a6257e4bbc91145")] {
+    for (offset, taken, recorded) in [
+        (0.0, true, ""),
+        (0.7499, true, ""),
+        (0.7500001, false, "fc2b4b4bff006598b18271fdd00d7177c63ef0882a695a0f5581854e3977f923"),
+        (1.2, false, "4b3981eb89a38a4c7cada5b883b31bc7cc9bc32dc7f58af88a6257e4bbc91145"),
+    ] {
         let mut case = Case::new();
         let record = room_record(&case, "room", 2, 1);
         room_world(&case, 2, 1, "room");
@@ -1094,7 +1113,10 @@ fn a_placement_takes_the_next_free_slot_and_records_it() {
         let point = Pt { x, y };
         assert_eq!(case.installed_point(&facility), Some(point));
         let event_id = format!("e{index}");
-        let placement = case.writes(|ours| ours.place(&facility, &event_id, &["ASM-A", "ASM-A"]).unwrap(), |expected| placed(expected, &facility, point, &event_id, &["ASM-A"]));
+        let placement = case.writes(
+            |ours| ours.place(&facility, &event_id, &["ASM-A", "ASM-A"]).unwrap(),
+            |expected| placed(expected, &facility, point, &event_id, &["ASM-A"]),
+        );
         assert_eq!(placement, point);
         case.place(&facility, &event_id, &["ASM-A"]).unwrap();
     }
@@ -1160,7 +1182,8 @@ fn corner(case: &Case, zone_id: &str) -> Value {
 }
 
 /// The keys of the room a change asks for (`_ROOM_FIELDS`).
-const ROOM_FIELDS: [&str; 9] = ["schema_version", "room_id", "zone_id", "polygon_m", "people_capacity", "sleeping_capacity", "bed_points_m", "route_edge_ids", "source_ids"];
+const ROOM_FIELDS: [&str; 9] =
+    ["schema_version", "room_id", "zone_id", "polygon_m", "people_capacity", "sleeping_capacity", "bed_points_m", "route_edge_ids", "source_ids"];
 
 /// `_change_cases`: each check's way through.
 fn change_cases(case: &Case) -> Vec<(&'static str, String, Value, Option<i64>)> {
@@ -1261,7 +1284,12 @@ fn applied(case: &mut Case, event: &EventRow, expire: bool) {
             if expire {
                 partitions.shift_remove(modifier);
             } else {
-                let polygon = parameters["polygon_m"].as_array().unwrap().iter().map(|point| point_v(point["x"].as_f64().unwrap(), point["y"].as_f64().unwrap())).collect();
+                let polygon = parameters["polygon_m"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|point| point_v(point["x"].as_f64().unwrap(), point["y"].as_f64().unwrap()))
+                    .collect();
                 let mut record = indexmap::IndexMap::new();
                 record.insert(text("zone_id"), V::Str(text(target)));
                 record.insert(text("polygon_m"), V::List(polygon));
@@ -1487,7 +1515,9 @@ fn a_moved_facility_keeps_half_a_metre_from_walls() {
     let cross = Some("area_invalid: cross-zone facility moves are unsupported".to_owned());
     let narrow = Some("clear_width_insufficient: moved service point requires half a metre from walls".to_owned());
     let wanted: std::collections::BTreeMap<(String, Option<String>), i64> =
-        [(("0.499".to_owned(), cross.clone()), 58), (("0.499".to_owned(), narrow), 8), (("0.503".to_owned(), cross), 58), (("0.503".to_owned(), None), 8)].into_iter().collect();
+        [(("0.499".to_owned(), cross.clone()), 58), (("0.499".to_owned(), narrow), 8), (("0.503".to_owned(), cross), 58), (("0.503".to_owned(), None), 8)]
+            .into_iter()
+            .collect();
     assert_eq!(said, wanted);
 }
 
@@ -1715,7 +1745,8 @@ impl Case {
             trips: None,
             seek: None,
         };
-        let proposal = Proposal { action: Action::Sleep, agent_id: text(agent), next_decision_at: self.minute() + 5, target_id: None, observed_state_hash: None };
+        let proposal =
+            Proposal { action: Action::Sleep, agent_id: text(agent), next_decision_at: self.minute() + 5, target_id: None, observed_state_hash: None };
         self.with(|world| proposals::apply(world, &inputs, &proposal)).unwrap()
     }
 
@@ -1730,7 +1761,10 @@ impl Case {
 /// passed.
 #[test]
 fn sleep_in_a_room_is_the_python_step_s() {
-    for (at_bed, recorded) in [(false, "55d960c2de83838756d2411be1cb6d006d8c1658f25889cfd3db7f7535d92b06"), (true, "7c32733e2d57b1ef9a2fc0e71ffabe8dadaf4e863a6d85bbf9c0b197600d27bc")] {
+    for (at_bed, recorded) in [
+        (false, "55d960c2de83838756d2411be1cb6d006d8c1658f25889cfd3db7f7535d92b06"),
+        (true, "7c32733e2d57b1ef9a2fc0e71ffabe8dadaf4e863a6d85bbf9c0b197600d27bc"),
+    ] {
         let mut case = Case::new();
         let record = room_record(&case, "room", 2, 1);
         room_world(&case, 2, 1, "room");
@@ -2042,7 +2076,10 @@ fn writes_of_the_queues() {
     assert_eq!(state["queues"][LEFT]["queued_request_ids"], json!([tasks[1]]));
     assert_eq!(state["queues"][LEFT]["active_request_ids"], json!([tasks[0]]));
     assert_eq!(state["queues"][LEFT]["last_stall"], Value::Null);
-    assert_eq!(ours.with(|world| fifo::request_of_task(&world.row::<QueuesRow>(QUEUES).unwrap(), "active").map(|request| request.request_id.to_string())), Some(tasks[0].clone()));
+    assert_eq!(
+        ours.with(|world| fifo::request_of_task(&world.row::<QueuesRow>(QUEUES).unwrap(), "active").map(|request| request.request_id.to_string())),
+        Some(tasks[0].clone())
+    );
     let started_world = || {
         let (case, _) = writes_world();
         let held = case.held(QUEUES);
@@ -2081,7 +2118,9 @@ fn writes_of_the_queues() {
 
 #[test]
 fn a_queue_transition_is_an_applied_record_of_the_log() {
-    for (transition, wait, cause, position) in [("queued", None, None, Some(2)), ("service_started", Some(0), Some("cause"), Some(2)), ("completed", Some(3), Some("c"), None)] {
+    for (transition, wait, cause, position) in
+        [("queued", None, None, Some(2)), ("service_started", Some(0), Some("cause"), Some(2)), ("completed", Some(3), Some("c"), None)]
+    {
         let mut case = Case::queued();
         let tasks = case.line_up("toilet_01", LEFT, &["A001", "A002"]);
         case.set_minute(4);
@@ -2212,7 +2251,10 @@ fn a_fifo_keeps_its_order_and_only_a_wait_ends_it() {
 /// `RECORDED`, and `e9cd3a9fc6b9` and `e1eae6eeec33` of `FIFO_WALKS`.
 #[test]
 fn walks_of_a_fifo_are_the_python_rule_s() {
-    for (queue, walk_digest, walks_digest) in [(LEFT, "31ea1db6800291372fc1b78b7a93d1a9acd417c3760c5c0705c4be4837a95ccf", "c628d41065bccf3df4a0bcf22df1ccd453487bec0a84ecabd96493b60be15bd5"), (RIGHT, "9da9bdefc7466eb11d51886ac11f8d813635ba8920baceac0431e69f51322bfe", "b1a2747c863378726350dd601d578be4f310566bb99800a32127ce25aeaf0bb0")] {
+    for (queue, walk_digest, walks_digest) in [
+        (LEFT, "31ea1db6800291372fc1b78b7a93d1a9acd417c3760c5c0705c4be4837a95ccf", "c628d41065bccf3df4a0bcf22df1ccd453487bec0a84ecabd96493b60be15bd5"),
+        (RIGHT, "9da9bdefc7466eb11d51886ac11f8d813635ba8920baceac0431e69f51322bfe", "b1a2747c863378726350dd601d578be4f310566bb99800a32127ce25aeaf0bb0"),
+    ] {
         let mut case = Case::queued();
         case.line_up("toilet_01", queue, &["A001", "A002", "A003"]);
         let minute = case.minute();
@@ -2220,7 +2262,8 @@ fn walks_of_a_fifo_are_the_python_rule_s() {
         let snapshot = case.copy();
         let first = case.tick(minute).progress("toilet_01", false, false, Some(queue)).map_err(|failed| failed.error).unwrap();
         case.with(|world| walk.add(&format!("{first:?}"), world));
-        let journeys = case.with(|world| world.row::<MovementRow>(MOVEMENT).unwrap().journeys.values().map(|journey| journey.queue_id.clone()).collect::<Vec<_>>());
+        let journeys =
+            case.with(|world| world.row::<MovementRow>(MOVEMENT).unwrap().journeys.values().map(|journey| journey.queue_id.clone()).collect::<Vec<_>>());
         assert!(journeys.iter().all(|id| id.as_deref() == Some(queue)));
         case.give_back(snapshot);
         let mut answers = Answers::default();
@@ -2238,7 +2281,12 @@ fn walks_of_a_fifo_are_the_python_rule_s() {
         }
         let point = plan.layout.as_ref().unwrap().service_points.iter().find(|point| &*point.queue_id == queue).unwrap().id.clone();
         let near = sheltersim_core::rules::movement::Where { geo: &plan, movement, queues: Held::Absent };
-        let route = |case: &Case, point: &str| case.with(|world| sheltersim_core::rules::movement::approach_route(world, &near, &walking.as_ref().unwrap().model, "A001", "toilet_01", Some(point))).unwrap();
+        let route = |case: &Case, point: &str| {
+            case.with(|world| {
+                sheltersim_core::rules::movement::approach_route(world, &near, &walking.as_ref().unwrap().model, "A001", "toilet_01", Some(point))
+            })
+            .unwrap()
+        };
         answers.text(&format!("{:?}", route(&case, &point)));
         assert_eq!(walk.hex(), walk_digest, "{queue}");
         assert_eq!(answers.hex(), walks_digest, "{queue}");
@@ -2321,7 +2369,10 @@ fn a_toilet_fifo_is_the_python_rule_s() {
     let mut head = Answers::default();
     case.same_head(&mut head, minute, |_, _| ());
     recorded.push(head.hex());
-    let point = case.entry["world"]["model_configs"]["facility_geometry"]["service_points"].as_array().unwrap().iter().find(|point| point["queue_id"] == LEFT).unwrap()["point_m"].clone();
+    let point =
+        case.entry["world"]["model_configs"]["facility_geometry"]["service_points"].as_array().unwrap().iter().find(|point| point["queue_id"] == LEFT).unwrap()
+            ["point_m"]
+            .clone();
     case.put_point("A001", Some(Pt { x: point["x"].as_f64().unwrap(), y: point["y"].as_f64().unwrap() }));
     let snapshot = case.copy();
     case.with(|world| world.rows_mut().unwrap().facilities.get_mut("toilet_01").unwrap().working_units = 0);
@@ -2472,10 +2523,15 @@ impl Case {
         let minute = self.minute();
         self.host.calls.clear();
         service::arbitrate(&mut self.tick(minute)).map_err(|failed| failed.error).unwrap();
-        let changed: Vec<(usize, i64)> = self.host.calls.iter().filter_map(|call| match call {
-            Call::ResourcesChanged(index, remaining) => Some((*index, *remaining)),
-            _ => None,
-        }).collect();
+        let changed: Vec<(usize, i64)> = self
+            .host
+            .calls
+            .iter()
+            .filter_map(|call| match call {
+                Call::ResourcesChanged(index, remaining) => Some((*index, *remaining)),
+                _ => None,
+            })
+            .collect();
         for (index, remaining) in changed {
             self.take_balance(Some(sheltersim_core::rules::resources::Applied { index, remaining }));
         }
@@ -2508,7 +2564,13 @@ impl Case {
         for _ in 0..30 {
             self.arbitrate_service();
             let found = self.with(|world| {
-                world.rows().unwrap().active_tasks.iter().find(|(_, task)| ["resource_service_water", "resource_service_food"].contains(&&*task.kind)).map(|(id, task)| (id.to_string(), task.staff_id.as_deref().unwrap().to_owned()))
+                world
+                    .rows()
+                    .unwrap()
+                    .active_tasks
+                    .iter()
+                    .find(|(_, task)| ["resource_service_water", "resource_service_food"].contains(&&*task.kind))
+                    .map(|(id, task)| (id.to_string(), task.staff_id.as_deref().unwrap().to_owned()))
             });
             if let Some(found) = found {
                 return found;
@@ -2651,7 +2713,12 @@ fn a_service_interrupted_goes_back_first_in_its_fifo_as_the_python_rule_says() {
     case.take_balance(applied);
     let mut answers = Answers::default();
     case.with(|world| answers.add("", world));
-    let records: Vec<Value> = case.records().into_iter().filter(|record| record["event"]["event_type"] == "facility_queue_transition").map(|record| record["event"]["payload"].clone()).collect();
+    let records: Vec<Value> = case
+        .records()
+        .into_iter()
+        .filter(|record| record["event"]["event_type"] == "facility_queue_transition")
+        .map(|record| record["event"]["payload"].clone())
+        .collect();
     let last = &records[records.len() - 2..];
     assert_eq!((&last[0]["transition"], &last[1]["transition"]), (&json!("interrupted"), &json!("requeued")));
     assert_eq!(last[1]["queue_position"], json!(1));
@@ -2676,15 +2743,25 @@ fn a_cancelled_service_is_the_python_rule_s() {
         let mut answers = Answers::default();
         case.with(|world| answers.add("", world));
         recorded.push(answers.hex());
-        let cancelled = case.with(|world| world.row::<sheltersim_core::state::resource_service::ServiceRow>("resource_service_v1").unwrap().cancelled_task_ids.iter().any(|id| **id == *task_id));
+        let cancelled = case.with(|world| {
+            world
+                .row::<sheltersim_core::state::resource_service::ServiceRow>("resource_service_v1")
+                .unwrap()
+                .cancelled_task_ids
+                .iter()
+                .any(|id| **id == *task_id)
+        });
         assert!(cancelled, "{reason}");
         assert!(case.with(|world| world.rows().unwrap().active_tasks.get(task_id.as_str()).is_none()));
     }
-    assert_eq!(recorded, [
-        "11957766cf78d515f581b467847515b157dd2019a3a0435588f8f9cbc0b6ef30",
-        "11957766cf78d515f581b467847515b157dd2019a3a0435588f8f9cbc0b6ef30",
-        "0db29da9c3b624c8471326f1023ab14f2a42bbdc30def770dff2378728b4c1ab",
-    ]);
+    assert_eq!(
+        recorded,
+        [
+            "11957766cf78d515f581b467847515b157dd2019a3a0435588f8f9cbc0b6ef30",
+            "11957766cf78d515f581b467847515b157dd2019a3a0435588f8f9cbc0b6ef30",
+            "0db29da9c3b624c8471326f1023ab14f2a42bbdc30def770dff2378728b4c1ab",
+        ]
+    );
 }
 
 /// Recorded from the core in #225 lane M3; on the same kernel the pytest

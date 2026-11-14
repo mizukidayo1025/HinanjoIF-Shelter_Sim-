@@ -303,16 +303,20 @@ fn share_of(design: &ZoneDesign, zone_id: &str) -> f64 {
 /// `_with_accessible_frontage`.
 fn with_accessible_frontage(design: &ZoneDesign, width_m: f64) -> ZoneDesign {
     let minimum_share = ACCESSIBLE_ROUTE_MIN_WIDTH_M / width_m;
-    let widened: ZoneDesign = design
-        .iter()
-        .map(|(id, label, share)| (id.clone(), label.clone(), if id == "sleeping" { *share } else { py_max(*share, minimum_share) }))
-        .collect();
+    let widened: ZoneDesign =
+        design.iter().map(|(id, label, share)| (id.clone(), label.clone(), if id == "sleeping" { *share } else { py_max(*share, minimum_share) })).collect();
     let others: Vec<f64> = widened.iter().filter(|item| item.0 != "sleeping").map(|item| item.2).collect();
     let sleeping_share = 1.0 - py_sum(&others);
     if sleeping_share < minimum_share {
         return design.clone();
     }
-    widened.into_iter().map(|(id, label, share)| { let share = if id == "sleeping" { sleeping_share } else { share }; (id, label, share) }).collect()
+    widened
+        .into_iter()
+        .map(|(id, label, share)| {
+            let share = if id == "sleeping" { sleeping_share } else { share };
+            (id, label, share)
+        })
+        .collect()
 }
 
 /// `_default_gross_area`.
@@ -352,7 +356,11 @@ pub fn facility_grid_point(polygon: &[Pt], index: i64, count: i64) -> Pt {
 }
 
 fn station_id(kind: &str, index: i64) -> String {
-    if index == 1 { format!("{kind}_main") } else { format!("{kind}_{index:02}") }
+    if index == 1 {
+        format!("{kind}_main")
+    } else {
+        format!("{kind}_{index:02}")
+    }
 }
 
 fn facility(id: String, kind: &str, zone_id: &str, working_units: Option<i64>) -> Facility {
@@ -410,11 +418,8 @@ pub fn generate(request: &FacilityRequest) -> Result<FacilityDesign> {
     let width_m = (gross_area * ASPECT_RATIO).sqrt();
     let requested: ZoneDesign = design.clone();
     let design = with_accessible_frontage(&design, width_m);
-    let widened_zones: Vec<String> = design
-        .iter()
-        .filter(|(id, _, share)| id != "sleeping" && *share > share_of(&requested, id) + 1e-12)
-        .map(|item| item.0.clone())
-        .collect();
+    let widened_zones: Vec<String> =
+        design.iter().filter(|(id, _, share)| id != "sleeping" && *share > share_of(&requested, id) + 1e-12).map(|item| item.0.clone()).collect();
     let sleeping_share = share_of(&design, "sleeping");
     let height_m = gross_area / width_m;
     let corridor_depth_m = py_min(1.8, height_m * 0.25);
@@ -443,29 +448,20 @@ pub fn generate(request: &FacilityRequest) -> Result<FacilityDesign> {
         warnings.push(format!("次の施設条件は標準モデルへ自動反映できず、編集時に確認が必要です: {}", unrecognized.join("、")));
     }
     if capacity_supported < population {
-        warnings.push(format!(
-            "入力人数{population}人に対し、避難スペースの参考収容数は{capacity_supported}人です。実際の利用可能面積を確認してください。"
-        ));
+        warnings.push(format!("入力人数{population}人に対し、避難スペースの参考収容数は{capacity_supported}人です。実際の利用可能面積を確認してください。"));
     }
     let minimum_route_width = design.iter().map(|item| width_m * item.2).fold(corridor_depth_m, py_min);
     if minimum_route_width < ACCESSIBLE_ROUTE_MIN_WIDTH_M {
-        warnings.push(
-            "標準モデルの共用通路または居室出入口は1.8 m未満です。一部の生成経路はアクセシブル経路として扱っていません。".to_owned(),
-        );
+        warnings.push("標準モデルの共用通路または居室出入口は1.8 m未満です。一部の生成経路はアクセシブル経路として扱っていません。".to_owned());
     }
     warnings.push("平面形状、1.8 m通路、面積配分、設備数は標準モデルの仮定です。実施設の図面・法令適合・避難安全性を示しません。".to_owned());
     warnings.push("食料・飲料水の在庫量は施設数から推定していません。在庫を入力しない場合の既定量はScenarioの仮定として記録します。".to_owned());
-    let mut sources: Vec<String> = [
-        SYNTHETIC_FACILITY_SOURCE_ID,
-        SYNTHETIC_CAPACITY_SOURCE_ID,
-        SYNTHETIC_STAFFING_SOURCE_ID,
-        SYNTHETIC_TOILET_SOURCE_ID,
-        SERVICE_STATION_SOURCE_ID,
-    ]
-    .iter()
-    .map(|id| (*id).to_owned())
-    .chain(area_source_ids.iter().cloned())
-    .collect();
+    let mut sources: Vec<String> =
+        [SYNTHETIC_FACILITY_SOURCE_ID, SYNTHETIC_CAPACITY_SOURCE_ID, SYNTHETIC_STAFFING_SOURCE_ID, SYNTHETIC_TOILET_SOURCE_ID, SERVICE_STATION_SOURCE_ID]
+            .iter()
+            .map(|id| (*id).to_owned())
+            .chain(area_source_ids.iter().cloned())
+            .collect();
     sources.sort_unstable();
     sources.dedup();
     let mut geometry_source_ids: Vec<String> = std::iter::once(SYNTHETIC_FACILITY_SOURCE_ID.to_owned()).chain(area_source_ids.iter().cloned()).collect();
@@ -514,8 +510,7 @@ pub fn generate(request: &FacilityRequest) -> Result<FacilityDesign> {
         toilets = 20;
     }
     let accessible = request.accessible_toilet_count.min(toilets);
-    let mut facilities: Vec<Facility> =
-        (1..=accessible).map(|index| facility(format!("accessible_toilet_{index:02}"), "toilet", "toilet", Some(1))).collect();
+    let mut facilities: Vec<Facility> = (1..=accessible).map(|index| facility(format!("accessible_toilet_{index:02}"), "toilet", "toilet", Some(1))).collect();
     facilities.extend((1..=toilets - accessible).map(|index| facility(format!("toilet_{index:02}"), "toilet", "toilet", Some(1))));
     facilities.extend((1..=counts.water_station).map(|index| facility(station_id("water_station", index), "water_station", "food", None)));
     facilities.extend((1..=counts.meal_distribution).map(|index| facility(station_id("meal_distribution", index), "meal_distribution", "food", None)));
@@ -725,7 +720,14 @@ fn legacy_service_points(geometry: &Geometry, facilities: &[Facility]) -> Vec<Se
 }
 
 /// `_standard_editable_geometry`.
-fn standard_editable_geometry(width_m: f64, height_m: f64, corridor_depth_m: f64, design: &ZoneDesign, routes: &[Route], source_ids: Vec<String>) -> EditableGeometry {
+fn standard_editable_geometry(
+    width_m: f64,
+    height_m: f64,
+    corridor_depth_m: f64,
+    design: &ZoneDesign,
+    routes: &[Route],
+    source_ids: Vec<String>,
+) -> EditableGeometry {
     let zero = Pt { x: 0.0, y: 0.0 };
     let top_right = Pt { x: width_m, y: 0.0 };
     let bottom_right = Pt { x: width_m, y: height_m };
@@ -788,7 +790,9 @@ fn check_geometry(geometry: &Geometry) -> Result<()> {
         sorted.dedup();
         sorted.len() == ids.len()
     };
-    if !unique(geometry.zones.iter().map(|zone| zone.zone_id.as_str()).collect()) || !unique(geometry.routes.iter().map(|route| route.edge_id.as_str()).collect()) {
+    if !unique(geometry.zones.iter().map(|zone| zone.zone_id.as_str()).collect())
+        || !unique(geometry.routes.iter().map(|route| route.edge_id.as_str()).collect())
+    {
         return Err(invalid("geometry IDs must be unique"));
     }
     let inside = |point: &Pt| 0.0 <= point.x && point.x <= geometry.width_m && 0.0 <= point.y && point.y <= geometry.height_m;
@@ -871,7 +875,11 @@ fn check_editable(geometry: &EditableGeometry) -> Result<()> {
     let interval = |opening: &Opening, wall: &Wall, axis: (f64, f64)| {
         let a = (opening.start.x - wall.start.x) * axis.0 + (opening.start.y - wall.start.y) * axis.1;
         let b = (opening.end.x - wall.start.x) * axis.0 + (opening.end.y - wall.start.y) * axis.1;
-        if b < a { (b, a) } else { (a, b) }
+        if b < a {
+            (b, a)
+        } else {
+            (a, b)
+        }
     };
     for (index, first) in geometry.openings.iter().enumerate() {
         let Some(wall) = wall_of(&first.wall_id) else { continue };
@@ -985,9 +993,9 @@ fn point_strictly_inside_polygon(point: Pt, polygon: &[Pt]) -> bool {
 
 /// `_properly_crosses`.
 fn properly_crosses(first_start: Pt, first_end: Pt, second_start: Pt, second_end: Pt) -> bool {
-    segment_intersection_points(first_start, first_end, second_start, second_end).into_iter().any(|point| {
-        [first_start, first_end, second_start, second_end].iter().all(|endpoint| hypot(&[point.x - endpoint.x, point.y - endpoint.y]) > 1e-8)
-    })
+    segment_intersection_points(first_start, first_end, second_start, second_end)
+        .into_iter()
+        .any(|point| [first_start, first_end, second_start, second_end].iter().all(|endpoint| hypot(&[point.x - endpoint.x, point.y - endpoint.y]) > 1e-8))
 }
 
 /// `_validate_physical_zone_polygons`.
@@ -999,7 +1007,8 @@ fn validate_physical_zone_polygons(zones: &[PhysicalZone]) -> Result<()> {
     }
     for (index, first) in zones.iter().enumerate() {
         for second in &zones[index + 1..] {
-            let same_vertices = first.polygon.iter().all(|point| second.polygon.contains(point)) && second.polygon.iter().all(|point| first.polygon.contains(point));
+            let same_vertices =
+                first.polygon.iter().all(|point| second.polygon.contains(point)) && second.polygon.iter().all(|point| first.polygon.contains(point));
             let contained = first.polygon.iter().any(|point| point_strictly_inside_polygon(*point, &second.polygon))
                 || second.polygon.iter().any(|point| point_strictly_inside_polygon(*point, &first.polygon));
             let crossing = polygon_edges(&first.polygon)
@@ -1144,10 +1153,7 @@ fn validate_editable_routes(routes: &[Route], geometry: &EditableGeometry, zones
                 }
                 let required_opening = route.width_m / crossing_sine;
                 if !valid.iter().any(|opening| opening.width_m + 1e-8 >= required_opening) {
-                    return Err(invalid(format!(
-                        "route '{}' is too oblique for the available opening in wall '{}'",
-                        route.edge_id, wall.wall_id
-                    )));
+                    return Err(invalid(format!("route '{}' is too oblique for the available opening in wall '{}'", route.edge_id, wall.wall_id)));
                 }
             }
         }
@@ -1178,10 +1184,7 @@ fn service_point_issues(geometry: &Geometry, facilities: &[Facility], editable: 
     for facility in facilities {
         let declared = facility.working_units.unwrap_or(facility.capacity);
         if capacity.get(facility.id.as_str()).copied().unwrap_or(0) > declared {
-            issues.push(format!(
-                "Service points for facility '{}' exceed its declared working-unit capacity {declared}.",
-                facility.id
-            ));
+            issues.push(format!("Service points for facility '{}' exceed its declared working-unit capacity {declared}.", facility.id));
         }
     }
     issues
@@ -1336,7 +1339,9 @@ impl EditableGeometry {
                 V::List(
                     self.walls
                         .iter()
-                        .map(|wall| map(vec![("wall_id", s(&wall.wall_id)), ("start", point(wall.start)), ("end", point(wall.end)), ("source_ids", sources.clone())]))
+                        .map(|wall| {
+                            map(vec![("wall_id", s(&wall.wall_id)), ("start", point(wall.start)), ("end", point(wall.end)), ("source_ids", sources.clone())])
+                        })
                         .collect(),
                 ),
             ),
@@ -1360,7 +1365,10 @@ impl EditableGeometry {
                 ),
             ),
             ("obstacles", V::List(Vec::new())),
-            ("route_openings", V::List(self.route_openings.iter().map(|(route, opening)| map(vec![("route_id", s(route)), ("opening_id", s(opening))])).collect())),
+            (
+                "route_openings",
+                V::List(self.route_openings.iter().map(|(route, opening)| map(vec![("route_id", s(route)), ("opening_id", s(opening))])).collect()),
+            ),
             ("equipment_footprints", V::List(Vec::new())),
         ])
     }

@@ -9,16 +9,10 @@ use std::panic::Location;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 
-
 type Site = (&'static str, u32);
 
 static ON: AtomicBool = AtomicBool::new(false);
-static COUNTS: Mutex<Counts> = Mutex::new(Counts {
-    raised: BTreeMap::new(),
-    caught: BTreeMap::new(),
-    last: None,
-    moved: BTreeMap::new(),
-});
+static COUNTS: Mutex<Counts> = Mutex::new(Counts { raised: BTreeMap::new(), caught: BTreeMap::new(), last: None, moved: BTreeMap::new() });
 
 struct Counts {
     raised: BTreeMap<(Site, String), u64>,

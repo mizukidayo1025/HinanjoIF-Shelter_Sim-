@@ -21,8 +21,8 @@ use crate::contracts::models::POINT2D;
 use crate::contracts::pydantic::{self as pd, Ctx, Field, Fields, In, IntS, Len, Lit, Model, Pattern, StrS, S};
 use crate::error::{Error, Result};
 use crate::geometry::{point_in_polygon, segment_inside_polygon, Pt};
-use crate::mathx::{py_max, py_min};
 use crate::host::Contract;
+use crate::mathx::{py_max, py_min};
 use crate::rules::overlay::bed_target_id;
 use crate::value::V;
 
@@ -304,11 +304,8 @@ fn unique(value: &V) -> bool {
     }
 }
 
-static FACILITY_POINT: Model = model(
-    "_FacilityPointOverride",
-    &[required("point_m", POINT), required("event_id", IDENT), required("source_ids", IDS), required("minute", MINUTE)],
-    None,
-);
+static FACILITY_POINT: Model =
+    model("_FacilityPointOverride", &[required("point_m", POINT), required("event_id", IDENT), required("source_ids", IDS), required("minute", MINUTE)], None);
 
 fn interval_is_ordered(fields: &mut Fields) -> std::result::Result<(), String> {
     if ends_after(fields, "minute") {

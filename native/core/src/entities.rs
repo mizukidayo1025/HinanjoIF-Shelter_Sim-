@@ -203,22 +203,13 @@ macro_rules! member_field {
     };
 }
 
-member_field!(Activity, ACTIVITIES, [
-    Idle = "idle",
-    Moving = "moving",
-    Queued = "queued",
-    InService = "in_service",
-    SeekingHelp = "seeking_help",
-    Sleeping = "sleeping",
-    Resting = "resting",
-]);
+member_field!(
+    Activity,
+    ACTIVITIES,
+    [Idle = "idle", Moving = "moving", Queued = "queued", InService = "in_service", SeekingHelp = "seeking_help", Sleeping = "sleeping", Resting = "resting",]
+);
 member_field!(Mobility, MOBILITIES, [Independent = "independent", Assisted = "assisted", Wheelchair = "wheelchair"]);
-member_field!(RequestStatus, STATUSES, [
-    Pending = "pending",
-    Assigned = "assigned",
-    Resolved = "resolved",
-    Unresolved = "unresolved",
-]);
+member_field!(RequestStatus, STATUSES, [Pending = "pending", Assigned = "assigned", Resolved = "resolved", Unresolved = "unresolved",]);
 
 // ---- Rows ------------------------------------------------------------------------------------
 
@@ -779,11 +770,7 @@ impl<R: EntityRow> Table<R> {
     /// The slots of the rows in the order `WorldState._canonical_data` gives: by the entity's own
     /// ID, stably from the dict's order.
     pub fn document_slots(&self) -> Vec<u32> {
-        let mut order: Vec<(&str, u32)> = self
-            .ids
-            .values()
-            .filter_map(|slot| Some((self.rows[*slot as usize].as_ref()?.id(), *slot)))
-            .collect();
+        let mut order: Vec<(&str, u32)> = self.ids.values().filter_map(|slot| Some((self.rows[*slot as usize].as_ref()?.id(), *slot))).collect();
         order.sort_by(|first, second| first.0.as_bytes().cmp(second.0.as_bytes()));
         order.into_iter().map(|(_, slot)| slot).collect()
     }

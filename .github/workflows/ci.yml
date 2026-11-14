@@ -139,8 +139,11 @@ jobs:
           key: clippy
       - name: Rustの禁止メソッドを確認
         run: |
-          rustup toolchain install stable --profile minimal --component clippy
+          rustup toolchain install stable --profile minimal --component clippy --component rustfmt
           cargo clippy --manifest-path native/Cargo.toml --workspace -- -A clippy::all -D clippy::disallowed_methods
+      # native/rustfmt.toml sets the style of every crate in the workspace (#367).
+      - name: Rustのformatを確認
+        run: cargo fmt --manifest-path native/Cargo.toml --all -- --check
       # The core crate builds without Python (#152): no pyo3 in its tree, and its own tests pass.
       - name: Rustの中核がPyO3なしで動くことを確認
         run: |

@@ -221,9 +221,8 @@ fn person_document(data: &ViewData, row: &PersonTrace, threshold: f64, stress_af
     }
     let sources = &agent.misinformation_effect_sources;
     let belief_pressure = agent.misinformation_belief_pressure;
-    let of_sources = |field: fn(&crate::rules::world_view::MisinformationSource) -> &Arc<str>| {
-        V::List(sources.iter().map(|source| V::Str(field(source).clone())).collect())
-    };
+    let of_sources =
+        |field: fn(&crate::rules::world_view::MisinformationSource) -> &Arc<str>| V::List(sources.iter().map(|source| V::Str(field(source).clone())).collect());
     if !sources.is_empty() || belief_pressure > 0.0 {
         let mut cause = Doc::new();
         cause.set("kind", text("active_false_claim_belief"));
@@ -265,10 +264,7 @@ fn person_document(data: &ViewData, row: &PersonTrace, threshold: f64, stress_af
     references.set("queue_source_id", option_text(queue_source));
     references.set("facility_event_context_ids", texts(facility_events));
     references.set("support_request_id", option_text(agent.support_request_id.as_deref()));
-    references.set(
-        "support_source_id",
-        option_text(agent.support_request_id.as_ref().map(|_| "ASM-STAFF-SUPPORT-LIFECYCLE-V1")),
-    );
+    references.set("support_source_id", option_text(agent.support_request_id.as_ref().map(|_| "ASM-STAFF-SUPPORT-LIFECYCLE-V1")));
     if environmental {
         references.set("environmental_assumption_id", option_text(zone.environmental_assumption_source_id.as_deref()));
         references.set("environmental_stressor_event_ids", texts(&zone.environmental_stressor_event_ids));
@@ -390,9 +386,10 @@ pub fn psychology_document(view: &ViewData, traces: &Traces, finals: &[(&str, f6
     let mut order: Vec<usize> = (0..rows.len()).collect();
     let change = |place: usize| -(stress_after[place] - rows[place].stress_before).abs();
     order.sort_by(|&first, &second| {
-        change(first).partial_cmp(&change(second)).unwrap_or(Ordering::Equal).then_with(|| {
-            view.agents[rows[first].index].id.as_bytes().cmp(view.agents[rows[second].index].id.as_bytes())
-        })
+        change(first)
+            .partial_cmp(&change(second))
+            .unwrap_or(Ordering::Equal)
+            .then_with(|| view.agents[rows[first].index].id.as_bytes().cmp(view.agents[rows[second].index].id.as_bytes()))
     });
     let kept = if level == TraceLevel::Full { order.len() } else { order.len().min(SUMMARY_ITEMS) };
 
@@ -416,14 +413,7 @@ pub fn psychology_document(view: &ViewData, traces: &Traces, finals: &[(&str, f6
     let mut agents = Vec::with_capacity(kept);
     for &place in &order[..kept] {
         let row = &rows[place];
-        agents.push(person_document(
-            view,
-            row,
-            traces.threshold,
-            stress_after[place],
-            stress_after[place] - row.stress_after,
-            inputs.source_id,
-        ));
+        agents.push(person_document(view, row, traces.threshold, stress_after[place], stress_after[place] - row.stress_after, inputs.source_id));
     }
     let mut document = Doc::with_capacity(8);
     document.set("minute_index", inputs.minute.clone());
@@ -501,14 +491,7 @@ fn social_basis(basis: Basis) -> &'static str {
 
 /// `SocialPropagationResult.trace_document`, with the bounded sample of contacts it has always had.
 /// `minute` and `policy_version` are the Python values the document holds.
-pub fn social_document(
-    minute: &V,
-    policy_version: &V,
-    ids: &[&str],
-    contacts: &[SocialContact],
-    contributing: i64,
-    total_added: f64,
-) -> V {
+pub fn social_document(minute: &V, policy_version: &V, ids: &[&str], contacts: &[SocialContact], contributing: i64, total_added: f64) -> V {
     let contact_of = |contact: &SocialContact| -> V {
         let mut item = Doc::with_capacity(12);
         item.set("recipient_id", text(ids[contact.recipient]));
@@ -527,8 +510,7 @@ pub fn social_document(
     };
     let kept = contacts.len().min(SUMMARY_ITEMS);
     let sample: Vec<V> = contacts[..kept].iter().map(contact_of).collect();
-    let contributions: Vec<V> =
-        contacts.iter().filter(|contact| contact.contribution.value() != 0.0).map(contact_of).collect();
+    let contributions: Vec<V> = contacts.iter().filter(|contact| contact.contribution.value() != 0.0).map(contact_of).collect();
     let channel = matches!(policy_version, V::Str(version) if &**version == "expressiveness-channel-openness-v1");
     let mut document = Doc::with_capacity(9);
     document.set("minute_index", minute.clone());
@@ -538,11 +520,7 @@ pub fn social_document(
     document.set("total_stress_added", float(total_added));
     document.set(
         "aggregation",
-        text(if channel {
-            "snapshot weighted synchrony; pair cap then recipient cap then [0,1] bound"
-        } else {
-            "legacy directed positive stress propagation"
-        }),
+        text(if channel { "snapshot weighted synchrony; pair cap then recipient cap then [0,1] bound" } else { "legacy directed positive stress propagation" }),
     );
     document.set("truncated_contact_count", count(contacts.len() - kept));
     document.set("contacts", V::List(sample));

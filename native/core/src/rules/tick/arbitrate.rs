@@ -91,7 +91,14 @@ impl Staff {
     }
 
     pub fn inputs<'a>(&'a self, tasks: Option<&'a operations::Inputs<'a>>) -> Inputs<'a> {
-        Inputs { operations: &self.operations, dynamics: &self.dynamics, body: &self.body, shared: &self.shared, metric_state_held: self.metric_state_held, tasks }
+        Inputs {
+            operations: &self.operations,
+            dynamics: &self.dynamics,
+            body: &self.body,
+            shared: &self.shared,
+            metric_state_held: self.metric_state_held,
+            tasks,
+        }
     }
 }
 
@@ -163,7 +170,8 @@ impl<C: WorldCell, H: Host, R: RunCell> Tick<'_, C, H, R> {
     /// what reading it raised, as that step's `KernelRefusal` (`finish` of the staff glue).
     fn staff_written<T>(&mut self, result: WriteResult<T>) -> std::result::Result<T, H::Error> {
         let result = match result {
-            Err(WriteError::Error(Error::Refused { label, reason })) if reason == PLAN_UNREAD || reason == SNAPSHOT_PLAN_UNREAD => match self.host.floor_plan() {
+            Err(WriteError::Error(Error::Refused { label, reason })) if reason == PLAN_UNREAD || reason == SNAPSHOT_PLAN_UNREAD => match self.host.floor_plan()
+            {
                 Err(read) => {
                     return Err(match is_refusal(&read) {
                         Some(reason) => Error::Refused { label, reason: reason.into() }.into(),
@@ -286,7 +294,8 @@ fn assign_operations<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H
         return Ok(());
     }
     let minute = tick.minute;
-    let known = tick.value_section(&holding, SectionId::StaffOperationsKnown, |configs| &configs.staff_operations_known, crate::config::staff::known_staff_operations)?;
+    let known =
+        tick.value_section(&holding, SectionId::StaffOperationsKnown, |configs| &configs.staff_operations_known, crate::config::staff::known_staff_operations)?;
     let staff = Staff::of(&holding)?;
     let first = tick.cell.with(|world| staff::assign_operations(world, &staff.inputs(None), &known, minute, None)).map_err(H::Error::from)?;
     match tick.staff_written(first)? {
@@ -379,7 +388,9 @@ impl<C: WorldCell, H: Host, R: RunCell> Tick<'_, C, H, R> {
         match config.policy(need_weighted) {
             Ok(policy) => Ok(*policy),
             Err(fault) if fault.class == FaultClass::Value => Err(Error::Value(fault.text.to_string()).into()),
-            Err(fault) => Err(crate::rules::kit::kept::<()>(&Err(fault.clone())).err().unwrap_or_else(|| Error::Runtime("a fault read as a value".to_owned())).into()),
+            Err(fault) => {
+                Err(crate::rules::kit::kept::<()>(&Err(fault.clone())).err().unwrap_or_else(|| Error::Runtime("a fault read as a value".to_owned())).into())
+            }
         }
     }
 
@@ -566,7 +577,12 @@ struct Leave {
 
 impl Leave {
     fn inputs(&self) -> LeaveInputs<'_> {
-        LeaveInputs { has_geometry: self.movement.has_geometry, model: &self.movement.model, geo: self.geo.as_deref(), metric_state_held: self.metric_state_held }
+        LeaveInputs {
+            has_geometry: self.movement.has_geometry,
+            model: &self.movement.model,
+            geo: self.geo.as_deref(),
+            metric_state_held: self.metric_state_held,
+        }
     }
 }
 
@@ -581,6 +597,12 @@ pub struct Walking {
 
 impl Walking {
     pub fn walk(&self) -> Walk<'_> {
-        Walk { geo: &self.geo, model: &self.movement.model, movement: self.moving.clone(), queues: self.queues.clone(), metric_state_held: self.metric_state_held }
+        Walk {
+            geo: &self.geo,
+            model: &self.movement.model,
+            movement: self.moving.clone(),
+            queues: self.queues.clone(),
+            metric_state_held: self.metric_state_held,
+        }
     }
 }

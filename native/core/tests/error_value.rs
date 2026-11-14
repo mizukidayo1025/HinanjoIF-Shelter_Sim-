@@ -16,10 +16,7 @@ fn map(entries: Vec<(&str, V)>) -> V {
 
 #[test]
 fn error_texts_are_the_exits_texts() {
-    assert_eq!(
-        Error::corrupt("body_state_v1", "a history is not a list").to_string(),
-        "body_state_v1: corrupt state: a history is not a list",
-    );
+    assert_eq!(Error::corrupt("body_state_v1", "a history is not a list").to_string(), "body_state_v1: corrupt state: a history is not a list",);
     assert_eq!(
         Error::refused("rules.tick.run_tick", Error::unsupported("value is not a plain JSON value")).to_string(),
         "rules.tick.run_tick refused: value is not a plain JSON value",
@@ -40,18 +37,10 @@ fn a_refusal_of_another_error_is_that_error() {
 #[test]
 fn v_writes_pythons_canonical_json() {
     let value = map(vec![
-        ("z", V::List(vec![
-            V::Int(1),
-            V::Int(-7),
-            V::Int(0),
-            V::Big("1180591620717411303424".into()),
-            V::Big("-1180591620717411303424".into()),
-        ])),
+        ("z", V::List(vec![V::Int(1), V::Int(-7), V::Int(0), V::Big("1180591620717411303424".into()), V::Big("-1180591620717411303424".into())])),
         ("a", map(vec![("b", V::Bool(true)), ("A", V::Bool(false)), ("", V::Null)])),
         ("é", V::Str(Arc::from("line\n\"quoted\" \\ tab\t\u{1} 日本"))),
-        ("\u{1F600}", V::List(
-            [0.1, 1e16, 1e-05, -0.0, 1.5e300, 123.456, 2.5e-07, 1e15].into_iter().map(V::Float).collect(),
-        )),
+        ("\u{1F600}", V::List([0.1, 1e16, 1e-05, -0.0, 1.5e300, 123.456, 2.5e-07, 1e15].into_iter().map(V::Float).collect())),
         ("\u{ffff}", V::List(vec![])),
         ("m", map(vec![])),
     ]);

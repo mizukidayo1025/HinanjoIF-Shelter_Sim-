@@ -17,8 +17,8 @@ use std::sync::Arc;
 
 use indexmap::IndexMap;
 
-use crate::config::read::{self, NOT_AN_INT, NOT_A_DICT};
 use crate::config::read::Read;
+use crate::config::read::{self, NOT_AN_INT, NOT_A_DICT};
 use crate::config::Fault;
 use crate::value::V;
 

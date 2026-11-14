@@ -72,7 +72,10 @@ fn a_frame_names_the_digest_its_caller_holds_and_changes_nothing() {
     let given = "0".repeat(64);
     let made: Value = serde_json::from_slice(&run.frame(&request(40, Some(&given))).unwrap()).unwrap();
     assert_eq!(made["state_hash"], given.as_str());
-    assert_eq!((&made["run_id"], &made["branch_id"], &made["minute"], &made["computed_until"]), (&Value::from("run"), &Value::from("main"), &Value::from(40), &Value::from(40)));
+    assert_eq!(
+        (&made["run_id"], &made["branch_id"], &made["minute"], &made["computed_until"]),
+        (&Value::from("run"), &Value::from("main"), &Value::from(40), &Value::from(40))
+    );
     let again: Value = serde_json::from_slice(&run.frame(&request(40, None)).unwrap()).unwrap();
     assert_eq!(again["state_hash"], digest.as_str());
     // Apart from the digest, the two frames are the same.

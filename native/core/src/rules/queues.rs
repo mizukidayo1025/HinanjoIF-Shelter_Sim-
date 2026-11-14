@@ -32,8 +32,8 @@ use crate::geometry::{distance, polyline_length, usable, Geo, Pt};
 use crate::mathx::{py_max, py_min};
 use crate::rules::facility_queues::{self as fifo, point_of, request_of_task};
 use crate::rules::kit::movement::{
-    approach_point, is_queue_trip, plan_start, position_point, queue_slot_in, refused, room_minutes, Changes, EXACT_INT, KEY,
-    MOVEMENT_SOURCE_ID, POLICY_VERSION,
+    approach_point, is_queue_trip, plan_start, position_point, queue_slot_in, refused, room_minutes, Changes, EXACT_INT, KEY, MOVEMENT_SOURCE_ID,
+    POLICY_VERSION,
 };
 use crate::rules::kit::{add_metric, held_row, is_toilet, mobility_text, set_agent, Events, Held, WRITING_REFUSED};
 use crate::state::facility_queues::{QueueRequest, QueuesRow};
@@ -121,9 +121,7 @@ fn members_mut(facility: &mut FacilityRow, resource: bool) -> &mut Vec<Arc<str>>
 /// A write stage's result: a refusal after a write is a bug to see (`kit::writing`).
 fn writing<T>(result: WriteResult<T>) -> WriteResult<T> {
     result.map_err(|error| match error {
-        WriteError::Error(Error::Unsupported(reason)) => {
-            WriteError::Error(Error::Runtime(format!("{WRITING_REFUSED}: Unsupported: {reason}")))
-        }
+        WriteError::Error(Error::Unsupported(reason)) => WriteError::Error(Error::Runtime(format!("{WRITING_REFUSED}: Unsupported: {reason}"))),
         other => other,
     })
 }
@@ -403,13 +401,7 @@ pub fn independent_queue(world: &World, queue_id: &str, queues: &Held, movement:
 /// `prepare_independent_facility_queue`, of a queue `independent_queue` found: an independent FIFO
 /// keeps its order, and only those who give up change anything. Without `leave`, it asks for them
 /// where someone gives up, having written nothing.
-pub fn prepare_independent(
-    world: &World,
-    queue_id: &str,
-    facility_id: &str,
-    prepare: &Prepare<'_>,
-    leave: Option<&LeaveInputs<'_>>,
-) -> WriteResult<Prepared> {
+pub fn prepare_independent(world: &World, queue_id: &str, facility_id: &str, prepare: &Prepare<'_>, leave: Option<&LeaveInputs<'_>>) -> WriteResult<Prepared> {
     let (resource, minute, policy) = (prepare.resource, prepare.minute, prepare.policy);
     let requests = {
         let Some(row) = fifo::queues(world, &prepare.queues)? else {
@@ -638,7 +630,8 @@ fn plan_leave(world: &World, call: &LeaveCall<'_>, person: &Leaving, sequence: i
                     // After `finish_service` the request has no place in the queue.
                     let taken = events.is_realized(&fifo::transition_id(next), Some(next))?;
                     let wait = Some(minute - request.requested_minute);
-                    let payload = fifo::transition_payload(taken, &request, "abandoned", &person.task_id, wait, Some(&person.task_id), None, capacity, next, minute)?;
+                    let payload =
+                        fifo::transition_payload(taken, &request, "abandoned", &person.task_id, wait, Some(&person.task_id), None, capacity, next, minute)?;
                     let row = fifo::transition_event(payload, Some(&person.task_id), next, minute)?;
                     next += 1;
                     Some((request, row))
@@ -719,7 +712,16 @@ fn plan_leave(world: &World, call: &LeaveCall<'_>, person: &Leaving, sequence: i
 
 /// `start_movement` of a walk along a path of points.
 #[allow(clippy::too_many_arguments)]
-fn start_on_path(row: &MovementRow, rows: &Entities, agent_id: &Arc<str>, journey: Journey, origin: &Arc<str>, points: &[Pt], started: i64, duration: i64) -> Result<Changes> {
+fn start_on_path(
+    row: &MovementRow,
+    rows: &Entities,
+    agent_id: &Arc<str>,
+    journey: Journey,
+    origin: &Arc<str>,
+    points: &[Pt],
+    started: i64,
+    duration: i64,
+) -> Result<Changes> {
     if points.is_empty() {
         return Err(Error::unsupported("a walk without the points of its path"));
     }

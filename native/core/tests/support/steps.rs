@@ -51,7 +51,10 @@ impl Case {
     }
 
     /// `f` with the `Tick` of the world's minute.
-    pub fn tick<T>(&mut self, f: impl FnOnce(&mut Tick<'_, sheltersim_core::cell::Shard<sheltersim_core::world::World>, TestHost, std::cell::RefCell<sheltersim_core::run::Run>>) -> T) -> T {
+    pub fn tick<T>(
+        &mut self,
+        f: impl FnOnce(&mut Tick<'_, sheltersim_core::cell::Shard<sheltersim_core::world::World>, TestHost, std::cell::RefCell<sheltersim_core::run::Run>>) -> T,
+    ) -> T {
         let minute = self.loaded.cell.with(|world| world.minute_index().unwrap()).unwrap();
         let loaded = Rc::clone(&self.loaded);
         let mut tick = Tick {
@@ -74,7 +77,8 @@ impl Case {
     /// `_apply_effect` of a proposal as the pytest files made it (`SimpleNamespace`, no observed
     /// state hash): the next decision 7 minutes on (`propose::apply_alone`).
     pub fn apply(&mut self, action: Action, agent: &str, target: Option<&str>) -> Result<Applied, Error> {
-        let proposal = Proposal { action, agent_id: Arc::from(agent), next_decision_at: self.minute() + 7, target_id: target.map(Arc::from), observed_state_hash: None };
+        let proposal =
+            Proposal { action, agent_id: Arc::from(agent), next_decision_at: self.minute() + 7, target_id: target.map(Arc::from), observed_state_hash: None };
         let applied = self.tick(|tick| propose::apply_alone(tick, proposal));
         self.answered(&applied);
         applied

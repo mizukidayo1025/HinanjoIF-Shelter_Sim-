@@ -24,8 +24,7 @@ pub fn write_json_string(out: &mut Vec<u8>, text: &str) {
         };
         out.extend_from_slice(&bytes[start..index]);
         if escape.is_empty() {
-            out
-                .extend_from_slice(format!("\\u{:04x}", byte).as_bytes());
+            out.extend_from_slice(format!("\\u{:04x}", byte).as_bytes());
         } else {
             out.extend_from_slice(escape);
         }

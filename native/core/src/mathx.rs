@@ -11,7 +11,6 @@
 
 use std::cmp::Ordering;
 
-
 /// Where `math.exp`, `math.expm1` or `float ** float` raised in CPython 3.12 on Linux.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MathError {

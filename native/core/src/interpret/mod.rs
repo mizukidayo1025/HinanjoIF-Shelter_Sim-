@@ -152,9 +152,7 @@ fn list_of<'v>(value: Option<&'v V>, what: &str) -> Result<&'v [V]> {
 /// `^[A-Za-z0-9][A-Za-z0-9._:-]*$`, at most 64 characters: pydantic's `StableId`.
 fn stable_id(text: &str) -> bool {
     let mut chars = text.chars();
-    text.len() <= 64
-        && chars.next().is_some_and(|char| char.is_ascii_alphanumeric())
-        && chars.all(|char| char.is_ascii_alphanumeric() || "._:-".contains(char))
+    text.len() <= 64 && chars.next().is_some_and(|char| char.is_ascii_alphanumeric()) && chars.all(|char| char.is_ascii_alphanumeric() || "._:-".contains(char))
 }
 
 impl Summary {
@@ -230,15 +228,11 @@ impl Summary {
 
 fn primitives() -> Result<&'static [Primitive]> {
     static TABLE: OnceLock<std::result::Result<Vec<Primitive>, String>> = OnceLock::new();
-    TABLE
-        .get_or_init(|| read_primitives().map_err(|error| error.to_string()))
-        .as_deref()
-        .map_err(|error| Error::unsupported(error.clone()))
+    TABLE.get_or_init(|| read_primitives().map_err(|error| error.to_string())).as_deref().map_err(|error| Error::unsupported(error.clone()))
 }
 
 fn read_primitives() -> Result<Vec<Primitive>> {
-    let json: serde_json::Value =
-        serde_json::from_str(include_str!("primitives.json")).map_err(|_| bad("primitives.json"))?;
+    let json: serde_json::Value = serde_json::from_str(include_str!("primitives.json")).map_err(|_| bad("primitives.json"))?;
     let value = V::from_json(&json).ok_or_else(|| bad("primitives.json"))?;
     let V::List(items) = &value else { return Err(bad("primitives.json")) };
     items
@@ -289,9 +283,7 @@ fn inline_schema(value: &V, definitions: &IndexMap<Arc<str>, V>, depth: usize) -
         return Err(refused("recursive or excessively nested primitive schema"));
     }
     match value {
-        V::List(items) => Ok(V::List(
-            items.iter().map(|item| inline_schema(item, definitions, depth + 1)).collect::<Result<_>>()?,
-        )),
+        V::List(items) => Ok(V::List(items.iter().map(|item| inline_schema(item, definitions, depth + 1)).collect::<Result<_>>()?)),
         V::Map(map) => {
             if let Some(reference) = map.get("$ref") {
                 let target = match reference {
@@ -309,11 +301,7 @@ fn inline_schema(value: &V, definitions: &IndexMap<Arc<str>, V>, depth: usize) -
                 }
                 return inline_schema(&V::Map(merged), definitions, depth + 1);
             }
-            Ok(V::Map(
-                map.iter()
-                    .map(|(key, item)| Ok((key.clone(), inline_schema(item, definitions, depth + 1)?)))
-                    .collect::<Result<_>>()?,
-            ))
+            Ok(V::Map(map.iter().map(|(key, item)| Ok((key.clone(), inline_schema(item, definitions, depth + 1)?))).collect::<Result<_>>()?))
         }
         _ => Ok(value.clone()),
     }
@@ -348,7 +336,13 @@ fn merge_schema(properties: &mut IndexMap<Arc<str>, V>, key: &Arc<str>, incoming
         let lower = bound == "minimum" || bound == "minLength";
         let (a, b) = (number(&old), number(new));
         let pick_new = match (a, b) {
-            (Some(a), Some(b)) => if lower { b < a } else { b > a },
+            (Some(a), Some(b)) => {
+                if lower {
+                    b < a
+                } else {
+                    b > a
+                }
+            }
             _ => false,
         };
         current.insert(Arc::from(bound), if pick_new { new.clone() } else { old });
@@ -374,14 +368,9 @@ fn merge_schema(properties: &mut IndexMap<Arc<str>, V>, key: &Arc<str>, incoming
 /// `_compiler_output_schema(summary, target_ids, eligible)`.
 fn output_schema(summary: &Summary, eligible: &[&Primitive]) -> Result<V> {
     let operator_names: Vec<&str> = eligible.iter().map(|item| item.op.as_str()).collect();
-    let target_kinds: BTreeSet<&str> = eligible
-        .iter()
-        .flat_map(|item| item.target_kinds.iter())
-        .map(String::as_str)
-        .filter(|kind| !summary.ids(kind).is_empty())
-        .collect();
-    let valid_target_ids: BTreeSet<&str> =
-        target_kinds.iter().flat_map(|kind| summary.ids(kind).iter().map(String::as_str)).collect();
+    let target_kinds: BTreeSet<&str> =
+        eligible.iter().flat_map(|item| item.target_kinds.iter()).map(String::as_str).filter(|kind| !summary.ids(kind).is_empty()).collect();
+    let valid_target_ids: BTreeSet<&str> = target_kinds.iter().flat_map(|kind| summary.ids(kind).iter().map(String::as_str)).collect();
     let valid_target_ids: Vec<&str> = valid_target_ids.into_iter().collect();
     let target_kinds: Vec<&str> = target_kinds.into_iter().collect();
     let maximum_minute = summary.duration.map(|duration| duration - 1).unwrap_or(MAX_COMPILER_MINUTE - 1);
@@ -409,22 +398,9 @@ fn output_schema(summary: &Summary, eligible: &[&Primitive]) -> Result<V> {
                 ("op", obj([("type", s("string")), ("enum", strs(&operator_names))])),
                 ("target_kind", obj([("type", s("string")), ("enum", strs(&target_kinds))])),
                 ("target_id", ids_enum()),
-                (
-                    "candidate_ids",
-                    obj([("type", s("array")), ("items", ids_enum()), ("minItems", V::Int(2)), ("maxItems", V::Int(100))]),
-                ),
-                (
-                    "start_minute",
-                    obj([("type", s("integer")), ("minimum", V::Int(0)), ("maximum", V::Int(maximum_minute))]),
-                ),
-                (
-                    "end_minute",
-                    obj([
-                        ("type", s("integer")),
-                        ("minimum", V::Int(0)),
-                        ("maximum", V::Int(summary.duration.unwrap_or(MAX_COMPILER_MINUTE))),
-                    ]),
-                ),
+                ("candidate_ids", obj([("type", s("array")), ("items", ids_enum()), ("minItems", V::Int(2)), ("maxItems", V::Int(100))])),
+                ("start_minute", obj([("type", s("integer")), ("minimum", V::Int(0)), ("maximum", V::Int(maximum_minute))])),
+                ("end_minute", obj([("type", s("integer")), ("minimum", V::Int(0)), ("maximum", V::Int(summary.duration.unwrap_or(MAX_COMPILER_MINUTE)))])),
                 (
                     "parameters",
                     obj([
@@ -448,18 +424,13 @@ fn output_schema(summary: &Summary, eligible: &[&Primitive]) -> Result<V> {
         ("additionalProperties", V::Bool(false)),
     ]);
     let bounded_text = |maximum: i64| obj([("type", s("string")), ("maxLength", V::Int(maximum))]);
-    let text_list = |maximum: i64| {
-        obj([("type", s("array")), ("minItems", V::Int(0)), ("maxItems", V::Int(maximum)), ("items", bounded_text(500))])
-    };
+    let text_list = |maximum: i64| obj([("type", s("array")), ("minItems", V::Int(0)), ("maxItems", V::Int(maximum)), ("items", bounded_text(500))]);
     Ok(obj([
         ("type", s("object")),
         (
             "properties",
             obj([
-                (
-                    "status",
-                    obj([("type", s("string")), ("enum", strs(&["compiled", "clarification_required", "not_simulatable"]))]),
-                ),
+                ("status", obj([("type", s("string")), ("enum", strs(&["compiled", "clarification_required", "not_simulatable"]))])),
                 ("support_mode", obj([("type", s("string")), ("enum", strs(&SUPPORT_MODES))])),
                 ("mechanism_summary", bounded_text(500)),
                 (
@@ -481,14 +452,7 @@ fn output_schema(summary: &Summary, eligible: &[&Primitive]) -> Result<V> {
                             "items",
                             obj([
                                 ("type", s("object")),
-                                (
-                                    "properties",
-                                    obj([
-                                        ("description", bounded_text(500)),
-                                        ("units", bounded_text(64)),
-                                        ("value", bounded_text(120)),
-                                    ]),
-                                ),
+                                ("properties", obj([("description", bounded_text(500)), ("units", bounded_text(64)), ("value", bounded_text(120))])),
                                 ("required", strs(&["description", "units", "value"])),
                                 ("additionalProperties", V::Bool(false)),
                             ]),
@@ -497,31 +461,21 @@ fn output_schema(summary: &Summary, eligible: &[&Primitive]) -> Result<V> {
                 ),
                 ("limitations", text_list(50)),
                 ("questions", text_list(10)),
-                (
-                    "choices",
-                    obj([("type", s("array")), ("minItems", V::Int(0)), ("maxItems", V::Int(100)), ("items", ids_enum())]),
-                ),
+                ("choices", obj([("type", s("array")), ("minItems", V::Int(0)), ("maxItems", V::Int(100)), ("items", ids_enum())])),
             ]),
         ),
-        (
-            "required",
-            strs(&["status", "support_mode", "mechanism_summary", "effects", "assumptions", "limitations", "questions", "choices"]),
-        ),
+        ("required", strs(&["status", "support_mode", "mechanism_summary", "effects", "assumptions", "limitations", "questions", "choices"])),
         ("additionalProperties", V::Bool(false)),
     ]))
 }
 
 static EMAIL: text::Pattern = text::Pattern::new(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", true);
-static PHONE: text::Pattern =
-    text::Pattern::new(r"(?<!\w)(?:\+?81[- ]?)?0\d{1,4}[- ]?\d{1,4}[- ]?\d{3,4}(?!\w)", false);
+static PHONE: text::Pattern = text::Pattern::new(r"(?<!\w)(?:\+?81[- ]?)?0\d{1,4}[- ]?\d{1,4}[- ]?\d{3,4}(?!\w)", false);
 static LONG_NUMBER: text::Pattern = text::Pattern::new(r"(?<!\w)\d{10,13}(?!\w)", false);
 
 /// `_sanitize_narrative(text)`.
 fn sanitize(raw: &str) -> Result<String> {
-    let normalized: String = text::nfkc(raw)
-        .chars()
-        .map(|char| if char == '\n' || char == '\t' || char as u32 >= 32 { char } else { ' ' })
-        .collect();
+    let normalized: String = text::nfkc(raw).chars().map(|char| if char == '\n' || char == '\t' || char as u32 >= 32 { char } else { ' ' }).collect();
     let normalized = text::blank(EMAIL.get()?, &normalized, "[redacted-email]")?;
     let normalized = text::blank(PHONE.get()?, &normalized, "[redacted-phone]")?;
     let normalized = text::blank(LONG_NUMBER.get()?, &normalized, "[redacted-phone]")?;
@@ -562,13 +516,7 @@ fn read_request(bytes: &[u8]) -> Result<Request> {
     if summary.duration.is_some_and(|duration| *selected_minute >= duration) {
         return Err(refused("selected_minute must be before the scenario end"));
     }
-    Ok(Request {
-        text: text.to_string(),
-        branch_id: branch_id.to_string(),
-        selected_minute: *selected_minute,
-        summary,
-        summary_value,
-    })
+    Ok(Request { text: text.to_string(), branch_id: branch_id.to_string(), selected_minute: *selected_minute, summary, summary_value })
 }
 
 /// The semantic checks of `_validate_existing_plan` and `_validate_model_effects` on the parser's
@@ -587,10 +535,7 @@ fn validate_plan(plan: &Plan, summary: &Summary, eligible: &[&Primitive]) -> std
             return Err(format!("offline effect {} has invalid units", crate::text::py_repr(&effect.effect_id)));
         }
         if effect.dependencies != primitive.required_policies.iter().map(String::as_str).collect::<Vec<_>>() {
-            return Err(format!(
-                "offline effect {} has invalid policy dependencies",
-                crate::text::py_repr(&effect.effect_id)
-            ));
+            return Err(format!("offline effect {} has invalid policy dependencies", crate::text::py_repr(&effect.effect_id)));
         }
     }
     let effects = &plan.effects;
@@ -608,9 +553,7 @@ fn validate_plan(plan: &Plan, summary: &Summary, eligible: &[&Primitive]) -> std
         }
         let kind = effect.selector.kind;
         let target = effect.selector.target_id.as_deref();
-        if !primitive.target_kinds.iter().any(|item| item == kind)
-            || !target.is_some_and(|id| summary.ids(kind).iter().any(|item| item == id))
-        {
+        if !primitive.target_kinds.iter().any(|item| item == kind) || !target.is_some_and(|id| summary.ids(kind).iter().any(|item| item == id)) {
             return Err(format!("effect {index} references an unknown or incompatible target"));
         }
         let target = target.unwrap_or_default();
@@ -713,14 +656,7 @@ fn plan_value(plan: &Plan) -> V {
     let ambiguities = plan
         .ambiguities
         .iter()
-        .map(|item| {
-            obj([
-                ("code", s("ambiguous_target")),
-                ("field", s("target_selector")),
-                ("message", s(item.message)),
-                ("choices", strs(&item.choices)),
-            ])
-        })
+        .map(|item| obj([("code", s("ambiguous_target")), ("field", s("target_selector")), ("message", s(item.message)), ("choices", strs(&item.choices))]))
         .collect();
     obj([
         ("schema_version", V::Int(1)),
@@ -733,12 +669,7 @@ fn plan_value(plan: &Plan) -> V {
         ("support_mode", s(plan.support_mode)),
         (
             "compiler_provenance",
-            obj([
-                ("compiler_kind", s("offline_rule")),
-                ("compiler_version", s(parse::PARSER_VERSION)),
-                ("model_id", V::Null),
-                ("prompt_hash", V::Null),
-            ]),
+            obj([("compiler_kind", s("offline_rule")), ("compiler_version", s(parse::PARSER_VERSION)), ("model_id", V::Null), ("prompt_hash", V::Null)]),
         ),
         ("branch_id", s(&plan.branch_id)),
         ("fork_at_minute", V::Int(plan.fork_at_minute)),
@@ -779,10 +710,7 @@ fn offline_result(request: &Request, parsed: Parsed, eligible: &[&Primitive], fa
                         support_mode: plan.support_mode,
                         plan: Some(plan_value(&plan)),
                         mechanism_summary: "Opusが利用できないため、認識済みのオフライン規則で対象と作用を構成しました。",
-                        limitations: with_reason(
-                            vec!["これは規則ベースのfallbackで、自由文全体をOpusが解釈した結果ではありません。".to_owned()],
-                            &reason,
-                        ),
+                        limitations: with_reason(vec!["これは規則ベースのfallbackで、自由文全体をOpusが解釈した結果ではありません。".to_owned()], &reason),
                         questions: Vec::new(),
                         choices: Vec::new(),
                         fallback_used: true,
@@ -799,9 +727,7 @@ fn offline_result(request: &Request, parsed: Parsed, eligible: &[&Primitive], fa
                     },
                 });
             }
-            reason = format!(
-                "{reason}; offline fallback recognized only part of the request, so the partial plan was discarded"
-            );
+            reason = format!("{reason}; offline fallback recognized only part of the request, so the partial plan was discarded");
             Vec::new()
         }
         Parsed::Clarification(plan) => {
@@ -827,8 +753,7 @@ fn offline_result(request: &Request, parsed: Parsed, eligible: &[&Primitive], fa
         }
         Parsed::Rejected(issues) => issues,
     };
-    let time_questions: Vec<String> =
-        issues.iter().filter(|item| item.code == "ambiguous_time").map(|item| item.message.clone()).collect();
+    let time_questions: Vec<String> = issues.iter().filter(|item| item.code == "ambiguous_time").map(|item| item.message.clone()).collect();
     if !time_questions.is_empty() && !eligible.is_empty() {
         return Ok(Answer {
             status: "clarification_required",
@@ -842,8 +767,7 @@ fn offline_result(request: &Request, parsed: Parsed, eligible: &[&Primitive], fa
         });
     }
     // A date without the Scenario's start date: ask for the Day number (#325).
-    let date_questions: Vec<String> =
-        issues.iter().filter(|item| item.code == "missing_date_anchor").map(|item| item.message.clone()).collect();
+    let date_questions: Vec<String> = issues.iter().filter(|item| item.code == "missing_date_anchor").map(|item| item.message.clone()).collect();
     if !date_questions.is_empty() && !eligible.is_empty() {
         return Ok(Answer {
             status: "clarification_required",
@@ -856,11 +780,8 @@ fn offline_result(request: &Request, parsed: Parsed, eligible: &[&Primitive], fa
             fallback_used,
         });
     }
-    let mut limitation = if reason.is_empty() {
-        "この入力を現在のシミュレーション機構へ安全に対応付けられません。".to_owned()
-    } else {
-        reason
-    };
+    let mut limitation =
+        if reason.is_empty() { "この入力を現在のシミュレーション機構へ安全に対応付けられません。".to_owned() } else { reason };
     if !issues.is_empty() {
         let reasons: Vec<&str> = issues.iter().map(|item| item.message.as_str()).collect();
         limitation.push_str(" オフライン判定: ");
@@ -898,18 +819,13 @@ pub fn compile_offline(request: &[u8]) -> Result<Vec<u8>> {
         ("prompt_version", s(OPUS_COMPILER_PROMPT_VERSION)),
         ("output_schema", schema),
     ]))?);
-    let target_ids = V::Map(
-        TARGET_KINDS.iter().map(|kind| (Arc::from(*kind), strs(summary.ids(kind)))).collect(),
-    );
+    let target_ids = V::Map(TARGET_KINDS.iter().map(|kind| (Arc::from(*kind), strs(summary.ids(kind)))).collect());
     let payload = obj([
         ("task", s(TASK)),
         ("instructions", s(COMPILER_INSTRUCTIONS)),
         ("population_geometry_rules", strs(&POPULATION_GEOMETRY_RULES)),
         ("untrusted_narrative", s(&sanitize(&request.text)?)),
-        (
-            "branch",
-            obj([("branch_id", s(&request.branch_id)), ("selected_minute", V::Int(request.selected_minute))]),
-        ),
+        ("branch", obj([("branch_id", s(&request.branch_id)), ("selected_minute", V::Int(request.selected_minute))])),
         ("scenario", request.summary_value.clone()),
         ("target_ids_by_kind", target_ids),
         ("installed_primitives", V::List(eligible.iter().map(|item| item.description.clone()).collect())),
@@ -974,13 +890,10 @@ pub fn merge_objects(base: &[u8], extra: &[u8]) -> Result<Vec<u8>> {
 static SECRET: text::Pattern = text::Pattern::new_raw(
     r"(?i:sk-(?:ant-)?[A-Za-z0-9_-]{12,}|Bearer[\s\x1c-\x1f]+[^\s\x1c-\x1f]+|(?:(?:(?<=[\p{L}\p{N}_])(?![\p{L}\p{N}_])|(?<![\p{L}\p{N}_])(?=[\p{L}\p{N}_]))[^\s\x1c-\x1f@]+@[^\s\x1c-\x1f@]+\.[\p{L}\p{Nl}\p{No}]{2,}(?:(?<=[\p{L}\p{N}_])(?![\p{L}\p{N}_])|(?<![\p{L}\p{N}_])(?=[\p{L}\p{N}_]))))",
 );
-static SECRET_WITHOUT_ADDRESS: text::Pattern =
-    text::Pattern::new_raw(r"(?i:sk-(?:ant-)?[A-Za-z0-9_-]{12,}|Bearer[\s\x1c-\x1f]+[^\s\x1c-\x1f]+)");
+static SECRET_WITHOUT_ADDRESS: text::Pattern = text::Pattern::new_raw(r"(?i:sk-(?:ant-)?[A-Za-z0-9_-]{12,}|Bearer[\s\x1c-\x1f]+[^\s\x1c-\x1f]+)");
 /// `PHONE_NUMBER`: three separated digit groups, but not the three middle groups of a UUID (#321).
-static PHONE_NUMBER: text::Pattern = text::Pattern::new(
-    r"(?<!\w)(?!(?<=[0-9A-Fa-f]{8}-)\d{4}-\d{4}-\d{4}-[0-9A-Fa-f]{12}(?!\w))(?:\+\d{1,3}[ -])?\d{2,4}[- ]\d{2,4}[- ]\d{3,4}(?!\w)",
-    false,
-);
+static PHONE_NUMBER: text::Pattern =
+    text::Pattern::new(r"(?<!\w)(?!(?<=[0-9A-Fa-f]{8}-)\d{4}-\d{4}-\d{4}-[0-9A-Fa-f]{12}(?!\w))(?:\+\d{1,3}[ -])?\d{2,4}[- ]\d{2,4}[- ]\d{3,4}(?!\w)", false);
 
 /// Whether `safe_document` (src/sheltersim/storage/projects.py `_redact`) changes the text: it
 /// holds an API key, a bearer token, an e-mail address or a phone number.

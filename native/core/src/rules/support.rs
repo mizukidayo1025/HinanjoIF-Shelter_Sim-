@@ -24,11 +24,11 @@ use sha2::{Digest, Sha256};
 
 use crate::config::body::CareOutcome;
 use crate::config::SectionId;
-use crate::host::Host;
 use crate::entities::{Activity, RequestRow, RequestStatus};
 use crate::error::{Error, Outcome, Result};
 use crate::events::writer::{WriteError, WriteResult};
 use crate::events::{EventKind, EventRow};
+use crate::host::Host;
 use crate::mathx::{py_max, py_min};
 use crate::rules::care_receipts::{self, person_context, source_ids_of, PlannedTransition, Transition};
 use crate::rules::kit::{self, add_metric, check_metric_state, set_agent, Events, Held};
@@ -80,7 +80,11 @@ impl Inputs {
         let holding = kit::holding(cell, host)?;
         let absent = |name: &str| holding.is_absent(name).map_err(Error::unsupported);
         let shared = if absent(SHARED)? {
-            if holding.contains(SHARED) { Held::Other(NAMESPACE_IS_NONE) } else { Held::Absent }
+            if holding.contains(SHARED) {
+                Held::Other(NAMESPACE_IS_NONE)
+            } else {
+                Held::Absent
+            }
         } else {
             holding.held(SHARED, OTHER_DOCUMENT)
         };
@@ -106,7 +110,7 @@ pub const SELECTION_REFUSES: &str = "the model selection refuses";
 pub fn care_formula<C: WorldCell, H: Host>(cell: &C, host: &mut H) -> std::result::Result<Option<kit::Kept<CareOutcome>>, H::Error> {
     let holding = kit::holding(cell, host)?;
     let (selection, kept) = kit::selection(cell, host, &holding)?;
-        let selection = match selection {
+    let selection = match selection {
         Ok(selection) => selection,
         Err(fault) if fault.is_refusal() => return Err(Error::unsupported(NOT_A_SELECTION).into()),
         Err(_) => return Err(Error::unsupported(SELECTION_REFUSES).into()),
@@ -237,11 +241,8 @@ pub fn record_interrupted(world: &mut World, inputs: &Inputs, event: &SupportEve
     let Some(request_id) = event.request_id.clone() else {
         return Ok(());
     };
-    let agent_id = world
-        .rows()?
-        .support_requests
-        .get(&request_id)
-        .and_then(|request| (request.status == RequestStatus::Unresolved).then(|| request.agent_id.clone()));
+    let agent_id =
+        world.rows()?.support_requests.get(&request_id).and_then(|request| (request.status == RequestStatus::Unresolved).then(|| request.agent_id.clone()));
     let Some(agent_id) = agent_id else {
         return Ok(());
     };
@@ -308,9 +309,11 @@ pub fn record_assigned(world: &mut World, inputs: &Inputs, assigned: &[Arc<str>]
         let Some((household_id, support_kind)) = prior else {
             continue;
         };
-        let found = world.rows()?.support_requests.get(id).and_then(|request| {
-            request.assigned_staff_id.clone().map(|staff| (request.agent_id.clone(), staff, request.task_id.clone()))
-        });
+        let found = world
+            .rows()?
+            .support_requests
+            .get(id)
+            .and_then(|request| request.assigned_staff_id.clone().map(|staff| (request.agent_id.clone(), staff, request.task_id.clone())));
         let Some((agent_id, staff_id, task_id)) = found else {
             continue;
         };
@@ -390,9 +393,17 @@ fn change(kind: &str, entity: &Arc<str>, path: &str, before: f64, after: f64) ->
 enum Care {
     None,
     /// What a selected care formula does: each person's new stress and body record.
-    Formula { people: Vec<CaredPerson> },
-    Emotional { stress: f64, trust: f64, record: BodyRecord },
-    Hygiene { record: BodyRecord },
+    Formula {
+        people: Vec<CaredPerson>,
+    },
+    Emotional {
+        stress: f64,
+        trust: f64,
+        record: BodyRecord,
+    },
+    Hygiene {
+        record: BodyRecord,
+    },
 }
 
 /// One person whom a formula's care changes.
@@ -952,9 +963,16 @@ fn service_value<T: Clone>(value: &Option<T>, unread: &'static str) -> Result<T>
 pub enum PlannedRequest {
     /// It raises `ValueError`: `support_request_rejected_count` is the step's answer.
     Rejected,
-    Opens { request_id: Arc<str>, timeout_minute: i64, event: EventRow },
+    Opens {
+        request_id: Arc<str>,
+        timeout_minute: i64,
+        event: EventRow,
+    },
     /// Asked in a Run's last minute: unresolved at once, with a cooldown until this minute.
-    Closes { request_id: Arc<str>, until: i64 },
+    Closes {
+        request_id: Arc<str>,
+        until: i64,
+    },
 }
 
 /// The ID of a person's request at a minute: `support-` and the first 12 bytes of the SHA-256 of
@@ -1061,7 +1079,12 @@ pub fn write_closed_request(world: &World, metric_state_held: bool, agent_id: &s
         if !rows.agents.contains_key(agent_id) {
             return Err(Error::Runtime("a row has no object".to_owned()));
         }
-        let request = RequestRow { status: RequestStatus::Unresolved, resolved_minute: Some(minute), cooldown_until: until, ..new_request(request_id, agent_id, minute, minute) };
+        let request = RequestRow {
+            status: RequestStatus::Unresolved,
+            resolved_minute: Some(minute),
+            cooldown_until: until,
+            ..new_request(request_id, agent_id, minute, minute)
+        };
         rows.support_requests.insert(request_id.clone(), request);
         let Some(row) = rows.agents.get_mut(agent_id) else {
             return Err(Error::unsupported("no such agent"));

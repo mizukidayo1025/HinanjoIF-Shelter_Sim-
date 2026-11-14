@@ -50,8 +50,7 @@ const FIELDS: [&str; 29] = [
 ];
 
 /// The int fields and their bounds.
-const INTS: [(&str, i64, i64); 3] =
-    [("max_contacts_per_agent", 0, 16), ("minimum_contact_minutes", 1, 10_080), ("contact_duration_scale_minutes", 1, 10_080)];
+const INTS: [(&str, i64, i64); 3] = [("max_contacts_per_agent", 0, 16), ("minimum_contact_minutes", 1, 10_080), ("contact_duration_scale_minutes", 1, 10_080)];
 
 /// The float fields and their upper bounds (as Python writes them).
 const FLOATS: [(&str, f64, &str); 20] = [

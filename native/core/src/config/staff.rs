@@ -52,9 +52,7 @@ impl StaffFatigue {
             },
             None => None,
         };
-        let limits = limits
-            .filter(|limits| !limits.is_empty())
-            .map(|limits| limits.iter().map(|(id, limit)| (id.clone(), int(limit))).collect());
+        let limits = limits.filter(|limits| !limits.is_empty()).map(|limits| limits.iter().map(|(id, limit)| (id.clone(), int(limit))).collect());
         Ok(Self { saturating, limits })
     }
 

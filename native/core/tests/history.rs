@@ -85,7 +85,10 @@ fn a_row_is_canonical_json_with_the_ledger_columns() {
     let row = kpi_row(&sample(0.25), 7, Some(&[[1, 2, 3, 4, 5, 6], [7, 8, 9, 10, 11, 12]]), "r", "main").unwrap();
     let text = String::from_utf8(row).unwrap();
     assert!(text.starts_with(r#"{"branch_id":"main","food_meal_units_delivered":8,"food_meal_units_initial":7,"#), "{text}");
-    assert!(text.contains(r#""minute_index":7,"record_kind":"kpis","run_id":"r","staff_assigned_task_count":1,"staff_busy_count":1,"staff_load_ratio":0.5,"#), "{text}");
+    assert!(
+        text.contains(r#""minute_index":7,"record_kind":"kpis","run_id":"r","staff_assigned_task_count":1,"staff_busy_count":1,"staff_load_ratio":0.5,"#),
+        "{text}"
+    );
     assert!(text.contains(r#""time_semantics":"end_of_tick","toilet_active_users":1,"#), "{text}");
     assert!(text.ends_with(r#""water_ml_reserved":6,"water_ml_served":3}"#), "{text}");
     assert!(!text.contains("source_ids_json"));

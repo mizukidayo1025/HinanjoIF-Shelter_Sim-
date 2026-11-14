@@ -199,7 +199,8 @@ fn handled(loading: &mut Loading, call: &Value) -> Vec<V> {
     let event = load::event(&call["event"]);
     let made = loading.tick(|tick| dispatch::apply_alone_made(tick, &native, &event)).unwrap();
     let (records, receipt) = made.unwrap_or_else(|outcome| panic!("the handler raised {outcome:?}"));
-    let mut out: Vec<V> = records.iter().map(|Record { event, realized_minute, status, detail }| record_of(event, *realized_minute, *status, detail.as_deref())).collect();
+    let mut out: Vec<V> =
+        records.iter().map(|Record { event, realized_minute, status, detail }| record_of(event, *realized_minute, *status, detail.as_deref())).collect();
     if let Some(receipt) = receipt {
         assert!(out.is_empty());
         out.push(record_of(receipt.row(), receipt.minute(), EventStatus::Applied, Some(receipt.detail())));
@@ -237,7 +238,14 @@ fn toilet_request(loading: &mut Loading, agent_id: &str, facility_id: &str) -> R
         let holding = tick.holding()?;
         let queues = holding.held("facility_queues_v1", "the world holds another queue state");
         let geo = tick.host.floor_plan()?;
-        let needs = kit::kept_section_value(tick.cell, tick.host, &holding, SectionId::AccessibilityNeeds, |configs| &configs.accessibility_needs, AccessibilityNeeds::parse)?;
+        let needs = kit::kept_section_value(
+            tick.cell,
+            tick.host,
+            &holding,
+            SectionId::AccessibilityNeeds,
+            |configs| &configs.accessibility_needs,
+            AccessibilityNeeds::parse,
+        )?;
         let request = toilet::Request { agent_id, facility_id, queue_id: None, queues: &queues, geo: &geo, needs: &needs };
         toilet::request(tick.cell, tick.host, &request, false)
     })
@@ -627,7 +635,9 @@ fn record_receipt(call: &Value, started: bool) {
         loading
             .tick(|tick| -> Result<(), Error> {
                 let inputs = care::Inputs::read(tick.cell, tick.host)?;
-                let written = tick.cell.with(|world| if started { care::record_started(world, &inputs, &event) } else { care::record_interrupted(world, &inputs, &event) })?;
+                let written =
+                    tick.cell
+                        .with(|world| if started { care::record_started(world, &inputs, &event) } else { care::record_interrupted(world, &inputs, &event) })?;
                 tick.written(written)
             })
             .unwrap();
@@ -679,7 +689,14 @@ fn an_arrival_s_refused_toilet_request_is_its_text() {
                 let holding = kit::holding(self.0, host)?;
                 let queues = holding.held("facility_queues_v1", "the world holds another queue state");
                 let geo = host.floor_plan()?;
-                let needs = kit::kept_section_value(self.0, host, &holding, SectionId::AccessibilityNeeds, |configs| &configs.accessibility_needs, AccessibilityNeeds::parse)?;
+                let needs = kit::kept_section_value(
+                    self.0,
+                    host,
+                    &holding,
+                    SectionId::AccessibilityNeeds,
+                    |configs| &configs.accessibility_needs,
+                    AccessibilityNeeds::parse,
+                )?;
                 let request = toilet::Request { agent_id, facility_id, queue_id: None, queues: &queues, geo: &geo, needs: &needs };
                 Ok(self.0.with(|world| toilet::queue_up(world, &request).map(drop))?.map_err(Error::from)?)
             }
@@ -909,7 +926,11 @@ fn cooperation_is_python_s() {
 /// receipt measures, and nothing changed.
 #[test]
 fn a_finished_operation_is_python_s() {
-    let digests = [("cleaning", "7bb434e07202a409", &[][..]), ("information_outreach", "989b5abd395d3d49", &["trust"][..]), ("patrol", "dc462459ee25cdcf", &["trust"][..])];
+    let digests = [
+        ("cleaning", "7bb434e07202a409", &[][..]),
+        ("information_outreach", "989b5abd395d3d49", &["trust"][..]),
+        ("patrol", "dc462459ee25cdcf", &["trust"][..]),
+    ];
     let calls = calls("a_finished_operation_is_python_s", 3);
     for (kind, wanted, changed) in digests {
         let call = calls.iter().find(|call| call["kind"] == kind).unwrap();

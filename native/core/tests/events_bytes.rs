@@ -7,9 +7,7 @@
 use std::sync::Arc;
 
 use indexmap::IndexMap;
-use sheltersim_core::checkpoint::{
-    chunk_hashes, content_chunk_starts, dumps_length, sha256_hex, split_json_array,
-};
+use sheltersim_core::checkpoint::{chunk_hashes, content_chunk_starts, dumps_length, sha256_hex, split_json_array};
 use sheltersim_core::error::Error;
 use sheltersim_core::events::log::{fields_of_bytes, EventLog};
 use sheltersim_core::events::queue::Queue;
@@ -17,23 +15,11 @@ use sheltersim_core::events::writer::{self, WriteError};
 use sheltersim_core::events::{EventKind, EventRow, EventStatus};
 use sheltersim_core::value::V;
 
-const ITEMS: [&[u8]; 8] = [
-    br#"{"a":1}"#,
-    br#""x""#,
-    b"[1,2,3]",
-    b"null",
-    br#"{"event_id":"e-1","n":12345678}"#,
-    b"true",
-    b"0.5",
-    br#""\u00e9t\u00e9""#,
-];
+const ITEMS: [&[u8]; 8] = [br#"{"a":1}"#, br#""x""#, b"[1,2,3]", b"null", br#"{"event_id":"e-1","n":12345678}"#, b"true", b"0.5", br#""\u00e9t\u00e9""#];
 
 #[test]
 fn chunk_hashes_are_the_sha256_of_the_joined_items() {
-    let chunks: Vec<Vec<&[u8]>> = [(0, 3), (3, 2), (5, 3), (0, 0)]
-        .iter()
-        .map(|&(start, count)| ITEMS[start..start + count].to_vec())
-        .collect();
+    let chunks: Vec<Vec<&[u8]>> = [(0, 3), (3, 2), (5, 3), (0, 0)].iter().map(|&(start, count)| ITEMS[start..start + count].to_vec()).collect();
     assert_eq!(
         chunk_hashes(&chunks),
         [
@@ -51,15 +37,9 @@ fn content_chunk_starts_depend_only_on_the_items() {
     let texts: Vec<String> = (0..600).map(|index| format!("{{\"i\":{index}}}")).collect();
     let items: Vec<&[u8]> = texts.iter().map(|text| text.as_bytes()).collect();
     assert_eq!(content_chunk_starts(&items, 128, 512).unwrap(), [0, 7, 221, 336, 541, 563, 595]);
-    assert_eq!(
-        content_chunk_starts(&items, 4, 8).unwrap()[..20],
-        [0, 1, 3, 7, 10, 14, 18, 24, 31, 35, 38, 39, 42, 50, 52, 54, 57, 58, 59, 60]
-    );
+    assert_eq!(content_chunk_starts(&items, 4, 8).unwrap()[..20], [0, 1, 3, 7, 10, 14, 18, 24, 31, 35, 38, 39, 42, 50, 52, 54, 57, 58, 59, 60]);
     assert_eq!(content_chunk_starts(&ITEMS, 2, 3).unwrap(), [0, 1, 3, 6, 7]);
-    assert_eq!(
-        content_chunk_starts(&ITEMS, 0, 3),
-        Err(Error::Value("chunk sizes must be positive".into()))
-    );
+    assert_eq!(content_chunk_starts(&ITEMS, 0, 3), Err(Error::Value("chunk sizes must be positive".into())));
 }
 
 #[test]
@@ -78,19 +58,8 @@ fn split_json_array_cuts_at_top_level_commas() {
 fn row(event_id: &str, due: i64, priority: i64, sequence: i64) -> EventRow {
     let mut payload = IndexMap::new();
     payload.insert(Arc::from("agent_id"), V::Str(Arc::from("a-1")));
-    EventRow::new(
-        Arc::from(event_id),
-        EventKind::Endogenous,
-        due,
-        priority,
-        sequence,
-        Arc::from("test_event"),
-        payload,
-        None,
-        None,
-        IndexMap::new(),
-    )
-    .expect("a valid row")
+    EventRow::new(Arc::from(event_id), EventKind::Endogenous, due, priority, sequence, Arc::from("test_event"), payload, None, None, IndexMap::new())
+        .expect("a valid row")
 }
 
 #[test]
@@ -99,9 +68,7 @@ fn the_queue_orders_by_due_minute_priority_and_sequence() {
     for (id, due, priority, sequence) in [("c", 5, 0, 3), ("a", 1, 2, 4), ("b", 1, 0, 9), ("d", 5, 0, 1), ("e", 1, 2, 2)] {
         assert_eq!(queue.schedule_row(row(id, due, priority, sequence)), 0);
     }
-    let ids = |queue: &Queue, minute| -> Vec<String> {
-        queue.pending_ids(minute).iter().map(|id| id.to_string()).collect()
-    };
+    let ids = |queue: &Queue, minute| -> Vec<String> { queue.pending_ids(minute).iter().map(|id| id.to_string()).collect() };
     assert_eq!(ids(&queue, None), ["b", "e", "a", "d", "c"]);
     assert_eq!(ids(&queue, Some(1)), ["b", "e", "a"]);
     assert_eq!(queue.schedule_row(row("a", 0, 0, 10)), 1);
@@ -145,16 +112,10 @@ fn the_writer_schedules_and_records_with_the_python_errors() {
         writer::schedule(&mut queue, &log, 60, row("e-2", 60, 0, 1)),
         Err(WriteError::Error(Error::Value("event 'e-2' is outside the scenario".into())))
     );
-    assert_eq!(
-        writer::schedule(&mut queue, &log, 60, row("e-1", 20, 0, 5)),
-        Err(WriteError::Duplicate("duplicate event ID 'e-1'".into()))
-    );
+    assert_eq!(writer::schedule(&mut queue, &log, 60, row("e-1", 20, 0, 5)), Err(WriteError::Duplicate("duplicate event ID 'e-1'".into())));
     let event = row("e-1", 10, 0, 0);
     writer::record(&mut log, &event, 10, EventStatus::Applied, None).unwrap();
-    assert_eq!(
-        writer::record(&mut log, &event, 10, EventStatus::Applied, None),
-        Err(WriteError::Duplicate("event 'e-1' already realized".into()))
-    );
+    assert_eq!(writer::record(&mut log, &event, 10, EventStatus::Applied, None), Err(WriteError::Duplicate("event 'e-1' already realized".into())));
     assert_eq!(
         writer::record(&mut log, &row("e-3", 10, 0, 0), 10, EventStatus::Applied, None),
         Err(WriteError::Duplicate("event sequence 0 already realized".into()))
@@ -163,10 +124,7 @@ fn the_writer_schedules_and_records_with_the_python_errors() {
         writer::record(&mut log, &row("e-4", 10, 0, 4), -1, EventStatus::Applied, None),
         Err(WriteError::Error(Error::Value("realized_minute must be a non-negative integer".into())))
     );
-    assert_eq!(
-        writer::schedule(&mut queue, &log, 60, row("e-5", 20, 0, 0)),
-        Err(WriteError::Duplicate("event sequence 0 already realized".into()))
-    );
+    assert_eq!(writer::schedule(&mut queue, &log, 60, row("e-5", 20, 0, 0)), Err(WriteError::Duplicate("event sequence 0 already realized".into())));
 
     // The bytes written are a saved record that reads back to the same event.
     assert_eq!(log.len(), 1);

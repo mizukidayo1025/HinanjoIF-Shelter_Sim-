@@ -10,8 +10,7 @@ use crate::text::py_repr;
 use crate::value::V;
 
 const SCHEMA: &str = "agent_dynamics_v1 has an invalid exact schema";
-const RECORD_FIELDS: [&str; 6] =
-    ["known_facility_ids", "last_action", "last_target_id", "last_decision_minute", "decision_due_minute", "decision_reason"];
+const RECORD_FIELDS: [&str; 6] = ["known_facility_ids", "last_action", "last_target_id", "last_decision_minute", "decision_due_minute", "decision_reason"];
 
 /// `canonical_agent_dynamics_config(raw)["policy_version"]`, a kernel of Python's
 /// (`kernel_only("agent_dynamics", "canonical_config")`): its ValueError, or its refusal as the

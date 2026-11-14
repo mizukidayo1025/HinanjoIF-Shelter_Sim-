@@ -228,9 +228,7 @@ pub fn tracked(error: Error) -> Error {
 /// `model.model_validate(input).model_dump(mode="json")` of a value the world holds, or the
 /// `ValidationError` (a `ValueError`) with pydantic's text.
 pub fn validate_model(model: &'static Model, input: &V) -> Result<V> {
-    pydantic::model(model, In::plain(input), &mut Ctx::default())
-        .map(V::Map)
-        .map_err(|errors| tracked(Error::Value(pydantic::text(model.name, &errors))))
+    pydantic::model(model, In::plain(input), &mut Ctx::default()).map(V::Map).map_err(|errors| tracked(Error::Value(pydantic::text(model.name, &errors))))
 }
 
 /// `ResourceServiceConfig.model_validate(config).model_dump(mode="json")`, or its error.

@@ -149,7 +149,8 @@ fn a_walk_with_no_route_stops_and_is_counted() {
 /// Pytest digest `62922aa33b07`.
 #[test]
 fn people_replan_in_the_order_given_and_take_their_event_numbers() {
-    let (_, _, doc) = applied("people_replan_in_the_order_given_and_take_their_event_numbers", "cd2857b56d11aa5b7157e213982b07496a793dff469387d1a0ed8392c90bc437");
+    let (_, _, doc) =
+        applied("people_replan_in_the_order_given_and_take_their_event_numbers", "cd2857b56d11aa5b7157e213982b07496a793dff469387d1a0ed8392c90bc437");
     let numbers: Vec<i64> = ["A003", "A001", "A002"].iter().map(|agent| number(&journey(&doc, agent)["event_id"])).collect();
     assert_eq!(numbers, [numbers[0], numbers[0] + 1, numbers[0] + 2]);
 }
@@ -237,7 +238,8 @@ fn without_a_floor_plan_a_room_walk_is_counted() {
 /// Pytest digest `321b3db4a63a`.
 #[test]
 fn a_room_walk_past_the_end_of_the_run_is_not_made_nor_blocked() {
-    let (_, _, doc) = applied("a_room_walk_past_the_end_of_the_run_is_not_made_nor_blocked", "61a41f0449ac55203ab555e896f0d7d227170a13d17971391f5f2ba675345677");
+    let (_, _, doc) =
+        applied("a_room_walk_past_the_end_of_the_run_is_not_made_nor_blocked", "61a41f0449ac55203ab555e896f0d7d227170a13d17971391f5f2ba675345677");
     assert!(!walking(&doc, "A001"));
     assert_eq!(metric(&doc, BLOCKED).unwrap_or(0.0), 0.0);
     assert_eq!(metric(&doc, REPLANS), Some(1.0));
@@ -327,7 +329,8 @@ fn support_past_the_end_of_the_run_goes_back_to_the_queue() {
 /// Pytest digest `2ddf59bf7eb7`.
 #[test]
 fn support_whose_walk_a_full_zone_refuses_goes_back_to_the_queue() {
-    let (_, test, doc) = applied("support_whose_walk_a_full_zone_refuses_goes_back_to_the_queue", "3e94ca626592edc849c8706f40e00766632716bcb5e0609f14f1806bcc8d723b");
+    let (_, test, doc) =
+        applied("support_whose_walk_a_full_zone_refuses_goes_back_to_the_queue", "3e94ca626592edc849c8706f40e00766632716bcb5e0609f14f1806bcc8d723b");
     assert_eq!(request(&doc, &test)["status"], "pending");
     assert_eq!(metric(&doc, BLOCKED), Some(1.0));
     assert!(!walking(&doc, "A001"));
@@ -343,11 +346,19 @@ fn says_inconsistent(name: &str, text: &str, digest: &str) {
 /// Pytest digest `11ea2f11622f`.
 #[test]
 fn support_that_lost_its_task_is_python_s_error() {
-    says_inconsistent("support_that_lost_its_task_is_python_s_error", "replanned resident trip lost its assigned support task", "eab29bad53a194e57a128a9ee82f79ebb9ebe48d5fe5d48438c8b0a2e6ea9a70");
+    says_inconsistent(
+        "support_that_lost_its_task_is_python_s_error",
+        "replanned resident trip lost its assigned support task",
+        "eab29bad53a194e57a128a9ee82f79ebb9ebe48d5fe5d48438c8b0a2e6ea9a70",
+    );
 }
 
 /// Pytest digest `34d27c8b92f9`.
 #[test]
 fn support_with_a_moved_completion_is_python_s_error() {
-    says_inconsistent("support_with_a_moved_completion_is_python_s_error", "replanned resident trip has inconsistent support completion", "c25fe5ce462b6759028ef7aa42aa560d5b27c54a291f24cb80df37b9c2dad3a4");
+    says_inconsistent(
+        "support_with_a_moved_completion_is_python_s_error",
+        "replanned resident trip has inconsistent support completion",
+        "c25fe5ce462b6759028ef7aa42aa560d5b27c54a291f24cb80df37b9c2dad3a4",
+    );
 }

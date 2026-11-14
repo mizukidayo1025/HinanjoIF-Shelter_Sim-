@@ -97,8 +97,7 @@ static WORDS: LazyLock<Words> = LazyLock::new(|| Words {
     needs: NEED_NAMES.map(Arc::from),
 });
 
-const NEED_NAMES: [&str; 6] =
-    ["toilet_urgency", "hunger", "hydration_need", "fatigue", "sleep_debt_minutes", "hygiene_need"];
+const NEED_NAMES: [&str; 6] = ["toilet_urgency", "hunger", "hydration_need", "fatigue", "sleep_debt_minutes", "hygiene_need"];
 const FATIGUE: usize = 3;
 const SLEEP_DEBT: usize = 4;
 
@@ -165,12 +164,15 @@ impl ActiveActions {
                 _ => continue,
             };
             let mut fields = IndexMap::with_capacity(ActiveAction::NAMES.len());
-            for key in ["action_id", "agent_id", "action", "target_id", "start_minute", "reason_code", "start_activity", "start_needs", "model_id", "model_source_id"] {
+            for key in
+                ["action_id", "agent_id", "action", "target_id", "start_minute", "reason_code", "start_activity", "start_needs", "model_id", "model_source_id"]
+            {
                 let value = payload.get(key).ok_or_else(|| Error::unsupported(format!("an action's record has no {key}")))?;
                 fields.insert(Arc::from(key), value.clone());
             }
             fields.insert(Arc::from("continued"), V::Bool(continued));
-            let row = <ActiveAction as crate::row::Field>::from_value(&V::Map(fields)).map_err(|misfit| Error::unsupported(format!("an action's record does not fit its row: {}", misfit.0)))?;
+            let row = <ActiveAction as crate::row::Field>::from_value(&V::Map(fields))
+                .map_err(|misfit| Error::unsupported(format!("an action's record does not fit its row: {}", misfit.0)))?;
             rows.insert(agent_id.clone(), row);
         }
         Self::from_rows(rows)
@@ -223,9 +225,7 @@ fn completion_status(world: &World, action: &ActiveAction, needs: &Needs) -> Res
             }
         }
         "rest" | "sleep" => {
-            let lower = |index: usize| {
-                action.start_needs.get(NEED_NAMES[index]).is_some_and(|started| needs[index] < *started)
-            };
+            let lower = |index: usize| action.start_needs.get(NEED_NAMES[index]).is_some_and(|started| needs[index] < *started);
             if lower(FATIGUE) || (&*action.action == "sleep" && lower(SLEEP_DEBT)) {
                 "completed"
             } else {
@@ -302,11 +302,7 @@ fn receipt(
         "continued" => (true, true),
         _ => (false, true),
     };
-    let start_needs = if start_needs {
-        action.start_needs.iter().map(|(name, value)| (name.clone(), V::Float(*value))).collect()
-    } else {
-        IndexMap::new()
-    };
+    let start_needs = if start_needs { action.start_needs.iter().map(|(name, value)| (name.clone(), V::Float(*value))).collect() } else { IndexMap::new() };
     let current_needs = match current {
         Some(needs) if current_needs => needs_value(needs),
         _ => V::Map(IndexMap::new()),
@@ -414,17 +410,7 @@ pub fn commit_action(world: &World, active: &mut ActiveActions, proposal: &Propo
             return Ok(());
         }
         let status = completion_status(world, current, &agent.needs)?;
-        receipts.push(receipt(
-            &events,
-            current,
-            status,
-            minute,
-            "superseded_by_new_applied_action",
-            activity,
-            None,
-            first,
-            Some(&agent.needs),
-        )?);
+        receipts.push(receipt(&events, current, status, minute, "superseded_by_new_applied_action", activity, None, first, Some(&agent.needs))?);
     }
     let sequence = first + receipts.len() as i64;
     let mut start_needs = IdMap::with_capacity_and_hasher(6, Default::default());
@@ -463,8 +449,7 @@ fn event_ends(event_type: &str, action: &str) -> Option<&'static str> {
         | ("staff_support_complete", "seek_help" | "seek_information")
         | ("social_interaction", "socialize" | "care_family" | "help_others") => Some("completed"),
         ("facility_queue_abandon", "request_toilet" | "fetch_water" | "collect_meal") => Some("abandoned"),
-        ("resource_service_cancel", "fetch_water" | "collect_meal")
-        | ("support_request_timeout", "seek_help" | "seek_information") => Some("interrupted"),
+        ("resource_service_cancel", "fetch_water" | "collect_meal") | ("support_request_timeout", "seek_help" | "seek_information") => Some("interrupted"),
         _ => None,
     }
 }
@@ -523,8 +508,7 @@ pub fn closes(active: &ActiveActions, event: &Ending<'_>) -> Option<(Arc<str>, &
     let agent_id = text(event, "agent_id").or_else(|| text(event, "sender_agent_id"))?;
     let current = active.rows.get(&**agent_id)?;
     let support = matches!(event_type, "staff_support_complete" | "support_request_timeout");
-    let keys: &[&str] =
-        if support { &["request_id", "staff_id"] } else { &["facility_id", "participant_agent_id", "staff_id", "request_id"] };
+    let keys: &[&str] = if support { &["request_id", "staff_id"] } else { &["facility_id", "participant_agent_id", "staff_id", "request_id"] };
     let observed = keys.iter().find_map(|key| text(event, key));
     if let (Some(expected), Some(observed)) = (&current.target_id, observed) {
         if expected != observed {
@@ -638,17 +622,7 @@ pub fn population_exit(world: &World, active: &mut ActiveActions, event_id: &str
             continue;
         };
         let agent = agent_of(world, agent_id)?;
-        receipts.push(receipt(
-            &events,
-            current,
-            "interrupted",
-            minute,
-            reason,
-            None,
-            Some(event_id),
-            sequence,
-            agent.as_ref().map(|agent| &agent.needs),
-        )?);
+        receipts.push(receipt(&events, current, "interrupted", minute, reason, None, Some(event_id), sequence, agent.as_ref().map(|agent| &agent.needs))?);
         closed.push(agent_id);
         sequence += 1;
     }

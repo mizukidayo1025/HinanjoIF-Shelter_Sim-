@@ -21,12 +21,12 @@ use indexmap::IndexMap;
 use crate::error::{Error, Result};
 use crate::events::writer::{WriteError, WriteResult};
 use crate::events::{EventKind, EventRow, EventStatus};
-use crate::row::ValueRow;
 use crate::host::{Hold, Holding, Host, TABLE_NOT_PLAIN};
+use crate::row::ValueRow;
 use crate::rules::common_operations::{self, plan_record, write_record, CareReceipt, Change, PlannedRecord, Receipt, RECEIPT_EVENTS};
 use crate::rules::kit;
-use crate::state::shared_operations::NAME;
 use crate::rules::kit::{assumption, log_record, DYNAMICS};
+use crate::state::shared_operations::NAME;
 use crate::state::shared_operations::{is_identifier, is_support_kind, CareStatus};
 use crate::value::V;
 use crate::world::{set_id_counter, World, WorldCell, ID_COUNTERS, MODEL_CONFIGS};
@@ -556,9 +556,7 @@ pub fn staff_operation_record(world: &World, outcome: OperationOutcome) -> Resul
     let total = outcome.changes.len();
     let sampled = &outcome.changes[..total.min(256)];
     let times_fit = match (&outcome.start_minute, &outcome.arrival_minute, &outcome.travel_minutes) {
-        (V::Int(start), V::Int(arrival), V::Int(travel)) => {
-            *start >= 0 && *travel >= 0 && start <= arrival && *arrival <= minute && *travel <= arrival - start
-        }
+        (V::Int(start), V::Int(arrival), V::Int(travel)) => *start >= 0 && *travel >= 0 && start <= arrival && *arrival <= minute && *travel <= arrival - start,
         _ => false,
     };
     let reason_fits = matches!(&outcome.reason, V::Str(text) if (1..=240).contains(&text.chars().count()));

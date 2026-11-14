@@ -35,7 +35,9 @@ pub enum S {
     Float(FloatS),
     Str(StrS),
     /// `bool`, or `StrictBool` / `Field(strict=True)`.
-    Bool { strict: bool },
+    Bool {
+        strict: bool,
+    },
     /// `Literal[...]`, its values in the order of the annotation.
     Lit(&'static [Lit]),
     /// `X | None`.

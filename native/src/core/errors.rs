@@ -9,7 +9,6 @@
 //! The errors and their texts are `sheltersim_core::error::Error`; `to_py_err` makes one into its
 //! Python class, and `OrPy` does it for a core call's result: `core_call().or_py()?`.
 
-
 use pyo3::exceptions::{PyAttributeError, PyKeyError, PyRuntimeError, PyTypeError, PyValueError};
 use pyo3::intern;
 use pyo3::prelude::*;
@@ -263,9 +262,8 @@ macro_rules! python_class {
 
             fn type_object_raw(py: Python<'_>) -> *mut pyo3::ffi::PyTypeObject {
                 static CLASS: GILOnceCell<Py<PyType>> = GILOnceCell::new();
-                let class = CLASS.get_or_try_init(py, || -> PyResult<Py<PyType>> {
-                    Ok(py.import($module)?.getattr($class)?.downcast_into::<PyType>()?.unbind())
-                });
+                let class =
+                    CLASS.get_or_try_init(py, || -> PyResult<Py<PyType>> { Ok(py.import($module)?.getattr($class)?.downcast_into::<PyType>()?.unbind()) });
                 match class {
                     Ok(class) => class.as_ptr().cast(),
                     Err(_) => PyValueError::type_object_raw(py),
@@ -329,7 +327,6 @@ pub(crate) fn relayed(py: Python<'_>, error: PyErr) -> PyErr {
 pub(crate) fn corrupt(namespace: &str, check: &str) -> PyErr {
     to_py_err(Error::corrupt(namespace, check))
 }
-
 
 #[allow(dead_code)]
 mod refusal_class {

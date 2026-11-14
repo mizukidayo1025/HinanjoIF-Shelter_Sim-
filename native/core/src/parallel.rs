@@ -63,11 +63,7 @@ mod pool {
                 return None;
             }
             // A pool that cannot start leaves the work to the calling thread, which gives the same.
-            ThreadPoolBuilder::new()
-                .num_threads(helpers)
-                .thread_name(|index| format!("sheltersim-tick-{index}"))
-                .build()
-                .ok()
+            ThreadPoolBuilder::new().num_threads(helpers).thread_name(|index| format!("sheltersim-tick-{index}")).build().ok()
         })
         .as_ref()
     }
@@ -116,14 +112,7 @@ mod pool {
                 }
                 take_parts();
             });
-            slots
-                .into_iter()
-                .map(|slot| {
-                    slot.into_inner()
-                        .unwrap_or_else(PoisonError::into_inner)
-                        .expect("every part ran before the scope ended")
-                })
-                .collect()
+            slots.into_iter().map(|slot| slot.into_inner().unwrap_or_else(PoisonError::into_inner).expect("every part ran before the scope ended")).collect()
         }
     }
 }

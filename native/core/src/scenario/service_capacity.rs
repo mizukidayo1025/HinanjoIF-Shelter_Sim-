@@ -199,9 +199,7 @@ impl Scenario<'_> {
             ));
             "no_staff"
         } else if let Some(rate) = utilization.filter(|rate| *rate >= 1.0) {
-            warnings.push(format!(
-                "{label}は休みなく稼働しても1日の需要を処理できません（利用率{rate:.2}、稼働{serving_units}、目安{required_units}）。"
-            ));
+            warnings.push(format!("{label}は休みなく稼働しても1日の需要を処理できません（利用率{rate:.2}、稼働{serving_units}、目安{required_units}）。"));
             "structurally_short"
         } else if let Some(rate) = utilization.filter(|rate| *rate > TARGET_UTILIZATION) {
             warnings.push(format!(
@@ -214,11 +212,7 @@ impl Scenario<'_> {
         if let Some(standard) = standard_units.filter(|standard| units < *standard) {
             warnings.push(format!("{label}が公的な計画目安を下回ります（{units}基、目安{standard}基）。"));
         }
-        let source_ids: &[&str] = if service == "toilet" {
-            &[SERVICE_CAPACITY_SOURCE_ID, TOILET_GUIDELINE_SOURCE_ID]
-        } else {
-            &[SERVICE_CAPACITY_SOURCE_ID]
-        };
+        let source_ids: &[&str] = if service == "toilet" { &[SERVICE_CAPACITY_SOURCE_ID, TOILET_GUIDELINE_SOURCE_ID] } else { &[SERVICE_CAPACITY_SOURCE_ID] };
         Ok(map(vec![
             ("service", text(service)),
             ("facility_kind", text(facility_kind)),
@@ -314,8 +308,13 @@ pub fn service_capacity_diagnostic(scenario: &V) -> Result<V, String> {
             )?);
         }
     }
-    let warnings: Vec<V> =
-        rows.iter().flat_map(|row| match get(row, "warnings") { Some(V::List(items)) => items.clone(), _ => Vec::new() }).collect();
+    let warnings: Vec<V> = rows
+        .iter()
+        .flat_map(|row| match get(row, "warnings") {
+            Some(V::List(items)) => items.clone(),
+            _ => Vec::new(),
+        })
+        .collect();
     Ok(map(vec![
         ("scenario_id", get(scenario, "id").cloned().unwrap_or(V::Null)),
         ("phase", text("initial")),

@@ -60,12 +60,8 @@ fn failed<T>(text: &str) -> Result<T> {
 
 /// `_missing_task_skill_message`: who could take the order instead, by ID.
 fn missing_skill_message(rows: &Entities, staff_id: &str, kind: &str, skills: [&'static str; 2]) -> String {
-    let mut qualified: Vec<String> = rows
-        .staff
-        .iter()
-        .filter(|(_, other)| other.skills.0.iter().any(|skill| skills.contains(&&**skill)))
-        .map(|(id, _)| id.to_string())
-        .collect();
+    let mut qualified: Vec<String> =
+        rows.staff.iter().filter(|(_, other)| other.skills.0.iter().any(|skill| skills.contains(&&**skill))).map(|(id, _)| id.to_string()).collect();
     qualified.sort_unstable();
     let mut sorted = skills;
     sorted.sort_unstable();

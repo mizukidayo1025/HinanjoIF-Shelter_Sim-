@@ -40,6 +40,14 @@ python -c "import sheltersim.native"
 
 kernelの構成と確認の道具は[native/README.md](../native/README.md)と[rust-port.md](rust-port.md)にあります。
 
+Rustの書式はrustfmtで揃えます（#367）。設定は`native/rustfmt.toml`で、workspaceのすべてのcrate（kernel、中核、WASM）に効きます。rustfmtを入れる前の長い行の書き方に近づけるため、1行を160桁まで、各要素も1行に収まるまで詰める設定（`use_small_heuristics = "Max"`）にしています。Rustを変えたら、commitの前に整形します。CIのlintのjobは`--check`で差分がないことを確かめます。`native/core/tools/`のPythonが書き出す表（`casefold.rs`・`classes.rs`・`printable.rs`・`digits.rs`）は、書き出しの形をテストが比べるので、読み込む`mod`に`#[rustfmt::skip]`を付けて整形の対象から外しています。新しく表を書き出すときも同じにします。
+
+~~~shell
+rustup component add rustfmt
+cargo fmt --manifest-path native/Cargo.toml --all
+cargo fmt --manifest-path native/Cargo.toml --all -- --check
+~~~
+
 ### ブラウザー向けのWASM（試作）
 
 中核（`sheltersim_core`）は、Pythonで作って書き出した世界のtickを、ブラウザーのWASMで進められます（#132の段階4、#244）。JSとの窓口は`native/wasm/`（`sheltersim_wasm`、wasm-bindgen）です。作るには、wasm32のtargetと、crateと同じ版のwasm-bindgenのCLI（`native/wasm/Cargo.toml`の`wasm-bindgen = "=…"`）が要ります。Node.jsで確かめるときはNode.jsも要ります。

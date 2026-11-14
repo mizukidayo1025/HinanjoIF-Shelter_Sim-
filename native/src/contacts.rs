@@ -15,9 +15,5 @@ pub fn fsum(values: Vec<f64>) -> PyResult<f64> {
 }
 
 pub(crate) fn exact_int(value: &Bound<'_, PyAny>) -> PyResult<i64> {
-    value
-        .downcast_exact::<PyInt>()
-        .map_err(|_| Unsupported::new_err("not an int"))?
-        .extract()
-        .map_err(|_| Unsupported::new_err("int out of range"))
+    value.downcast_exact::<PyInt>().map_err(|_| Unsupported::new_err("not an int"))?.extract().map_err(|_| Unsupported::new_err("int out of range"))
 }

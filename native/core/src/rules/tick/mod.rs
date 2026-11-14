@@ -105,7 +105,9 @@ pub enum Seed {
 pub enum Prior {
     View(Arc<ViewData>),
     /// A view Python made, with its `minute_index` where it is an int.
-    Python { minute: Option<i64> },
+    Python {
+        minute: Option<i64>,
+    },
 }
 
 /// `controller.zone_neighbors`, as the social model and the information model read it: the PyO3

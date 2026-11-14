@@ -17,9 +17,7 @@ use indexmap::IndexMap;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use sheltersim_core::config::{Fault, FaultClass, Selection};
-use sheltersim_core::entities::{
-    Activity, AgentRow, AnyTable, FacilityRow, Mobility, NeedRow, ProfileRow, RequestRow, RequestStatus, Table, TaskRow, ZoneRow,
-};
+use sheltersim_core::entities::{Activity, AgentRow, AnyTable, FacilityRow, Mobility, NeedRow, ProfileRow, RequestRow, RequestStatus, Table, TaskRow, ZoneRow};
 use sheltersim_core::error::Error;
 use sheltersim_core::host::{Trace, TraceLevel};
 use sheltersim_core::row::{IdMap, Row, ValueRow};
@@ -384,20 +382,13 @@ fn psychology_of(name: &str, expected: &Value) -> Psychology {
     let entry = &expected[name];
     let parameters = {
         let fields = expected["params"].as_object().unwrap();
-        object(
-            "sheltersim.policies.psychology",
-            "PsychologyParameters",
-            fields.iter().map(|(key, item)| (key.as_str(), value(v(item)))).collect(),
-        )
+        object("sheltersim.policies.psychology", "PsychologyParameters", fields.iter().map(|(key, item)| (key.as_str(), value(v(item)))).collect())
     };
     let class = entry["class"].as_array().unwrap();
     let (module, qualname) = (class[0].as_str().unwrap(), class[1].as_str().unwrap());
     let flag = |key: &str| value(V::Bool(entry[key].as_bool().unwrap()));
-    let long_term = if entry["has_long_term_method"].as_bool().unwrap() {
-        Ok(Held::Opaque { callable: true })
-    } else {
-        attribute_error("update_long_term_state")
-    };
+    let long_term =
+        if entry["has_long_term_method"].as_bool().unwrap() { Ok(Held::Opaque { callable: true }) } else { attribute_error("update_long_term_state") };
     let mut attrs = vec![
         ("policy_version", value(V::Str(text(class_version(name))))),
         ("source_id", value(V::Str(text(entry["source_id"].as_str().unwrap())))),
@@ -408,11 +399,8 @@ fn psychology_of(name: &str, expected: &Value) -> Psychology {
         "life" | "integrated" => {
             let base = object("sheltersim.policies.psychology", "SimplePsychologyPolicy", vec![("include_direct_rest_stress_recovery", flag("direct_rest"))]);
             let (config, formula) = if name == "life" {
-                let formula = object(
-                    "sheltersim.policies.registry",
-                    "BodyDynamicsFormula",
-                    vec![("model_id", value(V::Str(text("body-feedback-complete-v1"))))],
-                );
+                let formula =
+                    object("sheltersim.policies.registry", "BodyDynamicsFormula", vec![("model_id", value(V::Str(text("body-feedback-complete-v1"))))]);
                 (v(&expected["body_config"]), Ok(formula))
             } else {
                 (v(&expected["body_config_default"]), value(V::Null))
@@ -476,16 +464,13 @@ fn run_model(name: &str, expected: &Value) {
     assert_eq!(Value::Array(deltas), entry["deltas"], "{name}: the deltas");
 
     // The final deltas: A1's stress is 0.75.
-    let finals: Vec<(&str, f64)> =
-        result.deltas.iter().map(|delta| (&*delta.agent_id, if &*delta.agent_id == "A2" { delta.stress } else { 0.75 })).collect();
+    let finals: Vec<(&str, f64)> = result.deltas.iter().map(|delta| (&*delta.agent_id, if &*delta.agent_id == "A2" { delta.stress } else { 0.75 })).collect();
     let mut host = TestHost { level: TraceLevel::Full, ..TestHost::default() };
     let source_id = V::Str(text(entry["source_id"].as_str().unwrap()));
     let version = V::Str(result.policy_version.clone());
     let inputs = TraceInputs { source_id: &source_id, policy_version: &version, minute: &V::Int(MINUTE) };
     trace::record_psychology(&mut host, &data, result.traces.as_deref().unwrap(), &finals, &inputs).unwrap();
-    let [Call::Trace(Trace::Psychology { document, contributions })] = &host.calls[..] else {
-        panic!("{name}: not one psychology trace: {:?}", host.calls)
-    };
+    let [Call::Trace(Trace::Psychology { document, contributions })] = &host.calls[..] else { panic!("{name}: not one psychology trace: {:?}", host.calls) };
     let (canonical, keys) = digests(document);
     assert_eq!(canonical, entry["document"].as_str().unwrap(), "{name}: the document");
     assert_eq!(keys, entry["document_order"].as_str().unwrap(), "{name}: the document's order");
@@ -690,8 +675,7 @@ fn a_social_document_keeps_its_sample_and_its_numbers_types() {
         aggregate_scale: 1.0,
     };
     let contacts: Vec<_> = (0..25).map(|place| contact(place % 2, if place % 3 == 0 { Num::Int(0) } else { Num::Float(0.5) })).collect();
-    let document =
-        trace::social_document(&V::Int(7), &V::Str(text("expressiveness-channel-openness-v1")), &["A1", "A2"], &contacts, 16, 8.0);
+    let document = trace::social_document(&V::Int(7), &V::Str(text("expressiveness-channel-openness-v1")), &["A1", "A2"], &contacts, 16, 8.0);
     let V::Map(map) = &document else { panic!("not a map") };
     let keys: Vec<&str> = map.keys().map(|key| &**key).collect();
     assert_eq!(

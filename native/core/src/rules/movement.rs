@@ -32,6 +32,7 @@ use crate::events::queue::Queue;
 use crate::events::writer::WriteResult;
 use crate::events::EventStatus;
 use crate::geometry::{distance, point_along_polyline, point_in_polygon, point_in_value, polyline_length, usable, Geo, Pt};
+use crate::host::{Hold, Holding, Host, NOT_OWNED, TABLE_NOT_PLAIN};
 use crate::mathx::{py_fsum, py_max, py_min, py_sum};
 use crate::row::IdMap;
 use crate::rules::facility_queues as fifo;
@@ -41,7 +42,6 @@ use crate::rules::queues::{plan_trip, slot_route, trip_id, write_plan, Fifo, Pla
 use crate::state::movement::{Journey, MovementRow, Point, Position};
 use crate::state::staff_operations::{Phase, StaffOperationsRow, NAME as STAFF_OPERATIONS};
 use crate::value::V;
-use crate::host::{Hold, Holding, Host, NOT_OWNED, TABLE_NOT_PLAIN};
 use crate::world::{World, WorldCell};
 
 pub use crate::rules::kit::movement::{EXACT_INT, KEY, POLICY_VERSION};
@@ -90,9 +90,7 @@ fn with_positions<R>(world: &World, held: &Held, read: impl FnOnce(&MovementRow)
 
 /// Whether `Changes::apply` would change the row.
 fn changes_row(row: &MovementRow, changes: &Changes) -> bool {
-    let differs = |map: &IdMap<Position>, (id, position): &(Arc<str>, Position)| {
-        map.get(&**id).is_none_or(|current| !same_position(current, position))
-    };
+    let differs = |map: &IdMap<Position>, (id, position): &(Arc<str>, Position)| map.get(&**id).is_none_or(|current| !same_position(current, position));
     changes.minute.is_some_and(|minute| minute != row.last_updated_minute)
         || changes.gone_journeys.iter().any(|id| row.journeys.contains_key(&**id))
         || changes.gone_positions.iter().any(|id| row.positions.contains_key(&**id))
@@ -327,13 +325,7 @@ fn points_of_journey(journey: &Journey) -> Result<Vec<Pt>> {
     journey
         .route_points
         .iter()
-        .map(|point| {
-            if usable(point.x, point.y) {
-                Ok(Pt { x: point.x, y: point.y })
-            } else {
-                unsupported("a route point is not a usable point")
-            }
-        })
+        .map(|point| if usable(point.x, point.y) { Ok(Pt { x: point.x, y: point.y }) } else { unsupported("a route point is not a usable point") })
         .collect()
 }
 
@@ -524,9 +516,7 @@ fn room_path_is_clear(geo: &Geo, position: Option<&Position>, zone_id: &str, poi
     if remaining.len() == 1 {
         remaining.push(points[points.len() - 1]);
     }
-    Ok(remaining
-        .windows(2)
-        .all(|pair| Geo::room_segment_clear(constraints, pair[0], pair[1], &zone.polygon, mobility)))
+    Ok(remaining.windows(2).all(|pair| Geo::room_segment_clear(constraints, pair[0], pair[1], &zone.polygon, mobility)))
 }
 
 /// `min(1.0, max(0.0, a / b))` of ints that a float holds exactly.
@@ -541,7 +531,11 @@ enum Step {
     QueueReplan,
     Stop,
     Finish,
-    Walk { position: Position, edge: Option<Arc<str>>, completed: bool },
+    Walk {
+        position: Position,
+        edge: Option<Arc<str>>,
+        completed: bool,
+    },
 }
 
 fn plan_journey(scene: &Scene<'_>, queue: &Queue, row: &MovementRow, agent_id: &str, agent: &AgentRow, journey: &Journey, minute: i64) -> Result<Step> {
@@ -559,19 +553,12 @@ fn plan_journey(scene: &Scene<'_>, queue: &Queue, row: &MovementRow, agent_id: &
     }
     // From here the person walks or replans.
     let replan = || if queue_trip { Step::QueueReplan } else { Step::Replan };
-    let facility = journey
-        .facility_id
-        .as_deref()
-        .filter(|facility_id| !facility_id.is_empty())
-        .and_then(|facility_id| rows.facilities.get(facility_id));
+    let facility = journey.facility_id.as_deref().filter(|facility_id| !facility_id.is_empty()).and_then(|facility_id| rows.facilities.get(facility_id));
     let destination = facility.map_or(&journey.destination_zone_id, |facility| &facility.zone_id);
     if *destination != journey.destination_zone_id || scene.facility_move_invalidates(journey)? {
         return Ok(replan());
     }
-    if journey.due_minute <= journey.started_minute
-        || journey.due_minute.abs() >= EXACT_INT
-        || journey.started_minute.abs() >= EXACT_INT
-    {
+    if journey.due_minute <= journey.started_minute || journey.due_minute.abs() >= EXACT_INT || journey.started_minute.abs() >= EXACT_INT {
         return unsupported("a journey has no plain duration");
     }
     let mobility = mobility_text(agent);
@@ -633,11 +620,7 @@ fn plan_journey(scene: &Scene<'_>, queue: &Queue, row: &MovementRow, agent_id: &
         None => scene.geo.center(current_zone)?,
     };
     let kind = on_route_kind(&point);
-    Ok(Step::Walk {
-        position: record(current_zone.clone(), point, kind, edge_id.cloned(), progress),
-        edge: edge_id.cloned(),
-        completed,
-    })
+    Ok(Step::Walk { position: record(current_zone.clone(), point, kind, edge_id.cloned(), progress), edge: edge_id.cloned(), completed })
 }
 
 /// `_replan_physical_queue_trip`, planned with the positions the walk has written so far.
@@ -1411,7 +1394,14 @@ pub fn advance_through<C: WorldCell, H: Host>(cell: &C, host: &mut H, minute: i6
     let mut advanced = cell.with(|world| advance(world, &tick, minute, None))??;
     if matches!(advanced, Advanced::NeedsInOrder) {
         // A branch reads the walk so far: what it needs, read as the walk read it then.
-        let section = kit::section_value(cell, host, &holding, crate::config::SectionId::Movement, |configs| &configs.movement, crate::config::movement::Movement::parse)?;
+        let section = kit::section_value(
+            cell,
+            host,
+            &holding,
+            crate::config::SectionId::Movement,
+            |configs| &configs.movement,
+            crate::config::movement::Movement::parse,
+        )?;
         let movement = kit::kept_of(section);
         let movement = kit::kept(&movement)?;
         let in_order = InOrder {

@@ -154,12 +154,8 @@ fn answer(information: &Information, seed: &str) -> (String, bool) {
     let scheduled = cell
         .with(|world| {
             let queue = world.queue().unwrap();
-            let mut rows: Vec<_> = queue
-                .ordered()
-                .iter()
-                .filter_map(|(_, serial)| queue.slot(*serial).row.clone())
-                .filter(|row| !pending.contains(&row.event_id))
-                .collect();
+            let mut rows: Vec<_> =
+                queue.ordered().iter().filter_map(|(_, serial)| queue.slot(*serial).row.clone()).filter(|row| !pending.contains(&row.event_id)).collect();
             rows.sort_by_key(|row| row.sequence);
             rows
         })

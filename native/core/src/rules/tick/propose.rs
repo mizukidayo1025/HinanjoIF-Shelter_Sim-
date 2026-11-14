@@ -78,7 +78,11 @@ pub fn view_for_proposals<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_,
 }
 
 /// The view's audit hash, as `state_hash` of the view.
-fn finish<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R>, data: ViewData, gathered: &Gathered) -> std::result::Result<Arc<ViewData>, H::Error> {
+fn finish<C: WorldCell, H: Host, R: RunCell>(
+    tick: &mut Tick<'_, C, H, R>,
+    data: ViewData,
+    gathered: &Gathered,
+) -> std::result::Result<Arc<ViewData>, H::Error> {
     let hash = tick.world(|world| view::state_hash(&data, world, gathered.configs.as_ref()))?;
     tick.on_run(|run| run.scratch.put(Hash(Arc::from(hash))))?;
     Ok(Arc::new(data))
@@ -105,7 +109,11 @@ fn due<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R>, data: &V
 }
 
 /// `_observed_state`: a sink in Python, or a writer's, reads the document as a dict.
-fn observed<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R>, data: &ViewData, proposal: &Proposed) -> std::result::Result<Observed<'static>, H::Error> {
+fn observed<C: WorldCell, H: Host, R: RunCell>(
+    tick: &mut Tick<'_, C, H, R>,
+    data: &ViewData,
+    proposal: &Proposed,
+) -> std::result::Result<Observed<'static>, H::Error> {
     let sink = tick.host.decision_sink()?;
     if matches!(sink, DecisionSink::Python | DecisionSink::Artifacts) {
         return Ok(Observed::Value(behavior::observed_value(data, proposal.index)));
@@ -156,10 +164,10 @@ impl<E> Read_<E> {
             overlay: self.overlay.clone(),
             metric_state_held: self.metric_state_held,
             social_minutes: self.social_minutes,
-            sleep: self.sleep.as_ref().map(|sleep| Sleep {
-                walk: Walk { movement: sleep.movement.clone(), section: &sleep.section, geo: sleep.plan.get() },
-                schema: &sleep.schema,
-            }),
+            sleep: self
+                .sleep
+                .as_ref()
+                .map(|sleep| Sleep { walk: Walk { movement: sleep.movement.clone(), section: &sleep.section, geo: sleep.plan.get() }, schema: &sleep.schema }),
             trips: self.trips.as_ref().map(|trips| Trips {
                 walk: Walk { movement: trips.movement.clone(), section: &trips.section, geo: trips.plan.get() },
                 staff: trips.staff.clone(),
@@ -169,7 +177,9 @@ impl<E> Read_<E> {
                 needs: &trips.needs,
                 asked: match &trips.config {
                     None => Asked::Toilet { patched: trips.patched },
-                    Some(config) => Asked::Resource { patched: trips.patched, config: config.as_ref(), service: trips.service.clone(), ledger: trips.ledger.clone() },
+                    Some(config) => {
+                        Asked::Resource { patched: trips.patched, config: config.as_ref(), service: trips.service.clone(), ledger: trips.ledger.clone() }
+                    }
                 },
             }),
             seek: self.seek.as_ref().map(|seek| Seek {
@@ -234,7 +244,11 @@ pub fn graph<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R>) ->
 }
 
 /// What `_apply_effect` reads besides the world, by the action (`Read::of` of its glue).
-fn read_effect<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R>, holding: &Holding, action: Action) -> std::result::Result<Read_<H::Error>, H::Error> {
+fn read_effect<C: WorldCell, H: Host, R: RunCell>(
+    tick: &mut Tick<'_, C, H, R>,
+    holding: &Holding,
+    action: Action,
+) -> std::result::Result<Read_<H::Error>, H::Error> {
     use crate::config::{agent_dynamics, body};
     let overlay = holding.held(OVERLAY_KEY, "the world holds another overlay state");
     let metric_state_held = holding.field(METRIC_STATE);
@@ -269,7 +283,11 @@ fn manager_config(manager: &crate::run::held::Obj) -> Option<IndexMap<Arc<str>, 
 
 /// What `request_toilet`, `fetch_water` and `collect_meal` read: None for a resource action
 /// without a resource service.
-fn trips_of<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R>, holding: &Holding, action: Action) -> std::result::Result<Option<TripsIn<H::Error>>, H::Error> {
+fn trips_of<C: WorldCell, H: Host, R: RunCell>(
+    tick: &mut Tick<'_, C, H, R>,
+    holding: &Holding,
+    action: Action,
+) -> std::result::Result<Option<TripsIn<H::Error>>, H::Error> {
     let policies = tick.policies.clone();
     let resource = action.resource().is_some();
     let services = &policies.services;
@@ -282,7 +300,12 @@ fn trips_of<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R>, hol
         services.toilet.object().map_err(|fault| tick.policy_error(&["toilet_service"], &fault))?
     };
     let graph = graph(tick)?;
-    let knows = tick.value_section(holding, SectionId::KnowledgeIsLimited, |configs| &configs.knowledge_is_limited, crate::config::agent_dynamics::knowledge_is_limited)?;
+    let knows = tick.value_section(
+        holding,
+        SectionId::KnowledgeIsLimited,
+        |configs| &configs.knowledge_is_limited,
+        crate::config::agent_dynamics::knowledge_is_limited,
+    )?;
     // The rows of the events Python scheduled, for the core's reads of the whole queue.
     if graph.capacities.any || resource {
         tick.host.read_queue_rows()?;
@@ -352,7 +375,11 @@ fn seek_of<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R>, hold
 }
 
 /// The core's refusal of a value whose read raised, as what reading it again raises.
-fn read_again<C: WorldCell, H: Host, R: RunCell, T>(tick: &mut Tick<'_, C, H, R>, plan: Option<Plan<H::Error>>, result: std::result::Result<T, H::Error>) -> std::result::Result<T, H::Error> {
+fn read_again<C: WorldCell, H: Host, R: RunCell, T>(
+    tick: &mut Tick<'_, C, H, R>,
+    plan: Option<Plan<H::Error>>,
+    result: std::result::Result<T, H::Error>,
+) -> std::result::Result<T, H::Error> {
     let result = match plan {
         Some(plan) => plan.finish(result, is_refusal),
         None => result,
@@ -376,7 +403,11 @@ fn read_again<C: WorldCell, H: Host, R: RunCell, T>(tick: &mut Tick<'_, C, H, R>
 }
 
 /// `_apply_effect`: the target, the next decision, and whether the decision committed.
-fn apply_effect<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R>, data: &ViewData, proposed: &Proposed) -> std::result::Result<Applied, H::Error> {
+fn apply_effect<C: WorldCell, H: Host, R: RunCell>(
+    tick: &mut Tick<'_, C, H, R>,
+    data: &ViewData,
+    proposed: &Proposed,
+) -> std::result::Result<Applied, H::Error> {
     let outcome = &proposed.outcome;
     let Some(action) = Action::parse(outcome.action.value()) else {
         return Err(Error::unsupported("an action unknown here").into());

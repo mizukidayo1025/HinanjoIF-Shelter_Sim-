@@ -153,10 +153,7 @@ pub fn segment_clear_of_polygon(start: Pt, end: Pt, polygon: &[Pt], clearance: f
     }
     sides(polygon).all(|(first, second)| {
         let nearest = py_min(
-            py_min(
-                py_min(point_segment_distance(start, first, second), point_segment_distance(end, first, second)),
-                point_segment_distance(first, start, end),
-            ),
+            py_min(py_min(point_segment_distance(start, first, second), point_segment_distance(end, first, second)), point_segment_distance(first, start, end)),
             point_segment_distance(second, start, end),
         );
         nearest + 1e-9 >= clearance
@@ -319,10 +316,8 @@ pub fn zone_center(polygon: &[Pt]) -> std::result::Result<Option<Pt>, ()> {
         }
         for fraction in [1e-7, 1e-5, 1e-3, 1e-2] {
             let offset = scale * fraction;
-            let candidate = Pt {
-                x: (first.x + second.x) / 2.0 - orientation * dy / length * offset,
-                y: (first.y + second.y) / 2.0 + orientation * dx / length * offset,
-            };
+            let candidate =
+                Pt { x: (first.x + second.x) / 2.0 - orientation * dy / length * offset, y: (first.y + second.y) / 2.0 + orientation * dx / length * offset };
             if !candidate.x.is_finite() || !candidate.y.is_finite() {
                 return Err(());
             }
@@ -412,12 +407,7 @@ impl Constraints {
     /// `effective_spatial_constraints`: the Scenario's with the partitions as obstacles, in ID
     /// order, and the footprints of moved facilities moved with them. `signed` is the Scenario's
     /// facility points, which a moved footprint is moved from.
-    pub fn of(
-        spatial: &SpatialConstraints,
-        partitions: Option<&V>,
-        moves: Option<&V>,
-        signed: Option<&IdMap<Pt>>,
-    ) -> Result<Constraints> {
+    pub fn of(spatial: &SpatialConstraints, partitions: Option<&V>, moves: Option<&V>, signed: Option<&IdMap<Pt>>) -> Result<Constraints> {
         let mut blocked = spatial.obstacles.clone();
         if let Some(partitions) = partitions {
             let V::Map(partitions) = partitions else {
@@ -470,13 +460,7 @@ impl Constraints {
             blocked.push(polygon.clone());
             footprints.push((id.clone(), polygon));
         }
-        Ok(Constraints {
-            walls: spatial.walls.clone(),
-            openings: spatial.openings.clone(),
-            blocked,
-            footprints,
-            obstacle_count,
-        })
+        Ok(Constraints { walls: spatial.walls.clone(), openings: spatial.openings.clone(), blocked, footprints, obstacle_count })
     }
 }
 
@@ -485,12 +469,7 @@ impl Geo {
     /// constraints (None where `_spatial_constraints` gives None), with the overlay's facility
     /// moves and partitions where it has entries. The overlay is read by key, and the partitions
     /// in ID order, so only `Layout.facility_points` follows the overlay's order.
-    pub fn new(
-        facility: Option<&FacilityPlan>,
-        spatial: Option<&SpatialConstraints>,
-        moves: Option<&V>,
-        partitions: Option<&V>,
-    ) -> Result<Geo> {
+    pub fn new(facility: Option<&FacilityPlan>, spatial: Option<&SpatialConstraints>, moves: Option<&V>, partitions: Option<&V>) -> Result<Geo> {
         let layout = match facility {
             Some(plan) => Some(Layout::of(plan, moves)?),
             None => None,
@@ -553,8 +532,7 @@ impl Geo {
         let Some(constraints) = &self.constraints else {
             return true;
         };
-        let openings: Vec<&Opening> =
-            constraints.openings.iter().filter(|item| item.edge_ids.iter().any(|id| &**id == edge_id)).collect();
+        let openings: Vec<&Opening> = constraints.openings.iter().filter(|item| item.edge_ids.iter().any(|id| &**id == edge_id)).collect();
         for pair in route.points.windows(2) {
             let (first, second) = (pair[0], pair[1]);
             if constraints.blocked.iter().any(|polygon| !segment_clear_of_polygon(first, second, polygon, clearance)) {
@@ -647,9 +625,7 @@ impl GeoCache {
 
     /// The plan built with these parts of an overlay; it now serves `key.stamp` too.
     pub fn by_bytes(&mut self, key: &OverlayKey) -> Option<Arc<Geo>> {
-        let found = self.entries.iter().position(|(kept, _)| {
-            kept.present == key.present && kept.moves == key.moves && kept.partitions == key.partitions
-        })?;
+        let found = self.entries.iter().position(|(kept, _)| kept.present == key.present && kept.moves == key.moves && kept.partitions == key.partitions)?;
         if key.stamp.is_some() {
             self.entries[found].0.stamp = key.stamp;
         }
@@ -659,9 +635,9 @@ impl GeoCache {
     /// Whether the plan kept for this stamp was built from these parts (a debug check that the
     /// overlay's stamp changes with each write).
     pub fn holds(&self, key: &OverlayKey) -> bool {
-        self.entries.iter().any(|(kept, _)| {
-            kept.stamp == key.stamp && kept.present == key.present && kept.moves == key.moves && kept.partitions == key.partitions
-        })
+        self.entries
+            .iter()
+            .any(|(kept, _)| kept.stamp == key.stamp && kept.present == key.present && kept.moves == key.moves && kept.partitions == key.partitions)
     }
 
     pub fn insert(&mut self, key: OverlayKey, geo: Arc<Geo>) {
@@ -718,13 +694,7 @@ impl Geo {
     }
 
     /// `_plan_in_room_route`.
-    fn find_room_route(
-        &self,
-        zone_id: &str,
-        start: Option<Pt>,
-        destination: Pt,
-        mobility: &str,
-    ) -> std::result::Result<Option<Vec<Pt>>, &'static str> {
+    fn find_room_route(&self, zone_id: &str, start: Option<Pt>, destination: Pt, mobility: &str) -> std::result::Result<Option<Vec<Pt>>, &'static str> {
         const REFUSED: &str = "the centre of a zone is not finite";
         let Some(zone) = self.layout.as_ref().and_then(|layout| layout.zones.get(zone_id)) else {
             return Ok(None);
@@ -749,8 +719,7 @@ impl Geo {
         let mut nodes = vec![origin, destination];
         let clearance = clearance + 0.05;
         for polygon in &constraints.blocked {
-            let area = py_fsum(&sides(polygon).map(|(a, b)| a.x * b.y - b.x * a.y).collect::<Vec<f64>>())
-                .ok_or("an area is not a plain sum")?;
+            let area = py_fsum(&sides(polygon).map(|(a, b)| a.x * b.y - b.x * a.y).collect::<Vec<f64>>()).ok_or("an area is not a plain sum")?;
             let orientation = if area > 0.0 { 1.0 } else { -1.0 };
             let count = polygon.len();
             for (index, &corner) in polygon.iter().enumerate() {
@@ -851,9 +820,7 @@ impl Geo {
                 next_path.push(adjacent);
                 let better = match &best[adjacent as usize] {
                     None => true,
-                    Some((known, known_path)) => {
-                        next_distance < *known || (next_distance == *known && next_path < *known_path)
-                    }
+                    Some((known, known_path)) => next_distance < *known || (next_distance == *known && next_path < *known_path),
                 };
                 if better {
                     best[adjacent as usize] = Some((next_distance, next_path.clone()));

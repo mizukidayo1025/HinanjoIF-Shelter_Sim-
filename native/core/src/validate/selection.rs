@@ -144,9 +144,7 @@ pub fn select(configs: &V) -> Result<Selection> {
         let Some(members) = suite_models.filter(|_| matches!(schema, Some(V::Int(3)))) else {
             return Err(value_error("unsupported or incorrectly versioned model suite"));
         };
-        let conflicting = members
-            .iter()
-            .any(|(domain, model)| selection.get(&**domain).is_some_and(|chosen| !equal(chosen, &V::Str(model.clone()))));
+        let conflicting = members.iter().any(|(domain, model)| selection.get(&**domain).is_some_and(|chosen| !equal(chosen, &V::Str(model.clone()))));
         if conflicting {
             return Err(value_error("model suite selectors cannot be mixed with per-domain overrides"));
         }

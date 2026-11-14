@@ -13,9 +13,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::mathx::{py_max, py_sum};
 use crate::rng::{Key, KeyedDraws};
-use crate::scenario::profiles::{
-    draws_of_seed, generate_profiles, map, random, text, texts, Mobility, Profile, ProfileSet, ProfileTemplate,
-};
+use crate::scenario::profiles::{draws_of_seed, generate_profiles, map, random, text, texts, Mobility, Profile, ProfileSet, ProfileTemplate};
 use crate::value::V;
 
 pub const SYNTHETIC_AGE_ASSUMPTION_ID: &str = "ASM-SYNTHETIC-AGE-BANDS-V1";
@@ -62,10 +60,7 @@ pub struct HouseholdSizeMix {
 
 impl HouseholdSizeMix {
     pub fn dump(&self) -> V {
-        map(vec![
-            ("size_weights", size_weights(&self.size_weights)),
-            ("source_ids", texts(&self.source_ids)),
-        ])
+        map(vec![("size_weights", size_weights(&self.size_weights)), ("source_ids", texts(&self.source_ids))])
     }
 }
 
@@ -157,12 +152,7 @@ impl HouseholdTemplate {
                 V::List(
                     self.members
                         .iter()
-                        .map(|member| {
-                            map(vec![
-                                ("role", text(member.role.text())),
-                                ("age_band_label", member.age_band_label.as_deref().map_or(V::Null, text)),
-                            ])
-                        })
+                        .map(|member| map(vec![("role", text(member.role.text())), ("age_band_label", member.age_band_label.as_deref().map_or(V::Null, text))]))
                         .collect(),
                 ),
             ),
@@ -463,14 +453,8 @@ impl GeneratedPopulation {
             ("evacuee_age_distribution", self.evacuee_age_distribution_dump()),
             ("household_mix", self.household_mix.dump()),
             ("evacuation_selection", default_evacuation_selection()),
-            (
-                "household_relationships",
-                V::List(self.household_relationships.iter().map(HouseholdRelationship::dump).collect()),
-            ),
-            (
-                "household_template_ids",
-                V::Map(self.household_template_ids.iter().map(|(id, template)| (id.as_str().into(), text(template))).collect()),
-            ),
+            ("household_relationships", V::List(self.household_relationships.iter().map(HouseholdRelationship::dump).collect())),
+            ("household_template_ids", V::Map(self.household_template_ids.iter().map(|(id, template)| (id.as_str().into(), text(template))).collect())),
             ("unselected_template_ids", texts(&self.unselected_template_ids)),
             ("household_composition", self.household_composition.as_ref().map_or(V::Null, HouseholdComposition::dump)),
             ("person_requirements", V::List(self.person_requirements.iter().map(PersonRequirements::dump).collect())),
@@ -528,13 +512,7 @@ fn share(distribution: &[(String, f64)], label: &str) -> f64 {
 }
 
 /// `_maximum_supported_age`.
-fn maximum_supported_age(
-    bands: &[AgeBand],
-    selected: &[(String, f64)],
-    minimum_age: i64,
-    maximum_age: i64,
-    label: Option<&str>,
-) -> Option<i64> {
+fn maximum_supported_age(bands: &[AgeBand], selected: &[(String, f64)], minimum_age: i64, maximum_age: i64, label: Option<&str>) -> Option<i64> {
     bands
         .iter()
         .filter(|band| {
@@ -547,10 +525,7 @@ fn maximum_supported_age(
 }
 
 fn no_support(profile_id: &str, minimum_age: i64, maximum_age: i64) -> String {
-    format!(
-        "household template has no selected age support for person slot {} within ages {minimum_age}..{maximum_age}",
-        crate::text::py_repr(profile_id)
-    )
+    format!("household template has no selected age support for person slot {} within ages {minimum_age}..{maximum_age}", crate::text::py_repr(profile_id))
 }
 
 /// `_draw_age_with_constraints`.
@@ -598,11 +573,7 @@ fn draw_age_with_constraints(
 /// `_draw_age_from_distribution`.
 fn draw_age_from_distribution(profile_id: &str, bands: &[AgeBand], selected: &[(String, f64)], draws: &KeyedDraws) -> Result<i64, String> {
     let mut threshold = random(draws, &["population", profile_id, "age_band"]);
-    let mut chosen = bands
-        .iter()
-        .rev()
-        .find(|band| share(selected, &band.label) > 0.0)
-        .ok_or_else(|| "no age band has a positive share".to_string())?;
+    let mut chosen = bands.iter().rev().find(|band| share(selected, &band.label) > 0.0).ok_or_else(|| "no age band has a positive share".to_string())?;
     for band in bands {
         threshold -= share(selected, &band.label);
         if threshold < 0.0 {
@@ -625,10 +596,7 @@ fn sample_household_ages(
     draws: &KeyedDraws,
 ) -> Result<Vec<(usize, i64)>, String> {
     let Some(template) = template else {
-        return members
-            .iter()
-            .map(|&index| Ok((index, draw_age_from_distribution(&profiles[index].id, bands, selected, draws)?)))
-            .collect();
+        return members.iter().map(|&index| Ok((index, draw_age_from_distribution(&profiles[index].id, bands, selected, draws)?))).collect();
     };
     let slots = template.members.len();
     let mut children_by_caregiver: BTreeMap<usize, BTreeSet<usize>> = BTreeMap::new();
@@ -679,11 +647,9 @@ fn sample_household_ages(
     let mut minimum_by_slot = vec![0i64; slots];
     let mut maximum_by_slot = vec![0i64; slots];
     for (slot, pattern) in template.members.iter().enumerate() {
-        let minimum_age =
-            if matches!(pattern.role, MemberRole::Adult | MemberRole::Caregiver) || adult_slots.contains(&slot) { 18 } else { 0 };
+        let minimum_age = if matches!(pattern.role, MemberRole::Adult | MemberRole::Caregiver) || adult_slots.contains(&slot) { 18 } else { 0 };
         let maximum_age = if pattern.role == MemberRole::Child || child_slots.contains(&slot) { 17 } else { 120 };
-        let Some(supported) = maximum_supported_age(bands, selected, minimum_age, maximum_age, pattern.age_band_label.as_deref())
-        else {
+        let Some(supported) = maximum_supported_age(bands, selected, minimum_age, maximum_age, pattern.age_band_label.as_deref()) else {
             return Err(no_support(&profiles[members[slot]].id, minimum_age, maximum_age));
         };
         minimum_by_slot[slot] = minimum_age;
@@ -711,8 +677,7 @@ fn sample_household_ages(
     for &slot in &order {
         let pattern = &template.members[slot];
         let mut minimum_age = minimum_by_slot[slot];
-        let dependent_ages: Vec<i64> =
-            children_by_caregiver.get(&slot).into_iter().flatten().filter_map(|dependent| ages[*dependent]).collect();
+        let dependent_ages: Vec<i64> = children_by_caregiver.get(&slot).into_iter().flatten().filter_map(|dependent| ages[*dependent]).collect();
         if let Some(oldest) = dependent_ages.iter().max() {
             minimum_age = minimum_age.max(oldest + 16).max(18);
         }
@@ -761,11 +726,7 @@ pub fn generate_population(input: &PopulationInput) -> Result<GeneratedPopulatio
         if let Some(composition) = household_composition.as_ref().filter(|item| !item.household_size_weights.is_empty()) {
             mix = Some(HouseholdSizeMix {
                 size_weights: composition.household_size_weights.clone(),
-                source_ids: if composition.source_ids.is_empty() {
-                    vec![OPERATOR_POPULATION_SOURCE_ID.into()]
-                } else {
-                    composition.source_ids.clone()
-                },
+                source_ids: if composition.source_ids.is_empty() { vec![OPERATOR_POPULATION_SOURCE_ID.into()] } else { composition.source_ids.clone() },
             });
         }
     }
@@ -796,8 +757,7 @@ pub fn generate_population(input: &PopulationInput) -> Result<GeneratedPopulatio
     });
 
     // `_resident_age_distribution` and `_evacuee_age_distribution` (no multipliers).
-    let resident: Vec<(String, f64)> =
-        bands.iter().map(|band| (band.label.clone(), band.population_count as f64 / population_total as f64)).collect();
+    let resident: Vec<(String, f64)> = bands.iter().map(|band| (band.label.clone(), band.population_count as f64 / population_total as f64)).collect();
     let evacuee_total = py_sum(&resident.iter().map(|(_, value)| *value).collect::<Vec<_>>());
     if evacuee_total <= 0.0 || !evacuee_total.is_finite() {
         return Err("resident distribution and evacuation selection have no positive age-band weight".into());
@@ -805,18 +765,12 @@ pub fn generate_population(input: &PopulationInput) -> Result<GeneratedPopulatio
     let evacuee: Vec<(String, f64)> = resident.iter().map(|(label, value)| (label.clone(), value / evacuee_total)).collect();
     let language_weights = vec![("ja".to_string(), 1.0)];
 
-    let template = ProfileTemplate {
-        template_id: REGIONAL_PROFILE_TEMPLATE_ID.into(),
-        group_size: 1,
-        initial_zone_ids: zones.clone(),
-        ..ProfileTemplate::default()
-    };
+    let template =
+        ProfileTemplate { template_id: REGIONAL_PROFILE_TEMPLATE_ID.into(), group_size: 1, initial_zone_ids: zones.clone(), ..ProfileTemplate::default() };
     let profile_set = generate_profiles(input.count, input.seed, &zones, &template)?;
     let profiles = &profile_set.profiles;
     if let Some(composition) = household_composition.as_mut() {
-        if composition.source_kind == CompositionKind::Assumption
-            && maximum_supported_age(&bands, &evacuee, 0, 17, None).is_none()
-        {
+        if composition.source_kind == CompositionKind::Assumption && maximum_supported_age(&bands, &evacuee, 0, 17, None).is_none() {
             composition.templates.retain(|template| template.members.iter().all(|member| member.role != MemberRole::Child));
         }
     }
@@ -839,15 +793,13 @@ pub fn generate_population(input: &PopulationInput) -> Result<GeneratedPopulatio
     let mut chosen: Vec<Option<&HouseholdTemplate>> = vec![None; household_sizes.len()];
     if let Some(composition) = household_composition.as_ref() {
         for (number, (_, size)) in household_sizes.iter().enumerate() {
-            let mut candidates: Vec<&HouseholdTemplate> =
-                composition.templates.iter().filter(|template| template.members.len() as i64 == *size).collect();
+            let mut candidates: Vec<&HouseholdTemplate> = composition.templates.iter().filter(|template| template.members.len() as i64 == *size).collect();
             if candidates.is_empty() {
                 continue;
             }
             candidates.sort_by(|first, second| first.template_id.cmp(&second.template_id));
             let weights = normalize_weights(&candidates.iter().map(|item| (item.template_id.clone(), item.weight)).collect::<Vec<_>>());
-            let template_id =
-                draw_weighted_key(random(&draws, &["population", "household_template", &(number + 1).to_string()]), &weights)?;
+            let template_id = draw_weighted_key(random(&draws, &["population", "household_template", &(number + 1).to_string()]), &weights)?;
             chosen[number] = candidates.into_iter().find(|item| item.template_id == template_id);
         }
     }
@@ -860,10 +812,7 @@ pub fn generate_population(input: &PopulationInput) -> Result<GeneratedPopulatio
         .filter(|label| !band_labels.contains(label))
         .collect();
     if !unknown.is_empty() {
-        return Err(format!(
-            "household template references unknown age bands: {}",
-            unknown.into_iter().collect::<Vec<_>>().join(", ")
-        ));
+        return Err(format!("household template references unknown age bands: {}", unknown.into_iter().collect::<Vec<_>>().join(", ")));
     }
 
     let mut source_id_set: BTreeSet<String> = bands.iter().flat_map(|band| band.source_ids.iter().cloned()).collect();
@@ -978,22 +927,12 @@ pub fn generate_population(input: &PopulationInput) -> Result<GeneratedPopulatio
                 household_id: household_id.clone(),
                 household_role: role,
                 languages: vec![language],
-                accessibility_needs: if updated.mobility == Mobility::Independent {
-                    Vec::new()
-                } else {
-                    vec!["mobility_support".into()]
-                },
+                accessibility_needs: if updated.mobility == Mobility::Independent { Vec::new() } else { vec!["mobility_support".into()] },
                 medical_support: support_required,
                 source_ids: source_ids.clone(),
             },
         ));
-        let caregiver_indexes: BTreeSet<usize> = child_caregivers
-            .get(&index)
-            .into_iter()
-            .chain(support_caregivers.get(&index))
-            .flatten()
-            .copied()
-            .collect();
+        let caregiver_indexes: BTreeSet<usize> = child_caregivers.get(&index).into_iter().chain(support_caregivers.get(&index)).flatten().copied().collect();
         let caregivers: Vec<String> = caregiver_indexes.iter().map(|item| profiles[*item].id.clone()).collect();
         let dependent_indexes: BTreeSet<usize> = child_caregivers
             .iter()
@@ -1021,8 +960,7 @@ pub fn generate_population(input: &PopulationInput) -> Result<GeneratedPopulatio
             },
             caregiver_ids: caregivers,
             dependent_ids: dependent_indexes.iter().map(|item| profiles[*item].id.clone()).collect(),
-            medical_support_required: (support_required_by_relationship.contains(&index) || explicit_dependents.contains(&index))
-                .then_some(medical_support),
+            medical_support_required: (support_required_by_relationship.contains(&index) || explicit_dependents.contains(&index)).then_some(medical_support),
             care_support_needs,
             review_reasons,
         });
@@ -1047,22 +985,12 @@ pub fn generate_population(input: &PopulationInput) -> Result<GeneratedPopulatio
             size_weights(&mix.size_weights),
             "No selected regional household table was supplied; weights are a generator heuristic.",
         ));
-        sources.push(source(
-            SYNTHETIC_HOUSEHOLD_ASSUMPTION_ID,
-            "Generic synthetic household-size assumption",
-            "assumption",
-            NOT_OFFICIAL,
-        ));
+        sources.push(source(SYNTHETIC_HOUSEHOLD_ASSUMPTION_ID, "Generic synthetic household-size assumption", "assumption", NOT_OFFICIAL));
     }
     assumptions.push(assumption(
         SYNTHETIC_LANGUAGE_ASSUMPTION_ID,
         "synthetic_language_mix",
-        V::List(
-            normalize_weights(&language_weights)
-                .into_iter()
-                .map(|(language, weight)| V::List(vec![text(&language), V::Float(weight)]))
-                .collect(),
-        ),
+        V::List(normalize_weights(&language_weights).into_iter().map(|(language, weight)| V::List(vec![text(&language), V::Float(weight)])).collect()),
         "No source was supplied for the language assignment weights; one primary language is sampled per synthetic \
          profile and the weights are not calibrated to the requested region.",
     ));
@@ -1154,10 +1082,7 @@ pub fn generate_population(input: &PopulationInput) -> Result<GeneratedPopulatio
         "synthetic_person_traits",
         map(vec![
             ("medical_support", text("unknown unless an explicit rate is supplied")),
-            (
-                "support_need_rule",
-                text("explicit medical, medication, or additional access need raises support_need to at least 0.5"),
-            ),
+            ("support_need_rule", text("explicit medical, medication, or additional access need raises support_need to at least 0.5")),
             ("mobility_support_from_profile", V::Bool(true)),
             (
                 "household_role_rule",

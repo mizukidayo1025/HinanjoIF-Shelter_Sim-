@@ -14,11 +14,12 @@ use std::sync::Arc;
 
 use indexmap::IndexMap;
 use serde_json::{json, Value};
+use sheltersim_core::cell::Shard;
 use sheltersim_core::config::{Fault, FaultClass, Selection};
-use sheltersim_core::entities::{
-    Activity, AgentRow, AnyTable, FacilityRow, Mobility, NeedRow, ProfileRow, RequestRow, RequestStatus, Table, TaskRow, ZoneRow,
-};
+use sheltersim_core::entities::{Activity, AgentRow, AnyTable, FacilityRow, Mobility, NeedRow, ProfileRow, RequestRow, RequestStatus, Table, TaskRow, ZoneRow};
 use sheltersim_core::error::Error;
+use sheltersim_core::events::log::EventLog;
+use sheltersim_core::events::queue::Queue;
 use sheltersim_core::host::{Decision, DecisionSink, TraceLevel};
 use sheltersim_core::row::{IdMap, Row, ValueRow};
 use sheltersim_core::rules::action_lifecycle::ActiveActions;
@@ -33,9 +34,6 @@ use sheltersim_core::state::information::{BeliefRow, CountersRow, InformationRow
 use sheltersim_core::state::metric_state::MetricRow;
 use sheltersim_core::state::psychological_distress::{AgentRecord, DistressRow};
 use sheltersim_core::value::V;
-use sheltersim_core::cell::Shard;
-use sheltersim_core::events::log::EventLog;
-use sheltersim_core::events::queue::Queue;
 use sheltersim_core::world::{Fit, Place, World, WorldCell, ID_COUNTERS, METRIC_STATE, MODEL_CONFIGS};
 use support::{Call, TestHost};
 
@@ -79,7 +77,6 @@ fn hex(value: f64) -> String {
     let (lead, exponent) = if exponent == 0 { (0, -1022) } else { (1, exponent - 1023) };
     format!("{sign}0x{lead}.{fraction:013x}p{exponent:+}")
 }
-
 
 // ---- The world -----------------------------------------------------------------------------------
 
@@ -348,8 +345,6 @@ fn view_of(world: &World) -> ViewData {
     view::build(world, &inputs, &mut ViewCache::default()).unwrap().finish(false)
 }
 
-
-
 // ---- The policies, as the Run reads them ---------------------------------------------------------
 
 fn object(module: &str, name: &str, attrs: Vec<(&str, Result<Held, Fault>)>) -> Arc<Obj> {
@@ -409,10 +404,7 @@ fn utility(fields: Vec<(&'static str, Result<Held, Fault>)>) -> Behavior {
 fn behavior_of(name: &str) -> Behavior {
     match name {
         "utility" => utility(scorer_fields(&[])),
-        "sleep" => utility(scorer_fields(&[
-            ("policy_version", V::Str(text("sleep-aware-utility-softmax-v2"))),
-            ("sleep_debt_utility_weight", V::Float(1.25)),
-        ])),
+        "sleep" => utility(scorer_fields(&[("policy_version", V::Str(text("sleep-aware-utility-softmax-v2"))), ("sleep_debt_utility_weight", V::Float(1.25))])),
         _ => {
             let scorer = object(MODULE, "UtilityBehaviorPolicy", scorer_fields(&[("hydration_action_threshold", V::Float(0.5))]));
             let policy = object(
@@ -601,15 +593,7 @@ fn first_proposal() -> (Shard<World>, ViewData, Proposal) {
 }
 
 fn recording<'a>(data: &'a ViewData, proposal: &'a Proposal, observed: &'a Observed<'a>) -> Recording<'a> {
-    Recording {
-        data,
-        proposal,
-        target_id: Some("X"),
-        next_decision_at: MINUTE + 15,
-        committed: false,
-        observed,
-        remembers: false,
-    }
+    Recording { data, proposal, target_id: Some("X"), next_decision_at: MINUTE + 15, committed: false, observed, remembers: false }
 }
 
 #[test]
@@ -654,8 +638,19 @@ fn the_record_goes_where_the_sink_takes_it() {
         assert_eq!(
             keys,
             [
-                "minute_index", "agent_id", "action", "target_id", "observed_state_hash", "trigger", "selected_action",
-                "selected_probability", "choice_value", "rng_key", "next_decision_at", "policy_version", "source_type",
+                "minute_index",
+                "agent_id",
+                "action",
+                "target_id",
+                "observed_state_hash",
+                "trigger",
+                "selected_action",
+                "selected_probability",
+                "choice_value",
+                "rng_key",
+                "next_decision_at",
+                "policy_version",
+                "source_type",
                 "source_id"
             ]
         );
@@ -759,7 +754,10 @@ fn the_lifecycle_and_the_memory_are_called_after_the_record() {
         .unwrap();
     assert_eq!(receipt["event"]["event_id"], json!("action-lifecycle-5"));
     let payload = &receipt["event"]["payload"];
-    assert_eq!((&payload["action_id"], &payload["action"], &payload["transition"]), (&json!("action-5"), &json!(proposal.outcome.action.value()), &json!("started")));
+    assert_eq!(
+        (&payload["action_id"], &payload["action"], &payload["transition"]),
+        (&json!("action-5"), &json!(proposal.outcome.action.value()), &json!("started"))
+    );
     assert_eq!(payload["target_id"], json!("X"));
 }
 
@@ -772,7 +770,20 @@ fn the_observed_state_has_the_keys_of_the_snapshot() {
     let V::Map(map) = &observed else { panic!() };
     assert_eq!(
         map.keys().map(|key| &**key).collect::<Vec<_>>(),
-        ["agent_id", "zone_id", "activity", "target_id", "needs", "psychological", "sanitation_level", "stress", "trust", "queue", "support", "zone_environment"]
+        [
+            "agent_id",
+            "zone_id",
+            "activity",
+            "target_id",
+            "needs",
+            "psychological",
+            "sanitation_level",
+            "stress",
+            "trust",
+            "queue",
+            "support",
+            "zone_environment"
+        ]
     );
     // The bytes of the indexed record are the same document, with the keys in its order.
     let mut written = sheltersim_core::json::Encoder::default();

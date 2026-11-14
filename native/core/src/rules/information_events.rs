@@ -488,13 +488,8 @@ fn correction_in(world: &World, inputs: &Inputs<'_>, event: &EventRow) -> Result
     let aware = evidence_aware(inputs.selection)?;
     let reliability = reliability_of(config, &source)?;
     // The people in the zone, by ID.
-    let mut targets: Vec<(Arc<str>, f64)> = world
-        .rows()?
-        .agents
-        .iter()
-        .filter(|(_, agent)| agent.zone_id == *zone)
-        .map(|(_, agent)| (agent.profile.id.clone(), agent.trust))
-        .collect();
+    let mut targets: Vec<(Arc<str>, f64)> =
+        world.rows()?.agents.iter().filter(|(_, agent)| agent.zone_id == *zone).map(|(_, agent)| (agent.profile.id.clone(), agent.trust)).collect();
     targets.sort_unstable_by(|first, second| first.0.cmp(&second.0));
     let due = event.due_minute;
     let draws = Draws::of_world(world)?;
@@ -666,7 +661,9 @@ fn contact_in(world: &World, inputs: &Inputs<'_>, event: &EventRow) -> Result<Ap
         match sender.get(&**message_id) {
             None => None,
             Some(known) if !known.parses() => return Err(Error::unsupported("a belief is for the Python rule to read")),
-            Some(known) => Some((message.truth_status.clone(), message.source_id.clone(), known.belief.clone(), known.source.clone(), known.last_event_id.clone())),
+            Some(known) => {
+                Some((message.truth_status.clone(), message.source_id.clone(), known.belief.clone(), known.source.clone(), known.last_event_id.clone()))
+            }
         }
     };
     // What no longer applies is suppressed, with the rule's text.

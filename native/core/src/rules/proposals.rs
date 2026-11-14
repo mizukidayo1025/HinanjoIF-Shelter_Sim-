@@ -484,7 +484,15 @@ fn plan_toilet(world: &World, events: &Events<'_>, trips: &Trips<'_>, agent_id: 
 }
 
 /// The `fetch_water` and `collect_meal` branch, changing nothing.
-fn plan_resource(world: &World, events: &Events<'_>, trips: &Trips<'_>, agent_id: &Arc<str>, zone_id: &Arc<str>, kind: &str, minute: i64) -> Result<TripEffect> {
+fn plan_resource(
+    world: &World,
+    events: &Events<'_>,
+    trips: &Trips<'_>,
+    agent_id: &Arc<str>,
+    zone_id: &Arc<str>,
+    kind: &str,
+    minute: i64,
+) -> Result<TripEffect> {
     let mut effect = TripEffect::new();
     let selected = travel::select(world, &trips.routing(), trips.knows, agent_id, Some(kind), &mut effect.waits)?;
     events.reserve(effect.waits.len());
@@ -554,7 +562,14 @@ fn queue_at_once(world: &World, inputs: &Inputs<'_>, trips: &Trips<'_>, agent_id
                 return Err(Error::unsupported(MANAGER_UNREAD).into());
             };
             let geo = plan_of(trips.walk.geo)?;
-            let manager = Manager { config, service: held.clone(), ledger: ledger.clone(), queues: trips.queues.clone(), geo, metric_state_held: inputs.metric_state_held };
+            let manager = Manager {
+                config,
+                service: held.clone(),
+                ledger: ledger.clone(),
+                queues: trips.queues.clone(),
+                geo,
+                metric_state_held: inputs.metric_state_held,
+            };
             let pending = pending_reserves(world)?;
             let request = service::Request { agent_id, facility_id, minute: Minute::Absent, queue_id: None, needs: trips.needs };
             match service::queue_up(world, &manager, &request, &pending)? {
@@ -1038,7 +1053,13 @@ pub fn seek_write(world: &mut World, inputs: &Inputs<'_>, proposal: &Proposal) -
 /// hooks through the host, each with nothing borrowed (rule R6). A `ValueError` of any of them is
 /// the step's `except ValueError`: the metric of a refused request. The person's next decision is
 /// read again after the host, which may have changed it.
-pub fn seek_after<C: WorldCell, H: Host>(cell: &C, host: &mut H, inputs: &Inputs<'_>, proposal: &Proposal, sought: Sought) -> std::result::Result<Applied, H::Error> {
+pub fn seek_after<C: WorldCell, H: Host>(
+    cell: &C,
+    host: &mut H,
+    inputs: &Inputs<'_>,
+    proposal: &Proposal,
+    sought: Sought,
+) -> std::result::Result<Applied, H::Error> {
     let (request_id, is_open, minute, interrupted, pressure_due) = match sought {
         Sought::Rejected { next } => return Ok(Applied { target: None, next_decision_at: next, committed: false }),
         Sought::Asked { request_id, is_open, minute, interrupted, pressure_due } => (request_id, is_open, minute, interrupted, pressure_due),

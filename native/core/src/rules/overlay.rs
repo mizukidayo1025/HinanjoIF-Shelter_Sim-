@@ -32,8 +32,8 @@ use crate::entities::{Activity, Entities};
 use crate::error::{Error, Result};
 use crate::events::EventRow;
 use crate::geometry::{
-    is_identifier, point_in_polygon, point_in_value, point_segment_distance, point_walkable, points_in_value, polyline_length,
-    segment_clear_of_polygon, segment_inside_polygon, usable, Constraints, Geo, Layout, Pt,
+    is_identifier, point_in_polygon, point_in_value, point_segment_distance, point_walkable, points_in_value, polyline_length, segment_clear_of_polygon,
+    segment_inside_polygon, usable, Constraints, Geo, Layout, Pt,
 };
 use crate::host::{Contract, Host};
 use crate::mathx::{hypot, pow, py_max, py_min, py_round, py_sum};
@@ -398,8 +398,19 @@ fn spaces_pass(state: &V, rows: &Entities) -> Result<bool> {
     for (space_id, row) in spaces {
         let row = map_of(row)?;
         let names = [
-            "space_id", "zone_id", "people_capacity", "sleeping_capacity", "start_minute", "end_minute", "active",
-            "start_event_id", "end_event_id", "program_id", "effect_id", "source_ids", "geometry_status",
+            "space_id",
+            "zone_id",
+            "people_capacity",
+            "sleeping_capacity",
+            "start_minute",
+            "end_minute",
+            "active",
+            "start_event_id",
+            "end_event_id",
+            "program_id",
+            "effect_id",
+            "source_ids",
+            "geometry_status",
         ];
         if !has_exactly(row, &names) || str_of(row, "space_id")? != space_id || !rows.zones.contains_key(str_of(row, "zone_id")?) {
             return refuse("a space has another shape");
@@ -818,7 +829,12 @@ fn admission_point_after(world: &World, intake: &Intake<'_>, state: &RoomParts, 
     }
     ordered.sort_by(|first, second| {
         let (a, b) = (first.1, second.1);
-        first.0.partial_cmp(&second.0).unwrap_or(std::cmp::Ordering::Equal).then(a.x.partial_cmp(&b.x).unwrap_or(std::cmp::Ordering::Equal)).then(a.y.partial_cmp(&b.y).unwrap_or(std::cmp::Ordering::Equal))
+        first
+            .0
+            .partial_cmp(&second.0)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then(a.x.partial_cmp(&b.x).unwrap_or(std::cmp::Ordering::Equal))
+            .then(a.y.partial_cmp(&b.y).unwrap_or(std::cmp::Ordering::Equal))
     });
     let radius = square(ADMISSION_RADIUS)?;
     let zone_id = match room.get("zone_id") {
@@ -1036,9 +1052,9 @@ pub fn plan_bed(world: &World, beds: &Beds<'_>, agent_id: &str) -> Result<Option
     let mut attempts = 0;
     let mut best: Option<(i64, Arc<str>, i64, Pt, Arc<[Pt]>)> = None;
     let mut consider = |travel: i64, room_id: &Arc<str>, index: i64, bed: Pt, path: Arc<[Pt]>| {
-        let better = best.as_ref().is_none_or(|(known, known_room, known_index, _, _)| {
-            (travel, room_id.as_bytes(), index) < (*known, known_room.as_bytes(), *known_index)
-        });
+        let better = best
+            .as_ref()
+            .is_none_or(|(known, known_room, known_index, _, _)| (travel, room_id.as_bytes(), index) < (*known, known_room.as_bytes(), *known_index));
         if better {
             best = Some((travel, room_id.clone(), index, bed, path));
         }
@@ -1445,7 +1461,11 @@ struct Edge {
 
 fn edges_of(world: &World) -> Result<HashMap<Arc<str>, Edge>> {
     let rows = zone_rows(world)?;
-    Ok(rows.zone_edges.iter().map(|(id, edge)| (id.clone(), Edge { from: edge.from_zone_id.clone(), to: edge.to_zone_id.clone(), closed: edge.closed })).collect())
+    Ok(rows
+        .zone_edges
+        .iter()
+        .map(|(id, edge)| (id.clone(), Edge { from: edge.from_zone_id.clone(), to: edge.to_zone_id.clone(), closed: edge.closed }))
+        .collect())
 }
 
 fn constraints_of_plan(geo: &Geo) -> Result<&Constraints> {
@@ -1997,7 +2017,10 @@ fn check_op(world: &World, change: &Change<'_>, geo: &Geo, op: &str, target: &st
             }
             for row in rooms.values() {
                 let row = map_of(row)?;
-                if flag_of(row, "active")? && matches!(row.get("zone_id"), Some(V::Str(zone)) if &**zone == target) && polygons_overlap(&polygon, &polygon_of(row.get("polygon_m"))?) {
+                if flag_of(row, "active")?
+                    && matches!(row.get("zone_id"), Some(V::Str(zone)) if &**zone == target)
+                    && polygons_overlap(&polygon, &polygon_of(row.get("polygon_m"))?)
+                {
                     return invalid("area_invalid: temporary room overlaps another active room");
                 }
             }
@@ -2409,10 +2432,20 @@ pub fn check_overlay(world: &World, overlay: &Held, geo: Option<&Geo>) -> Result
     };
     let state = map_of(&value.0)?;
     const NAMES: [&str; 9] = [
-        "schema_version", "policy_version", "facility_points", "partitions", "route_modifiers", "history", "temporary_rooms",
-        "bed_reservations", "room_admissions",
+        "schema_version",
+        "policy_version",
+        "facility_points",
+        "partitions",
+        "route_modifiers",
+        "history",
+        "temporary_rooms",
+        "bed_reservations",
+        "room_admissions",
     ];
-    if state.keys().any(|key| !NAMES.contains(&&**key)) || state.get("schema_version") != Some(&V::Int(1)) || str_of(state, "policy_version")?.as_ref() != POLICY_OVERLAY {
+    if state.keys().any(|key| !NAMES.contains(&&**key))
+        || state.get("schema_version") != Some(&V::Int(1))
+        || str_of(state, "policy_version")?.as_ref() != POLICY_OVERLAY
+    {
         return refuse("the overlay has another shape");
     }
     let empty = IndexMap::new();
@@ -2452,7 +2485,10 @@ pub fn check_overlay(world: &World, overlay: &Held, geo: Option<&Geo>) -> Result
         let transition = str_of(row, "transition_id")?;
         if !is_identifier(transition)
             || !is_identifier(str_of(row, "target_id")?)
-            || !matches!(&**str_of(row, "op")?, "move_facility" | "transfer_equipment" | "set_partition" | "set_route_access" | "temporary_room_geometry" | "install_facility")
+            || !matches!(
+                &**str_of(row, "op")?,
+                "move_facility" | "transfer_equipment" | "set_partition" | "set_route_access" | "temporary_room_geometry" | "install_facility"
+            )
             || !matches!(&**str_of(row, "status")?, "applied" | "expired")
             || !match row.get("causation_id") {
                 Some(V::Null) => true,
@@ -2474,10 +2510,7 @@ pub fn check_overlay(world: &World, overlay: &Held, geo: Option<&Geo>) -> Result
     // Facility and person facts, read once.
     let (facility_zones, agents): (HashMap<Arc<str>, Arc<str>>, HashSet<Arc<str>>) = {
         let rows = world.rows()?;
-        (
-            rows.facilities.iter().map(|(id, facility)| (id.clone(), facility.zone_id.clone())).collect(),
-            rows.agents.iter().map(|(id, _)| id.clone()).collect(),
-        )
+        (rows.facilities.iter().map(|(id, facility)| (id.clone(), facility.zone_id.clone())).collect(), rows.agents.iter().map(|(id, _)| id.clone()).collect())
     };
     let mut active_rooms: Vec<(&Arc<str>, Vec<Pt>, &Arc<str>)> = Vec::new();
     let mut room_capacity: HashMap<&str, i64> = HashMap::new();
@@ -2485,8 +2518,22 @@ pub fn check_overlay(world: &World, overlay: &Held, geo: Option<&Geo>) -> Result
     for (room_id, room) in rooms {
         let room = map_of(room)?;
         let names = [
-            "schema_version", "room_id", "zone_id", "polygon_m", "people_capacity", "sleeping_capacity", "bed_points_m", "route_edge_ids",
-            "start_minute", "end_minute", "active", "start_event_id", "end_event_id", "program_id", "effect_id", "source_ids",
+            "schema_version",
+            "room_id",
+            "zone_id",
+            "polygon_m",
+            "people_capacity",
+            "sleeping_capacity",
+            "bed_points_m",
+            "route_edge_ids",
+            "start_minute",
+            "end_minute",
+            "active",
+            "start_event_id",
+            "end_event_id",
+            "program_id",
+            "effect_id",
+            "source_ids",
         ];
         if !has_exactly(room, &names) || room.get("schema_version") != Some(&V::Int(1)) || !is_identifier(room_id) {
             return refuse("a room has another shape");

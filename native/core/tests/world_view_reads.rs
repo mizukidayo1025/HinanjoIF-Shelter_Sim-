@@ -122,7 +122,8 @@ fn the_proposal_view_reads_again_what_the_update_phase_writes() {
 #[test]
 fn a_changed_context_is_seen_at_the_next_view() {
     let mut case = case("generated");
-    let roles = |data: &sheltersim_core::rules::world_view::ViewData| -> Vec<String> { agent(data, "A001").person.roles.iter().map(|role| role.to_string()).collect() };
+    let roles =
+        |data: &sheltersim_core::rules::world_view::ViewData| -> Vec<String> { agent(data, "A001").person.roles.iter().map(|role| role.to_string()).collect() };
     assert_eq!(roles(&case.after_movement()), ["alone"]);
     let set_roles = |case: &Case, role: &str| case.configs(|configs| views::set(configs, &["population_context", "people", "A001"], "roles", list(&[role])));
     set_roles(&case, "parent");

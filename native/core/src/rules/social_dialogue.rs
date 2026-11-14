@@ -39,11 +39,7 @@ struct Captured {
 
 impl Captured {
     fn of(row: &AgentRow) -> Self {
-        Self {
-            stress: row.stress,
-            trust: row.trust,
-            needs: [row.needs.toilet_urgency, row.needs.hunger, row.needs.fatigue, row.needs.hydration_need],
-        }
+        Self { stress: row.stress, trust: row.trust, needs: [row.needs.toilet_urgency, row.needs.hunger, row.needs.fatigue, row.needs.hydration_need] }
     }
 
     fn in_bounds(&self) -> bool {
@@ -82,14 +78,7 @@ fn read_capture(world: &World, ids: &[&str]) -> Result<Capture> {
         ids.iter()
             .map(|id| {
                 row.agents.get(*id).map(|record| {
-                    [
-                        record.positive_affect,
-                        record.negative_affect,
-                        record.reassurance,
-                        record.discontent,
-                        record.uncertainty,
-                        record.hygiene_need,
-                    ]
+                    [record.positive_affect, record.negative_affect, record.reassurance, record.discontent, record.uncertainty, record.hygiene_need]
                 })
             })
             .collect()
@@ -145,9 +134,7 @@ fn context_of(ids: &[&str], capture: &Capture) -> V {
         let needs = names.need_names.iter().zip(person.needs).map(|(name, value)| (name.clone(), V::Float(value)));
         state.insert(names.needs.clone(), V::Map(needs.collect()));
         let affect = match affect {
-            Some(values) => {
-                V::Map(names.affect_names.iter().zip(values).map(|(name, value)| (name.clone(), V::Float(*value))).collect())
-            }
+            Some(values) => V::Map(names.affect_names.iter().zip(values).map(|(name, value)| (name.clone(), V::Float(*value))).collect()),
             None => V::Null,
         };
         state.insert(names.affect.clone(), affect);

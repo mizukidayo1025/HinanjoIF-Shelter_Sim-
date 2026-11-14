@@ -204,7 +204,8 @@ fn finite(value: &V) -> bool {
 
 fn selector(value: &V) -> Result<Selector> {
     let fields = Fields::of(value, "target_selector", &["kind", "target_id", "candidate_ids"])?;
-    let found = Selector { kind: fields.stable_id("kind")?, target_id: fields.optional_id("target_id")?, candidate_ids: fields.ids("candidate_ids", MAX_CANDIDATES)? };
+    let found =
+        Selector { kind: fields.stable_id("kind")?, target_id: fields.optional_id("target_id")?, candidate_ids: fields.ids("candidate_ids", MAX_CANDIDATES)? };
     if found.target_id.is_none() && found.candidate_ids.is_empty() {
         return refuse("a target ID or candidate IDs are required");
     }
@@ -388,7 +389,17 @@ impl EffectProgram {
         let fields = Fields::of(
             value,
             "program",
-            &["schema_version", "program_id", "narrative", "source_text", "simulation_start_minute", "effects", "assumptions", "support_mode", "compiler_provenance"],
+            &[
+                "schema_version",
+                "program_id",
+                "narrative",
+                "source_text",
+                "simulation_start_minute",
+                "effects",
+                "assumptions",
+                "support_mode",
+                "compiler_provenance",
+            ],
         )?;
         if !matches!(fields.get("schema_version"), None | Some(V::Int(1))) {
             return refuse("schema_version is not 1");
@@ -1066,7 +1077,15 @@ fn approach_problem(configs: &Map, route_id: &str, zone_id: &str) -> Result<Opti
 
 /// The limit of active environment modifiers in each zone, over the modifiers active now, those
 /// pending, and the program's (none of the six operators adds one).
-fn environment_limits(world: &World, config: &V, events: &[Arc<EventRow>], zone_known: &dyn Fn(&str) -> bool, minute: i64, duration: i64, issues: &mut Vec<String>) -> Result<()> {
+fn environment_limits(
+    world: &World,
+    config: &V,
+    events: &[Arc<EventRow>],
+    zone_known: &dyn Fn(&str) -> bool,
+    minute: i64,
+    duration: i64,
+    issues: &mut Vec<String>,
+) -> Result<()> {
     let limit = match config {
         V::Map(config) => match config.get("max_active_modifiers_per_zone") {
             Some(V::Int(limit)) => *limit,
@@ -1092,7 +1111,9 @@ fn environment_limits(world: &World, config: &V, events: &[Arc<EventRow>], zone_
         if &*event.event_type != "effect_program_environment" {
             continue;
         }
-        let (Some(V::Str(modifier)), Some(V::Str(zone)), Some(V::Int(end))) = (payload(event, "modifier_id"), payload(event, "zone_id"), payload(event, "end_minute")) else {
+        let (Some(V::Str(modifier)), Some(V::Str(zone)), Some(V::Int(end))) =
+            (payload(event, "modifier_id"), payload(event, "zone_id"), payload(event, "end_minute"))
+        else {
             continue;
         };
         if !modifiers.contains_key(modifier) && zone_known(zone) && event.due_minute < *end && *end < duration {
@@ -1118,7 +1139,9 @@ fn toilet_placement(world: &World, additions: &[(String, Arc<str>, i64)], placem
     if !placement.enabled {
         return Ok(additions
             .iter()
-            .map(|(label, _, _)| format!("{label} cannot place added toilets on this floor plan; it needs geometry_overlay schema_version=4 (create the Scenario again)"))
+            .map(|(label, _, _)| {
+                format!("{label} cannot place added toilets on this floor plan; it needs geometry_overlay schema_version=4 (create the Scenario again)")
+            })
             .collect());
     }
     let candidate = world.fork()?;
@@ -1344,7 +1367,13 @@ fn schedule_on(world: &World, program: &EffectProgram) -> Result<Receipt> {
             provenance: [(Arc::from(EFFECT_PROGRAM), V::Map(marker))].into_iter().collect(),
         })?;
         events.schedule(row).map_err(Error::from)?;
-        world.row_mut::<EffectProgramRow>(EFFECT_PROGRAM)?.programs.get_mut(&*program.program_id).ok_or_else(|| Error::Runtime("the program left its state".to_owned()))?.scheduled_event_ids.push(event_id.clone());
+        world
+            .row_mut::<EffectProgramRow>(EFFECT_PROGRAM)?
+            .programs
+            .get_mut(&*program.program_id)
+            .ok_or_else(|| Error::Runtime("the program left its state".to_owned()))?
+            .scheduled_event_ids
+            .push(event_id.clone());
         event_ids.push(event_id.clone());
         Ok(event_id)
     };
@@ -1376,7 +1405,15 @@ fn schedule_on(world: &World, program: &EffectProgram) -> Result<Receipt> {
                     None,
                 )?;
                 if let Some(end) = effect.end_minute {
-                    make(effect, end, "effect_program_expire", head(&[("modifier_id", modifier), ("facility_id", V::Str(target.clone()))]), "expiry", 20, Some(start))?;
+                    make(
+                        effect,
+                        end,
+                        "effect_program_expire",
+                        head(&[("modifier_id", modifier), ("facility_id", V::Str(target.clone()))]),
+                        "expiry",
+                        20,
+                        Some(start),
+                    )?;
                 }
             }
             "water_outage" => {

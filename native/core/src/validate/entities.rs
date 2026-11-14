@@ -99,11 +99,7 @@ fn invariant<T>(text: impl Into<String>) -> Result<T> {
 /// The rows of the pending events, in the queue's order (`event_queue.pending()`).
 pub(super) fn pending_events(view: &View<'_>) -> Result<Vec<Arc<EventRow>>> {
     let queue = view.queue()?;
-    queue
-        .ordered()
-        .iter()
-        .map(|(_, serial)| queue.slot(*serial).row.clone().ok_or_else(|| Error::unsupported(crate::rules::tick_validation::NO_ROW)))
-        .collect()
+    queue.ordered().iter().map(|(_, serial)| queue.slot(*serial).row.clone().ok_or_else(|| Error::unsupported(crate::rules::tick_validation::NO_ROW))).collect()
 }
 
 // ---- Keys, edges and routes -----------------------------------------------------------------------
@@ -639,11 +635,8 @@ impl<'a> Tasks<'a> {
             };
             let destination = get(&event.payload, "destination_zone_id");
             let purpose = get(&event.payload, "purpose");
-            let target = if is_text(purpose, "toilet_request") || is_text(purpose, "resource_request") {
-                get(&event.payload, "facility_id")
-            } else {
-                destination
-            };
+            let target =
+                if is_text(purpose, "toilet_request") || is_text(purpose, "resource_request") { get(&event.payload, "facility_id") } else { destination };
             if !in_table(destination, |key| rows.zones.contains_key(key))? || !same(target, agent.target_id.as_deref()) {
                 return invariant(format!("travel task {id} has an invalid destination"));
             }
@@ -765,7 +758,8 @@ fn staff(rows: &Entities) -> Result<()> {
     Ok(())
 }
 
-const WAIT_REASONS: [&str; 4] = ["no_available_qualified_staff", "route_unavailable_at_assignment", "insufficient_run_time", "resident_travel_schedule_rejected"];
+const WAIT_REASONS: [&str; 4] =
+    ["no_available_qualified_staff", "route_unavailable_at_assignment", "insufficient_run_time", "resident_travel_schedule_rejected"];
 
 fn requests(rows: &Entities, tasks: &Tasks<'_>, events: &Events<'_>, pending: &[Arc<EventRow>], minute: i64, duration: i64) -> Result<()> {
     // The open (pending or assigned) requests of each Agent, in the requests' order.

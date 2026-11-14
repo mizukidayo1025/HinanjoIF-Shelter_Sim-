@@ -32,9 +32,7 @@ fn part<'a>(corpus: &'a Value, case: &'a Value, name: &str) -> Option<&'a str> {
 /// The request the server validated: the form's when the body has one, else the text's.
 fn validated(case: &Value) -> Option<Result<InitialScenarioRequest, Refusal>> {
     match case["body"].get("request") {
-        Some(request) if request.as_object().is_some_and(|fields| !fields.is_empty()) => {
-            Some(InitialScenarioRequest::of_value(&v(request)))
-        }
+        Some(request) if request.as_object().is_some_and(|fields| !fields.is_empty()) => Some(InitialScenarioRequest::of_value(&v(request))),
         _ => case["answer"].get("request").map(|request| InitialScenarioRequest::of_value(&v(request))),
     }
 }
@@ -79,11 +77,7 @@ fn the_population_of_each_scenario_is_the_server_s() {
         sorted.sort_by(|first, second| first.id.as_bytes().cmp(second.id.as_bytes()));
         let profiles = V::List(sorted.into_iter().map(|profile| profile.dump()).collect());
         assert_eq!(Some(short(&profiles).as_str()), part(&corpus, case, "profiles"), "{name}");
-        assert_eq!(
-            Some(short(&population.profile_set.manifest.dump()).as_str()),
-            part(&corpus, case, "provenance.profile_generation"),
-            "{name}"
-        );
+        assert_eq!(Some(short(&population.profile_set.manifest.dump()).as_str()), part(&corpus, case, "provenance.profile_generation"), "{name}");
         checked += 1;
     }
     assert!(checked > 40, "{checked} scenarios");
@@ -104,8 +98,7 @@ fn the_conditions_and_context_of_each_scenario_are_the_server_s() {
         }
         let request = InitialScenarioRequest::of_value(&v(&case["answer"]["request"])).unwrap();
         let minutes = request.duration_minutes().max(1);
-        let (provisioned, _) =
-            with_standard_provisioning(&request.operational_conditions, request.evacuees, minutes, request.default_supply_start_day);
+        let (provisioned, _) = with_standard_provisioning(&request.operational_conditions, request.evacuees, minutes, request.default_supply_start_day);
         let compiled = provisioned.compile(minutes, &STANDARD_SERVICES).unwrap();
         // A Scenario without a stock has no `initial_stock` part.
         let stock = compiled.initial_stock.as_ref().map(|stock| short(&stock.dump()));
@@ -130,11 +123,7 @@ fn the_conditions_and_context_of_each_scenario_are_the_server_s() {
         let V::Map(fields) = &dump else { unreachable!() };
         assert_eq!(Some(short(&fields["operational_conditions"]).as_str()), part(&corpus, case, "provenance.operational_conditions"), "{name}");
         let population = generate_population(&PopulationInput::for_request(request.evacuees, request.seed)).unwrap();
-        assert_eq!(
-            Some(short(&population_context(&population)).as_str()),
-            part(&corpus, case, "model_configs.population_context"),
-            "{name}"
-        );
+        assert_eq!(Some(short(&population_context(&population)).as_str()), part(&corpus, case, "model_configs.population_context"), "{name}");
         checked += 1;
     }
     assert!(checked > 40, "{checked} scenarios");

@@ -11,9 +11,7 @@ use indexmap::IndexMap;
 use sheltersim_core::cell::Shard;
 use sheltersim_core::config::{Fault, FaultClass};
 use sheltersim_core::error::Error;
-use sheltersim_core::host::{
-    Contract, Decision, DecisionSink, ErrorClass, Host, HostFailure, Llm, Part, Phase, Stage, Trace, TraceLevel, TxnKind, NO_DRAW,
-};
+use sheltersim_core::host::{Contract, Decision, DecisionSink, ErrorClass, Host, HostFailure, Llm, Part, Phase, Stage, Trace, TraceLevel, TxnKind, NO_DRAW};
 use sheltersim_core::mathx::MathError;
 use sheltersim_core::run::held::{Class, Held, Obj, NOT_READ, NO_CONTROLLER};
 use sheltersim_core::run::policies::CONTROLLER;
@@ -158,13 +156,14 @@ fn a_class_another_kernel_does_not_know_is_its_refusal() {
     // A subclass in a test module: psychology knows its model by names, the others by `is`.
     let psychology = object("tests.helpers", "SimplePsychologyPolicy", vec![]);
     put(&mut found, "psychology", Ok(psychology));
-    let decisions = object("sheltersim.policies.behavior", "BehaviorDecisionRunner", vec![(
-        "policy",
-        Ok(object("sheltersim.policies.behavior", "PriorityRuleBehaviorPolicy", vec![(
-            "scorer",
-            Ok(object("tests.helpers", "Counting", vec![])),
-        )])),
-    )]);
+    let decisions = object(
+        "sheltersim.policies.behavior",
+        "BehaviorDecisionRunner",
+        vec![(
+            "policy",
+            Ok(object("sheltersim.policies.behavior", "PriorityRuleBehaviorPolicy", vec![("scorer", Ok(object("tests.helpers", "Counting", vec![])))])),
+        )],
+    );
     put(&mut found, "decisions", Ok(decisions));
     let information = object("tests.helpers", "Other", vec![]);
     put(&mut found, "information_policy", Ok(information));
@@ -337,12 +336,7 @@ fn a_rule_asks_the_host_and_reads_the_world_again() {
     let mut host = TestHost::default();
     assert_eq!(complain(&cell, &mut host, &[("a", "r1")]), Ok(7));
     assert!(host.calls.is_empty());
-    let mut host = TestHost {
-        llm: Llm { router: false, social_policy: true },
-        level: TraceLevel::Full,
-        sink: DecisionSink::Indexed,
-        ..TestHost::default()
-    };
+    let mut host = TestHost { llm: Llm { router: false, social_policy: true }, level: TraceLevel::Full, sink: DecisionSink::Indexed, ..TestHost::default() };
     assert_eq!(complain(&cell, &mut host, &[("a", "r1"), ("b", "r2")]), Ok(7));
     assert_eq!(
         host.calls,

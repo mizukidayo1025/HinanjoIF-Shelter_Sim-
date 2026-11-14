@@ -59,13 +59,7 @@ fn same_value(left: Object, right: Object, depth: usize) -> bool {
         if kind == addr_of_mut!(ffi::PyList_Type) {
             let count = ffi::PyList_Size(left);
             return count == ffi::PyList_Size(right)
-                && (0..count).all(|index| {
-                    same_value(
-                        ffi::PyList_GetItem(left, index),
-                        ffi::PyList_GetItem(right, index),
-                        depth - 1,
-                    )
-                });
+                && (0..count).all(|index| same_value(ffi::PyList_GetItem(left, index), ffi::PyList_GetItem(right, index), depth - 1));
         }
         if kind == addr_of_mut!(ffi::PyDict_Type) {
             if ffi::PyDict_Size(left) != ffi::PyDict_Size(right) {
@@ -92,12 +86,7 @@ fn same_value(left: Object, right: Object, depth: usize) -> bool {
 
 /// Whether each of `current[:count]` is exactly `documents[start + i]`.
 #[pyfunction]
-pub fn same_json_items(
-    current: &Bound<'_, PyAny>,
-    documents: &Bound<'_, PyList>,
-    start: usize,
-    count: usize,
-) -> bool {
+pub fn same_json_items(current: &Bound<'_, PyAny>, documents: &Bound<'_, PyList>, start: usize, count: usize) -> bool {
     let Some(current) = as_readable_list(current) else {
         return false;
     };
@@ -107,13 +96,7 @@ pub fn same_json_items(
     let (left, right) = (current.as_ptr(), documents.as_ptr());
     (0..count).all(|index| {
         // SAFETY: both indexes were checked against lists that nothing here changes.
-        unsafe {
-            same_value(
-                ffi::PyList_GetItem(left, index as ffi::Py_ssize_t),
-                ffi::PyList_GetItem(right, (start + index) as ffi::Py_ssize_t),
-                MAX_DEPTH,
-            )
-        }
+        unsafe { same_value(ffi::PyList_GetItem(left, index as ffi::Py_ssize_t), ffi::PyList_GetItem(right, (start + index) as ffi::Py_ssize_t), MAX_DEPTH) }
     })
 }
 
@@ -257,10 +240,7 @@ impl HistoryPins {
         let Some(current) = as_readable_list(current) else {
             return false;
         };
-        if self.broken
-            || start.saturating_add(count) != self.entries.len() - self.head
-            || count > current.len()
-        {
+        if self.broken || start.saturating_add(count) != self.entries.len() - self.head || count > current.len() {
             return false;
         }
         let list = current.as_ptr();
@@ -293,13 +273,7 @@ impl HistoryPins {
     }
 
     /// Add `current[start:]`, each shown equal to the same place of `documents` first.
-    fn extend(
-        &mut self,
-        py: Python<'_>,
-        current: &Bound<'_, PyAny>,
-        documents: &Bound<'_, PyList>,
-        start: usize,
-    ) {
+    fn extend(&mut self, py: Python<'_>, current: &Bound<'_, PyAny>, documents: &Bound<'_, PyList>, start: usize) {
         let Some(current) = as_readable_list(current) else {
             self.broken = true;
             return;
@@ -311,12 +285,7 @@ impl HistoryPins {
         let (left, right) = (current.as_ptr(), documents.as_ptr());
         for index in start..current.len() {
             // SAFETY: both lengths were checked, and nothing here changes the lists.
-            let (entry, document) = unsafe {
-                (
-                    ffi::PyList_GetItem(left, index as ffi::Py_ssize_t),
-                    ffi::PyList_GetItem(right, index as ffi::Py_ssize_t),
-                )
-            };
+            let (entry, document) = unsafe { (ffi::PyList_GetItem(left, index as ffi::Py_ssize_t), ffi::PyList_GetItem(right, index as ffi::Py_ssize_t)) };
             self.entries.push((self.objects.len(), self.sizes.len()));
             if !same_value(entry, document, MAX_DEPTH) || !self.pin(py, entry, MAX_DEPTH + 1) {
                 self.broken = true;

@@ -52,16 +52,7 @@ impl TreeSink for Writes {
 }
 
 fn sample() -> Sample {
-    Sample {
-        zeta: 1.5,
-        alpha: -0.0,
-        Beta: true,
-        é: Arc::from("x\"y"),
-        ab: None,
-        a: vec![1, 2],
-        gone: Maybe(None),
-        phase: Phase::Busy,
-    }
+    Sample { zeta: 1.5, alpha: -0.0, Beta: true, é: Arc::from("x\"y"), ab: None, a: vec![1, 2], gone: Maybe(None), phase: Phase::Busy }
 }
 
 fn json<T: Field>(value: &T) -> String {
@@ -73,10 +64,7 @@ fn json<T: Field>(value: &T) -> String {
 #[test]
 fn a_record_writes_its_keys_in_byte_order_and_leaves_out_an_absent_one() {
     assert_eq!(Sample::NAMES, ["zeta", "alpha", "Beta", "é", "ab", "a", "gone", "phase"]);
-    assert_eq!(
-        json(&sample()),
-        r#"{"Beta":true,"a":[1,2],"ab":null,"alpha":-0.0,"phase":"busy","zeta":1.5,"é":"x\"y"}"#,
-    );
+    assert_eq!(json(&sample()), r#"{"Beta":true,"a":[1,2],"ab":null,"alpha":-0.0,"phase":"busy","zeta":1.5,"é":"x\"y"}"#,);
     let mut with_key = sample();
     with_key.gone = Maybe(Some(7));
     assert!(json(&with_key).contains(r#""ab":null,"alpha":-0.0,"gone":7,"phase""#));
@@ -131,10 +119,7 @@ fn a_set_of_strings_and_its_misfit() {
 fn an_absent_key_and_a_float_json_refuses() {
     let mut encoder = Encoder::default();
     assert_eq!(Field::write_json(&Maybe::<i64>(None), &mut encoder), Err(Error::Value("an absent key has no value".into())));
-    assert_eq!(
-        Field::write_json(&f64::NAN, &mut encoder),
-        Err(Error::Unsupported("NaN and infinity are left to json".into())),
-    );
+    assert_eq!(Field::write_json(&f64::NAN, &mut encoder), Err(Error::Unsupported("NaN and infinity are left to json".into())),);
 }
 
 #[test]

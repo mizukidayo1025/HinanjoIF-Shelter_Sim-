@@ -362,7 +362,9 @@ pub fn kpi_rows(world: &World, ledger: &crate::rules::kit::Held, metric_state_he
         (means, queues)
     };
     let reserved = match ledger {
-        Held::Held => world.row::<crate::state::resource_ledger::LedgerRow>(crate::state::resource_ledger::NAME).map(|row| [row.accounts.of(0).reserved, row.accounts.of(1).reserved]),
+        Held::Held => world
+            .row::<crate::state::resource_ledger::LedgerRow>(crate::state::resource_ledger::NAME)
+            .map(|row| [row.accounts.of(0).reserved, row.accounts.of(1).reserved]),
         Held::Absent => Err(Error::unsupported("the world holds another ledger")),
         Held::Other(reason) => Err(Error::unsupported(*reason)),
     };

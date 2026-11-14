@@ -1,4 +1,4 @@
-"""Walk the whole flow of the screen (/) in the browser version and compare it with the Python server (#311).
+"""Walk the screen's whole flow in the browser version and compare it with the Python server (#311).
 
     python benchmarks/static_site_e2e.py --site SITE_DIR --work DIR [--python-projects DIR]
         [--browsers chromium firefox] [--modes full pieces] [--stages ...] [--output result.json]
@@ -1456,9 +1456,7 @@ class Walk:
             self.page.click("#compare-refresh")
             self.wait_caught(since, "GET", r"/compare$", timeout_s=120)
         else:
-            self.open(
-                f"/?project={s.project}&run={s.run}&branch=main#simulation", "simulation"
-            )
+            self.open(f"/?project={s.project}&run={s.run}&branch=main#simulation", "simulation")
         since = self.mark()
         self.page.click("[data-page=report]")
         self.wait_caught(since, "GET", r"/report$", timeout_s=600)

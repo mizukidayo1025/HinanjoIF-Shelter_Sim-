@@ -130,9 +130,7 @@ def test_the_site_holds_the_screen_the_browser_api_and_the_sample_in_parts(
         part["sha256"] for part in manifest["parts"]
     ]
     assert summary["open"] == "/?project=sample&run=run-x&branch=main#simulation"
-    assert summary["compute"] == (
-        "/?project=sample&run=run-browser-compute&branch=main#simulation"
-    )
+    assert summary["compute"] == "/?project=sample&run=run-browser-compute&branch=main#simulation"
     # `/` is the screen itself, which opens on its home: the sample's Runs, the Run the browser
     # computes with its reset (api_fetch.js), and the licenses the site holds.
     assert (output / "index.html").read_text(encoding="utf-8") == browser_html

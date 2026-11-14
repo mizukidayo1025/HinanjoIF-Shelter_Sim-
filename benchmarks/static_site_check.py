@@ -7,7 +7,7 @@
 SITE_DIR is the output of scripts/build_static_site.py; it is served as a static host would
 (scripts/serve_static_site.py). In each browser, on a fresh profile (an empty OPFS):
 
-1. The screen: `/` (its home) links to `/?…`, the sample is fetched and imported, the simulation page
+1. The screen: its home `/` links to `/?…`, the sample is fetched and imported, the simulation page
    shows the sample's Run; seeking to a minute (the time slider), playing for a few seconds and
    the report page's history graph work, and the page reports no error (page errors, console
    errors, the notice's error state).

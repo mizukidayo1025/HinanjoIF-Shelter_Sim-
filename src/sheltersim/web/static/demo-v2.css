@@ -3659,6 +3659,51 @@ body:not([data-view="simulation"]):not([data-view="comparison"]) #play {
   opacity: 0.45;
   cursor: not-allowed;
 }
+/* 読み込み中（#412）：開いているページを薄くし、その中央に回る印を出す。すぐ終わる読み込みで
+   ちらつかないよう、少し遅れて出す。HTMLは読み込み中で始まる（init()が終わるまで）。 */
+.page-loading {
+  display: none;
+}
+body.is-loading .page-loading {
+  display: block;
+  position: fixed;
+  z-index: 30;
+  top: calc(50vh - 20px);
+  left: calc(var(--sidebar-width) + (100vw - var(--sidebar-width)) / 2 - 20px);
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 4px solid #cfe3fb;
+  border-top-color: #0a63e8;
+  pointer-events: none;
+  opacity: 0;
+  animation:
+    page-loading-in 0.15s 0.12s ease-out forwards,
+    page-loading-spin 0.8s linear infinite;
+}
+body.is-loading main > .page.active {
+  opacity: 0.4;
+  pointer-events: none;
+  transition: opacity 0.15s 0.12s;
+}
+@keyframes page-loading-in {
+  to {
+    opacity: 1;
+  }
+}
+@keyframes page-loading-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  /* 回さずに、印と薄い表示だけを出す（上の規則がanimationを止めるため、見える状態にしておく）。 */
+  body.is-loading .page-loading {
+    opacity: 1;
+    border-top-color: #cfe3fb;
+    border-color: #0a63e8 #cfe3fb #cfe3fb #cfe3fb;
+  }
+}
 /* シナリオ設定：開いているシナリオの条件、または作れない理由を出すときは、新しいシナリオの入力を隠す */
 body[data-scenario="open"] #page-scenario .steps,
 body[data-scenario="open"] #page-scenario .scenario-grid,

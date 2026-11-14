@@ -8,7 +8,7 @@ before the index existed, is rebuilt from its Checkpoints. An index of a version
 (#130) answers no history; rebuilding any of its Branches replaces it with a new file
 holding every Branch and the saved points of the old one.
 
-The history routes themselves are checked in tests/integration/test_project_evidence_routes.py.
+The history route itself is checked in tests/integration/test_project_evidence_routes.py.
 """
 
 from __future__ import annotations
@@ -42,14 +42,21 @@ KINDS = (
 
 
 def _history(api: ProjectAPI, branch_id: str, kind: str) -> list[dict]:
-    """Every record of one kind from the fork minute on, page by page."""
+    """Every record of one kind from the fork minute on, page by page.
+
+    Read from the index itself: the history route answers only the KPIs and conversations
+    since #376, but the index keeps every kind until it is removed (#368 step 10).
+    """
+    from sheltersim.contracts.workspace import HistoryQuery
+
     items: list[dict] = []
     cursor = None
     while True:
-        query = {"kind": [kind], "start": [str(FORK_MINUTE)], "end": [str(END)], "limit": ["100"]}
-        if cursor:
-            query["cursor"] = [cursor]
-        page = api.get(["p", "runs", "r", "branches", branch_id, "history"], query)
+        reference = api.store.branch_reference("p", "r", branch_id)
+        query = HistoryQuery(kind=kind, start=FORK_MINUTE, end=END, limit=100, cursor=cursor)
+        page = HistoryIndex(api.store, "p", "r").search(
+            branch_id, query, reference.checkpoint_hash, reference.computed_until
+        )
         items += page["items"]
         cursor = page.get("next_cursor")
         if not cursor:

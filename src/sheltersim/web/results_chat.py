@@ -175,7 +175,6 @@ class ResultsChatService:
             "run_id",
             "project_id",
             "comparison_branch_ids",
-            "history_query",
             "demo_branch_id",
             "branch_id",
             "minute",
@@ -226,9 +225,7 @@ class ResultsChatService:
             minute,
             agent_id,
             body.get("comparison_branch_ids", []),
-            body.get("history_query"),
         )
-        query_scope = context.get("history_scope")
         context_key = _digest(context)
         from sheltersim.storage.history_index import HistoryIndex
 
@@ -312,23 +309,10 @@ class ResultsChatService:
                 "requested_minute": context.get("requested_minute"),
                 "captured_minute": context.get("captured_minute"),
                 "entity_selected": bool(context.get("agent_id")),
-                "history_coverage": (
-                    {
-                        "kind": context["history_scope"].get("query", {}).get("kind"),
-                        **{
-                            key: context["history_scope"].get(key)
-                            for key in (
-                                "has_more",
-                                "causal_graph_truncated",
-                                "root_present",
-                                "complete_lifetime_history",
-                            )
-                            if key in context["history_scope"]
-                        },
-                    }
-                    if isinstance(context.get("history_scope"), dict)
-                    else None
-                ),
+                # Questions cited saved history pages until #376 (#368 decision A); the
+                # field stays so that the prompt, and the responses recorded for it, keep
+                # their form.
+                "history_coverage": None,
             },
             "recent_questions_and_answers": history,
             "question": question,
@@ -536,7 +520,6 @@ class ResultsChatService:
             "limitations": [
                 "回答は引用したRun・Branch・KPI・Event・モデル根拠に限られます。",
                 "質問は読み取り専用で、WorldStateは変更されません。",
-                "履歴の根拠は指定した読み取り専用ページの範囲です。未取得ページや切り詰められた過去の因果関係は推論しません。",
                 "AIの仮説・提案は保存記録ではなく、引用した数値・イベント以外の因果関係を確認したものではありません。",
                 *(
                     [
@@ -548,27 +531,6 @@ class ResultsChatService:
                 *(
                     ["一部の説明文は、形式または証拠検証に失敗したため表示していません。"]
                     if rejected_explanation
-                    else []
-                ),
-                *(
-                    [
-                        "この履歴ページは複数ページあります。引用したページ内の記録だけを使っています。"
-                    ]
-                    if query_scope and query_scope["has_more"]
-                    else []
-                ),
-                *(
-                    [
-                        "因果traceは保存上限で切り詰められています。全ての因果経路を網羅していません。"
-                    ]
-                    if query_scope and query_scope["causal_graph_truncated"]
-                    else []
-                ),
-                *(
-                    ["社会・スタッフ履歴は保持された記録のみで、完全な履歴ではありません。"]
-                    if query_scope
-                    and not query_scope["complete_lifetime_history"]
-                    and query_scope["query"]["kind"] in {"social", "staff"}
                     else []
                 ),
             ],
@@ -617,7 +579,6 @@ class ResultsChatService:
         minute: int | None,
         agent_id: str | None,
         comparisons: Any,
-        history_query: Any = None,
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
         from sheltersim.experiments.timeline import TimelineStore
 
@@ -662,71 +623,6 @@ class ResultsChatService:
                     },
                 }
             )
-
-        query_scope = None
-        if history_query is not None:
-            from sheltersim.contracts.workspace import HistoryQuery
-            from sheltersim.web.project_queries import ProjectQueries
-
-            query = HistoryQuery.model_validate(history_query)
-            end_of_tick = {"kpis", "events", "causal", "social", "staff"}
-            if (
-                query.kind == "conversations"
-                or query.limit > 10
-                or query.end > minute
-                or (query.kind in end_of_tick and query.end >= minute)
-            ):
-                raise WebQueryError(
-                    "question history requires non-conversation evidence through the "
-                    "selected minute, limit <= 10"
-                )
-            packet = ProjectQueries(self.projects.store).history(
-                project_id, run_id, branch_id, query
-            )
-            # Each retained row gets its own citation at its actual recorded minute.
-            proof_rows = [_proof_object(row) for row in packet.get("items", [])[:10]]
-            if len(json.dumps(proof_rows, ensure_ascii=False).encode()) > 20000:
-                raise WebQueryError(
-                    "history evidence is too broad; reduce the interval, page limit or "
-                    "selected household"
-                )
-            query_scope = {
-                "query": query.model_dump(mode="json"),
-                "anchor_hash": packet["anchor_hash"],
-                "has_more": bool(packet.get("next_cursor")),
-                "total_items": packet["total_items"],
-                "causal_graph_truncated": packet.get("causal_graph_truncated", False),
-                "root_present": packet.get("root_present"),
-                "complete_lifetime_history": packet.get("complete_lifetime_history", False),
-            }
-            for row in proof_rows:
-                item_minute = row.get("minute", minute)
-                if type(item_minute) is not int:
-                    item_minute = minute
-                people = row.get("people") if isinstance(row.get("people"), list) else []
-                actors = row.get("actor_ids") if isinstance(row.get("actor_ids"), list) else []
-                person_id = (
-                    row.get("agent_id")
-                    or (people[0].get("id") if people and isinstance(people[0], dict) else None)
-                    or (actors[0] if actors else None)
-                )
-                item_id = (
-                    row.get("event_id")
-                    or person_id
-                    or row.get("staff_id")
-                    or row.get("household_id")
-                    or row.get("minute")
-                    or f"{query.kind}-history"
-                )
-                reference_kind = (
-                    "event"
-                    if query.kind in {"events", "causal"} or row.get("event_id")
-                    else "agent"
-                    if person_id and query.kind in {"people", "households", "social"}
-                    else "kpi"
-                )
-                label = f"保存履歴 · {query.kind} · minute {item_minute} · {item_id}"
-                add(reference_kind, label, row, str(item_id), source_minute=item_minute)
 
         add(
             "kpi",
@@ -835,7 +731,9 @@ class ResultsChatService:
                 "captured_minute": minute,
                 "agent_id": agent_id,
                 "comparison_branch_ids": comparisons,
-                "history_scope": query_scope,
+                # Always None since history pages are no longer cited (#376); kept in
+                # the context, whose hash scopes the conversation as the browser's does.
+                "history_scope": None,
             },
         )
 

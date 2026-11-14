@@ -12,7 +12,7 @@
 //! checks of the hand-written readers (a journey's optional keys, the off-shift recovery's ints,
 //! the audit's records, the depth of a value).
 
-mod support;
+use crate::support;
 
 use serde_json::Value;
 use sheltersim_core::checkpoint::sha256_hex;

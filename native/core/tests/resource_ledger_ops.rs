@@ -12,7 +12,7 @@
 //! nothing (`canonical_of`). The entry writes the new balance into `world.resources`; here
 //! `operate` does, as the PyO3 crate's `replace_resources` does.
 
-mod support;
+use crate::support;
 
 use std::sync::Arc;
 

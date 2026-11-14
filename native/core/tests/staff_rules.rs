@@ -11,7 +11,7 @@
 //! fixture's values), or against a digest of what that rule gave, which the test writes again
 //! byte for byte (`support/dumps.rs`, `support/canonical.rs`).
 
-mod support;
+use crate::support;
 
 use std::sync::Arc;
 

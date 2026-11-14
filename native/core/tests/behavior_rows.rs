@@ -18,7 +18,7 @@
 //! one the pytest file pinned, taken from the deleted Python rules (45a9bc9) or, for what model
 //! version 2 changed, from the kernels of that model (that file's docstring).
 
-mod support;
+use crate::support;
 
 use std::cell::RefCell;
 use std::rc::Rc;

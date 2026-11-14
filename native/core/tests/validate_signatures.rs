@@ -7,7 +7,7 @@
 //! `ValidationError` of the configs (`FacilityGeometry`, `ScenarioZoneEnvironmentConfig`,
 //! `FacilityAwarenessConfig`) is the core's `Error::Validation`, with the same text (#360).
 
-mod support;
+use crate::support;
 
 use serde_json::Value;
 use sheltersim_core::validate::signatures::simulator_signatures;

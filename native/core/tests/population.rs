@@ -4,7 +4,7 @@
 //! `build_agent` with the Python constructors); these say what each reads, decides and writes,
 //! and what it asks of the host (the input contracts, policy E15).
 
-mod support;
+use crate::support;
 
 use std::sync::Arc;
 

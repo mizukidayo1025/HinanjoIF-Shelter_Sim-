@@ -2,7 +2,7 @@
 //! sections of the configs a host fills (`SectionId`, H2), the dispatcher's handlers as the Run
 //! reads them (`Policies::dispatch`, H3), a foreign handler (H4), and the clock's error.
 
-mod support;
+use crate::support;
 
 use std::rc::Rc;
 use std::sync::Arc;

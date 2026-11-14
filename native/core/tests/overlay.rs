@@ -4,7 +4,7 @@
 //! what each reads, decides and writes, and what it asks of the host (the parameters' contracts,
 //! policy E15).
 
-mod support;
+use crate::support;
 
 use std::sync::Arc;
 

@@ -4,7 +4,7 @@
 //! the steps' errors carry their labels, the dispatch's refusal is its entry's `KernelRefusal`, and a phase that
 //! moves the clock is the engine's error, with its text, before the observer hears the phase end.
 
-mod support;
+use crate::support;
 
 use std::cell::RefCell;
 use std::collections::HashMap;

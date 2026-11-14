@@ -5,7 +5,7 @@
 //! and text at each entry point: raw from `validate_simulator_extensions`, wrapped as "invalid
 //! simulator extension state" by `WorldState.validate`.
 
-mod support;
+use crate::support;
 
 use support::validate;
 

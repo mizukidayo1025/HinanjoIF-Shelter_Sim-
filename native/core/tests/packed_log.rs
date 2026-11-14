@@ -2,7 +2,7 @@
 //! it reads and writes every record as the log of bytes does, takes back what a rollback takes
 //! back, and keeps the bytes of a record its packed form would not write again.
 
-mod support;
+use crate::support;
 
 use sheltersim_core::events::log::{fields_of_bytes, EventLog};
 use sheltersim_core::events::packed::Unpacked;

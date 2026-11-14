@@ -11,7 +11,7 @@
 //! (lane L10, `kernel_only`): their classes and texts are written down in the fixture's builder, as
 //! the pytest file had them. Each group is one test function of that file.
 
-mod support;
+use crate::support;
 
 use sheltersim_core::checkpoint::sha256_hex;
 use sheltersim_core::world::WorldCell;

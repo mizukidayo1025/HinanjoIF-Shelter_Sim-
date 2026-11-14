@@ -4,7 +4,7 @@
 //! (`tests/support/core_validate_places.py`) gives Python's first error, class and text, at each
 //! entry point, and each valid one passes.
 
-mod support;
+use crate::support;
 
 use support::validate;
 

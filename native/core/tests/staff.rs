@@ -4,7 +4,7 @@
 //! over these, so the gate and the offline tests run them on every Run; these say what each reads,
 //! decides, refuses and writes.
 
-mod support;
+use crate::support;
 
 use std::sync::Arc;
 

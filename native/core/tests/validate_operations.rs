@@ -5,7 +5,7 @@
 //! `validate_operations.json` (`tests/support/core_validate_operations.py`) gives Python's class
 //! and text at each entry point, with an event in flight too, and the accepted ones pass.
 
-mod support;
+use crate::support;
 
 use support::validate;
 

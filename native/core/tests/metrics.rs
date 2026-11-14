@@ -6,7 +6,7 @@
 //! The Python test `tests/integration/test_entity_rules_kernel.py` checks the same function, through
 //! the PyO3 glue, against the digest of the columns the Python rule gave on the worlds of a Run.
 
-mod support;
+use crate::support;
 
 use std::sync::Arc;
 

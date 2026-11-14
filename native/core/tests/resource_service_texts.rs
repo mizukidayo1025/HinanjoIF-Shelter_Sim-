@@ -17,7 +17,7 @@
 //! of each Python entry: its request is the one no independent queue takes, on a floor plan of its
 //! own. The propose step's request at once the queue turns down is in `requests_at_once.rs`.
 
-mod support;
+use crate::support;
 
 use std::sync::Arc;
 

@@ -25,7 +25,7 @@
 //! written by `benchmarks/core_fixtures.py`, and checked against the native path by
 //! `tests/integration/test_core_fixtures.py`).
 
-mod support;
+use crate::support;
 
 use std::collections::HashMap;
 use std::rc::Rc;

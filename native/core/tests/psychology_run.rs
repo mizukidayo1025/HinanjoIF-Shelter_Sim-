@@ -16,7 +16,7 @@
 //!   bytes (`support/canonical.rs`, with the `rng_state` the engine gives), so this digest is the
 //!   original one too.
 
-mod support;
+use crate::support;
 
 use std::rc::Rc;
 use std::sync::Arc;

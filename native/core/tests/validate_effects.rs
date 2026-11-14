@@ -4,7 +4,7 @@
 //! each broken world of `validate_effects.json` (`tests/support/core_validate_effects.py`), the
 //! pydantic contracts' texts included, and pass the valid ones.
 
-mod support;
+use crate::support;
 
 use support::validate;
 

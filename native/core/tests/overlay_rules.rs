@@ -27,7 +27,7 @@
 //! `json.dumps`) are. The pytest's digests of what the deleted rule answered and left (`RECORDED`)
 //! are recorded again here from the core (decision 1 of #225).
 
-mod support;
+use crate::support;
 
 use std::cell::RefCell;
 use std::sync::{Arc, OnceLock};

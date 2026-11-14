@@ -15,7 +15,7 @@
 //! (`Dumps`, `support/canonical.rs`, with the `rng_state` the engine gives the world it steps), so
 //! the digests are the original ones.
 
-mod support;
+use crate::support;
 
 use std::rc::Rc;
 use std::sync::Arc;

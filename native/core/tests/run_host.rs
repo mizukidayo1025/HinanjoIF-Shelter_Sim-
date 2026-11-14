@@ -3,7 +3,7 @@
 //! The controllers here are built by hand as the PyO3 crate reads a real one: each class by its
 //! names, each attribute a value, an object or what its read raised.
 
-mod support;
+use crate::support;
 
 use std::sync::Arc;
 

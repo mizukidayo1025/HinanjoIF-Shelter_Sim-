@@ -7,21 +7,21 @@ sample of scripts/build_browser_sample.py (docs/development.md, "ブラウザー
 screen's files (src/sheltersim/web/static/demo-v2*) are copied unchanged; the browser build's
 demo-v2.html is the server's with one more line: the script that wraps `fetch` and answers the
 screen's `/api/v1/...` in a Worker from the browser's store and WASM (native/wasm/js/api_fetch.js),
-and names the sample's Project and the Run the browser computes for the screen's home.
+and names the list of examples and the example's Project for the screen's home.
 
 The site is served at the root of its domain, as the screen loads `/demo-v2.css` and the like and
 `history.replaceState`s to `/?…` (the screen's address since #376):
 
-    /                       index.html: the screen, which opens on its home (#371): the sample's
-                            Runs, the Run the browser computes itself (COMPUTE_RUN, #267) with its
-                            reset, and the licenses
+    /                       index.html: the screen, which opens on its home (#371): the examples
+                            fetched, 「計算済みの例を取得する」 (#411), and the licenses
     (a missing path)        404.html, with status 404
     /demo-v2                demo-v2.html, the same page at the screen's earlier address, which the
                             page turns into / (a host serving `/demo-v2` from `demo-v2.html`, as
                             Cloudflare Workers' static assets (deploy/workers/wrangler.jsonc, #289),
                             Cloudflare Pages, GitHub Pages and Netlify do; for others see the docs)
     /demo-v2.css, /demo-v2*.js, /demo-v2-logo.jpg   the screen's files
-    /LICENSE.txt            the repository's LICENSE
+    /LICENSE.txt            the repository's LICENSE (the .txt files begin with UTF-8's byte order
+                            mark, as hosts answer them without a charset)
     /THIRD-PARTY-NOTICES.txt
                             the licenses of the crates the WASM holds (#290), from
                             `cargo tree`/`cargo metadata` of native/ and their packages' files
@@ -32,6 +32,8 @@ The site is served at the root of its domain, as the screen loads `/demo-v2.css`
                             municipality names, for the regional research; with --shelter-csv
                             or --fetch-shelters) and gsi-shelters/CODE.json (the CSV's rows of
                             each municipality code, read when a lookup needs them, #332)
+    /sample/examples.json   the list of examples (browser_api.mjs's EXAMPLES_FORMAT): each one's
+                            manifest and what the home says of it before it is fetched (#411)
     /sample/sample.json     the sample's manifest (browser_api.mjs's SAMPLE_FORMAT) and its parts,
                             sample.shelterproj.000, .001, … of at most --part-mib MiB each
 
@@ -88,23 +90,26 @@ BROWSER_FILES = (
 SHELTER_INDEX = "gsi-shelter-index.json"
 SHELTER_ROWS = "gsi-shelters"
 PKG_FILES = ("sheltersim_wasm.js", "sheltersim_wasm_bg.wasm")
-# The Run the browser makes beside the sample's, to compute itself (compute.mjs's COMPUTE_RUN).
-COMPUTE_RUN = "run-browser-compute"
 SAMPLE_FORMAT = "sheltersim-site-sample"
 SAMPLE_VERSION = 1
+# The list of the site's precomputed examples, which the home offers to fetch (#411): each one's
+# manifest (SAMPLE_FORMAT) and what the screen says of it before it is fetched.
+EXAMPLES = "examples.json"
+EXAMPLES_FORMAT = "sheltersim-site-examples"
+EXAMPLES_VERSION = 1
 # The line the browser build adds to demo-v2.html, before the screen's first script: the script
-# that answers the API, with the sample's Project and the Run the browser computes (the home),
-# and on a site without the shelter index, that it cannot make Scenarios (#372).
+# that answers the API, with the list of examples and the example's Project (the home), and on a
+# site without the shelter index, that it cannot make Scenarios (#372).
 SHIM = (
     '<script src="/browser/api_fetch.js" data-worker="/browser/api_worker.mjs"'
-    ' data-sample="/sample/sample.json" data-example-project="{project}"'
-    f' data-compute-run="{COMPUTE_RUN}"{{scenarios}}></script>'
+    f' data-examples="/sample/{EXAMPLES}" data-example-project="{{project}}"{{scenarios}}></script>'
 )
 NO_SCENARIOS = ' data-scenarios="unavailable"'
 FIRST_SCRIPT = '<script src="/demo-v2-scene.js" defer></script>'
 # The licenses of what the WASM holds (#290): its crates' in NOTICES, the Rust standard library's
 # in RUST_LIBRARY_NOTICES (the notices rustc ships for programs it builds).
 NOTICES = "THIRD-PARTY-NOTICES.txt"
+UTF8_BOM = b"\xef\xbb\xbf"
 RUST_LIBRARY_NOTICES = "THIRD-PARTY-NOTICES-rust-library.html"
 WASM_CRATE = "sheltersim_wasm"
 WASM_TARGET = "wasm32-unknown-unknown"
@@ -132,14 +137,19 @@ def browser_html(server_html: str, project_id: str, *, scenarios: bool = True) -
     return server_html.replace(FIRST_SCRIPT, f"{shim}\n    {FIRST_SCRIPT}")
 
 
-def bundle_project(bundle: Path) -> tuple[str, list[str]]:
-    """The Project id of a bundle and its Runs' ids, read from its manifest."""
+def _bundle_manifest(bundle: Path) -> tuple[dict[str, Any], int]:
+    """A bundle's manifest and where its first entry starts."""
     with bundle.open("rb") as file:
         header = file.read(HEADER)
         if len(header) != HEADER or header[: len(MAGIC)] != MAGIC:
             raise ValueError(f"{bundle} is not a project bundle")
         (length,) = struct.unpack(">I", header[len(MAGIC) + 4 : len(MAGIC) + 8])
-        manifest = json.loads(file.read(length))
+        return json.loads(file.read(length)), HEADER + length
+
+
+def bundle_project(bundle: Path) -> tuple[str, list[str]]:
+    """The Project id of a bundle and its Runs' ids, read from its manifest."""
+    manifest, _ = _bundle_manifest(bundle)
     runs = sorted(
         {
             entry["path"].split("/")[1]
@@ -148,6 +158,38 @@ def bundle_project(bundle: Path) -> tuple[str, list[str]]:
         }
     )
     return manifest["project_id"], runs
+
+
+def describe_bundle(bundle: Path) -> dict[str, Any]:
+    """What the home's list of examples says of a bundle before it is fetched (#411): its Runs and
+    branches, and of its first Scenario the municipality, the disaster (the Scenario's code), the
+    number of people and the minutes; None where the bundle does not say."""
+    manifest, at = _bundle_manifest(bundle)
+    scenario: dict[str, Any] = {}
+    with bundle.open("rb") as file:
+        for entry in manifest["entries"]:
+            path, length = entry["path"], entry["length"]
+            # The Scenario's own bytes (vN.scenario.json; vN.json is its record).
+            if re.fullmatch(r"scenarios/[^/]+/v[0-9]+\.scenario\.json", path) and not scenario:
+                file.seek(at)
+                scenario = json.loads(file.read(length))
+            at += length
+    provenance = scenario.get("provenance") or {}
+    request = (
+        provenance.get("natural_language_input") or provenance.get("initial_scenario_request") or {}
+    )
+    paths = [entry["path"] for entry in manifest["entries"]]
+    profiles = scenario.get("profiles")
+    return {
+        "runs": sum(1 for path in paths if re.fullmatch(r"runs/[^/]+/run\.json", path)),
+        "branches": sum(
+            1 for path in paths if re.fullmatch(r"runs/[^/]+/branches/[^/]+/branch\.json", path)
+        ),
+        "municipality": request.get("municipality"),
+        "disaster": request.get("disaster"),
+        "people": len(profiles) if isinstance(profiles, list) else None,
+        "duration_minutes": scenario.get("duration_minutes"),
+    }
 
 
 NOT_FOUND = (
@@ -406,20 +448,36 @@ def build(
             )
     (output / "sample").mkdir()
     manifest = split_bundle(bundle, output / "sample", part_mib * 2**20)
+    # The list of examples the home offers (#411); the browser fetches one when it is chosen.
+    examples = {
+        "format": EXAMPLES_FORMAT,
+        "version": EXAMPLES_VERSION,
+        "examples": [
+            {"manifest": "sample.json"}
+            | {key: manifest[key] for key in ("project_id", "bytes", "sha256")}
+            | describe_bundle(bundle)
+        ],
+    }
+    (output / "sample" / EXAMPLES).write_text(
+        json.dumps(examples, ensure_ascii=False, indent=1) + "\n", encoding="utf-8"
+    )
     query = urlencode({"project": project_id, "run": run_id, "branch": branch_id})
     target = f"/?{query}#simulation"
-    compute_query = urlencode({"project": project_id, "run": COMPUTE_RUN, "branch": "main"})
-    compute = f"/?{compute_query}#simulation"
     # A missing file is a 404 (Workers' static assets answer with it under deploy/workers/'s
     # not_found_handling "404-page"; Cloudflare Pages without a 404.html answers every path with
     # the root's index.html, as for a single-page app).
     (output / "404.html").write_text(NOT_FOUND, encoding="utf-8")
     # The repository's license (MIT) travels with the copy of its code the site is.
-    shutil.copyfile(ROOT / "LICENSE", output / "LICENSE.txt")
     # And the licenses of what the WASM holds (#290).
     if set(notices) != {NOTICES, RUST_LIBRARY_NOTICES}:
         raise ValueError(f"the notices are {sorted(notices)}")
-    for name, data in notices.items():
+    texts = {"LICENSE.txt": (ROOT / "LICENSE").read_bytes(), **notices}
+    for name, data in texts.items():
+        # A host answers .txt as text/plain without a charset (Cloudflare Workers' static assets
+        # do), and the browser then reads the UTF-8 text (the license's 避難所IF！) in another
+        # encoding; the byte order mark makes it read UTF-8 (#410). The site sets no headers.
+        if name.endswith(".txt") and not data.startswith(UTF8_BOM):
+            data = UTF8_BOM + data
         (output / name).write_bytes(data)
     # GitHub Pages: serve the files as they are, without Jekyll.
     (output / ".nojekyll").write_bytes(b"")
@@ -430,7 +488,6 @@ def build(
     return {
         "output": str(output),
         "open": target,
-        "compute": compute,
         "files": len(files),
         "bytes": sum(path.stat().st_size for path in files),
         "largest": {

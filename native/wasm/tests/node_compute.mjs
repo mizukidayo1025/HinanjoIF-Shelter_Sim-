@@ -8,8 +8,8 @@
 // Without BUNDLE, a Project is made in a store in memory with one Run computed from the world
 // `small_replay` of native/core/tests/data/tick_core.json (one day, saved points every 6 hours), as
 // the sample. In both cases:
-// - The Run to compute is made beside the sample's: its records, the sample's "export" piece as its
-//   bytes are, computed to minute 0; made once, and mended when a record is cut short.
+// - The Run to compute is made beside the sample's (compute_run.mjs): its records, the sample's
+//   "export" piece as its bytes are, computed to minute 0.
 // - `resume` and `cancel` answer Python's checks and JSON; the Run is computed in chunks while
 //   the records, timeline and history answer between them; the screen's `timeline` of each new
 //   head is the kept frame; cancelling stops at a chunk's end with a saved point there.
@@ -41,11 +41,12 @@ const here = dirname(fileURLToPath(import.meta.url));
 const store = await import(join(here, "..", "js", "project_store.mjs"));
 const api = await import(join(here, "..", "js", "browser_api.mjs"));
 const compute = await import(join(here, "..", "js", "compute.mjs"));
+const { COMPUTE_RUN, makeComputeRun } = await import(join(here, "compute_run.mjs"));
 const runs = await import(join(here, "..", "js", "run_store.mjs"));
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 const sha = (bytes) => wasm.sha256Hex(typeof bytes === "string" ? encoder.encode(bytes) : bytes);
-const RUN = compute.COMPUTE_RUN;
+const RUN = COMPUTE_RUN;
 
 let failures = 0;
 const check = (ok, message) => {
@@ -129,9 +130,8 @@ const SAVE = sampleEnd.run.save_every;
 
 // ---- The Run to compute ------------------------------------------------------------------------
 
-const made = await compute.ensureComputeRun({ wasm, tree, projectId: PROJECT });
-check(made?.created === true && made.runId === RUN, `the Run to compute was not made: ${JSON.stringify(made)}`);
-check((await compute.ensureComputeRun({ wasm, tree, projectId: PROJECT })).created === false, "the Run to compute was made twice");
+const made = await makeComputeRun({ wasm, tree, projectId: PROJECT });
+check(made?.runId === RUN, `the Run to compute was not made: ${JSON.stringify(made)}`);
 {
   const sampleRun = JSON.parse(await store.runResponse(tree, PROJECT, SAMPLE));
   const run = JSON.parse(await store.runResponse(tree, PROJECT, RUN));
@@ -299,7 +299,6 @@ let stoppedAt;
   lockSet.dropAll();
   halted = false;
   browser = new api.BrowserApi({ wasm, tree, branchLock: lockSet.branchLock, chunkTicks, pause });
-  check((await compute.ensureComputeRun({ wasm, tree, projectId: PROJECT })).mended === false, "an intact Run was mended");
   const recovered = await compute.recoverInterrupted({ tree, branchLock: lockSet.branchLock });
   check(recovered.join() === `${PROJECT}/${RUN}/main`, `recovered: ${recovered}`);
   const run = JSON.parse((await get("")).body);
@@ -310,17 +309,6 @@ let stoppedAt;
   const history = await get("/branches/main/history", `?kind=kpis&start=0&end=${stoppedAt}&step=60&limit=100`);
   check(history.status === 200, `after the page closed, history: ${history.status} ${history.body.slice(0, 200)}`);
 }
-// A record cut short by a closed page is written again at the stored Run's last head.
-{
-  const path = [PROJECT, "runs", RUN, "branches", "main", "branch.json"];
-  const bytes = await tree.read(path);
-  await tree.write(path, bytes.slice(0, 20));
-  check((await get("")).status === 409, "a record cut short reads");
-  const mended = await compute.ensureComputeRun({ wasm, tree, projectId: PROJECT });
-  const main = (await record()) ?? {};
-  check(mended.mended === true && main.status === "interrupted" && main.computed_until === stoppedAt, `mended: ${JSON.stringify(mended)} ${JSON.stringify(main)}`);
-}
-
 // 4. On to the end from the head, in the new page.
 {
   const answer = await post("/resume", { branch_id: "main", target_minute: DURATION });
@@ -355,13 +343,6 @@ let stoppedAt;
   const items = (page, run) => JSON.stringify(page.items).replaceAll(`"${run}"`, '"RUN"');
   check(items(ours, RUN) === items(theirs, SAMPLE) && ours.coverage?.count === theirs.coverage?.count, "the history is not the sample's");
   console.log(`saved points ${saved.length}; computed ${JSON.stringify(browser.computing.done.map(({ from, target, reached, status, ms }) => ({ from, target, reached, status, s: +(ms / 1000).toFixed(2) })))}`);
-}
-// A Run's record cut short makes the Run again.
-{
-  await tree.write([PROJECT, "runs", RUN, "run.json"], encoder.encode('{"schema_'));
-  const mended = await compute.ensureComputeRun({ wasm, tree, projectId: PROJECT });
-  const run = JSON.parse(await store.runResponse(tree, PROJECT, RUN));
-  check(mended.created === true && mended.mended === true && run.status === "queued" && run.branches[0].computed_until === 0, `the Run made again: ${JSON.stringify(mended)}`);
 }
 // A Run computed with another model version (engine 1: no engine items recorded) is view-only.
 {

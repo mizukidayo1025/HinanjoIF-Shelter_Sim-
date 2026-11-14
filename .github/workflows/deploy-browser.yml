@@ -2,6 +2,7 @@
 # 手で起動する（書き込み権限のある人なら誰でも）。公開するのはmainだけで、dry_runは
 # どのbranchでもサイトを作ってwranglerの--dry-runまで行い、Cloudflareには何も送らない。
 # 公開の後に、道ごとの答えと、ChromiumとFirefoxでの画面（static_site_e2e.py --url）を確かめる。
+# kernelとWASMを別のjobで並べて作り、画面の確かめもブラウザーごとのjobで並べる（#415）。
 # 手順と設定はdocs/development.mdの「ブラウザー版の公開」。
 name: ブラウザー版の公開
 
@@ -27,10 +28,10 @@ env:
   SITE_URL: https://hinanjo-if.water7.workers.dev
 
 jobs:
-  deploy:
-    name: サイトを作って公開
+  gate:
+    name: 公開できる条件か確認
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 5
     steps:
       - name: 公開できる条件か確認
         env:
@@ -47,6 +48,71 @@ jobs:
             echo "::error::the secrets CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID are not set"
             exit 1
           fi
+
+  # The sample's Scenario and minute 0 come from Python (scripts/build_browser_sample.py), which
+  # needs the native kernel; the profile ci gives the same bytes as release (#217).
+  kernel:
+    name: Rustのkernelを作る
+    needs: gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: native
+          key: deploy-browser-kernel
+      - name: Rustのkernelを作る
+        run: |
+          rustup toolchain install stable --profile minimal
+          python -m pip install "maturin>=1.7,<2"
+          maturin build --profile ci -m native/Cargo.toml --out native-dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kernel
+          path: native-dist/
+          retention-days: 1
+
+  # The same wasm-bindgen as the lint job of ci.yml (the crate's version, checked by sha256).
+  wasm:
+    name: WASMを作る
+    needs: gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: native
+          key: deploy-browser-wasm
+      - name: WASMを作る
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup target add wasm32-unknown-unknown
+          version=0.2.129
+          archive=wasm-bindgen-$version-x86_64-unknown-linux-musl
+          curl -sSfL -o "$RUNNER_TEMP/$archive.tar.gz" "https://github.com/wasm-bindgen/wasm-bindgen/releases/download/$version/$archive.tar.gz"
+          echo "82d12bb940e2d4e72e0d5605387fc1b8ca179044e012b620f0ce4e7440e8320e  $RUNNER_TEMP/$archive.tar.gz" | sha256sum -c -
+          tar xzf "$RUNNER_TEMP/$archive.tar.gz" -C "$RUNNER_TEMP"
+          cargo build --manifest-path native/Cargo.toml -p sheltersim_wasm --target wasm32-unknown-unknown --release
+          wasm=native/target/wasm32-unknown-unknown/release/sheltersim_wasm.wasm
+          "$RUNNER_TEMP/$archive/wasm-bindgen" --target nodejs --out-dir wasm/pkg "$wasm"
+          "$RUNNER_TEMP/$archive/wasm-bindgen" --target web --out-dir wasm/web "$wasm"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wasm
+          path: wasm/
+          retention-days: 1
+
+  site:
+    name: サイトを作って公開
+    needs: [kernel, wasm]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
@@ -56,40 +122,25 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-      - name: packageを導入
-        run: python -m pip install -e .
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/download-artifact@v4
         with:
-          workspaces: native
-          key: deploy-browser
-      # The sample's Scenario and minute 0 come from Python (scripts/build_browser_sample.py), which
-      # needs the native kernel; the profile ci gives the same bytes as release (#217).
-      - name: Rustのkernelを作って導入
+          name: kernel
+          path: native-dist
+      - uses: actions/download-artifact@v4
+        with:
+          name: wasm
+          path: ${{ runner.temp }}/wasm
+      - name: packageとkernelを導入
         run: |
-          rustup toolchain install stable --profile minimal
-          rustup target add wasm32-unknown-unknown
-          python -m pip install "maturin>=1.7,<2"
-          maturin build --profile ci -m native/Cargo.toml --out native-dist
+          python -m pip install -e .
           python -m pip install --no-index --find-links native-dist sheltersim-native
           python -c "import sheltersim.native"
-      # The same wasm-bindgen as the lint job of ci.yml (the crate's version, checked by sha256).
-      - name: WASMを作る
-        run: |
-          version=0.2.129
-          archive=wasm-bindgen-$version-x86_64-unknown-linux-musl
-          curl -sSfL -o "$RUNNER_TEMP/$archive.tar.gz" "https://github.com/wasm-bindgen/wasm-bindgen/releases/download/$version/$archive.tar.gz"
-          echo "82d12bb940e2d4e72e0d5605387fc1b8ca179044e012b620f0ce4e7440e8320e  $RUNNER_TEMP/$archive.tar.gz" | sha256sum -c -
-          tar xzf "$RUNNER_TEMP/$archive.tar.gz" -C "$RUNNER_TEMP"
-          cargo build --manifest-path native/Cargo.toml -p sheltersim_wasm --target wasm32-unknown-unknown --release
-          wasm=native/target/wasm32-unknown-unknown/release/sheltersim_wasm.wasm
-          "$RUNNER_TEMP/$archive/wasm-bindgen" --target nodejs --out-dir "$RUNNER_TEMP/wasm-pkg" "$wasm"
-          "$RUNNER_TEMP/$archive/wasm-bindgen" --target web --out-dir "$RUNNER_TEMP/wasm-web" "$wasm"
       - name: 例のRunを作る
-        run: python scripts/build_browser_sample.py "$RUNNER_TEMP/sample.shelterproj" --pkg "$RUNNER_TEMP/wasm-pkg"
+        run: python scripts/build_browser_sample.py "$RUNNER_TEMP/sample.shelterproj" --pkg "$RUNNER_TEMP/wasm/pkg"
       # The site is generated outside the repository (scripts/build_static_site.py refuses inside).
       - name: サイトを組み立てる
         run: |
-          python scripts/build_static_site.py "$RUNNER_TEMP/site" --pkg "$RUNNER_TEMP/wasm-web" \
+          python scripts/build_static_site.py "$RUNNER_TEMP/site" --pkg "$RUNNER_TEMP/wasm/web" \
             --bundle "$RUNNER_TEMP/sample.shelterproj" --fetch-shelters > "$RUNNER_TEMP/site-build.json"
           cat "$RUNNER_TEMP/site-build.json"
       - name: wranglerで確かめる（送らない）
@@ -103,7 +154,7 @@ jobs:
           npx --yes "$WRANGLER" deploy --config deploy/workers/wrangler.jsonc --assets "$RUNNER_TEMP/site" \
             --tag "${GITHUB_SHA::12}" --message "main ${GITHUB_SHA} (run ${GITHUB_RUN_ID})"
       # Each path answers as docs/development.md says, and the shelter index (which holds the time
-      # the site was built) is this build's, so the check below sees the new version.
+      # the site was built) is this build's, so the checks after it see the new version.
       - name: 公開した道の答えを確かめる
         if: ${{ !inputs.dry_run }}
         run: |
@@ -131,22 +182,53 @@ jobs:
           rows=("$RUNNER_TEMP"/site/browser/gsi-shelters/*.json)
           check "/browser/gsi-shelters/${rows[0]##*/}" "200 application/json"
           exit $fail
-      # Playwright is not a dependency of the project (docs/development.md); the version is the one
-      # the checks were written with.
-      - name: 公開したサイトを画面で確かめる（ChromiumとFirefox）
-        if: ${{ !inputs.dry_run }}
+      - name: 結果を保存
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: deploy-browser-site
+          path: ${{ runner.temp }}/site-build.json
+          retention-days: 30
+          if-no-files-found: ignore
+
+  # Each browser walks the published site in its own job, at the same time: Chromium computes the
+  # Run at once (full), Firefox in pieces (static_site_e2e.py's --modes). Playwright is not a
+  # dependency of the project (docs/development.md); the version is the one the checks were
+  # written with.
+  screen:
+    name: 公開したサイトを画面で確かめる（${{ matrix.browser }}）
+    needs: site
+    if: ${{ !inputs.dry_run }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - browser: chromium
+            mode: full
+          - browser: firefox
+            mode: pieces
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Playwrightを導入
         run: |
           python -m pip install "playwright==1.64.1"
-          python -m playwright install --with-deps chromium firefox
+          python -m playwright install --with-deps "${{ matrix.browser }}"
+      - name: 画面で確かめる
+        run: |
           python benchmarks/static_site_e2e.py --url "$SITE_URL" \
+            --browsers "${{ matrix.browser }}" --modes "${{ matrix.mode }}" \
             --output "$RUNNER_TEMP/e2e-url.json" --screenshots "$RUNNER_TEMP/e2e-url-shots"
       - name: 結果を保存
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4
         with:
-          name: deploy-browser
+          name: deploy-browser-screen-${{ matrix.browser }}
           path: |
-            ${{ runner.temp }}/site-build.json
             ${{ runner.temp }}/e2e-url.json
             ${{ runner.temp }}/e2e-url-shots/
           retention-days: 30

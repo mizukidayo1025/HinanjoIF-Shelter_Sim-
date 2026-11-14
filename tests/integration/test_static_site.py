@@ -101,13 +101,19 @@ def test_the_site_holds_the_screen_the_browser_api_and_the_sample_in_parts(
     added = [line for line in browser_html.splitlines() if line not in server_html.splitlines()]
     assert added == [
         '    <script src="/browser/api_fetch.js" data-worker="/browser/api_worker.mjs"'
-        ' data-sample="/sample/sample.json" data-example-project="sample"'
+        ' data-examples="/sample/examples.json" data-example-project="sample"'
         # Built without the shelter index, the site cannot make Scenarios and says so (#372).
-        ' data-compute-run="run-browser-compute" data-scenarios="unavailable"></script>',
+        ' data-scenarios="unavailable"></script>',
     ]
-    assert (output / "LICENSE.txt").read_bytes() == (STATIC.parents[3] / "LICENSE").read_bytes()
+    # The .txt files begin with UTF-8's byte order mark: a host answers them without a charset
+    # (Workers' static assets do), and the browser then reads the license's Japanese in another
+    # encoding (#410).
+    bom = b"\xef\xbb\xbf"
+    license_text = (STATIC.parents[3] / "LICENSE").read_bytes()
+    assert "避難所IF！".encode() in license_text
+    assert (output / "LICENSE.txt").read_bytes() == bom + license_text
     for name, data in NOTICES.items():
-        assert (output / name).read_bytes() == data
+        assert (output / name).read_bytes() == (bom + data if name.endswith(".txt") else data)
     assert browser_html.index("/browser/api_fetch.js") < browser_html.index("/demo-v2-scene.js")
     for name in ("api_fetch.js", "api_worker.mjs", "browser_api.mjs", "compute.mjs"):
         assert (output / "browser" / name).is_file()
@@ -129,19 +135,91 @@ def test_the_site_holds_the_screen_the_browser_api_and_the_sample_in_parts(
     assert [hashlib.sha256(part).hexdigest() for part in parts] == [
         part["sha256"] for part in manifest["parts"]
     ]
+    # The list of examples the home offers to fetch (#411): the sample's manifest and what the
+    # bundle says of itself (this one holds no Scenario).
+    examples = json.loads((output / "sample" / "examples.json").read_text(encoding="utf-8"))
+    assert examples == {
+        "format": "sheltersim-site-examples",
+        "version": 1,
+        "examples": [
+            {
+                "manifest": "sample.json",
+                "project_id": "sample",
+                "bytes": len(bundle),
+                "sha256": manifest["sha256"],
+                "runs": 1,
+                "branches": 1,
+                "municipality": None,
+                "disaster": None,
+                "people": None,
+                "duration_minutes": None,
+            }
+        ],
+    }
     assert summary["open"] == "/?project=sample&run=run-x&branch=main#simulation"
-    assert summary["compute"] == "/?project=sample&run=run-browser-compute&branch=main#simulation"
-    # `/` is the screen itself, which opens on its home: the sample's Runs, the Run the browser
-    # computes with its reset (api_fetch.js), and the licenses the site holds.
+    assert "compute" not in summary
+    # `/` is the screen itself, which opens on its home: the examples (fetched when chosen,
+    # api_fetch.js), one's own Scenarios, and the licenses the site holds.
     assert (output / "index.html").read_text(encoding="utf-8") == browser_html
     for name in ("LICENSE.txt", *NOTICES):
         assert f'href="/{name}"' in browser_html and (output / name).is_file()
     worker_js = (STATIC.parents[3] / "native" / "wasm" / "js" / "api_worker.mjs").read_text("utf-8")
     assert 'root.getDirectoryHandle("projects", { create: true })' in worker_js
-    # The Run the browser computes is the one compute.mjs makes.
-    compute_js = (STATIC.parents[3] / "native" / "wasm" / "js" / "compute.mjs").read_text("utf-8")
-    assert 'export const COMPUTE_RUN = "run-browser-compute";' in compute_js
     assert summary["largest"]["bytes"] <= 2**20
+
+
+def test_the_list_of_examples_says_what_a_bundle_holds_before_it_is_fetched(
+    builder: dict[str, Any], tmp_path: Path
+) -> None:
+    """describe_bundle (#411): the Runs, the branches, and of the first Scenario the municipality,
+    the disaster, the number of people and the minutes, read from the bundle's entries."""
+    files = [
+        ("project.json", b"{}"),
+        ("scenarios/s1/v1.json", b'{"approved": true}'),
+        (
+            "scenarios/s1/v1.scenario.json",
+            json.dumps(
+                {
+                    "duration_minutes": 10080,
+                    "profiles": [{}, {}, {}],
+                    "provenance": {
+                        "natural_language_input": {
+                            "municipality": "墨田区",
+                            "disaster": "earthquake",
+                        }
+                    },
+                }
+            ).encode(),
+        ),
+        ("runs/run-x/run.json", b"{}"),
+        ("runs/run-x/branches/main/branch.json", b"{}"),
+        ("runs/run-x/branches/b-1/branch.json", b"{}"),
+    ]
+    manifest = json.dumps(
+        {
+            "format": "sheltersim-project-bundle",
+            "version": 1,
+            "project_id": "sample",
+            "source": None,
+            "entries": [
+                {"path": path, "length": len(data), "sha256": hashlib.sha256(data).hexdigest()}
+                for path, data in files
+            ],
+        }
+    ).encode()
+    head = b"\x89SHELTERSIM-PRJ\n" + struct.pack(">II", 1, len(manifest))
+    bundle = tmp_path / "described.shelterproj"
+    bundle.write_bytes(
+        head + hashlib.sha256(manifest).digest() + manifest + b"".join(d for _, d in files)
+    )
+    assert builder["describe_bundle"](bundle) == {
+        "runs": 1,
+        "branches": 2,
+        "municipality": "墨田区",
+        "disaster": "earthquake",
+        "people": 3,
+        "duration_minutes": 10080,
+    }
 
 
 def test_the_site_is_built_only_outside_the_repository_into_an_empty_directory(
@@ -199,7 +277,7 @@ def test_the_site_holds_the_shelter_index_and_rows_the_browser_s_research_reads(
     }
     with_index = builder["build"](tmp_path / "with-index", shelters=files, **arguments)
     page = (tmp_path / "with-index" / "demo-v2.html").read_text(encoding="utf-8")
-    assert 'data-compute-run="run-browser-compute"></script>' in page
+    assert 'data-example-project="sample"></script>' in page
     assert "data-scenarios" not in page
     browser = tmp_path / "with-index" / "browser"
     assert json.loads((browser / "gsi-shelter-index.json").read_text(encoding="utf-8")) == made

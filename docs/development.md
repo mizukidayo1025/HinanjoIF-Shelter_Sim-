@@ -151,7 +151,7 @@ python benchmarks/wasm_trial_measure.py --bundle sample.shelterproj --pkg wasm-w
 
 分ごとのframeは、分岐ごとに1つ手元に置いたSimulationから作ります。後の分は、手元のSimulationを進めるほうが途中の点から戻すより安いとき（手元の分がその分以前の一番近い点以後か、差が360分以内）は進め、それ以外は`RunReader.seek`で途中の点に戻してから計算します（#251）。再生（`replay-frames`）は手元のSimulationを進めるだけで、戻しません。手元に置くSimulationは2つまでで、置き換えるものは先に解放します（WASMのメモリーは縮まないため）。digestは、Runが持つログのhashの途中の状態に増えた記録だけを足して求めます（上の段落）。
 
-初めて開いたときは、サイトの計算済みの例（`scripts/build_browser_sample.py`の1つのファイルを分けたもの。目録`sample.json`の形は`browser_api.mjs`の`SAMPLE_FORMAT`）を取り寄せ、各部分と全体のsha256を確かめてから読み込みます（`importProject`）。その間は、画面のお知らせ欄（`#notice`）に進み具合を出します。読み込んだ例のsha256を`projects/`の隣（`site-sample.json`）に残し、サイトの例が変わったときだけ読み込み直します。`native/wasm/tests/node_browser_api.mjs`は、メモリーの置き場で、記録の答え、保存した点・その間・前に戻る分のtimeline、続く再生の窓のframeが止めずに進めたRunのframeと同じbytesになること（再生の窓では戻さないこと）、Pythonと同じ誤り、未対応の道、`api_answers.mjs`の道をつないだこと、例の部分の確かめと読み込みを確かめます。CIの`ブラウザー版の計算`のjobも動かします。
+ページを開いただけでは、計算済みの例を取り寄せません（#411）。Workerは起動時に、サイトの例の一覧（`/sample/examples.json`。形は`browser_api.mjs`の`EXAMPLES_FORMAT`）だけを読みます。一覧の各項目は、例の目録（`sample.json`。形は`SAMPLE_FORMAT`）の場所、Project、大きさ、sha256と、取り寄せる前に画面が出す中身（Runと分岐の数、最初のScenarioの自治体・災害・人数・分）です。ホームの「計算済みの例を取得する」が一覧を出し、選ばれた例だけを取り寄せます。取り寄せた例（`scripts/build_browser_sample.py`の1つのファイルを分けたもの）は、各部分と全体のsha256を確かめてから読み込みます（`importProject`）。その間は、選ぶ画面に進み具合を出します。読み込んだ例のsha256は、Projectごとに`projects/`の隣（`site-sample.json`の`examples`。#411の前の形`{sha256, project_id}`も読みます）に残します。サイトが上げ直されて例が変わったとき、または一覧から消えたときは、起動時にその例のProjectを消し、ホームはもう一度取得できるようにします。例はサイトのもので、利用者のシナリオではないためです（#411の前も、例が変わると開いたときに置き換えていました）。`native/wasm/tests/node_browser_api.mjs`は、メモリーの置き場で、記録の答え、保存した点・その間・前に戻る分のtimeline、続く再生の窓のframeが止めずに進めたRunのframeと同じbytesになること（再生の窓では戻さないこと）、Pythonと同じ誤り、未対応の道、`api_answers.mjs`の道をつないだこと、例の部分の確かめと読み込み、例の一覧とsha256の記録の形を確かめます。CIの`ブラウザー版の計算`のjobも動かします。
 
 ~~~shell
 node native/wasm/tests/node_browser_api.mjs wasm-pkg
@@ -159,7 +159,7 @@ node native/wasm/tests/node_browser_api.mjs wasm-pkg
 
 #### ブラウザーで計算する（#267の段階B）
 
-ブラウザーはScenarioから世界を作りません（#249はまだです）。#263で決めたとおり、Pythonが作った0分の世界から計算します。Workerは例を読み込んだ後、Project `sample`に、例のRunと同じScenarioの、計算していないRun（`run-browser-compute`、`compute.mjs`の`COMPUTE_RUN`）を作ります。記録は例のRunのものにそのRunのIDを付け、状態をPythonの作ったばかりのRunと同じ`queued`にします。保存したRunには、例の保存したRunの`run`の行と`export`の部分（縮めたbytesをそのまま写し、JSONとして読み直しません）だけを置き、mainの分岐は0分まで計算済み（先頭は`export`の行）です。サイトの`/`は画面そのもので、ホームに例のRunと、このRunを並べます（#371。ブラウザー版の`demo-v2.html`の`api_fetch.js`の行が、例のProjectとこのRunのIDを`data-example-project`・`data-compute-run`で画面へ渡します）。ホームの「計算をやり直す」は、確認の後、ブラウザーの保存の錠（`sheltersim-browser-store`）を取って、このRunのフォルダー（`projects/sample/runs/run-browser-compute`）を消し（`HinanjoBrowserApi.resetCompute()`）、頁を開き直します。開き直したWorkerが、計算していないRunを作り直します。例は消しません。計算中で保存のファイルが使われているときは、消さずに、計算を止めるかタブを閉じるよう案内します。頁がブラウザーの「戻る」のcache（back-forward cache）から出たときは、読み直します。サイトを上げ直した後に古い頁が残らないようにするためです。画面では、このRunを開き（Runの選択欄にも出ます）、「終了まで計算」（`#compute-end`）か、分を決めて「この時刻まで計算」を押します。
+計算するRunは、Scenarioから作ります（`scenario_routes.mjs`の`POST runs`。シナリオの承認と同じく、WASMが0分の世界を作ります）。#411の前は、Workerが例を読み込んだ後に、例のRunと同じScenarioの計算していないRun（`run-browser-compute`）を作り、ホームの「このブラウザーで計算」に出していました。開発者が計算時間を見るためのものだったので、画面とWorkerから外しました。計算時間は`benchmarks/static_site_check.py --compute`で計ります（下の段落）。頁がブラウザーの「戻る」のcache（back-forward cache）から出たときは、読み直します。サイトを上げ直した後に古い頁が残らないようにするためです。画面では、Runを開き、「終了まで計算」（`#compute-end`）か、分を決めて「この時刻まで計算」を押します。
 
 | 道 | 答え |
 |---|---|
@@ -170,9 +170,9 @@ node native/wasm/tests/node_browser_api.mjs wasm-pkg
 
 初めて計算を始めるとき、ページは`navigator.storage.persist()`を1回だけ求めます（#265の決定。ページを開いただけでは求めません）。求めたことはlocalStorageに残し、断られても計算は続けます。`persist`はWorkerにはないので、`api_fetch.js`が`resume`の要求を見て呼びます。
 
-計算の途中でページを閉じると、Workerも止まります。分岐の記録は最後に進めた先頭のままで、保存したRunにはその後の行（や、途中で切れた行）が残ることがあります。次に開いたとき、Workerは、`running`のままでWeb Lockを誰も持っていない分岐とRunを`interrupted`にします（Pythonのserverの起動時と同じ）。先頭の分までは読め、「計算」で先頭から続けられます。記録のファイルが書きかけで読めないときは、保存したRunの最後の先頭で書き直します（Runの記録なら、計算するRunを作り直します）。
+計算の途中でページを閉じると、Workerも止まります。分岐の記録は最後に進めた先頭のままで、保存したRunにはその後の行（や、途中で切れた行）が残ることがあります。次に開いたとき、Workerは、`running`のままでWeb Lockを誰も持っていない分岐とRunを`interrupted`にします（Pythonのserverの起動時と同じ）。先頭の分までは読め、「計算」で先頭から続けられます。
 
-`native/wasm/tests/node_compute.mjs`は、メモリーの置き場（OPFSと同じく、1つのファイルを同時に1つしか開けない）で、計算するRunの作り方、Pythonと同じ誤りとJSON、区切りの間の答えと先頭のframe、止める、ページを閉じた後の`interrupted`と続き、記録が書きかけのときの直し方を確かめ、こうして何回にも分けて計算したRunの世界・ログ・標本のdigestとframeと時系列が、止めずに計算した例のRunと同じになることを確かめます。CIの`ブラウザー版の計算`のjobも動かします。2つ目の引数に例のファイル（`build_browser_sample.py`）を渡すと、100人・7日の例で同じことを確かめます。
+`native/wasm/tests/node_compute.mjs`は、メモリーの置き場（OPFSと同じく、1つのファイルを同時に1つしか開けない）で、Pythonと同じ誤りとJSON、区切りの間の答えと先頭のframe、止める、ページを閉じた後の`interrupted`と続きを確かめ、こうして何回にも分けて計算したRunの世界・ログ・標本のdigestとframeと時系列が、止めずに計算した例のRunと同じになることを確かめます。CIの`ブラウザー版の計算`のjobも動かします。2つ目の引数に例のファイル（`build_browser_sample.py`）を渡すと、100人・7日の例で同じことを確かめます。
 
 ~~~shell
 node native/wasm/tests/node_compute.mjs wasm-pkg
@@ -192,20 +192,21 @@ python scripts/build_static_site.py ../hinanjo-if-site --pkg wasm-web --bundle s
 python scripts/serve_static_site.py ../hinanjo-if-site --port 8000
 ~~~
 
-最後のcommandは、手元で確かめるためのserverです（127.0.0.1だけ）。`http://127.0.0.1:8000/`を開くと、画面のホームに、例のRun（`/?project=sample&run=run-sample-toilet-outage&branch=main#simulation`）と、ブラウザーで計算するRun（`run=run-browser-compute`）が出ます。標準ライブラリーの`http.server`は`/demo-v2`を`demo-v2.html`で答えないので、このscriptを使います。
+最後のcommandは、手元で確かめるためのserverです（127.0.0.1だけ）。`http://127.0.0.1:8000/`を開くと、画面のホームに、例のRun（`/?project=sample&run=run-sample-toilet-outage&branch=main#simulation`）が出ます（ブラウザー版では、「計算済みの例を取得する」で例を取り寄せた後）。標準ライブラリーの`http.server`は`/demo-v2`を`demo-v2.html`で答えないので、このscriptを使います。
 
 サイトの中身：
 
 | 道 | ファイル |
 |---|---|
-| `/` | `index.html`。`demo-v2.html`と同じ頁で、ホームを開きます。例のRun、ブラウザーで計算するRunと計算をやり直すボタン、自分のシナリオ、ライセンスの表示へのリンク（#371） |
+| `/` | `index.html`。`demo-v2.html`と同じ頁で、ホームを開きます。取り寄せた例のRun、「計算済みの例を取得する」（#411）、自分のシナリオ、ライセンスの表示へのリンク（#371） |
 | `/demo-v2` | `demo-v2.html`（前の道。同じ頁で、開くとアドレスを`/`に替えます、#376） |
 | `/demo-v2.css`、`/demo-v2*.js`、`/demo-v2-logo.jpg` | 画面のファイル（変えずに写す） |
-| `/LICENSE.txt` | リポジトリーの`LICENSE`（MIT） |
+| `/LICENSE.txt` | リポジトリーの`LICENSE`（MIT）。`.txt`の2つは先頭にUTF-8のBOMを付けます。Workersは`.txt`を文字コードの指定なしの`text/plain`で返すため、BOMがないとブラウザーが日本語を文字化けさせます（#410） |
 | `/THIRD-PARTY-NOTICES.txt` | WASMに入る外部のcrateの一覧と、そのライセンス・表示のファイルの本文（#290）。`sheltersim_wasm`の通常の依存を`cargo tree`でたどり（wasm32のtarget、proc-macroとそれだけが使うものを除く）、各crateのpackageの`LICENSE*`・`COPYING*`・`NOTICE*`などを入れます。同じ本文は1回だけ書きます。そのようなファイルのないcrateがあると、サイトを作りません |
 | `/THIRD-PARTY-NOTICES-rust-library.html` | WASMに入るRustの標準ライブラリーの表示（rustcの`share/doc/rust/COPYRIGHT-library.html`をそのまま写したもの） |
 | `/browser/` | `api_fetch.js`、`api_worker.mjs`、それが読むmodule、`pkg/`（WASM）、`gsi-shelter-index.json`と`gsi-shelters/<自治体コード>.json`（下の段落） |
-| `/sample/sample.json`、`/sample/sample.shelterproj.000`… | 例の目録と、`--part-mib`（既定16 MiB）以下に分けた部分 |
+| `/sample/examples.json` | 例の一覧（#411）。ホームが「計算済みの例を取得する」で出します |
+| `/sample/sample.json`、`/sample/sample.shelterproj.000`… | 例の目録と、`--part-mib`（既定16 MiB）以下に分けた部分。選ばれたときだけ取り寄せます |
 | ないファイルの道 | `404.html`（status 404） |
 
 シナリオのプレビューの地域の調べ（`native/wasm/js/research.mjs`、#300）は、国土地理院の住所検索をブラウザーから問い合わせます（VMと同じ。CORSは`*`）。全国の指定避難所のCSV（約11.7 MB、CORSなし）は取り寄せず、サイトを作るときに読んだsha256、HTTPの情報、読めない行の数、自治体コードごとの名前（`providers.gsi_shelter_index`）を`/browser/gsi-shelter-index.json`に置き、自治体コードごとに照合できる行（宿泊の避難所の共通IDで施設名のある行。調べが読む列と、自治体名が空かどうかだけ。`providers.gsi_shelter_rows`）を`/browser/gsi-shelters/<自治体コード>.json`に置きます（#332）。索引は一度だけ読み、行は照合に要るとき（自治体コードの指定、名前がひとつの自治体コードに決まるとき）にそのコードの分だけ同じoriginから読みます。読めないとき、または索引と違うCSVの行のときは、PythonがCSVを取り寄せられないときと同じく、避難所一覧を「unavailable」にします。`--fetch-shelters`はCSVをその場で取り寄せ、`--shelter-csv PATH`は手元の写しを読みます。手元の写しの取得時刻は`--shelter-retrieved-at`で決められます（Pythonと比べる確かめで、Python側の止めた時計に合わせるため。地域の調べの時刻はScenarioに入ります）。どちらもないと索引も行も置かず、プレビューは「未対応」になります。このときサイトは`api_fetch.js`の行に`data-scenarios="unavailable"`を付け、画面は新しいシナリオの入力を出さずに理由を出します（#372）。e-Stat、地域のデータ、気象はVMと同じ「設定なし」です。`node native/wasm/tests/node_research.mjs wasm-pkg`が、`native/core/tests/data/research_cases.json`（`tests/support/core_research.py`：記録した住所検索の答え、合成の避難所CSVとその索引・行、止めた時計）でPythonの調べと同じbytesになることと、名前だけで答えられる照合では行を読まないことを確かめます。
@@ -219,11 +220,11 @@ python scripts/serve_static_site.py ../hinanjo-if-site --port 8000
 - ほかのserverでは、拡張子のない道を`.html`で答える設定が要ります。例えばnginxなら`try_files $uri $uri.html =404;`です。`.mjs`は`text/javascript`、`.wasm`は`application/wasm`で送ります。
 - 1つのファイルは`--part-mib`以下か、それより小さく保ちます（道具は20 MiBを超えると止まります。Cloudflare Workersの静的なファイルの配信とCloudflare Pagesの上限は、1ファイル25 MiBです）。
 - サーバーの機能（認証、PDF、LLMの中継）はありません。
-- 初めて開くと、例のファイル全体を取り寄せてブラウザーのOPFSに保存します（大きさと時間は#266）。OPFSを使えないブラウザー（設定やprivateの窓によっては。PlaywrightのWebKitの使い捨てのcontextでは`navigator.storage.getDirectory()`が`UnknownError`になります）では、Workerが最初にOPFSを開いて失敗を見分け、APIは503の`browser_storage_unavailable`で、お知らせ欄は「このブラウザーでは、計算の結果を保存する場所（OPFS）を使えません。…通常のウインドウで開いてください。」と答えます（#393）。ほかの準備の失敗は`browser_unavailable`です。どちらのときも、画面は「URLのproject/run指定を確認」の文を付けません。
+- 例は、ホームで選んだときに、そのファイル全体を取り寄せてブラウザーのOPFSに保存します（大きさと時間は#266）。OPFSを使えないブラウザー（設定やprivateの窓によっては。PlaywrightのWebKitの使い捨てのcontextでは`navigator.storage.getDirectory()`が`UnknownError`になります）では、Workerが最初にOPFSを開いて失敗を見分け、APIは503の`browser_storage_unavailable`で、お知らせ欄は「このブラウザーでは、計算の結果を保存する場所（OPFS）を使えません。…通常のウインドウで開いてください。」と答えます（#393）。ほかの準備の失敗は`browser_unavailable`です。どちらのときも、画面は「URLのproject/run指定を確認」の文を付けません。
 
-サイトが画面の道に正しく答えるかは、`benchmarks/static_site_check.py`で確かめます。サイトを上のserverで配り、PlaywrightのChromiumとFirefoxで、それぞれ空のOPFSから開きます。`/`のリンクから`/demo-v2`を開き、例を読み込み、時刻の帯で分へ飛び、240×で数秒再生し、レポートの頁の時系列のグラフが出ること、ページの誤り・consoleの誤り・お知らせ欄の誤りがないことを確かめます。`--python-projects`に、`scripts/build_project_sample.py`で作ったProjectStore（例のmainと同じScenarioをPythonのProjectの経路で計算したもの）を渡すと、記録、保存した点とその間の分のtimeline、飛んだ後と続く再生の窓、いくつかの`step`とページ送りの時系列、report、llm-statusについて、ブラウザーの答えのJSONとPythonのserverの答え（同じプロセスの`ProjectAPI`）を、値の型まで比べます。違って当然の項目（置き場の大きさ、Branchの`checkpoint_hash`と時系列の`anchor_hash`・cursorの中のanchor）は除き、除いた項目と理由を結果に書きます。ブラウザーだけが作る計算していないRun（`run-browser-compute`）は、Project `sample`の記録とRunの一覧（`GET /api/v1/projects/sample`と`.../runs`）のブラウザーの答えから抜いて比べ、抜いたことと理由も結果に書きます（#395）。そのほかのRunの記録は、そのまま比べます。0分の`state_hash`も比べます。Scenarioから作った世界は、0分から乱数の名前（`rng_state`、`CounterRNG`の`algorithm`と`seed`）を持つので（#281）、PythonのProjectの経路の最初の保存と、ブラウザーが始める書き出した世界は同じです。PlaywrightとそのbrowserはProjectの依存ではないので、確かめる環境に入れます。計った時間は#266に記録しています。
+サイトが画面の道に正しく答えるかは、`benchmarks/static_site_check.py`で確かめます。サイトを上のserverで配り、PlaywrightのChromiumとFirefoxで、それぞれ空のOPFSから開きます。`/`のホームで「計算済みの例を取得する」から例を選んで読み込み、時刻の帯で分へ飛び、240×で数秒再生し、レポートの頁の時系列のグラフが出ること、ページの誤り・consoleの誤り・お知らせ欄の誤りがないことを確かめます。`--python-projects`に、`scripts/build_project_sample.py`で作ったProjectStore（例のmainと同じScenarioをPythonのProjectの経路で計算したもの）を渡すと、記録、保存した点とその間の分のtimeline、飛んだ後と続く再生の窓、いくつかの`step`とページ送りの時系列、report、llm-statusについて、ブラウザーの答えのJSONとPythonのserverの答え（同じプロセスの`ProjectAPI`）を、値の型まで比べます。違って当然の項目（置き場の大きさ、Branchの`checkpoint_hash`と時系列の`anchor_hash`・cursorの中のanchor）は除き、除いた項目と理由を結果に書きます。Runの記録とRunの一覧も、そのまま比べます。0分の`state_hash`も比べます。Scenarioから作った世界は、0分から乱数の名前（`rng_state`、`CounterRNG`の`algorithm`と`seed`）を持つので（#281）、PythonのProjectの経路の最初の保存と、ブラウザーが始める書き出した世界は同じです。PlaywrightとそのbrowserはProjectの依存ではないので、確かめる環境に入れます。計った時間は#266に記録しています。
 
-`--compute pieces full`を付けると、ブラウザーで計算するRunも確かめます（#267）。どちらも空のOPFSから始めます。`pieces`は、「終了まで計算」を押し、1日を過ぎたら止め、続け、3日を過ぎたらページを閉じ、開き直して`interrupted`と先頭の分を確かめ、最後まで続けます。`full`は7日を一度に計算して時間を計ります。計算中に画面の時計が進むこと、計算したRunで分へ飛ぶ・再生する・時系列のグラフが出ること、1分・4321分・10080分のframeとKPIの時系列が例のRunとRunのID以外同じ（同じScenarioとseedから同じ世界になる）ことを確かめます。計った時間は#267に記録しています。
+`--compute pieces full`を付けると、ブラウザーで計算するRunも確かめます（#267）。どちらも空のOPFSから始め、例を取り寄せてから、例のScenarioのRun（`run-check-compute`）を`POST runs`で作ります。`pieces`は、「終了まで計算」を押し、1日を過ぎたら止め、続け、3日を過ぎたらページを閉じ、開き直して`interrupted`と先頭の分を確かめ、最後まで続けます。`full`は7日を一度に計算して時間を計ります。計算中に画面の時計が進むこと、計算したRunで分へ飛ぶ・再生する・時系列のグラフが出ること、1分・4321分・10080分のframeとKPIの時系列が例のRunとRunのID以外同じ（同じScenarioとseedから同じ世界になる）ことを確かめます。計った時間は#267に記録しています。
 
 ~~~shell
 SHELTERSIM_LLM_MODE=offline python scripts/build_project_sample.py sample-projects
@@ -274,14 +275,14 @@ gh workflow run deploy-browser.yml --ref main                    # 公開する
 gh workflow run deploy-browser.yml --ref <branch> -f dry_run=true  # 作って確かめるだけ
 ~~~
 
-workflowは、上の「ブラウザー版の静的サイト」と同じ手順でサイトを作ります（Pythonのkernelはprofile `ci`、WASMは`--release`、wasm-bindgenはCIの`ブラウザー版の計算`のjobと同じ版とsha256、避難所の索引は`--fetch-shelters`）。それから`wrangler deploy --dry-run`で設定とファイルを確かめ、Cloudflareへ送ります。送るときは、Workerの版にcommitのhashを`--tag`（先頭12桁）と`--message`で残します。
+workflowは、上の「ブラウザー版の静的サイト」と同じ手順でサイトを作ります。PythonのkernelとWASMは別のjobで並べて作り、例のRunとサイトの組み立てのjobに渡します（#415。Pythonのkernelはprofile `ci`、WASMは`--release`、wasm-bindgenはCIの`ブラウザー版の計算`のjobと同じ版とsha256、避難所の索引は`--fetch-shelters`）。それから`wrangler deploy --dry-run`で設定とファイルを確かめ、Cloudflareへ送ります。送るときは、Workerの版にcommitのhashを`--tag`（先頭12桁）と`--message`で残します。
 
 - 公開するのは`main`だけです。ほかのbranchで公開を選ぶと、何も作らずに止まります。`dry_run`はどのbranchでも使え、Cloudflareには何も送らず、secretも読みません。
 - 同時に動く公開は1つだけです。後から起動したものは、前のものが終わるのを待ちます。
 - 公開の後に、次の2つを確かめます。どちらかが通らないと、workflowは失敗します。
   1. 道ごとの答え：`/browser/gsi-shelter-index.json`（サイトを作った時刻を持ちます）が今回作ったものになるまで待ち（最大5分）、`/`と`/demo-v2`が200の`text/html`、`/demo-v2.html`が`/demo-v2`への307、ないファイル（`/nope`）が404の`text/html`、`/browser/api_worker.mjs`が`text/javascript`、`/browser/pkg/sheltersim_wasm_bg.wasm`が`application/wasm`、`/sample/sample.json`と自治体コードごとの避難所の行（`/browser/gsi-shelters/`の最初のファイル）が`application/json`であること。
-  2. 画面：公開したURLを`benchmarks/static_site_e2e.py --url`で、PlaywrightのChromiumとFirefoxで、それぞれ空のOPFSから開いて、すべての段を画面で通すこと（Pythonとは比べません）。
-- サイトを作った要約（`site-build.json`）と、画面の確かめの結果（`e2e-url.json`、画面の写し）は、runのartifact `deploy-browser`に30日残します。
+  2. 画面：公開したURLを`benchmarks/static_site_e2e.py --url`で、PlaywrightのChromiumとFirefoxで、それぞれ空のOPFSから開いて、すべての段を画面で通すこと（Pythonとは比べません）。ブラウザーごとに別のjobで同時に確かめます。Chromiumは一度に最後まで計算し（`--modes full`）、Firefoxは途中で止めて続けます（`--modes pieces`）。
+- サイトを作った要約（`site-build.json`）はrunのartifact `deploy-browser-site`に、画面の確かめの結果（`e2e-url.json`、画面の写し）は`deploy-browser-screen-chromium`と`deploy-browser-screen-firefox`に、30日残します。
 - 公開した版を戻すときは、Cloudflareのdashboardか`wrangler rollback`で前の版に戻すか、戻したいcommitを`main`に入れて公開し直します。
 
 workflowが使うsecret（リポジトリーのSettings → Secrets and variables → Actions。登録はCloudflareのアカウントを持つ人が行います）：

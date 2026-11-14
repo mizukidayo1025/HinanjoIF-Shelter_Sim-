@@ -38,8 +38,10 @@
 // The sample (installSample): the site holds the precomputed sample Project as one bundle
 // (project_store.mjs, #265) split into parts no larger than a static host takes, listed in a small
 // manifest (SAMPLE_FORMAT): the parts are fetched, each checked against its sha256, joined, the
-// whole checked, and imported (`importProject`). The store keeps the manifest's sha256 beside the
-// Projects, so a site with another sample replaces it once.
+// whole checked, and imported (`importProject`). The site lists its examples (EXAMPLES_FORMAT,
+// #411), and one is fetched only when the home's list is chosen from. The store keeps each
+// example's sha256 beside the Projects (SAMPLE_MARKER), so a site with another example offers it
+// again.
 
 import { ApiError, errorAnswer, historyCache, historyResponse, llmStatusResponse, reportResponse } from "./api_answers.mjs";
 import { CHUNK_TICKS, Computing, branchModelStatus, checkFields, postDocument } from "./compute.mjs";
@@ -54,8 +56,14 @@ import { bodyDocument, ScenarioRoutes } from "./scenario_routes.mjs";
 /// bytes, sha256}]}, the paths relative to the manifest.
 export const SAMPLE_FORMAT = "sheltersim-site-sample";
 export const SAMPLE_VERSION = 1;
-/// What the store keeps of the sample it imported, beside the Projects' folders.
+/// What the store keeps of the examples it imported, beside the Projects' folders:
+/// `{ examples: { <project id>: <sha256> } }` (before #411, `{ sha256, project_id }` of one).
 export const SAMPLE_MARKER = "site-sample.json";
+/// The site's list of examples: {format, version, examples: [{manifest, project_id, bytes, sha256,
+/// runs, branches, municipality, disaster, people, duration_minutes}]}, the manifests' paths
+/// relative to the list (scripts/build_static_site.py).
+export const EXAMPLES_FORMAT = "sheltersim-site-examples";
+export const EXAMPLES_VERSION = 1;
 export const UNSUPPORTED = "ブラウザー版では未対応です";
 const decoder = new TextDecoder();
 const encoder = new TextEncoder();
@@ -475,6 +483,30 @@ export function checkSampleManifest(manifest) {
   }
   if (total !== manifest.bytes) bad("the parts' sizes do not add up to the bundle's");
   return manifest;
+}
+
+/// Checks the site's list of examples; an error otherwise.
+export function checkExamples(list) {
+  const bad = (message) => {
+    throw new Error(`not a list of examples: ${message}`);
+  };
+  if (list?.format !== EXAMPLES_FORMAT || list.version !== EXAMPLES_VERSION || !Array.isArray(list.examples)) bad("another format or version");
+  const seen = new Set();
+  for (const example of list.examples) {
+    if (typeof example?.manifest !== "string" || !/^[A-Za-z0-9._-]+$/.test(example.manifest)) bad("an example without its manifest");
+    if (typeof example.project_id !== "string" || seen.has(example.project_id)) bad("an example without its own Project");
+    if (!/^[a-f0-9]{64}$/.test(example.sha256 ?? "") || !Number.isSafeInteger(example.bytes)) bad("an example without its sha256 or size");
+    seen.add(example.project_id);
+  }
+  return list;
+}
+
+/// The examples a store's marker names, as { <project id>: <sha256> }; the marker before #411
+/// named one.
+export function markerExamples(marker) {
+  if (marker && typeof marker.examples === "object" && marker.examples !== null) return { ...marker.examples };
+  if (typeof marker?.project_id === "string" && typeof marker.sha256 === "string") return { [marker.project_id]: marker.sha256 };
+  return {};
 }
 
 /// Makes sure the store holds the site's sample: when the store's marker does not name the

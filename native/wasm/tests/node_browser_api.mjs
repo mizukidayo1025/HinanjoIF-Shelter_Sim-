@@ -200,6 +200,21 @@ assert.equal((await install(fresh, marker)).installed, true);
 assert.throws(() => api.checkSampleManifest({ ...manifest, bytes: 1 }), /do not add up/);
 assert.throws(() => api.checkSampleManifest({ ...manifest, parts: [{ ...parts[0], path: "../x" }] }), /without its name/);
 
+// The site's list of examples (#411) and the store's marker of the examples it holds.
+{
+  const example = { manifest: "sample.json", project_id: "p1", bytes: manifest.bytes, sha256: manifest.sha256, runs: 1, branches: 1, municipality: null, disaster: null, people: null, duration_minutes: null };
+  const list = { format: api.EXAMPLES_FORMAT, version: api.EXAMPLES_VERSION, examples: [example] };
+  assert.equal(api.checkExamples(list), list);
+  assert.throws(() => api.checkExamples({ ...list, version: 2 }), /another format or version/);
+  assert.throws(() => api.checkExamples({ ...list, examples: [example, example] }), /its own Project/);
+  assert.throws(() => api.checkExamples({ ...list, examples: [{ ...example, manifest: "../x.json" }] }), /its manifest/);
+  assert.throws(() => api.checkExamples({ ...list, examples: [{ ...example, sha256: "x" }] }), /sha256 or size/);
+  // The marker before #411 named one example; now it names each.
+  assert.deepEqual(api.markerExamples({ sha256: "a".repeat(64), project_id: "sample" }), { sample: "a".repeat(64) });
+  assert.deepEqual(api.markerExamples({ examples: { sample: "b".repeat(64), other: "c".repeat(64) } }), { sample: "b".repeat(64), other: "c".repeat(64) });
+  assert.deepEqual(api.markerExamples(null), {});
+}
+
 // The store (#393): a browser that refuses OPFS (WebKit's private window answers UnknownError,
 // "out of memory") or has none gets its own code and a text saying what to do, not the reason the
 // browser gave; one that has it gets its root folder.

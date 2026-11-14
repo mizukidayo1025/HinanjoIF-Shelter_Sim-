@@ -3846,3 +3846,51 @@ body[data-scenario="unavailable"] #page-scenario .scenario-grid {
   gap: 8px;
   margin-top: 10px;
 }
+
+/* 詳細（#376）：記録・分岐・モデルと係数・出典と仮定・作用・LLMの利用 */
+.detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  align-items: start;
+}
+.detail-wide {
+  grid-column: 1 / -1;
+}
+.detail-facts {
+  display: grid;
+  grid-template-columns: 9em minmax(0, 1fr);
+  gap: 4px 10px;
+  margin: 6px 0;
+}
+.detail-facts dt {
+  color: var(--muted);
+}
+.detail-facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.detail-table-wrap {
+  overflow-x: auto;
+}
+.detail-table {
+  border-collapse: collapse;
+  font-size: 11px;
+  min-width: 100%;
+}
+.detail-table th,
+.detail-table td {
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  vertical-align: top;
+}
+.detail-table td {
+  overflow-wrap: anywhere;
+  min-width: 4em;
+}
+@media (max-width: 900px) {
+  .detail-grid {
+    grid-template-columns: 1fr;
+  }
+}

@@ -101,6 +101,7 @@ mod staff_dynamics_rules;
 mod staff_ops;
 mod staff_order_texts;
 mod staff_rules;
+mod stored_runs;
 mod summaries;
 mod test_files;
 mod text;

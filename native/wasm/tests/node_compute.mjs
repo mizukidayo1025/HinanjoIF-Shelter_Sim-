@@ -18,6 +18,9 @@
 //   next start calls it `interrupted`, and resuming goes on from its head.
 // - Computed so in pieces, the Run's stored world, log and samples read back to the digests of
 //   the sample's Run (same Scenario, same seed), and its frames are the sample's.
+// - A Run computed with another model version is view-only: resume is refused with Python's text;
+//   its timeline and replay show its saved points, a minute between them rounded down as Python's
+//   D2 says (#368).
 // The store emulates OPFS's rule that a file has one access handle open at a time. Large bytes are
 // compared by their sha256 (a failing deepEqual of large arrays takes all the memory).
 
@@ -102,7 +105,9 @@ if (bundlePath === null) {
   await store.createProject(tree, PROJECT);
   const scenarioBytes = encoder.encode(`{"duration_minutes":${duration},"id":"trial","seed":7}`);
   await store.saveScenario(tree, PROJECT, { scenarioBytes, scenarioHash: await store.sha256Hex(scenarioBytes) });
-  await store.createRun(tree, PROJECT, { runId: SAMPLE, scenarioId: "trial", scenarioVersion: 1, seed: 7, modelVersions: { m: "1" }, evidenceBytes: encoder.encode('{"schema_version":1,"weight":0.50}') });
+  // The core cannot sign this Scenario: only the engine's items are compared (compute.mjs).
+  const modelVersions = { ...JSON.parse(wasm.engineSignatures()), m: "1" };
+  await store.createRun(tree, PROJECT, { runId: SAMPLE, scenarioId: "trial", scenarioVersion: 1, seed: 7, modelVersions, evidenceBytes: encoder.encode('{"schema_version":1,"weight":0.50}') });
   await store.computeBranch({ wasm, tree, projectId: PROJECT, runId: SAMPLE, branchId: "main", run: { exportBytes: raw, world: "small_replay", ticks: 120 } });
   await store.setRunStatus(tree, PROJECT, SAMPLE, "completed");
 } else {
@@ -338,6 +343,49 @@ let stoppedAt;
   const items = (page, run) => JSON.stringify(page.items).replaceAll(`"${run}"`, '"RUN"');
   check(items(ours, RUN) === items(theirs, SAMPLE) && ours.coverage?.count === theirs.coverage?.count, "the history is not the sample's");
   console.log(`saved points ${saved.length}; computed ${JSON.stringify(browser.computing.done.map(({ from, target, reached, status, ms }) => ({ from, target, reached, status, s: +(ms / 1000).toFixed(2) })))}`);
+}
+// A Run computed with another model version (engine 1: no engine items recorded) is view-only.
+{
+  const raw = bundlePath === null ? readFileSync(join(here, "..", "..", "core", "tests", "data", "tick_core.json")) : null;
+  if (raw !== null) {
+    const old = "r-old-model";
+    await store.createRun(tree, PROJECT, { runId: old, scenarioId: "trial", scenarioVersion: 1, seed: 7, modelVersions: { m: "1" }, evidenceBytes: encoder.encode('{"schema_version":1}') });
+    await store.computeBranch({ wasm, tree, projectId: PROJECT, runId: old, branchId: "main", run: { exportBytes: raw, world: "small_replay", ticks: 720, saveEvery: 720 } });
+    const branch = await store.writeBranch(tree, PROJECT, old, { ...(await store.branchRecord(tree, PROJECT, old, "main")), status: "paused" });
+    const at = `/api/v1/projects/${PROJECT}/runs/${old}`;
+    const answer = await browser.answer({ method: "POST", path: `${at}/resume`, body: JSON.stringify({ branch_id: "main", target_minute: branch.computed_until + 1 }) });
+    const wanted = "run_model_view_only: このシナリオは旧モデル（版 1）で計算されました。今のモデルは版 3 です。閲覧のみです。保存した時点だけを表示し、続きの計算、分岐、介入の適用はできません。";
+    check(answer.status === 409 && answer.body === JSON.stringify({ code: "run_model_view_only", error: wanted }), `a Run of another model version: ${answer.status} ${answer.body}`);
+    // It is viewed as Python views it (D2): a minute between saved points shows the saved point at
+    // or before it, not computed again, and says so; a saved point's minute is shown as it is.
+    const frameOf = async (minute) => {
+      const answer = await browser.answer({ method: "GET", path: `${at}/branches/main/timeline`, search: `?minute=${minute}` });
+      check(answer.status === 200, `a Run of another model version at ${minute}: ${answer.status} ${answer.body.slice(0, 200)}`);
+      return JSON.parse(answer.body);
+    };
+    const between = await frameOf(1000);
+    const view = between.model_view;
+    check(
+      view?.view_only === true && view.current === false && view.recorded_version === "1" && view.installed_version === "3" && JSON.stringify(view.differences) === '["engine:model"]' && view.message === wanted.slice("run_model_view_only: ".length),
+      `model_view: ${JSON.stringify(view)}`,
+    );
+    check(
+      JSON.stringify(between.saved_point_rounding) ===
+        JSON.stringify({ message: "旧モデルのRunのため、1000分は計算し直さず、保存した時点（720分）の状態を表示しています。", requested_minute: 1000, saved_minute: 720 }),
+      `saved_point_rounding: ${JSON.stringify(between.saved_point_rounding)}`,
+    );
+    const atSaved = await frameOf(720);
+    check(between.minute === 720 && atSaved.minute === 720 && between.state_hash === atSaved.state_hash && !("saved_point_rounding" in atSaved) && atSaved.model_view?.view_only === true, "the saved point's frame");
+    const beforeFirst = await frameOf(100);
+    check(beforeFirst.minute === 0 && beforeFirst.saved_point_rounding?.saved_minute === 0, `before the first saved point: ${beforeFirst.minute}`);
+    // The world shown is the saved one: the sample's (same world, computed straight through) there.
+    const sample = JSON.parse((await browser.answer({ method: "GET", path: `/api/v1/projects/${PROJECT}/runs/${SAMPLE}/branches/main/timeline`, search: "?minute=720" })).body);
+    check(sample.state_hash === atSaved.state_hash && !("model_view" in sample), "the saved point is the sample's world at 720");
+    const replay = await browser.answer({ method: "GET", path: `${at}/replay-frames`, search: "?branch_ids=main&start=718&end=721" });
+    check(replay.status === 200, `replay of a Run of another model version: ${replay.status} ${replay.body.slice(0, 300)}`);
+    const minutes = (JSON.parse(replay.body).samples ?? []).map((frame) => [frame.minute, frame.saved_point_rounding?.saved_minute ?? null]);
+    check(JSON.stringify(minutes) === "[[0,0],[0,0],[720,null],[720,720]]", `replay of a Run of another model version: ${JSON.stringify(minutes)}`);
+  }
 }
 browser.close();
 

@@ -51,7 +51,7 @@ def _bundle(path: Path, size: int) -> bytes:
     manifest = json.dumps(
         {
             "format": "sheltersim-project-bundle",
-            "version": 1,
+            "version": 2,
             "project_id": "sample",
             "source": None,
             "entries": [
@@ -61,7 +61,7 @@ def _bundle(path: Path, size: int) -> bytes:
             ],
         }
     ).encode()
-    head = b"\x89SHELTERSIM-PRJ\n" + struct.pack(">II", 1, len(manifest))
+    head = b"\x89SHELTERSIM-PRJ\n" + struct.pack(">II", 2, len(manifest))
     data = head + hashlib.sha256(manifest).digest() + manifest
     data += bytes(index % 251 for index in range(size - len(data)))
     path.write_bytes(data)

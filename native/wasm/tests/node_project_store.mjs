@@ -126,7 +126,7 @@ const changed = (at, value = null) => {
   return copy;
 };
 await refused(changed(1), /magic/, "bundle_invalid");
-await refused(changed(19, 2), /version 2: this page reads version 1/, "bundle_version_unsupported");
+await refused(changed(19, 1), /version 1: this page reads version 2/, "bundle_version_unsupported");
 await refused(changed(60), /manifest is not the one written/, "bundle_invalid");
 await refused(changed(bytes.length - 3), /not the ones the bundle lists/, "bundle_digest_mismatch");
 await refused(bytes.subarray(0, bytes.length - 1), /past the file's end/, "bundle_invalid");

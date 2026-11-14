@@ -11,10 +11,14 @@
 //       approved, child_id}
 //       the draft's checks, then ProjectAPI.fork as the server's process worker answers it:
 //       {"status": "running", "branch_id": child, "minute": m}. The child is made at once (the
-//       branch at the minute, the program applied, the child's stored Run written, run_store.mjs
-//       format v4) and the outcome is the Run's `last_fork` (GET runs/{run}), as the server's is
-//       once its worker ends: {"status": "created", "branch_id", "minute", "state_hash"} or
-//       {"status": "failed", "error", "code"}.
+//       branch at the minute, the program applied, the child's stored Run written: format v5 of
+//       run_store.mjs, which reads the parent's pieces up to the saved point the fork's world was
+//       restored from, its base) and the outcome is the Run's `last_fork` (GET runs/{run}), as the
+//       server's is once its worker ends: {"status": "created", "branch_id", "minute",
+//       "state_hash"} or {"status": "failed", "error", "code"}.
+//
+// A Run computed with other model versions is view-only: both routes refuse it as the server does
+// (409 `run_model_view_only`, compute.mjs `requireCurrentModel`).
 //
 // Where the browser differs from the server (docs/project-persistence.md lists these):
 // - A typed `program` (the screen never sends one) is refused, 409 `browser_unsupported`, after the
@@ -27,9 +31,9 @@
 //   when the page closes.
 
 import { ApiError } from "./api_answers.mjs";
-import { checkFields } from "./compute.mjs";
+import { checkFields, requireCurrentModel } from "./compute.mjs";
 import * as store from "./project_store.mjs";
-import { RunReader, RunWriter } from "./run_store.mjs";
+import { RunWriter } from "./run_store.mjs";
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -84,6 +88,7 @@ export async function interventionPreview(api, projectId, runId, branchId, docum
   if (("text" in document) === ("program" in document)) throw refused("provide exactly one of text or program");
   const minute = document.minute;
   const record = await branchAt(api, projectId, runId, branchId, minute);
+  await requireCurrentModel(wasm, tree, projectId, runId, branchId);
   if ("program" in document) throw new ApiError(409, `${UNSUPPORTED}（型つきのEffectProgram）`, "browser_unsupported");
   const simulation = await api.simulationAt(projectId, runId, record, minute);
   const summary = decoder.decode(simulation.scenarioSummary());
@@ -144,6 +149,8 @@ export async function interventionApply(api, projectId, runId, branchId, documen
   // ProjectAPI.fork, its checks in its order.
   if (document.approved !== true) throw refused("branch creation needs explicit human approval");
   if (api.computing.jobs.has(`${projectId}/${runId}/${branchId}`)) throw refused("pause background calculation before forking");
+  // A Run of another model version is view-only: no fork, no EffectProgram.
+  await requireCurrentModel(api.wasm, tree, projectId, runId, branchId);
   const record = await store.branchRecord(tree, projectId, runId, branchId);
   const minute = preview.minute;
   if (!Number.isInteger(minute) || minute < record.fork_minute || minute > record.computed_until) throw refused("minute is outside this branch's computed range");
@@ -177,18 +184,17 @@ function storageCode(message) {
 }
 
 /// `TimelineStore.fork`: the parent at the minute, checked against the state the preview saw, the
-/// program applied, and the child's stored Run and record. Returns `last_fork`'s fields.
+/// program applied, and the child's stored Run and record. The child's stored Run reads the
+/// parent's pieces up to the line the parent's world was restored from (its base), and stores the
+/// rest from there: the records and decision records to the fork's minute, and a saved point there,
+/// after the program was applied. Returns `last_fork`'s fields.
 async function fork(api, projectId, runId, parent, minute, childId, preview) {
   const { wasm, tree } = api;
   // The kept worlds go first: WASM's memory does not shrink.
   api.freeLive();
-  const parentBackend = await store.branchBackend(tree, projectId, runId, parent.branch_id);
-  const reader = await RunReader.open({ wasm, backend: parentBackend });
+  const reader = await store.branchReader(wasm, tree, projectId, runId, parent.branch_id);
   try {
-    const exportIndex = reader.journal.find("export");
-    if (exportIndex === undefined) throw new Error("the parent's stored Run has no exported world");
-    const compressed = await reader.compressed(exportIndex);
-    const simulation = (await reader.seek(minute)).simulation;
+    const { simulation, base } = await reader.seek(minute, { decisions: true });
     try {
       const origin = simulation.stateDigest();
       if (origin !== preview.state_hash) throw refused("source state changed; preview the intervention again");
@@ -197,9 +203,9 @@ async function fork(api, projectId, runId, parent, minute, childId, preview) {
       const writer = await RunWriter.create(wasm, backend);
       let head;
       try {
-        writer.core.forkStart(reader.journal, minute, parent.branch_id, origin, parent.checkpoint_hash, preview.programText, preview.hash, receipt);
-        await writer.flush(compressed);
-        head = await writer.save(simulation, { seal: true });
+        writer.core.forkStart(reader.journal, base, minute, parent.branch_id, origin, parent.checkpoint_hash, preview.programText, preview.hash, receipt);
+        await writer.flush();
+        head = await writer.save(simulation);
       } finally {
         writer.close();
       }
@@ -216,11 +222,16 @@ async function fork(api, projectId, runId, parent, minute, childId, preview) {
 /// The fork's receipt and origin a child's stored Run holds (its "fork" line), or null for a
 /// branch not made by a fork.
 export async function forkLine(api, projectId, runId, branchId) {
-  const backend = await store.branchBackend(api.tree, projectId, runId, branchId);
-  const reader = await RunReader.open({ wasm: api.wasm, backend });
+  const file = await (await store.branchBackend(api.tree, projectId, runId, branchId)).open("journal.jsonl");
+  let journal;
   try {
-    return reader.lines.find((line) => line.kind === "fork") ?? null;
+    journal = new api.wasm.Journal(file.read(0, file.size()));
   } finally {
-    reader.close();
+    file.close();
+  }
+  try {
+    return JSON.parse(journal.linesJson()).find((line) => line.kind === "fork") ?? null;
+  } finally {
+    journal.free();
   }
 }

@@ -266,46 +266,61 @@ split PR by PR; its last section sums up what is where.
 - **Saved points** (#251; not Python's Checkpoints, which #368 replaces with them later): `PlainRun::saved_point`
   writes the Run at a minute as `archive::SavedPoint`, a versioned binary of the world without its
   log (`archive::world_parts`) and the counts of the log's records and the metric samples (version
-  2; version 1 also held the contracts' counts, which a reader skips, #346). `archive::Restore` reads the stored log and samples back up to those counts
+  2; version 1 also held the contracts' counts, #346, and is not read since #368). `archive::Restore` reads the stored log and samples back up to those counts
   and `PlainRun::restore` builds the Run there; the open actions are made again from the log
   (`ActiveActions::of_log`, as `active_action_index`). In WASM: `Simulation.saved_point`,
   `Restore`, `Simulation.restore`/`restoreFromWorlds`; `wasm/js/run_store.mjs` keeps a saved
   point every 6 hours and seeks (`RunReader.seek`), and `wasm/tests/node_saved_points.mjs`
   checks it in Node (`core/tests/archive_store.rs` in native code).
-- **The stored Run's format** (#252, #251, #306; moved from JS by #368): `run_store` is the format
-  of a Run stored as two append-only files, `journal.jsonl` (a line per piece or event: its JSON, a
-  tab, its sha256) and `data.pack` (the pieces, each compressed by the host), format
-  `sheltersim-browser-run-v4` (v1 to v3 still read). `run_store::Journal::parse` reads a journal
-  back to its typed lines (`Line`: `run`, `fork`, the pieces `export`/`log_tables`/`log_block`/
-  `sample_tables`/`sample_block`/`saved`/`world`, `end`), stopping at the first line cut short or
-  not matching its sha256; a whole line that is not one of the format is an error, never a panic.
-  The reader's decisions are the journal's: `heads` (the lines a branch goes on from), `cut`,
-  `saved_points`, `seek` (the saved point to restore, refusing minutes before a fork's),
-  `next_restore_read`/`restore_read` (the pieces a `Restore` needs), `check_stored`/`check_raw`
-  (each piece against its line) and `Verify` (the pieces read back to the "end" line's digests).
-  `RunWriter` decides what to store and when (`start`, `same_start`, `fork_start`, `take`, `save`,
-  `finish`; `Schedule` for when a saved point is due) and encodes each line as the browser's
-  `JSON.stringify` wrote it; the host writes each queued item (`next`, then `commit_piece` with
-  where it put the compressed bytes, or `commit_line`). The core does no I/O and compresses
-  nothing: the browser's `wasm/js/run_store.mjs` is the host (OPFS or memory files,
-  `CompressionStream("deflate-raw")`) through `Journal`, `RunWriter`, `VerifyRun` and
-  `Restore.readEntry` of `sheltersim_wasm`. `core/tests/stored_runs.rs` reads the journals of
-  `core/tests/data/stored_runs/` (written by the browser's code before the move, with deflate's
-  stored blocks as a compression every machine gives the same bytes of), encodes every line again
-  byte for byte and writes the same journals and data.pack again from the same Runs;
+- **The stored Run's format** (#252, #251, #306; moved from JS by #368, format v5 by #368): `run_store`
+  is the format of a Run stored as two append-only files, `journal.jsonl` (a line per piece or
+  event: its JSON, a tab, its sha256) and `data.pack` (the pieces, each compressed by the host),
+  format `sheltersim-run-v5`. Its "run" line holds the `model_versions` the Run is computed with,
+  the engine's version, the host's compression and the minutes between saved points (360). A Run of
+  an older format (`sheltersim-browser-run-v1` to `-v4`) is not read: `stored_run_outdated`, compute
+  it again. `run_store::Journal::parse` reads a journal back to its typed lines (`Line`: `run`,
+  `fork`, the pieces `export`/`log_tables`/`log_block`/`sample_tables`/`sample_block`/
+  `decisions`/`conversations`/`llm_tape`/`saved`/`world`, `end`), stopping at the first line cut
+  short or not matching its sha256; a whole line that is not one of the format (a key it does not
+  have, a block or tables out of order, a saved point whose counts are not what is stored before
+  it: the blocks are always sealed before one) is an error, never a panic. A line's head hash is
+  the sha256 of its JSON without its piece's place (`Line::head_json`), the same whatever
+  compressor wrote it; a branch's record names its head by it. The reader's decisions on a journal:
+  `heads`, `cut` (refused past the line a fork of the branch reads to), `saved_points`; through a
+  `Chain` of a fork's journal and its parents' (a fork's Run reads its parent's pieces up to its
+  "fork" line's `base` instead of a copy of them): `seek`, `next_restore_read`/`restore_read`,
+  `sample_pieces`, `records`, `check_stored`/`check_raw` and `Verify` (the pieces read back to the
+  "end" line's digests). `RunWriter` decides what to store and when (`start`, `same_start`,
+  `fork_start`, `take`, `save`, `finish`, `tape`, `after_end` and `turns`; `Schedule` for when a
+  saved point is due), takes the decision records a Run collects (`PlainRun::collect_decisions`;
+  `run_store::records` keeps each piece of them as tokens: its strings in a table, its floats as
+  their bits, read back byte for byte), checks what it stores for private data first
+  (`sensitive::Guard`: Python's `_reject_sensitive_checkpoint_content`, its rule and texts) and
+  encodes each line as the browser's `JSON.stringify` wrote it; the host writes each queued item
+  (`next`, then `commit_piece` with where it put the compressed bytes, or `commit_line`).
+  `model_version::ModelStatus` is Python's rule that a Run of other model versions is view-only
+  (`model_version.py`, its texts; a test keeps `ENGINE_VERSION` and the texts Python's): such a
+  Run's frame of a minute is its saved point's at or before it (`Journal::saved_minute_at`), with
+  the fields `SavedPointView.describe()` adds (`ModelStatus::describe_json`, D2). The core
+  does no I/O and compresses nothing: the browser's `wasm/js/run_store.mjs` is the host (OPFS or
+  memory files, `CompressionStream("deflate-raw")`) through `Journal`, `Chain`, `RunWriter`,
+  `VerifyRun`, `Restore.readEntry`, `recordsJson`, `engineSignatures` and `modelStatus` of
+  `sheltersim_wasm`. `core/tests/stored_runs.rs` reads the journals of `core/tests/data/stored_runs/`
+  (written by the browser's code, with deflate's stored blocks as a compression every machine gives
+  the same bytes of), encodes every line again byte for byte, writes the same journals and data.pack
+  again from the same Runs, and writes one Run with two compressors to the same heads;
   `wasm/tests/node_stored_runs.mjs` checks that the browser still writes them (`--write` writes
   them again after a change meant to move them).
 - **A Project in the browser** (#265): `wasm/js/project_store.mjs` keeps the Project, Run and
   Branch records beside each branch's stored Run (`run_store`, #252), answers the
   Project routes of the screen with the Python server's JSON, and writes and reads one versioned
-  bundle file of a Project (`sheltersim-project-bundle`, version 1). `wasm/tools/build_project_bundle.mjs`
+  bundle file of a Project (`sheltersim-project-bundle`, version 2: its stored Runs of format v5). `wasm/tools/build_project_bundle.mjs`
   is the Node half of `scripts/build_browser_sample.py`; `wasm/tests/node_project_store.mjs`
   checks a bundle's round trip and its refusals in CI.
 - **The KPI history, report and LLM status in the browser** (#266): `history::KpiTable` reads a
   stored Run's metric samples back and pages them as the Python history index pages
   `kind=kpis` (`history::kpi_row` writes a row as canonical JSON); a sample of a world with a
-  resource ledger also holds the ledger's columns (`plain::Balances`, format
-  `sheltersim-browser-run-v3`). In WASM: `KpiHistory`, `Simulation.log_record` and
+  resource ledger also holds the ledger's columns (`plain::Balances`, #266). In WASM: `KpiHistory`, `Simulation.log_record` and
   `Simulation.review_metrics`; `wasm/js/api_answers.mjs` writes the answers, and
   `wasm/tests/node_api_answers.mjs` checks them against the Python server's on the Run of
   `core/tests/data/api_answers.json`.
@@ -322,7 +337,8 @@ split PR by PR; its last section sums up what is where.
 - **Interventions in the browser** (#306): `wasm/js/interventions.mjs` answers
   `intervention-preview` and `intervention-apply` with the offline compiler, the EffectProgram's
   checks and `Simulation.applyEffectProgram`, and stores a child branch's Run in format
-  `sheltersim-browser-run-v4` (`wasm/js/run_store.mjs`: the Run starts at the fork). The core adds
+  `sheltersim-run-v5` (`wasm/js/run_store.mjs`: the Run starts at the fork and reads its parent's
+  pieces up to the saved point it was restored from). The core adds
   `interpret::merge_objects`, `document_redacts` and `question_text` (WASM `mergeJson`,
   `documentRedacts`, `questionText`); `wasm/js/comparison.mjs` answers `compare` and the replay of
   two branches with `interpret::kpi_differences` (WASM `kpiDifferences`, #307), and

@@ -193,8 +193,9 @@ EXCLUDED = [
 ]
 # Keys left out wherever they are, and why.
 MASKED = {
-    "checkpoint_hash": "a branch's head (or a fork's origin): the browser's is the sha256 of its "
-    "stored Run's journal line (docs/project-persistence.md), Python's a Checkpoint's hash",
+    "checkpoint_hash": "a branch's head (or a fork's origin): the browser's is the head hash of "
+    "its stored Run's journal line (the line without its piece's place, "
+    "docs/project-persistence.md), Python's a Checkpoint's hash",
 }
 CONTEXT_ID = re.compile(r"^(c[0-9a-f]{32}-)[0-9a-f]{24}$")
 NORMALIZED = {

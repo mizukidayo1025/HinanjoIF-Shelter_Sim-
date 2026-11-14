@@ -18,15 +18,17 @@
 //   <project>/runs/<run>/branches/<branch>/branch.json   {schema_version, run_id, branch_id,
 //                                                   parent_branch_id, fork_minute, computed_until,
 //                                                   checkpoint_hash, status}
-//   <project>/runs/<run>/branches/<branch>/journal.jsonl, data.pack   the branch's stored Run
+//   <project>/runs/<run>/branches/<branch>/journal.jsonl, data.pack   the branch's stored Run (a
+//                                                   fork's reads its parent's pieces up to its base)
 //   <project>/drafts/<preview_id>.json            an intervention's preview (js/interventions.mjs,
 //                                                   #306), not carried by a bundle
 //
 // Records are JSON with sorted keys and a newline. The Scenario and the evidence are kept as the
 // bytes Python wrote (route A: Python builds the world and exports it), so their numbers are never
 // read and written again by JS (1.0 would become 1). Where the browser has no Python meaning: a
-// branch's `checkpoint_hash` is the sha256 of its head's journal line (the last "end" line of its
-// stored Run, which holds the minute and the digests the Run reached); the Run's status is kept in
+// branch's `checkpoint_hash` is the head hash of its head's journal line (the core's
+// `run_store::Line::head_json`: the "end" line of a stored Run computed to its end, which holds the
+// minute and the digests the Run reached); the Run's status is kept in
 // run.json (Python keeps it in status.json); `storage` of the Project list counts the files of the
 // store and takes its limit from the caller (the page: `navigator.storage.estimate().quota`); a
 // Run answers no `last_fork`. docs/project-persistence.md lists these.
@@ -36,9 +38,11 @@
 // and gives a folder as run_store.mjs's backend (`folder`).
 //
 // Bundle. One file carries a Project: its records and each branch's stored files as they are,
-// whatever pieces their journal holds. Its form (BUNDLE_FORMAT, BUNDLE_VERSION):
+// whatever pieces their journal holds. Its form (BUNDLE_FORMAT, BUNDLE_VERSION; version 2 since its
+// stored Runs are of format v5, #368, and a fork's reads its parent's; a bundle of version 1 holds
+// Runs of an older format, which are computed again, and is refused):
 //   16 bytes   magic: 0x89 "SHELTERSIM-PRJ" 0x0a
-//   4 bytes    the bundle's version, big-endian (1)
+//   4 bytes    the bundle's version, big-endian (2)
 //   4 bytes    the manifest's length in bytes, big-endian
 //   32 bytes   the manifest's sha256
 //   manifest   JSON: {format, version, project_id, source, entries: [{path, length, sha256}]}
@@ -47,10 +51,10 @@
 // manifest's and every entry's sha256, the records, and then each branch's stored Run read back
 // to its digests (run_store.mjs's readAndVerify) and to its record's head.
 
-import { opfsBackend, readAndVerify, runAndStore } from "./run_store.mjs";
+import { opfsBackend, readAndVerify, RunReader, RunWriter, runAndStore } from "./run_store.mjs";
 
 export const BUNDLE_FORMAT = "sheltersim-project-bundle";
-export const BUNDLE_VERSION = 1;
+export const BUNDLE_VERSION = 2;
 export const BUNDLE_EXTENSION = ".shelterproj";
 const encoder = new TextEncoder();
 const decoder = new TextDecoder("utf-8", { fatal: true });
@@ -493,14 +497,25 @@ export async function branchBackend(tree, projectId, runId, branchId) {
   return tree.folder(branchPath(projectId, runId, branchId));
 }
 
+/// The backends of a Run's branches by id: what a fork's stored Run reads its parent's pieces
+/// through (run_store.mjs's `parent`).
+export function runBackends(tree, projectId, runId) {
+  return (branchId) => branchBackend(tree, projectId, runId, branchId);
+}
+
+/// A branch's stored Run opened to read it (run_store.mjs's RunReader), with its parents'.
+export async function branchReader(wasm, tree, projectId, runId, branchId) {
+  return RunReader.open({ wasm, backend: await branchBackend(tree, projectId, runId, branchId), parent: runBackends(tree, projectId, runId) });
+}
+
 /// The head of a stored Run's journal text: its "end" line (the core's `Journal::heads`), as
-/// `{minute, checkpointHash, duration}` (the line's sha256, and the minute the clock is complete
+/// `{minute, checkpointHash, duration}` (the line's head hash, and the minute the clock is complete
 /// at, of the "run" line), or null for a Run not stored to its end.
 export function journalHead(wasm, text) {
   const journal = new wasm.Journal(encoder.encode(text));
   try {
     const end = JSON.parse(journal.headsJson()).findLast((head) => head.kind === "end");
-    return end ? { minute: end.minute, checkpointHash: end.sha, duration: journal.duration() } : null;
+    return end ? { minute: end.minute, checkpointHash: end.head, duration: journal.duration() } : null;
   } finally {
     journal.free();
   }
@@ -516,14 +531,16 @@ async function headOf(wasm, backend) {
 }
 
 /// Computes a branch in WASM and stores it as it goes (run_store.mjs's runAndStore with `run`'s
-/// options: exportBytes, world, ticks, progress), then writes its record: computed to the minute
-/// the Run reached, its head the journal's end line, completed when the clock is.
+/// options: exportBytes, world, ticks, progress; the model versions of the Run's record), then
+/// writes its record: computed to the minute the Run reached, its head the journal's end line,
+/// completed when the clock is.
 export async function computeBranch({ wasm, tree, projectId, runId, branchId, parentBranchId = null, forkMinute = 0, run }) {
+  const { model_versions: modelVersions } = await readRecord(tree, [...runPath(projectId, runId), "run.json"]);
   await writeBranch(tree, projectId, runId, { branch_id: branchId, parent_branch_id: parentBranchId, fork_minute: forkMinute, status: "running" });
   const backend = await branchBackend(tree, projectId, runId, branchId);
   let ran;
   try {
-    ran = await runAndStore({ wasm, backend, ...run });
+    ran = await runAndStore({ wasm, backend, modelVersions, ...run });
   } catch (error) {
     await writeBranch(tree, projectId, runId, { branch_id: branchId, parent_branch_id: parentBranchId, fork_minute: forkMinute, status: "failed" });
     throw error;
@@ -551,7 +568,7 @@ export async function verifyBranch(wasm, tree, projectId, runId, record) {
   const backend = await branchBackend(tree, projectId, runId, record.branch_id);
   let back;
   try {
-    back = await readAndVerify({ wasm, backend });
+    back = await readAndVerify({ wasm, backend, parent: runBackends(tree, projectId, runId) });
   } catch (error) {
     fail(`branch ${record.branch_id}: its stored Run does not read back: ${error.message}`, "bundle_run_mismatch");
   }
@@ -624,17 +641,44 @@ export async function removeRun(tree, projectId, runId) {
   await tree.remove(runPath(projectId, runId));
 }
 
-/// The questions and answers kept beside a branch (questions.mjs's `conversations.jsonl`), oldest
-/// first; at most the last `limit`.
-export async function conversations(tree, projectId, runId, branchId, limit = 100) {
-  const bytes = await tree.read([...runPath(projectId, runId), "branches", checkId(branchId), "conversations.jsonl"]);
-  if (bytes === null) return [];
-  return decoder
-    .decode(bytes)
-    .split("\n")
-    .filter((line) => line !== "")
-    .slice(-limit)
-    .map((line) => JSON.parse(line));
+/// The questions and answers kept in a branch's stored Run (its "conversations" pieces, after its
+/// "end" line: questions.mjs's `keepTurn`), oldest first; at most the last `limit`.
+export async function conversations(wasm, tree, projectId, runId, branchId, limit = 100) {
+  const journal = await tree.read([...runPath(projectId, runId), "branches", checkId(branchId), "journal.jsonl"]);
+  if (journal === null || journal.length === 0) return [];
+  const reader = await branchReader(wasm, tree, projectId, runId, branchId);
+  try {
+    return (await reader.records("conversations")).slice(-limit);
+  } finally {
+    reader.close();
+  }
+}
+
+/// Keeps a question's turn (its JSON text) in a branch's stored Run computed to its end, after its
+/// "end" line (the core's `RunWriter::after_end`): the branch's head stays.
+export async function keepTurn(wasm, tree, projectId, runId, branchId, turn) {
+  const backend = await branchBackend(tree, projectId, runId, branchId);
+  const journalFile = await backend.open("journal.jsonl");
+  let core;
+  try {
+    const journal = new wasm.Journal(journalFile.read(0, journalFile.size()));
+    try {
+      core = journal.writerAfterEnd();
+    } finally {
+      journal.free();
+    }
+  } catch (error) {
+    journalFile.close();
+    throw error;
+  }
+  const writer = new RunWriter(wasm, await backend.open("data.pack"), journalFile, core);
+  try {
+    core.turn(turn);
+    await writer.flush();
+  } finally {
+    writer.close();
+    core.free();
+  }
 }
 
 /// Removes a Project and everything in its folder.

@@ -144,6 +144,8 @@ python benchmarks/wasm_trial_measure.py --bundle sample.shelterproj --pkg wasm-w
 | `POST …/branches/{branch}/intervention-preview`、`intervention-apply` | APIキーのないVMと同じ介入のプレビューと、子の分岐を作る適用（`native/wasm/js/interventions.mjs`、#306）。`GET runs/{run}`は`last_fork`も返します |
 | `GET runs/{run}/compare`、2つの分岐の`GET runs/{run}/replay-frames` | 比較（`native/wasm/js/comparison.mjs`、#307）。差は中核が求めます（`kpiDifferences`） |
 | `POST …/branches/{branch}/questions` | APIキーのないVMと同じ決まった答え（`native/wasm/js/questions.mjs`、#308） |
+| `POST runs/{run}/delete` | serverと同じ確かめ（`confirmation`がRunのID、そのRunを計算していないこと、状態が`running`でないこと）の後、OPFSのRunのフォルダーを消し、持っているSimulationと時系列の表を手放します（#376） |
+| `GET …/branches/{branch}/conversations` | 分岐の隣の`conversations.jsonl`（`questions.mjs`が書く）の最後の100件を古い順に。serverと同じく各turnに`schema_version`を付けます（#376） |
 | `POST runs/{run}/pdf-report` | serverの確かめの後、APIキーのないVMと同じ409 `pdf_analysis_offline`（#309、[project-persistence.md](project-persistence.md#ブラウザーのpdfレポート309)） |
 | `scenario-*`、`/api/v1/projects`以外の道 | 409 `{"error": "ブラウザー版では未対応です（…）", "code": "browser_unsupported"}` |
 

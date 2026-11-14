@@ -320,7 +320,6 @@ def main() -> None:
 
         api._advance = advance
         started = last = time.perf_counter()
-        # Match /demo-v2, which resumes without the optional telemetry recording.
         api.submit("p", "r", branch, target)
         api._pool.submit(lambda: None).result()
         wall_seconds = time.perf_counter() - started

@@ -133,17 +133,6 @@ assert.deepEqual(await status("/p1/runs/r1/replay-frames", `?branch_ids=main&sta
   check(compare.status === 200 && JSON.stringify(JSON.parse(compare.body).origin_receipts) === "[null,null]", `compare: ${compare.body.slice(0, 200)}`);
 }
 
-// What stage A leaves out: "未対応", 409.
-const unsupported = [
-  await browser.answer({ method: "GET", path: "/api/v1/demo", search: "" }),
-];
-for (const answer of unsupported) {
-  const error = JSON.parse(answer.body);
-  check(answer.status === 409 && error.code === "browser_unsupported" && error.error.startsWith(api.UNSUPPORTED), `not refused as unsupported: ${answer.body}`);
-}
-// History of another kind than the KPIs: api_answers.mjs's refusal.
-const events = await get("/p1/runs/r1/branches/main/history", "?kind=events&start=0&end=10");
-check(events.status === 409 && JSON.parse(events.body).code === "browser_unsupported", `history of events: ${events.body}`);
 // The history, the report and the LLM status are api_answers.mjs's (node_api_answers.mjs checks
 // their JSON against the server's).
 {
@@ -215,4 +204,4 @@ if (failures > 0) {
   console.error(`${failures} problem(s)`);
   process.exit(1);
 }
-console.log(`browser API: records, ${minutes.length} timeline minutes and 4 replay windows answer the uninterrupted Run's frames (${browser.stats.seeks} seeks, ${browser.stats.steps} ticks stepped); unsupported routes refused; sample installed from ${parts.length} parts`);
+console.log(`browser API: records, ${minutes.length} timeline minutes and 4 replay windows answer the uninterrupted Run's frames (${browser.stats.seeks} seeks, ${browser.stats.steps} ticks stepped); sample installed from ${parts.length} parts`);

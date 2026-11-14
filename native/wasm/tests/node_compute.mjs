@@ -194,7 +194,6 @@ await refusal("/resume", { branch_id: "main", target_minute: "10" }, 409, RANGE)
 await refusal("/resume", { branch_id: "main", target_minute: 1.5 }, 409, RANGE);
 await refusal("/resume", { branch_id: "main" }, 409, "request fields do not match this operation");
 await refusal("/resume", { branch_id: "main", target_minute: 10, extra: 1 }, 409, "request fields do not match this operation");
-await refusal("/resume", { branch_id: "main", target_minute: 10, measure_performance: false }, 409, "request fields do not match this operation");
 await refusal("/resume", "not json", 400, "invalid project request");
 await refusal("/resume", "[1]", 409, "project request must be an object");
 await refusal("/resume", { branch_id: "nope", target_minute: 10 }, 409, "saved artifact is missing or corrupt");

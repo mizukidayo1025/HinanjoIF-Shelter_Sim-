@@ -42,7 +42,7 @@
 // Projects, so a site with another sample replaces it once.
 
 import { ApiError, errorAnswer, historyCache, historyResponse, llmStatusResponse, reportResponse } from "./api_answers.mjs";
-import { CHUNK_TICKS, Computing, checkFields, postDocument } from "./compute.mjs";
+import { CHUNK_TICKS, Computing, branchModelStatus, checkFields, postDocument } from "./compute.mjs";
 import * as store from "./project_store.mjs";
 import { compareResponse, replayPair } from "./comparison.mjs";
 import { interventionApply, interventionPreview } from "./interventions.mjs";
@@ -132,6 +132,8 @@ export class BrowserApi {
     this.keep = keep;
     // "project/run/branch" -> { simulation, head, savedMinutes, used }
     this.live = new Map();
+    // "project/run/branch" -> { head, view }: whether the branch's Run is view-only (`viewOf`).
+    this.views = new Map();
     this.used = 0;
     this.stats = { seeks: 0, steps: 0, restoreMs: 0, recomputeMs: 0, stepMs: 0, frameMs: 0, headFrames: 0 };
     this.queue = Promise.resolve();
@@ -301,6 +303,7 @@ export class BrowserApi {
         this.live.delete(key);
       }
     }
+    for (const key of [...this.views.keys()]) if (key.startsWith(`${projectId}/${runId}/`)) this.views.delete(key);
     this.history.clear();
     this.forkOutcomes.delete(`${projectId}/${runId}`);
     await store.removeRun(this.tree, projectId, runId);
@@ -339,8 +342,19 @@ export class BrowserApi {
     return `{"branch_ids":${JSON.stringify(branchIds)},"end":${end},"samples":[${samples.join(",")}],"schema_version":1,"start":${start}}`;
   }
 
-  /// The frame of a branch at a minute, as JSON text.
+  /// The frame of a branch at a minute, as JSON text. A Run computed with other model versions
+  /// is not computed again with the core's (Python's D2, `TimelineStore.frame`): the frame is the
+  /// saved point's at or before the minute, with `model_view` and, where the minute is not a saved
+  /// point's, `saved_point_rounding` (the core's `ModelStatus::describe_json`).
   async frameText(projectId, runId, record, minute) {
+    const view = await this.viewOf(projectId, runId, record);
+    if (view !== null) {
+      const saved = await this.savedMinuteAt(projectId, runId, record, minute);
+      const simulation = await this.simulationAt(projectId, runId, record, saved, { exact: true });
+      const frame = simulation.frame(runId, record.branch_id, record.computed_until, undefined);
+      const fields = this.wasm.viewFields(view.recorded, view.installed, saved, minute);
+      return this.wasm.mergeJson(frame, encoder.encode(fields));
+    }
     const kept = this.computing.frameAt(projectId, runId, record, minute);
     if (kept !== null) {
       this.stats.headFrames += 1;
@@ -353,12 +367,38 @@ export class BrowserApi {
     return decoder.decode(bytes);
   }
 
+  /// The model versions of a branch's stored Run against the core's, where they differ (the Run
+  /// is view-only): `{ recorded, installed }` as `viewFields` takes them; null for a Run of the
+  /// core's versions. Kept for the branch's head.
+  async viewOf(projectId, runId, record) {
+    const key = `${projectId}/${runId}/${record.branch_id}`;
+    const kept = this.views.get(key);
+    if (kept && kept.head === record.checkpoint_hash) return kept.view;
+    const compared = await branchModelStatus(this.wasm, this.tree, projectId, runId, record.branch_id);
+    const view = compared === null || compared.status.current ? null : { recorded: compared.recorded, installed: compared.installed };
+    this.views.set(key, { head: record.checkpoint_hash, view });
+    return view;
+  }
+
+  /// The minute of the saved point at or before `minute` of a branch's stored Run (the core's
+  /// `Journal::saved_minute_at`).
+  async savedMinuteAt(projectId, runId, record, minute) {
+    const journal = new this.wasm.Journal(await this.tree.read([projectId, "runs", runId, "branches", record.branch_id, "journal.jsonl"]));
+    try {
+      return journal.savedMinuteAt(minute);
+    } finally {
+      journal.free();
+    }
+  }
+
   /// The branch's live Simulation at `minute`: stepped forward from the kept one when that does
-  /// not cost more ticks than restoring the nearest saved point, else sought.
-  async simulationAt(projectId, runId, record, minute) {
+  /// not cost more ticks than restoring the nearest saved point, else sought. With `exact` (a saved
+  /// point of a Run of other model versions, which is not computed again) the kept one is used
+  /// only when it is the saved point as restored, else the saved point is restored.
+  async simulationAt(projectId, runId, record, minute, { exact = false } = {}) {
     const key = `${projectId}/${runId}/${record.branch_id}`;
     let live = this.live.get(key);
-    if (live && live.head !== record.checkpoint_hash) {
+    if (live && (live.head !== record.checkpoint_hash || (exact && !(live.restoredAt === minute && live.simulation.minute() === minute)))) {
       live.simulation.free();
       this.live.delete(key);
       live = undefined;
@@ -369,6 +409,7 @@ export class BrowserApi {
       const now = live.simulation.minute();
       const point = Math.max(0, ...live.savedMinutes.filter((saved) => saved <= minute));
       if (now === minute) return live.simulation;
+      live.restoredAt = null;
       if (now < minute && (now >= point || minute - now <= SAVE_EVERY)) {
         const started = performance.now();
         if (live.simulation.advance(minute - now) !== minute - now) throw new Error(`the Run does not reach minute ${minute}`);
@@ -391,7 +432,13 @@ export class BrowserApi {
       this.stats.seeks += 1;
       this.stats.restoreMs += sought.restoreMs;
       this.stats.recomputeMs += sought.recomputeMs;
-      this.live.set(key, { simulation: sought.simulation, head: record.checkpoint_hash, savedMinutes: reader.savedPoints().map((line) => line.minute), used: this.used });
+      this.live.set(key, {
+        simulation: sought.simulation,
+        head: record.checkpoint_hash,
+        savedMinutes: reader.savedPoints().map((line) => line.minute),
+        restoredAt: sought.from === minute ? minute : null,
+        used: this.used,
+      });
       return sought.simulation;
     } finally {
       reader.close();

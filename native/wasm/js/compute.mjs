@@ -23,6 +23,7 @@
 // stored Run's versions are compared with the ones the core records now for its Scenario
 // (`modelVersions`, or only the engine's items for a Scenario the core cannot sign), and resume,
 // intervention-preview and intervention-apply refuse it with Python's 409 `run_model_view_only`.
+// Its frames show the saved point at or before the minute asked for (browser_api.mjs, Python's D2).
 //
 // Computing (Computing.resume). Python's checks and answers (src/sheltersim/web/projects.py
 // `submit`, `cancel`), one computation at a time (the thread worker's max_jobs). The branch is cut
@@ -285,13 +286,13 @@ function installedVersions(wasm, scenarioBytes, recorded) {
   }
 }
 
-/// Python's `_require_current_model`: a refusal (409 `run_model_view_only`, Python's text) where
-/// the branch's stored Run was computed with other model versions than the core records now. A
-/// branch without a stored Run is left to the computation; a stored Run of an older format is
-/// refused (`stored_run_outdated`).
-export async function requireCurrentModel(wasm, tree, projectId, runId, branchId) {
+/// How the model versions a branch's stored Run was computed with compare with the ones the core
+/// records now (the core's `ModelStatus`): `{ recorded, installed, status }`, the two as JSON text
+/// and the status as `modelStatus` answers it; null for a branch without a stored Run or one whose
+/// journal cannot be read (a stored Run of an older format is its error, `stored_run_outdated`).
+export async function branchModelStatus(wasm, tree, projectId, runId, branchId) {
   const bytes = await tree.read([projectId, "runs", runId, "branches", branchId, JOURNAL]);
-  if (bytes === null || bytes.length === 0) return;
+  if (bytes === null || bytes.length === 0) return null;
   let recorded;
   try {
     const journal = new wasm.Journal(bytes);
@@ -301,14 +302,21 @@ export async function requireCurrentModel(wasm, tree, projectId, runId, branchId
       journal.free();
     }
   } catch (error) {
-    // A stored Run of an older format is refused; one that cannot be read is left to the
-    // computation, which fails the Run (as Python leaves a head it cannot read to the job).
     if (String(error?.message ?? "").startsWith(`${OUTDATED_CODE}: `)) throw error;
-    return;
+    return null;
   }
-  const installed = installedVersions(wasm, await store.runScenarioBytes(tree, projectId, runId), JSON.parse(recorded));
-  const status = JSON.parse(wasm.modelStatus(recorded, JSON.stringify(installed)));
-  if (!status.current) throw new store.ProjectStoreError(status.error, "run_model_view_only");
+  const installed = JSON.stringify(installedVersions(wasm, await store.runScenarioBytes(tree, projectId, runId), JSON.parse(recorded)));
+  return { recorded, installed, status: JSON.parse(wasm.modelStatus(recorded, installed)) };
+}
+
+/// Python's `_require_current_model`: a refusal (409 `run_model_view_only`, Python's text) where
+/// the branch's stored Run was computed with other model versions than the core records now. A
+/// branch without a stored Run, or whose head cannot be read, is left to the computation (which
+/// fails the Run, as Python leaves a head it cannot read to the job); a stored Run of an older
+/// format is refused (`stored_run_outdated`).
+export async function requireCurrentModel(wasm, tree, projectId, runId, branchId) {
+  const compared = await branchModelStatus(wasm, tree, projectId, runId, branchId);
+  if (compared !== null && !compared.status.current) throw new store.ProjectStoreError(compared.status.error, "run_model_view_only");
 }
 
 // ---- Computing ---------------------------------------------------------------------------------

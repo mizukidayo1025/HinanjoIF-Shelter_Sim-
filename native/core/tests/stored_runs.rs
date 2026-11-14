@@ -364,6 +364,15 @@ fn a_seek_starts_at_the_nearest_saved_point_at_or_before_the_minute() {
     assert_eq!(fork.seek(479).unwrap().from_minute, 400);
     assert_eq!(fork.seek(480).unwrap().from_minute, 480);
     assert_eq!(fork.pieces()[fork.export().unwrap()].level, 0);
+    // What a Run of other model versions shows for a minute (D2): the saved point at or before it.
+    let leaf = journal("from_zero");
+    for (minute, saved) in [(0, 0), (359, 0), (360, 360), (1000, 720), (1440, 1440)] {
+        assert_eq!(leaf.saved_minute_at(minute).unwrap(), saved, "minute {minute}");
+    }
+    assert!(leaf.saved_minute_at(1441).is_err());
+    let fork_leaf = journal("fork");
+    assert_eq!((fork_leaf.saved_minute_at(400).unwrap(), fork_leaf.saved_minute_at(479).unwrap()), (400, 400));
+    assert!(fork_leaf.saved_minute_at(399).is_err());
     // Without its saved points, a fork's Run has nowhere to start from.
     let bytes = journal_bytes("fork");
     let leaf = journal("fork");
@@ -867,6 +876,33 @@ fn a_run_of_other_model_versions_is_view_only_with_pythons_rule_and_text() {
     let status = ModelStatus::of(&policies, &installed);
     assert_eq!(status.differences, ["model_suite", "policy:behavior", "policy:queue", "state:x"]);
     assert!(status.message().starts_with("このシナリオは今と異なるモデルの版（model_suite、policy:behavior、policy:queue ほか）"), "{}", status.message());
+    // A view (D2): `model_view` for a Run of other versions, `saved_point_rounding` where the minute
+    // shown is not the one asked for (test_checkpoint_versions.py's fields).
+    let old = ModelStatus::of(&unrecorded, &installed);
+    let described: Value = serde_json::from_slice(&old.describe_json(30, 45)).unwrap();
+    assert_eq!(
+        described,
+        serde_json::json!({
+            "model_view": {
+                "current": false,
+                "view_only": true,
+                "recorded_version": "1",
+                "installed_version": "3",
+                "differences": ["engine:model"],
+                "message": old.message(),
+            },
+            "saved_point_rounding": {
+                "requested_minute": 45,
+                "saved_minute": 30,
+                "message": "旧モデルのRunのため、45分は計算し直さず、保存した時点（30分）の状態を表示しています。",
+            },
+        })
+    );
+    let at_save: Value = serde_json::from_slice(&old.describe_json(30, 30)).unwrap();
+    assert!(at_save.get("saved_point_rounding").is_none() && at_save["model_view"]["view_only"] == true);
+    assert_eq!(ModelStatus::of(&installed, &installed).describe_json(30, 30), b"{}");
+    let current: Value = serde_json::from_slice(&ModelStatus::of(&installed, &installed).to_json()).unwrap();
+    assert_eq!(current["message"], Value::Null);
     // Configs the installed code cannot sign.
     let status = ModelStatus::unreadable(&installed);
     assert_eq!(status.differences, ["model_signatures"]);
@@ -885,6 +921,8 @@ fn the_engine_version_is_pythons() {
         "f\"今のモデルは版 {self.installed_version} です。{tail}\"",
         "f\"このシナリオは今と異なるモデルの版（{named(models)}）で計算されました。{tail}\"",
         "f\"このシナリオは以前の保存の形（{named(shapes)}）で保存されました。{tail}\"",
+        "f\"旧モデルのRunのため、{self.requested_minute}分は計算し直さず、\"",
+        "f\"保存した時点（{self.saved_minute}分）の状態を表示しています。\"",
     ] {
         assert!(python.contains(text), "model_version.py's text changed: {text}");
     }

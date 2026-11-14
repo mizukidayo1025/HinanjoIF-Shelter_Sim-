@@ -323,6 +323,20 @@ pub fn model_status(recorded: &str, installed: Option<String>) -> Result<String,
     Ok(String::from_utf8_lossy(&encoder.out).into_owned())
 }
 
+/// The fields an answer of a Run of other model versions adds (`ModelStatus::describe_json`, D2),
+/// as JSON: `model_view` (the status of `recorded` against `installed`, as `modelStatus` takes
+/// them) and, where `saved_minute` (the saved point shown) is not `requested_minute`,
+/// `saved_point_rounding`.
+#[wasm_bindgen(js_name = viewFields)]
+pub fn view_fields(recorded: &str, installed: Option<String>, saved_minute: f64, requested_minute: f64) -> Result<String, JsError> {
+    let recorded = versions_of(recorded)?;
+    let status = match installed {
+        Some(installed) => model_version::ModelStatus::of(&recorded, &versions_of(&installed)?),
+        None => model_version::ModelStatus::unreadable(&recorded),
+    };
+    String::from_utf8(status.describe_json(minute_of(saved_minute)?, minute_of(requested_minute)?)).map_err(|error| JsError::new(&error.to_string()))
+}
+
 /// A stored Run's journal read back (`run_store::Journal::parse`): its lines up to the first that
 /// is cut short or does not match its sha256, and what a reader decides of them alone.
 #[wasm_bindgen]
@@ -445,6 +459,13 @@ impl Journal {
     #[wasm_bindgen(js_name = writerAfterEnd)]
     pub fn writer_after_end(&self) -> Result<RunWriter, JsError> {
         Ok(RunWriter { inner: run_store::RunWriter::after_end(&self.inner).map_err(js_error)?, last_head: None })
+    }
+
+    /// The minute of the saved point at or before `minute` (`run_store::Journal::saved_minute_at`):
+    /// what a Run of other model versions shows for `minute`.
+    #[wasm_bindgen(js_name = savedMinuteAt)]
+    pub fn saved_minute_at(&self, minute: f64) -> Result<f64, JsError> {
+        Ok(self.inner.saved_minute_at(minute_of(minute)?).map_err(js_error)? as f64)
     }
 
     /// The "saved" lines a seek can restore, by their indexes.

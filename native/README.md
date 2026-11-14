@@ -299,7 +299,9 @@ split PR by PR; its last section sums up what is where.
   encodes each line as the browser's `JSON.stringify` wrote it; the host writes each queued item
   (`next`, then `commit_piece` with where it put the compressed bytes, or `commit_line`).
   `model_version::ModelStatus` is Python's rule that a Run of other model versions is view-only
-  (`model_version.py`, its texts; a test keeps `ENGINE_VERSION` and the texts Python's). The core
+  (`model_version.py`, its texts; a test keeps `ENGINE_VERSION` and the texts Python's): such a
+  Run's frame of a minute is its saved point's at or before it (`Journal::saved_minute_at`), with
+  the fields `SavedPointView.describe()` adds (`ModelStatus::describe_json`, D2). The core
   does no I/O and compresses nothing: the browser's `wasm/js/run_store.mjs` is the host (OPFS or
   memory files, `CompressionStream("deflate-raw")`) through `Journal`, `Chain`, `RunWriter`,
   `VerifyRun`, `Restore.readEntry`, `recordsJson`, `engineSignatures` and `modelStatus` of

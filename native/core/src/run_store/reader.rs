@@ -112,6 +112,29 @@ impl Journal {
         self.heads().into_iter().filter(|head| head.kind == HeadKind::Saved).map(|head| head.index).collect()
     }
 
+    /// The minute of the saved point at or before `minute` (the exported world's 0 in a Run from
+    /// minute 0 before its first): what a Run of other model versions shows for `minute`, which
+    /// it does not compute again (D2, `model_version::ModelStatus::describe_json`). An error for a
+    /// minute out of the Run, and for a fork's Run without a saved point at or before it.
+    pub fn saved_minute_at(&self, minute: i64) -> Result<i64> {
+        let (first, duration) = (self.fork_minute()?, self.duration()?);
+        if minute < first || minute > duration {
+            return Err(Error::Value(format!("minute {minute} is not one of the Run ({first} to {duration})")));
+        }
+        let mut saved = None;
+        for index in self.saved_points() {
+            let point = self.saved(index)?.minute;
+            if point <= minute {
+                saved = Some(point);
+            }
+        }
+        match saved {
+            Some(point) => Ok(point),
+            None if first == 0 => Ok(0),
+            None => Err(Error::Value(format!("the Run of a fork has no saved point at or before minute {minute}"))),
+        }
+    }
+
     /// The "saved" line `index`'s fields.
     pub fn saved(&self, index: usize) -> Result<&SavedLine> {
         match &self.piece(index)?.piece {

@@ -39,7 +39,7 @@ async function makeProject(tree) {
   await store.createProject(tree, "p1");
   const scenarioBytes = encoder.encode('{"id":"trial","seed":7}');
   await store.saveScenario(tree, "p1", { scenarioBytes, scenarioHash: await store.sha256Hex(scenarioBytes) });
-  await store.createRun(tree, "p1", { runId: "r1", scenarioId: "trial", scenarioVersion: 1, seed: 7, modelVersions: {}, evidenceBytes: encoder.encode('{"schema_version":1,"weight":0.50}') });
+  await store.createRun(tree, "p1", { runId: "r1", scenarioId: "trial", scenarioVersion: 1, seed: 7, modelVersions: JSON.parse(wasm.engineSignatures()), evidenceBytes: encoder.encode('{"schema_version":1,"weight":0.50}') });
   const { record } = await store.computeBranch({ wasm, tree, projectId: "p1", runId: "r1", branchId: "main", run: { exportBytes: raw, world: WORLD, ticks: 120 } });
   // A second branch (a fork's stand-in, as in node_project_store.mjs), for the comparison's replay.
   await store.computeBranch({ wasm, tree, projectId: "p1", runId: "r1", branchId: "child", parentBranchId: "main", forkMinute: 0, run: { exportBytes: raw, world: "generated", ticks: 120 } });

@@ -6,7 +6,9 @@
 //! contract, and the whole-model items `engine:model` and `engine:rng_algorithm`). A Run whose
 //! recorded versions differ from the installed ones is view-only: it is read and shown as stored,
 //! and going on with it (continuing, forking, an intervention) is refused with
-//! `ModelStatus::error` (`run_model_view_only`).
+//! `ModelStatus::require_current` (`run_model_view_only`). A minute between its saved points is
+//! not computed again with the installed model: the saved point at or before it is shown, and the
+//! answer says so (`ModelStatus::describe_json`, Python's D2).
 //!
 //! What Python's `model_version_status` reads besides the two maps is left out, as no stored Run
 //! of this format can need it: the explicit migration of saves from before independent facility
@@ -17,6 +19,7 @@
 use std::collections::BTreeMap;
 
 use crate::error::Error;
+use crate::json::Encoder;
 
 /// The whole-model version's key.
 pub const ENGINE_VERSION_KEY: &str = "engine:model";
@@ -149,4 +152,66 @@ impl ModelStatus {
             Err(Error::Value(self.error_text()))
         }
     }
+
+    /// `to_dict()`, as canonical JSON: `current`, `differences`, `installed_version`, `message`
+    /// (null for a current Run), `recorded_version`, `view_only`.
+    pub fn to_json(&self) -> Vec<u8> {
+        let mut out = Encoder::with_capacity(512);
+        out.out.extend_from_slice(b"{\"current\":");
+        out.bool(self.current());
+        out.out.extend_from_slice(b",\"differences\":[");
+        for (index, difference) in self.differences.iter().enumerate() {
+            if index > 0 {
+                out.out.push(b',');
+            }
+            out.string(difference);
+        }
+        out.out.extend_from_slice(b"],\"installed_version\":");
+        out.string(&self.installed_version);
+        out.out.extend_from_slice(b",\"message\":");
+        if self.current() {
+            out.null();
+        } else {
+            out.string(&self.message());
+        }
+        out.out.extend_from_slice(b",\"recorded_version\":");
+        out.string(&self.recorded_version);
+        out.out.extend_from_slice(b",\"view_only\":");
+        out.bool(!self.current());
+        out.out.push(b'}');
+        out.out
+    }
+
+    /// `SavedPointView(self, saved_minute, requested_minute).describe()` (D2), as canonical JSON:
+    /// the fields a view's answer adds, `model_view` for a Run of other versions and
+    /// `saved_point_rounding` where the minute shown (`saved_minute`, the saved point at or before
+    /// the one asked for) is not the minute asked for.
+    pub fn describe_json(&self, saved_minute: i64, requested_minute: i64) -> Vec<u8> {
+        let mut out = Encoder::with_capacity(1024);
+        out.out.push(b'{');
+        if !self.current() {
+            out.out.extend_from_slice(b"\"model_view\":");
+            out.out.extend_from_slice(&self.to_json());
+        }
+        if saved_minute != requested_minute {
+            if out.out.len() > 1 {
+                out.out.push(b',');
+            }
+            out.out.extend_from_slice(b"\"saved_point_rounding\":{\"message\":");
+            out.string(&rounding_message(requested_minute, saved_minute));
+            out.out.extend_from_slice(b",\"requested_minute\":");
+            out.int(requested_minute);
+            out.out.extend_from_slice(b",\"saved_minute\":");
+            out.int(saved_minute);
+            out.out.push(b'}');
+        }
+        out.out.push(b'}');
+        out.out
+    }
+}
+
+/// `SavedPointView.rounding()`'s message: a minute between saved points of a Run of other versions
+/// is not computed again; the saved point at or before it is shown (D2).
+pub fn rounding_message(requested_minute: i64, saved_minute: i64) -> String {
+    format!("旧モデルのRunのため、{requested_minute}分は計算し直さず、保存した時点（{saved_minute}分）の状態を表示しています。")
 }

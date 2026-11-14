@@ -14,6 +14,10 @@ from sheltersim.experiments.scenario import ScenarioSpec
 from sheltersim.storage.projects import StorageError
 from sheltersim.web.projects import ProjectAPI
 
+# Run on every pull request on Windows and macOS too (pytest --os-subset, #380): peak memory is
+# read through the OS.
+pytestmark = pytest.mark.os_dependent
+
 END = 60
 RENDER = {
     "kind": "render",

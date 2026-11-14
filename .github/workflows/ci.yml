@@ -1,10 +1,12 @@
 # offline CI on Linux, Windows and macOS (#48), on every pull request to main and
 # by hand. Each OS builds and installs the Rust kernels (native/), runs the tests with
 # them and checks the hashes of every path against the same fixture: on Linux in a job
-# of its own beside the tests, on Windows and macOS as a step after the tests of the
-# first part. Each OS runs its tests in two jobs, half each (pytest --shard, #118). The
-# test jobs build with the profile ci, the Linux gate job with release (#217). Lint runs
-# on Linux only.
+# of its own beside the tests, on Windows and macOS as a step after the tests. Linux runs
+# every test in two jobs, half each (pytest --shard, #118); Windows and macOS run, in one
+# job each, the tests whose behaviour can depend on the OS (pytest --os-subset, #380), and
+# the long regression's `full` runs the whole suite on each OS by hand. The test jobs build
+# with the profile ci, the Linux gate job with release (#217). Lint runs on Linux only, and beside it the core's
+# checks without rayon and in WASM (#380).
 name: オフラインCI
 
 on:
@@ -25,16 +27,22 @@ env:
 
 jobs:
   python:
-    name: test (${{ matrix.os }}, ${{ matrix.shard }}/2)
+    name: test (${{ matrix.os }}, ${{ matrix.part }})
     runs-on: ${{ matrix.os }}
     strategy:
       # Every platform and part reports, even when another fails.
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-        # The tests are CPU-bound on a runner's cores, so two runners halve them; each part
-        # takes every other selected test (tests/conftest.py).
-        shard: [1, 2]
+        include:
+          # The tests are CPU-bound on a runner's cores, so two runners halve them; each part
+          # takes every other selected test (tests/conftest.py).
+          - { os: ubuntu-latest, part: "1/2", select: "--shard 1/2", label: "1" }
+          - { os: ubuntu-latest, part: "2/2", select: "--shard 2/2", label: "2" }
+          # The bytes of a Run are the same on every OS (the hash step below), so Windows and
+          # macOS keep tests/unit, tests/e2e and the tests marked os_dependent: files and locks,
+          # processes, OS measurements (#380).
+          - { os: windows-latest, part: "OS", select: "--os-subset", label: "os" }
+          - { os: macos-latest, part: "OS", select: "--os-subset", label: "os" }
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -60,20 +68,19 @@ jobs:
           python -m pip install --no-index --find-links native-dist sheltersim-native
           python -c "import sheltersim.native"
       - name: 短時間offline test
-        run: python -m pytest -m "not long_simulation" -n auto --shard ${{ matrix.shard }}/2
+        run: python -m pytest -m "not long_simulation" -n auto ${{ matrix.select }}
       # The same expected hashes as on Linux, where the gate job checks them (step 4, L13): a Run
-      # gives the same bytes on every OS. Runs even when a test failed, so both report; in the
-      # first part only.
+      # gives the same bytes on every OS. Runs even when a test failed, so both report.
       - name: 全経路のハッシュを確認
         id: gate
-        if: ${{ runner.os != 'Linux' && matrix.shard == 1 && !cancelled() && steps.native.outcome == 'success' }}
+        if: ${{ runner.os != 'Linux' && !cancelled() && steps.native.outcome == 'success' }}
         shell: bash
         run: python benchmarks/gate_all_paths.py --output "$RUNNER_TEMP/gate" --expect fixtures/gate-all-paths.json
       - name: test結果を保存
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: test-results-${{ matrix.os }}-${{ matrix.shard }}
+          name: test-results-${{ matrix.os }}-${{ matrix.label }}
           path: .test-results/
           retention-days: 7
           if-no-files-found: ignore
@@ -145,13 +152,29 @@ jobs:
       - name: Rustのformatを確認
         run: cargo fmt --manifest-path native/Cargo.toml --all -- --check
       # The core crate builds without Python (#152): no pyo3 in its tree, and its own tests pass.
+      # The tests build with the profile ci-test of native/Cargo.toml: dev's checks at opt-level 1,
+      # so the simulations in them run several times sooner (#380).
       - name: Rustの中核がPyO3なしで動くことを確認
         run: |
           if cargo tree --manifest-path native/Cargo.toml -p sheltersim_core -e normal,build | grep -q pyo3; then
             echo "sheltersim_core depends on pyo3" >&2
             exit 1
           fi
-          cargo test --manifest-path native/Cargo.toml -p sheltersim_core
+          cargo test --manifest-path native/Cargo.toml -p sheltersim_core --profile ci-test
+
+  # The core without rayon, for the browser: a job of its own beside lint, as each builds the core's
+  # tests with other features (#380).
+  core_single_thread:
+    name: core without parallel, WASM (ubuntu-latest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: native
+          key: single-thread
+      - name: Rustのtoolchainを導入
+        run: rustup toolchain install stable --profile minimal
       # Without the feature `parallel` (rayon) the core runs on the calling thread with the same
       # bytes and builds for the browser (#152, P10-1a). tests/no_platform.rs, run in both, finds
       # any std::time, fs, env or thread in its source.
@@ -159,7 +182,7 @@ jobs:
         run: |
           rustup target add wasm32-unknown-unknown
           cargo build --manifest-path native/Cargo.toml -p sheltersim_core --target wasm32-unknown-unknown --no-default-features
-          cargo test --manifest-path native/Cargo.toml -p sheltersim_core --no-default-features
+          cargo test --manifest-path native/Cargo.toml -p sheltersim_core --profile ci-test --no-default-features
       # The core runs in WASM through wasm-bindgen and reaches the native path's digests (#244,
       # PR 4-4): the CLI's version must be the crate's (`native/wasm/Cargo.toml`), and the release
       # archive is checked against its sha256.

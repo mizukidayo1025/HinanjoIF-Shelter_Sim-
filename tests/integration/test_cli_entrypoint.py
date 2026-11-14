@@ -10,9 +10,14 @@ import json
 import subprocess
 import sys
 
+import pytest
 from support.paths import AGENTS_INITIAL
 
 from sheltersim.__main__ import main
+
+# Run on every pull request on Windows and macOS too (pytest --os-subset, #380): `python -m
+# sheltersim` runs in a process of its own.
+pytestmark = pytest.mark.os_dependent
 
 
 def test_cli_without_command_displays_help(capsys) -> None:

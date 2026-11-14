@@ -10,6 +10,10 @@ from sheltersim.contracts.workspace import UsageLimits
 from sheltersim.storage.projects import ProjectStore
 from sheltersim.storage.usage import task_campaign_ledger
 
+# Run on every pull request on Windows and macOS too (pytest --os-subset, #380): the usage ledger
+# is a file under the OS's state directory.
+pytestmark = pytest.mark.os_dependent
+
 
 def test_cli_unfreezes_the_campaign_ledger(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]

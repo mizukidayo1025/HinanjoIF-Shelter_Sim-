@@ -359,6 +359,63 @@ fn the_plain_run_refreshes_its_routes_where_the_space_changed() {
     assert_eq!(digests(&run.loaded), expected(&fixture["expected"]["world"]));
 }
 
+/// A `PlainRun` collects its decisions' records only where asked (#368): off, the host is a silent
+/// sink, as in the browser; on, an indexed one, which keeps the JSON bytes the core writes of each
+/// decision (the rows of `_IndexedMetricSink.observations` on the native path). Collecting changes
+/// nothing of the world or the samples, and no decision is left to a sink in Python.
+#[test]
+fn the_plain_run_collects_decision_records_without_changing_the_world() {
+    let fixture = load::entry("tick_core", "generated");
+    let ticks = fixture["expected"]["ticks"].as_u64().unwrap();
+    let mut silent = PlainRun::of_entry(&fixture).unwrap();
+    assert_eq!(silent.advance(ticks).unwrap(), ticks);
+    assert!(silent.take_decisions().is_empty());
+    let mut collecting = PlainRun::of_entry(&fixture).unwrap();
+    collecting.collect_decisions(true);
+    let half = ticks / 2;
+    assert_eq!(collecting.advance(half).unwrap(), half);
+    let mut records = collecting.take_decisions();
+    let first = records.len();
+    assert!(first > 0);
+    assert_eq!(collecting.advance(ticks).unwrap(), ticks - half);
+    records.extend(collecting.take_decisions());
+    assert!(records.len() > first);
+    assert!(collecting.take_decisions().is_empty());
+    assert_eq!(collecting.decisions_missed(), 0);
+    assert_eq!(collecting.digests().unwrap(), silent.digests().unwrap());
+    assert_eq!(digests(&collecting.loaded), expected(&fixture["expected"]["world"]));
+    assert_eq!(collecting.host.metrics_digest(), silent.host.metrics_digest());
+    let mut last = 0;
+    for raw in &records {
+        let record: Value = serde_json::from_slice(raw).unwrap();
+        assert_eq!(record["record_kind"], "actions");
+        let minute = record["minute"].as_u64().unwrap();
+        assert!(minute >= last && minute < ticks);
+        last = minute;
+        assert_eq!(record["status"], "selected_proposal");
+    }
+    // Off again, nothing is kept.
+    collecting.collect_decisions(false);
+    assert!(collecting.take_decisions().is_empty());
+}
+
+/// `advance` stops at a tick's failure or the end-of-tick check's with the text the browser
+/// throws: the minute, where, and the error.
+#[test]
+fn the_plain_run_s_advance_says_where_it_stopped() {
+    use sheltersim_core::error::Error;
+    use sheltersim_core::plain::At;
+    use sheltersim_core::world::{Fit, Seed};
+    let fixture = load::entry("tick_core", "generated");
+    let mut run = PlainRun::of_entry(&fixture).unwrap();
+    assert_eq!(run.advance(1).unwrap(), 1);
+    run.loaded.cell.with(|world| world.scalars.get_mut().seed = Fit::Ok(Seed::from_text("-1").unwrap())).unwrap();
+    let stopped = run.advance(5).unwrap_err();
+    assert_eq!((stopped.ran, stopped.minute, stopped.at), (0, 1, At::Check));
+    assert_eq!(stopped.error, Error::Invariant("scenario seed cannot be negative".to_owned()));
+    assert_eq!(stopped.to_string(), "minute 1: the end-of-tick check: scenario seed cannot be negative");
+}
+
 /// A world's clock ends the Run: past its last minute a step says so and changes nothing.
 #[test]
 fn the_plain_run_stops_at_the_end_of_the_clock() {

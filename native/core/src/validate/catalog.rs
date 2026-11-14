@@ -1,6 +1,6 @@
 //! What the validation reads of the installed code (`catalog.json`): the Model Catalog
 //! (`MODEL_DEFINITIONS` of `contracts/policies.py` with `model_catalog`'s state schema and
-//! `has_installed_factory`), `DEFAULT_MODELS`, `CORE_MODEL_SUITES`, the installed state contracts
+//! assumption source, and `has_installed_factory`), `DEFAULT_MODELS`, `CORE_MODEL_SUITES`, the installed state contracts
 //! (`_CONTRACTS` of `contracts/runtime.py`) and the psychology models of each kind
 //! (`domain/psychological_state.py`).
 //!
@@ -36,6 +36,9 @@ pub struct ModelDefinition {
     pub state_schema_version: i64,
     /// The parameters whose name starts with `behavior.`, by name.
     pub behavior_parameters: IndexMap<Arc<str>, Bounds>,
+    /// `assumption_source_id`: the source an indexed decision sink writes for a decision whose
+    /// policy version is this model's ID (`_IndexedMetricSink.policy_sources`, #368).
+    pub assumption_source_id: Arc<str>,
 }
 
 /// An installed state contract (`StateDescriptor`).
@@ -120,6 +123,7 @@ fn read() -> Result<Catalog> {
             required_state_contracts: V::from_json(&model["required_state_contracts"]).ok_or_else(bad)?,
             state_schema_version: model["state_schema_version"].as_i64().ok_or_else(bad)?,
             behavior_parameters,
+            assumption_source_id: text(&model["assumption_source_id"])?,
         };
         models.insert(text(&model["id"])?, definition);
     }

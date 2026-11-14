@@ -100,8 +100,9 @@ def validate_worlds_fixture() -> dict[str, Any]:
 def validate_catalog() -> dict[str, Any]:
     """`native/core/src/validate/catalog.json`: what `selected_models` and the declared states read
     of the installed code (`sheltersim_core::validate::catalog`): each model of the Model Catalog
-    (its domain, whether a factory is installed, its required state contracts, its state schema
-    and the bounds of its `behavior.` parameters), the default models and the suites, the installed
+    (its domain, whether a factory is installed, its required state contracts, its state schema,
+    the bounds of its `behavior.` parameters and its assumption source, which the indexed decision
+    sink writes), the default models and the suites, the installed
     state contracts and the psychology models of each kind."""
     from sheltersim.contracts.bootstrap import ensure_builtin_contracts
     from sheltersim.contracts.policies import (
@@ -134,6 +135,7 @@ def validate_catalog() -> dict[str, Any]:
                 "required_state_contracts": definition.get("required_state_contracts", {}),
                 "state_schema_version": catalog[model_id]["state_schema_version"],
                 "behavior_parameters": parameters,
+                "assumption_source_id": catalog[model_id]["assumption_source_id"],
             }
         )
     contracts = [

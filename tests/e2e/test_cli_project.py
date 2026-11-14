@@ -1,6 +1,7 @@
 """Working on a durable Project from the CLI (sheltersim project ...): prepare and approve
-a Scenario, compute and fork it, read its frame, history and usage, rerun, archive and
-delete, as an operator without the browser would.
+a Scenario, compute and fork it, read its frame, history and usage, rerun and delete, as an
+operator without the browser would. Archiving went with the older screens (#376); deleting
+replaces it.
 
 The regional research that prepare runs answers from the fake public services of
 tests/support/public_data.py.
@@ -84,9 +85,8 @@ def test_a_project_is_prepared_computed_forked_and_cleaned_up_from_the_cli(
 
     rerun = project("rerun", *p, "--run-id", "r", "--new-run-id", "again")
     assert rerun["scenario_hash"] == approved["scenario_hash"]
-    project("archive", *p, "--run-id", "again")
     runs = {run["run_id"]: run["archived"] for run in project("show", *p)["runs"]}
-    assert runs == {"r": False, "again": True}
+    assert runs == {"r": False, "again": False}
     error = project.refused("delete", *p, "--run-id", "again", "--confirmation", "r")
     assert "run ID confirmation" in error
     assert project("delete", *p, "--run-id", "again", "--confirmation", "again") == {

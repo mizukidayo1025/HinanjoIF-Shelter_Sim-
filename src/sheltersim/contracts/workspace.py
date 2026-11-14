@@ -25,39 +25,6 @@ class DraftInput(ExtensionModel):
     expected_hash: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
 
 
-class AssetBegin(ExtensionModel):
-    schema_version: Literal[1] = 1
-    media_type: Literal[
-        "application/pdf",
-        "image/png",
-        "image/jpeg",
-        "image/webp",
-        "application/json",
-        "application/geo+json",
-    ]
-    byte_count: int = Field(strict=True, gt=0, le=15 * 1024 * 1024)
-    sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
-    permission_confirmed: Literal[True]
-    sensitive_building: bool = True
-    license_note: str = Field(default="Operator-provided; local project use only", max_length=500)
-    file_name: str | None = Field(default=None, min_length=1, max_length=240)
-    source_kind: Literal["operator_upload", "public_reference", "synthetic"] = "operator_upload"
-    coordinate_system: Literal["unknown", "raster_pixel", "local_metre", "geographic"] = "unknown"
-
-    @model_validator(mode="after")
-    def display_name_only(self) -> AssetBegin:
-        if self.file_name is not None and any(
-            char in self.file_name for char in ("/", "\\", "\x00")
-        ):
-            raise ValueError("asset display name must not contain path separators or NUL")
-        return self
-
-
-class AssetChunk(ExtensionModel):
-    index: int = Field(strict=True, ge=0, lt=64)
-    data_base64: str = Field(min_length=1, max_length=349528)
-
-
 class HistoryQuery(ExtensionModel):
     schema_version: Literal[1] = 1
     kind: Literal[

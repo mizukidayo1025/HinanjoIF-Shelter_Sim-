@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import sys
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -19,60 +18,12 @@ from sheltersim.experiments.validation import evidence_context
 from sheltersim.llm.accounting import accounted_router, usage_limits
 from sheltersim.llm.config import LLMMode, LLMSettings
 from sheltersim.storage.projects import ProjectStore, StorageError, digest, view_only_error
-from sheltersim.storage.telemetry import RunTelemetryStore
 from sheltersim.storage.usage import UsageLedger
-
-try:
-    import resource as _resource
-except ImportError:  # pragma: no cover - unavailable on Windows
-    _resource = None
 
 
 def fields(document: dict[str, Any], required: set[str], optional: set[str] | None = None) -> None:
     if set(document) - required - (optional or set()) or required - set(document):
         raise StorageError("request fields do not match this operation")
-
-
-def _peak_rss_bytes() -> int:
-    """This process's peak resident memory in bytes, or 0 where it cannot be read."""
-    if _resource is not None:
-        peak = _resource.getrusage(_resource.RUSAGE_SELF).ru_maxrss
-        return int(peak if sys.platform == "darwin" else peak * 1024)
-    if sys.platform == "win32":
-        import ctypes
-        from ctypes import wintypes
-
-        class _Counters(ctypes.Structure):
-            _fields_ = [
-                ("cb", wintypes.DWORD),
-                ("PageFaultCount", wintypes.DWORD),
-                ("PeakWorkingSetSize", ctypes.c_size_t),
-                ("WorkingSetSize", ctypes.c_size_t),
-                ("QuotaPeakPagedPoolUsage", ctypes.c_size_t),
-                ("QuotaPagedPoolUsage", ctypes.c_size_t),
-                ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t),
-                ("QuotaNonPagedPoolUsage", ctypes.c_size_t),
-                ("PagefileUsage", ctypes.c_size_t),
-                ("PeakPagefileUsage", ctypes.c_size_t),
-            ]
-
-        # Handles are pointer-sized; without these types ctypes passes a C int.
-        kernel32 = ctypes.WinDLL("kernel32")
-        psapi = ctypes.WinDLL("psapi")
-        kernel32.GetCurrentProcess.restype = wintypes.HANDLE
-        psapi.GetProcessMemoryInfo.argtypes = [
-            wintypes.HANDLE,
-            ctypes.POINTER(_Counters),
-            wintypes.DWORD,
-        ]
-        psapi.GetProcessMemoryInfo.restype = wintypes.BOOL
-        counters = _Counters()
-        counters.cb = ctypes.sizeof(counters)
-        if psapi.GetProcessMemoryInfo(
-            kernel32.GetCurrentProcess(), ctypes.byref(counters), counters.cb
-        ):
-            return int(counters.PeakWorkingSetSize)
-    return 0
 
 
 @dataclass
@@ -187,8 +138,6 @@ class ProjectAPI:
         project_id = parts[0]
         if len(parts) == 1 and not query:
             return self.store.project(project_id)
-        if len(parts) == 2 and parts[1] == "scenarios" and not query:
-            return {"scenarios": self.store.scenarios(project_id)}
         if len(parts) == 2 and parts[1] == "runs" and not query:
             return {"runs": self.store.runs(project_id)}
         if len(parts) == 3 and parts[1] == "runs" and not query:
@@ -295,10 +244,6 @@ class ProjectAPI:
             return self.store.create_project(document["project_id"])
         project_id = parts[0]
         if len(parts) == 2:
-            if parts[1] == "archive":
-                fields(document, set())
-                self.store.archive(project_id)
-                return self.store.project(project_id)
             if parts[1] == "scenarios":
                 fields(document, {"scenario", "approved", "approved_hash"})
                 if document["approved"] is not True:
@@ -385,10 +330,6 @@ class ProjectAPI:
                 return self.store.run(project_id, run["run_id"])
         if len(parts) == 4 and parts[1] == "runs":
             run_id, action = parts[2], parts[3]
-            if action == "archive":
-                fields(document, set())
-                self.store.archive(project_id, run_id)
-                return self.store.run(project_id, run_id)
             if action == "delete":
                 fields(document, {"confirmation"})
                 with self._lock:
@@ -397,16 +338,9 @@ class ProjectAPI:
                     self.store.delete_run(project_id, run_id, confirmation=document["confirmation"])
                 return {"deleted": run_id}
             if action == "resume":
-                fields(document, {"branch_id", "target_minute"}, {"measure_performance"})
-                measure = document.get("measure_performance", False)
-                if type(measure) is not bool:
-                    raise StorageError("measure_performance must be boolean")
+                fields(document, {"branch_id", "target_minute"})
                 return self.submit(
-                    project_id,
-                    run_id,
-                    document["branch_id"],
-                    document["target_minute"],
-                    measure_performance=measure,
+                    project_id, run_id, document["branch_id"], document["target_minute"]
                 )
             if action == "cancel":
                 # Without branch_id, every computation of the Run stops (#48).
@@ -487,8 +421,6 @@ class ProjectAPI:
         run_id: str,
         branch_id: str,
         target_minute: int,
-        *,
-        measure_performance: bool = False,
     ) -> dict[str, Any]:
         with self._lock:
             self._admit(project_id, run_id, branch_id)
@@ -505,9 +437,7 @@ class ProjectAPI:
             ):
                 raise StorageError("target minute must be in the uncomputed remaining range")
             if self._worker == "process":
-                return self._submit_process(
-                    project_id, run_id, branch_id, target_minute, measure_performance
-                )
+                return self._submit_process(project_id, run_id, branch_id, target_minute)
             lease = self.store.claim_branch(project_id, run_id, branch_id)
             try:
                 job = _Job(branch_id, threading.Event())
@@ -521,7 +451,6 @@ class ProjectAPI:
                     target_minute,
                     job.cancel.is_set,
                     lease,
-                    measure_performance,
                 )
             except BaseException:
                 self._jobs.pop((project_id, run_id, branch_id), None)
@@ -590,7 +519,6 @@ class ProjectAPI:
         run_id: str,
         branch_id: str,
         target_minute: int,
-        measure_performance: bool,
     ) -> dict[str, Any]:
         """Start the run's process; called with self._lock held."""
         self._start_process(
@@ -600,7 +528,6 @@ class ProjectAPI:
                 "run_id": run_id,
                 "branch_id": branch_id,
                 "target_minute": target_minute,
-                "measure_performance": measure_performance,
             },
             (project_id, run_id, branch_id),
             None,
@@ -702,32 +629,8 @@ class ProjectAPI:
         target_minute: int,
         cancelled: Callable[[], bool],
         lease: int,
-        measure_performance: bool = False,
-        *,
-        own_process: bool = False,
     ) -> None:
-        telemetry = (
-            RunTelemetryStore(self.store, project_id, run_id) if measure_performance else None
-        )
-        storage_before = 0
-        storage_limit = 0
-        if telemetry is not None:
-            try:
-                storage_snapshot = self.store.usage()
-                storage_before = storage_snapshot["bytes"]
-                storage_limit = storage_snapshot["limit_bytes"]
-            except Exception:
-                telemetry = None
-        checkpoint_bytes_before = (
-            self.store.checkpoint_write_bytes(project_id, run_id) if telemetry else 0
-        )
-        wall_started = time.perf_counter()
-        cpu_clock = getattr(time, "thread_time", time.process_time)
-        cpu_started = cpu_clock()
         status = "failed"
-        failure_code = None
-        from_minute = 0
-        computed_until = 0
         try:
             # Router setup needs only the head pointer and runtime_state; the full
             # checkpoint is loaded and validated once by _advance_locked.
@@ -735,7 +638,6 @@ class ProjectAPI:
             runtime_state = self.store.checkpoint_fields(
                 project_id, run_id, reference.checkpoint_hash, ("runtime_state",)
             )["runtime_state"]
-            from_minute = reference.computed_until
             saved_llm = runtime_state.get("llm")
             router = None
             if saved_llm is not None:
@@ -764,7 +666,6 @@ class ProjectAPI:
                 if runtime.world.minute_index == runtime.world.duration_minutes
                 else "paused"
             )
-            computed_until = runtime.world.minute_index
             if status == "completed":
                 # The UI fetches the report once when the status leaves "running", so
                 # write the report (or its unavailability) before marking completion.
@@ -792,69 +693,10 @@ class ProjectAPI:
                         # A full disk can also prevent recording the optional report failure.
                         # Keep the already durable completed simulation and its status.
                         pass
-        except Exception as exc:
-            # Provider errors may contain secrets; only a fixed failure code is persisted.
-            failure_code = type(exc).__name__
+        except Exception:
+            # Provider errors may contain secrets; the Branch is only marked failed.
             status = "failed"
         finally:
-            wall_seconds = time.perf_counter() - wall_started
-            cpu_seconds = max(0.0, cpu_clock() - cpu_started)
-            if telemetry is not None:
-                try:
-                    storage_snapshot = self.store.usage()
-                    storage_after = storage_snapshot["bytes"]
-                    storage_limit = storage_snapshot["limit_bytes"]
-                    peak_rss = _peak_rss_bytes()
-                    if computed_until == 0:
-                        try:
-                            computed_until = self.store.branch_reference(
-                                project_id, run_id, branch_id
-                            ).computed_until
-                        except StorageError:
-                            computed_until = from_minute
-                    telemetry.record_execution(
-                        {
-                            "branch_id": branch_id,
-                            "from_minute": from_minute,
-                            "target_minute": target_minute,
-                            "computed_until": computed_until,
-                            "status": status,
-                            "wall_seconds": wall_seconds,
-                            "thread_cpu_seconds": cpu_seconds,
-                            "process_peak_rss_bytes": peak_rss,
-                            **(
-                                {
-                                    "run_peak_memory_bytes": peak_rss,
-                                    "memory_attribution_status": "measured",
-                                    "memory_attribution_reason": (
-                                        "The Run executed in its own worker process; this is "
-                                        "that process's peak RSS."
-                                    ),
-                                }
-                                if own_process and peak_rss
-                                else {
-                                    "run_peak_memory_bytes": None,
-                                    "memory_attribution_status": "unavailable",
-                                    "memory_attribution_reason": (
-                                        "Runs execute in the shared server process; "
-                                        "process-wide RSS cannot be attributed to this Run."
-                                    ),
-                                }
-                            ),
-                            "project_storage_before_bytes": storage_before,
-                            "project_storage_after_bytes": storage_after,
-                            "project_storage_limit_bytes": storage_limit,
-                            "checkpoint_write_bytes": max(
-                                0,
-                                self.store.checkpoint_write_bytes(project_id, run_id)
-                                - checkpoint_bytes_before,
-                            ),
-                            **({"failure_code": failure_code} if failure_code else {}),
-                        }
-                    )
-                except Exception:
-                    # Measurement failure never changes the durable simulation outcome.
-                    pass
             # The final status, the lease and the job end together under the lock a
             # submit takes, so a client that sees the status may start the next job.
             with self._lock:

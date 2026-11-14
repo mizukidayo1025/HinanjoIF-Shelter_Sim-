@@ -373,6 +373,13 @@ def restore_simulator_extensions(world: WorldState, model_state: dict[str, Any])
     validate_simulator_extensions(world)
 
 
+# Where a namespace's past is kept. The history route answers only the KPIs and the
+# conversations (#368 decision A, #376); these records stay in the saved Run's event log.
+RECORDED_IN_EVENT_LOG = (
+    "recorded in the saved Run's event log; GET branch/history answers kpis and conversations only"
+)
+
+
 def simulator_state_catalog() -> dict[str, Any]:
     """Installed built-in signatures; no world or mutable namespace is created."""
     return {
@@ -400,7 +407,7 @@ def simulator_state_catalog() -> dict[str, Any]:
                 "queued_request_ids": {"unit": "independent_fifo_request_id"},
                 "active_request_ids": {"unit": "concurrent_service_reservation"},
             },
-            "history": "GET branch/history?kind=operations",
+            "history": RECORDED_IN_EVENT_LOG,
             "external_validation": False,
         },
         BODY_STATE_KEY: {
@@ -426,7 +433,7 @@ def simulator_state_catalog() -> dict[str, Any]:
                     )
                 },
             },
-            "history": "GET branch/history?kind=social",
+            "history": RECORDED_IN_EVENT_LOG,
             "retention_limit": 20000,
             "external_validation": False,
         },
@@ -443,7 +450,7 @@ def simulator_state_catalog() -> dict[str, Any]:
                 "operation": {"unit": "typed_task_record"},
                 "sanitation": {"unit": "normalized_0_1", "lower": 0, "upper": 1},
             },
-            "history": "GET branch/history?kind=staff",
+            "history": RECORDED_IN_EVENT_LOG,
             "retention_limit": 20000,
             "external_validation": False,
         },
@@ -474,7 +481,7 @@ def simulator_state_catalog() -> dict[str, Any]:
                 "sleeping_capacity": {"unit": "sleeping_place", "input": "approved EffectProgram"},
                 "geometry_status": {"value": "zone_only_capacity"},
             },
-            "history": "GET branch/history?kind=population",
+            "history": RECORDED_IN_EVENT_LOG,
             "retention_limit": 20000,
             "external_validation": False,
         },
@@ -504,7 +511,7 @@ def simulator_state_catalog() -> dict[str, Any]:
                     "enabled_by": "geometry_overlay.schema_version=3 or 4",
                 },
             },
-            "history": "GET branch/history?kind=events or kind=causal",
+            "history": RECORDED_IN_EVENT_LOG,
             "retention_limit": 20000,
             "external_validation": False,
         },
@@ -521,15 +528,7 @@ def simulator_state_catalog() -> dict[str, Any]:
                 },
                 "history": {"unit": "applied_transition_receipt", "time_unit": "simulation_minute"},
             },
-            "history_routes": {
-                "care": (
-                    "GET /api/v1/projects/{project}/runs/{run}/branches/{branch}/history?kind=care"
-                ),
-                "operations": (
-                    "GET "
-                    "/api/v1/projects/{project}/runs/{run}/branches/{branch}/history?kind=operations"
-                ),
-            },
+            "history": RECORDED_IN_EVENT_LOG,
             "retention_limit": 20000,
             "external_validation": False,
         },

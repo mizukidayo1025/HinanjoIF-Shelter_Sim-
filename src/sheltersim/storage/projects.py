@@ -1393,15 +1393,6 @@ class ProjectStore:
             )
         ]
 
-    def archive(self, project_id: str, run_id: str | None = None) -> None:
-        with self.transaction():
-            path = (
-                self._path(project_id, "project.json")
-                if run_id is None
-                else self._path(project_id, "runs", run_id, "status.json")
-            )
-            self._write(path, {**self._read(path), "archived": True})
-
     def delete_run(self, project_id: str, run_id: str, *, confirmation: str) -> None:
         """An explicit run-ID confirmation is required; no cascading project deletion."""
         import shutil

@@ -29,9 +29,9 @@ Python標準ライブラリのHTTPサーバーがローカルブラウザーの�
 | policies | 行動、ニーズ、空間、心理、社会、情報モデル |
 | experiments | Scenario、Run、Branch、timeline、metrics、evaluation |
 | inspection | 証拠検索、Run projection、trace要約 |
-| region | 地域データ、geometry検証、施設図面取込 |
+| region | 地域データ、標準の合成施設とgeometry検証 |
 | llm | Provider adapter、型付き出力、cache、応答再生、利用額記録 |
-| storage | Project、asset、Run、Checkpoint、履歴indexの永続化 |
+| storage | Project、draft、Run、Checkpoint、履歴indexの永続化 |
 | web | ローカルHTTP route、Project API、ブラウザーasset |
 
 実装の正本はパッケージ構成です。公開入力・状態契約はsrc/sheltersim/contracts、event/world model、およびserializationと互換性を確認するテストにあります。
@@ -79,7 +79,7 @@ Python標準ライブラリのHTTPサーバーがローカルブラウザーの�
 - 計算を進めるworkerの保存は、Rustの行が持つもの（人、設備、職員、支援の依頼、活動中のタスク、Rustが持つ名前空間と`metric_state`）を、Pythonのオブジェクトを読まずに行から正準JSONにします（`core/state_mirror.py`の`owned_row_bytes`、`EntityStore.rows_json`、`NamespaceMirror.row_json`）。byte列は`_canonical_data`のものと同じなので、hash、archiveのchunk、packは変わりません。実体のリストは文書の中で`SavedItems`です。行を持つものは`state_row!`と`OWNED_NAMESPACES`・`OWNED_FIELDS`の1行だけで、この経路に入ります。taintした行、丸ごと代入された項目、正準JSONが断る値（NaN）は、これまでどおりPythonのオブジェクトから作るので、エラーの文も同じです。hashの木が項目を分けて持つ名前空間（`_WORLD_TREE`）は、Rustが持ってもPythonの経路のままで（`body_state_v1`）、全体のbyte列も作りません。復元の確認の世界は、Rustの行を持たない素の世界です（`WorldState._bare_world`）。実体の行は、書かれていない限り同じbytesオブジェクトを返すので（行に書ける道はすべて印を付けます）、前の確認で等しいと示した行と同じオブジェクトなら、復元も比較もせず、前の確認のオブジェクトを使います。復元の結果は入力のbyte列だけで決まるからです。変わった行だけを今までどおり復元して比べます。Rustが持つ名前空間は、行のbyte列から読んだ文書を木と今までどおり比べます。
 - 新しいchunkの秘匿情報の確認（`_reject_sensitive_checkpoint_content`）は、保存した1回分のchunkのbyte列をまとめてRustで読みます（`sensitive_candidates`）。Rustが返すのは、異なるキーのすべてと、パターンに一致しうる異なる文字列だけで、判定はPythonの同じ関数が行います。すでに保存したchunkは確認しません（それらは最初の保存で確認済みです）。byte列が1つでも違えば新しいchunkなので確認します。
 - 計算を進める間（`TimelineStore`の継続計算）とCheckpointの読込の間は、Pythonの循環参照の回収（gc）の頻度を下げます（`core/collection.py`の`fewer_collections`、#234）。最も若い世代の回収を、新しいコンテナオブジェクト700個ごとから200,000個ごとにし、最後の区間が終わると元の閾値に戻します。閾値はプロセスに1つなので、区間が有効な間は同じプロセスのほかのスレッドにも効きます。Webサーバーでは計算が別プロセスで動くので、サーバーのプロセスに効くのはCheckpointの読込の区間だけです。1日分の計算（100人）ではCPU時間が約9%短くなり、ピークRSSが約47 MiB増えます。
-- Webサーバー（`serve_inspector`）の`ProjectAPI`は、計算1回（`POST R/resume`）と分岐1回（`fork`、intervention-apply）ごとに別プロセスを起動して処理します（`web/worker_process.py`、`ProjectAPI(worker="process")`、#48）。起動はWindowsと同じspawn方式です。子プロセスがRunの書込権（`claim_run`）を自分で取り、取れたことをサーバーに知らせてから計算します。取れなければ従来どおり`run_worker_busy`で断ります。中止は`multiprocessing.Event`で伝え、サーバーのプロセスがなくなった場合も、子プロセスは次の保存境界で止まります。子プロセスが結果の状態を書かずに終わった場合（強制終了など）、サーバーはRunを`interrupted`にします。分岐の間はRunを`running`にし、サーバーが結果（`last_fork`）を記録してから元の状態に戻します。分岐の子プロセスが強制終了した場合も、Runは元の状態に戻ります。分岐の間も、サーバーはほかのHTTP要求に応えます。計算中もサーバーのプロセスはHTTPの応答でGILを取り合わず、計算が終わると子プロセスが使ったメモリはOSに戻ります。計測つきの計算（`measure_performance`）では、Runの計測の記録（`telemetry.json`）の`run_peak_memory_bytes`に子プロセスのピークRSSを記録します。同じBranchの計算と、そのBranchからの分岐は1つずつですが、同じRunのほかのBranchや異なるRunは、上限（`sheltersim web --max-parallel-runs`、既定2）まで同時に、それぞれ別プロセスで計算・分岐します（#48）。書込権はBranchごとです。計算はそのBranchの、分岐は作る子Branchの書込権（`ProjectStore.claim_branch`、`branches/{branch}/worker-lock`）を取ります。Branchの書込権は、Runの入口のロック（`runs/{run}/worker-lock`）を一瞬だけ取ってから取ります。Runの削除・履歴索引の作り直し・回復のようなRun全体の操作（`claim_run`）は、入口のロックを持ち続けたうえで、どのBranchも書かれていないことを確かめます。占有ロックだけを使うので、Linux・macOS・Windowsで同じ組み方です。上限に達しているときの要求は、`background workers are busy` で断ります。計算1本で、1日分のRun（100人）なら約0.5〜0.9 GBのメモリを使うので、上限はCPUの数ではなくメモリに合わせて決めます。テスト、CLI、計測器（`benchmarks/investigate_performance.py`）は、同じプロセスのスレッドで計算します（`worker="thread"`、既定）。
+- Webサーバー（`serve_inspector`）の`ProjectAPI`は、計算1回（`POST R/resume`）と分岐1回（`fork`、intervention-apply）ごとに別プロセスを起動して処理します（`web/worker_process.py`、`ProjectAPI(worker="process")`、#48）。起動はWindowsと同じspawn方式です。子プロセスがRunの書込権（`claim_run`）を自分で取り、取れたことをサーバーに知らせてから計算します。取れなければ従来どおり`run_worker_busy`で断ります。中止は`multiprocessing.Event`で伝え、サーバーのプロセスがなくなった場合も、子プロセスは次の保存境界で止まります。子プロセスが結果の状態を書かずに終わった場合（強制終了など）、サーバーはRunを`interrupted`にします。分岐の間はRunを`running`にし、サーバーが結果（`last_fork`）を記録してから元の状態に戻します。分岐の子プロセスが強制終了した場合も、Runは元の状態に戻ります。分岐の間も、サーバーはほかのHTTP要求に応えます。計算中もサーバーのプロセスはHTTPの応答でGILを取り合わず、計算が終わると子プロセスが使ったメモリはOSに戻ります。同じBranchの計算と、そのBranchからの分岐は1つずつですが、同じRunのほかのBranchや異なるRunは、上限（`sheltersim web --max-parallel-runs`、既定2）まで同時に、それぞれ別プロセスで計算・分岐します（#48）。書込権はBranchごとです。計算はそのBranchの、分岐は作る子Branchの書込権（`ProjectStore.claim_branch`、`branches/{branch}/worker-lock`）を取ります。Branchの書込権は、Runの入口のロック（`runs/{run}/worker-lock`）を一瞬だけ取ってから取ります。Runの削除・履歴索引の作り直し・回復のようなRun全体の操作（`claim_run`）は、入口のロックを持ち続けたうえで、どのBranchも書かれていないことを確かめます。占有ロックだけを使うので、Linux・macOS・Windowsで同じ組み方です。上限に達しているときの要求は、`background workers are busy` で断ります。計算1本で、1日分のRun（100人）なら約0.5〜0.9 GBのメモリを使うので、上限はCPUの数ではなくメモリに合わせて決めます。テスト、CLI、計測器（`benchmarks/investigate_performance.py`）は、同じプロセスのスレッドで計算します（`worker="thread"`、既定）。
 - Branchの分岐（`TimelineStore.fork`）は、分岐する時刻の状態からCheckpointを1回だけ作ります。そのCheckpointが分岐の記録（`fork_origin`）の`state_hash`と`checkpoint_hash`になり、作成時の復元検証で組み立てた世界と指標が、そのまま子Branchになります（`Checkpoint.capture_restored`、#46）。この世界と指標は、Checkpointとも分岐元とも何も共有しません。子Branchに引き継ぐ応答テープは、分岐元のhead Checkpointの`runtime_state`だけを読みます。
 - inspection、描画、metrics、trace levelはWorldStateを変えず、simulation乱数も消費しません。
 
@@ -91,7 +91,7 @@ ScenarioSpec、WorldState、Checkpoint、EffectProgram、Project recordはそれ
 
 ## 永続化とインターフェース
 
-ProjectStoreとTimelineStoreは、ローカルProject、承認済みScenario、Run、Branch、Checkpoint chunk、asset、index付き証拠を保持します。CLI Run成果物にはmanifest、凍結Scenario、event記録、metrics、任意のモデル利用記録が含まれます。formatは有効化した機能によって異なります。APIリファレンスを参照してください。
+ProjectStoreとTimelineStoreは、ローカルProject、承認済みScenario、Run、Branch、Checkpoint chunk、index付き証拠を保持します。CLI Run成果物にはmanifest、凍結Scenario、event記録、metrics、任意のモデル利用記録が含まれます。formatは有効化した機能によって異なります。APIリファレンスを参照してください。
 
 HTTP APIは永続Projectと状態変更操作（/api/v1/projects）と、利用記録の参照（/api/v1/usage/runtime）です。以前の画面のための保存Run成果物の参照（/api/v1/runs）とprocess内のデモBranch（/api/v1/demo）は#376でなくしました。
 

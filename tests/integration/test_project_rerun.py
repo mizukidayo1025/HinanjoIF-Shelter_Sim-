@@ -1,9 +1,5 @@
 """A rerun of a saved Run (`POST …/runs/{run}/rerun`, as the CLI's `project rerun` sends it)
-reproduces its world.
-
-The experiments, evaluations and datasets of the older Project panel went with the older screens
-(#376, decision 6); the CLI's `evaluate-models` stays.
-"""
+reproduces its world."""
 
 from __future__ import annotations
 
@@ -14,7 +10,6 @@ import pytest
 
 from sheltersim.experiments.scenario import ScenarioSpec
 from sheltersim.experiments.timeline import TimelineStore
-from sheltersim.storage.projects import StorageError
 from sheltersim.web.projects import ProjectAPI
 
 END = 30
@@ -53,40 +48,3 @@ def test_rerun_of_a_saved_run_reproduces_its_world(project_api):
         return json.dumps(document, sort_keys=True)
 
     assert world("r2") == world("r")
-
-
-@pytest.mark.parametrize(
-    "parts",
-    [
-        ["p", "experiments"],
-        ["p", "experiments", "exp"],
-        ["p", "evaluations"],
-        ["p", "datasets"],
-        ["p", "drafts"],
-        ["p", "assets"],
-        ["p", "geometries"],
-    ],
-)
-def test_the_older_panels_lists_are_gone(project_api, parts):
-    with pytest.raises(StorageError, match="unknown project route"):
-        project_api.get(parts, {})
-
-
-@pytest.mark.parametrize(
-    "parts",
-    [
-        ["p", "experiments", "exp"],
-        ["p", "evaluations", "e"],
-        ["p", "datasets", "d"],
-        ["p", "drafts", "d"],
-        ["p", "uploads", "u"],
-        ["p", "geometries", "g"],
-        ["p", "facility-preview"],
-        ["p", "first-divergence"],
-        ["p", "comparison-query"],
-        ["p", "condition-differences"],
-    ],
-)
-def test_the_older_panels_operations_are_gone(project_api, parts):
-    with pytest.raises(StorageError, match="unknown project operation"):
-        project_api.post(parts, {})

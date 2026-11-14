@@ -196,3 +196,17 @@ def test_the_landing_page_gives_the_computing_time_this_vm_measured(
     assert "数分" not in page
     page = _landing(["d.example", "1"], monkeypatch, capsys)
     assert "1日分は約25秒、7日分は約3分程度かかります（目安）" in page
+
+
+def test_the_extras_the_vm_installs_are_the_packages() -> None:
+    """setup.sh installs only extras pyproject.toml declares (plan-import went in #376)."""
+    import re
+    import tomllib
+
+    setup = (KIT / "setup.sh").read_text(encoding="utf-8")
+    [extras] = re.findall(r'"\$\{APP\}\[([a-z,-]+)\]"', setup)
+    declared = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"][
+        "optional-dependencies"
+    ]
+    assert extras.split(",") == ["llm"]
+    assert set(extras.split(",")) <= set(declared)

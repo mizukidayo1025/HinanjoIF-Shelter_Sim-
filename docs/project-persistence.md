@@ -60,7 +60,7 @@ Checkpointは計算に使ったモデルの版を`model_versions`に記録しま
 
 | 置き場所（Projectのフォルダーから） | 中身 |
 |---|---|
-| `project.json` | `schema_version`、`project_id`、`archived` |
+| `project.json` | `schema_version`、`project_id`、`archived`（アーカイブは#376でなくしたので、いつも`false`） |
 | `scenarios/<scenario>/v<n>.json` | Scenarioの記録（`schema_version`、`scenario_id`、`scenario_version`、`scenario_hash`、`approved`）。Scenario自体は持たない |
 | `scenarios/<scenario>/v<n>.scenario.json` | Pythonが書いたScenarioの正準JSONのbytes。sha256が`scenario_hash` |
 | `runs/<run>/run.json` | Runの記録（Pythonの`RunReference`の欄と`status`、`archived`） |

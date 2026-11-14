@@ -72,7 +72,7 @@ git -C "$APP" fetch -q origin
 git -C "$APP" checkout -q --detach "$REF"
 [[ -x $VENV/bin/python ]] || python3 -m venv "$VENV"
 "$VENV/bin/pip" install -q --upgrade pip
-"$VENV/bin/pip" install -q "${APP}[llm,plan-import]"
+"$VENV/bin/pip" install -q "${APP}[llm]"
 
 echo "== Rust kernels"
 export RUSTUP_HOME=/opt/sheltersim/rustup CARGO_HOME=/opt/sheltersim/cargo

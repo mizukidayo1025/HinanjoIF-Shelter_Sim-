@@ -26,10 +26,6 @@ dev = [
 llm = [
     "anthropic>=1.0,<2",
 ]
-plan-import = [
-    "Pillow>=10,<13",
-    "pypdfium2>=4.30,<5",
-]
 
 [project.scripts]
 sheltersim = "sheltersim.__main__:main"

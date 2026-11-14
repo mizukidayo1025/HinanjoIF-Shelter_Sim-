@@ -697,7 +697,7 @@
             >シミュレーションが最後の時刻まで計算されていないため、AIによるレポート本文はまだ作られていません。ここに出ているのは、計算済みの範囲の数値の要約です。「終了まで計算」すると正式なレポートに切り替わります。</span
           >
         </div>
-        <div id="report-kpis" class="kpi-grid"></div>
+        <div id="report-kpis" class="kpi-strip" aria-label="表示中の時刻の指標"></div>
         <div class="report-grid">
           <div class="report-main">
             <div class="report-top">
@@ -725,14 +725,6 @@
                 <p id="history-note" class="fine">
                   記録を取得すると表示します。
                 </p>
-              </article>
-              <article class="panel">
-                <h2>参照時点の避難所マップ</h2>
-                <span id="report-minute" class="badge">—</span
-                ><canvas
-                  id="report-map"
-                  aria-label="レポート参照時点の施設マップ"
-                ></canvas>
               </article>
             </div>
             <div class="report-bottom">

@@ -691,7 +691,7 @@
   // What the screen shows of a Run, emptied when none is open.
   function clearRunView() {
     renderKpis($("sim-kpis"));
-    renderKpis($("report-kpis"));
+    renderKpiStrip($("report-kpis"));
     $("clock").textContent = "開始前";
     $("branch-select").replaceChildren();
     $("compare-branch").replaceChildren();
@@ -713,7 +713,7 @@
         ? "Claude APIに接続して回答を生成します"
         : llm.mode === "replay"
           ? "記録したAPIの応答を再生して回答します"
-          : "APIキーのない環境です。AIの回答は作らず、記録から確かめられることだけを返します";
+          : "APIキーのない環境のため、質問にはAIの回答を作れません。レポートと記録は確かめられます";
   }
   // The scenario page: the open Run's conditions, or the form for a new Scenario, or why this
   // site cannot make one (a browser site built without the shelter index, api_fetch.js).
@@ -789,6 +789,26 @@
       card.append(body);
       container.append(card);
     }
+  }
+  // The report's line of the same indicators (#375): the cards' definitions and values, small,
+  // with the minute they are of; the report's chart and summary carry the rest.
+  function renderKpiStrip(container, kpis) {
+    container.replaceChildren(
+      el("span", kpis ? `${time(state.minute)}の指標` : "指標", "kpi-strip-when"),
+      ...metricDefs.map((d) => {
+        const item = el("span", undefined, "kpi-strip-item");
+        item.title = d.note;
+        item.append(
+          el("small", d.label),
+          el(
+            "strong",
+            num(typeof kpis?.[d.key] === "number" ? kpis[d.key] * d.factor : null),
+          ),
+          el("em", d.unit),
+        );
+        return item;
+      }),
+    );
   }
   function controls() {
     const has = Boolean(state.run && state.frame),
@@ -1316,7 +1336,7 @@
         );
     }
     renderKpis($("sim-kpis"), frame.kpis);
-    renderKpis($("report-kpis"), frame.kpis);
+    renderKpiStrip($("report-kpis"), frame.kpis);
     $("scenario-name").textContent =
       state.displayName || state.data?.scenario_id || "保存シナリオ";
     $("scenario-summary").textContent =
@@ -2222,8 +2242,6 @@
               : report.status || "取得済み";
     $("report-raw").textContent = report.markdown || json(report);
     $("report-evidence").textContent = json({ evidence, llm });
-    $("report-minute").textContent =
-      `${time(state.minute)} / ${shortBranch(state.branch)}`;
     $("report-summary").replaceChildren();
     for (const [title, text] of [
       [
@@ -2467,7 +2485,6 @@
       "simulation-map",
       "compare-map-a",
       "compare-map-b",
-      "report-map",
     ].includes(canvas.id);
     hits.set(
       canvas,
@@ -2744,10 +2761,7 @@
           : "シナリオを開くと施設が表示されます",
       });
     }
-    if (state.page === "report") {
-      drawMap($("report-map"), state.frame, $("report-layer").value);
-      drawHistory();
-    }
+    if (state.page === "report") drawHistory();
   }
   document
     .querySelectorAll("[data-page]")
@@ -2933,12 +2947,7 @@
       drawAll();
     }),
   );
-  for (const id of [
-    "simulation-map",
-    "compare-map-a",
-    "compare-map-b",
-    "report-map",
-  ]) {
+  for (const id of ["simulation-map", "compare-map-a", "compare-map-b"]) {
     const canvas = $(id);
     let drag = null;
     canvas.tabIndex = 0;
@@ -2987,17 +2996,16 @@
       if (drag && !drag.moved) {
         const hit = hitAt(e);
         if (hit?.type === "person") {
-          if (id === "simulation-map" || id === "report-map")
+          if (id === "simulation-map")
             selectPerson(hit.id, hit.ids, { x: e.clientX, y: e.clientY });
           else {
             state.selected = hit.id;
             drawAll();
           }
           if (id !== "simulation-map") {
-            const f =
-              id === "report-map"
-                ? state.frame
-                : state.comparison.frames[id === "compare-map-a" ? 0 : 1];
+            const f = state.comparison
+              ? state.comparison.frames[id === "compare-map-a" ? 0 : 1]
+              : state.frame;
             const p = f.people.find((p) => p.id === hit.id),
               a = f.agents.find((a) => a.agent_id === hit.id);
             let detail = canvas.parentElement.querySelector(".map-inspector");
@@ -3130,26 +3138,7 @@
     document
       .querySelector(".compare-controls")
       .append(template.cloneNode(true));
-    const reportControls = el("div", undefined, "report-map-controls");
-    reportControls.append(template.cloneNode(true));
-    const reportLayer = el("select");
-    reportLayer.id = "report-layer";
-    reportLayer.setAttribute("aria-label", "レポートのマップレイヤー");
-    for (const [value, label] of [
-      ["normal", "通常"],
-      ["stress", "ストレス"],
-      ["crowd", "混雑"],
-      ["health", "健康・ニーズ"],
-      ["operations", "運営"],
-    ]) {
-      const option = el("option", label);
-      option.value = value;
-      reportLayer.append(option);
-    }
-    reportControls.append(reportLayer);
-    $("report-map").before(reportControls);
-    reportLayer.addEventListener("change", drawAll);
-    for (const id of ["compare-map-a", "compare-map-b", "report-map"])
+    for (const id of ["compare-map-a", "compare-map-b"])
       $(id).parentElement.classList.add("map-host");
     document.querySelectorAll("[data-scene-mode]").forEach((select) =>
       select.addEventListener("change", () => {
@@ -3175,12 +3164,6 @@
                 ? "模式図 · 部屋形状・人物の個別配置は表示用／距離は非対応"
                 : "実座標 · 床材と背景は表示上の演出"),
         );
-      $("report-map").setAttribute(
-        "aria-description",
-        state.sceneMode === "schematic"
-          ? "模式図。個別の配置は所属を表す記号です。"
-          : "記録された実座標",
-      );
     }
     updateSceneCaption();
     syncLayerTabs();
@@ -3202,7 +3185,7 @@
         b.dataset.zoom === "in" ? "＋" : b.dataset.zoom === "out" ? "−" : "⌖";
     });
     renderKpis($("sim-kpis"));
-    renderKpis($("report-kpis"));
+    renderKpiStrip($("report-kpis"));
     const projects = await api("/api/v1/projects");
     if (projects.projects.some((p) => p.project_id === state.project)) {
       await refreshRuns();

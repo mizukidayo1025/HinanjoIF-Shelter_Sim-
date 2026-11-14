@@ -3752,3 +3752,43 @@ body[data-scenario="unavailable"] #page-scenario .scenario-grid {
 .intervention-panel:not(.has-intervention) #intervention-apply {
   display: none;
 }
+
+/* レポート（#375）：指標はシミュレーションのカードと同じ定義・値を1行の帯で出し、推移のグラフと要約を主にする */
+.report-top {
+  grid-template-columns: minmax(0, 1fr);
+}
+.kpi-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 18px;
+  padding: 9px 14px;
+  margin-bottom: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #ffffffed;
+}
+.kpi-strip-when {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted);
+}
+.kpi-strip-item {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  white-space: nowrap;
+}
+.kpi-strip-item small {
+  font-size: 11px;
+  color: var(--muted);
+}
+.kpi-strip-item strong {
+  font-size: 16px;
+  font-variant-numeric: tabular-nums;
+}
+.kpi-strip-item em {
+  font-size: 10px;
+  font-style: normal;
+  color: var(--muted);
+}

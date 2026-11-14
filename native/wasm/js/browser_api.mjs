@@ -20,6 +20,8 @@
 //   POST runs/{run}/branches/{branch}/intervention-preview, intervention-apply   js/interventions.mjs
 //                                            (#306); GET runs/{run} then holds the fork's `last_fork`
 //   POST runs/{run}/branches/{branch}/questions   js/questions.mjs (#308): the answer without an API key
+//   POST runs/{run}/delete                   the Run removed (#376), as the server's
+//   GET  runs/{run}/branches/{branch}/conversations   the questions and answers kept (#376)
 //   POST runs/{run}/pdf-report               the server's checks, then its answer without an API key:
 //                                            409 pdf_analysis_offline (#309)
 //   POST {project}/scenario-preview, scenario-approve, runs   js/scenario_routes.mjs (#301)
@@ -207,6 +209,7 @@ export class BrowserApi {
     }
     if (parts.length === 6 && parts[1] === "runs" && parts[3] === "branches" && parts[5] === "questions") return questionResponse(this, parts[0], parts[2], parts[4], postDocument(body));
     if (parts.length === 4 && parts[1] === "runs" && parts[3] === "pdf-report") return this.pdfReport(parts[0], parts[2], postDocument(body));
+    if (parts.length === 4 && parts[1] === "runs" && parts[3] === "delete") return this.deleteRun(parts[0], parts[2], postDocument(body));
     const route = parts.length >= 6 && parts[1] === "runs" ? parts.slice(3).join("/") : parts.slice(1).join("/");
     throw unsupported(route || "POST");
   }
@@ -238,6 +241,12 @@ export class BrowserApi {
         const record = await this.branch(projectId, runId, branchId);
         if (minute < record.fork_minute || minute > record.computed_until) throw refused("minute is outside this branch's computed range");
         return this.frameText(projectId, runId, record, minute);
+      }
+      if (branchAction === "conversations" && noQuery) {
+        await this.branch(projectId, runId, branchId);
+        // The server's answer (web/projects.py), each turn with the schema version its store adds.
+        const turns = (await store.conversations(tree, projectId, runId, branchId)).map((turn) => ({ schema_version: "claims" in turn ? 2 : 1, ...turn }));
+        return JSON.stringify({ turns, coverage: "latest_100_turns", history_route: "history?kind=conversations" });
       }
       const named = { history: "history", report: "report", "llm-status": "llmStatus" }[branchAction];
       if (named) {
@@ -276,6 +285,26 @@ export class BrowserApi {
       throw refused("pdf_uncomputed_range: 指定時刻は共通の計算済み範囲外です。");
     }
     throw refused("pdf_analysis_offline: Opusの記録応答またはAPI接続が必要です。");
+  }
+
+  /// `POST runs/{run}/delete` (Python's ProjectAPI and `ProjectStore.delete_run`): the Run's id as
+  /// the confirmation, no computation of it running, and a status that is not running; then its
+  /// folder is removed and what this API keeps of it is let go.
+  async deleteRun(projectId, runId, document) {
+    checkFields(document, ["confirmation"]);
+    if ([...this.computing.jobs.values()].some((job) => job.projectId === projectId && job.runId === runId)) throw refused("cannot delete an active run");
+    const run = JSON.parse(await store.runResponse(this.tree, projectId, runId));
+    if (document.confirmation !== runId || run.status === "running") throw refused("deletion needs run ID confirmation and an inactive run");
+    for (const [key, { simulation }] of this.live) {
+      if (key.startsWith(`${projectId}/${runId}/`)) {
+        simulation.free();
+        this.live.delete(key);
+      }
+    }
+    this.history.clear();
+    this.forkOutcomes.delete(`${projectId}/${runId}`);
+    await store.removeRun(this.tree, projectId, runId);
+    return JSON.stringify({ deleted: runId });
   }
 
   /// The record of a branch; an error, as Python's, for one there is not.

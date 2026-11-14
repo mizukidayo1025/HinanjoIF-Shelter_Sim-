@@ -64,6 +64,8 @@ SHELTERSIM_LLM_MODE=record SHELTERSIM_LLM_ERROR_POLICY=stop \
 | 自然言語介入プレビュー | POST B/intervention-preview | 実装済み / 変換作用・検証結果・support_mode・制限を表示 |
 | 介入の明示承認・独立分岐 | POST B/intervention-apply | 実装済み / hashと入力・時刻・分岐を照合。変更で再承認が必要 |
 | 同期比較 | GET R/compare?branch_ids=A,B&minute=M | 実装済み / parentとchildを共通時刻・レイヤー・ズームで比較 |
+| シナリオの削除、同じ条件で新しいシナリオ | POST R/delete（`confirmation`はRunのID）、POST P/runs（同じScenarioとseed） | シナリオ設定の「このシナリオを削除」（名前を示して確認）と「同じ条件で新しいシナリオを作る」。自分のProjectのシナリオだけ。計算済みの例は消せない（#376） |
+| 過去の質問と回答 | GET B/conversations | レポートを開くと、その分岐でこれまでにした質問と回答（最後の100件）を、質問の欄の上に出す（#376） |
 | 2〜8分岐の同時比較 | GET R/compare?branch_ids=A,B,…&minute=M | 分岐比較の画面の「ほかの分岐とも並べる」。選んだ分岐（元のシナリオを左端）を、共通の計算済みの時刻（表示中の時刻が入ればその時刻）の指標の表で並べ、左端との差を出す（#376） |
 | 両分岐を先へ計算 | POST R/resumeを順番に実行 | 実装済み / 共通の目標まで計算後compareを取得 |
 | KPI差分 | compare.differences | 実装済み / ストレス、累積最大待機時間、稼働比率、未解決支援要請の符号付き差分 |

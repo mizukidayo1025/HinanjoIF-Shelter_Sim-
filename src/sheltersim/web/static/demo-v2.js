@@ -606,30 +606,33 @@
     );
   }
   async function openRun(projectId, runId) {
-    await action("シナリオを開いています…", async () => {
-      clearTimeout(state.poll);
-      state.scope++;
-      state.project = projectId;
-      state.run = runId;
-      state.branch = "main";
-      state.minute = 0;
-      state.loadedRun = null;
-      state.data = null;
-      state.frame = null;
-      state.comparison = null;
-      state.history = [];
-      state.context = null;
-      state.selected = null;
-      state.selectedGroup = [];
-      state.mapPan = { x: 0, y: 0 };
-      state.zoom = 1;
-      state.report = null;
-      invalidateIntervention();
-      resetChat();
-      await refreshRuns();
-      await refreshRun();
-    });
+    await action("シナリオを開いています…", () =>
+      openRunInPlace(runId, projectId),
+    );
     if (state.run === runId && state.data) show("simulation");
+  }
+  async function openRunInPlace(runId, projectId = state.project) {
+    clearTimeout(state.poll);
+    state.scope++;
+    state.project = projectId;
+    state.run = runId;
+    state.branch = "main";
+    state.minute = 0;
+    state.loadedRun = null;
+    state.data = null;
+    state.frame = null;
+    state.comparison = null;
+    state.history = [];
+    state.context = null;
+    state.selected = null;
+    state.selectedGroup = [];
+    state.mapPan = { x: 0, y: 0 };
+    state.zoom = 1;
+    state.report = null;
+    invalidateIntervention();
+    resetChat();
+    await refreshRuns();
+    await refreshRun();
   }
   function newScenario() {
     clearTimeout(state.poll);
@@ -751,6 +754,47 @@
         .map((t) => el("span", t, "chip")),
     );
     $("scenario-open-json").textContent = json(scenario);
+    // The example's Scenarios are kept as they are; one's own can be made again or deleted (#376).
+    const own = state.project === ownProject;
+    $("scenario-copy").hidden = !own;
+    $("scenario-delete").hidden = !own;
+    $("scenario-actions-note").textContent = own
+      ? "同じ条件で作ると、同じseedから0分の状態で始まります。削除すると、このシナリオの計算と分岐、質問の記録が消えます。"
+      : "計算済みの例は、作り直したり削除したりできません。";
+  }
+  // 「同じ条件で新しいシナリオを作る」: a new Run of the open Run's Scenario and seed (POST runs).
+  async function copyScenario() {
+    const runId = `run-${crypto.randomUUID()}`;
+    await api(`${base()}/runs`, {
+      run_id: runId,
+      scenario_id: state.data.scenario_id,
+      scenario_version: state.data.scenario_version,
+    });
+    await refreshRuns();
+    await openRunInPlace(runId);
+  }
+  // 「このシナリオを削除」: after the person confirms with the Scenario's name (POST runs/{run}/delete).
+  async function deleteScenario() {
+    const name = $("scenario-name").textContent;
+    if (
+      !confirm(
+        `「${name}」を削除します。計算の記録、分岐、質問の記録も消え、元に戻せません。よろしいですか？`,
+      )
+    )
+      return;
+    await api(`${runBase()}/delete`, { confirmation: state.run });
+    clearTimeout(state.poll);
+    state.scope++;
+    state.run = null;
+    state.data = null;
+    state.frame = null;
+    state.loadedRun = null;
+    state.comparison = null;
+    invalidateIntervention();
+    resetChat();
+    clearRunView();
+    await refreshRuns();
+    show("home");
   }
   function invalidateIntervention() {
     state.intervention = null;
@@ -2431,8 +2475,34 @@
       $("report-people").append(row);
     }
     renderEvents($("report-events"), state.frame.events);
+    await loadConversations();
     await loadHistory();
     drawAll();
+  }
+  // The questions asked about this branch before and their answers (#376, GET conversations),
+  // above the chat's new ones; read when the report opens, as the record keeps them.
+  async function loadConversations() {
+    const scope = state.scope,
+      branch = state.branch,
+      { turns } = await api(`${branchBase()}/conversations`);
+    if (scope !== state.scope || branch !== state.branch) return;
+    const chat = $("chat");
+    chat.querySelector(".chat-history")?.remove();
+    if (!turns.length) return;
+    const past = el("div", undefined, "chat-history");
+    past.append(el("small", `これまでの質問と回答（${turns.length}件）`, "chat-history-title"));
+    for (const turn of turns) {
+      past.append(el("div", turn.question, "chat-bubble user"));
+      const answer = el("div", undefined, "chat-bubble answer");
+      answer.append(
+        el("small", `${time(turn.minute)}について`),
+        el("p", turn.answer),
+      );
+      past.append(answer);
+    }
+    chat.querySelector(".chat-intro")?.remove();
+    chat.prepend(past);
+    chat.scrollTop = chat.scrollHeight;
   }
   async function askQuestion() {
     const question = $("question").value.trim();
@@ -2872,6 +2942,13 @@
   });
   $("home-new").addEventListener("click", newScenario);
   $("scenario-new").addEventListener("click", newScenario);
+  on("scenario-copy", async () => {
+    await copyScenario();
+    show("simulation");
+  });
+  $("scenario-delete").addEventListener("click", () =>
+    action("シナリオを削除しています…", deleteScenario),
+  );
   $("home-reset").addEventListener("click", () => {
     resetCompute().catch((e) => {
       $("home-reset-note").textContent = `消せませんでした：${e.message}`;

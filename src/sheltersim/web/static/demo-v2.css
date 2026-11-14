@@ -3829,3 +3829,20 @@ body[data-scenario="unavailable"] #page-scenario .scenario-grid {
 .multi-compare-table small.bad {
   color: #bb2450;
 }
+.chat-history {
+  display: grid;
+  gap: 6px;
+  padding-bottom: 8px;
+  margin-bottom: 8px;
+  border-bottom: 1px dashed var(--line);
+}
+.chat-history-title {
+  color: var(--muted);
+  font-size: 11px;
+}
+.scenario-open-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}

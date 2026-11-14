@@ -617,6 +617,26 @@ export async function evidenceResponse(tree, projectId, runId) {
   return decoder.decode(bytes).trimEnd();
 }
 
+/// Removes a Run and everything in its folder (`POST runs/{run}/delete`, #376); its records are
+/// read first, so a Run that is not there is refused as Python's store refuses it.
+export async function removeRun(tree, projectId, runId) {
+  await readRecord(tree, [...runPath(projectId, runId), "run.json"]);
+  await tree.remove(runPath(projectId, runId));
+}
+
+/// The questions and answers kept beside a branch (questions.mjs's `conversations.jsonl`), oldest
+/// first; at most the last `limit`.
+export async function conversations(tree, projectId, runId, branchId, limit = 100) {
+  const bytes = await tree.read([...runPath(projectId, runId), "branches", checkId(branchId), "conversations.jsonl"]);
+  if (bytes === null) return [];
+  return decoder
+    .decode(bytes)
+    .split("\n")
+    .filter((line) => line !== "")
+    .slice(-limit)
+    .map((line) => JSON.parse(line));
+}
+
 /// Removes a Project and everything in its folder.
 export async function removeProject(tree, projectId) {
   await tree.remove(projectPath(projectId));

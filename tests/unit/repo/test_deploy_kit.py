@@ -42,16 +42,18 @@ def test_the_files_the_kit_reads_from_the_app_exist_in_the_repository() -> None:
     texts = [
         (KIT / "sheltersim@.service").read_text(encoding="utf-8"),
         (KIT / "reset-slot.sh").read_text(encoding="utf-8"),
+        # setup.sh names the app's checkout $APP.
+        (KIT / "setup.sh").read_text(encoding="utf-8").replace("$APP/", APP),
     ]
     paths = {
-        word.rstrip('";')
+        word.strip('"').rstrip('";').strip('"')
         for text in texts
         for word in text.split()
         if word.startswith(APP) or word.startswith(f'"{APP}')
-    }
+    } - {f"{APP}.git"}
     assert paths
     for path in paths:
-        assert (ROOT / path.strip('"').removeprefix(APP)).exists(), path
+        assert (ROOT / path.removeprefix(APP)).exists(), path
 
 
 def test_the_landing_page_escapes_the_domain(
@@ -149,10 +151,15 @@ def test_setup_builds_the_sample_where_reset_slot_and_the_slots_read_it() -> Non
         for line in unit.splitlines()
         if "SHELTERSIM_PROJECTS_DIR=" in line
     )
-    assert store == f"{paths['DATA']}/slot%i/demo_replay/runs/.projects"
-    assert "projects=$DATA/slot$n/demo_replay/runs/.projects\n" in setup
+    assert store == f"{paths['DATA']}/slot%i/runs/.projects"
+    assert f"--runs-dir {paths['DATA']}/slot%i/runs " in unit
+    assert "projects=$DATA/slot$n/runs/.projects\n" in setup
     assert "slot=/var/lib/sheltersim/slot$n\n" in reset
-    assert 'cp -a "$sample" "$slot/demo_replay/runs/.projects/sample"' in reset
+    assert 'mkdir -p "$slot/runs/.projects"' in reset
+    assert 'cp -a "$sample" "$slot/runs/.projects/sample"' in reset
+    # The fixed replay of the older screens is gone (#376); the slots no longer copy it.
+    assert "demo_replay" not in setup + reset + unit
+    assert "--demo-scenario" not in unit
 
 
 def test_the_redirects_to_the_new_screen_keep_the_query() -> None:

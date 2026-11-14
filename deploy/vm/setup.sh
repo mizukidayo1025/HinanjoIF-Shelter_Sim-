@@ -181,8 +181,8 @@ install -m 755 "$HERE/reset-slot.sh" /opt/sheltersim/reset-slot.sh
 install -m 644 "$HERE/sheltersim@.service" /etc/systemd/system/sheltersim@.service
 for n in $(seq 1 "$SLOTS"); do
   printf 'PORT=%s\nSTORAGE_GB=%s\n' "$((8800 + n))" "$STORAGE_GB" > "$ETC/slot$n.env"
-  projects=$DATA/slot$n/demo_replay/runs/.projects
-  if [[ ! -d $DATA/slot$n/demo_replay ]]; then
+  projects=$DATA/slot$n/runs/.projects
+  if [[ ! -d $DATA/slot$n/runs ]]; then
     /opt/sheltersim/reset-slot.sh "$n" --no-restart
   elif [[ -d $SAMPLE_DIR && ! -e $projects/sample ]]; then
     # Copied beside the store and moved in, so a running slot never lists half a copy.
@@ -216,9 +216,9 @@ python3 "$HERE/render_landing.py" "$DOMAIN" "$SLOTS" "${SAMPLE_SUMMARY[@]}" \
   for n in $(seq 1 "$SLOTS"); do
     echo "s$n.$DOMAIN {"
     echo "  import auth"
-    # Judges use the new screen only: the app's / and the older screens (/demo, /admin)
-    # all go to /demo-v2 with the same query (?project=...&run=...). The API and the new
-    # screen's files pass through.
+    # Judges use the screen only: the app's / and the removed older screens' paths (/demo,
+    # /admin) all go to /demo-v2 with the same query (?project=...&run=...), as the app
+    # itself does since #376. The API and the screen's files pass through.
     echo "  @older path / /demo /admin /index.html"
     echo "  redir @older /demo-v2{?query} 302"
     echo "  reverse_proxy 127.0.0.1:$((8800 + n))"

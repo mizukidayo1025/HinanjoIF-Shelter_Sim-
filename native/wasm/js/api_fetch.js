@@ -57,8 +57,8 @@
       if (noticeOurs) notice(null);
       settle.resolve({ installed: data.installed, ms: data.ms });
     } else if (data.type === "failed") {
-      notice(`ブラウザー版の準備に失敗しました：${data.message}`, "error");
-      settle.reject(new Error(data.message));
+      notice(data.message, "error");
+      settle.reject(Object.assign(new Error(data.message), { code: data.code }));
     }
   };
   worker.onerror = (event) => {

@@ -200,6 +200,28 @@ assert.equal((await install(fresh, marker)).installed, true);
 assert.throws(() => api.checkSampleManifest({ ...manifest, bytes: 1 }), /do not add up/);
 assert.throws(() => api.checkSampleManifest({ ...manifest, parts: [{ ...parts[0], path: "../x" }] }), /without its name/);
 
+// The store (#393): a browser that refuses OPFS (WebKit's private window answers UnknownError,
+// "out of memory") or has none gets its own code and a text saying what to do, not the reason the
+// browser gave; one that has it gets its root folder.
+const { errorAnswer } = await import(join(here, "..", "js", "api_answers.mjs"));
+const refusing = {
+  getDirectory: async () => {
+    throw new DOMException("The operation failed for an unknown transient reason (e.g. out of memory).", "UnknownError");
+  },
+};
+for (const storage of [refusing, undefined, {}]) {
+  const error = await api.openStore(storage).then(
+    () => null,
+    (caught) => caught,
+  );
+  assert.equal(error?.code, "browser_storage_unavailable");
+  assert.equal(error.message, api.STORAGE_UNAVAILABLE);
+  assert.doesNotMatch(error.message, /out of memory|URL/);
+  assert.deepEqual(errorAnswer(error), { status: 503, body: JSON.stringify({ code: "browser_storage_unavailable", error: api.STORAGE_UNAVAILABLE }) });
+}
+const folder = { kind: "directory" };
+assert.equal(await api.openStore({ getDirectory: async () => folder }), folder);
+
 if (failures > 0) {
   console.error(`${failures} problem(s)`);
   process.exit(1);

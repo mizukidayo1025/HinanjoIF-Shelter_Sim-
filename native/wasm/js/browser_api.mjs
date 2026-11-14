@@ -65,6 +65,24 @@ const unsupported = (what) => new ApiError(409, `${UNSUPPORTED}（${what}）`, "
 
 const json = (status, text) => ({ status, type: "application/json; charset=utf-8", body: text });
 
+/// What the screen says when the browser does not let the site use its store (OPFS, #393): a
+/// private window may refuse it (WebKit's answers `UnknownError`, "out of memory", which it is not).
+export const STORAGE_UNAVAILABLE =
+  "このブラウザーでは、計算の結果を保存する場所（OPFS）を使えません。" +
+  "プライベートブラウズやシークレットのウインドウでは使えないことがあります。通常のウインドウで開いてください。";
+
+/// The root folder of the browser's store (`navigator.storage`'s OPFS), or a 503
+/// `browser_storage_unavailable` with STORAGE_UNAVAILABLE when there is none or it cannot be
+/// opened. The Worker opens it before anything else, so the screen tells this from other failures.
+export async function openStore(storage) {
+  try {
+    if (typeof storage?.getDirectory !== "function") throw new Error("navigator.storage.getDirectory is missing");
+    return await storage.getDirectory();
+  } catch (error) {
+    throw Object.assign(new ApiError(503, STORAGE_UNAVAILABLE, "browser_storage_unavailable"), { cause: error });
+  }
+}
+
 /// The query as Python's `parse_qs` reads it: blank values dropped, each name's values in order.
 function queryOf(search) {
   const query = new Map();

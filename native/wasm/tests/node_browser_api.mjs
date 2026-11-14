@@ -222,13 +222,13 @@ for (const storage of [refusing, undefined, {}]) {
 const folder = { kind: "directory" };
 assert.equal(await api.openStore({ getDirectory: async () => folder }), folder);
 
-// The questions and answers kept beside a branch, and deleting a Run (#376).
+// The questions and answers kept in a branch's stored Run, and deleting a Run (#376).
 {
   const noTurns = await get("/p1/runs/r1/branches/main/conversations");
   assert.equal(noTurns.status, 200);
   assert.deepEqual(JSON.parse(noTurns.body), { turns: [], coverage: "latest_100_turns", history_route: "history?kind=conversations" });
   const kept = { turn_id: "t-1", question: "q", answer: "a", minute: 3, conversation_id: "c1", claims: [] };
-  await tree.write(["p1", "runs", "r1", "branches", "main", "conversations.jsonl"], encoder.encode(`${JSON.stringify(kept)}\n`));
+  await store.keepTurn(wasm, tree, "p1", "r1", "main", encoder.encode(JSON.stringify(kept)));
   assert.deepEqual(JSON.parse((await get("/p1/runs/r1/branches/main/conversations")).body).turns, [{ schema_version: 2, ...kept }]);
   assert.equal((await get("/p1/runs/r1/branches/nope/conversations")).status, 409);
   const wrong = await post("/p1/runs/r1/delete", { confirmation: "r2" });

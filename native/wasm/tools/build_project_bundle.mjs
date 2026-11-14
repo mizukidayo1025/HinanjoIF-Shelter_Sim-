@@ -173,6 +173,19 @@ if (options.expect) {
 }
 
 const sizes = Object.fromEntries(Object.entries(computed.ran.sizes).map(([kind, size]) => [kind, size.stored]));
+// What each branch's stored Run takes: data.pack by the kind of its pieces, and the journal (a
+// fork's reads its parent's pieces up to its base, which it does not hold).
+const { journalLines } = await import(join(here, "..", "js", "run_store.mjs"));
+const branchBytes = {};
+for (const item of imported.branches) {
+  const folder = [projectId, "runs", runId, "branches", item.branch_id];
+  const journal = await tree.read([...folder, "journal.jsonl"]);
+  const byKind = {};
+  for (const line of journalLines(wasm, new TextDecoder().decode(journal)).lines) {
+    if (line.length !== undefined) byKind[line.kind] = (byKind[line.kind] ?? 0) + line.length;
+  }
+  branchBytes[item.branch_id] = { data: (await tree.read([...folder, "data.pack"])).length, journal: journal.length, by_kind: byKind };
+}
 console.log(
   JSON.stringify(
     {
@@ -189,6 +202,8 @@ console.log(
       records: branch.records,
       samples: branch.samples,
       stored_bytes: sizes,
+      branch_bytes: branchBytes,
+      decisions: imported.branches.map((item) => ({ branch_id: item.branch_id, decisions: item.decisions })),
       tick_seconds: Math.round(computed.ran.tickMs) / 1000,
       total_seconds: Math.round(performance.now() - started) / 1000,
       wasm_memory_bytes: computed.ran.memoryBytes,

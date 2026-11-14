@@ -25,15 +25,16 @@
 //   the sha256 of its stored Run's last "end" line), not a Checkpoint's hash; a cursor is otherwise
 //   the server's (the same scope, minute and key: see `cursorScope`).
 // - `first_indexed_checkpoint_minute` is the branch's fork minute, where its stored Run starts.
-// - Only `kind=kpis` is answered; any other kind is refused (`browser_unsupported`), and so is a
-//   branch stored in a format whose samples lack the ledger's columns (`browser_run_outdated`).
+// - Only `kind=kpis` is answered; any other kind is refused (`browser_unsupported`).
+// - A branch stored in an older format than run_store.mjs reads is refused, whatever the route
+//   reads it for: 409 `stored_run_outdated` (the core's text: compute it again, #368).
 // - The report is made the first time it is asked for, from the stored Run at its last minute,
 //   and kept as the branch's `report.json`.
 // - A number of the query takes ASCII digits only (Python's `int()` also takes other decimal
 //   digits), and a cursor's minute written as 5.0 is taken as 5.
 
-import { RunReader } from "./run_store.mjs";
-import { ProjectStoreError, branchBackend, branchRecord, runScenarioBytes } from "./project_store.mjs";
+import { OUTDATED_CODE } from "./run_store.mjs";
+import { ProjectStoreError, branchReader, branchRecord, runScenarioBytes } from "./project_store.mjs";
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -68,6 +69,8 @@ export function errorAnswer(error) {
   // routes); a refusal with a code has both.
   if (error instanceof ApiError) return { status: error.status, body: sortedJson(error.code === null ? { error: error.message } : { code: error.code, error: error.message }) };
   if (error instanceof ProjectStoreError) return { status: 409, body: sortedJson({ code: storageCode(error.message, error.code), error: error.message }) };
+  // A stored Run of an older format, wherever it was read (the core's error).
+  if (String(error?.message ?? "").startsWith(`${OUTDATED_CODE}: `)) return { status: 409, body: sortedJson({ code: OUTDATED_CODE, error: error.message }) };
   return { status: 500, body: sortedJson({ error: "inspector request failed" }) };
 }
 
@@ -296,18 +299,16 @@ export function historyCache(size = 2) {
   };
 }
 
-/// The stored samples of a branch read back (`KpiHistory`), checked against its "end" line.
-async function readSamples(wasm, backend) {
-  const reader = await RunReader.open({ wasm, backend });
+/// The stored samples of a branch read back (`KpiHistory`), checked against its "end" line: a
+/// fork's from its parent's up to its base, then its own.
+async function readSamples(wasm, tree, projectId, runId, branchId) {
+  const reader = await branchReader(wasm, tree, projectId, runId, branchId);
   try {
-    if (!reader.current()) {
-      throw storageError(`browser_run_outdated: the branch was stored as ${reader.run.format}, whose samples lack the ledger's columns; compute it again`);
-    }
     const table = new wasm.KpiHistory();
     try {
-      for (const index of reader.journal.samplePieces()) {
-        if (reader.lines[index].kind === "sample_tables") table.read_sample_tables(await reader.rawAt(index));
-        else table.read_sample_block(await reader.rawAt(index));
+      for (const position of reader.chain.samplePieces()) {
+        if (reader.chain.kind(position) === "sample_tables") table.read_sample_tables(await reader.rawAt(position));
+        else table.read_sample_block(await reader.rawAt(position));
       }
       const end = reader.end();
       if (end !== null && end.samples !== table.sample_count()) throw new Error("the stored samples are not the ones the Run took");
@@ -342,7 +343,7 @@ export async function historyResponse({ wasm, tree, projectId, runId, branchId, 
     const key = JSON.stringify([projectId, runId, branchId, anchor]);
     table = cache?.get(key) ?? null;
     if (table === null) {
-      table = await readSamples(wasm, await branchBackend(tree, projectId, runId, branchId));
+      table = await readSamples(wasm, tree, projectId, runId, branchId);
       if (cache) cache.set(key, table);
       else owned = true;
     }
@@ -609,7 +610,7 @@ export async function reportResponse({ wasm, tree, projectId, runId, branchId, q
   if (kept !== null) return decoder.decode(kept).trimEnd();
   if (record.status !== "completed" || record.checkpoint_hash === null) return sortedJson({ status: "not_generated" });
   const scenarioBytes = await runScenarioBytes(tree, projectId, runId);
-  const reader = await RunReader.open({ wasm, backend: await branchBackend(tree, projectId, runId, branchId) });
+  const reader = await branchReader(wasm, tree, projectId, runId, branchId);
   let text;
   try {
     const { simulation } = await reader.seek(record.computed_until);

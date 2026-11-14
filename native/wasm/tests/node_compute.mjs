@@ -18,6 +18,8 @@
 //   next start calls it `interrupted`, and resuming goes on from its head.
 // - Computed so in pieces, the Run's stored world, log and samples read back to the digests of
 //   the sample's Run (same Scenario, same seed), and its frames are the sample's.
+// - A Run computed with another model version is view-only: resume is refused with Python's text,
+//   its timeline is answered (#368).
 // The store emulates OPFS's rule that a file has one access handle open at a time. Large bytes are
 // compared by their sha256 (a failing deepEqual of large arrays takes all the memory).
 
@@ -101,7 +103,9 @@ if (bundlePath === null) {
   await store.createProject(tree, PROJECT);
   const scenarioBytes = encoder.encode(`{"duration_minutes":${duration},"id":"trial","seed":7}`);
   await store.saveScenario(tree, PROJECT, { scenarioBytes, scenarioHash: await store.sha256Hex(scenarioBytes) });
-  await store.createRun(tree, PROJECT, { runId: SAMPLE, scenarioId: "trial", scenarioVersion: 1, seed: 7, modelVersions: { m: "1" }, evidenceBytes: encoder.encode('{"schema_version":1,"weight":0.50}') });
+  // The core cannot sign this Scenario: only the engine's items are compared (compute.mjs).
+  const modelVersions = { ...JSON.parse(wasm.engineSignatures()), m: "1" };
+  await store.createRun(tree, PROJECT, { runId: SAMPLE, scenarioId: "trial", scenarioVersion: 1, seed: 7, modelVersions, evidenceBytes: encoder.encode('{"schema_version":1,"weight":0.50}') });
   await store.computeBranch({ wasm, tree, projectId: PROJECT, runId: SAMPLE, branchId: "main", run: { exportBytes: raw, world: "small_replay", ticks: 120 } });
   await store.setRunStatus(tree, PROJECT, SAMPLE, "completed");
 } else {
@@ -357,6 +361,22 @@ let stoppedAt;
   const mended = await compute.ensureComputeRun({ wasm, tree, projectId: PROJECT });
   const run = JSON.parse(await store.runResponse(tree, PROJECT, RUN));
   check(mended.created === true && mended.mended === true && run.status === "queued" && run.branches[0].computed_until === 0, `the Run made again: ${JSON.stringify(mended)}`);
+}
+// A Run computed with another model version (engine 1: no engine items recorded) is view-only.
+{
+  const raw = bundlePath === null ? readFileSync(join(here, "..", "..", "core", "tests", "data", "tick_core.json")) : null;
+  if (raw !== null) {
+    const old = "r-old-model";
+    await store.createRun(tree, PROJECT, { runId: old, scenarioId: "trial", scenarioVersion: 1, seed: 7, modelVersions: { m: "1" }, evidenceBytes: encoder.encode('{"schema_version":1}') });
+    await store.computeBranch({ wasm, tree, projectId: PROJECT, runId: old, branchId: "main", run: { exportBytes: raw, world: "small_replay", ticks: 720, saveEvery: 720 } });
+    const branch = await store.writeBranch(tree, PROJECT, old, { ...(await store.branchRecord(tree, PROJECT, old, "main")), status: "paused" });
+    const at = `/api/v1/projects/${PROJECT}/runs/${old}`;
+    const answer = await browser.answer({ method: "POST", path: `${at}/resume`, body: JSON.stringify({ branch_id: "main", target_minute: branch.computed_until + 1 }) });
+    const wanted = "run_model_view_only: このシナリオは旧モデル（版 1）で計算されました。今のモデルは版 3 です。閲覧のみです。保存した時点だけを表示し、続きの計算、分岐、介入の適用はできません。";
+    check(answer.status === 409 && answer.body === JSON.stringify({ code: "run_model_view_only", error: wanted }), `a Run of another model version: ${answer.status} ${answer.body}`);
+    const viewed = await browser.answer({ method: "GET", path: `${at}/branches/main/timeline`, search: "?minute=100" });
+    check(viewed.status === 200 && JSON.parse(viewed.body).minute === 100, `a Run of another model version is viewed: ${viewed.status}`);
+  }
 }
 browser.close();
 

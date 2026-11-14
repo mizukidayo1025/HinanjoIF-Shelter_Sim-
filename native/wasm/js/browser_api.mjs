@@ -47,7 +47,7 @@ import * as store from "./project_store.mjs";
 import { compareResponse, replayPair } from "./comparison.mjs";
 import { interventionApply, interventionPreview } from "./interventions.mjs";
 import { questionResponse } from "./questions.mjs";
-import { RunReader, SAVE_EVERY } from "./run_store.mjs";
+import { SAVE_EVERY } from "./run_store.mjs";
 import { bodyDocument, ScenarioRoutes } from "./scenario_routes.mjs";
 
 /// The manifest of the site's sample: {format, version, project_id, bytes, sha256, parts: [{path,
@@ -245,7 +245,7 @@ export class BrowserApi {
       if (branchAction === "conversations" && noQuery) {
         await this.branch(projectId, runId, branchId);
         // The server's answer (web/projects.py), each turn with the schema version its store adds.
-        const turns = (await store.conversations(tree, projectId, runId, branchId)).map((turn) => ({ schema_version: "claims" in turn ? 2 : 1, ...turn }));
+        const turns = (await store.conversations(this.wasm, tree, projectId, runId, branchId)).map((turn) => ({ schema_version: "claims" in turn ? 2 : 1, ...turn }));
         return JSON.stringify({ turns, coverage: "latest_100_turns", history_route: "history?kind=conversations" });
       }
       const named = { history: "history", report: "report", "llm-status": "llmStatus" }[branchAction];
@@ -385,8 +385,7 @@ export class BrowserApi {
       oldest[1].simulation.free();
       this.live.delete(oldest[0]);
     }
-    const backend = await store.branchBackend(this.tree, projectId, runId, record.branch_id);
-    const reader = await RunReader.open({ wasm: this.wasm, backend });
+    const reader = await store.branchReader(this.wasm, this.tree, projectId, runId, record.branch_id);
     try {
       const sought = await reader.seek(minute);
       this.stats.seeks += 1;

@@ -12,20 +12,27 @@
 //
 // A branch's head. A branch's record (`computed_until`, `checkpoint_hash`) names a line of its
 // stored Run's journal the Run can be read back at and gone on from: the "export" line (minute 0),
-// a "saved" line whose blocks are all stored before it, or the "end" line. Its `checkpoint_hash`
-// is that line's sha256 (project_store.mjs: the "end" line's for a Run stored to its end). The
-// record is written after the line is flushed, so the record is the commit: lines after the head
-// are a computation that did not reach its next head, and going on cuts them off first.
+// a "saved" line, or the "end" line. Its `checkpoint_hash` is that line's head hash (the core's
+// `run_store::Line::head_json`; project_store.mjs: the "end" line's for a Run stored to its end).
+// The record is written after the line is flushed, so the record is the commit: lines after the
+// head are a computation that did not reach its next head, and going on cuts them off first, unless
+// a branch forked from it reads them (it reads its parent's pieces up to its base: the core refuses
+// the cut).
+//
+// A Run computed with other model versions is view-only (the core's `model_version`, #368): its
+// stored Run's versions are compared with the ones the core records now for its Scenario
+// (`modelVersions`, or only the engine's items for a Scenario the core cannot sign), and resume,
+// intervention-preview and intervention-apply refuse it with Python's 409 `run_model_view_only`.
 //
 // Computing (Computing.resume). Python's checks and answers (src/sheltersim/web/projects.py
 // `submit`, `cancel`), one computation at a time (the thread worker's max_jobs). The branch is cut
-// back to its head, restored there (`RunReader.seek`, #251; the exported world at minute 0) and
-// computed in chunks of at most `chunkTicks` ticks. Each chunk is a task of the store's queue (the
-// requests' queue of browser_api.mjs, inside its Web Lock), so the Worker answers timeline,
-// history and the records between chunks. At every `save_every` minutes (360, #263), at the
-// target and when cancelled, the blocks are sealed (`RunWriter.save` with `seal`) and a saved point
-// is stored: the record then moves its head there, the frame of that minute is kept for the
-// screen's next `timeline` of it, and the Run's records stay `running` until the computation
+// back to its head, restored there (`RunReader.seek`, #251; the exported world at minute 0),
+// collecting its decision records, and computed in chunks of at most `chunkTicks` ticks. Each chunk
+// is a task of the store's queue (the requests' queue of browser_api.mjs, inside its Web Lock), so
+// the Worker answers timeline, history and the records between chunks. At every `save_every`
+// minutes (360, #263), at the target and when cancelled, the blocks are sealed and a saved point is
+// stored (`RunWriter.save`): the record then moves its head there, the frame of that minute is kept
+// for the screen's next `timeline` of it, and the Run's records stay `running` until the computation
 // ends: `completed` at the end of the clock (with the "world" and "end" lines, as runAndStore
 // stores them), `paused` at the target or when cancelled, `failed` on an error. The OPFS files
 // are opened for each chunk only: a file has one synchronous access handle at a time, and a read
@@ -40,7 +47,7 @@
 
 import { ApiError } from "./api_answers.mjs";
 import * as store from "./project_store.mjs";
-import { RunReader, RunWriter } from "./run_store.mjs";
+import { OUTDATED_CODE, RunReader, RunWriter } from "./run_store.mjs";
 
 /// The id of the Run the site offers to compute, beside the sample's.
 export const COMPUTE_RUN = "run-browser-compute";
@@ -78,7 +85,7 @@ export function postDocument(body) {
 // ---- Journals and heads ------------------------------------------------------------------------
 
 /// The lines of a branch's stored Run its head may be (the core's `Journal::heads`), in order:
-/// `{ kind, minute, index, sha }`. A journal whose lines cannot be read has none.
+/// `{ kind, minute, index, head }`. A journal whose lines cannot be read has none.
 async function readHeads(wasm, backend) {
   const file = await backend.open(JOURNAL);
   let journal;
@@ -96,16 +103,36 @@ async function readHeads(wasm, backend) {
   }
 }
 
+/// The latest line of a branch's stored Run that a branch forked from it reads its pieces up to
+/// (each child's base), or undefined where none is forked from it.
+async function forkedThrough(wasm, tree, projectId, runId, branchId) {
+  let latest;
+  for (const record of await store.branches(tree, projectId, runId)) {
+    if (record.parent_branch_id !== branchId) continue;
+    const bytes = await tree.read([projectId, "runs", runId, "branches", record.branch_id, JOURNAL]);
+    if (bytes === null || bytes.length === 0) continue;
+    const journal = new wasm.Journal(bytes);
+    try {
+      const base = journal.forkBase();
+      if (base !== undefined && (latest === undefined || base > latest)) latest = base;
+    } finally {
+      journal.free();
+    }
+  }
+  return latest;
+}
+
 /// Cuts a branch's stored Run back to the head `hash` (the core's `Journal::cut`): the journal's
-/// lines after it, then the bytes of data.pack no line up to it points at. Returns the head and the
+/// lines after it, then the bytes of data.pack no line up to it points at; refused where a branch
+/// forked from it reads its lines up to `keptThrough`, past the head. Returns the head and the
 /// core's writer that goes on after it.
-async function cutToHead(wasm, backend, hash) {
+async function cutToHead(wasm, backend, hash, keptThrough) {
   const file = await backend.open(JOURNAL);
   const data = await backend.open(DATA);
   try {
     const journal = new wasm.Journal(file.read(0, file.size()));
     try {
-      const [index, journalEnd, dataEnd] = journal.cut(hash);
+      const [index, journalEnd, dataEnd] = journal.cut(hash, keptThrough);
       const head = JSON.parse(journal.headsJson()).find((each) => each.index === index);
       if (file.size() > journalEnd) {
         file.truncate(journalEnd);
@@ -201,11 +228,11 @@ export async function ensureComputeRun({ wasm, tree, projectId, runId = COMPUTE_
   const branchPath = [...runFolder, "branches", "main", "branch.json"];
   const bytes = await tree.read(branchPath);
   const record = bytes === null ? null : parsedRecord(bytes);
-  if (record && heads.some((head) => head.sha === record.checkpoint_hash && head.minute === record.computed_until)) return { created: false, mended: false, runId };
+  if (record && heads.some((head) => head.head === record.checkpoint_hash && head.minute === record.computed_until)) return { created: false, mended: false, runId };
   const last = heads.at(-1);
   const status = last.kind === "end" ? "completed" : last.minute === 0 ? "queued" : "interrupted";
   await tree.remove(branchPath);
-  await store.writeBranch(tree, projectId, runId, { branch_id: "main", parent_branch_id: null, fork_minute: 0, computed_until: last.minute, checkpoint_hash: last.sha, status });
+  await store.writeBranch(tree, projectId, runId, { branch_id: "main", parent_branch_id: null, fork_minute: 0, computed_until: last.minute, checkpoint_hash: last.head, status });
   await store.setRunStatus(tree, projectId, runId, status);
   return { created: false, mended: true, runId };
 }
@@ -247,6 +274,43 @@ export async function recoverInterrupted({ tree, branchLock }) {
 /// The name of a branch's lock (a Web Lock in the page).
 export const lockName = (projectId, runId, branchId) => `sheltersim-compute/${projectId}/${runId}/${branchId}`;
 
+/// The model versions the core records now for the Run's Scenario (`modelVersions`), or, for a
+/// Scenario it cannot sign, the stored Run's own with the core's engine items: only the engine's
+/// are compared then.
+function installedVersions(wasm, scenarioBytes, recorded) {
+  try {
+    return JSON.parse(wasm.modelVersions(scenarioBytes));
+  } catch {
+    return { ...recorded, ...JSON.parse(wasm.engineSignatures()) };
+  }
+}
+
+/// Python's `_require_current_model`: a refusal (409 `run_model_view_only`, Python's text) where
+/// the branch's stored Run was computed with other model versions than the core records now. A
+/// branch without a stored Run is left to the computation; a stored Run of an older format is
+/// refused (`stored_run_outdated`).
+export async function requireCurrentModel(wasm, tree, projectId, runId, branchId) {
+  const bytes = await tree.read([projectId, "runs", runId, "branches", branchId, JOURNAL]);
+  if (bytes === null || bytes.length === 0) return;
+  let recorded;
+  try {
+    const journal = new wasm.Journal(bytes);
+    try {
+      recorded = journal.modelVersionsJson();
+    } finally {
+      journal.free();
+    }
+  } catch (error) {
+    // A stored Run of an older format is refused; one that cannot be read is left to the
+    // computation, which fails the Run (as Python leaves a head it cannot read to the job).
+    if (String(error?.message ?? "").startsWith(`${OUTDATED_CODE}: `)) throw error;
+    return;
+  }
+  const installed = installedVersions(wasm, await store.runScenarioBytes(tree, projectId, runId), JSON.parse(recorded));
+  const status = JSON.parse(wasm.modelStatus(recorded, JSON.stringify(installed)));
+  if (!status.current) throw new store.ProjectStoreError(status.error, "run_model_view_only");
+}
+
 // ---- Computing ---------------------------------------------------------------------------------
 
 /// The computations of one store (one at a time). `api` is the BrowserApi whose queue the chunks
@@ -275,6 +339,8 @@ export class Computing {
     if (this.jobs.has(key)) throw refused("background worker is busy; wait or pause the active run");
     if (this.jobs.size >= 1) throw refused("background workers are busy; wait until a running computation ends");
     const record = await store.branchRecord(tree, projectId, runId, branchId);
+    // A Run of another model version is view-only; say so before any job starts.
+    await requireCurrentModel(wasm, tree, projectId, runId, branchId);
     await store.runResponse(tree, projectId, runId);
     const scenario = JSON.parse(decoder.decode(await store.runScenarioBytes(tree, projectId, runId)));
     const target = document.target_minute;
@@ -379,15 +445,15 @@ export class Computing {
     const { wasm, tree } = this.api;
     const record = await store.branchRecord(tree, job.projectId, job.runId, job.branchId);
     const backend = await store.branchBackend(tree, job.projectId, job.runId, job.branchId);
-    const { head, writer } = await cutToHead(wasm, backend, record.checkpoint_hash);
+    const keptThrough = await forkedThrough(wasm, tree, job.projectId, job.runId, job.branchId);
+    const { head, writer } = await cutToHead(wasm, backend, record.checkpoint_hash, keptThrough);
     try {
-      const reader = await RunReader.open({ wasm, backend });
+      const reader = await RunReader.open({ wasm, backend, parent: store.runBackends(tree, job.projectId, job.runId) });
       let sought;
       let duration;
       let saveEvery;
       try {
-        if (!reader.current()) throw new Error(`browser_run_outdated: the branch was stored as ${reader.run.format}; compute it again`);
-        sought = await reader.seek(head.minute);
+        sought = await reader.seek(head.minute, { decisions: true });
         duration = reader.duration();
         saveEvery = reader.saveEvery();
       } finally {
@@ -427,8 +493,8 @@ export class Computing {
       await writer.take(simulation, false);
       if (minute === duration) {
         await this.save(writer, state);
-        const { sha } = await writer.finish(simulation);
-        await this.commit(job, state, minute, sha);
+        const { head } = await writer.finish(simulation);
+        await this.commit(job, state, minute, head);
         return "completed";
       }
       if (minute === job.target || wasm.isSavedPointMinute(minute, saveEvery)) await this.commit(job, state, minute, await this.save(writer, state));
@@ -440,17 +506,18 @@ export class Computing {
 
   async save(writer, state) {
     const started = performance.now();
-    const sha = await writer.save(state.simulation, { seal: true });
+    const head = await writer.save(state.simulation);
     state.saveMs += performance.now() - started;
-    return sha;
+    return head;
   }
 
-  /// Moves the branch's head to the line `sha` at `minute` and keeps the frame there.
-  async commit(job, state, minute, sha) {
+  /// Moves the branch's head to the line of the head hash `head` at `minute` and keeps the frame
+  /// there.
+  async commit(job, state, minute, head) {
     const { tree } = this.api;
-    await store.writeBranch(tree, job.projectId, job.runId, { ...state.record, computed_until: minute, checkpoint_hash: sha, status: RUNNING });
+    await store.writeBranch(tree, job.projectId, job.runId, { ...state.record, computed_until: minute, checkpoint_hash: head, status: RUNNING });
     state.head = minute;
     const text = decoder.decode(state.simulation.frame(job.runId, job.branchId, minute, undefined));
-    this.headFrame = { key: job.key, head: sha, minute, text };
+    this.headFrame = { key: job.key, head, minute, text };
   }
 }

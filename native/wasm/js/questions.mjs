@@ -7,8 +7,9 @@
 //
 // The context's id is the server's: "c" + the first 32 hex digits of the sha256 of the context's
 // JSON, "-", and 24 random hex digits, or the id the request gave when it is of the same context.
-// The turn is kept in the branch's folder as a line of `conversations.jsonl`, with the question as
-// the server keeps it (contact details and entity names redacted, `questionText` of the core).
+// The turn is kept in the branch's stored Run (a "conversations" piece after its "end" line, the
+// core's `run_store`, #368), with the question as the server keeps it (contact details and entity
+// names redacted, `questionText` of the core).
 //
 // A `history_query` (questions citing saved history pages) is an unknown field to both since #376
 // (#368 decision A).
@@ -123,12 +124,6 @@ export async function questionResponse(api, projectId, runId, branchId, document
     context,
     sources: [],
   };
-  const path = [projectId, "runs", runId, "branches", branchId, "conversations.jsonl"];
-  const old = (await tree.read(path)) ?? new Uint8Array(0);
-  const line = encoder.encode(`${sortedJson(turn)}\n`);
-  const grown = new Uint8Array(old.length + line.length);
-  grown.set(old);
-  grown.set(line, old.length);
-  await tree.write(path, grown);
+  await store.keepTurn(wasm, tree, projectId, runId, branchId, encoder.encode(sortedJson(turn)));
   return sortedJson(result);
 }

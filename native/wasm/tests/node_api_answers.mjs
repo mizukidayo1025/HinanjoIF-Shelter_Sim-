@@ -184,8 +184,7 @@ check((await answer("report", "waiting", "")).body === '{"status":"not_generated
   check(status.mode === "offline" && status.checkpoint_hash === null && status.computed_until === 0, "the LLM status of a branch with no stored Run");
 }
 
-// A branch stored in format v2 (samples without the ledger's columns) is refused, not answered
-// without them.
+// A branch stored in an older format is refused: compute it again (#368).
 {
   const folder = [projectId, "runs", runId, "branches"];
   const journal = decoder.decode(await tree.read([...folder, branchId, "journal.jsonl"])).split("\n");
@@ -197,7 +196,7 @@ check((await answer("report", "waiting", "")).body === '{"status":"not_generated
   await tree.write([...folder, "old", "journal.jsonl"], encoder.encode(rewritten));
   await tree.write([...folder, "old", "data.pack"], await tree.read([...folder, branchId, "data.pack"]));
   const got = await answer("history", "old", "kind=kpis&end=10", cache);
-  check(got.status === 409 && JSON.parse(got.body).code === "browser_run_outdated", `format v2: ${got.status} ${got.body}`);
+  check(got.status === 409 && JSON.parse(got.body).code === "stored_run_outdated", `format v2: ${got.status} ${got.body}`);
 }
 
 // The query is read as the server's parse_qs reads it.

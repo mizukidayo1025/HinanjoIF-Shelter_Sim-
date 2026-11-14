@@ -69,8 +69,9 @@ EXCLUDED = [
     (
         r".*",
         ("runs", "*", "branches", "*", "checkpoint_hash"),
-        "a branch's head: the browser's is the sha256 of its stored Run's last journal line "
-        "(docs/project-persistence.md), Python's a Checkpoint's hash",
+        "a branch's head: the browser's is the head hash of its stored Run's last journal line "
+        "(the line without its piece's place, docs/project-persistence.md), Python's a "
+        "Checkpoint's hash",
     ),
     (r".*", ("branches", "*", "checkpoint_hash"), "the same, in a Run's record"),
     (r"llm-status$", ("checkpoint_hash",), "the same, in llm-status"),

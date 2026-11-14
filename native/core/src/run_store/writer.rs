@@ -3,11 +3,15 @@
 
 use std::collections::VecDeque;
 
-use super::journal::{Encoded, EndLine, ForkLine, Journal, Line, Piece, PieceLine, RunLine, SavedLine, Stored, Tables};
-use crate::archive::SAVED_POINT_VERSION;
+use super::journal::{
+    Base, Encoded, EndLine, ForkLine, ForkOrigin, Journal, Line, Piece, PieceLine, RecordKind, RunLine, SavedLine, State, Stored, Storing, Tables,
+};
+use super::records::{self, Tokens};
+use crate::archive::{self, SAVED_POINT_VERSION};
 use crate::checkpoint::sha256_hex;
 use crate::error::{Error, Result};
 use crate::plain::PlainRun;
+use crate::sensitive::Guard;
 
 /// When saved points are due: every `every` minutes (none when 0), and at the end of the clock.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -43,22 +47,13 @@ impl Schedule {
     }
 }
 
-/// How much of a store (the log's or the samples') is stored: its tables' sizes the last tables
-/// piece gave, and the blocks stored.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct Place {
-    pub strings: u64,
-    pub shapes: u64,
-    pub blocks: u64,
-}
-
 /// What is queued: a line without a piece, a piece with its bytes before compression, or a piece
 /// of another stored Run whose compressed bytes the host copies as they are.
 #[derive(Clone, Debug)]
 enum Pending {
     Line(Line),
     Piece { piece: Piece, raw: Vec<u8>, sha256: String },
-    Copy { piece: Piece, stored: super::Stored },
+    Copy { piece: Piece, stored: Stored },
 }
 
 /// What the host writes next.
@@ -74,16 +69,34 @@ pub enum Next<'a> {
     Copy { kind: &'static str, length: u64 },
 }
 
+/// A fork, as the host gives it: where it was made, the EffectProgram applied (its JSON text), the
+/// approval's hash and the receipt (its JSON text).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Fork {
+    pub parent_branch_id: String,
+    pub minute: i64,
+    pub origin: ForkOrigin,
+    pub program: String,
+    pub approved_program_hash: String,
+    pub receipt: String,
+}
+
 /// The writer of a stored Run. It decides what to store and when; the host writes it: for each
 /// queued item (`next`), a piece's compressed bytes to data.pack (flushed) and then its line
 /// (`commit_piece`), or a line alone (`commit_line`), each line appended to the journal and
 /// flushed before the next is written.
+///
+/// What it queues has passed the check of private data (`sensitive::Guard`, #368 decision 5): the
+/// exported world, each saved point's world, the world at the end, the log's records, the metric
+/// samples and the decision records. A check that fails is the call's error, and nothing of that
+/// call is queued.
 #[derive(Clone, Debug, Default)]
 pub struct RunWriter {
-    log: Place,
-    samples: Place,
+    state: State,
     queue: VecDeque<Pending>,
     saved: Vec<SavedLine>,
+    decisions: Tokens,
+    guard: Guard,
 }
 
 impl RunWriter {
@@ -92,28 +105,24 @@ impl RunWriter {
         Self::default()
     }
 
-    /// The writer that goes on after the journal's lines up to `head` (its line's index): the
-    /// tables' sizes the last tables lines give and the blocks stored, of the log and of the
-    /// samples.
+    /// The writer that goes on after the journal's line `head`, from what the Run had stored then.
     pub fn after(journal: &Journal, head: usize) -> Result<Self> {
-        let entries = journal.entries().get(..=head).ok_or_else(|| Error::Value(format!("the journal has no line {head}")))?;
-        let mut writer = Self::new();
-        for entry in entries {
-            let Line::Piece(line) = &entry.line else { continue };
-            match &line.piece {
-                Piece::LogTables(tables) => (writer.log.strings, writer.log.shapes) = (tables.strings, tables.shapes),
-                Piece::SampleTables(tables) => (writer.samples.strings, writer.samples.shapes) = (tables.strings, tables.shapes),
-                Piece::LogBlock { .. } => writer.log.blocks += 1,
-                Piece::SampleBlock { .. } => writer.samples.blocks += 1,
-                _ => {}
-            }
-        }
-        Ok(writer)
+        Ok(Self { state: journal.state_at(head)?, ..Self::new() })
     }
 
-    /// How much of the log and of the samples is stored (or queued).
-    pub fn places(&self) -> (Place, Place) {
-        (self.log, self.samples)
+    /// The writer that appends conversation turns (`turns`) to a Run stored to its end: a turn is
+    /// kept after the branch's head, which only a computation going on cuts away, and a Run stored
+    /// to its end is not gone on with.
+    pub fn after_end(journal: &Journal) -> Result<Self> {
+        if journal.end().is_none() {
+            return Err(Error::Value("a conversation turn is kept by a Run stored to its end".to_owned()));
+        }
+        Self::after(journal, journal.entries().len() - 1)
+    }
+
+    /// What the Run has stored (or queued): the log's and the samples' places and the counts.
+    pub fn state(&self) -> State {
+        self.state
     }
 
     /// The saved points' lines committed, in order.
@@ -124,58 +133,78 @@ impl RunWriter {
     /// Whether `run`, restored at the head the writer goes on after (`after`), holds what is
     /// stored: its tables' sizes and its blocks are the stored ones, every block sealed.
     pub fn fits(&self, run: &PlainRun) -> Result<bool> {
-        let same = |place: &Place, tables: [usize; 2], blocks: [usize; 2]| {
+        let same = |place: &super::Place, tables: [usize; 2], blocks: [usize; 2]| {
             [tables[0], tables[1], blocks[0], blocks[1]].map(|count| count as u64) == [place.strings, place.shapes, place.blocks, place.blocks]
         };
-        Ok(same(&self.log, run.log_table_counts()?, run.log_block_counts()?)
-            && same(&self.samples, run.host.samples.table_counts(), run.host.samples.block_counts()))
+        Ok(same(&self.state.log, run.log_table_counts()?, run.log_block_counts()?)
+            && same(&self.state.samples, run.host.samples.table_counts(), run.host.samples.block_counts()))
     }
 
     /// Queues the start of a new Run of the exported world `export` (the world `world` of a file of
     /// named worlds), which `run` was made of: its "run" line and its "export" piece. An error where
-    /// a record of the exported world's log is not packed.
-    pub fn start(&mut self, run: &PlainRun, export: Vec<u8>, world: Option<String>, save_every: u64) -> Result<()> {
+    /// a record of the exported world's log is not packed, or the world holds private data (of a
+    /// file of named worlds, the world `world`).
+    pub fn start(&mut self, run: &PlainRun, export: Vec<u8>, world: Option<String>, storing: &Storing) -> Result<()> {
         if !run.log_all_packed()? {
             return Err(Error::Value("the exported world's log is not all packed".to_owned()));
         }
-        self.run_line(RunLine::new(&export, world, run.duration()?, save_every));
-        self.export(export);
+        match &world {
+            // A file of named worlds (the fixtures') holds more than the world: its world is checked.
+            Some(name) => {
+                let entry = PlainRun::entry_of_worlds_json(&export, name)?;
+                self.guard.check(&[&serde_json::to_vec(&entry).map_err(|error| Error::Value(error.to_string()))?])?;
+            }
+            None => self.guard.check(&[&export])?,
+        }
+        self.run_line(RunLine::new(&export, world, run.duration()?, storing));
+        self.piece(Piece::Export, export);
         Ok(())
     }
 
     /// Queues the start of a Run from minute 0 of the same exported world as the stored Run
-    /// `source`, saved as often: its "run" line (`RunLine::same_start`) and `source`'s "export"
-    /// piece, copied.
+    /// `source`, computed with the same versions and stored as it is: its "run" line
+    /// (`RunLine::same_start`) and `source`'s "export" piece, copied.
     pub fn same_start(&mut self, source: &Journal) -> Result<()> {
         let export = source.find("export").ok_or_else(|| Error::Value("the stored Run has no exported world".to_owned()))?;
         self.run_line(RunLine::same_start(source.run()?));
         self.copy(source, export)
     }
 
-    /// Queues the start of the Run of a branch made by `fork` from the parent's stored Run
-    /// `parent` (#306): its "run" line (`RunLine::forked`), the "fork" line and the parent's
-    /// "export" piece, copied. Then a saved point at the fork's minute, after the program was
-    /// applied (`save` with `seal`), is where the Run goes on from.
-    pub fn fork_start(&mut self, parent: &Journal, fork: ForkLine) -> Result<()> {
-        let export = parent.find("export").ok_or_else(|| Error::Value("the parent's stored Run has no exported world".to_owned()))?;
+    /// Queues the start of the Run of a branch made by `fork` from the parent's stored Run `parent`
+    /// (#306), which reads the parent's pieces up to the line `base` (#368, decision 6): the
+    /// parent's saved point the fork's world was restored from, or its exported world. Its "run"
+    /// line (`RunLine::forked`) and its "fork" line; then a saved point at the fork's minute, after
+    /// the program was applied (`save`), is where the Run goes on from.
+    pub fn fork_start(&mut self, parent: &Journal, base: usize, fork: Fork) -> Result<()> {
+        let entry = parent.entries().get(base).ok_or_else(|| Error::Value(format!("the parent's stored Run has no line {base}")))?;
+        let minute = match &entry.line {
+            Line::Piece(PieceLine { piece: Piece::Saved(saved), .. }) => saved.minute,
+            Line::Piece(PieceLine { piece: Piece::Export, .. }) => 0,
+            _ => return Err(Error::Value("a fork goes on from a saved point of its parent's stored Run, or its exported world".to_owned())),
+        };
+        if minute > fork.minute {
+            return Err(Error::Value("a fork goes on from a line of its parent at or before its minute".to_owned()));
+        }
+        let mut state = parent.state_at(base)?;
+        state.counts.conversations = 0;
+        let base = Base { line: base as u64, head: entry.head.clone(), minute, state };
         self.run_line(RunLine::forked(parent.run()?, fork.minute, &fork.parent_branch_id));
-        self.fork_line(fork);
-        self.copy(parent, export)
+        self.queue.push_back(Pending::Line(Line::Fork(ForkLine {
+            parent_branch_id: fork.parent_branch_id,
+            minute: fork.minute,
+            origin: fork.origin,
+            base,
+            program: fork.program,
+            approved_program_hash: fork.approved_program_hash,
+            receipt: fork.receipt,
+        })));
+        self.state = state;
+        Ok(())
     }
 
     /// Queues the "run" line.
     pub fn run_line(&mut self, line: RunLine) {
         self.queue.push_back(Pending::Line(Line::Run(line)));
-    }
-
-    /// Queues the "fork" line of a branch made by a fork (#306), after its "run" line.
-    pub fn fork_line(&mut self, line: ForkLine) {
-        self.queue.push_back(Pending::Line(Line::Fork(line)));
-    }
-
-    /// Queues the "export" piece: the exported world's bytes.
-    pub fn export(&mut self, raw: Vec<u8>) {
-        self.piece(Piece::Export, raw);
     }
 
     /// Queues a copy of the piece `index` of another stored Run (`journal`), its compressed bytes
@@ -191,35 +220,52 @@ impl RunWriter {
         self.queue.push_back(Pending::Piece { piece, raw, sha256 });
     }
 
-    /// Queues the tables' new entries and the newly sealed blocks (every block when `last`) of the
-    /// log and of the samples of `run`. Call it between two ticks.
-    pub fn take(&mut self, run: &PlainRun, last: bool) -> Result<()> {
+    /// Takes the decision records `run` collected since the last call (`PlainRun::take_decisions`;
+    /// none where it does not collect them), and queues the tables' new entries and the newly sealed
+    /// blocks (every block when `last`) of the log and of the samples of `run`. Call it between two
+    /// ticks. The decision records wait for the next saved point or the end (`save`, `finish`),
+    /// and go into one piece there.
+    pub fn take(&mut self, run: &mut PlainRun, last: bool) -> Result<()> {
+        let decisions = run.take_decisions();
+        let refs: Vec<&[u8]> = decisions.iter().map(Vec::as_slice).collect();
+        self.guard.check(&refs)?;
+        for record in &decisions {
+            self.decisions.push_json(record)?;
+        }
         let log_end = Self::end(run.log_block_counts()?, last);
-        if log_end > self.log.blocks {
+        let sample_end = Self::end(run.host.samples.block_counts(), last);
+        for index in self.state.log.blocks..log_end {
+            let records = run.log_block_json(index as usize)?;
+            self.guard.check(&records.iter().map(|record| &record[..]).collect::<Vec<_>>())?;
+        }
+        for index in self.state.samples.blocks..sample_end {
+            let lines = run.host.samples.block_lines(index as usize)?;
+            self.guard.check(&lines.iter().map(Vec::as_slice).collect::<Vec<_>>())?;
+        }
+        if log_end > self.state.log.blocks {
             let [strings, shapes] = run.log_table_counts()?.map(|count| count as u64);
-            let tables = Tables { strings_from: self.log.strings, shapes_from: self.log.shapes, strings, shapes };
+            let tables = Tables { strings_from: self.state.log.strings, shapes_from: self.state.log.shapes, strings, shapes };
             let raw = run.log_tables(tables.strings_from as usize, tables.shapes_from as usize)?;
             self.piece(Piece::LogTables(tables), raw);
-            (self.log.strings, self.log.shapes) = (strings, shapes);
-            for index in self.log.blocks..log_end {
+            (self.state.log.strings, self.state.log.shapes) = (strings, shapes);
+            for index in self.state.log.blocks..log_end {
                 let raw = run.log_block(index as usize)?;
                 self.piece(Piece::LogBlock { index }, raw);
             }
-            self.log.blocks = log_end;
+            self.state.log.blocks = log_end;
         }
         let samples = &run.host.samples;
-        let sample_end = Self::end(samples.block_counts(), last);
-        if sample_end > self.samples.blocks {
+        if sample_end > self.state.samples.blocks {
             let [strings, shapes] = samples.table_counts().map(|count| count as u64);
-            let tables = Tables { strings_from: self.samples.strings, shapes_from: self.samples.shapes, strings, shapes };
+            let tables = Tables { strings_from: self.state.samples.strings, shapes_from: self.state.samples.shapes, strings, shapes };
             let raw = samples.tables(tables.strings_from as usize, tables.shapes_from as usize);
             self.piece(Piece::SampleTables(tables), raw);
-            (self.samples.strings, self.samples.shapes) = (strings, shapes);
-            for index in self.samples.blocks..sample_end {
+            (self.state.samples.strings, self.state.samples.shapes) = (strings, shapes);
+            for index in self.state.samples.blocks..sample_end {
                 let raw = samples.block(index as usize);
                 self.piece(Piece::SampleBlock { index }, raw);
             }
-            self.samples.blocks = sample_end;
+            self.state.samples.blocks = sample_end;
         }
         Ok(())
     }
@@ -229,44 +275,89 @@ impl RunWriter {
         (if last { blocks } else { sealed }) as u64
     }
 
-    /// Queues a saved point of `run` now (#251), after the tables and blocks sealed so far. Call it
-    /// between two ticks. With `seal` (#267) the blocks are sealed first, so every block the point
-    /// needs is stored before its line, and it can be restored, and gone on from, at once.
-    pub fn save(&mut self, run: &mut PlainRun, seal: bool) -> Result<()> {
-        if seal {
-            run.seal_stores()?;
+    /// Queues the decision records taken since the last piece of them, as one piece.
+    fn queue_decisions(&mut self) -> Result<()> {
+        let count = self.decisions.count();
+        if count > 0 {
+            let raw = std::mem::take(&mut self.decisions).finish();
+            RecordKind::Decisions.add(&mut self.state.counts, count)?;
+            self.piece(Piece::Records { kind: RecordKind::Decisions, count }, raw);
         }
+        Ok(())
+    }
+
+    /// Queues a saved point of `run` now (#251), between two ticks: the blocks are sealed first and
+    /// stored, and the decision records taken, so that everything the point needs is stored before
+    /// its line (#267; always, #368 decision 2): the point can be restored, and gone on from, at
+    /// once.
+    pub fn save(&mut self, run: &mut PlainRun) -> Result<()> {
+        run.seal_stores()?;
         self.take(run, false)?;
         let point = run.saved_point()?;
+        self.guard.check(&archive::world_part_jsons(&point.world)?)?;
+        self.queue_decisions()?;
         let saved = SavedLine {
             minute: point.minute,
             records: point.records,
             samples: point.samples,
+            counts: self.state.counts,
             point_version: SAVED_POINT_VERSION,
-            log_blocks: run.log_block_counts()?[0] as u64,
-            sample_blocks: run.host.samples.block_counts()[0] as u64,
+            log_blocks: self.state.log.blocks,
+            sample_blocks: self.state.samples.blocks,
         };
+        if run.log_block_counts()?[0] as u64 != saved.log_blocks || run.host.samples.block_counts()[0] as u64 != saved.sample_blocks {
+            return Err(Error::Value("a saved point whose blocks are not all stored".to_owned()));
+        }
         self.piece(Piece::Saved(saved), point.to_bytes());
         Ok(())
     }
 
-    /// Queues the last pieces of a Run stored to its end: the world at its last minute without its
-    /// log, and the "end" line with the digests the Run gave. Call it after every block is taken
-    /// (`take` with `last`). An error where a record of the log is not packed (the stored blocks
-    /// would not hold the whole log).
-    pub fn finish(&mut self, run: &PlainRun) -> Result<()> {
+    /// Queues the last pieces of a Run stored to its end: the decision records not stored yet, the
+    /// world at its last minute without its log, and the "end" line with the digests the Run gave.
+    /// Call it after every block is taken (`take` with `last`). An error where a record of the log
+    /// is not packed (the stored blocks would not hold the whole log), or a block is not stored.
+    pub fn finish(&mut self, run: &mut PlainRun) -> Result<()> {
         if !run.log_all_packed()? {
             return Err(Error::Value("a record of the log is not packed".to_owned()));
         }
+        self.take(run, true)?;
+        let world = run.world_parts()?;
+        self.guard.check(&archive::world_part_jsons(&world)?)?;
+        self.queue_decisions()?;
         let end = EndLine {
             minute: run.minute()?,
             records: run.log_records()? as u64,
             samples: run.host.samples.len() as u64,
+            counts: self.state.counts,
             parts: run.digests()?.into_iter().map(|(part, digest)| (part.to_owned(), digest)).collect(),
             metrics: run.host.metrics_digest(),
         };
-        self.piece(Piece::World, run.world_parts()?);
+        self.piece(Piece::World, world);
         self.queue.push_back(Pending::Line(Line::End(end)));
+        Ok(())
+    }
+
+    /// Queues a piece of the LLM tape's entries `entries` (JSON texts), as they are. Nothing writes
+    /// one yet: the browser has no LLM.
+    pub fn tape(&mut self, entries: &[Vec<u8>]) -> Result<()> {
+        self.records(RecordKind::Tape, entries)
+    }
+
+    /// Queues a piece of conversation turns `turns` (JSON texts), as they are: of a writer
+    /// `after_end`.
+    pub fn turns(&mut self, turns: &[Vec<u8>]) -> Result<()> {
+        self.records(RecordKind::Conversations, turns)
+    }
+
+    fn records(&mut self, kind: RecordKind, texts: &[Vec<u8>]) -> Result<()> {
+        if texts.is_empty() {
+            return Ok(());
+        }
+        for text in texts {
+            serde_json::from_slice::<serde_json::Value>(text).map_err(|_| Error::Value(format!("{}: a record that is not JSON", kind.name())))?;
+        }
+        kind.add(&mut self.state.counts, texts.len() as u64)?;
+        self.piece(Piece::Records { kind, count: texts.len() as u64 }, records::texts(texts));
         Ok(())
     }
 

@@ -1,6 +1,6 @@
 """`pytest --shard I/N` keeps part I of N of the selected tests (tests/conftest.py, #118).
 
-The offline CI runs each OS's tests in two jobs, one part each: the parts must not overlap,
+「PRの確認」 (ci.yml) runs the Linux tests in two jobs, one part each: the parts must not overlap,
 must together be every selected test, and must be taken after -m deselects.
 """
 

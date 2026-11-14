@@ -37,20 +37,21 @@ workspace = true
 lto = true
 codegen-units = 1
 
-# The offline CI's test jobs build with this profile (Issue #217): the same optimization level
-# as release, but thin LTO and 16 codegen units, so the two crates of the workspace build much
-# sooner, and the tests take as long as with release. The bytes of a Run do not depend on it
-# (the hashes of every path are the same). The CI's gate job, the long regression, deploy/vm
-# and the build in docs/development.md keep --release.
+# The test jobs of 「PRの確認」 (ci.yml) build with this profile (Issue #217): the same
+# optimization level as release, but thin LTO and 16 codegen units, so the two crates of the
+# workspace build much sooner, and the tests take as long as with release. The bytes of a Run do
+# not depend on it (the hashes of every path are the same). The job 「計算結果が変わっていないか」
+# of ci.yml, long-regression.yml, deploy/vm and the build in docs/development.md keep --release.
 [profile.ci]
 inherits = "release"
 lto = "thin"
 codegen-units = 16
 
-# The offline CI's lint job runs the core's `cargo test` with this profile (Issue #380): dev's
-# checks (overflow, debug_assert) at opt-level 1, without debug info, so the simulations in the
-# tests run several times sooner for a little more build time. Each file of native/core/tests is
-# a binary of its own, so an LTO profile (ci, release) would link the core into each again.
+# The jobs 「Rustの計算部分のテスト」 and 「ブラウザー版の計算」 of ci.yml run the core's
+# `cargo test` with this profile (Issue #380): dev's checks (overflow, debug_assert) at opt-level
+# 1, without debug info, so the simulations in the tests run several times sooner for a little
+# more build time. Each file of native/core/tests is a binary of its own, so an LTO profile (ci,
+# release) would link the core into each again.
 [profile.ci-test]
 inherits = "dev"
 opt-level = 1

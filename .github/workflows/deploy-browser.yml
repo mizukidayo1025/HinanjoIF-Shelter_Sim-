@@ -28,7 +28,7 @@ env:
 
 jobs:
   deploy:
-    name: build and deploy the browser site
+    name: サイトを作って公開
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:

@@ -1,12 +1,15 @@
-# 手動実行の長時間・全件offline回帰suite。オフラインCIと同じく、Linux・Windows・macOSの3つで
-# Rustのkernel（native/）を作って導入してから実行する。固定のハッシュは3つのOSで同じ（L13）。
-name: 長時間simulation回帰
+# 手で起動する、長いテストまたは全件の確認。「PRの確認」（ci.yml）と同じく、Linux・Windows・macOSの
+# 3つでRustのkernel（native/）を作って導入してから実行する。固定のハッシュは3つのOSで同じ（L13）。
+# 「PRの確認」はWindowsとmacOSでOSの差が出るテストだけを実行するので、審査に出す前や公開の前などに
+# fullで3つのOSの全件を確かめる（#380）。LLMのProviderは呼ばない（SHELTERSIM_LLM_MODE=offline）。
+# 2026-11-15までの名前は「長時間simulation回帰」。
+name: 全件の確認（手動・3つのOS）
 
 on:
   workflow_dispatch:
     inputs:
       suite:
-        description: 長時間simulation suiteまたはoffline test全件を選択
+        description: 長いテストだけ（long）か、全件（full）か
         required: true
         type: choice
         default: full
@@ -19,6 +22,7 @@ permissions:
 
 jobs:
   long_simulation:
+    name: 長いテスト（${{ matrix.os }}）
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.suite == 'long' }}
     runs-on: ${{ matrix.os }}
     strategy:
@@ -45,10 +49,11 @@ jobs:
           maturin build --release -m native/Cargo.toml --out native-dist
           python -m pip install --no-index --find-links native-dist sheltersim-native
           python -c "import sheltersim.native"
-      - name: 長時間simulation回帰を実行
+      - name: 長いテストを実行
         run: python -m pytest -m long_simulation
 
   full_release_regression:
+    name: 全件（${{ matrix.os }}）
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.suite == 'full' }}
     runs-on: ${{ matrix.os }}
     strategy:
@@ -75,5 +80,5 @@ jobs:
           maturin build --release -m native/Cargo.toml --out native-dist
           python -m pip install --no-index --find-links native-dist sheltersim-native
           python -c "import sheltersim.native"
-      - name: offline test全件を実行
+      - name: 全件を実行
         run: python -m pytest

@@ -1,13 +1,15 @@
-# offline CI on Linux, Windows and macOS (#48), on every pull request to main and
-# by hand. Each OS builds and installs the Rust kernels (native/), runs the tests with
-# them and checks the hashes of every path against the same fixture: on Linux in a job
-# of its own beside the tests, on Windows and macOS as a step after the tests. Linux runs
-# every test in two jobs, half each (pytest --shard, #118); Windows and macOS run, in one
-# job each, the tests whose behaviour can depend on the OS (pytest --os-subset, #380), and
-# the long regression's `full` runs the whole suite on each OS by hand. The test jobs build
-# with the profile ci, the Linux gate job with release (#217). Lint runs on Linux only, and beside it the core's
-# checks without rayon and in WASM (#380).
-name: オフラインCI
+# The checks of every pull request to main, on Linux, Windows and macOS (#48); also run by hand.
+# Each OS builds and installs the Rust kernels (native/), runs the tests with them and checks the
+# hashes of every path against the same fixture: on Linux in a job of its own beside the tests, on
+# Windows and macOS as a step after the tests. Linux runs every test in two jobs, half each
+# (pytest --shard, #118); Windows and macOS run, in one job each, the tests whose behaviour can
+# depend on the OS (pytest --os-subset, #380), and 「全件の確認（手動・3つのOS）」
+# (long-regression.yml) runs the whole suite on each OS. The test jobs build with the profile ci,
+# the Linux gate job with release (#217). Lint runs on Linux only, and beside it, each in a job of
+# its own, the Rust core's tests and its checks without rayon and in WASM (#380). No job calls an
+# LLM Provider: SHELTERSIM_LLM_MODE is offline. The workflow was named オフラインCI until
+# 2026-11-15.
+name: PRの確認
 
 on:
   pull_request:
@@ -26,8 +28,8 @@ env:
   SHELTERSIM_LLM_MODE: offline
 
 jobs:
-  python:
-    name: test (${{ matrix.os }}, ${{ matrix.part }})
+  test:
+    name: ${{ matrix.title }}
     runs-on: ${{ matrix.os }}
     strategy:
       # Every platform and part reports, even when another fails.
@@ -36,13 +38,13 @@ jobs:
         include:
           # The tests are CPU-bound on a runner's cores, so two runners halve them; each part
           # takes every other selected test (tests/conftest.py).
-          - { os: ubuntu-latest, part: "1/2", select: "--shard 1/2", label: "1" }
-          - { os: ubuntu-latest, part: "2/2", select: "--shard 2/2", label: "2" }
+          - { os: ubuntu-latest, title: "テスト全件（Linux 1/2）", select: "--shard 1/2", label: "1" }
+          - { os: ubuntu-latest, title: "テスト全件（Linux 2/2）", select: "--shard 2/2", label: "2" }
           # The bytes of a Run are the same on every OS (the hash step below), so Windows and
           # macOS keep tests/unit, tests/e2e and the tests marked os_dependent: files and locks,
           # processes, OS measurements (#380).
-          - { os: windows-latest, part: "OS", select: "--os-subset", label: "os" }
-          - { os: macos-latest, part: "OS", select: "--os-subset", label: "os" }
+          - { os: windows-latest, title: "Windowsでの動作", select: "--os-subset", label: "os" }
+          - { os: macos-latest, title: "macOSでの動作", select: "--os-subset", label: "os" }
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -67,7 +69,7 @@ jobs:
           maturin build --profile ci -m native/Cargo.toml --out native-dist
           python -m pip install --no-index --find-links native-dist sheltersim-native
           python -c "import sheltersim.native"
-      - name: 短時間offline test
+      - name: 長いテストを除いて実行
         run: python -m pytest -m "not long_simulation" -n auto ${{ matrix.select }}
       # The same expected hashes as on Linux, where the gate job checks them (step 4, L13): a Run
       # gives the same bytes on every OS. Runs even when a test failed, so both report.
@@ -96,7 +98,7 @@ jobs:
           if-no-files-found: ignore
 
   gate:
-    name: hashes of every path (ubuntu-latest)
+    name: 計算結果が変わっていないか
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -121,7 +123,7 @@ jobs:
         run: python benchmarks/gate_all_paths.py --output "$RUNNER_TEMP/gate" --expect fixtures/gate-all-paths.json
 
   lint:
-    name: lint (ubuntu-latest)
+    name: 書式・規則
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -151,6 +153,19 @@ jobs:
       # native/rustfmt.toml sets the style of every crate in the workspace (#367).
       - name: Rustのformatを確認
         run: cargo fmt --manifest-path native/Cargo.toml --all -- --check
+
+  # The Rust core's own tests, in a job of their own beside the lint (#380).
+  core_tests:
+    name: Rustの計算部分のテスト
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: native
+          key: core-tests
+      - name: Rustのtoolchainを導入
+        run: rustup toolchain install stable --profile minimal
       # The core crate builds without Python (#152): no pyo3 in its tree, and its own tests pass.
       # The tests build with the profile ci-test of native/Cargo.toml: dev's checks at opt-level 1,
       # so the simulations in them run several times sooner (#380).
@@ -162,10 +177,10 @@ jobs:
           fi
           cargo test --manifest-path native/Cargo.toml -p sheltersim_core --profile ci-test
 
-  # The core without rayon, for the browser: a job of its own beside lint, as each builds the core's
-  # tests with other features (#380).
+  # The core without rayon, for the browser: a job of its own beside the core's tests, as each
+  # builds them with other features (#380).
   core_single_thread:
-    name: core without parallel, WASM (ubuntu-latest)
+    name: ブラウザー版の計算
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

@@ -4,7 +4,8 @@ scripts/serve_static_site.py serves it as a static host would.
 The site is built from a stand-in WASM package and a small bundle (only its header and manifest
 are read; the browser checks the rest): the screen's files are copied unchanged, demo-v2.html
 gains the one line that loads the browser's API, the bundle is split into parts no larger than
-asked that join back to it, and `/` is the same page, which opens on its home (#371). The server answers `/demo-v2` with
+asked that join back to it, and `/` is the same page, which opens on its home
+(#371). The server answers `/demo-v2` with
 demo-v2.html and modules and WASM with their types over HTTP. The browser's half is checked by
 native/wasm/tests/node_browser_api.mjs and docs/development.md's browser checks.
 

@@ -103,8 +103,6 @@ def run_worker(
                 job["target_minute"],
                 stopped,
                 lease,
-                job["measure_performance"],
-                own_process=True,
             )
             return
         try:

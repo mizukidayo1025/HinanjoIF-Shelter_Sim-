@@ -34,8 +34,6 @@ from sheltersim.region.facility import (
     FacilityDesignRequest,
     FacilityZoneCondition,
     StandardShelterGenerator,
-    shelter_staff,
-    shelter_staff_assumption,
 )
 from sheltersim.region.models import (
     ACCESSIBLE_ROUTE_MIN_WIDTH_M,
@@ -43,7 +41,6 @@ from sheltersim.region.models import (
     RegionResearchResult,
     ShelterCandidate,
 )
-from sheltersim.region.plan_import import ImportedPlanGeometry
 from sheltersim.region.population import (
     DEFAULT_SYNTHETIC_HOUSEHOLD_COMPOSITION,
     OPERATOR_POPULATION_SOURCE_ID,
@@ -246,7 +243,6 @@ class InitialScenarioRequest(RegionModel):
 class InitialScenarioDraft(RegionModel):
     scenario: ScenarioSpec
     facility_design: FacilityDesign | None
-    plan_geometry: ImportedPlanGeometry | None = None
     editable_geometry: EditableFacilityGeometry | None = None
     population_generation: GeneratedPopulation
     warnings: tuple[str, ...]
@@ -275,9 +271,7 @@ class InitialScenarioBuilder:
         research: RegionResearchResult | None = None,
         age_bands: tuple[AgeBand, ...] | None = None,
         household_mix: HouseholdSizeMix | None = None,
-        plan_override: ImportedPlanGeometry | None = None,
         selected_shelter_id: str | None = None,
-        standard_design: FacilityDesign | None = None,
     ) -> InitialScenarioDraft:
         if not isinstance(request, InitialScenarioRequest):
             request = InitialScenarioRequest.model_validate(request)
@@ -332,7 +326,7 @@ class InitialScenarioBuilder:
             if selected_shelter is not None and selected_shelter.capacity is not None
             else ()
         )
-        design = standard_design or self.facility_generator.generate(
+        design = self.facility_generator.generate(
             FacilityDesignRequest(
                 population=request.evacuees,
                 gross_area_m2=selected_area,
@@ -347,56 +341,14 @@ class InitialScenarioBuilder:
                 capacity_source_ids=capacity_source_ids,
             )
         )
-        if standard_design is not None and (
-            plan_override is not None or design.requested_population != request.evacuees
-        ):
-            raise ValueError(
-                "standard correction must preserve requested population and cannot replace "
-                "an uploaded plan"
-            )
         zones = design.zones
         edges = design.zone_edges
         facilities = design.facilities
         staff = design.staff
         geometry = design.geometry
         editable_geometry = design.editable_geometry
-        design_warnings = [] if plan_override is not None else list(design.warnings)
+        design_warnings = list(design.warnings)
         approval_blockers: list[str] = []
-        if plan_override is not None:
-            zones = plan_override.zones
-            edges = plan_override.zone_edges
-            facilities = plan_override.facilities
-            geometry = plan_override.geometry
-            editable_geometry = plan_override.editable_geometry
-            zone_ids = {zone.id for zone in zones}
-            if not zones or "sleeping" not in zone_ids:
-                raise ValueError("an imported plan must contain a scenario zone named 'sleeping'")
-            # The plan's own water and meal stations each get a member in their zone, as in
-            # the standard design; otherwise the service never starts (#201).
-            staff = shelter_staff(
-                population=request.evacuees,
-                staff_count=request.staff_count,
-                station_zone_ids=tuple(
-                    facility.zone_id
-                    for kind in ("water_station", "meal_distribution")
-                    for facility in facilities
-                    if facility.kind == kind
-                ),
-                general_zone_id="staff" if "staff" in zone_ids else "sleeping",
-            )
-            design_warnings.append(
-                "施設図面Geometryを使用しています。ゾーン名・避難者容量・経路の実測性と対応は現場担当者が確認してください。"
-            )
-            if editable_geometry is None or not editable_geometry.walls:
-                blocker = (
-                    "図面の壁・開口が未入力です。施設内の通行可能領域を検証するまで承認できません。"
-                )
-                design_warnings.append(blocker)
-                approval_blockers.append(blocker)
-            if request.facility_zones:
-                design_warnings.append(
-                    "標準仮想施設向けのゾーン編集は、選択された実在図面には適用していません。図面側で編集してください。"
-                )
         # New previews expose stable service-point IDs even when Geometry came
         # from an uploaded-plan candidate. Preserve the one-Facility/one-FIFO
         # compatibility adapter until the simulator adds per-point reservations.
@@ -418,67 +370,17 @@ class InitialScenarioBuilder:
                     "選択施設は福祉避難所として登録されています。受入対象者、開設状況、本人の支援ニーズとの適合を自治体に確認してください。"
                 )
             if selected_shelter.capacity is not None:
-                if plan_override is None:
-                    zones = tuple(
-                        zone.model_copy(update={"capacity": design.capacity_supported})
-                        if zone.id == "sleeping"
-                        else zone
-                        for zone in zones
-                    )
-
-        plan_capacity_assumptions: list[dict[str, object]] = []
-        if plan_override is not None:
-            sleeping_zone = next(zone for zone in zones if zone.id == "sleeping")
-            sleeping_geometry = next(zone for zone in geometry.zones if zone.zone_id == "sleeping")
-            area_capacity = math.floor(sleeping_geometry.usable_area_m2 / 3.5)
-            capacity_limits = [area_capacity]
-            if sleeping_zone.capacity is not None:
-                capacity_limits.append(sleeping_zone.capacity)
-            if selected_shelter is not None and selected_shelter.capacity is not None:
-                capacity_limits.append(selected_shelter.capacity)
-            reconciled_capacity = min(capacity_limits)
-            if len(set(capacity_limits)) > 1:
-                design_warnings.append(
-                    "図面の避難スペース面積、図面入力容量、施設公開容量に差があります。シナリオでは確認できる数値のうち最も小さい容量を使っています。"
+                zones = tuple(
+                    zone.model_copy(update={"capacity": design.capacity_supported})
+                    if zone.id == "sleeping"
+                    else zone
+                    for zone in zones
                 )
-            if reconciled_capacity < request.evacuees:
-                blocker = (
-                    f"入力人数{request.evacuees}人が図面から見積もった避難スペース容量"
-                    f"{reconciled_capacity}人を超えています。人数または図面を確認してください。"
-                )
-                design_warnings.append(blocker)
-                approval_blockers.append(blocker)
-            plan_capacity_assumptions.append(
-                {
-                    "id": "ASM-PLAN-CAPACITY-RECONCILIATION-V1",
-                    "subject": "sleeping_zone_capacity",
-                    "value": {
-                        "capacity_used": reconciled_capacity,
-                        "input_zone_capacity": sleeping_zone.capacity,
-                        "area_based_capacity": area_capacity,
-                        "published_capacity": selected_shelter.capacity
-                        if selected_shelter
-                        else None,
-                    },
-                    "reason": (
-                        "For imported geometry, the lower of the uploaded zone capacity, "
-                        "area-based 3.5 m²/person heuristic, and selected source capacity is "
-                        "retained for the draft."
-                    ),
-                    "source_id": "ASM-PLAN-CAPACITY-RECONCILIATION-V1",
-                }
-            )
-            zones = tuple(
-                zone.model_copy(update={"capacity": reconciled_capacity})
-                if zone.id == "sleeping"
-                else zone
-                for zone in zones
-            )
 
         zone_ids = tuple(zone.id for zone in zones)
         if "sleeping" not in zone_ids:
             raise ValueError("scenario must include a 'sleeping' starting zone")
-        if plan_override is None and design.capacity_supported < request.evacuees:
+        if design.capacity_supported < request.evacuees:
             blocker = (
                 f"入力人数{request.evacuees}人が標準モデルの避難スペース容量"
                 f"{design.capacity_supported}人を超えています。人数または面積を調整してください。"
@@ -571,11 +473,7 @@ class InitialScenarioBuilder:
                 )
             else:
                 extra_source_records[condition.source_id] = record
-        facility_assumptions = (
-            design.assumptions
-            if plan_override is None
-            else (shelter_staff_assumption(staff, entered_total=request.staff_count),)
-        )
+        facility_assumptions = design.assumptions
         model_assumptions: tuple[dict[str, object], ...] = (
             {
                 "id": (
@@ -685,13 +583,6 @@ class InitialScenarioBuilder:
             )
         for record in request.operational_conditions.provenance_sources():
             source_records[str(record["id"])] = record
-        for assumption in plan_capacity_assumptions:
-            source_records[str(assumption["source_id"])] = {
-                "id": assumption["source_id"],
-                "title": str(assumption["subject"]),
-                "source_kind": "assumption",
-                "description": str(assumption["reason"]),
-            }
         missing_population_sources = set(population.population.source_ids) - set(source_records)
         if missing_population_sources:
             approval_blockers.append(
@@ -806,33 +697,11 @@ class InitialScenarioBuilder:
             "sources": [source_records[key] for key in sorted(source_records)],
             "observations": [
                 *design.observations,
-                *(
-                    [
-                        {
-                            "subject": "uploaded_sleeping_zone_capacity",
-                            "value": next(
-                                zone.capacity
-                                for zone in plan_override.zones
-                                if zone.id == "sleeping"
-                            ),
-                            "source_id": plan_override.asset.source_id,
-                            "description": (
-                                "Capacity supplied in the operator-uploaded scenario mapping; "
-                                "not independently verified."
-                            ),
-                        }
-                    ]
-                    if plan_override is not None
-                    and next(zone for zone in plan_override.zones if zone.id == "sleeping").capacity
-                    is not None
-                    else []
-                ),
             ],
             "assumptions": [
                 *population_assumptions,
                 *facility_assumptions,
                 *model_assumptions,
-                *plan_capacity_assumptions,
             ],
             "profile_generation": population.profile_set.manifest.model_dump(mode="json"),
             "population_generation": {
@@ -920,48 +789,6 @@ class InitialScenarioBuilder:
             provenance["sources"] = [source_records[key] for key in sorted(source_records)]
         if selected_shelter is not None:
             provenance["selected_shelter"] = selected_shelter.model_dump(mode="json")
-        if plan_override is not None:
-            provenance["plan_geometry_notes"] = list(plan_override.notes)
-            provenance["facility_geometry_source"] = "operator-traced uploaded plan"
-            provenance["plan_upload"] = plan_override.asset.model_dump(mode="json")
-            if plan_override.source_provenance is not None:
-                provenance["plan_geometry_source_provenance"] = (
-                    plan_override.source_provenance.model_dump(mode="json")
-                )
-            source_records[plan_override.asset.source_id] = {
-                "id": plan_override.asset.source_id,
-                "title": plan_override.asset.file_name,
-                "source_kind": "operator",
-                "url": plan_override.asset.source_url,
-                "sha256": plan_override.asset.sha256,
-                "description": plan_override.asset.notice,
-            }
-            if plan_override.extraction_proposal is not None:
-                extraction = plan_override.extraction_proposal
-                provenance["plan_extraction_review"] = extraction.model_dump(mode="json")
-                source_records[extraction.extraction_source_id] = {
-                    "id": extraction.extraction_source_id,
-                    "title": "External PDF/image extraction proposal",
-                    "source_kind": "assumption",
-                    "description": (
-                        "Extraction output is untrusted source evidence. Only separately "
-                        "human-accepted features were mapped into the facility trace."
-                    ),
-                }
-                for feature in extraction.features:
-                    source_records.setdefault(
-                        feature.extraction_source_id,
-                        {
-                            "id": feature.extraction_source_id,
-                            "title": f"Plan feature extraction: {feature.feature_kind}",
-                            "source_kind": "assumption",
-                            "description": (
-                                "Feature-level extractor output; confidence is not a human "
-                                "confirmation."
-                            ),
-                        },
-                    )
-            provenance["sources"] = [source_records[key] for key in sorted(source_records)]
         scenario_identity = {
             "request": request.model_dump(mode="json"),
             "research_time": research.researched_at.isoformat() if research else None,
@@ -1653,15 +1480,13 @@ class InitialScenarioBuilder:
         warnings = tuple(
             [
                 *design_warnings,
-                *(plan_override.notes if plan_override is not None else ()),
                 *_research_warnings(research),
                 *service_capacity_diagnostic(scenario)["warnings"],
             ]
         )
         return InitialScenarioDraft(
             scenario=scenario,
-            facility_design=design if plan_override is None else None,
-            plan_geometry=plan_override,
+            facility_design=design,
             editable_geometry=editable_geometry,
             population_generation=population,
             warnings=warnings,

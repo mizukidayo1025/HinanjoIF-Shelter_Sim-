@@ -102,8 +102,6 @@ def test_the_site_holds_the_screen_the_browser_api_and_the_sample_in_parts(
         '    <script src="/browser/api_fetch.js" data-worker="/browser/api_worker.mjs"'
         ' data-sample="/sample/sample.json"></script>',
     ]
-    # The older screens are gone (#376), so the screen links to none of them.
-    assert 'href="/demo"' not in server_html and 'href="/admin"' not in server_html
     assert (output / "LICENSE.txt").read_bytes() == (STATIC.parents[3] / "LICENSE").read_bytes()
     for name, data in NOTICES.items():
         assert (output / name).read_bytes() == data

@@ -341,8 +341,7 @@ export class Computing {
   /// `POST runs/{run}/resume` (Python's `submit`, its checks in its order): the answer's text.
   async resume(projectId, runId, document) {
     const { wasm, tree } = this.api;
-    checkFields(document, ["branch_id", "target_minute"], ["measure_performance"]);
-    if (typeof (document.measure_performance ?? false) !== "boolean") throw refused("measure_performance must be boolean");
+    checkFields(document, ["branch_id", "target_minute"]);
     const branchId = document.branch_id;
     const key = `${projectId}/${runId}/${branchId}`;
     if (this.jobs.has(key)) throw refused("background worker is busy; wait or pause the active run");

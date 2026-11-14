@@ -61,7 +61,9 @@
         ><button class="nav-item" data-page="comparison">
           <span data-icon="comparison"></span>分岐比較</button
         ><button class="nav-item" data-page="report">
-          <span data-icon="report"></span>レポート・対話
+          <span data-icon="report"></span>レポート・対話</button
+        ><button class="nav-item" data-page="detail">
+          <span data-icon="detail"></span>詳細
         </button>
       </nav>
       <div class="sidebar-bottom">
@@ -814,6 +816,55 @@
               </button>
             </div>
           </aside>
+        </div>
+      </section>
+      <section id="page-detail" class="page" aria-labelledby="detail-heading">
+        <div class="page-heading">
+          <div>
+            <small>DETAILS / 記録の出どころ</small>
+            <h1 id="detail-heading">このシナリオの詳細</h1>
+          </div>
+        </div>
+        <p id="detail-empty" class="quiet-message">シナリオを開くと、その記録・モデル・出典を表示します。</p>
+        <div id="detail-body" class="detail-grid" hidden>
+          <article class="panel">
+            <h2>シナリオの記録</h2>
+            <dl id="detail-record" class="detail-facts"></dl>
+            <details>
+              <summary>モデルの版（記録された署名）</summary>
+              <pre id="detail-versions"></pre>
+            </details>
+          </article>
+          <article class="panel">
+            <h2>分岐</h2>
+            <div class="detail-table-wrap"><table id="detail-branches" class="detail-table"></table></div>
+          </article>
+          <article class="panel detail-wide">
+            <h2>使ったモデルと係数</h2>
+            <p id="detail-legend" class="fine"></p>
+            <div class="detail-table-wrap"><table id="detail-models" class="detail-table"></table></div>
+            <details>
+              <summary>係数の一覧（値・単位・範囲・根拠）</summary>
+              <div class="detail-table-wrap"><table id="detail-parameters" class="detail-table"></table></div>
+            </details>
+            <p id="detail-interpretation" class="fine"></p>
+          </article>
+          <article class="panel">
+            <h2>出典と仮定</h2>
+            <div id="detail-sources"></div>
+            <details>
+              <summary>シナリオの仮定</summary>
+              <div id="detail-assumptions"></div>
+            </details>
+          </article>
+          <article class="panel">
+            <h2>介入で使える作用</h2>
+            <div id="detail-effects"></div>
+          </article>
+          <article class="panel">
+            <h2>AI（LLM）の利用</h2>
+            <dl id="detail-llm" class="detail-facts"></dl>
+          </article>
         </div>
       </section>
     </main>

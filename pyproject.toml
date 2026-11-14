@@ -60,6 +60,7 @@ markers = [
     "live_api: paid live API tests in tests/live requiring an explicit dev-environment gate",
     "python_rules: validate with the Python validators instead of their Rust twins (tests/support/python_rules.py)",
     "long_simulation: seven-day simulations and tests taking 30 seconds or more each; run in the long CI lane",
+    "os_dependent: depends on the OS (files and locks, processes, OS measurements, CPython's numbers); with tests/unit and tests/e2e, what pytest --os-subset keeps for the Windows and macOS jobs of the offline CI (#380)",
 ]
 
 [tool.coverage.run]

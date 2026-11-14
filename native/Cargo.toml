@@ -46,3 +46,12 @@ codegen-units = 1
 inherits = "release"
 lto = "thin"
 codegen-units = 16
+
+# The offline CI's lint job runs the core's `cargo test` with this profile (Issue #380): dev's
+# checks (overflow, debug_assert) at opt-level 1, without debug info, so the simulations in the
+# tests run several times sooner for a little more build time. Each file of native/core/tests is
+# a binary of its own, so an LTO profile (ci, release) would link the core into each again.
+[profile.ci-test]
+inherits = "dev"
+opt-level = 1
+debug = false

@@ -9,6 +9,7 @@ import json
 import math
 from pathlib import Path
 
+import pytest
 from support.paths import BASELINE_100_7D
 
 from sheltersim.core.engine import TraceLevel
@@ -19,6 +20,10 @@ from sheltersim.experiments.benchmark import (
     write_benchmark_document,
 )
 from sheltersim.experiments.scenario import ScenarioSpec
+
+# Run on every pull request on Windows and macOS too (pytest --os-subset, #380): peak memory is
+# read through the OS (resource, or nothing on Windows).
+pytestmark = pytest.mark.os_dependent
 
 
 def test_scaled_benchmark_runs_are_reproducible_and_record_measurements(tmp_path: Path) -> None:

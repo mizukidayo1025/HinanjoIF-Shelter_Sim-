@@ -38,7 +38,8 @@ address search (recorded answers on both sides); see `python_pins` and `pin_brow
 A step the browser answers with 409 `browser_unsupported` is "not available yet": the stage
 stops there and the stages that need it are skipped. When stage 1 is not available, the stages
 after it use the site's sample instead (with --python-projects, a ProjectStore of
-scripts/build_project_sample.py): stage 2 computes the site's compute Run and compares it with
+scripts/build_project_sample.py), fetched from the home's list of examples (#411): stage 2 makes a
+Run of the sample's Scenario (static_site_check.py's COMPUTE_RUN), computes it and compares it with
 the sample's main branch, stages 3–5 work on the sample's Run. Exit 0 when no check fails (with
 --require-all, only when every stage passed in every browser), 1 otherwise.
 
@@ -534,7 +535,7 @@ def _answer_text(payload: Any) -> str:
 @dataclass
 class Subject:
     """What stages 2–5 work on: a Run of `project` in both, its id in the browser and in Python
-    (they differ only for the sample's compute Run), the child branch's id."""
+    (they differ only for the Run the sample's chain computes), the child branch's id."""
 
     chain: str
     project: str
@@ -990,6 +991,7 @@ class Walk:
         self.subject: Subject | None = None
         self.ok: dict[str, bool] = {}
         self.child_ready = False
+        self.sample_fetched = False
 
     def blocked(self, stage: str, sample_ok: bool) -> str | None:
         """Why the stage cannot run now (a stage it needs did not pass), or None. Without a Run
@@ -1048,6 +1050,16 @@ class Walk:
 
     def idle(self) -> None:
         self.wait("() => !document.body.classList.contains('is-busy')", "the screen to be idle")
+
+    def fetch_sample(self) -> None:
+        """The site's sample in this browser: chosen from the home's list of examples and fetched
+        (#411), once."""
+        if self.sample_fetched:
+            return
+        site_check.fetch_example(self.page, self.base)
+        self.page.wait_for_url(re.compile(r"/\?project="), timeout=TIMEOUT_MS)
+        self.view("simulation")
+        self.sample_fetched = True
 
     def view(self, name: str) -> None:
         self.wait(
@@ -1276,6 +1288,21 @@ class Walk:
         assert s is not None
         stage = "compute"
         run = s.browser(stage)
+        if s.chain == "sample":
+            # The Run to compute: the sample's Scenario made into a Run through the API, as the
+            # site's check makes it (static_site_check.py's COMPUTE_RUN).
+            sample = json.loads(self.fetch(_run_path(s.project, s.run))["text"])
+            made = self.post(
+                f"/api/v1/projects/{s.project}/runs",
+                {
+                    "run_id": run,
+                    "scenario_id": sample["scenario_id"],
+                    "scenario_version": sample["scenario_version"],
+                },
+            )
+            if made["status"] != 200:
+                self.problem(stage, f"the Run to compute was not made: {made['status']}")
+                return False
         self.open(f"/?project={s.project}&run={run}&branch=main#simulation", "simulation")
         record = json.loads(self.fetch(_run_path(s.project, run))["text"])
         if record["branches"][0]["computed_until"] < 10080:
@@ -1563,6 +1590,8 @@ def walk(walker: Walk, stages: list[str], sample_ok: bool) -> None:
         print(f"  stage {stage}", flush=True)
         started = time.perf_counter()
         try:
+            if walker.subject is not None and walker.subject.chain == "sample":
+                walker.fetch_sample()
             walker.ok[stage] = getattr(walker, f"stage_{stage}")()
         except Exception as error:  # A broken step fails its stage; the walk goes on.
             walker.problem(stage, f"{type(error).__name__}: {error}")

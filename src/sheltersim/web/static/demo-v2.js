@@ -19,9 +19,9 @@
   } catch {
     /* Invalid local preference only. */
   }
-  // The browser version (native/wasm/js/api_fetch.js) marks itself: its example Project and the
-  // Run it computes itself. The server's example is the Project `sample`
-  // (scripts/build_project_sample.py), when it has one.
+  // The browser version (native/wasm/js/api_fetch.js) marks itself: its example Project, which it
+  // fetches only when the home's 「計算済みの例を取得する」 is chosen from (#411). The server's
+  // example is the Project `sample` (scripts/build_project_sample.py), when it has one.
   const site = window.HinanjoBrowserApi?.site || {};
   const exampleProject = site.exampleProject || "sample";
   // The Project of the person's own Scenarios: new ones are made there, never in the example.
@@ -613,45 +613,34 @@
     });
     return link;
   }
-  // The home: the example's Runs, the Run the browser computes itself (the browser version) and
-  // one's own Scenarios. It reads the Projects and changes nothing.
+  // The home: the examples' Runs and one's own Scenarios. It reads the Projects and changes
+  // nothing. The browser version holds an example once it is fetched (#411): the home lists the
+  // examples it holds and offers the others to fetch.
   async function loadHome() {
     const scope = ++state.homeVersion,
+      browser = window.HinanjoBrowserApi,
+      offered = browser ? await browser.examples() : [],
+      exampleIds = browser
+        ? offered.filter((e) => e.installed).map((e) => e.project_id)
+        : [exampleProject],
       listed = new Set(
         (await api("/api/v1/projects")).projects.map((p) => p.project_id),
       ),
       read = async (id) => (listed.has(id) ? api(`/api/v1/projects/${enc(id)}`) : null),
-      [example, own] = await Promise.all([
-        read(exampleProject),
-        !ownId || ownId === exampleProject ? null : read(ownId),
+      [examples, own] = await Promise.all([
+        Promise.all(exampleIds.map(async (id) => [id, await read(id)])),
+        !ownId || exampleIds.includes(ownId) ? null : read(ownId),
       ]);
     if (scope !== state.homeVersion) return;
-    const examples = (example?.runs || []).filter(
-        (r) => r.run_id !== site.computeRun && r.status === "completed",
-      ),
-      computeRun = (example?.runs || []).find(
-        (r) => r.run_id === site.computeRun,
-      );
-    $("home-example").hidden = !examples.length;
-    $("home-example-list").replaceChildren(
-      ...examples.map((r) =>
-        runLink(exampleProject, r, example.scenarios, "計算済みの例を見る"),
-      ),
+    const links = examples.flatMap(([id, project]) =>
+      (project?.runs || [])
+        .filter((r) => r.status === "completed")
+        .map((r) => runLink(id, r, project.scenarios, "計算済みの例を見る")),
     );
-    $("home-compute").hidden = !computeRun;
-    $("home-compute-list").replaceChildren(
-      ...(computeRun
-        ? [
-            runLink(
-              exampleProject,
-              computeRun,
-              example.scenarios,
-              "このブラウザーで計算する",
-            ),
-          ]
-        : []),
-    );
-    $("home-browser-notes").hidden = !window.HinanjoBrowserApi;
+    $("home-example").hidden = !links.length;
+    $("home-example-list").replaceChildren(...links);
+    $("home-fetch").hidden = !offered.some((e) => !e.installed);
+    $("home-browser-notes").hidden = !browser;
     $("home-new").disabled = site.scenarios === "unavailable";
     $("home-new-note").hidden = site.scenarios !== "unavailable";
     const mine = own?.runs || [];
@@ -668,6 +657,102 @@
           )
         : [el("p", "まだシナリオはありません。", "quiet-message")]),
     );
+  }
+  // 「計算済みの例を取得する」 (#411): the site's examples, what each holds and its size; the one
+  // chosen is fetched and saved in this browser, then opened.
+  const mb = (bytes) => `約${num(Math.max(1, Math.round(bytes / 1e6)))} MB`;
+  function exampleTitle(example) {
+    const days = example.duration_minutes / 1440;
+    return {
+      name: [
+        example.municipality,
+        example.disaster ? disasterName(example.disaster) : null,
+      ]
+        .filter(Boolean)
+        .join(" · ") || example.project_id,
+      size: [
+        Number.isFinite(example.people) ? `${example.people}人` : null,
+        Number.isFinite(days) ? `${num(days)}日間` : null,
+        example.branches > 1 ? `分岐 ${example.branches}本` : null,
+      ]
+        .filter(Boolean)
+        .join(" · "),
+    };
+  }
+  let fetching = false;
+  async function openExamples() {
+    const dialog = $("examples-dialog");
+    $("examples-progress").hidden = true;
+    $("examples-list").replaceChildren(el("p", "例の一覧を読み込んでいます…", "quiet-message"));
+    if (!dialog.open) dialog.showModal();
+    let examples;
+    try {
+      examples = await window.HinanjoBrowserApi.examples();
+    } catch (error) {
+      $("examples-list").replaceChildren(
+        el("p", `例の一覧を読めませんでした：${error.message}`, "quiet-message"),
+      );
+      return;
+    }
+    $("examples-list").replaceChildren(
+      ...(examples.length
+        ? examples.map((example) => {
+            const { name, size } = exampleTitle(example),
+              row = el("div", undefined, "home-run examples-item"),
+              button = el(
+                "button",
+                example.installed ? "開く" : "取得する",
+                example.installed ? undefined : "primary",
+              );
+            button.type = "button";
+            button.addEventListener("click", () => void chooseExample(example));
+            row.append(
+              el("strong", name),
+              el("span", size),
+              el("small", example.installed ? "取得済み" : `${mb(example.bytes)}を読み込みます`),
+              button,
+            );
+            return row;
+          })
+        : [el("p", "このサイトには計算済みの例がありません。", "quiet-message")]),
+    );
+  }
+  async function chooseExample(example) {
+    if (fetching) return;
+    fetching = true;
+    const buttons = [...$("examples-list").querySelectorAll("button")],
+      bar = $("examples-progress-bar"),
+      text = $("examples-progress-text");
+    buttons.forEach((b) => (b.disabled = true));
+    try {
+      if (!example.installed) {
+        $("examples-progress").hidden = false;
+        bar.removeAttribute("value");
+        text.textContent = "読み込みを始めています…";
+        await window.HinanjoBrowserApi.install(example.project_id, ({ phase, bytes, total }) => {
+          if (phase === "fetch") {
+            bar.max = Math.max(1, total);
+            bar.value = bytes;
+            text.textContent = `読み込んでいます… ${mb(bytes)} / ${mb(total)}`;
+          } else if (phase === "import") {
+            bar.removeAttribute("value");
+            text.textContent = "このブラウザーに保存しています…";
+          }
+        });
+      }
+      const project = await api(`/api/v1/projects/${enc(example.project_id)}`),
+        run = (project.runs || []).find((r) => r.status === "completed") || project.runs?.[0];
+      $("examples-dialog").close();
+      if (run) await openRun(example.project_id, run.run_id);
+      else show("home");
+    } catch (error) {
+      text.textContent = error.message;
+      $("examples-progress").hidden = false;
+      bar.value = 0;
+    } finally {
+      fetching = false;
+      buttons.forEach((b) => (b.disabled = false));
+    }
   }
   async function openRun(projectId, runId) {
     await action("シナリオを開いています…", () =>
@@ -721,30 +806,6 @@
     void refreshRuns().catch(() => {
       /* The Project is made on the first preview. */
     });
-  }
-  // The browser version's 「計算をやり直す」: api_fetch.js removes the Run the browser computed,
-  // and the page opens again so its Worker makes that Run again, not computed (#267).
-  async function resetCompute() {
-    const question =
-      "このブラウザーで計算した結果を消して、0分から計算し直せるようにします。" +
-      "計算済みの例は消えません。計算しているタブがあれば、先に閉じてください。よろしいですか？";
-    if (!confirm(question)) return;
-    $("home-reset").disabled = true;
-    $("home-reset-note").textContent = "消しています…";
-    try {
-      const result = await window.HinanjoBrowserApi.resetCompute();
-      $("home-reset-note").textContent = result.message;
-      if (result.removed) {
-        try {
-          sessionStorage.setItem("hinanjo-if-reset", result.message);
-        } catch {
-          /* The note is only lost. */
-        }
-        location.replace("/");
-      }
-    } finally {
-      $("home-reset").disabled = false;
-    }
   }
   function invalidateScenario() {
     state.inputVersion++;
@@ -3144,10 +3205,13 @@
   $("scenario-delete").addEventListener("click", () =>
     action("シナリオを削除しています…", deleteScenario),
   );
-  $("home-reset").addEventListener("click", () => {
-    resetCompute().catch((e) => {
-      $("home-reset-note").textContent = `消せませんでした：${e.message}`;
-    });
+  $("home-fetch").addEventListener("click", () => void openExamples());
+  $("examples-dialog-close").addEventListener("click", () => {
+    if (!fetching) $("examples-dialog").close();
+  });
+  // While an example is fetched, Esc does not close the dialog (its progress would be lost).
+  $("examples-dialog").addEventListener("cancel", (event) => {
+    if (fetching) event.preventDefault();
   });
   $("scenario-form").addEventListener("submit", (e) => {
     e.preventDefault();
@@ -3571,13 +3635,6 @@
         "指定したシナリオが保存先にありません。ホームから開き直すか、新しいシナリオを作成してください。",
         "error",
       );
-    }
-    try {
-      const reset = sessionStorage.getItem("hinanjo-if-reset");
-      sessionStorage.removeItem("hinanjo-if-reset");
-      if (reset) note(reset, "success");
-    } catch {
-      /* No note to carry over. */
     }
     show(requestedPage || (state.run ? "simulation" : "home"));
     controls();

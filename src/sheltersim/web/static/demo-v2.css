@@ -3792,3 +3792,40 @@ body[data-scenario="unavailable"] #page-scenario .scenario-grid {
   font-style: normal;
   color: var(--muted);
 }
+
+/* 2〜8の分岐を並べる表（#376） */
+.multi-compare-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin: 8px 0;
+}
+.multi-choice {
+  margin: 0;
+}
+.multi-compare-table-wrap {
+  overflow-x: auto;
+  margin: 8px 0;
+}
+.multi-compare-table {
+  border-collapse: collapse;
+  font-size: 12px;
+  min-width: 100%;
+}
+.multi-compare-table th,
+.multi-compare-table td {
+  padding: 5px 9px;
+  border-bottom: 1px solid var(--line);
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.multi-compare-table th:first-child {
+  text-align: left;
+}
+.multi-compare-table small.good {
+  color: #078770;
+}
+.multi-compare-table small.bad {
+  color: #bb2450;
+}

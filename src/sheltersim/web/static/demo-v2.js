@@ -69,6 +69,7 @@
     mode: null,
     homeVersion: 0,
     forkFrom: null,
+    multiTouched: false,
   };
   const metricDefs = [
     {
@@ -462,7 +463,10 @@
       void action("レポートと記録済みの根拠を取得しています…", loadReport);
     if (page === "home") loadHome().catch((e) => note(loadFailure(e), "error"));
     if (page === "scenario") renderScenarioPage();
-    if (page === "comparison") openComparison();
+    if (page === "comparison") {
+      renderMultiChoices();
+      openComparison();
+    }
   }
   // A Run's name on the home and in the header: where, what disaster, how many people, how long.
   function runTitle(run, scenarios) {
@@ -861,6 +865,8 @@
       pair = branches.length > 1;
     for (const id of ["compare-refresh", "compare-branch", "compute-pair"])
       $(id).disabled = !pair || working;
+    const many = multiChosen().length;
+    $("multi-compare-run").disabled = many < 2 || many > 8 || working;
     $("compare-seek").disabled = comparing() ? state.busy : single;
     if (state.page === "comparison" && !comparing() && has) {
       $("compare-seek").min = lower();
@@ -2086,6 +2092,7 @@
       $(`compare-conditions-${key}`).textContent =
         `${state.sceneMode === "schematic" && window.HinanjoScene.supported(frame) ? "模式図（距離非対応）" : "実座標"} · 稼働トイレ ${num(frame.kpis.toilet_working_units)}基 · 実座標未記録設備 ${missing}件`;
     }
+    if (state.page === "comparison") renderMultiChoices();
     $("comparison-provenance").textContent = json({
       minute: result.minute,
       shared_origin: result.shared_origin,
@@ -2161,6 +2168,96 @@
     $("difference-summary").replaceChildren(
       el("p", "分岐を作って比べると、同じ時刻の指標の違いを表示します。", "muted"),
     );
+  }
+  // 2–8 branches at one minute (#376): the branches to set side by side, and the table of their
+  // indicators from `compare` (its differences are each branch's against the first).
+  function renderMultiChoices() {
+    // The original Scenario first (the table's differences are against the first), then by the
+    // minute each branch starts.
+    const branches = [...(state.data?.branches || [])].sort(
+        (a, b) =>
+          (a.branch_id === "main" ? -1 : 0) - (b.branch_id === "main" ? -1 : 0) ||
+          a.fork_minute - b.fork_minute,
+      ),
+      box = $("multi-compare-choices"),
+      chosen = new Set(state.multiTouched ? multiChosen() : []);
+    if (!chosen.size)
+      for (const id of comparing() ? pairIds() : [state.branch]) chosen.add(id);
+    box.replaceChildren(
+      ...branches.map((b) => {
+        const label = el("label", undefined, "checkbox multi-choice"),
+          input = el("input");
+        input.type = "checkbox";
+        input.value = b.branch_id;
+        input.checked = chosen.has(b.branch_id);
+        input.addEventListener("change", () => {
+          state.multiTouched = true;
+          controls();
+        });
+        label.append(
+          input,
+          el(
+            "span",
+            `${shortBranch(b.branch_id)}${b.fork_minute ? `（${time(b.fork_minute)}から）` : ""} · ${time(b.computed_until)}まで計算`,
+          ),
+        );
+        return label;
+      }),
+    );
+    $("multi-compare").hidden = branches.length < 2;
+  }
+  function multiChosen() {
+    return [...$("multi-compare-choices").querySelectorAll("input:checked")].map(
+      (i) => i.value,
+    );
+  }
+  async function loadMultiCompare() {
+    const ids = multiChosen();
+    if (ids.length < 2 || ids.length > 8)
+      throw new Error("比べる分岐を2〜8つ選んでください。");
+    const refs = ids.map(reference),
+      lo = Math.max(...refs.map((r) => r.fork_minute)),
+      hi = Math.min(...refs.map((r) => r.computed_until));
+    if (lo > hi)
+      throw new Error(
+        "選んだ分岐に共通の計算済みの時刻がありません。分岐を計算してください。",
+      );
+    const shown = state.comparison?.minute ?? state.minute,
+      minute = shown >= lo && shown <= hi ? shown : hi,
+      result = await api(
+        `${runBase()}/compare?branch_ids=${enc(ids.join(","))}&minute=${minute}`,
+      );
+    const table = $("multi-compare-table"),
+      head = el("tr");
+    head.append(el("th", `${time(result.minute)}の指標`));
+    for (const frame of result.frames)
+      head.append(el("th", shortBranch(frame.branch_id)));
+    const rows = metricDefs.map((d) => {
+      const row = el("tr");
+      row.append(el("th", `${d.label}（${d.unit}）`));
+      result.frames.forEach((frame, index) => {
+        const value = frame.kpis[d.key],
+          diff = index ? result.differences[index - 1]?.metrics[d.key] : null,
+          cell = el(
+            "td",
+            typeof value === "number" ? num(value * d.factor) : "—",
+          );
+        if (typeof diff === "number" && diff !== 0) {
+          cell.append(
+            el(
+              "small",
+              ` ${diff > 0 ? "+" : ""}${num(diff * d.factor)}`,
+              diff < 0 ? "good" : "bad",
+            ),
+          );
+        }
+        row.append(cell);
+      });
+      return row;
+    });
+    table.replaceChildren(head, ...rows);
+    $("multi-compare-note").textContent =
+      `共通の計算済みの時刻 ${time(lo)}〜${time(hi)} のうち、${time(result.minute)}で比べました。`;
   }
   async function computePair() {
     const ids = pairIds();
@@ -2875,6 +2972,7 @@
     $("intervention-text").focus({ preventScroll: true });
   });
   on("compute-pair", computePair);
+  on("multi-compare-run", loadMultiCompare);
   $("compare-branch").addEventListener("change", () => {
     state.comparison = null;
     state.forkFrom = null;

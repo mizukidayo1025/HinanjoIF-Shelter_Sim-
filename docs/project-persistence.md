@@ -66,7 +66,7 @@ Checkpointは計算に使ったモデルの版を`model_versions`に記録しま
 | `runs/<run>/run.json` | Runの記録（Pythonの`RunReference`の欄と`status`、`archived`） |
 | `runs/<run>/evidence.json` | Pythonのserverが`runs/{run}/evidence`に返すJSONのbytes（`evidence_context`と、その道が足す一覧） |
 | `runs/<run>/branches/<branch>/branch.json` | Branchの記録（Pythonの`BranchReference`の欄と`status`） |
-| `runs/<run>/branches/<branch>/journal.jsonl`、`data.pack` | Branchの保存したRun（#252、`run_store.mjs`） |
+| `runs/<run>/branches/<branch>/journal.jsonl`、`data.pack` | Branchの保存したRun（#252。形は中核の`sheltersim_core::run_store`、読み書きは`run_store.mjs`） |
 
 記録は、鍵を並べたJSONと改行です。ScenarioとevidenceはPythonが書いたbytesのまま持ち、答えるときもそのまま埋め込みます（JSで読み直すと`1.0`が`1`になるため）。案A（#244）のあいだは、世界を作るのも、Scenarioとevidenceを作るのもPythonです。
 
@@ -97,9 +97,9 @@ Pythonの欄のうち、ブラウザーで意味が変わるもの：
 
 ### ブラウザーで計算するBranchの先頭（#267）
 
-ブラウザーで計算する（`POST runs/{run}/resume`、`native/wasm/js/compute.mjs`）Branchの記録は、保存したRunの目録の「先頭にできる行」を指します。先頭にできるのは、`export`の行（0分）、その前にログと標本の塊がすべて保存された`saved`の行、`end`の行です。目録の行を書いて書き込みを終えて（flush）から記録を書くので、記録が計算の確定点です。記録の先頭より後の行は、次の先頭まで届かなかった計算で、続けるときに切り落とします（目録を先に、続けて`data.pack`の、どの行も指さないbytesを切ります）。
+ブラウザーで計算する（`POST runs/{run}/resume`、`native/wasm/js/compute.mjs`）Branchの記録は、保存したRunの目録の「先頭にできる行」を指します。先頭にできるのは、`export`の行（0分）、その前にログと標本の塊がすべて保存された`saved`の行、`end`の行です。目録の行を書いて書き込みを終えて（flush）から記録を書くので、記録が計算の確定点です。記録の先頭より後の行は、次の先頭まで届かなかった計算で、続けるときに切り落とします（目録を先に、続けて`data.pack`の、どの行も指さないbytesを切ります）。先頭にできる行と、切り落とす長さは中核が決めます（`run_store::Journal::heads`、`Journal::cut`、#368）。
 
-途中の点を先頭にできるよう、ブラウザーの計算は、点を保存する前にログと標本の塊を閉じます（中核の`Blocks::seal`、WASMの`Simulation.seal_blocks`）。閉じた後の記録は新しい塊に入るので、点の前に保存した塊だけで点に戻せ、戻したRunはそのまま後ろへ塊を足していけます（#251の`Restore`は、戻したRunの塊をすべて閉じたものとして持ちます）。塊の区切りが変わるだけで、記録、標本、digestは変わりません。保存したRunの形（`sheltersim-browser-run-v3`）も同じで、`runAndStore`は今までどおり閉じずに保存します。続けるときは、先頭の点に戻したRunの表と塊の数が、目録のその点までの表と塊の行と合うことを確かめ、合わなければ続けずに`failed`にします。
+途中の点を先頭にできるよう、ブラウザーの計算は、点を保存する前にログと標本の塊を閉じます（中核の`RunWriter::save`の`seal`、`Blocks::seal`）。閉じた後の記録は新しい塊に入るので、点の前に保存した塊だけで点に戻せ、戻したRunはそのまま後ろへ塊を足していけます（#251の`Restore`は、戻したRunの塊をすべて閉じたものとして持ちます）。塊の区切りが変わるだけで、記録、標本、digestは変わりません。保存したRunの形（`sheltersim-browser-run-v3`）も同じで、`runAndStore`は今までどおり閉じずに保存します。続けるときは、先頭の点に戻したRunの表と塊の数が、目録のその点までの表と塊の行と合うことを確かめ（`RunWriter::after`と`fits`）、合わなければ続けずに`failed`にします。
 
 ブラウザーでの`resume`・`cancel`の答えは、Pythonのserverと同じstatus、JSON、誤りの文と符号です。違う所：`target_minute`の`60.0`のようなJSONの小数は、JSでは整数と区別できないので受け付けます（Pythonは断ります）。PythonのRunのモデル版の確かめ（古いモデル版のRunは閲覧のみ）はありません（ブラウザーのRunはこのWASMのモデルで作ります）。`measure_performance`は真偽値か確かめるだけで、計測は記録しません。`400`の誤り（JSONでない本文）は`"code": null`を持ちます（#266の`POST /api/v1/projects`と同じ。Pythonは`code`を持ちません）。
 
@@ -143,7 +143,7 @@ Pythonの欄のうち、ブラウザーで意味が変わるもの：
 
 - プレビューは、Branchのその分の世界から要約（`Simulation.scenarioSummary`、#302）を作り、文をAPIキーなしで読み取ります（`compileInterventionOffline`、#303）。案が`compiled`なら、そのEffectProgram（`effectProgramDump`、#304）を世界で確かめ（`validateEffectProgram`）、承認のhash（programの正規のJSONのsha256）と下書きの`preview_id`を足します。下書きはProjectのフォルダーの`drafts/<preview_id>.json`に置き、Projectの1つのファイル（bundle）には入れません。下書きに伏せるべき文（連絡先、鍵）があれば、serverと同じく409で断ります。
 - 適用は、下書きと承認のhashを確かめ、serverのprocessのworkerと同じ`{"status": "running", "branch_id", "minute"}`を返します。子の分岐は答えの前に作ります。親をその分に戻し、プレビューが見た状態（`state_hash`）と同じことを確かめ、programを予定に入れ（`Simulation.applyEffectProgram`、#305）、子の保存したRunを書きます。結果は、serverと同じくRunの記録（`GET runs/{run}`）の`last_fork`（`{"status": "created", "branch_id", "minute", "state_hash"}`か`{"status": "failed", "error", "code"}`）で返します。子の記録は`paused`、`fork_minute`と`computed_until`は分岐の分です。続きは`resume`で計算します。
-- 子の保存したRunは、形`sheltersim-browser-run-v4`です。`run`の行に`fork_minute`と`parent_branch_id`を持ち、その次の`fork`の行に分岐の元（`fork_origin`：親、分、分岐前の世界のdigest、親の先頭）、予定に入れたprogramの正規のJSON、承認のhash、受領（Pythonの`command_log`に足す記録）を持ちます。部分は、親の0分の世界（親の部分を圧縮したまま写します）、分岐の分までのログと標本の表と塊、programを予定に入れた後の分岐の分の途中の点です。親の記録を写すので、子は親の分岐までの大きさを持ちます（親の部分を参照して小さくするのは後の課題です）。分岐の分より前の分は、このRunの分ではありません（`RunReader.seek`が断ります）。
+- 子の保存したRunは、形`sheltersim-browser-run-v4`です。`run`の行に`fork_minute`と`parent_branch_id`を持ち、その次の`fork`の行に分岐の元（`fork_origin`：親、分、分岐前の世界のdigest、親の先頭）、予定に入れたprogramの正規のJSON、承認のhash、受領（Pythonの`command_log`に足す記録）を持ちます。部分は、親の0分の世界（親の部分を圧縮したまま写します）、分岐の分までのログと標本の表と塊、programを予定に入れた後の分岐の分の途中の点です。親の記録を写すので、子は親の分岐までの大きさを持ちます（親の部分を参照して小さくするのは後の課題です）。分岐の分より前の分は、このRunの分ではありません（中核の`Journal::seek`が断ります）。
 
 serverと違うのは次のところです。
 

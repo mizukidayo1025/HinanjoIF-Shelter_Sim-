@@ -35,6 +35,7 @@ pub mod routes;
 pub mod row;
 pub mod rules;
 pub mod run;
+pub mod run_store;
 pub mod scenario;
 pub mod stamp;
 pub mod summary;

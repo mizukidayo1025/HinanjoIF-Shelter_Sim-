@@ -272,8 +272,31 @@ split PR by PR; its last section sums up what is where.
   `Restore`, `Simulation.restore`/`restoreFromWorlds`; `wasm/js/run_store.mjs` keeps a saved
   point every 6 hours and seeks (`RunReader.seek`), and `wasm/tests/node_saved_points.mjs`
   checks it in Node (`core/tests/archive_store.rs` in native code).
+- **The stored Run's format** (#252, #251, #306; moved from JS by #368): `run_store` is the format
+  of a Run stored as two append-only files, `journal.jsonl` (a line per piece or event: its JSON, a
+  tab, its sha256) and `data.pack` (the pieces, each compressed by the host), format
+  `sheltersim-browser-run-v4` (v1 to v3 still read). `run_store::Journal::parse` reads a journal
+  back to its typed lines (`Line`: `run`, `fork`, the pieces `export`/`log_tables`/`log_block`/
+  `sample_tables`/`sample_block`/`saved`/`world`, `end`), stopping at the first line cut short or
+  not matching its sha256; a whole line that is not one of the format is an error, never a panic.
+  The reader's decisions are the journal's: `heads` (the lines a branch goes on from), `cut`,
+  `saved_points`, `seek` (the saved point to restore, refusing minutes before a fork's),
+  `next_restore_read`/`restore_read` (the pieces a `Restore` needs), `check_stored`/`check_raw`
+  (each piece against its line) and `Verify` (the pieces read back to the "end" line's digests).
+  `RunWriter` decides what to store and when (`start`, `same_start`, `fork_start`, `take`, `save`,
+  `finish`; `Schedule` for when a saved point is due) and encodes each line as the browser's
+  `JSON.stringify` wrote it; the host writes each queued item (`next`, then `commit_piece` with
+  where it put the compressed bytes, or `commit_line`). The core does no I/O and compresses
+  nothing: the browser's `wasm/js/run_store.mjs` is the host (OPFS or memory files,
+  `CompressionStream("deflate-raw")`) through `Journal`, `RunWriter`, `VerifyRun` and
+  `Restore.readEntry` of `sheltersim_wasm`. `core/tests/stored_runs.rs` reads the journals of
+  `core/tests/data/stored_runs/` (written by the browser's code before the move, with deflate's
+  stored blocks as a compression every machine gives the same bytes of), encodes every line again
+  byte for byte and writes the same journals and data.pack again from the same Runs;
+  `wasm/tests/node_stored_runs.mjs` checks that the browser still writes them (`--write` writes
+  them again after a change meant to move them).
 - **A Project in the browser** (#265): `wasm/js/project_store.mjs` keeps the Project, Run and
-  Branch records beside each branch's stored Run (`wasm/js/run_store.mjs`, #252), answers the
+  Branch records beside each branch's stored Run (`run_store`, #252), answers the
   Project routes of the screen with the Python server's JSON, and writes and reads one versioned
   bundle file of a Project (`sheltersim-project-bundle`, version 1). `wasm/tools/build_project_bundle.mjs`
   is the Node half of `scripts/build_browser_sample.py`; `wasm/tests/node_project_store.mjs`

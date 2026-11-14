@@ -3,6 +3,7 @@
 # 「PRの確認」はWindowsとmacOSでOSの差が出るテストだけを実行するので、審査に出す前や公開の前などに
 # fullで3つのOSの全件を確かめる（#380）。LLMのProviderは呼ばない（SHELTERSIM_LLM_MODE=offline）。
 # 2026-11-15までの名前は「長時間simulation回帰」。
+# pytestは-n autoでランナーのコアの数だけ並べる。長いテストは、tests/conftest.pyが各workerに1つずつ先に配る。
 name: 全件の確認（手動・3つのOS）
 
 on:
@@ -50,7 +51,7 @@ jobs:
           python -m pip install --no-index --find-links native-dist sheltersim-native
           python -c "import sheltersim.native"
       - name: 長いテストを実行
-        run: python -m pytest -m long_simulation
+        run: python -m pytest -m long_simulation -n auto
 
   full_release_regression:
     name: 全件（${{ matrix.os }}）
@@ -81,4 +82,4 @@ jobs:
           python -m pip install --no-index --find-links native-dist sheltersim-native
           python -c "import sheltersim.native"
       - name: 全件を実行
-        run: python -m pytest
+        run: python -m pytest -n auto

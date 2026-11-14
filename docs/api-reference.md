@@ -40,14 +40,14 @@ serverは型付きrequest契約と、許可されたfield/queryだけを受け�
 | Route | 操作 |
 |---|---|
 | GET /api/v1/projects | ローカルProject一覧と保存容量を返します |
-| /api/v1/projects/{project} | Project、Scenario、Run、asset、証拠を参照します |
+| /api/v1/projects/{project} | Project、Scenario、Run、証拠を参照します |
 | /api/v1/projects/{project}/scenario-preview | Scenario案を作成・検証します |
 | /api/v1/projects/{project}/scenario-approve | preview hashを承認し、保存ScenarioとRunを作成します |
 | /api/v1/projects/{project}/runs/{run} | Runを再開・取消し、比較・証拠・監査・利用記録を参照します。取消し（`POST …/cancel`）は `branch_id` を渡すとそのBranchの計算だけを、渡さなければRunのすべての計算を止めます。Runの参照の `branches` には、Branchごとの計算の状態（`status`）が付きます（#48） |
 | /api/v1/projects/{project}/runs/{run}/branches/{branch} | timeline、履歴（`kind`は`kpis`と`conversations`だけ）、report、会話、LLM fallback集計（llm-status）を参照し、介入のpreview・apply、質問を送ります |
 | /api/v1/usage/runtime | CLI（と以前の画面のDemo）の上限付き利用記録を参照します |
 
-Project APIは登録モデル・契約（`GET …/contracts`）、Runの監査（`GET …/runs/{run}/audit`）、利用記録（`GET …/usage`、`GET …/runs/{run}/usage`）、履歴index、Checkpointも扱います。以前の画面だけが使った道（図面のupload・asset・Geometry、draft、evaluation、dataset、実験、複数Runの比較〔`comparison-query`〕、条件の差〔`condition-differences`〕、`first-divergence`、世帯の修正、標準施設の補正〔`facility-preview`〕、計測〔`…/telemetry`〕、介入なしの分岐〔`…/branches/{branch}/fork`〕）は#376でなくしました。OpenAPI documentは別途生成していません。field・responseの正確な契約は現在のPydantic modelとtestを参照してください。
+Project APIは登録モデル・契約（`GET …/contracts`）、Runの監査（`GET …/runs/{run}/audit`）、利用記録（`GET …/usage`、`GET …/runs/{run}/usage`）、履歴index、Checkpointも扱います。以前の画面だけが使った道（図面のupload・asset・Geometry、draft、evaluation、dataset、実験、複数Runの比較〔`comparison-query`〕、条件の差〔`condition-differences`〕、`first-divergence`、世帯の修正、標準施設の補正〔`facility-preview`〕、計測〔`…/telemetry`と、`resume`の`measure_performance`〕、介入なしの分岐〔`…/branches/{branch}/fork`〕、アーカイブ〔`POST …/archive`、`POST …/runs/{run}/archive`、`GET …/scenarios`、CLIの`project archive`。不要なRunは`POST …/runs/{run}/delete`で消します〕）は#376でなくしました。OpenAPI documentは別途生成していません。field・responseの正確な契約は現在のPydantic modelとtestを参照してください。
 
 ### Projectと介入の流れ
 

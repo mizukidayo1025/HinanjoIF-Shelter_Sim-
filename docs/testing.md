@@ -1,6 +1,6 @@
 # テストと検証
 
-テストは、決定的な状態遷移、Checkpointの保存と復元、独立したBranch、イベントの順序、施設・資源・職員の操作、履歴と時系列の検索、モデルの出典、LLMのfallbackと応答テープ、Projectの保存、Webの経路、図面と地域データの取り込みを確かめます。
+テストは、決定的な状態遷移、Checkpointの保存と復元、独立したBranch、イベントの順序、施設・資源・職員の操作、履歴と時系列の検索、モデルの出典、LLMのfallbackと応答テープ、Projectの保存、Webの経路、地域データの取り込みを確かめます。
 
 この文書には、決まりと手順だけを書きます。テストは変わり続けるので、件数・網羅率・計測時間のように変わる数は載せません。これまでの分析と経緯は、git履歴とIssue（テストの整理は#53・#57・#126、網羅の確認は#176・#178）を見てください。
 
@@ -85,7 +85,7 @@ python -m coverage report --sort=cover
 同じ名前のファイルを別のディレクトリに置けるよう、pytestは`--import-mode=importlib`で動かします（`pyproject.toml`）。テストファイル同士ではimportできないので、共有する準備は`tests/support/`に題材ごとのモジュールとして置き、`tests/conftest.py`の`pytest_plugins`で読み込みます（#138）。`pyproject.toml`の`pythonpath`に`tests`を入れているので、`support.<モジュール名>`として読み込めます。
 
 - 状態や後片付けがある準備（保存先、API、偽のサービス、保存済みRunなど）は、fixtureにします。テストファイルはfixtureとして受け取ります。
-- 状態を持たないものは、テストファイルから直接importしてかまいません。`fixtures/`のファイルのパス（`support/paths.py`の`SCENARIO_100_AGENTS`など。テストの中で`Path(__file__).parents[N]`から組み立てません）と、合成データの定数とそれを作る関数（`support/plans.py`の`SHELTER_TRACE`・`shelter_plan_png`、`support/public_data.py`の`MUNICIPALITY`など）です。
+- 状態を持たないものは、テストファイルから直接importしてかまいません。`fixtures/`のファイルのパス（`support/paths.py`の`SCENARIO_100_AGENTS`など。テストの中で`Path(__file__).parents[N]`から組み立てません）と、合成データの定数とそれを作る関数（`support/public_data.py`の`MUNICIPALITY`など）です。
 - `tests/conftest.py`に残すのは、すべてのテストに効く設定（ローカルの状態の隔離、`--shard`による分割、並列実行のときの長いテストの並べ替え）と、結果を残すplugin `tests/results_log.py`の読み込みだけです。
 - 新しい準備は、題材が合うモジュールに足します。合うモジュールがなければ、新しいモジュールを作って`pytest_plugins`に加え、下の表にも足します。
 
@@ -185,7 +185,7 @@ UIで作るScenarioは、必ず図面（`facility_geometry`）と認知（`agent
 - `generated_scenario_preview`：元になったpreviewの結果（`scenario`、`approved_hash`、`can_start`、`request`など）です。session単位で1回だけ作るので、変更してはいけません。module単位のfixtureから使うときは、`copy.deepcopy(generated_scenario_preview["scenario"])`から`ScenarioSpec`を作ります。
 - `generated_scenario_with(**fields)`：画面の入力欄の一部を変えたときのScenarioを、テストごとに新しく作って返します。たとえば`generated_scenario_with(duration_days=4)`は、期間の欄に4と入力した場合です。変えた欄は利用者の入力として扱います。画面にない`InitialScenarioRequest`の項目（`seed`、`operational_conditions.scheduled`、`population_conditions`など）も渡せます。
 - `generated_previews(**fields)`：上のpreviewの結果を返します。session単位で、同じ入力のpreviewは1回だけ作って共有するので、変更してはいけません。
-- `ui_project_api`と`generated_request(**fields)`：作ったpreviewにさらに画面の操作（世帯の修正、承認、図面の指定など）を続けるテスト用です。`ui_project_api`は、空の地域調査に差し替えた`ProjectAPI`（project名`project`）をテストの間だけ開いておきます。地域調査そのものを通すときは、`support/public_data.py`の`researching_project_api`を使います。
+- `ui_project_api`と`generated_request(**fields)`：作ったpreviewにさらに画面の操作（承認など）を続けるテスト用です。`ui_project_api`は、空の地域調査に差し替えた`ProjectAPI`（project名`project`）をテストの間だけ開いておきます。地域調査そのものを通すときは、`support/public_data.py`の`researching_project_api`を使います。
 
 共通fixtureは、demo-v2のScenario画面が送る入力（`GENERATED_SCENARIO_REQUEST`：合成市・地震・20人・0.25日。各項目は利用者の入力として扱います）を、UIと同じ`ProjectAPI`のpreviewに渡して作ります。違いは地域調査だけで、本物は公開Webサービスに接続するため、空の調査結果に差し替えています。
 
@@ -263,7 +263,7 @@ python benchmarks/compare_behaviour.py 変更前の出力先 変更後の出力�
 
 - 不具合で今は確かめられない振る舞いは、期待する形でテストを書き、`pytest.mark.xfail(strict=True)`にIssue番号を付けて置きます。失敗の種類が決まっているときは`raises=…`で限ります。不具合を直したのに期待と違う結果になった場合も気づけます。直したら印を外します。
 - テストの前提（その時刻にトイレが使われている、など）が崩れたときは、`assert`ではなく`pytest.fail`で失敗させます。`xfail`の印が前提の崩れを隠さないようにするためです。
-- 外部から来る入力（LLMの出力、取り込む図面、公開データ）の拒否は、理由付きで拒否されること（`StorageError`や契約の検証エラー）を確かめます。ほかの例外で落ちることを見逃さないためです。
+- 外部から来る入力（LLMの出力、公開データ）の拒否は、理由付きで拒否されること（`StorageError`や契約の検証エラー）を確かめます。ほかの例外で落ちることを見逃さないためです。
 
 ## 出典台帳と根拠IDの整合
 
@@ -280,7 +280,7 @@ AGENTS.mdは、新しい係数の根拠を`fixtures/source-manifest.json`に記�
 - 有料のProviderを呼ぶライブのテストは、通常の確認では実行しません。
 - Windows・macOSの実機上での起動は確認していません。
 - 30日間の性能結果は確立していません。過去の30人・30日試行は10分以内に完了しませんでした。
-- 画面の操作のうち、すべての地図レイヤー、実在施設の図面の取り込み、介護・会話・職員の組み合わせ、大規模人口を含む一連の操作は、ブラウザーで確かめていません。
+- 画面の操作のうち、すべての地図レイヤー、介護・会話・職員の組み合わせ、大規模人口を含む一連の操作は、ブラウザーで確かめていません。
 - 地域人口、避難所、天候、医療、結果の照合データを用いた外部検証はできていません。
 - 心理、健康、社会、容量、incidentの係数は実測校正されていません。合成Branchの差は、条件付き出力であり、予測や現実の因果効果ではありません。
 

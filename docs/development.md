@@ -25,7 +25,7 @@ python -m pip install -e ".[dev]"
 $env:SHELTERSIM_LLM_MODE = "offline"
 ~~~
 
-任意の施設図面画像処理は python -m pip install -e ".[dev,plan-import]"、Claude連携は python -m pip install -e ".[dev,llm]" で追加します。続けて、次の「Rustのkernel」の手順でkernelを導入します。
+Claude連携は python -m pip install -e ".[dev,llm]" で追加します。続けて、次の「Rustのkernel」の手順でkernelを導入します。
 
 ## Rustのkernel
 
@@ -157,7 +157,7 @@ node native/wasm/tests/node_browser_api.mjs wasm-pkg
 
 | 道 | 答え |
 |---|---|
-| `POST runs/{run}/resume` `{branch_id, target_minute}` | Pythonの`submit`と同じ順に確かめ、同じ誤りで断ります（項目の過不足、`measure_performance`が真偽値でない、計算中の分岐、ほかの計算がある（1つずつ）、ないBranch、計算済みの先から終わりまでにない分、ほかのタブが計算中の分岐は`run_worker_busy`）。受けると分岐とRunを`running`にし、`{"branch_id", "run_id", "status": "running", "target_minute"}`を返して、Workerで計算を始めます |
+| `POST runs/{run}/resume` `{branch_id, target_minute}` | Pythonの`submit`と同じ順に確かめ、同じ誤りで断ります（項目の過不足、計算中の分岐、ほかの計算がある（1つずつ）、ないBranch、計算済みの先から終わりまでにない分、ほかのタブが計算中の分岐は`run_worker_busy`）。受けると分岐とRunを`running`にし、`{"branch_id", "run_id", "status": "running", "target_minute"}`を返して、Workerで計算を始めます |
 | `POST runs/{run}/cancel` `{}`または`{branch_id}` | そのRunの計算に止まるよう伝え、その時のRunの記録を返します（Pythonと同じく、まだ`running`のことがあります）。何も計算していないのにRunが`running`なら（ほかのタブの計算）、Pythonと同じ`run_worker_busy`で断ります |
 
 計算は、分岐の保存したRunを先頭（下）まで切り戻し、そこへ戻して（`RunReader.seek`、#251。0分は書き出した世界から）、`CHUNK_TICKS`（60）tickずつのひと区切りで進めます。ひと区切りは要求と同じ列に並ぶので、Workerは区切りの間にtimeline、history、記録の要求に答えます。360分ごと（Runの`save_every`）、目標の分、止められた分では、ログと標本の塊を閉じて（`Simulation.seal_blocks`）途中の点を保存し、分岐の記録の`computed_until`と`checkpoint_hash`をそこへ進めます。その分のframeも作って残し、画面が続けて求めるその分のtimelineに使います。終わったら、時計の終わりなら`completed`（保存したRunは`runAndStore`と同じく、最後の点、`world`、`end`の行で終わります）、目標の分か止めたときは`paused`、誤りなら`failed`を分岐とRunの記録に書きます。OPFSのファイルは区切りごとに開いて閉じます（1つのファイルを同時に開けるのは1つのsync access handleなので、区切りの間の読み取りが自分で開けるように）。計算中の分岐はWeb Lock（`sheltersim-compute/{project}/{run}/{branch}`）を持ち続けます。画面は、Runの先頭の分を見ているときだけ時計が先頭に付いて進みます（Pythonの画面と同じ）。
@@ -332,4 +332,4 @@ Project CLIでは、Project作成、確認済みScenario保存、Run作成、Bra
 
 ## packageと任意依存
 
-pyproject.tomlでcoreと開発依存を固定しています。Anthropic SDKと施設図面画像/PDF helperは任意依存です。
+pyproject.tomlでcoreと開発依存を固定しています。Anthropic SDKは任意依存です（`llm`）。施設図面の取り込み（任意依存`plan-import`）は#376でなくしました。

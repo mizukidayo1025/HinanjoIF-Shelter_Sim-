@@ -16,7 +16,7 @@
     <script src="/demo-v2-map.js" defer></script>
     <script src="/demo-v2.js" defer></script>
   </head>
-  <body data-view="home">
+  <body data-view="home" class="is-loading">
     <header class="app-header">
       <a class="brand" href="/"
         ><span
@@ -56,13 +56,13 @@
           <span data-icon="home"></span>ホーム</button
         ><button class="nav-item" data-page="scenario">
           <span data-icon="scenario"></span>シナリオ設定</button
-        ><button class="nav-item" data-page="simulation">
+        ><button class="nav-item" data-page="simulation" disabled>
           <span data-icon="simulation"></span>シミュレーション</button
-        ><button class="nav-item" data-page="comparison">
+        ><button class="nav-item" data-page="comparison" disabled>
           <span data-icon="comparison"></span>分岐比較</button
-        ><button class="nav-item" data-page="report">
+        ><button class="nav-item" data-page="report" disabled>
           <span data-icon="report"></span>レポート・対話</button
-        ><button class="nav-item" data-page="detail">
+        ><button class="nav-item" data-page="detail" disabled>
           <span data-icon="detail"></span>詳細
         </button>
       </nav>
@@ -75,8 +75,9 @@
         <p class="fine sidebar-note">合成の人物によるモデル実験です。実際の結果の予測ではありません。</p>
       </div>
     </aside>
-    <main>
+    <main aria-busy="true">
       <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
+      <div class="page-loading" aria-hidden="true"></div>
       <section id="page-home" class="page active" aria-labelledby="home-heading">
         <div class="home-hero panel">
           <div>

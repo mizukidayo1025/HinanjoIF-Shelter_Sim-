@@ -420,6 +420,23 @@
         playing: false,
       };
   }
+  // While something the screen shows is loading (#412), the open page is dimmed under a spinner
+  // (body.is-loading, demo-v2.css) and <main> is aria-busy. The HTML starts in that state, so the
+  // page does not look empty before init() ends. Loads may overlap; the last one to end clears it.
+  let loads = 0;
+  async function loading(task) {
+    loads++;
+    document.body.classList.add("is-loading");
+    document.querySelector("main").setAttribute("aria-busy", "true");
+    try {
+      return await task();
+    } finally {
+      if (--loads === 0) {
+        document.body.classList.remove("is-loading");
+        document.querySelector("main").removeAttribute("aria-busy");
+      }
+    }
+  }
   async function action(label, task) {
     if (state.busy) return;
     state.busy = true;
@@ -442,8 +459,43 @@
       action("処理中です。APIの応答を待っています…", callback),
     );
   const PAGES = ["home", "scenario", "simulation", "comparison", "report", "detail"];
+  // Why a page has nothing to show now, or "" (#413): its sidebar item is then faded and cannot
+  // be pressed, with the reason as its title, and show() opens another page instead.
+  function pageBlocked(page) {
+    const open = Boolean(state.run && state.data),
+      branches = state.data?.branches || [],
+      closed = "シナリオを開くと使えます";
+    switch (page) {
+      case "scenario":
+        // A site that cannot make Scenarios has no scenario page until a Run is open.
+        return site.scenarios === "unavailable" && !state.run
+          ? "このサイトでは条件から新しいシナリオを作れません"
+          : "";
+      case "simulation":
+      case "detail":
+        return open ? "" : closed;
+      case "comparison":
+        // A branch is made on the comparison page (「この時刻から分岐を作る」), and a pair is
+        // computed there; with neither, nothing computed has nothing to compare.
+        if (!open) return closed;
+        return state.forkFrom ||
+          branches.length > 1 ||
+          branches.some((b) => b.computed_until > 0)
+          ? ""
+          : "シナリオを計算すると使えます";
+      case "report":
+        if (!open) return closed;
+        return reference()?.computed_until > 0
+          ? ""
+          : "開いている分岐を計算すると使えます";
+      default:
+        return "";
+    }
+  }
   function show(page) {
     if (!PAGES.includes(page)) page = "home";
+    if (pageBlocked(page))
+      page = pageBlocked("simulation") ? "home" : "simulation";
     state.page = page;
     if (page !== "comparison") state.forkFrom = null;
     document.body.dataset.view = page;
@@ -462,13 +514,18 @@
     controls();
     requestAnimationFrame(drawAll);
     if (page === "report" && state.run)
-      void action("レポートと記録済みの根拠を取得しています…", loadReport);
-    if (page === "home") loadHome().catch((e) => note(loadFailure(e), "error"));
+      void action("レポートと記録済みの根拠を取得しています…", () =>
+        loading(loadReport),
+      );
+    if (page === "home")
+      loading(loadHome).catch((e) => note(loadFailure(e), "error"));
     if (page === "detail") {
       $("detail-empty").hidden = Boolean(state.run);
       $("detail-body").hidden = !state.run;
       if (state.run)
-        void action("記録・モデル・出典を取得しています…", loadDetail);
+        void action("記録・モデル・出典を取得しています…", () =>
+          loading(loadDetail),
+        );
     }
     if (page === "scenario") renderScenarioPage();
     if (page === "comparison") {
@@ -614,7 +671,7 @@
   }
   async function openRun(projectId, runId) {
     await action("シナリオを開いています…", () =>
-      openRunInPlace(runId, projectId),
+      loading(() => openRunInPlace(runId, projectId)),
     );
     if (state.run === runId && state.data) show("simulation");
   }
@@ -884,12 +941,11 @@
       ? `元：${shortBranch(from.branch)} · ${time(from.minute)}`
       : "シナリオを開くと使えます";
     $("cancel").disabled = !running;
-    // A site that cannot make Scenarios has no scenario page until a Run is open.
-    const scenarioNav = document.querySelector('[data-page="scenario"]');
-    scenarioNav.disabled = site.scenarios === "unavailable" && !state.run;
-    scenarioNav.title = scenarioNav.disabled
-      ? "このサイトでは条件から新しいシナリオを作れません"
-      : "";
+    document.querySelectorAll(".nav-item[data-page]").forEach((n) => {
+      const why = pageBlocked(n.dataset.page);
+      n.disabled = Boolean(why);
+      n.title = why;
+    });
     $("target").disabled = !has || running;
     const single = !has || state.busy || upper() <= lower();
     $("play").disabled =
@@ -2192,15 +2248,17 @@
   function openComparison() {
     const pair = (state.data?.branches || []).length > 1;
     if (!state.forkFrom && pair && !state.comparison && state.run)
-      void action("共通の計算済み範囲を取得しています…", () => {
-        const ids = pairIds(),
-          refs = ids.map(reference),
-          lo = Math.max(...refs.map((r) => r.fork_minute)),
-          hi = Math.min(...refs.map((r) => r.computed_until));
-        return loadComparison(
-          state.minute >= lo && state.minute <= hi ? state.minute : undefined,
-        );
-      });
+      void action("共通の計算済み範囲を取得しています…", () =>
+        loading(() => {
+          const ids = pairIds(),
+            refs = ids.map(reference),
+            lo = Math.max(...refs.map((r) => r.fork_minute)),
+            hi = Math.min(...refs.map((r) => r.computed_until));
+          return loadComparison(
+            state.minute >= lo && state.minute <= hi ? state.minute : undefined,
+          );
+        }),
+      );
     $("branch-b-badge").hidden = !comparing();
     if (comparing()) return;
     $("branch-a-name").textContent = shortBranch(state.branch);
@@ -3192,7 +3250,9 @@
     state.comparison = null;
     state.forkFrom = null;
     drawAll();
-    void action("共通の計算済み範囲を取得しています…", () => loadComparison());
+    void action("共通の計算済み範囲を取得しています…", () =>
+      loading(() => loadComparison()),
+    );
   });
   $("compare-seek").addEventListener("change", () => {
     stopPlayback();
@@ -3401,7 +3461,7 @@
     }),
   );
   $("branch-select").addEventListener("change", () =>
-    action("選択した分岐を取得しています…", async () => {
+    action("選択した分岐を取得しています…", () => loading(async () => {
       state.branch = $("branch-select").value;
       state.scope++;
       state.context = null;
@@ -3411,10 +3471,10 @@
       resetChat();
       invalidateIntervention();
       await refreshRun();
-    }),
+    })),
   );
   $("saved-runs").addEventListener("change", () =>
-    action("保存したシナリオを開いています…", async () => {
+    action("保存したシナリオを開いています…", () => loading(async () => {
       clearTimeout(state.poll);
       state.scope++;
       state.run = $("saved-runs").value || null;
@@ -3439,7 +3499,7 @@
         show("scenario");
       }
       remember();
-    }),
+    })),
   );
   new ResizeObserver(() => requestAnimationFrame(drawAll)).observe(
     document.querySelector("main"),
@@ -3528,7 +3588,7 @@
     if (String(error?.code || "").startsWith("browser_")) return error.message;
     return `読み込みに失敗しました：${error.message}。URLのproject/run指定を確認してください。`;
   }
-  init().catch((e) => {
+  loading(init).catch((e) => {
     note(loadFailure(e), "error");
     controls();
   });

@@ -106,6 +106,17 @@
               このサイトは地域の避難所の一覧を入れずに作られているため、条件から新しいシナリオを作れません。
             </p>
           </article>
+          <article id="home-api" class="panel home-card" hidden>
+            <h2>AIの機能（API）</h2>
+            <p class="fine">
+              配布した合言葉を入れると、AIの機能を使えるようになります（最初に対応するのは、文からシナリオを読む機能です）。合言葉はこのブラウザーにだけ保存します。
+            </p>
+            <p id="home-api-status" class="home-api-status" role="status">まだ有効にしていません。</p>
+            <div class="home-actions">
+              <button id="home-api-enable" type="button">API を有効にする</button
+              ><button id="home-api-disable" type="button" hidden>解除する</button>
+            </div>
+          </article>
         </div>
         <p class="fine home-notes">
           人物・施設・出来事はすべて合成のモデルで、実在の避難所や人の記録ではありません。実際の安全性や医療の結果を予測するものではありません。
@@ -117,6 +128,21 @@
             >Rustの標準ライブラリー</a
           >）
         </p>
+        <dialog id="api-dialog" class="examples-dialog" aria-labelledby="api-dialog-title">
+          <div class="examples-head">
+            <h2 id="api-dialog-title">API を有効にする</h2>
+            <button id="api-dialog-close" type="button" aria-label="閉じる">×</button>
+          </div>
+          <form id="api-form" class="examples-body" method="dialog">
+            <label for="api-passphrase">合言葉</label>
+            <input id="api-passphrase" type="password" autocomplete="off" spellcheck="false" required />
+            <p class="fine">
+              合言葉は、こちらから配布したものです（AnthropicのAPIキーではありません）。サイト全体で1日に使える費用には上限があり、超えるとその日はAIを使わない動きに戻ります。
+            </p>
+            <p id="api-dialog-note" class="fine" role="status"></p>
+            <div class="home-actions"><button id="api-submit" class="primary" type="submit">有効にする</button></div>
+          </form>
+        </dialog>
         <dialog id="examples-dialog" class="examples-dialog" aria-labelledby="examples-dialog-title">
           <div class="examples-head">
             <h2 id="examples-dialog-title">計算済みの例を取得する</h2>

@@ -640,6 +640,8 @@
     $("home-example").hidden = !links.length;
     $("home-example-list").replaceChildren(...links);
     $("home-fetch").hidden = !offered.some((e) => !e.installed);
+    $("home-api").hidden = !browser;
+    if (browser) void refreshApi();
     $("home-browser-notes").hidden = !browser;
     $("home-new").disabled = site.scenarios === "unavailable";
     $("home-new-note").hidden = site.scenarios !== "unavailable";
@@ -678,6 +680,93 @@
         .filter(Boolean)
         .join(" · "),
     };
+  }
+  // 「API を有効にする」 (#420): the passphrase handed out for the browser site's LLM relay
+  // (deploy/workers/relay.mjs, #419), kept in this browser only. The relay checks it and says
+  // whose it is and what is left of the site's daily cap; the screen never sees an API key.
+  const LLM_KEY = "hinanjo-if-llm-passphrase";
+  const storedPassphrase = () => {
+    try {
+      return localStorage.getItem(LLM_KEY) || "";
+    } catch {
+      return "";
+    }
+  };
+  function keepPassphrase(value) {
+    try {
+      if (value) localStorage.setItem(LLM_KEY, value);
+      else localStorage.removeItem(LLM_KEY);
+    } catch {
+      /* Not kept: it is asked again on the next visit. */
+    }
+  }
+  async function llmSession(passphrase) {
+    let response;
+    try {
+      response = await fetch("/llm/v1/session", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${passphrase}`,
+          "Content-Type": "application/json",
+        },
+        body: "{}",
+      });
+    } catch {
+      throw Object.assign(new Error("中継に接続できませんでした。"), { code: "llm_unreachable" });
+    }
+    let body = null;
+    try {
+      body = await response.json();
+    } catch {
+      /* A site without the relay answers its 404 page. */
+    }
+    if (!response.ok)
+      throw Object.assign(
+        new Error(body?.error || "このサイトではAPIを有効にできません。"),
+        { code: body?.code || `http_${response.status}` },
+      );
+    return body;
+  }
+  function showApi(session, message) {
+    $("home-api-status").textContent = session
+      ? session.available
+        ? `有効です（${session.recipient}）。今日のサイト全体の残り：$${Number(session.remaining_usd).toFixed(2)}`
+        : `合言葉は確認できました（${session.recipient}）が、中継にAPIキーがまだ設定されていません。`
+      : message || "まだ有効にしていません。";
+    $("home-api-status").classList.toggle("on", Boolean(session?.available));
+    $("home-api-enable").hidden = Boolean(session);
+    $("home-api-disable").hidden = !session;
+  }
+  async function refreshApi() {
+    const passphrase = storedPassphrase();
+    if (!passphrase) return showApi(null);
+    try {
+      showApi(await llmSession(passphrase));
+    } catch (error) {
+      // A passphrase no longer let in is forgotten; a relay out of reach keeps it.
+      if (["llm_passphrase_invalid", "llm_passphrase_required"].includes(error.code))
+        keepPassphrase("");
+      showApi(null, error.message);
+    }
+  }
+  async function enableApi(event) {
+    event.preventDefault();
+    const passphrase = $("api-passphrase").value.trim();
+    if (!passphrase) return;
+    $("api-submit").disabled = true;
+    $("api-dialog-note").textContent = "確認しています…";
+    try {
+      const session = await llmSession(passphrase);
+      keepPassphrase(passphrase);
+      $("api-passphrase").value = "";
+      $("api-dialog-note").textContent = "";
+      $("api-dialog").close();
+      showApi(session);
+    } catch (error) {
+      $("api-dialog-note").textContent = error.message;
+    } finally {
+      $("api-submit").disabled = false;
+    }
   }
   let fetching = false;
   async function openExamples() {
@@ -3206,6 +3295,17 @@
     action("シナリオを削除しています…", deleteScenario),
   );
   $("home-fetch").addEventListener("click", () => void openExamples());
+  $("home-api-enable").addEventListener("click", () => {
+    $("api-dialog-note").textContent = "";
+    $("api-dialog").showModal();
+    $("api-passphrase").focus();
+  });
+  $("home-api-disable").addEventListener("click", () => {
+    keepPassphrase("");
+    showApi(null, "解除しました。");
+  });
+  $("api-form").addEventListener("submit", (event) => void enableApi(event));
+  $("api-dialog-close").addEventListener("click", () => $("api-dialog").close());
   $("examples-dialog-close").addEventListener("click", () => {
     if (!fetching) $("examples-dialog").close();
   });

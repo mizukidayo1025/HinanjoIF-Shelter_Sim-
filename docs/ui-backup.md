@@ -52,6 +52,7 @@ SHELTERSIM_LLM_MODE=record SHELTERSIM_LLM_ERROR_POLICY=stop \
 | 画面・機能 | 既存API | 調査時の状態 / 新UIでの対応 |
 |---|---|---|
 | ホーム | GET /api/v1/projects、GET P | 計算済みの例（Project `sample`の計算を終えたRun。ブラウザー版では「計算済みの例を取得する」で選んで取り寄せたもの、#411）、自分のシナリオ（このブラウザーの自分のProject）を並べる。読むだけで何も変えない（#371） |
+| API を有効にする（ブラウザー版） | POST /llm/v1/session（中継、#419） | ホームの「AIの機能（API）」で、配布した合言葉を中継に確かめ、相手の名前とサイト全体のその日の残りを出す。合言葉はこのブラウザー（localStorage）にだけ残し、中継が断ったら忘れる。解除できる。サーバー版には出さない（#420） |
 | Project作成・保存Run復元 | POST /api/v1/projects、GET P、GET P/runs | 実装済み / 新しいシナリオは例のProjectでなく自分のProjectに作る。開いているRunはURLが持つ |
 | 自然言語・基本条件・任意資源 | POST P/scenario-preview | 実装済み / 入力値を優先し、出典・補完仮定・警告・ブロッカーを表示 |
 | 施設種別 | request.facility_conditions | 条件の記録に対応 / 実施設の図面・適合性や別形状を推測しない |

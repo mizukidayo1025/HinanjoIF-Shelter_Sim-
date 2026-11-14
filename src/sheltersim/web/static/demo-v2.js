@@ -27,15 +27,16 @@
   // The Project of the person's own Scenarios: new ones are made there, never in the example.
   // A Project the address names is it, unless it is the example's.
   const askedProject = query.get("project");
-  const ownProject =
+  let ownId =
     askedProject && askedProject !== exampleProject
       ? askedProject
       : saved.own ||
-        (saved.project && saved.project !== exampleProject
-          ? saved.project
-          : `backup-${crypto.randomUUID()}`);
+        (saved.project && saved.project !== exampleProject ? saved.project : null);
+  // A new id is made only when a Scenario is first made: opening a Run uses no random id (the
+  // browser checks pin crypto.randomUUID's sequence for the Run and branch ids).
+  const ownProject = () => (ownId ??= `backup-${crypto.randomUUID()}`);
   const state = {
-    project: askedProject || ownProject,
+    project: askedProject || ownId,
     run: query.get("run") || null,
     branch: query.get("branch") || "main",
     minute: 0,
@@ -242,7 +243,7 @@
     "再現の方法は未記録";
   const base = () => `/api/v1/projects/${enc(state.project)}`;
   // New Scenarios go to one's own Project, whichever Run is open.
-  const ownBase = () => `/api/v1/projects/${enc(ownProject)}`;
+  const ownBase = () => `/api/v1/projects/${enc(ownProject())}`;
   const runBase = () => `${base()}/runs/${enc(state.run)}`;
   const branchBase = (id = state.branch) => `${runBase()}/branches/${enc(id)}`;
   const reference = (id = state.branch) =>
@@ -347,7 +348,7 @@
       localStorage.setItem(
         "hinanjo-if-backup",
         JSON.stringify({
-          own: ownProject,
+          own: ownId,
           project: state.project,
           run: state.run,
           branch: state.branch,
@@ -359,7 +360,7 @@
     // The address names what is open; the home of one's own Project with nothing open is the
     // bare /demo-v2, which opens the home.
     const params = new URLSearchParams();
-    if (state.run || state.project !== ownProject)
+    if (state.project && (state.run || state.project !== ownId))
       params.set("project", state.project);
     if (state.run) {
       params.set("run", state.run);
@@ -554,7 +555,7 @@
       read = async (id) => (listed.has(id) ? api(`/api/v1/projects/${enc(id)}`) : null),
       [example, own] = await Promise.all([
         read(exampleProject),
-        ownProject === exampleProject ? null : read(ownProject),
+        !ownId || ownId === exampleProject ? null : read(ownId),
       ]);
     if (scope !== state.homeVersion) return;
     const examples = (example?.runs || []).filter(
@@ -590,7 +591,7 @@
       ...(mine.length
         ? mine.map((r) =>
             runLink(
-              ownProject,
+              ownId,
               r,
               own.scenarios,
               undefined,
@@ -630,7 +631,7 @@
     clearTimeout(state.poll);
     stopPlayback();
     state.scope++;
-    state.project = ownProject;
+    state.project = ownProject();
     state.run = null;
     state.branch = "main";
     state.data = null;
@@ -977,7 +978,7 @@
       );
     if (!hasFields && !text)
       throw new Error("自然言語または基本設定を入力してください。");
-    await ensureProject(ownProject);
+    await ensureProject(ownProject());
     if (hasFields && (!req.municipality || !req.disaster || !req.evacuees)) {
       const hints = [
         req.municipality ? `${req.municipality}で` : null,
@@ -1187,7 +1188,7 @@
       run_id: runId,
     });
     clearTimeout(state.poll);
-    state.project = ownProject;
+    state.project = ownProject();
     state.loadedRun = null;
     state.data = null;
     state.frame = null;

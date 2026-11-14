@@ -25,7 +25,9 @@ use unicode_normalization::UnicodeNormalization;
 
 use crate::error::{Error, Result};
 
+// Written by native/core/tools/interpret_tables.py, which owns its layout: rustfmt skips it (#367).
 #[path = "digits.rs"]
+#[rustfmt::skip]
 mod digits;
 
 const WORD: &str = r"[\p{L}\p{N}_]";

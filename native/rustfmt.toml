@@ -1,0 +1,5 @@
+# rustfmt for the whole workspace (#367): `cargo fmt --manifest-path native/Cargo.toml --all`.
+# The code was written with long lines before rustfmt came in; this width and the "Max"
+# heuristics (each kind of item may fill the line) keep it closest to that.
+max_width = 160
+use_small_heuristics = "Max"

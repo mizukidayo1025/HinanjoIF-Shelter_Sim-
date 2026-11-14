@@ -5,8 +5,12 @@ use std::borrow::Cow;
 
 use crate::error::{Error, Result};
 
+// Tables written by native/core/tools/*.py: their generators own the layout, so rustfmt skips them (#367).
+#[rustfmt::skip]
 mod casefold;
+#[rustfmt::skip]
 mod classes;
+#[rustfmt::skip]
 mod printable;
 
 /// What `str.casefold` gives one character: its full case folding, or None for itself. The table

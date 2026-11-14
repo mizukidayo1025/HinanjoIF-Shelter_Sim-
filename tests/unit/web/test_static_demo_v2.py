@@ -193,7 +193,6 @@ assert.match(loadFailure(new Error("HTTP 500")), /URLのproject\/run指定/);
     )
 
 
-
 def test_the_address_names_what_is_open_and_the_bare_screen_is_the_home():
     """The home with nothing open is the bare /demo-v2, which opens the home again (#371); a Run
     or another Project than one's own is in the query, and any other page in the hash."""

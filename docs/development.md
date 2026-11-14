@@ -271,7 +271,7 @@ python benchmarks/static_site_e2e.py --url https://hinanjo-if.water7.workers.dev
 
 #### LLMの中継（#419）
 
-ブラウザー版でLLMを使う機能のため、同じWorkerのscript（`deploy/workers/relay.mjs`）が`/llm/*`に答えます（決めたことは#287）。AnthropicのAPIキーは中継だけが持ち、画面には渡しません。使えるのは、こちらが配った合言葉を入れた人だけです。サイト全体の費用は、日本時間の1日で$5までです。道、合言葉の形、費用の数え方は`relay.mjs`の冒頭と`docs/llm-integration.md`の「ブラウザー版の中継」に書きます。作業（プロンプト）は`deploy/workers/relay_tasks.mjs`に置きます。いまは作業がなく、文からシナリオを読む作業は#421で足します。
+ブラウザー版でLLMを使う機能のため、同じWorkerのscript（`deploy/workers/relay.mjs`）が`/llm/*`に答えます（決めたことは#287）。AnthropicのAPIキーは中継だけが持ち、画面には渡しません。使えるのは、こちらが配った合言葉を入れた人だけです。サイト全体の費用は、日本時間の1日で$5までです。道、合言葉の形、費用の数え方は`relay.mjs`の冒頭と`docs/llm-integration.md`の「ブラウザー版の中継」に書きます。作業（プロンプト）は`deploy/workers/relay_tasks.mjs`に置きます。いまある作業は、シナリオ設定の文を読む`scenario_text`（#421）です。作業の中身はPythonから書いた`native/core/src/scenario/scenario_text_task.json`を読みます（`SHELTERSIM_LLM_MODE=offline python native/core/tools/scenario_text_task.py`で書き直します）。ホームで「API を有効にする」を済ませた画面は、シナリオのプレビューの要求に合言葉を添え（`api_fetch.js`）、WorkerがこのWorkerの中継に文を送って、答えを中核で読みます。`node native/wasm/tests/node_scenario_llm.mjs wasm-pkg`が、中継を差し替えて確かめます（CIの`ブラウザー版の計算`のjobも動かします）。
 
 中継が使うsecretは、Workerのsecretです（GitHubのsecretではありません。`wrangler deploy`は前のsecretを残すので、1回入れれば公開し直しても消えません）。Cloudflareのアカウントに入れる人が、手元から入れます。
 

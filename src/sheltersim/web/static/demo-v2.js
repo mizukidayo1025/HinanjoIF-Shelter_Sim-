@@ -1330,8 +1330,18 @@
     $("preview-result").hidden = false;
     $("preview-empty").hidden = true;
     $("preview-step").classList.add("current");
-    $("preview-mode").textContent =
-      `${llmModeLabel(p.llm_usage?.mode)} · 補完値を要確認`;
+    // With the API on (#421), whether the AI read the text or the text was read without it.
+    const usage = p.llm_usage,
+      source = s?.provenance?.scenario_input?.extraction_source,
+      read =
+        usage?.mode !== "record"
+          ? null
+          : source === "prepare_llm"
+            ? `AIが文を読み取りました（約$${Number(usage.spent_usd).toFixed(3)}）`
+            : "AIを使えず、文に明示された値だけで読み取りました";
+    $("preview-mode").textContent = [llmModeLabel(usage?.mode), read, "補完値を要確認"]
+      .filter(Boolean)
+      .join(" · ");
     if (!state.run) {
       $("scenario-name").textContent =
         r.municipality + " · " + disasterName(r.disaster);

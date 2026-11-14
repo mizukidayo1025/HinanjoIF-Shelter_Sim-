@@ -16,7 +16,7 @@
 // ends.
 //
 // Messages in:  { type: "start", examplesUrl } once, then { type: "request", id, method, path,
-//               search, body }, { type: "examples", id }, { type: "install", id, projectId } or
+//               search, body, llm? } (llm: the relay's passphrase, sent with a Scenario preview, #421), { type: "examples", id }, { type: "install", id, projectId } or
 //               { type: "stats", id }
 // Messages out: { type: "ready", ms } or { type: "failed", code, message } once
 //               (code `browser_storage_unavailable` when the browser refuses the store, #393,
@@ -241,7 +241,7 @@ self.onmessage = async ({ data }) => {
   let answer;
   try {
     const { api } = await ready;
-    answer = await api.answer(data);
+    answer = await api.answer({ method: data.method, path: data.path, search: data.search, body: data.body, llm: typeof data.llm === "string" && data.llm ? data.llm : null });
   } catch (error) {
     const { code, message } = failure(error);
     answer = { status: 503, type: "application/json; charset=utf-8", body: JSON.stringify({ error: message, code }) };

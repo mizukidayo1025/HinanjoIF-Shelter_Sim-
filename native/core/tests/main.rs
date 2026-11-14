@@ -90,6 +90,7 @@ mod scenario_corpus_pieces;
 mod scenario_facility;
 mod scenario_population;
 mod scenario_request;
+mod scenario_text;
 mod service;
 mod service_rules;
 mod social_interaction_texts;

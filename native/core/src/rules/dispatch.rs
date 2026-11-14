@@ -1273,6 +1273,9 @@ fn after_events<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R>,
     }
     if applied().any(|outcome| matches!(&*outcome.row.event_type, "effect_program_geometry" | "effect_program_geometry_expire" | "effect_program_structure")) {
         count(&COUNTS.spaces_refreshed);
+        // The Run's routers are of the old space: they are built again from the world's tables when
+        // next asked (`_refresh_space`, #368). The host's own views follow.
+        tick.on_run(|run| run.routes.refresh())?;
         tick.host.space_refreshed()?;
     }
     for outcome in applied() {

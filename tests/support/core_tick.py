@@ -12,6 +12,10 @@ no Python. The fixture holds two worlds, each set up for a Run and exported at m
   EffectProgram that moves facilities while someone walks to them (`FACILITY_MOVES`), run for
   `GENERATED_TICKS` ticks: people walk (`movement_v1`'s journeys) and the core's `update_movement`
   replans the routes the moves changed.
+- `route_closed`: the same generated Scenario without the moves, with an EffectProgram that closes
+  the sleeping area's way out (`ROUTE_CLOSED`, `set_route_access`) for a while and opens it again,
+  run for `GENERATED_TICKS` ticks. Each change refreshes the Run's routers (#368): the trips that
+  start while the way is closed find no route, and the trips after it find it again.
 
 The same world run through `TickEngine` gives the digests the fixture freezes
 (`integration/test_core_fixtures.py` checks that the file is what the native path gives today).
@@ -47,6 +51,8 @@ FACILITY_MOVES = (
     (150, "accessible_toilet_01", 6.0),
     (252, "water_station_main", 6.0),
 )
+# The leg `route_closed` closes, and the minutes it closes and opens again.
+ROUTE_CLOSED = ("route_sleeping_corridor", 30, 150)
 # The detail of the record of a trip's event that a replan suppresses (`rules/replan.rs`).
 REPLANNED = "the route changed before travel completion"
 # The parts of the canonical document the digests cover, in this order.
@@ -170,6 +176,47 @@ def facility_moves(geometry: dict[str, Any]) -> Any:
     )
 
 
+def route_closing() -> Any:
+    """The EffectProgram of `ROUTE_CLOSED`."""
+    from sheltersim.events.effects import EffectProgram, SupportMode, TargetSelector, TimedAction
+
+    leg, closes, opens = ROUTE_CLOSED
+    return EffectProgram(
+        program_id="fixture-route-closed",
+        narrative="Close the sleeping area's way out for a while.",
+        source_text="Close the sleeping area's way out for a while.",
+        simulation_start_minute=0,
+        effects=[
+            TimedAction(
+                effect_id="close-leg",
+                op="set_route_access",
+                target_selector=TargetSelector(kind="route", target_id=leg),
+                start_minute=closes,
+                end_minute=opens,
+                parameters={"accessible": False},
+                units="boolean",
+                source_id="ASM-TEST",
+                assumption_ids=[],
+                policy_dependencies=["geometry_overlay_v1"],
+                reversible=True,
+            )
+        ],
+        assumptions=[],
+        support_mode=SupportMode.NATIVE,
+        compiler_provenance={"compiler_kind": "offline_rule", "compiler_version": "test-v1"},
+    )
+
+
+def route_closed_run() -> tuple[Any, Any, Any]:
+    """The generated world, its controller and its engine at minute 0, with `ROUTE_CLOSED`
+    scheduled."""
+    from sheltersim.events.effects import schedule_effect_program
+
+    world, controller, engine = run_world(generated_scenario())
+    schedule_effect_program(world, route_closing())
+    return world, controller, engine
+
+
 def generated_run() -> tuple[Any, Any, Any]:
     """The generated world, its controller and its engine at minute 0, with the moves scheduled."""
     from sheltersim.events.effects import schedule_effect_program
@@ -251,5 +298,6 @@ def tick_core_fixture() -> dict[str, Any]:
         "worlds": {
             "small_replay": _entry(core_tick_run(), TICKS),
             "generated": _entry(generated_run(), GENERATED_TICKS),
+            "route_closed": _entry(route_closed_run(), GENERATED_TICKS),
         }
     }

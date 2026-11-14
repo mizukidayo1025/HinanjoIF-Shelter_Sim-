@@ -60,7 +60,7 @@ wasm-bindgen --target nodejs --out-dir wasm-pkg native/target/wasm32-unknown-unk
 node native/wasm/tests/node_digests.mjs wasm-pkg
 ~~~
 
-最後のcommandは、`native/core/tests/data/tick_core.json`の世界をWASMで進め、ネイティブの経路と同じdigestになることを確かめます。CIのlintのjobも同じことをします。
+最後のcommandは、`native/core/tests/data/tick_core.json`の世界をWASMで進め、ネイティブの経路と同じdigestになることを確かめます。CI（`PRの確認`）の`ブラウザー版の計算`のjobも同じことをします。
 
 シナリオの画面の文の読み取り（APIキーなし）も中核にあります（`sheltersim_core::scenario::text`、#294）。WASMでは`parseScenarioText(text)`が、サーバーの`parse_scenario_text`がofflineのrouterで返すもの（requestのdump、`missing_fields`、`source`、`warnings`、`input_sha256`）をJSONで返します。条件の入力の確かめとdumpは`scenarioRequest(bytes)`です（#295の中核の`InitialScenarioRequest`。`input_sha256`も返します）。正規表現は、Pythonの`re`と同じ一致になるよう手で照合します。`\d`・`\s`・`\w`の文字の表（`native/core/src/text/classes.rs`）は`python native/core/tools/regex_classes_table.py`で作り直します。`tests/unit/llm/test_region_prepare.py`がPythonと比べ、`node native/wasm/tests/node_scenario_text.mjs wasm-pkg`がコーパスの文で確かめます。
 
@@ -268,7 +268,7 @@ gh workflow run deploy-browser.yml --ref main                    # 公開する
 gh workflow run deploy-browser.yml --ref <branch> -f dry_run=true  # 作って確かめるだけ
 ~~~
 
-workflowは、上の「ブラウザー版の静的サイト」と同じ手順でサイトを作ります（Pythonのkernelはprofile `ci`、WASMは`--release`、wasm-bindgenはCIのlintのjobと同じ版とsha256、避難所の索引は`--fetch-shelters`）。それから`wrangler deploy --dry-run`で設定とファイルを確かめ、Cloudflareへ送ります。送るときは、Workerの版にcommitのhashを`--tag`（先頭12桁）と`--message`で残します。
+workflowは、上の「ブラウザー版の静的サイト」と同じ手順でサイトを作ります（Pythonのkernelはprofile `ci`、WASMは`--release`、wasm-bindgenはCIの`ブラウザー版の計算`のjobと同じ版とsha256、避難所の索引は`--fetch-shelters`）。それから`wrangler deploy --dry-run`で設定とファイルを確かめ、Cloudflareへ送ります。送るときは、Workerの版にcommitのhashを`--tag`（先頭12桁）と`--message`で残します。
 
 - 公開するのは`main`だけです。ほかのbranchで公開を選ぶと、何も作らずに止まります。`dry_run`はどのbranchでも使え、Cloudflareには何も送らず、secretも読みません。
 - 同時に動く公開は1つだけです。後から起動したものは、前のものが終わるのを待ちます。

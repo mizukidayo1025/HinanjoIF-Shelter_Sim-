@@ -20,6 +20,10 @@ from sheltersim.experiments.scenario import ScenarioSpec
 from sheltersim.inspection.traces import RunArtifactWriter
 from sheltersim.policies.behavior import UtilityBehaviorPolicy
 
+# Run on every pull request on Windows and macOS too (pytest --os-subset, #380): the CLI writes
+# files and reads them back.
+pytestmark = pytest.mark.os_dependent
+
 
 def make_scenario_file(path: Path) -> Path:
     scenario_data = json.loads(SCENARIO_100_AGENTS.read_text(encoding="utf-8"))

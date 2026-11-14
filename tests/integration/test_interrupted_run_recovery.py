@@ -12,6 +12,10 @@ import pytest
 from sheltersim.experiments.scenario import ScenarioSpec
 from sheltersim.web.projects import ProjectAPI
 
+# Run on every pull request on Windows and macOS too (pytest --os-subset, #380): the leases and
+# locks of a Run are files.
+pytestmark = pytest.mark.os_dependent
+
 END = 60
 STOPPED_AT = 20
 

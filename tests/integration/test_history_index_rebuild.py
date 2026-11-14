@@ -24,6 +24,10 @@ from sheltersim.storage.history_index import HistoryIndex
 from sheltersim.storage.projects import StorageError, digest
 from sheltersim.web.projects import ProjectAPI
 
+# Run on every pull request on Windows and macOS too (pytest --os-subset, #380): rebuilding
+# replaces a file other connections may hold open (Windows waits).
+pytestmark = pytest.mark.os_dependent
+
 END = 60
 FORK_MINUTE = 10
 BRANCHES = ("main", "capacity")

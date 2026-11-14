@@ -27,6 +27,10 @@ from sheltersim.core.rng import CounterRNG
 from sheltersim.core.state_mirror import TrackedDict, TrackedList
 from sheltersim.domain.models import Activity
 
+# Run on every pull request on Windows and macOS too (pytest --os-subset, #380): CPython's float
+# and int functions differ by OS (libm, a C long of 32 bits on Windows).
+pytestmark = pytest.mark.os_dependent
+
 CASES = int(os.environ.get("SHELTERSIM_PARITY_CASES", "20000"))
 
 EDGES = [

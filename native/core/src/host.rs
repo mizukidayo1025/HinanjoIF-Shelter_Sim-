@@ -570,7 +570,9 @@ pub trait Host {
     fn trace(&mut self, document: Trace) -> Result<(), Self::Error>;
     /// `TickEngine.phase_observer(phase, before)`, if any.
     fn phase(&mut self, phase: Phase, before: bool) -> Result<(), Self::Error>;
-    /// The space changed (a geometry or structure event applied): the Python views of it follow.
+    /// The space changed (a geometry or structure event applied) and the core refreshed the Run's
+    /// routers (`Routes::refresh`): the host's views of the space follow (the Python ones, built
+    /// again at the Run's new epoch, #368). A host without views of its own does nothing.
     fn space_refreshed(&mut self) -> Result<(), Self::Error>;
 
     // ---- What the world holds and its configs (lane P9-0) ------------------------------------------

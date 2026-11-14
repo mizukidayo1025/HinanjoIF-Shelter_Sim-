@@ -1,6 +1,7 @@
 //! A host without Python (`PlainHost`) and a Run of an exported world on it (`PlainRun`): Issue
 //! #244, PR 4-3, for the browser prototype of #132 (stage 4), which runs the ticks of a world Python
-//! built and exported (route A).
+//! built and exported (route A). The WASM crate's `Simulation` and, from #368, the PyO3 crate's
+//! `sheltersim_native.rules.plain.PlainRun` are its two wrappers; what both hand out is made here.
 //!
 //! What it does where the native host calls Python (decision 4 of #244, the rest left to stage 6):
 //! - The Python-parsed sections of the configs are the exported world's (`load::Sections`), and
@@ -12,8 +13,12 @@
 //!   classes and texts. Each tick ends as `validate_after_tick` ends it
 //!   (`engine::EndCheck::Whole`): the kernel's check with the core's validators of the namespaces
 //!   (`rules::tick_checks`), and where it refuses, the validation without the event history.
-//! - There is no LLM: the Run runs as one without (`Llm::default()`); no decision or trace goes out
-//!   (`DecisionSink::Silent`, `TraceLevel::Off`), and no foreign handler runs.
+//! - There is no LLM: the Run runs as one without (`Llm::default()`); no trace goes out
+//!   (`TraceLevel::Off`), and no foreign handler runs. No decision record goes out either
+//!   (`DecisionSink::Silent`) unless the Run collects them (`PlainRun::collect_decisions`, #368):
+//!   then the sink is an indexed one, which keeps the JSON bytes the core writes of each decision
+//!   (`Decision::Indexed`), the rows `_IndexedMetricSink.observations` holds as bytes on the native
+//!   path (`Decisions`). Collecting changes nothing of the world.
 //! - The records of the log are the world's (`load::find_record`). The log holds them in the binary
 //!   form (`EventLog::pack_records`, `events::packed`, #252); their JSON is written when asked
 //!   for (the digests, `find_record`), the same bytes as the native path's.
@@ -24,10 +29,11 @@
 //!   answers with (`history`).
 //! - The core writes `world.resources` and the namespaces it starts itself (decision 2): the host
 //!   is only told.
-//! - A Run is saved at a minute and restored from there (`saved_point`, `restore`; #251, for the
-//!   browser only): see `archive::SavedPoint`.
+//! - A Run is saved at a minute and restored from there (`saved_point`, `restore`; #251): see
+//!   `archive::SavedPoint`.
 
 use std::cell::RefCell;
+use std::fmt;
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -44,12 +50,15 @@ use crate::error::{Error, Result};
 use crate::events::packed::{put_varint, put_zigzag, Blocks, Cursor, Packer};
 use crate::events::EventRow;
 use crate::geometry::Geo;
-use crate::host::{Contract, Decision, DecisionSink, Foreign, Holding, Host, Llm, Phase, Stage, Trace, TraceLevel, TxnKind, NO_FOREIGN};
+use crate::host::{Contract, Decision, DecisionSink, Foreign, Holding, Host, Llm, Phase, Stage, Trace, TraceLevel, TxnKind, NO_FOREIGN, NO_PYTHON_SINK};
 use crate::json::Encoder;
 use crate::load::{self, FloorPlans, Loaded, Sections};
 use crate::rules::action_lifecycle::ActiveActions;
+use crate::rules::behavior::Proposal;
 use crate::rules::common_operations::Logged;
+use crate::rules::decisions::Observed;
 use crate::rules::metrics::MetricSample;
+use crate::rules::world_view::ViewData;
 use crate::state::resource_ledger::NAME as LEDGER;
 use crate::validate;
 use crate::value::V;
@@ -62,12 +71,26 @@ pub struct PlainHost {
     plans: FloorPlans,
     /// The metric samples, packed (`MetricSamples`).
     pub samples: MetricSamples,
+    /// The decision records, where the Run collects them (`PlainRun::collect_decisions`).
+    pub decisions: Option<Decisions>,
+}
+
+/// The decision records a Run collects (#368, off unless asked for): the JSON bytes the core
+/// writes of each decision for an indexed sink (`Decision::Indexed`, `rules::decisions::decision_bytes`),
+/// which are the rows `_IndexedMetricSink.observations` holds as bytes on the native path, in the
+/// same order; and how many decisions the core left to a sink in Python (`Sunk::Python`: an
+/// observed state longer than the core writes, a household no row reads, ...), whose row,
+/// `_IndexedMetricSink.record_decision`'s dict, a host without Python does not write.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Decisions {
+    pub records: Vec<Vec<u8>>,
+    pub missed: u64,
 }
 
 impl PlainHost {
     /// The host of `loaded`, with the sections of the exported entry it was loaded from.
     pub fn new(entry: &Value, loaded: Rc<Loaded>) -> Result<Self> {
-        Ok(Self { loaded, sections: Sections::of_entry(entry)?, plans: FloorPlans::default(), samples: MetricSamples::default() })
+        Ok(Self { loaded, sections: Sections::of_entry(entry)?, plans: FloorPlans::default(), samples: MetricSamples::default(), decisions: None })
     }
 
     /// How many times the floor plan was built.
@@ -219,6 +242,28 @@ impl MetricSamples {
     /// The packer and the blocks of the samples: what a Run in the browser stores (`archive`).
     pub fn store(&self) -> (&Packer, &Blocks) {
         (&self.packer, &self.blocks)
+    }
+
+    /// The sizes of the samples' string and shape tables: `[strings, shapes]`.
+    pub fn table_counts(&self) -> [usize; 2] {
+        [self.packer.strings().len(), self.packer.shapes().len()]
+    }
+
+    /// The tables' entries from `strings` and `shapes` on (`Packer::write_tables`).
+    pub fn tables(&self, strings: usize, shapes: usize) -> Vec<u8> {
+        let mut out = Vec::new();
+        self.packer.write_tables(strings, shapes, &mut out);
+        out
+    }
+
+    /// How many blocks there are, and how many of them are sealed: `[blocks, sealed]`.
+    pub fn block_counts(&self) -> [usize; 2] {
+        [self.blocks.blocks().len(), self.blocks.sealed()]
+    }
+
+    /// A copy of the block `index` (empty past the last).
+    pub fn block(&self, index: usize) -> Vec<u8> {
+        self.blocks.blocks().get(index).cloned().unwrap_or_default()
     }
 
     /// The line of the sample `index` (`engine::metric_line`), or None past the last.
@@ -401,12 +446,45 @@ impl Host for PlainHost {
         self.samples.push(sample, minute, balances.as_ref())
     }
 
+    /// An indexed sink where the Run collects its decisions, else a silent one.
     fn decision_sink(&self) -> Result<DecisionSink> {
-        Ok(DecisionSink::Silent)
+        Ok(if self.decisions.is_some() { DecisionSink::Indexed } else { DecisionSink::Silent })
     }
 
-    fn decision(&mut self, _decision: Decision) -> Result<()> {
+    /// The record's bytes, kept. An indexed sink is given no other kind of record, and a silent
+    /// one none.
+    fn decision(&mut self, decision: Decision) -> Result<()> {
+        if let (Some(decisions), Decision::Indexed(raw)) = (&mut self.decisions, decision) {
+            decisions.records.push(raw);
+        }
         Ok(())
+    }
+
+    /// `policy_sources.get(policy_version)` of `_IndexedMetricSink`: the assumption source of the
+    /// Model Catalog's model of that ID (`validate::catalog`), None for a version no model has.
+    fn decision_source(&mut self, policy_version: &str) -> Result<Option<Option<Arc<str>>>> {
+        let catalog = crate::validate::catalog::catalog()?;
+        Ok(Some(catalog.models.get(policy_version).map(|model| model.assumption_source_id.clone())))
+    }
+
+    /// A decision the core leaves to a sink in Python. A collecting Run counts it (`Decisions`) and
+    /// goes on, as a silent sink would, so that collecting changes nothing; a decision due no later
+    /// than its own minute is refused whether or not the Run collects, as the silent sink refuses it.
+    fn record_decision_python(
+        &mut self,
+        data: &ViewData,
+        _proposal: &Proposal,
+        _target_id: Option<&str>,
+        next_decision_at: i64,
+        _observed: &Observed<'_>,
+    ) -> Result<()> {
+        match &mut self.decisions {
+            Some(decisions) if next_decision_at > data.minute_index => {
+                decisions.missed += 1;
+                Ok(())
+            }
+            _ => Err(Error::unsupported(NO_PYTHON_SINK)),
+        }
     }
 
     fn trace_level(&self) -> Result<TraceLevel> {
@@ -490,9 +568,60 @@ impl PlainRun {
         engine::step(&self.loaded, &mut self.host, &mut self.stepping)
     }
 
+    /// Up to `ticks` ticks, stopping where the clock is complete: how many ran. A tick's failure or
+    /// the end-of-tick check's stops it (`Stopped`, with the ticks that ran before).
+    pub fn advance(&mut self, ticks: u64) -> std::result::Result<u64, Stopped> {
+        let mut ran = 0;
+        while ran < ticks {
+            match self.step() {
+                Ok(_) => ran += 1,
+                Err(StepError::Complete) => break,
+                Err(StepError::Tick { minute, label, error }) => return Err(Stopped { ran, minute, at: At::Tick(label), error }),
+                Err(StepError::Check { minute, error }) => return Err(Stopped { ran, minute, at: At::Check, error }),
+            }
+        }
+        Ok(ran)
+    }
+
+    /// Whether the Run collects its decisions' records (#368): on, the host is an indexed sink and
+    /// keeps them (`Decisions`); off (the default), it is a silent one, and what it kept and was
+    /// not taken is dropped. The world is the same either way.
+    pub fn collect_decisions(&mut self, on: bool) {
+        match (on, self.host.decisions.is_some()) {
+            (true, false) => self.host.decisions = Some(Decisions::default()),
+            (false, _) => self.host.decisions = None,
+            (true, true) => {}
+        }
+    }
+
+    /// The decision records kept since the last call, taken out (none where the Run does not
+    /// collect them).
+    pub fn take_decisions(&mut self) -> Vec<Vec<u8>> {
+        self.host.decisions.as_mut().map(|decisions| std::mem::take(&mut decisions.records)).unwrap_or_default()
+    }
+
+    /// How many decisions since the Run began to collect them were left to a sink in Python
+    /// (`Decisions::missed`).
+    pub fn decisions_missed(&self) -> u64 {
+        self.host.decisions.as_ref().map_or(0, |decisions| decisions.missed)
+    }
+
     /// The digest of each part of the world's canonical document (`canonical::digests`).
     pub fn digests(&self) -> Result<Vec<(&'static str, String)>> {
         self.loaded.cell.with(|world| crate::canonical::digests(world))?
+    }
+
+    /// `digests` as a JSON object in the order of the parts: what a stored Run's world piece and
+    /// log read back to.
+    pub fn part_digests_json(&self) -> Result<String> {
+        utf8(crate::canonical::digests_json(&self.digests()?))
+    }
+
+    /// The digests of the world as `tests/support/core_tick.py` writes them
+    /// (`canonical::run_digests`), as a JSON object in its order.
+    pub fn run_digests_json(&self) -> Result<String> {
+        let digests = self.loaded.cell.with(|world| crate::canonical::run_digests(world))??;
+        utf8(crate::canonical::digests_json(&digests))
     }
 
     /// The frame of the world now (`frame::frame`, #264): its canonical JSON, what the API's
@@ -541,6 +670,23 @@ impl PlainRun {
         self.loaded.cell.with(|world| crate::program::schedule(world, program, &mut placement))?
     }
 
+    /// `validate_effect_program` of a program's JSON bytes (`EffectProgram::of_json`): the issues as
+    /// a JSON list of strings. An error for a program the contract refuses or the core does not
+    /// check.
+    pub fn validate_effect_program_json(&mut self, program: &[u8]) -> Result<String> {
+        let program = crate::program::EffectProgram::of_json(program)?;
+        let issues = self.validate_effect_program(&program)?;
+        utf8(V::List(issues.into_iter().map(|issue| V::Str(issue.into())).collect()).to_json()?)
+    }
+
+    /// `apply_effect_program` of a program's JSON bytes: the receipt's `command_log` entry as JSON
+    /// (`{"command": "effect_program", "program_id", "program_hash", "event_ids", "minute"}`).
+    pub fn apply_effect_program_json(&mut self, program: &[u8]) -> Result<String> {
+        let program = crate::program::EffectProgram::of_json(program)?;
+        let receipt = self.apply_effect_program(&program)?;
+        utf8(receipt.command().to_json()?)
+    }
+
     /// `installed_facility_placement_enabled(world)`.
     fn placement_enabled(&mut self) -> Result<bool> {
         let holding = crate::rules::kit::holding(&self.loaded.cell, &mut self.host)?;
@@ -572,6 +718,55 @@ impl PlainRun {
         self.loaded.cell.with(|world| world.log_mut().map(|mut log| log.seal_packed()))??;
         self.host.samples.seal();
         Ok(())
+    }
+
+    /// The packed log's packer and blocks (`EventLog::packed_store`), given to `f`.
+    fn log_store<R>(&self, f: impl FnOnce(&Packer, &Blocks) -> R) -> Result<R> {
+        self.loaded.cell.with(|world| -> Result<R> {
+            let log = world.log()?;
+            let (packer, blocks) = log.packed_store().ok_or_else(|| Error::unsupported("the log is not packed"))?;
+            Ok(f(packer, blocks))
+        })?
+    }
+
+    /// The sizes of the log's string and shape tables: `[strings, shapes]`.
+    pub fn log_table_counts(&self) -> Result<[usize; 2]> {
+        self.log_store(|packer, _| [packer.strings().len(), packer.shapes().len()])
+    }
+
+    /// The log's tables' entries from `strings` and `shapes` on (`Packer::write_tables`).
+    pub fn log_tables(&self, strings: usize, shapes: usize) -> Result<Vec<u8>> {
+        self.log_store(|packer, _| {
+            let mut out = Vec::new();
+            packer.write_tables(strings, shapes, &mut out);
+            out
+        })
+    }
+
+    /// How many of the log's blocks there are, and how many of them are sealed: `[blocks, sealed]`.
+    pub fn log_block_counts(&self) -> Result<[usize; 2]> {
+        self.log_store(|_, blocks| [blocks.blocks().len(), blocks.sealed()])
+    }
+
+    /// A copy of the log's block `index` (empty past the last).
+    pub fn log_block(&self, index: usize) -> Result<Vec<u8>> {
+        self.log_store(|_, blocks| blocks.blocks().get(index).cloned().unwrap_or_default())
+    }
+
+    /// How many records the log holds.
+    pub fn log_records(&self) -> Result<usize> {
+        self.loaded.cell.with(|world| world.log().map(|log| log.len()))?
+    }
+
+    /// Whether every record of the log is in its blocks: none kept its bytes instead, so the
+    /// stored blocks hold the whole log.
+    pub fn log_all_packed(&self) -> Result<bool> {
+        self.loaded.cell.with(|world| world.log().map(|log| log.all_packed()))?
+    }
+
+    /// The world now without its log (`archive::world_parts`).
+    pub fn world_parts(&self) -> Result<Vec<u8>> {
+        self.loaded.cell.with(|world| archive::world_parts(world))?
     }
 
     /// The Run now as a saved point (`archive::SavedPoint`, #251), between two ticks.
@@ -617,4 +812,42 @@ impl PlainRun {
         let entry = file.get_mut("worlds").and_then(|worlds| worlds.get_mut(name)).ok_or_else(|| Error::Value(format!("the file has no world {name}")))?;
         Ok(entry.take())
     }
+}
+
+/// Where an `advance` stopped (`Stopped`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum At {
+    /// The tick, at the step of this label (`tick::Failed`), or None.
+    Tick(Option<&'static str>),
+    /// The end-of-tick check.
+    Check,
+}
+
+/// Why `PlainRun::advance` stopped before its ticks ran out: a tick's failure or the end-of-tick
+/// check's, at its minute. Its text (`Display`) is what the browser's `Simulation.advance` throws
+/// and the PyO3 crate's `PlainRun.advance` raises: `minute {minute}: {the step}: {error}`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Stopped {
+    /// How many ticks ran before.
+    pub ran: u64,
+    pub minute: i64,
+    pub at: At,
+    pub error: Error,
+}
+
+impl fmt::Display for Stopped {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let at = match self.at {
+            At::Tick(label) => label.unwrap_or("the tick"),
+            At::Check => "the end-of-tick check",
+        };
+        write!(f, "minute {}: {at}: {}", self.minute, self.error)
+    }
+}
+
+impl std::error::Error for Stopped {}
+
+/// JSON the core wrote, as a `String`.
+fn utf8(raw: Vec<u8>) -> Result<String> {
+    String::from_utf8(raw).map_err(|_| Error::Value("the JSON is not UTF-8".to_owned()))
 }

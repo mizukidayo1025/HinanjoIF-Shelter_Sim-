@@ -276,9 +276,11 @@ def test_the_observer_the_space_and_a_test_draw() -> None:
     assert seen[0][0] is TickPhase.UPDATE_AGENT_STATE
     # Without an observer nothing is called.
     assert _call(controller, "phase", "collect_metrics", False) is None
+    # The core's dispatch began the Run's new epoch before it told the host (#368): the host builds
+    # the routers in it without beginning another.
     epoch = controller._run_core.epoch
     _call(controller, "space_refreshed")
-    assert controller._run_core.epoch == epoch + 1
+    assert controller._run_core.epoch == epoch
     rng = _Recording()
     rng.random = lambda *parts: (rng.calls.append(("random", parts, {})), 0.25)[1]
     assert _call(controller, "draw", "toilet_service", "agent-1", 5, rng=rng) == 0.25

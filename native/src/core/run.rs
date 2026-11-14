@@ -629,11 +629,15 @@ impl RunCore {
     /// now, with `ZoneGraph`'s checks and words. Without a world, or where the tables cannot be
     /// read, they are built from the controller's world when next asked, which refuses tables that
     /// dropped their rows (lane c6: the controller's `space` and `staff_space` are not read).
-    #[pyo3(signature = (world=None))]
-    fn refresh_routes(&self, world: Option<&Bound<'_, PyAny>>) -> PyResult<()> {
+    /// `refreshed`: the core's dispatch already began the new epoch (#368), so this builds its
+    /// routers without beginning another.
+    #[pyo3(signature = (world=None, *, refreshed=false))]
+    fn refresh_routes(&self, world: Option<&Bound<'_, PyAny>>, refreshed: bool) -> PyResult<()> {
         let epoch = {
             let mut run = self.lock()?;
-            run.routes.refresh();
+            if !refreshed {
+                run.routes.refresh();
+            }
             run.routes.epoch()
         };
         match world {

@@ -246,6 +246,23 @@ pub fn run_digests(world: &World) -> Result<Vec<(&'static str, String)>> {
     Ok(digests)
 }
 
+/// Digests by part (`digests`, `run_digests`) as a JSON object in their order, `{"part":"hex",...}`:
+/// what the WASM crate's `Simulation` and the PyO3 crate's `PlainRun` give (#368).
+pub fn digests_json(digests: &[(&str, String)]) -> Vec<u8> {
+    let mut encoder = Encoder::with_capacity(96 * (digests.len() + 1));
+    encoder.out.push(b'{');
+    for (index, (part, digest)) in digests.iter().enumerate() {
+        if index > 0 {
+            encoder.out.push(b',');
+        }
+        encoder.string(part);
+        encoder.out.push(b':');
+        encoder.string(digest);
+    }
+    encoder.out.push(b'}');
+    encoder.out
+}
+
 /// `WorldState.canonical_json()` of the world, with its `rng_state` (the document's).
 pub fn canonical_json(world: &World, rng_state: &V) -> Result<Vec<u8>> {
     let mut rng = Encoder::with_capacity(64);

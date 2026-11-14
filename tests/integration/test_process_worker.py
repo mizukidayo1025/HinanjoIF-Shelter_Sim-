@@ -11,6 +11,10 @@ import pytest
 from sheltersim.storage.projects import StorageError
 from sheltersim.web.projects import ProjectAPI
 
+# Run on every pull request on Windows and macOS too (pytest --os-subset, #380): computations run
+# in processes started by spawn.
+pytestmark = pytest.mark.os_dependent
+
 
 def _duration(store):
     run = store.run("p", "r")

@@ -68,7 +68,11 @@ def _node() -> str:
     if node is None:
         pytest.skip("node is required for the relay's tests")
     probe = subprocess.run(
-        [node, "-e", "require('node:sqlite')"], capture_output=True, text=True, check=False
+        [node, "-e", "require('node:sqlite')"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        check=False,
     )
     if probe.returncode != 0:
         pytest.skip("the relay's tests need node:sqlite (node 22.5 or later)")
@@ -86,6 +90,7 @@ def _run(steps: list[dict[str, Any]], *, env: dict[str, Any] | None = None, **ta
         input=json.dumps(script, ensure_ascii=False),
         capture_output=True,
         text=True,
+        encoding="utf-8",
         check=True,
         timeout=60,
     )
@@ -328,7 +333,11 @@ def test_failed_calls_settle_at_nothing_or_at_their_reservation() -> None:
 
 def test_new_passphrase_makes_an_entry_the_relay_lets_in() -> None:
     made = subprocess.run(
-        [_node(), str(NEW_PASSPHRASE), "審査員C"], capture_output=True, text=True, check=True
+        [_node(), str(NEW_PASSPHRASE), "審査員C"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        check=True,
     ).stdout
     passphrase = re.search(r"^passphrase: (\S+)$", made, re.M).group(1)  # type: ignore[union-attr]
     entry = json.loads(re.search(r"^entry: +(.+)$", made, re.M).group(1))  # type: ignore[union-attr]
@@ -343,6 +352,7 @@ def test_new_passphrase_makes_an_entry_the_relay_lets_in() -> None:
         input=json.dumps(script),
         capture_output=True,
         text=True,
+        encoding="utf-8",
         check=True,
     )
     assert json.loads(done.stdout)["answers"][0]["body"]["recipient"] == "審査員C"

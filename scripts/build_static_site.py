@@ -21,7 +21,8 @@ The site is served at the root of its domain, as the screen loads `/demo-v2.css`
                             Cloudflare Workers' static assets (deploy/workers/wrangler.jsonc, #289),
                             Cloudflare Pages, GitHub Pages and Netlify do; for others see the docs)
     /demo-v2.css, /demo-v2*.js, /demo-v2-logo.jpg   the screen's files
-    /LICENSE.txt            the repository's LICENSE
+    /LICENSE.txt            the repository's LICENSE (the .txt files begin with UTF-8's byte order
+                            mark, as hosts answer them without a charset)
     /THIRD-PARTY-NOTICES.txt
                             the licenses of the crates the WASM holds (#290), from
                             `cargo tree`/`cargo metadata` of native/ and their packages' files
@@ -105,6 +106,7 @@ FIRST_SCRIPT = '<script src="/demo-v2-scene.js" defer></script>'
 # The licenses of what the WASM holds (#290): its crates' in NOTICES, the Rust standard library's
 # in RUST_LIBRARY_NOTICES (the notices rustc ships for programs it builds).
 NOTICES = "THIRD-PARTY-NOTICES.txt"
+UTF8_BOM = b"\xef\xbb\xbf"
 RUST_LIBRARY_NOTICES = "THIRD-PARTY-NOTICES-rust-library.html"
 WASM_CRATE = "sheltersim_wasm"
 WASM_TARGET = "wasm32-unknown-unknown"
@@ -415,11 +417,16 @@ def build(
     # the root's index.html, as for a single-page app).
     (output / "404.html").write_text(NOT_FOUND, encoding="utf-8")
     # The repository's license (MIT) travels with the copy of its code the site is.
-    shutil.copyfile(ROOT / "LICENSE", output / "LICENSE.txt")
     # And the licenses of what the WASM holds (#290).
     if set(notices) != {NOTICES, RUST_LIBRARY_NOTICES}:
         raise ValueError(f"the notices are {sorted(notices)}")
-    for name, data in notices.items():
+    texts = {"LICENSE.txt": (ROOT / "LICENSE").read_bytes(), **notices}
+    for name, data in texts.items():
+        # A host answers .txt as text/plain without a charset (Cloudflare Workers' static assets
+        # do), and the browser then reads the UTF-8 text (the license's 避難所IF！) in another
+        # encoding; the byte order mark makes it read UTF-8 (#410). The site sets no headers.
+        if name.endswith(".txt") and not data.startswith(UTF8_BOM):
+            data = UTF8_BOM + data
         (output / name).write_bytes(data)
     # GitHub Pages: serve the files as they are, without Jekyll.
     (output / ".nojekyll").write_bytes(b"")

@@ -201,7 +201,7 @@ python scripts/serve_static_site.py ../hinanjo-if-site --port 8000
 | `/` | `index.html`。`demo-v2.html`と同じ頁で、ホームを開きます。例のRun、ブラウザーで計算するRunと計算をやり直すボタン、自分のシナリオ、ライセンスの表示へのリンク（#371） |
 | `/demo-v2` | `demo-v2.html`（前の道。同じ頁で、開くとアドレスを`/`に替えます、#376） |
 | `/demo-v2.css`、`/demo-v2*.js`、`/demo-v2-logo.jpg` | 画面のファイル（変えずに写す） |
-| `/LICENSE.txt` | リポジトリーの`LICENSE`（MIT） |
+| `/LICENSE.txt` | リポジトリーの`LICENSE`（MIT）。`.txt`の2つは先頭にUTF-8のBOMを付けます。Workersは`.txt`を文字コードの指定なしの`text/plain`で返すため、BOMがないとブラウザーが日本語を文字化けさせます（#410） |
 | `/THIRD-PARTY-NOTICES.txt` | WASMに入る外部のcrateの一覧と、そのライセンス・表示のファイルの本文（#290）。`sheltersim_wasm`の通常の依存を`cargo tree`でたどり（wasm32のtarget、proc-macroとそれだけが使うものを除く）、各crateのpackageの`LICENSE*`・`COPYING*`・`NOTICE*`などを入れます。同じ本文は1回だけ書きます。そのようなファイルのないcrateがあると、サイトを作りません |
 | `/THIRD-PARTY-NOTICES-rust-library.html` | WASMに入るRustの標準ライブラリーの表示（rustcの`share/doc/rust/COPYRIGHT-library.html`をそのまま写したもの） |
 | `/browser/` | `api_fetch.js`、`api_worker.mjs`、それが読むmodule、`pkg/`（WASM）、`gsi-shelter-index.json`と`gsi-shelters/<自治体コード>.json`（下の段落） |

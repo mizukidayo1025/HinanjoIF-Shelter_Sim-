@@ -1,6 +1,6 @@
 # 避難所IF！ バックアップUI (`/demo-v2`)
 
-利用者向けの唯一の画面で、HTML/CSS/JavaScriptの4画面です（以前の画面`/demo`、`/admin`は#376でなくし、その道は`/demo-v2`へ転送します）。WorldState、Run、Checkpoint、EffectProgram、モデル係数の契約を変更しません。
+利用者向けの唯一の画面で、HTML/CSS/JavaScriptの5画面（ホーム、シナリオ設定、シミュレーション、分岐比較、レポート・対話）です（以前の画面`/demo`、`/admin`は#376でなくし、その道は`/demo-v2`へ転送します）。クエリのない`/demo-v2`とロゴは、ホームを開きます（#371）。WorldState、Run、Checkpoint、EffectProgram、モデル係数の契約を変更しません。
 
 2026-10-25の参照画像との再比較、修正内容、両解像度での実測、残る相違は [視覚レビュー記録](ui-backup-visual-review.md) にまとめています。
 
@@ -33,7 +33,8 @@ SHELTERSIM_LLM_MODE=record SHELTERSIM_LLM_ERROR_POLICY=stop \
 
 | 画面・機能 | 既存API | 調査時の状態 / 新UIでの対応 |
 |---|---|---|
-| Project作成・保存Run復元 | POST /api/v1/projects、GET P、GET P/runs | 実装済み / 専用ProjectとURL・ブラウザー設定から接続 |
+| ホーム | GET /api/v1/projects、GET P | 計算済みの例（Project `sample`の計算を終えたRun）、ブラウザー版で計算するRunと「計算をやり直す」、自分のシナリオ（このブラウザーの自分のProject）を並べる。読むだけで何も変えない（#371） |
+| Project作成・保存Run復元 | POST /api/v1/projects、GET P、GET P/runs | 実装済み / 新しいシナリオは例のProjectでなく自分のProjectに作る。開いているRunはURLが持つ |
 | 自然言語・基本条件・任意資源 | POST P/scenario-preview | 実装済み / 入力値を優先し、出典・補完仮定・警告・ブロッカーを表示 |
 | 施設種別 | request.facility_conditions | 条件の記録に対応 / 実施設の図面・適合性や別形状を推測しない |
 | 人口構成・施設概要 | preview.scenario、facility_design | 実装済み / 記録年齢の構成図と生成Geometryを描画 |
@@ -56,6 +57,7 @@ SHELTERSIM_LLM_MODE=record SHELTERSIM_LLM_ERROR_POLICY=stop \
 
 ## 利用の流れ
 
+0. ホームで、計算済みの例を開くか、「新しいシナリオを作る」を押します。ブラウザー版では「このブラウザーで計算する」で、例と同じシナリオを0分から計算できます。
 1. 「例文を使う」か、基本設定の自治体・災害・人数を入力し、期間などを任意指定します。項目指定を優先します。未入力の基本条件は既存parserで文章から抽出します。基本項目が一部だけの場合は抽出プレビューと統合後の最終プレビューを順番に取得します。
 2. 「次へ」で入力値・補完値・出典・警告を確認します。公的基準への適合は主張しません。承認ブロッカーがある場合は条件を修正し、再プレビューします。
 3. 確認チェックを選択して承認するとRunを作成します。計算目標を経過分で指定して計算します。短い動作確認には100人・0.025日（36分）を利用できます。長期・大人数は計算と保存量が増えます。

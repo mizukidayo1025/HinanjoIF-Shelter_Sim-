@@ -6,14 +6,15 @@ PKG_DIR is the output of `wasm-bindgen --target web` for sheltersim_wasm.wasm, a
 sample of scripts/build_browser_sample.py (docs/development.md, "ブラウザー版の静的サイト"). The
 screen's files (src/sheltersim/web/static/demo-v2*) are copied unchanged; the browser build's
 demo-v2.html is the server's with one more line: the script that wraps `fetch` and answers the
-screen's `/api/v1/...` in a Worker from the browser's store and WASM (native/wasm/js/api_fetch.js).
+screen's `/api/v1/...` in a Worker from the browser's store and WASM (native/wasm/js/api_fetch.js),
+and names the sample's Project and the Run the browser computes for the screen's home.
 
 The site is served at the root of its domain, as the screen loads `/demo-v2.css` and the like and
 `history.replaceState`s to `/demo-v2?…`:
 
-    /                       index.html: links to the sample's Run computed by the site's tool
-                            (/demo-v2?project=…&run=…&branch=main#simulation) and to the Run the
-                            browser computes itself (the same with run=COMPUTE_RUN, #267)
+    /                       index.html: the same page as /demo-v2, which opens on its home (#371):
+                            the sample's Runs, the Run the browser computes itself
+                            (COMPUTE_RUN, #267) with its reset, and the licenses
     (a missing path)        404.html, with status 404
     /demo-v2                demo-v2.html (a host serving `/demo-v2` from `demo-v2.html`, as
                             Cloudflare Workers' static assets (deploy/workers/wrangler.jsonc, #289),
@@ -91,10 +92,11 @@ COMPUTE_RUN = "run-browser-compute"
 SAMPLE_FORMAT = "sheltersim-site-sample"
 SAMPLE_VERSION = 1
 # The line the browser build adds to demo-v2.html, before the screen's first script: the script
-# that answers the API.
+# that answers the API, with the sample's Project and the Run the browser computes (the home).
 SHIM = (
     '<script src="/browser/api_fetch.js" data-worker="/browser/api_worker.mjs"'
-    ' data-sample="/sample/sample.json"></script>'
+    ' data-sample="/sample/sample.json" data-example-project="{project}"'
+    f' data-compute-run="{COMPUTE_RUN}"></script>'
 )
 FIRST_SCRIPT = '<script src="/demo-v2-scene.js" defer></script>'
 # The licenses of what the WASM holds (#290): its crates' in NOTICES, the Rust standard library's
@@ -114,11 +116,14 @@ HEADER = len(MAGIC) + 4 + 4 + 32
 LIMIT_MIB = 20
 
 
-def browser_html(server_html: str) -> str:
+def browser_html(server_html: str, project_id: str) -> str:
     """The server's demo-v2.html with the browser version's script before the screen's."""
     if server_html.count(FIRST_SCRIPT) != 1:
         raise ValueError(f"demo-v2.html has not exactly one {FIRST_SCRIPT}")
-    return server_html.replace(FIRST_SCRIPT, f"{SHIM}\n    {FIRST_SCRIPT}")
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+", project_id):
+        raise ValueError(f"the sample's Project id {project_id!r} is not a plain id")
+    shim = SHIM.replace("{project}", project_id)
+    return server_html.replace(FIRST_SCRIPT, f"{shim}\n    {FIRST_SCRIPT}")
 
 
 def bundle_project(bundle: Path) -> tuple[str, list[str]]:
@@ -146,111 +151,6 @@ NOT_FOUND = (
     '<body><p>ページが見つかりません。<a href="/">避難所IF！の計算済みの例を開く</a></p></body>\n'
     "</html>\n"
 )
-
-
-# The first page's reset button: it removes the Run the browser computed (its folder in the
-# browser's store, api_worker.mjs's `projects` folder), which the Worker makes again, not computed,
-# the next time the screen opens (compute.mjs's ensureComputeRun). The sample is kept. A page
-# shown again from the back-forward cache is loaded again, so a site updated since is not left
-# showing its old first page.
-RESET_SCRIPT = """<script>
-(() => {
-  "use strict";
-  const path = %s;
-  addEventListener("pageshow", (event) => {
-    if (event.persisted) location.reload();
-  });
-  const button = document.getElementById("reset");
-  const out = document.getElementById("reset-note");
-  button.addEventListener("click", async () => {
-    const question = "このブラウザーで計算した結果を消して、0分から計算し直せるようにします。" +
-      "計算済みの例は消えません。計算の画面を開いているタブは、先に閉じてください。よろしいですか？";
-    if (!confirm(question)) return;
-    button.disabled = true;
-    out.textContent = "消しています…";
-    try {
-      let folder = await navigator.storage.getDirectory();
-      for (const name of path.slice(0, -1)) folder = await folder.getDirectoryHandle(name);
-      await folder.removeEntry(path[path.length - 1], { recursive: true });
-      out.textContent = "消しました。「このブラウザーで計算する」を開くと、0分から計算できます。";
-    } catch (error) {
-      const name = error && error.name;
-      if (name === "NotFoundError") {
-        out.textContent = "まだ計算していないので、消すものはありません。";
-      } else if (name === "NoModificationAllowedError" || name === "InvalidModificationError") {
-        out.textContent = "計算の画面が開いているため消せません。" +
-          "その画面のタブを閉じてから、もう一度押してください。";
-      } else {
-        out.textContent = "消せませんでした：" + ((error && error.message) || error);
-      }
-    } finally {
-      button.disabled = false;
-    }
-  });
-})();
-</script>
-"""
-
-
-def index_html(sample: str, compute: str, project_id: str = "sample") -> str:
-    """The site's first page: links to the sample's Run (`sample`) and to the Run the browser
-    computes itself (`compute`), and a button that resets the latter."""
-
-    def link(target: str, title: str, note: str) -> str:
-        return (
-            f'<a class="choice" href="{target.replace("&", "&amp;")}">'
-            f"<strong>{title}</strong><span>{note}</span></a>\n"
-        )
-
-    return (
-        "<!doctype html>\n"
-        '<html lang="ja">\n<head>\n<meta charset="utf-8" />\n'
-        '<meta name="viewport" content="width=device-width, initial-scale=1" />\n'
-        "<title>避難所IF！</title>\n"
-        "<style>\n"
-        ":root { color-scheme: light dark; --ink: #1d2733; --paper: #f6f7f9; --card: #fff;"
-        " --line: #cfd6de; --accent: #0b5cad; }\n"
-        "@media (prefers-color-scheme: dark) { :root { --ink: #e6ebf0; --paper: #14191f;"
-        " --card: #1d242c; --line: #3a4652; --accent: #7db7ff; } }\n"
-        "body { margin: 0; padding: 32px 16px; background: var(--paper); color: var(--ink);"
-        " font-family: system-ui, sans-serif; line-height: 1.6; }\n"
-        "main { max-width: 640px; margin: 0 auto; }\n"
-        "h1 { font-size: 1.6rem; margin: 0 0 4px; }\n"
-        ".choice { display: block; margin: 16px 0; padding: 16px; border: 1px solid var(--line);"
-        " border-radius: 8px; background: var(--card); color: inherit; text-decoration: none; }\n"
-        ".choice:hover, .choice:focus { border-color: var(--accent); }\n"
-        ".choice strong { display: block; color: var(--accent); font-size: 1.1rem; }\n"
-        "small { display: block; margin-top: 24px; opacity: 0.8; }\n"
-        ".reset { margin: 8px 0 0; }\n"
-        ".reset button { font: inherit; padding: 6px 14px; border: 1px solid var(--line);"
-        " border-radius: 6px; background: var(--card); color: inherit; cursor: pointer; }\n"
-        ".reset button:disabled { opacity: 0.6; cursor: default; }\n"
-        "</style>\n"
-        "</head>\n<body>\n<main>\n<h1>避難所IF！</h1>\n"
-        "<p>合成の避難所（100人・7日間）のシミュレーションです。計算も表示も、このブラウザーの中で動きます。</p>\n"
-        + link(
-            sample,
-            "計算済みの例を見る",
-            "あらかじめ計算した7日分を、地図と指標で再生します。",
-        )
-        + link(
-            compute,
-            "このブラウザーで計算する",
-            "同じシナリオを0分から計算します。「終了まで計算」を押すと、"
-            "時計が進むのを見ながら7日分を計算できます（数十秒）。",
-        )
-        + '<div class="reset"><button id="reset" type="button">計算をやり直す</button>'
-        "<span>（このブラウザーで計算した結果を消し、0分に戻します）</span>"
-        '<p id="reset-note" role="status"></p></div>\n'
-        + "<small>初めて開くときは、例のデータ（約47 MB）を読み込んで、このブラウザーに保存します。"
-        "実在の避難所や人の記録ではありません。</small>\n"
-        '<small><a href="/LICENSE.txt">ライセンス</a>・'
-        f'<a href="/{NOTICES}">外部の部品のライセンス</a>'
-        f'（<a href="/{RUST_LIBRARY_NOTICES}">Rustの標準ライブラリー</a>）</small>\n'
-        "</main>\n"
-        + RESET_SCRIPT % json.dumps(["projects", project_id, "runs", COMPUTE_RUN])
-        + "</body>\n</html>\n"
-    )
 
 
 def split_bundle(bundle: Path, directory: Path, part_bytes: int) -> dict[str, Any]:
@@ -472,9 +372,10 @@ def build(
     output.mkdir(parents=True, exist_ok=True)
     for name in SCREEN_FILES:
         shutil.copyfile(STATIC / name, output / name)
-    (output / "demo-v2.html").write_text(
-        browser_html((STATIC / "demo-v2.html").read_text(encoding="utf-8")), encoding="utf-8"
-    )
+    page = browser_html((STATIC / "demo-v2.html").read_text(encoding="utf-8"), project_id)
+    (output / "demo-v2.html").write_text(page, encoding="utf-8")
+    # `/` is the same page, which opens on its home (#371).
+    (output / "index.html").write_text(page, encoding="utf-8")
     (output / "browser" / "pkg").mkdir(parents=True)
     for name in browser_modules():
         shutil.copyfile(JS / name, output / "browser" / name)
@@ -499,7 +400,6 @@ def build(
     target = f"/demo-v2?{query}#simulation"
     compute_query = urlencode({"project": project_id, "run": COMPUTE_RUN, "branch": "main"})
     compute = f"/demo-v2?{compute_query}#simulation"
-    (output / "index.html").write_text(index_html(target, compute, project_id), encoding="utf-8")
     # A missing file is a 404 (Workers' static assets answer with it under deploy/workers/'s
     # not_found_handling "404-page"; Cloudflare Pages without a 404.html answers every path with
     # the root's index.html, as for a single-page app).

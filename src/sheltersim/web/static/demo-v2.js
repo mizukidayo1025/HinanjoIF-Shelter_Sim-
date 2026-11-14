@@ -27,15 +27,16 @@
   // The Project of the person's own Scenarios: new ones are made there, never in the example.
   // A Project the address names is it, unless it is the example's.
   const askedProject = query.get("project");
-  const ownProject =
+  let ownId =
     askedProject && askedProject !== exampleProject
       ? askedProject
       : saved.own ||
-        (saved.project && saved.project !== exampleProject
-          ? saved.project
-          : `backup-${crypto.randomUUID()}`);
+        (saved.project && saved.project !== exampleProject ? saved.project : null);
+  // A new id is made only when a Scenario is first made: opening a Run uses no random id (the
+  // browser checks pin crypto.randomUUID's sequence for the Run and branch ids).
+  const ownProject = () => (ownId ??= `backup-${crypto.randomUUID()}`);
   const state = {
-    project: askedProject || ownProject,
+    project: askedProject || ownId,
     run: query.get("run") || null,
     branch: query.get("branch") || "main",
     minute: 0,
@@ -68,6 +69,7 @@
     poll: null,
     mode: null,
     homeVersion: 0,
+    forkFrom: null,
   };
   const metricDefs = [
     {
@@ -241,7 +243,7 @@
     "再現の方法は未記録";
   const base = () => `/api/v1/projects/${enc(state.project)}`;
   // New Scenarios go to one's own Project, whichever Run is open.
-  const ownBase = () => `/api/v1/projects/${enc(ownProject)}`;
+  const ownBase = () => `/api/v1/projects/${enc(ownProject())}`;
   const runBase = () => `${base()}/runs/${enc(state.run)}`;
   const branchBase = (id = state.branch) => `${runBase()}/branches/${enc(id)}`;
   const reference = (id = state.branch) =>
@@ -346,7 +348,7 @@
       localStorage.setItem(
         "hinanjo-if-backup",
         JSON.stringify({
-          own: ownProject,
+          own: ownId,
           project: state.project,
           run: state.run,
           branch: state.branch,
@@ -358,7 +360,7 @@
     // The address names what is open; the home of one's own Project with nothing open is the
     // bare /demo-v2, which opens the home.
     const params = new URLSearchParams();
-    if (state.run || state.project !== ownProject)
+    if (state.project && (state.run || state.project !== ownId))
       params.set("project", state.project);
     if (state.run) {
       params.set("run", state.run);
@@ -387,7 +389,7 @@
   // The play buttons' icon and words (the header's shows the icon alone on a narrow screen).
   function setPlayLabels(playing) {
     const label = playing ? "再生を一時停止" : "シミュレーションを再生";
-    for (const id of ["play", "timeline-play"]) {
+    for (const id of ["play"]) {
       const button = $(id);
       button.querySelector(".play-icon").textContent = playing ? "Ⅱ" : "▶";
       button.querySelector(".play-label").textContent = label;
@@ -441,6 +443,7 @@
   function show(page) {
     if (!PAGES.includes(page)) page = "home";
     state.page = page;
+    if (page !== "comparison") state.forkFrom = null;
     document.body.dataset.view = page;
     stopPlayback();
     document
@@ -460,6 +463,7 @@
       void action("レポートと記録済みの根拠を取得しています…", loadReport);
     if (page === "home") loadHome().catch((e) => note(loadFailure(e), "error"));
     if (page === "scenario") renderScenarioPage();
+    if (page === "comparison") openComparison();
   }
   // A Run's name on the home and in the header: where, what disaster, how many people, how long.
   function runTitle(run, scenarios) {
@@ -551,7 +555,7 @@
       read = async (id) => (listed.has(id) ? api(`/api/v1/projects/${enc(id)}`) : null),
       [example, own] = await Promise.all([
         read(exampleProject),
-        ownProject === exampleProject ? null : read(ownProject),
+        !ownId || ownId === exampleProject ? null : read(ownId),
       ]);
     if (scope !== state.homeVersion) return;
     const examples = (example?.runs || []).filter(
@@ -587,7 +591,7 @@
       ...(mine.length
         ? mine.map((r) =>
             runLink(
-              ownProject,
+              ownId,
               r,
               own.scenarios,
               undefined,
@@ -627,7 +631,7 @@
     clearTimeout(state.poll);
     stopPlayback();
     state.scope++;
-    state.project = ownProject;
+    state.project = ownProject();
     state.run = null;
     state.branch = "main";
     state.data = null;
@@ -790,11 +794,20 @@
     const has = Boolean(state.run && state.frame),
       running = state.data?.status === "running",
       working = state.busy || running;
-    document
-      .querySelector(".simulation-side")
-      .classList.toggle("has-intervention", Boolean(state.intervention));
     for (const id of ["compute", "compute-end", "intervention-preview"])
       $(id).disabled = !has || working;
+    $("branch-here").disabled = !has || working;
+    $("intervention-panel").classList.toggle(
+      "has-intervention",
+      Boolean(state.intervention),
+    );
+    // The computing panel shows while the branch has minutes left to compute (#374).
+    $("compute-panel").hidden =
+      has && !running && reference()?.computed_until >= duration();
+    const from = interventionBase();
+    $("intervention-base").textContent = from
+      ? `元：${shortBranch(from.branch)} · ${time(from.minute)}`
+      : "シナリオを開くと使えます";
     $("cancel").disabled = !running;
     // A site that cannot make Scenarios has no scenario page until a Run is open.
     const scenarioNav = document.querySelector('[data-page="scenario"]');
@@ -803,14 +816,15 @@
       ? "このサイトでは条件から新しいシナリオを作れません"
       : "";
     $("target").disabled = !has || running;
-    $("timeline-play").disabled = !has || state.busy || upper() <= lower();
+    const single = !has || state.busy || upper() <= lower();
     $("play").disabled =
       state.page === "simulation"
-        ? $("timeline-play").disabled
+        ? single
         : state.page === "comparison"
-          ? !state.comparison ||
-            state.busy ||
-            state.comparison.common_range[1] <= state.comparison.common_range[0]
+          ? comparing()
+            ? state.busy ||
+              state.comparison.common_range[1] <= state.comparison.common_range[0]
+            : single
           : true;
     $("seek").disabled = !has || state.busy;
     $("branch-select").disabled = !has || working;
@@ -828,7 +842,13 @@
       pair = branches.length > 1;
     for (const id of ["compare-refresh", "compare-branch", "compute-pair"])
       $(id).disabled = !pair || working;
-    $("compare-seek").disabled = !state.comparison || state.busy;
+    $("compare-seek").disabled = comparing() ? state.busy : single;
+    if (state.page === "comparison" && !comparing() && has) {
+      $("compare-seek").min = lower();
+      $("compare-seek").max = upper();
+      $("compare-seek").value = state.minute;
+      $("compare-time").textContent = time(state.minute);
+    }
     $("compute-status").textContent = running
       ? `実計算中 · 保存済み ${upper()} 分 / 目標 ${state.target ?? "不明"} 分`
       : `${runStatusLabel(state.data?.status)} · 計算速度と再生速度は独立しています`;
@@ -847,6 +867,18 @@
       $("progress").max = Math.max(1, state.target ?? upper());
       $("progress").value = upper();
     }
+  }
+  // Whether the comparison page shows two branches; it shows the open branch alone while there
+  // is no pair or a branch is being made from the simulation page's minute (#374).
+  const comparing = () => Boolean(state.comparison && !state.forkFrom);
+  // Where a new branch starts: the minute the simulation page chose (「この時刻から分岐を作る」),
+  // or on the comparison page the shown pair's A at its minute, or the open branch and minute.
+  function interventionBase() {
+    if (!state.run || !state.frame) return null;
+    if (state.forkFrom) return state.forkFrom;
+    if (state.page === "comparison" && comparing())
+      return { branch: pairIds()[0], minute: state.comparison.minute };
+    return { branch: state.branch, minute: state.minute };
   }
   async function ensureProject(id = state.project) {
     const list = await api("/api/v1/projects");
@@ -926,7 +958,7 @@
       );
     if (!hasFields && !text)
       throw new Error("自然言語または基本設定を入力してください。");
-    await ensureProject(ownProject);
+    await ensureProject(ownProject());
     if (hasFields && (!req.municipality || !req.disaster || !req.evacuees)) {
       const hints = [
         req.municipality ? `${req.municipality}で` : null,
@@ -1136,7 +1168,7 @@
       run_id: runId,
     });
     clearTimeout(state.poll);
-    state.project = ownProject;
+    state.project = ownProject();
     state.loadedRun = null;
     state.data = null;
     state.frame = null;
@@ -1620,9 +1652,7 @@
       stopPlayback(true);
       return;
     }
-    const comparing = state.page === "comparison";
-    if (comparing && !state.comparison)
-      throw new Error("比較結果を先に取得してください。");
+    const comparing = state.page === "comparison" && Boolean(state.comparison) && !state.forkFrom;
     const hi = comparing ? state.comparison.common_range[1] : upper();
     let current = comparing ? state.comparison.minute : state.minute;
     if (current >= hi) {
@@ -1779,20 +1809,23 @@
       throw new Error("計算を停止してから介入してください。");
     const text = $("intervention-text").value.trim();
     if (!text) throw new Error("介入内容を入力してください。");
+    const from = interventionBase();
+    if (!from) throw new Error("シナリオを開いてから介入してください。");
     const captured = {
       text,
-      minute: state.minute,
-      branch: state.branch,
+      minute: from.minute,
+      branch: from.branch,
       scope: state.scope,
     };
-    const result = await api(`${branchBase()}/intervention-preview`, {
+    const result = await api(`${branchBase(from.branch)}/intervention-preview`, {
       text,
-      minute: state.minute,
+      minute: from.minute,
     });
+    const now = interventionBase();
     if (
       text !== $("intervention-text").value.trim() ||
-      captured.minute !== state.minute ||
-      captured.branch !== state.branch ||
+      captured.minute !== now?.minute ||
+      captured.branch !== now?.branch ||
       captured.scope !== state.scope
     )
       return;
@@ -1815,7 +1848,7 @@
     box.append(
       el(
         "span",
-        `${supportModeName(result.support_mode)} / 代替処理 ${result.fallback_used === true ? "あり" : result.fallback_used === false ? "なし" : "未記録"} / 計算済み${state.minute}分`,
+        `${supportModeName(result.support_mode)} / 代替処理 ${result.fallback_used === true ? "あり" : result.fallback_used === false ? "なし" : "未記録"} / ${time(captured.minute)}から`,
         "badge",
       ),
     );
@@ -1860,20 +1893,21 @@
     controls();
   }
   async function applyIntervention() {
-    const i = state.intervention;
+    const i = state.intervention,
+      from = interventionBase();
     if (
       !i?.can_apply ||
       !$("intervention-check").checked ||
       i.captured.text !== $("intervention-text").value.trim() ||
-      i.captured.minute !== state.minute ||
-      i.captured.branch !== state.branch
+      i.captured.minute !== from?.minute ||
+      i.captured.branch !== from?.branch
     )
       throw new Error(
         "現在の条件で再プレビューし、作用を確認して承認してください。",
       );
     const child = `branch-${crypto.randomUUID()}`;
-    const parent = state.branch;
-    await api(`${branchBase()}/intervention-apply`, {
+    const parent = i.captured.branch;
+    await api(`${branchBase(parent)}/intervention-apply`, {
       preview_id: i.preview_id,
       approved_program_hash: i.approved_program_hash,
       approved: true,
@@ -1882,6 +1916,8 @@
     // The server forks in its own process: the child is listed once that ends.
     await waitForked(child);
     state.branch = child;
+    state.minute = i.captured.minute;
+    state.forkFrom = null;
     state.scope++;
     state.comparison = null;
     state.history = [];
@@ -1968,7 +2004,9 @@
       selected !== $("compare-branch").value
     )
       return;
+    if (state.comparison?.minute !== result.minute) invalidateIntervention();
     state.comparison = result;
+    state.forkFrom = null;
     if (
       state.sceneMode === "schematic" &&
       !result.frames.every(window.HinanjoScene.supported)
@@ -1985,6 +2023,7 @@
     $("compare-time").textContent = time(m);
     $("branch-a-name").textContent = shortBranch(ids[0]);
     $("branch-b-name").textContent = shortBranch(ids[1]);
+    $("branch-b-badge").hidden = false;
     const defs = metricDefs.slice(0, 4);
     renderKpis($("compare-kpis-a"), result.frames[0].kpis, defs);
     renderKpis($("compare-kpis-b"), result.frames[1].kpis, defs);
@@ -2068,6 +2107,41 @@
     }
     controls();
     drawAll();
+  }
+  // The comparison page as it opens (#374): the pair is read at once when there is one, and the
+  // open branch is shown alone (with where the new branch will go) when there is none or a
+  // branch is being made from the simulation page's minute.
+  function openComparison() {
+    const pair = (state.data?.branches || []).length > 1;
+    if (!state.forkFrom && pair && !state.comparison && state.run)
+      void action("共通の計算済み範囲を取得しています…", () => {
+        const ids = pairIds(),
+          refs = ids.map(reference),
+          lo = Math.max(...refs.map((r) => r.fork_minute)),
+          hi = Math.min(...refs.map((r) => r.computed_until));
+        return loadComparison(
+          state.minute >= lo && state.minute <= hi ? state.minute : undefined,
+        );
+      });
+    $("branch-b-badge").hidden = !comparing();
+    if (comparing()) return;
+    $("branch-a-name").textContent = shortBranch(state.branch);
+    $("branch-b-name").textContent = "これから作る分岐";
+    $("compare-kpis-a").replaceChildren();
+    $("compare-kpis-b").replaceChildren();
+    $("compare-conditions-a").textContent = "";
+    $("compare-conditions-b").textContent = "";
+    $("comparison-instruction").textContent = state.forkFrom
+      ? `${time(state.forkFrom.minute)}から分岐を作ります。左の欄に介入の指示を書いてください。`
+      : pair
+        ? "比べる分岐を読み込んでいます…"
+        : "まだ分岐がありません。左の欄で、この時刻から分岐を作れます。";
+    $("comparison-effect").replaceChildren(
+      el("p", "分岐を作ると、適用した作用と検証結果を表示します。", "muted"),
+    );
+    $("difference-summary").replaceChildren(
+      el("p", "分岐を作って比べると、同じ時刻の指標の違いを表示します。", "muted"),
+    );
   }
   async function computePair() {
     const ids = pairIds();
@@ -2386,7 +2460,7 @@
     return { ctx, w: r.width, h: r.height };
   }
   const hits = new Map();
-  function drawMap(canvas, frame, layer = "normal", zoom = state.zoom) {
+  function drawMap(canvas, frame, layer = "normal", zoom = state.zoom, extra = {}) {
     const sf = surface(canvas);
     if (!sf) return;
     const interactive = [
@@ -2426,6 +2500,7 @@
         zoom,
         selected: state.selected,
         pan: interactive ? state.mapPan : { x: 0, y: 0 },
+        ...extra,
       }),
     );
   }
@@ -2649,17 +2724,25 @@
     }
     if (state.page === "simulation")
       drawMap($("simulation-map"), visible(state.frame), $("layer").value);
-    if (state.page === "comparison") {
+    if (state.page === "comparison" && comparing()) {
       drawMap(
         $("compare-map-a"),
-        visible(state.comparison?.frames[0], 0),
+        visible(state.comparison.frames[0], 0),
         $("compare-layer").value,
       );
       drawMap(
         $("compare-map-b"),
-        visible(state.comparison?.frames[1], 1),
+        visible(state.comparison.frames[1], 1),
         $("compare-layer").value,
       );
+    } else if (state.page === "comparison") {
+      // The open branch alone, and B's place for the branch to be made.
+      drawMap($("compare-map-a"), visible(state.frame), $("compare-layer").value);
+      drawMap($("compare-map-b"), null, $("compare-layer").value, state.zoom, {
+        emptyText: state.run
+          ? "この時刻から分岐を作ると、ここに並びます"
+          : "シナリオを開くと施設が表示されます",
+      });
     }
     if (state.page === "report") {
       drawMap($("report-map"), state.frame, $("report-layer").value);
@@ -2715,9 +2798,6 @@
   $("play").addEventListener("click", () => {
     togglePlayback().catch((e) => note(e.message, "error"));
   });
-  $("timeline-play").addEventListener("click", () => {
-    togglePlayback().catch((e) => note(e.message, "error"));
-  });
   $("speed").addEventListener("change", () =>
     state.replay?.setRate(Number($("speed").value)),
   );
@@ -2767,18 +2847,37 @@
     $("people-expand").textContent = open ? "× 閉じる" : "⤢ 大きく表示";
     if (state.frame) renderPeople();
   });
-  on("compare-refresh", () => loadComparison());
+  on("compare-refresh", () => {
+    state.forkFrom = null;
+    return loadComparison();
+  });
+  // 「この時刻から分岐を作る」: the comparison page with the simulation page's minute (#374).
+  $("branch-here").addEventListener("click", () => {
+    stopPlayback();
+    state.forkFrom = { branch: state.branch, minute: state.minute };
+    state.comparison = null;
+    invalidateIntervention();
+    show("comparison");
+    scrollTo(0, 0);
+    $("intervention-text").focus({ preventScroll: true });
+  });
   on("compute-pair", computePair);
   $("compare-branch").addEventListener("change", () => {
     state.comparison = null;
+    state.forkFrom = null;
     drawAll();
     void action("共通の計算済み範囲を取得しています…", () => loadComparison());
   });
-  $("compare-seek").addEventListener("change", () =>
-    action("両分岐の同じ時刻を取得しています…", () =>
-      loadComparison(Number($("compare-seek").value)),
-    ),
-  );
+  $("compare-seek").addEventListener("change", () => {
+    stopPlayback();
+    const minute = Number($("compare-seek").value);
+    if (!comparing()) {
+      if (state.forkFrom) state.forkFrom = { ...state.forkFrom, minute };
+      void action("記録された時刻へ移動しています…", () => seek(minute));
+      return;
+    }
+    void action("両分岐の同じ時刻を取得しています…", () => loadComparison(minute));
+  });
   $("target").addEventListener("input", () => {
     $("compare-target").value = $("target").value;
   });

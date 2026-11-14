@@ -458,33 +458,13 @@
               </p>
               <div id="issues"></div>
             </article>
-            <article class="panel">
+            <article class="panel branch-here-panel">
               <h2><span data-icon="comparison" class="inline-icon"></span>ここから別の「もしも」を試す</h2>
               <p class="fine">
-                計算済みの任意時刻へ戻り、作用を確認してから分岐します。
+                この時刻から条件を変えた分岐を作り、分岐比較の画面で元のシナリオと並べて比べます。
               </p>
-              <p class="fine">
-                <strong>計算が終了してから（または「計算を停止」してから）介入してください。</strong>
-              </p>
-              <label for="intervention-text">介入の指示</label
-              ><textarea
-                id="intervention-text"
-                rows="3"
-                maxlength="4000"
-                placeholder="例：トイレを2基追加する"
-              ></textarea
-              ><button id="intervention-preview" class="primary full" disabled>
-                介入の作用をプレビュー →
-              </button>
-              <div id="intervention-result"></div>
-              <label class="checkbox"
-                ><input
-                  id="intervention-check"
-                  type="checkbox"
-                  disabled
-                />作用・対象・時刻・検証結果を確認し、分岐作成を承認します。</label
-              ><button id="intervention-apply" class="teal full" disabled>
-                承認して新しい分岐を作成
+              <button id="branch-here" class="primary full" type="button" disabled>
+                この時刻から分岐を作る →
               </button>
             </article>
             <article id="people-panel" class="panel people-panel">
@@ -541,10 +521,7 @@
             <span id="computed-label" class="badge">未計算</span>
           </div>
           <div class="playback">
-            <button id="timeline-play" class="play-button" disabled aria-label="シミュレーションを再生">
-              <span class="play-icon" aria-hidden="true">▶</span
-              ><span class="play-label">シミュレーションを再生</span></button
-            ><input
+            <input
               id="seek"
               type="range"
               min="0"
@@ -579,23 +556,52 @@
             共通の計算済み時刻で比較
           </button>
         </div>
-        <article class="panel comparison-intro">
-          <div>
-            <span class="branch-letter" data-icon="comparison"></span><strong>介入の記録</strong>
-            <p id="comparison-instruction">
-              シミュレーション画面で介入をプレビュー・承認してください。
+        <div class="comparison-top">
+          <article id="intervention-panel" class="panel intervention-panel">
+            <div class="panel-title">
+              <h2><span data-icon="comparison" class="inline-icon"></span>この時刻から分岐を作る</h2>
+              <span id="intervention-base" class="badge"></span>
+            </div>
+            <p class="fine">
+              計算済みの時刻から、作用・対象・時刻を確かめて分岐を作ります。計算中は作れません。
             </p>
-          </div>
-          <div id="comparison-effect">
-            <p class="muted">実行可能な作用と検証結果を表示します。</p>
-          </div>
-          <div>
-            <label
-              >比較する分岐B<select id="compare-branch" disabled></select
-            ></label>
-            <p id="comparison-range" class="fine">2つの分岐が必要です。</p>
-          </div>
-        </article>
+            <label for="intervention-text">介入の指示</label
+            ><textarea
+              id="intervention-text"
+              rows="3"
+              maxlength="4000"
+              placeholder="例：トイレを2基追加する"
+            ></textarea
+            ><button id="intervention-preview" class="primary full" disabled>
+              介入の作用をプレビュー →
+            </button>
+            <div id="intervention-result"></div>
+            <label class="checkbox"
+              ><input
+                id="intervention-check"
+                type="checkbox"
+                disabled
+              />作用・対象・時刻・検証結果を確認し、分岐の作成を承認します。</label
+            ><button id="intervention-apply" class="teal full" disabled>
+              承認して新しい分岐を作成
+            </button>
+          </article>
+          <article class="panel comparison-intro">
+            <div>
+              <span class="branch-letter" data-icon="comparison"></span><strong>比べている分岐</strong>
+              <p id="comparison-instruction">まだ分岐がありません。左の欄で、この時刻から分岐を作れます。</p>
+            </div>
+            <div id="comparison-effect">
+              <p class="muted">分岐を作ると、適用した作用と検証結果を表示します。</p>
+            </div>
+            <div>
+              <label
+                >比較する分岐B<select id="compare-branch" disabled></select
+              ></label>
+              <p id="comparison-range" class="fine">比べるには2つの分岐が要ります。</p>
+            </div>
+          </article>
+        </div>
         <div class="compare-controls">
           <label
             >レイヤー<select id="compare-layer">
@@ -645,7 +651,7 @@
             <div class="branch-heading candidate">
               <b class="branch-letter">B</b>
               <h2 id="branch-b-name">介入後の分岐</h2>
-              <span class="badge teal-badge">介入あり</span>
+              <span id="branch-b-badge" class="badge teal-badge">介入あり</span>
             </div>
             <canvas
               id="compare-map-b"

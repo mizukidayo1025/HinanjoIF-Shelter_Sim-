@@ -3712,3 +3712,43 @@ body[data-scenario="unavailable"] #page-scenario .scenario-grid {
     min-width: 0;
   }
 }
+
+/* 分岐比較（#374）：この時刻から分岐を作る欄と、比べている分岐を並べる */
+.comparison-top {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
+  gap: 12px;
+  margin-bottom: 12px;
+  align-items: start;
+}
+.comparison-top .comparison-intro {
+  margin: 0;
+}
+.intervention-panel .panel-title {
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.intervention-panel h2 {
+  font-size: 15px;
+}
+.intervention-panel textarea {
+  min-height: 70px;
+}
+.intervention-panel .full {
+  margin-top: 8px;
+}
+.intervention-panel #intervention-result:empty {
+  display: none;
+}
+.branch-here-panel h2 {
+  font-size: 14px;
+}
+@media (max-width: 1250px) {
+  .comparison-top {
+    grid-template-columns: 1fr;
+  }
+}
+.intervention-panel:not(.has-intervention) .checkbox,
+.intervention-panel:not(.has-intervention) #intervention-apply {
+  display: none;
+}

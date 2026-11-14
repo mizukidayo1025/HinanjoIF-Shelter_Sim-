@@ -182,3 +182,22 @@ def test_the_regex_classes_table_is_what_its_tool_writes() -> None:
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     assert module.TABLE.read_text(encoding="utf-8") == module.text()
+
+
+def test_the_scenario_text_task_and_its_answers_are_what_the_tool_writes() -> None:
+    """The task the relay sends and the core checks answers with (#421), and the LLM answers with
+    what Python's parse makes of each (`native/core/tests/scenario_text.rs` compares the core),
+    are Python's today; `native/core/tools/scenario_text_task.py` writes them again."""
+    from pathlib import Path
+
+    from support.core_scenario_text import answers_text, task_text
+
+    root = Path(__file__).resolve().parents[3]
+    task = root / "native" / "core" / "src" / "scenario" / "scenario_text_task.json"
+    answers = root / "native" / "core" / "tests" / "data" / "scenario_text_answers.json"
+    assert task.read_text(encoding="utf-8") == task_text(), (
+        "run native/core/tools/scenario_text_task.py"
+    )
+    assert answers.read_text(encoding="utf-8") == answers_text(), (
+        "run native/core/tools/scenario_text_task.py"
+    )

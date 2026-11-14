@@ -10,7 +10,17 @@
 //   `geometry_hash`, `preview_id`. The preview is kept as Python keeps it, a draft
 //   (`<project>/drafts/<preview>/v1.json` and `current.json`), and the preparation account in
 //   `<project>/preparation.json`. Python's usage ledger (`usage/<account>.json`) is not written:
-//   offline nothing is spent and no screen route reads it.
+//   no screen route reads it.
+//   With the relay's passphrase (`llm`, the home's 「API を有効にする」, #420), the text is read as
+//   Python reads it with the LLM (#421): the site's relay (deploy/workers/relay.mjs) asks for the
+//   task `scenario_text` and the core reads the answer (`parseScenarioTextAnswer`: the answer
+//   checked against the task's schema, read back and merged with the rules' values; source
+//   `prepare_llm`, or the rules' fallback). When the relay cannot answer (no passphrase it lets in,
+//   the day's cap reached, the API unreachable) or the answer holds a condition the browser does
+//   not compute, the text is read without it, as offline, and the answer's `warnings` say why
+//   first. `llm_usage` is the record mode's (the call and its cost); the call's record (model,
+//   prompt version, tokens, cost, outcome) is kept in the preparation account (`llm_calls`), which
+//   the Run is bound to on approval. The passphrase is never stored.
 // - approve: the draft read back and checked as Python checks it; the Scenario saved
 //   (project_store.mjs's `saveScenario`) and the Run created through `runs`.
 // - runs: the Run's record with its `model_versions` and evidence (the core's `modelVersions`,
@@ -50,6 +60,10 @@ const PREVIEW_OPTIONAL = [
 const ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/;
 
 const refused = (message) => new store.ProjectStoreError(message);
+/// The relay's task that reads a Scenario text (deploy/workers/relay_tasks.mjs).
+const RELAY_TASK = "/llm/v1/tasks/scenario_text";
+/// `fetch` of a path of the site the Worker is served from.
+const sameOriginFetch = (path, init) => fetch(new URL(path, globalThis.location?.href ?? "http://localhost/"), init);
 const unsupported = (what) => new ApiError(409, `${UNSUPPORTED}（${what}）`, "browser_unsupported");
 const invalid = () => new ApiError(400, "invalid project request");
 
@@ -128,8 +142,73 @@ export class ScenarioRoutes {
   /// (research.mjs's), or null; `shelterRows(code)`: the site's rows of a code of it (research.mjs's);
   /// `fetchJson`: the address search (research.mjs's default when undefined); `now()` and
   /// `newId()`: the clock and uuid4's hex (fixed in tests).
-  constructor({ wasm, tree, shelterIndex, shelterRows, fetchJson, now = () => new Date(), newId = uuidHex }) {
-    Object.assign(this, { wasm, tree, shelterIndex, shelterRows, fetchJson, now, newId });
+  /// `relay(path, init)`: a request to the site's LLM relay (same origin; tests answer it).
+  constructor({ wasm, tree, shelterIndex, shelterRows, fetchJson, now = () => new Date(), newId = uuidHex, relay = sameOriginFetch }) {
+    Object.assign(this, { wasm, tree, shelterIndex, shelterRows, fetchJson, now, newId, relay });
+  }
+
+  // ---- The text read with the LLM (#421) ----
+
+  /// The text read with the relay's answer: `{ parsedText, usage, note, call }`. A relay that does
+  /// not answer, or an answer with a condition the browser does not compute, leaves the offline
+  /// read (`parseScenarioText`) with a note of why.
+  async readWithLlm(text, passphrase) {
+    const offline = () => this.wasm.parseScenarioText(text);
+    const usage = (count, spent) => ({ mode: "record", api_request_count: count, spent_usd: new PyFloat(spent) });
+    let response;
+    let body = null;
+    try {
+      response = await this.relay(RELAY_TASK, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${passphrase}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ input: { text } }),
+      });
+      body = await response.json().catch(() => null);
+    } catch {
+      return { parsedText: offline(), usage: usage(0, 0), note: "AIの中継に接続できなかったため、AIを使わずに読み取りました。", call: { outcome: "relay_unreachable" } };
+    }
+    if (!response.ok || typeof body?.output_text !== "string") {
+      const code = typeof body?.code === "string" ? body.code : `http_${response.status}`;
+      // The relay counts a call that reached the API (its answer refused or unreadable).
+      const called = code === "llm_provider_error" || code === "llm_provider_unreachable" ? 1 : 0;
+      const why = typeof body?.error === "string" ? body.error : `中継が答えませんでした（HTTP ${response.status}）。`;
+      return { parsedText: offline(), usage: usage(called, 0), note: `AIを使わずに読み取りました：${why}`, call: { outcome: code } };
+    }
+    const cost = Number(body.usage?.cost_usd) || 0;
+    const call = {
+      stage: "prepare",
+      model_id: String(body.model ?? ""),
+      prompt_version: String(body.prompt_version ?? ""),
+      schema_version: 1,
+      outcome: "recorded",
+      api_request_count: 1,
+      input_tokens: Number(body.usage?.input_tokens) || 0,
+      output_tokens: Number(body.usage?.output_tokens) || 0,
+      estimated_cost_usd: new PyFloat(cost),
+    };
+    try {
+      const parsedText = this.wasm.parseScenarioTextAnswer(text, body.output_text);
+      return { parsedText, usage: usage(1, cost), note: null, call: { ...call, fallback_used: JSON.parse(parsedText).source !== "prepare_llm" } };
+    } catch (error) {
+      if (!String(error?.message ?? error).startsWith("unsupported: the AI's")) throw error;
+      return {
+        parsedText: offline(),
+        usage: usage(1, cost),
+        note: "AIが読み取った条件に、ブラウザー版ではまだ計算できないもの（人口の条件、施設の区画、運用の予定など）があったため、AIの読み取りを使わずに読み取りました。",
+        call: { ...call, fallback_used: true, error_kind: "browser_unsupported" },
+      };
+    }
+  }
+
+  /// Adds a call's record to the pending preparation account `accountId`.
+  async recordCall(projectId, accountId, call) {
+    const path = [projectId, "preparation.json"];
+    const bytes = await this.tree.read(path);
+    if (bytes === null) return;
+    const account = JSON.parse(decoder.decode(bytes));
+    if (account.account_id !== accountId || account.status !== "pending") return;
+    const calls = Array.isArray(account.llm_calls) ? account.llm_calls : [];
+    await this.tree.write(path, encoder.encode(`${answerJson({ ...account, llm_calls: [...calls, call] })}\n`));
   }
 
   // ---- The preparation account (workspace.py's `_preparation_account`, `_bind_preparation`) ----
@@ -192,7 +271,7 @@ export class ScenarioRoutes {
 
   // ---- POST {project}/scenario-preview ----
 
-  async preview(projectId, document) {
+  async preview(projectId, document, { llm = null } = {}) {
     fields(document, ["text"], PREVIEW_OPTIONAL);
     await store.projectResponse(this.tree, projectId);
     const draftId = await this.preparationAccount(projectId, document.draft_id);
@@ -206,6 +285,8 @@ export class ScenarioRoutes {
     let extractionSource;
     let parseWarnings = [];
     let missingFields = [];
+    let llmUsage = { mode: "offline", api_request_count: 0, spent_usd: new PyFloat(0) };
+    let relayNotes = [];
     // A request as the core read it: `{request: RawJson, input_sha256}`.
     const formRequest = () => {
       let text;
@@ -219,7 +300,15 @@ export class ScenarioRoutes {
     if (pyStrip(text)) {
       let parsedText;
       try {
-        parsedText = this.wasm.parseScenarioText(text);
+        if (llm) {
+          const read = await this.readWithLlm(text, llm);
+          parsedText = read.parsedText;
+          llmUsage = read.usage;
+          if (read.note) relayNotes = [read.note];
+          await this.recordCall(projectId, draftId, read.call);
+        } else {
+          parsedText = this.wasm.parseScenarioText(text);
+        }
       } catch (error) {
         throw coreError(error, "文の読み取り");
       }
@@ -239,7 +328,7 @@ export class ScenarioRoutes {
     } else {
       return answerJson({ can_start: false, missing_fields: ["municipality", "disaster", "evacuees"], warnings: [], draft_id: draftId });
     }
-    if (request === null) return answerJson({ can_start: false, missing_fields: missingFields, warnings: parseWarnings, draft_id: draftId });
+    if (request === null) return answerJson({ can_start: false, missing_fields: missingFields, warnings: [...relayNotes, ...parseWarnings], draft_id: draftId });
     for (const name of PREVIEW_OPTIONAL) {
       if (name !== "request" && name !== "draft_id" && document[name] !== undefined && document[name] !== null && !(name === "estat_category_codes" && !truthy(document[name]))) {
         throw unsupported(name);
@@ -307,10 +396,10 @@ export class ScenarioRoutes {
       approved_hash: approvedHash,
       can_start: canStart,
       approval_blockers: approvalBlockers,
-      warnings: [...parseWarnings, ...builderWarnings],
+      warnings: [...relayNotes, ...parseWarnings, ...builderWarnings],
       research: new RawJson(researched.text),
       request: new RawJson(requestText),
-      llm_usage: { mode: "offline", api_request_count: 0, spent_usd: new PyFloat(0) },
+      llm_usage: llmUsage,
       draft_id: draftId,
       facility_design: new RawJson(designText),
       geometry_hash: geometryHash,

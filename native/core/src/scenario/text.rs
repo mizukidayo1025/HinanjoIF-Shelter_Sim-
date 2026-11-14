@@ -27,6 +27,9 @@ use crate::json::python_float_repr;
 use crate::text::{casefold, re_decimal, re_space, re_word};
 use crate::value::V;
 
+mod answer;
+pub use answer::{parse_answer, task, TASK_JSON};
+
 /// `_MAX_INPUT_LENGTH`, in code points.
 const MAX_INPUT_LENGTH: usize = 4_000;
 /// The warning of a parse whose AI step fell back to the rules.
@@ -540,28 +543,54 @@ fn truthy(value: Option<&V>) -> bool {
 /// ValueError and ValidationError Python raises; what the request contract does not compute is
 /// `Unsupported`.
 pub fn parse(text: &str) -> Result<TextParse, Refusal> {
+    let explicit = read_rules(text)?;
+    offline(text, explicit)
+}
+
+/// The rules' values of a text, after the checks of its length.
+fn read_rules(text: &str) -> Result<Values, Refusal> {
     let chars: Vec<char> = text.chars().collect();
     if chars.iter().all(|char| re_space(*char)) || chars.len() > MAX_INPUT_LENGTH {
         return Err(Refusal::Invalid("scenario text must contain 1..4000 characters".into()));
     }
     let folded = casefold(text);
     let text_chars = Text { chars };
-    let explicit = explicit_fields(&text_chars, &folded)?;
-    let rule_fields: Vec<&'static str> = explicit.keys().copied().collect();
+    explicit_fields(&text_chars, &folded)
+}
+
+/// The router's fallback read back (`rules_fallback`), or the rules alone (`rules`) when the
+/// fallback fails the prompt's schema.
+fn offline(text: &str, explicit: Values) -> Result<TextParse, Refusal> {
     let fits = fallback_fits(&explicit);
-    let (source, mut warnings) = if fits { ("rules_fallback", vec![FALLBACK_WARNING]) } else { ("rules", vec![FALLBACK_WARNING]) };
+    let rule_fields: Vec<&'static str> = explicit.keys().copied().collect();
     // `_merge_explicit` of the fallback read back: the conditions the rules left unset, at their
     // defaults (the request's defaults too, so only their origin is written here).
     let extracted: &[&'static str] = if fits { &["operational_conditions", "population_conditions", "evacuation_selection"] } else { &[] };
+    let source = if fits { "rules_fallback" } else { "rules" };
+    finish(text, &explicit, &rule_fields, extracted, source, vec![FALLBACK_WARNING])
+}
+
+/// The parse of the merged values: `explicit` (the rules' fields `rule_fields`, then what the
+/// answer added), the fields `extracted` read from the answer at their defaults (their origin
+/// only), the source and the warnings before the draft's.
+fn finish(
+    text: &str,
+    explicit: &Values,
+    rule_fields: &[&'static str],
+    extracted: &[&'static str],
+    source: &'static str,
+    mut warnings: Vec<&'static str>,
+) -> Result<TextParse, Refusal> {
     let missing: Vec<&'static str> = REQUIRED.into_iter().filter(|field| !truthy(explicit.get(field))).collect();
     let mut request = None;
     if missing.is_empty() {
         let mut origins: Vec<(&str, &str)> = Vec::new();
-        let mut users = rule_fields.clone();
+        let mut users = rule_fields.to_vec();
         users.sort_unstable();
         origins.extend(users.iter().map(|field| (*field, "user")));
-        let mut added: Vec<&str> = extracted.iter().copied().filter(|field| !rule_fields.contains(field)).collect();
+        let mut added: Vec<&str> = explicit.keys().copied().chain(extracted.iter().copied()).filter(|field| !rule_fields.contains(field)).collect();
         added.sort_unstable();
+        added.dedup();
         origins.extend(added.iter().map(|field| (*field, "llm_extracted")));
         for field in ["duration_days", "seed", "accessible_toilet_count"] {
             if !origins.iter().any(|(name, _)| *name == field) {

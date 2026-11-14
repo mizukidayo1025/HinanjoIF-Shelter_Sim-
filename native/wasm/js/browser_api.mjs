@@ -24,7 +24,9 @@
 //   GET  runs/{run}/branches/{branch}/conversations   the questions and answers kept (#376)
 //   POST runs/{run}/pdf-report               the server's checks, then its answer without an API key:
 //                                            409 pdf_analysis_offline (#309)
-//   POST {project}/scenario-preview, scenario-approve, runs   js/scenario_routes.mjs (#301)
+//   POST {project}/scenario-preview, scenario-approve, runs   js/scenario_routes.mjs (#301); a preview's
+//                                            text is read with the LLM through the site's relay when the
+//                                            request carries the passphrase (`llm`, #421)
 //   anything else (the routes outside projects)   409 {"error": "ブラウザー版では未対応です…",
 //                                            "code": "browser_unsupported"}
 //
@@ -152,8 +154,8 @@ export class BrowserApi {
     this.forkOutcomes = new Map();
   }
 
-  /// Answers a request: `{ method, path, search, body }` (body the text of a POST) to `{ status,
-  /// type, body }`. Requests are answered one at a time, in the order they came.
+  /// Answers a request: `{ method, path, search, body, llm? }` (body the text of a POST; llm the
+  /// passphrase of the site's relay, for a Scenario preview, #421) to `{ status, type, body }`. Requests are answered one at a time, in the order they came.
   answer(request) {
     return this.enqueue(() => this.route(request));
   }
@@ -165,9 +167,9 @@ export class BrowserApi {
     return done;
   }
 
-  async route({ method, path, search = "", body = null }) {
+  async route({ method, path, search = "", body = null, llm = null }) {
     try {
-      return json(200, await this.dispatch(method, path, search, body));
+      return json(200, await this.dispatch(method, path, search, body, llm));
     } catch (error) {
       if (!(error instanceof ApiError) && !(error instanceof store.ProjectStoreError)) console.error(error);
       const { status, body } = errorAnswer(error);
@@ -175,18 +177,18 @@ export class BrowserApi {
     }
   }
 
-  async dispatch(method, path, search, body) {
+  async dispatch(method, path, search, body, llm = null) {
     if (!path.startsWith("/api/v1/")) throw new ApiError(404, "page not found");
     const parts = path.split("/").filter((part) => part !== "").map((part) => decodeURIComponent(part));
     if (parts[2] !== "projects") throw unsupported(path);
     const rest = parts.slice(3);
     const query = queryOf(search);
-    if (method === "POST") return this.post(rest, body);
+    if (method === "POST") return this.post(rest, body, llm);
     if (method !== "GET") throw new ApiError(405, "inspector API is read-only");
     return this.get(rest, query, search);
   }
 
-  async post(parts, body) {
+  async post(parts, body, llm = null) {
     if (parts.length === 0) {
       let document;
       try {
@@ -203,7 +205,7 @@ export class BrowserApi {
     if (parts.length === 2 && ["scenario-preview", "scenario-approve", "runs"].includes(parts[1])) {
       const document = bodyDocument(body);
       const routes = this.scenarioRoutes;
-      if (parts[1] === "scenario-preview") return routes.preview(parts[0], document);
+      if (parts[1] === "scenario-preview") return routes.preview(parts[0], document, { llm });
       if (parts[1] === "scenario-approve") return routes.approve(parts[0], document);
       return routes.runs(parts[0], document);
     }

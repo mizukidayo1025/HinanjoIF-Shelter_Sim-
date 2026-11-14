@@ -639,6 +639,24 @@ pub fn parse_scenario_text(text: &str) -> Result<String, JsError> {
     }
 }
 
+/// What the server's `scenario-preview` reads of a Scenario text when the LLM answered `output`
+/// (`sheltersim_core::scenario::text::parse_answer`, #421): JSON as `parseScenarioText`'s, its
+/// `source` `prepare_llm` when the answer was used, `rules_fallback` when the task's schema refused
+/// it, `rules` when it could not be read back. Errors as `parseScenarioText`'s; `unsupported: `
+/// also when the answer holds a condition the browser does not compute.
+#[wasm_bindgen(js_name = parseScenarioTextAnswer)]
+pub fn parse_scenario_text_answer(text: &str, output: &str) -> Result<String, JsError> {
+    use sheltersim_core::scenario::request::Refusal;
+    match sheltersim_core::scenario::text::parse_answer(text, output) {
+        Ok(parsed) => {
+            let bytes = parsed.to_value().to_json().map_err(js_error)?;
+            String::from_utf8(bytes).map_err(|error| JsError::new(&error.to_string()))
+        }
+        Err(Refusal::Invalid(why)) => Err(JsError::new(&format!("invalid: {why}"))),
+        Err(Refusal::Unsupported(why)) => Err(JsError::new(&format!("unsupported: {why}"))),
+    }
+}
+
 /// `InitialScenarioRequest.model_validate` of a request's JSON bytes and its
 /// `model_dump(mode="json")` (`sheltersim_core::scenario::request`, #295), as JSON:
 /// `{"request": dump, "input_sha256": sha256 of the dump's sorted JSON}` (the structured form's

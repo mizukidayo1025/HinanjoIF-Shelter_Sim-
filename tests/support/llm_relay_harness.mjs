@@ -3,7 +3,8 @@
 // the answers the script gives, so no request leaves the machine.
 //
 // stdin: { env: { ANTHROPIC_API_KEY?, LLM_PASSPHRASES? }, tasks: { name: { model, promptVersion,
-//          maxOutputTokens, maxPromptBytes, effort?, rejectInput? } }, steps: [{ now, request:
+//          maxOutputTokens, maxPromptBytes, effort?, rejectInput? } } or real_tasks: true (the
+//          relay's own, relay_tasks.mjs), steps: [{ now, request:
 //          { method, path, headers, body }, provider?: { status, body } | "unreachable" }] }
 // stdout: { answers: [{ status, body, provider_request? }], ledger: { spend, reservations, usage,
 //           failures }, logs: [lines] }
@@ -87,7 +88,7 @@ let step = null;
 let providerRequest = null;
 const worker = relay.createWorker({
   now: () => clock,
-  tasks,
+  tasks: script.real_tasks ? undefined : tasks,
   async fetchProvider(url, init) {
     const headers = { ...init.headers, "x-api-key": init.headers["x-api-key"] === script.env.ANTHROPIC_API_KEY ? "<the env's key>" : "<another>" };
     providerRequest = { url, headers, body: JSON.parse(init.body) };

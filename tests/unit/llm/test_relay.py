@@ -79,10 +79,17 @@ def _node() -> str:
     return node
 
 
-def _run(steps: list[dict[str, Any]], *, env: dict[str, Any] | None = None, **tasks: Any) -> Any:
+def _run(
+    steps: list[dict[str, Any]],
+    *,
+    env: dict[str, Any] | None = None,
+    real_tasks: bool = False,
+    **tasks: Any,
+) -> Any:
     script = {
         "env": {"ANTHROPIC_API_KEY": KEY, "LLM_PASSPHRASES": RECIPIENTS} if env is None else env,
         "tasks": tasks or {"probe": TASK},
+        "real_tasks": real_tasks,
         "steps": steps,
     }
     done = subprocess.run(
@@ -356,3 +363,50 @@ def test_new_passphrase_makes_an_entry_the_relay_lets_in() -> None:
         check=True,
     )
     assert json.loads(done.stdout)["answers"][0]["body"]["recipient"] == "審査員C"
+
+
+def test_the_scenario_text_task_sends_python_s_prompt_and_refuses_what_python_refuses() -> None:
+    """`scenario_text` (#421): the model, effort, answer size, system prompt and user message are
+    those Python's `parse_scenario_text` sends; a blank or too long text is refused before a
+    call, and 4,000 characters of four bytes still fit the task's prompt size."""
+    import sys
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+    from support.core_scenario_text import captured_task, task_document
+
+    from sheltersim.llm.provider import THINKING_HEADROOM_TOKENS, _system_prompt
+
+    texts = ["墨田区で地震。避難者100人、7日間。", "Flood in Kyoto, 12 people", "𠀋" * 4000]
+    refused = ["", " \u3000\x1c\n", "あ" * 4001]
+    steps = [
+        _post(
+            "/llm/v1/tasks/scenario_text",
+            body={"input": {"text": text}},
+            provider={"status": 200, "body": ANSWER},
+        )
+        for text in texts
+    ] + [
+        _post(
+            "/llm/v1/tasks/scenario_text",
+            body={"input": {"text": text}},
+            provider={"status": 200, "body": ANSWER},
+        )
+        for text in refused
+    ]
+    done = _run(steps, real_tasks=True)
+    document = task_document()
+    for text, answer in zip(texts, done["answers"][: len(texts)], strict=True):
+        assert answer["status"] == 200, answer
+        assert answer["body"]["prompt_version"] == "region-scenario-extraction-v1"
+        task = captured_task(text)
+        sent = answer["provider_request"]["body"]
+        assert sent["model"] == document["model"] == "claude-opus-5-5"
+        assert sent["max_tokens"] == 1_600 + THINKING_HEADROOM_TOKENS
+        assert sent["output_config"] == {"effort": "low"}
+        assert sent["system"] == _system_prompt(task)
+        assert sent["messages"] == [{"role": "user", "content": task.input_text}]
+    for answer in done["answers"][len(texts) :]:
+        assert answer["status"] == 400 and answer["body"]["code"] == "llm_task_input_invalid", (
+            answer
+        )
+        assert "provider_request" not in answer

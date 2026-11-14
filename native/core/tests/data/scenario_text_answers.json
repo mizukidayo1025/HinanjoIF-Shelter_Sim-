@@ -1,0 +1,2677 @@
+{
+ "cases": [
+  {
+   "name": "municipality-from-answer",
+   "output": "{\"municipality\": \"墨田区\", \"disaster\": \"\", \"evacuees\": \"100\", \"duration_days\": \"\", \"gross_area_m2\": \"\", \"accessible_toilet_count\": \"\", \"staff_count\": \"\", \"seed\": \"\", \"season\": \"\", \"facility_conditions\": [], \"facility_zones\": [], \"operational_conditions\": {\"initial_resources\": {\"status\": \"unknown\", \"water_ml\": null, \"food_meal_units\": null, \"warehouse_id\": \"main_warehouse\", \"zone_id\": null, \"source_ids\": [], \"source_kind\": \"operator\"}, \"equipment\": [], \"scheduled\": [], \"staff_shifts\": [], \"infrastructure\": null, \"source_geographic_scope\": null, \"source_period\": null}, \"population_conditions\": {\"medical_support_rate\": null, \"medication_support_rate\": null, \"care_support_need_rates\": {}, \"pet_household_rate\": null, \"pet_count_weights\": {}, \"information_access_weights\": {}, \"language_weights\": {}, \"additional_access_need_rates\": {}, \"daily_rhythms\": [], \"household_composition\": null, \"source_ids\": []}, \"evacuation_selection\": {\"age_band_multipliers\": {}, \"source_ids\": []}, \"zone_area_shares\": {}}",
+   "python": {
+    "kind": "ok",
+    "value": {
+     "input_sha256": "094cc734ae302a2e99e346376c07076ced1d881e6980b207a45a86a21248955f",
+     "missing_fields": [],
+     "request": {
+      "accessible_toilet_count": 1,
+      "behavior_policy_id": "sleep-aware-utility-softmax-v2",
+      "body_dynamics_policy_id": "body-feedback-complete-v2",
+      "care_outcome_policy_id": "typed-care-support-response-v1",
+      "default_supply_start_day": 4,
+      "disaster": "earthquake",
+      "duration_days": 7.0,
+      "evacuation_selection": {
+       "age_band_multipliers": {},
+       "source_ids": []
+      },
+      "evacuees": 100,
+      "facility_conditions": [],
+      "facility_zones": [],
+      "field_origins": {
+       "accessible_toilet_count": "default",
+       "disaster": "user",
+       "duration_days": "default",
+       "evacuation_selection": "llm_extracted",
+       "evacuees": "user",
+       "municipality": "llm_extracted",
+       "operational_conditions": "llm_extracted",
+       "population_conditions": "llm_extracted",
+       "seed": "default"
+      },
+      "gross_area_m2": null,
+      "information_policy_id": "evidence-aware-rumor-v1",
+      "information_spread_enabled": true,
+      "model_parameter_overrides": {},
+      "municipality": "墨田区",
+      "municipality_code": null,
+      "operational_conditions": {
+       "equipment": [],
+       "infrastructure": null,
+       "initial_resources": {
+        "food_meal_units": null,
+        "source_ids": [],
+        "source_kind": "operator",
+        "status": "unknown",
+        "warehouse_id": "main_warehouse",
+        "water_ml": null,
+        "zone_id": null
+       },
+       "scheduled": [],
+       "source_geographic_scope": null,
+       "source_period": null,
+       "staff_shifts": []
+      },
+      "population_conditions": {
+       "additional_access_need_rates": {},
+       "care_support_need_rates": {},
+       "daily_rhythms": [],
+       "household_composition": null,
+       "information_access_weights": {},
+       "language_weights": {},
+       "medical_support_rate": null,
+       "medication_support_rate": null,
+       "pet_count_weights": {},
+       "pet_household_rate": null,
+       "source_ids": []
+      },
+      "queue_policy_id": "need-weighted-physical-queue-v1",
+      "relationship_policy_id": "distance-duration-repeat-trust-v1",
+      "season": null,
+      "seed": 2026,
+      "social_policy_id": "expressiveness-channel-openness-v1",
+      "social_propagation_enabled": true,
+      "social_proximity_policy_id": "disabled-proximity-v1",
+      "staff_count": null,
+      "staff_fatigue_policy_id": "staff-fatigue-linear-v1",
+      "staff_operations_policy_id": "staff-urgency-first-v1",
+      "target_date": null,
+      "weather_area_code": null,
+      "zone_area_shares": {},
+      "zone_hygiene_policy_id": "zone-hygiene-linear-v1",
+      "zone_privacy_policy_id": "zone-privacy-threshold-v1",
+      "zone_rest_policy_id": "zone-rest-multiplicative-v1",
+      "zone_temperature_policy_id": "zone-temperature-comfort-band-v1"
+     },
+     "source": "prepare_llm",
+     "warnings": [
+      "生成された条件は下書きです。地域・人数・期間・設備を確認してから確定してください。"
+     ]
+    }
+   },
+   "text": "すみだで大きな地震。100人が避難。"
+  },
+  {
+   "name": "rules-win",
+   "output": "{\"municipality\": \"横浜市\", \"disaster\": \"flood\", \"evacuees\": \"5\", \"duration_days\": \"9\", \"gross_area_m2\": \"\", \"accessible_toilet_count\": \"\", \"staff_count\": \"\", \"seed\": \"\", \"season\": \"\", \"facility_conditions\": [], \"facility_zones\": [], \"operational_conditions\": {\"initial_resources\": {\"status\": \"unknown\", \"water_ml\": null, \"food_meal_units\": null, \"warehouse_id\": \"main_warehouse\", \"zone_id\": null, \"source_ids\": [], \"source_kind\": \"operator\"}, \"equipment\": [], \"scheduled\": [], \"staff_shifts\": [], \"infrastructure\": null, \"source_geographic_scope\": null, \"source_period\": null}, \"population_conditions\": {\"medical_support_rate\": null, \"medication_support_rate\": null, \"care_support_need_rates\": {}, \"pet_household_rate\": null, \"pet_count_weights\": {}, \"information_access_weights\": {}, \"language_weights\": {}, \"additional_access_need_rates\": {}, \"daily_rhythms\": [], \"household_composition\": null, \"source_ids\": []}, \"evacuation_selection\": {\"age_band_multipliers\": {}, \"source_ids\": []}, \"zone_area_shares\": {}}",
+   "python": {
+    "kind": "ok",
+    "value": {
+     "input_sha256": "603626518ba085b0593c1151c63d565026ac9f735041a361015d4105bd793e2d",
+     "missing_fields": [],
+     "request": {
+      "accessible_toilet_count": 1,
+      "behavior_policy_id": "sleep-aware-utility-softmax-v2",
+      "body_dynamics_policy_id": "body-feedback-complete-v2",
+      "care_outcome_policy_id": "typed-care-support-response-v1",
+      "default_supply_start_day": 4,
+      "disaster": "earthquake",
+      "duration_days": 2.0,
+      "evacuation_selection": {
+       "age_band_multipliers": {},
+       "source_ids": []
+      },
+      "evacuees": 40,
+      "facility_conditions": [],
+      "facility_zones": [],
+      "field_origins": {
+       "accessible_toilet_count": "default",
+       "disaster": "user",
+       "duration_days": "user",
+       "evacuation_selection": "llm_extracted",
+       "evacuees": "user",
+       "municipality": "user",
+       "operational_conditions": "llm_extracted",
+       "population_conditions": "llm_extracted",
+       "seed": "default"
+      },
+      "gross_area_m2": null,
+      "information_policy_id": "evidence-aware-rumor-v1",
+      "information_spread_enabled": true,
+      "model_parameter_overrides": {},
+      "municipality": "墨田区",
+      "municipality_code": null,
+      "operational_conditions": {
+       "equipment": [],
+       "infrastructure": null,
+       "initial_resources": {
+        "food_meal_units": null,
+        "source_ids": [],
+        "source_kind": "operator",
+        "status": "unknown",
+        "warehouse_id": "main_warehouse",
+        "water_ml": null,
+        "zone_id": null
+       },
+       "scheduled": [],
+       "source_geographic_scope": null,
+       "source_period": null,
+       "staff_shifts": []
+      },
+      "population_conditions": {
+       "additional_access_need_rates": {},
+       "care_support_need_rates": {},
+       "daily_rhythms": [],
+       "household_composition": null,
+       "information_access_weights": {},
+       "language_weights": {},
+       "medical_support_rate": null,
+       "medication_support_rate": null,
+       "pet_count_weights": {},
+       "pet_household_rate": null,
+       "source_ids": []
+      },
+      "queue_policy_id": "need-weighted-physical-queue-v1",
+      "relationship_policy_id": "distance-duration-repeat-trust-v1",
+      "season": null,
+      "seed": 2026,
+      "social_policy_id": "expressiveness-channel-openness-v1",
+      "social_propagation_enabled": true,
+      "social_proximity_policy_id": "disabled-proximity-v1",
+      "staff_count": null,
+      "staff_fatigue_policy_id": "staff-fatigue-linear-v1",
+      "staff_operations_policy_id": "staff-urgency-first-v1",
+      "target_date": null,
+      "weather_area_code": null,
+      "zone_area_shares": {},
+      "zone_hygiene_policy_id": "zone-hygiene-linear-v1",
+      "zone_privacy_policy_id": "zone-privacy-threshold-v1",
+      "zone_rest_policy_id": "zone-rest-multiplicative-v1",
+      "zone_temperature_policy_id": "zone-temperature-comfort-band-v1"
+     },
+     "source": "prepare_llm",
+     "warnings": [
+      "生成された条件は下書きです。地域・人数・期間・設備を確認してから確定してください。"
+     ]
+    }
+   },
+   "text": "墨田区で地震。避難者40人、2日間。"
+  },
+  {
+   "name": "every-scalar",
+   "output": "{\"municipality\": \"墨田区\", \"disaster\": \"earthquake\", \"evacuees\": \"120\", \"duration_days\": \"3.5\", \"gross_area_m2\": \"850\", \"accessible_toilet_count\": \"2\", \"staff_count\": \"6\", \"seed\": \"7\", \"season\": \"winter\", \"facility_conditions\": [], \"facility_zones\": [], \"operational_conditions\": {\"initial_resources\": {\"status\": \"unknown\", \"water_ml\": null, \"food_meal_units\": null, \"warehouse_id\": \"main_warehouse\", \"zone_id\": null, \"source_ids\": [], \"source_kind\": \"operator\"}, \"equipment\": [], \"scheduled\": [], \"staff_shifts\": [], \"infrastructure\": null, \"source_geographic_scope\": null, \"source_period\": null}, \"population_conditions\": {\"medical_support_rate\": null, \"medication_support_rate\": null, \"care_support_need_rates\": {}, \"pet_household_rate\": null, \"pet_count_weights\": {}, \"information_access_weights\": {}, \"language_weights\": {}, \"additional_access_need_rates\": {}, \"daily_rhythms\": [], \"household_composition\": null, \"source_ids\": []}, \"evacuation_selection\": {\"age_band_multipliers\": {}, \"source_ids\": []}, \"zone_area_shares\": {}}",
+   "python": {
+    "kind": "ok",
+    "value": {
+     "input_sha256": "48bb98644e7b8fa994fb43269e79df403213b010600370da9cdcadc98d51b8d5",
+     "missing_fields": [],
+     "request": {
+      "accessible_toilet_count": 2,
+      "behavior_policy_id": "sleep-aware-utility-softmax-v2",
+      "body_dynamics_policy_id": "body-feedback-complete-v2",
+      "care_outcome_policy_id": "typed-care-support-response-v1",
+      "default_supply_start_day": 4,
+      "disaster": "earthquake",
+      "duration_days": 3.5,
+      "evacuation_selection": {
+       "age_band_multipliers": {},
+       "source_ids": []
+      },
+      "evacuees": 120,
+      "facility_conditions": [],
+      "facility_zones": [],
+      "field_origins": {
+       "accessible_toilet_count": "llm_extracted",
+       "disaster": "llm_extracted",
+       "duration_days": "llm_extracted",
+       "evacuation_selection": "llm_extracted",
+       "evacuees": "llm_extracted",
+       "gross_area_m2": "llm_extracted",
+       "municipality": "llm_extracted",
+       "operational_conditions": "llm_extracted",
+       "population_conditions": "llm_extracted",
+       "season": "llm_extracted",
+       "seed": "llm_extracted",
+       "staff_count": "llm_extracted"
+      },
+      "gross_area_m2": 850.0,
+      "information_policy_id": "evidence-aware-rumor-v1",
+      "information_spread_enabled": true,
+      "model_parameter_overrides": {},
+      "municipality": "墨田区",
+      "municipality_code": null,
+      "operational_conditions": {
+       "equipment": [],
+       "infrastructure": null,
+       "initial_resources": {
+        "food_meal_units": null,
+        "source_ids": [],
+        "source_kind": "operator",
+        "status": "unknown",
+        "warehouse_id": "main_warehouse",
+        "water_ml": null,
+        "zone_id": null
+       },
+       "scheduled": [],
+       "source_geographic_scope": null,
+       "source_period": null,
+       "staff_shifts": []
+      },
+      "population_conditions": {
+       "additional_access_need_rates": {},
+       "care_support_need_rates": {},
+       "daily_rhythms": [],
+       "household_composition": null,
+       "information_access_weights": {},
+       "language_weights": {},
+       "medical_support_rate": null,
+       "medication_support_rate": null,
+       "pet_count_weights": {},
+       "pet_household_rate": null,
+       "source_ids": []
+      },
+      "queue_policy_id": "need-weighted-physical-queue-v1",
+      "relationship_policy_id": "distance-duration-repeat-trust-v1",
+      "season": "winter",
+      "seed": 7,
+      "social_policy_id": "expressiveness-channel-openness-v1",
+      "social_propagation_enabled": true,
+      "social_proximity_policy_id": "disabled-proximity-v1",
+      "staff_count": 6,
+      "staff_fatigue_policy_id": "staff-fatigue-linear-v1",
+      "staff_operations_policy_id": "staff-urgency-first-v1",
+      "target_date": null,
+      "weather_area_code": null,
+      "zone_area_shares": {},
+      "zone_hygiene_policy_id": "zone-hygiene-linear-v1",
+      "zone_privacy_policy_id": "zone-privacy-threshold-v1",
+      "zone_rest_policy_id": "zone-rest-multiplicative-v1",
+      "zone_temperature_policy_id": "zone-temperature-comfort-band-v1"
+     },
+     "source": "prepare_llm",
+     "warnings": [
+      "生成された条件は下書きです。地域・人数・期間・設備を確認してから確定してください。"
+     ]
+    }
+   },
+   "text": "大きな災害が起きた。"
+  },
+  {
+   "name": "unicode-digits",
+   "output": "{\"municipality\": \"墨田区\", \"disaster\": \"\", \"evacuees\": \"１００\", \"duration_days\": \"\", \"gross_area_m2\": \"\", \"accessible_toilet_count\": \"\", \"staff_count\": \"\", \"seed\": \"\", \"season\": \"\", \"facility_conditions\": [], \"facility_zones\": [], \"operational_conditions\": {\"initial_resources\": {\"status\": \"unknown\", \"water_ml\": null, \"food_meal_units\": null, \"warehouse_id\": \"main_warehouse\", \"zone_id\": null, \"source_ids\": [], \"source_kind\": \"operator\"}, \"equipment\": [], \"scheduled\": [], \"staff_shifts\": [], \"infrastructure\": null, \"source_geographic_scope\": null, \"source_period\": null}, \"population_conditions\": {\"medical_support_rate\": null, \"medication_support_rate\": null, \"care_support_need_rates\": {}, \"pet_household_rate\": null, \"pet_count_weights\": {}, \"information_access_weights\": {}, \"language_weights\": {}, \"additional_access_need_rates\": {}, \"daily_rhythms\": [], \"household_composition\": null, \"source_ids\": []}, \"evacuation_selection\": {\"age_band_multipliers\": {}, \"source_ids\": []}, \"zone_area_shares\": {}}",
+   "python": {
+    "kind": "ok",
+    "value": {
+     "input_sha256": "094cc734ae302a2e99e346376c07076ced1d881e6980b207a45a86a21248955f",
+     "missing_fields": [],
+     "request": {
+      "accessible_toilet_count": 1,
+      "behavior_policy_id": "sleep-aware-utility-softmax-v2",
+      "body_dynamics_policy_id": "body-feedback-complete-v2",
+      "care_outcome_policy_id": "typed-care-support-response-v1",
+      "default_supply_start_day": 4,
+      "disaster": "earthquake",
+      "duration_days": 7.0,
+      "evacuation_selection": {
+       "age_band_multipliers": {},
+       "source_ids": []
+      },
+      "evacuees": 100,
+      "facility_conditions": [],
+      "facility_zones": [],
+      "field_origins": {
+       "accessible_toilet_count": "default",
+       "disaster": "user",
+       "duration_days": "default",
+       "evacuation_selection": "llm_extracted",
+       "evacuees": "user",
+       "municipality": "llm_extracted",
+       "operational_conditions": "llm_extracted",
+       "population_conditions": "llm_extracted",
+       "seed": "default"
+      },
+      "gross_area_m2": null,
+      "information_policy_id": "evidence-aware-rumor-v1",
+      "information_spread_enabled": true,
+      "model_parameter_overrides": {},
+      "municipality": "墨田区",
+      "municipality_code": null,
+      "operational_conditions": {
+       "equipment": [],
+       "infrastructure": null,
+       "initial_resources": {
+        "food_meal_units": null,
+        "source_ids": [],
+        "source_kind": "operator",
+        "status": "unknown",
+        "warehouse_id": "main_warehouse",
+        "water_ml": null,
+        "zone_id": null
+       },
+       "scheduled": [],
+       "source_geographic_scope": null,
+       "source_period": null,
+       "staff_shifts": []
+      },
+      "population_conditions": {
+       "additional_access_need_rates": {},
+       "care_support_need_rates": {},
+       "daily_rhythms": [],
+       "household_composition": null,
+       "information_access_weights": {},
+       "language_weights": {},
+       "medical_support_rate": null,
+       "medication_support_rate": null,
+       "pet_count_weights": {},
+       "pet_household_rate": null,
+       "source_ids": []
+      },
+      "queue_policy_id": "need-weighted-physical-queue-v1",
+      "relationship_policy_id": "distance-duration-repeat-trust-v1",
+      "season": null,
+      "seed": 2026,
+      "social_policy_id": "expressiveness-channel-openness-v1",
+      "social_propagation_enabled": true,
+      "social_proximity_policy_id": "disabled-proximity-v1",
+      "staff_count": null,
+      "staff_fatigue_policy_id": "staff-fatigue-linear-v1",
+      "staff_operations_policy_id": "staff-urgency-first-v1",
+      "target_date": null,
+      "weather_area_code": null,
+      "zone_area_shares": {},
+      "zone_hygiene_policy_id": "zone-hygiene-linear-v1",
+      "zone_privacy_policy_id": "zone-privacy-threshold-v1",
+      "zone_rest_policy_id": "zone-rest-multiplicative-v1",
+      "zone_temperature_policy_id": "zone-temperature-comfort-band-v1"
+     },
+     "source": "prepare_llm",
+     "warnings": [
+      "生成された条件は下書きです。地域・人数・期間・設備を確認してから確定してください。"
+     ]
+    }
+   },
+   "text": "すみだで大きな地震。100人が避難。"
+  },
+  {
+   "name": "python-numbers",
+   "output": "{\"municipality\": \"\", \"disaster\": \"\", \"evacuees\": \" 1_000 \", \"duration_days\": \"1e1\", \"gross_area_m2\": \"12_3.5\", \"accessible_toilet_count\": \"\", \"staff_count\": \"\", \"seed\": \"\", \"season\": \"\", \"facility_conditions\": [], \"facility_zones\": [], \"operational_conditions\": {\"initial_resources\": {\"status\": \"unknown\", \"water_ml\": null, \"food_meal_units\": null, \"warehouse_id\": \"main_warehouse\", \"zone_id\": null, \"source_ids\": [], \"source_kind\": \"operator\"}, \"equipment\": [], \"scheduled\": [], \"staff_shifts\": [], \"infrastructure\": null, \"source_geographic_scope\": null, \"source_period\": null}, \"population_conditions\": {\"medical_support_rate\": null, \"medication_support_rate\": null, \"care_support_need_rates\": {}, \"pet_household_rate\": null, \"pet_count_weights\": {}, \"information_access_weights\": {}, \"language_weights\": {}, \"additional_access_need_rates\": {}, \"daily_rhythms\": [], \"household_composition\": null, \"source_ids\": []}, \"evacuation_selection\": {\"age_band_multipliers\": {}, \"source_ids\": []}, \"zone_area_shares\": {}}",
+   "python": {
+    "kind": "ok",
+    "value": {
+     "input_sha256": "5a1734c42067d05c6d3d19c3b847767a49bca0d3f14f144c68f75fc9756401ab",
+     "missing_fields": [],
+     "request": {
+      "accessible_toilet_count": 1,
+      "behavior_policy_id": "sleep-aware-utility-softmax-v2",
+      "body_dynamics_policy_id": "body-feedback-complete-v2",
+      "care_outcome_policy_id": "typed-care-support-response-v1",
+      "default_supply_start_day": 4,
+      "disaster": "earthquake",
+      "duration_days": 10.0,
+      "evacuation_selection": {
+       "age_band_multipliers": {},
+       "source_ids": []
+      },
+      "evacuees": 1000,
+      "facility_conditions": [],
+      "facility_zones": [],
+      "field_origins": {
+       "accessible_toilet_count": "default",
+       "disaster": "user",
+       "duration_days": "llm_extracted",
+       "evacuation_selection": "llm_extracted",
+       "evacuees": "llm_extracted",
+       "gross_area_m2": "llm_extracted",
+       "municipality": "user",
+       "operational_conditions": "llm_extracted",
+       "population_conditions": "llm_extracted",
+       "seed": "default"
+      },
+      "gross_area_m2": 123.5,
+      "information_policy_id": "evidence-aware-rumor-v1",
+      "information_spread_enabled": true,
+      "model_parameter_overrides": {},
+      "municipality": "墨田区",
+      "municipality_code": null,
+      "operational_conditions": {
+       "equipment": [],
+       "infrastructure": null,
+       "initial_resources": {
+        "food_meal_units": null,
+        "source_ids": [],
+        "source_kind": "operator",
+        "status": "unknown",
+        "warehouse_id": "main_warehouse",
+        "water_ml": null,
+        "zone_id": null
+       },
+       "scheduled": [],
+       "source_geographic_scope": null,
+       "source_period": null,
+       "staff_shifts": []
+      },
+      "population_conditions": {
+       "additional_access_need_rates": {},
+       "care_support_need_rates": {},
+       "daily_rhythms": [],
+       "household_composition": null,
+       "information_access_weights": {},
+       "language_weights": {},
+       "medical_support_rate": null,
+       "medication_support_rate": null,
+       "pet_count_weights": {},
+       "pet_household_rate": null,
+       "source_ids": []
+      },
+      "queue_policy_id": "need-weighted-physical-queue-v1",
+      "relationship_policy_id": "distance-duration-repeat-trust-v1",
+      "season": null,
+      "seed": 2026,
+      "social_policy_id": "expressiveness-channel-openness-v1",
+      "social_propagation_enabled": true,
+      "social_proximity_policy_id": "disabled-proximity-v1",
+      "staff_count": null,
+      "staff_fatigue_policy_id": "staff-fatigue-linear-v1",
+      "staff_operations_policy_id": "staff-urgency-first-v1",
+      "target_date": null,
+      "weather_area_code": null,
+      "zone_area_shares": {},
+      "zone_hygiene_policy_id": "zone-hygiene-linear-v1",
+      "zone_privacy_policy_id": "zone-privacy-threshold-v1",
+      "zone_rest_policy_id": "zone-rest-multiplicative-v1",
+      "zone_temperature_policy_id": "zone-temperature-comfort-band-v1"
+     },
+     "source": "prepare_llm",
+     "warnings": [
+      "生成された条件は下書きです。地域・人数・期間・設備を確認してから確定してください。"
+     ]
+    }
+   },
+   "text": "墨田区で地震。"
+  },
+  {
+   "name": "float-days-text",
+   "output": "{\"municipality\": \"\", \"disaster\": \"\", \"evacuees\": \"30\", \"duration_days\": \" 2.50 \", \"gross_area_m2\": \"\", \"accessible_toilet_count\": \"\", \"staff_count\": \"\", \"seed\": \"\", \"season\": \"\", \"facility_conditions\": [], \"facility_zones\": [], \"operational_conditions\": {\"initial_resources\": {\"status\": \"unknown\", \"water_ml\": null, \"food_meal_units\": null, \"warehouse_id\": \"main_warehouse\", \"zone_id\": null, \"source_ids\": [], \"source_kind\": \"operator\"}, \"equipment\": [], \"scheduled\": [], \"staff_shifts\": [], \"infrastructure\": null, \"source_geographic_scope\": null, \"source_period\": null}, \"population_conditions\": {\"medical_support_rate\": null, \"medication_support_rate\": null, \"care_support_need_rates\": {}, \"pet_household_rate\": null, \"pet_count_weights\": {}, \"information_access_weights\": {}, \"language_weights\": {}, \"additional_access_need_rates\": {}, \"daily_rhythms\": [], \"household_composition\": null, \"source_ids\": []}, \"evacuation_selection\": {\"age_band_multipliers\": {}, \"source_ids\": []}, \"zone_area_shares\": {}}",
+   "python": {
+    "kind": "ok",
+    "value": {
+     "input_sha256": "5a1734c42067d05c6d3d19c3b847767a49bca0d3f14f144c68f75fc9756401ab",
+     "missing_fields": [],
+     "request": {
+      "accessible_toilet_count": 1,
+      "behavior_policy_id": "sleep-aware-utility-softmax-v2",
+      "body_dynamics_policy_id": "body-feedback-complete-v2",
+      "care_outcome_policy_id": "typed-care-support-response-v1",
+      "default_supply_start_day": 4,
+      "disaster": "earthquake",
+      "duration_days": 2.5,
+      "evacuation_selection": {
+       "age_band_multipliers": {},
+       "source_ids": []
+      },
+      "evacuees": 30,
+      "facility_conditions": [],
+      "facility_zones": [],
+      "field_origins": {
+       "accessible_toilet_count": "default",
+       "disaster": "user",
+       "duration_days": "llm_extracted",
+       "evacuation_selection": "llm_extracted",
+       "evacuees": "llm_extracted",
+       "municipality": "user",
+       "operational_conditions": "llm_extracted",
+       "population_conditions": "llm_extracted",
+       "seed": "default"
+      },
+      "gross_area_m2": null,
+      "information_policy_id": "evidence-aware-rumor-v1",
+      "information_spread_enabled": true,
+      "model_parameter_overrides": {},
+      "municipality": "墨田区",
+      "municipality_code": null,
+      "operational_conditions": {
+       "equipment": [],
+       "infrastructure": null,
+       "initial_resources": {
+        "food_meal_units": null,
+        "source_ids": [],
+        "source_kind": "operator",
+        "status": "unknown",
+        "warehouse_id": "main_warehouse",
+        "water_ml": null,
+        "zone_id": null
+       },
+       "scheduled": [],
+       "source_geographic_scope": null,
+       "source_period": null,
+       "staff_shifts": []
+      },
+      "population_conditions": {
+       "additional_access_need_rates": {},
+       "care_support_need_rates": {},
+       "daily_rhythms": [],
+       "household_composition": null,
+       "information_access_weights": {},
+       "language_weights": {},
+       "medical_support_rate": null,
+       "medication_support_rate": null,
+       "pet_count_weights": {},
+       "pet_household_rate": null,
+       "source_ids": []
+      },
+      "queue_policy_id": "need-weighted-physical-queue-v1",
+      "relationship_policy_id": "distance-duration-repeat-trust-v1",
+      "season": null,
+      "seed": 2026,
+      "social_policy_id": "expressiveness-channel-openness-v1",
+      "social_propagation_enabled": true,
+      "social_proximity_policy_id": "disabled-proximity-v1",
+      "staff_count": null,
+      "staff_fatigue_policy_id": "staff-fatigue-linear-v1",
+      "staff_operations_policy_id": "staff-urgency-first-v1",
+      "target_date": null,
+      "weather_area_code": null,
+      "zone_area_shares": {},
+      "zone_hygiene_policy_id": "zone-hygiene-linear-v1",
+      "zone_privacy_policy_id": "zone-privacy-threshold-v1",
+      "zone_rest_policy_id": "zone-rest-multiplicative-v1",
+      "zone_temperature_policy_id": "zone-temperature-comfort-band-v1"
+     },
+     "source": "prepare_llm",
+     "warnings": [
+      "生成された条件は下書きです。地域・人数・期間・設備を確認してから確定してください。"
+     ]
+    }
+   },
+   "text": "墨田区で地震。"
+  },
+  {
+   "name": "facility-conditions",
+   "output": "{\"municipality\": \"\", \"disaster\": \"\", \"evacuees\": \"\", \"duration_days\": \"\", \"gross_area_m2\": \"\", \"accessible_toilet_count\": \"\", \"staff_count\": \"\", \"seed\": \"\", \"season\": \"\", \"facility_conditions\": [\"ペット可\", \"授乳室がある\"], \"facility_zones\": [], \"operational_conditions\": {\"initial_resources\": {\"status\": \"unknown\", \"water_ml\": null, \"food_meal_units\": null, \"warehouse_id\": \"main_warehouse\", \"zone_id\": null, \"source_ids\": [], \"source_kind\": \"operator\"}, \"equipment\": [], \"scheduled\": [], \"staff_shifts\": [], \"infrastructure\": null, \"source_geographic_scope\": null, \"source_period\": null}, \"population_conditions\": {\"medical_support_rate\": null, \"medication_support_rate\": null, \"care_support_need_rates\": {}, \"pet_household_rate\": null, \"pet_count_weights\": {}, \"information_access_weights\": {}, \"language_weights\": {}, \"additional_access_need_rates\": {}, \"daily_rhythms\": [], \"household_composition\": null, \"source_ids\": []}, \"evacuation_selection\": {\"age_band_multipliers\": {}, \"source_ids\": []}, \"zone_area_shares\": {}}",
+   "python": {
+    "kind": "ok",
+    "value": {
+     "input_sha256": "603626518ba085b0593c1151c63d565026ac9f735041a361015d4105bd793e2d",
+     "missing_fields": [],
+     "request": {
+      "accessible_toilet_count": 1,
+      "behavior_policy_id": "sleep-aware-utility-softmax-v2",
+      "body_dynamics_policy_id": "body-feedback-complete-v2",
+      "care_outcome_policy_id": "typed-care-support-response-v1",
+      "default_supply_start_day": 4,
+      "disaster": "earthquake",
+      "duration_days": 2.0,
+      "evacuation_selection": {
+       "age_band_multipliers": {},
+       "source_ids": []
+      },
+      "evacuees": 40,
+      "facility_conditions": [
+       "ペット可",
+       "授乳室がある"
+      ],
+      "facility_zones": [],
+      "field_origins": {
+       "accessible_toilet_count": "default",
+       "disaster": "user",
+       "duration_days": "user",
+       "evacuation_selection": "llm_extracted",
+       "evacuees": "user",
+       "facility_conditions": "llm_extracted",
+       "municipality": "user",
+       "operational_conditions": "llm_extracted",
+       "population_conditions": "llm_extracted",
+       "seed": "default"
+      },
+      "gross_area_m2": null,
+      "information_policy_id": "evidence-aware-rumor-v1",
+      "information_spread_enabled": true,
+      "model_parameter_overrides": {},
+      "municipality": "墨田区",
+      "municipality_code": null,
+      "operational_conditions": {
+       "equipment": [],
+       "infrastructure": null,
+       "initial_resources": {
+        "food_meal_units": null,
+        "source_ids": [],
+        "source_kind": "operator",
+        "status": "unknown",
+        "warehouse_id": "main_warehouse",
+        "water_ml": null,
+        "zone_id": null
+       },
+       "scheduled": [],
+       "source_geographic_scope": null,
+       "source_period": null,
+       "staff_shifts": []
+      },
+      "population_conditions": {
+       "additional_access_need_rates": {},
+       "care_support_need_rates": {},
+       "daily_rhythms": [],
+       "household_composition": null,
+       "information_access_weights": {},
+       "language_weights": {},
+       "medical_support_rate": null,
+       "medication_support_rate": null,
+       "pet_count_weights": {},
+       "pet_household_rate": null,
+       "source_ids": []
+      },
+      "queue_policy_id": "need-weighted-physical-queue-v1",
+      "relationship_policy_id": "distance-duration-repeat-trust-v1",
+      "season": null,
+      "seed": 2026,
+      "social_policy_id": "expressiveness-channel-openness-v1",
+      "social_propagation_enabled": true,
+      "social_proximity_policy_id": "disabled-proximity-v1",
+      "staff_count": null,
+      "staff_fatigue_policy_id": "staff-fatigue-linear-v1",
+      "staff_operations_policy_id": "staff-urgency-first-v1",
+      "target_date": null,
+      "weather_area_code": null,
+      "zone_area_shares": {},
+      "zone_hygiene_policy_id": "zone-hygiene-linear-v1",
+      "zone_privacy_policy_id": "zone-privacy-threshold-v1",
+      "zone_rest_policy_id": "zone-rest-multiplicative-v1",
+      "zone_temperature_policy_id": "zone-temperature-comfort-band-v1"
+     },
+     "source": "prepare_llm",
+     "warnings": [
+      "生成された条件は下書きです。地域・人数・期間・設備を確認してから確定してください。"
+     ]
+    }
+   },
+   "text": "墨田区で地震。避難者40人、2日間。"
+  },
+  {
+   "name": "zero-people",
+   "output": "{\"municipality\": \"\", \"disaster\": \"\", \"evacuees\": \"0\", \"duration_days\": \"\", \"gross_area_m2\": \"\", \"accessible_toilet_count\": \"\", \"staff_count\": \"\", \"seed\": \"\", \"season\": \"\", \"facility_conditions\": [], \"facility_zones\": [], \"operational_conditions\": {\"initial_resources\": {\"status\": \"unknown\", \"water_ml\": null, \"food_meal_units\": null, \"warehouse_id\": \"main_warehouse\", \"zone_id\": null, \"source_ids\": [], \"source_kind\": \"operator\"}, \"equipment\": [], \"scheduled\": [], \"staff_shifts\": [], \"infrastructure\": null, \"source_geographic_scope\": null, \"source_period\": null}, \"population_conditions\": {\"medical_support_rate\": null, \"medication_support_rate\": null, \"care_support_need_rates\": {}, \"pet_household_rate\": null, \"pet_count_weights\": {}, \"information_access_weights\": {}, \"language_weights\": {}, \"additional_access_need_rates\": {}, \"daily_rhythms\": [], \"household_composition\": null, \"source_ids\": []}, \"evacuation_selection\": {\"age_band_multipliers\": {}, \"source_ids\": []}, \"zone_area_shares\": {}}",
+   "python": {
+    "kind": "ok",
+    "value": {
+     "input_sha256": "5a1734c42067d05c6d3d19c3b847767a49bca0d3f14f144c68f75fc9756401ab",
+     "missing_fields": [
+      "evacuees"
+     ],
+     "request": null,
+     "source": "prepare_llm",
+     "warnings": [
+      "生成された条件は下書きです。地域・人数・期間・設備を確認してから確定してください。"
+     ]
+    }
+   },
+   "text": "墨田区で地震。"
+  },
+  {
+   "name": "stock-from-answer",
+   "output": "{\"municipality\": \"\", \"disaster\": \"\", \"evacuees\": \"\", \"duration_days\": \"\", \"gross_area_m2\": \"\", \"accessible_toilet_count\": \"\", \"staff_count\": \"\", \"seed\": \"\", \"season\": \"\", \"facility_conditions\": [], \"facility_zones\": [], \"operational_conditions\": {\"initial_resources\": {\"status\": \"entered\", \"water_ml\": 30000, \"food_meal_units\": 240, \"warehouse_id\": \"main_warehouse\", \"zone_id\": null, \"source_ids\": [], \"source_kind\": \"operator\"}, \"equipment\": [], \"scheduled\": [], \"staff_shifts\": [], \"infrastructure\": null, \"source_geographic_scope\": null, \"source_period\": null}, \"population_conditions\": {\"medical_support_rate\": null, \"medication_support_rate\": null, \"care_support_need_rates\": {}, \"pet_household_rate\": null, \"pet_count_weights\": {}, \"information_access_weights\": {}, \"language_weights\": {}, \"additional_access_need_rates\": {}, \"daily_rhythms\": [], \"household_composition\": null, \"source_ids\": []}, \"evacuation_selection\": {\"age_band_multipliers\": {}, \"source_ids\": []}, \"zone_area_shares\": {}}",
+   "python": {
+    "kind": "ok",
+    "value": {
+     "input_sha256": "603626518ba085b0593c1151c63d565026ac9f735041a361015d4105bd793e2d",
+     "missing_fields": [],
+     "request": {
+      "accessible_toilet_count": 1,
+      "behavior_policy_id": "sleep-aware-utility-softmax-v2",
+      "body_dynamics_policy_id": "body-feedback-complete-v2",
+      "care_outcome_policy_id": "typed-care-support-response-v1",
+      "default_supply_start_day": 4,
+      "disaster": "earthquake",
+      "duration_days": 2.0,
+      "evacuation_selection": {
+       "age_band_multipliers": {},
+       "source_ids": []
+      },
+      "evacuees": 40,
+      "facility_conditions": [],
+      "facility_zones": [],
+      "field_origins": {
+       "accessible_toilet_count": "default",
+       "disaster": "user",
+       "duration_days": "user",
+       "evacuation_selection": "llm_extracted",
+       "evacuees": "user",
+       "municipality": "user",
+       "operational_conditions": "llm_extracted",
+       "population_conditions": "llm_extracted",
+       "seed": "default"
+      },
+      "gross_area_m2": null,
+      "information_policy_id": "evidence-aware-rumor-v1",
+      "information_spread_enabled": true,
+      "model_parameter_overrides": {},
+      "municipality": "墨田区",
+      "municipality_code": null,
+      "operational_conditions": {
+       "equipment": [],
+       "infrastructure": null,
+       "initial_resources": {
+        "food_meal_units": 240,
+        "source_ids": [
+         "SRC-OPERATOR-INITIAL-CONDITIONS"
+        ],
+        "source_kind": "operator",
+        "status": "entered",
+        "warehouse_id": "main_warehouse",
+        "water_ml": 30000,
+        "zone_id": null
+       },
+       "scheduled": [],
+       "source_geographic_scope": null,
+       "source_period": null,
+       "staff_shifts": []
+      },
+      "population_conditions": {
+       "additional_access_need_rates": {},
+       "care_support_need_rates": {},
+       "daily_rhythms": [],
+       "household_composition": null,
+       "information_access_weights": {},
+       "language_weights": {},
+       "medical_support_rate": null,
+       "medication_support_rate": null,
+       "pet_count_weights": {},
+       "pet_household_rate": null,
+       "source_ids": []
+      },
+      "queue_policy_id": "need-weighted-physical-queue-v1",
+      "relationship_policy_id": "distance-duration-repeat-trust-v1",
+      "season": null,
+      "seed": 2026,
+      "social_policy_id": "expressiveness-channel-openness-v1",
+      "social_propagation_enabled": true,
+      "social_proximity_policy_id": "disabled-proximity-v1",
+      "staff_count": null,
+      "staff_fatigue_policy_id": "staff-fatigue-linear-v1",
+      "staff_operations_policy_id": "staff-urgency-first-v1",
+      "target_date": null,
+      "weather_area_code": null,
+      "zone_area_shares": {},
+      "zone_hygiene_policy_id": "zone-hygiene-linear-v1",
+      "zone_privacy_policy_id": "zone-privacy-threshold-v1",
+      "zone_rest_policy_id": "zone-rest-multiplicative-v1",
+      "zone_temperature_policy_id": "zone-temperature-comfort-band-v1"
+     },
+     "source": "prepare_llm",
+     "warnings": [
+      "生成された条件は下書きです。地域・人数・期間・設備を確認してから確定してください。"
+     ]
+    }
+   },
+   "text": "墨田区で地震。避難者40人、2日間。"
+  },
+  {
+   "name": "stock-merged",
+   "output": "{\"municipality\": \"\", \"disaster\": \"\", \"evacuees\": \"\", \"duration_days\": \"\", \"gross_area_m2\": \"\", \"accessible_toilet_count\": \"\", \"staff_count\": \"\", \"seed\": \"\", \"season\": \"\", \"facility_conditions\": [], \"facility_zones\": [], \"operational_conditions\": {\"initial_resources\": {\"status\": \"incomplete\", \"water_ml\": 5000, \"food_meal_units\": null, \"warehouse_id\": \"main_warehouse\", \"zone_id\": null, \"source_ids\": [], \"source_kind\": \"operator\"}, \"equipment\": [], \"scheduled\": [], \"staff_shifts\": [], \"infrastructure\": null, \"source_geographic_scope\": null, \"source_period\": null}, \"population_conditions\": {\"medical_support_rate\": null, \"medication_support_rate\": null, \"care_support_need_rates\": {}, \"pet_household_rate\": null, \"pet_count_weights\": {}, \"information_access_weights\": {}, \"language_weights\": {}, \"additional_access_need_rates\": {}, \"daily_rhythms\": [], \"household_composition\": null, \"source_ids\": []}, \"evacuation_selection\": {\"age_band_multipliers\": {}, \"source_ids\": []}, \"zone_area_shares\": {}}",
+   "python": {
+    "kind": "ok",
+    "value": {
+     "input_sha256": "6e1baad640281ba0beadf5e0f609d32c51bb8c6b9f5d936b9c619c953f517122",
+     "missing_fields": [],
+     "request": {
+      "accessible_toilet_count": 1,
+      "behavior_policy_id": "sleep-aware-utility-softmax-v2",
+      "body_dynamics_policy_id": "body-feedback-complete-v2",
+      "care_outcome_policy_id": "typed-care-support-response-v1",
+      "default_supply_start_day": 4,
+      "disaster": "earthquake",
+      "duration_days": 2.0,
+      "evacuation_selection": {
+       "age_band_multipliers": {},
+       "source_ids": []
+      },
+      "evacuees": 40,
+      "facility_conditions": [],
+      "facility_zones": [],
+      "field_origins": {
+       "accessible_toilet_count": "default",
+       "disaster": "user",
+       "duration_days": "user",
+       "evacuation_selection": "llm_extracted",
+       "evacuees": "user",
+       "municipality": "user",
+       "operational_conditions": "user",
+       "population_conditions": "llm_extracted",
+       "seed": "default"
+      },
+      "gross_area_m2": null,
+      "information_policy_id": "evidence-aware-rumor-v1",
+      "information_spread_enabled": true,
+      "model_parameter_overrides": {},
+      "municipality": "墨田区",
+      "municipality_code": null,
+      "operational_conditions": {
+       "equipment": [],
+       "infrastructure": null,
+       "initial_resources": {
+        "food_meal_units": 200,
+        "source_ids": [
+         "SRC-OPERATOR-INITIAL-CONDITIONS"
+        ],
+        "source_kind": "operator",
+        "status": "entered",
+        "warehouse_id": "main_warehouse",
+        "water_ml": 5000,
+        "zone_id": null
+       },
+       "scheduled": [],
+       "source_geographic_scope": null,
+       "source_period": null,
+       "staff_shifts": []
+      },
+      "population_conditions": {
+       "additional_access_need_rates": {},
+       "care_support_need_rates": {},
+       "daily_rhythms": [],
+       "household_composition": null,
+       "information_access_weights": {},
+       "language_weights": {},
+       "medical_support_rate": null,
+       "medication_support_rate": null,
+       "pet_count_weights": {},
+       "pet_household_rate": null,
+       "source_ids": []
+      },
+      "queue_policy_id": "need-weighted-physical-queue-v1",
+      "relationship_policy_id": "distance-duration-repeat-trust-v1",
+      "season": null,
+      "seed": 2026,
+      "social_policy_id": "expressiveness-channel-openness-v1",
+      "social_propagation_enabled": true,
+      "social_proximity_policy_id": "disabled-proximity-v1",
+      "staff_count": null,
+      "staff_fatigue_policy_id": "staff-fatigue-linear-v1",
+      "staff_operations_policy_id": "staff-urgency-first-v1",
+      "target_date": null,
+      "weather_area_code": null,
+      "zone_area_shares": {},
+      "zone_hygiene_policy_id": "zone-hygiene-linear-v1",
+      "zone_privacy_policy_id": "zone-privacy-threshold-v1",
+      "zone_rest_policy_id": "zone-rest-multiplicative-v1",
+      "zone_temperature_policy_id": "zone-temperature-comfort-band-v1"
+     },
+     "source": "prepare_llm",
+     "warnings": [
+      "生成された条件は下書きです。地域・人数・期間・設備を確認してから確定してください。"
+     ]
+    }
+   },
+   "text": "墨田区で地震。避難者40人、2日間。食料200食。"
+  },
+  {
+   "name": "stock-rules-win",
+   "output": "{\"municipality\": \"\", \"disaster\": \"\", \"evacuees\": \"\", \"duration_days\": \"\", \"gross_area_m2\": \"\", \"accessible_toilet_count\": \"\", \"staff_count\": \"\", \"seed\": \"\", \"season\": \"\", \"facility_conditions\": [], \"facility_zones\": [], \"operational_conditions\": {\"initial_resources\": {\"status\": \"entered\", \"water_ml\": 1, \"food_meal_units\": 2, \"warehouse_id\": \"main_warehouse\", \"zone_id\": null, \"source_ids\": [], \"source_kind\": \"operator\"}, \"equipment\": [], \"scheduled\": [], \"staff_shifts\": [], \"infrastructure\": null, \"source_geographic_scope\": null, \"source_period\": null}, \"population_conditions\": {\"medical_support_rate\": null, \"medication_support_rate\": null, \"care_support_need_rates\": {}, \"pet_household_rate\": null, \"pet_count_weights\": {}, \"information_access_weights\": {}, \"language_weights\": {}, \"additional_access_need_rates\": {}, \"daily_rhythms\": [], \"household_composition\": null, \"source_ids\": []}, \"evacuation_selection\": {\"age_band_multipliers\": {}, \"source_ids\": []}, \"zone_area_shares\": {}}",
+   "python": {
+    "kind": "ok",
+    "value": {
+     "input_sha256": "4962dddccbaa641c43282f303715d07ed11d954856a849a0be4b0dd9e6c26c98",
+     "missing_fields": [],
+     "request": {
+      "accessible_toilet_count": 1,
+      "behavior_policy_id": "sleep-aware-utility-softmax-v2",
+      "body_dynamics_policy_id": "body-feedback-complete-v2",
+      "care_outcome_policy_id": "typed-care-support-response-v1",
+      "default_supply_start_day": 4,
+      "disaster": "earthquake",
+      "duration_days": 2.0,
+      "evacuation_selection": {
+       "age_band_multipliers": {},
+       "source_ids": []
+      },
+      "evacuees": 40,
+      "facility_conditions": [],
+      "facility_zones": [],
+      "field_origins": {
+       "accessible_toilet_count": "default",
+       "disaster": "user",
+       "duration_days": "user",
+       "evacuation_selection": "llm_extracted",
+       "evacuees": "user",
+       "municipality": "user",
+       "operational_conditions": "user",
+       "population_conditions": "llm_extracted",
+       "seed": "default"
+      },
+      "gross_area_m2": null,
+      "information_policy_id": "evidence-aware-rumor-v1",
+      "information_spread_enabled": true,
+      "model_parameter_overrides": {},
+      "municipality": "墨田区",
+      "municipality_code": null,
+      "operational_conditions": {
+       "equipment": [],
+       "infrastructure": null,
+       "initial_resources": {
+        "food_meal_units": 600,
+        "source_ids": [
+         "SRC-OPERATOR-INITIAL-CONDITIONS"
+        ],
+        "source_kind": "operator",
+        "status": "entered",
+        "warehouse_id": "main_warehouse",
+        "water_ml": 300000,
+        "zone_id": null
+       },
+       "scheduled": [],
+       "source_geographic_scope": null,
+       "source_period": null,
+       "staff_shifts": []
+      },
+      "population_conditions": {
+       "additional_access_need_rates": {},
+       "care_support_need_rates": {},
+       "daily_rhythms": [],
+       "household_composition": null,
+       "information_access_weights": {},
+       "language_weights": {},
+       "medical_support_rate": null,
+       "medication_support_rate": null,
+       "pet_count_weights": {},
+       "pet_household_rate": null,
+       "source_ids": []
+      },
+      "queue_policy_id": "need-weighted-physical-queue-v1",
+      "relationship_policy_id": "distance-duration-repeat-trust-v1",
+      "season": null,
+      "seed": 2026,
+      "social_policy_id": "expressiveness-channel-openness-v1",
+      "social_propagation_enabled": true,
+      "social_proximity_policy_id": "disabled-proximity-v1",
+      "staff_count": null,
+      "staff_fatigue_policy_id": "staff-fatigue-linear-v1",
+      "staff_operations_policy_id": "staff-urgency-first-v1",
+      "target_date": null,
+      "weather_area_code": null,
+      "zone_area_shares": {},
+      "zone_hygiene_policy_id": "zone-hygiene-linear-v1",
+      "zone_privacy_policy_id": "zone-privacy-threshold-v1",
+      "zone_rest_policy_id": "zone-rest-multiplicative-v1",
+      "zone_temperature_policy_id": "zone-temperature-comfort-band-v1"
+     },
+     "source": "prepare_llm",
+     "warnings": [
+      "生成された条件は下書きです。地域・人数・期間・設備を確認してから確定してください。"
+     ]
+    }
+   },
+   "text": "墨田区で地震。避難者40人、2日間。飲料水300L、食料600食。"
+  },
+  {
+   "name": "not-json",
+   "output": "地震、40人",
+   "python": {
+    "kind": "ok",
+    "value": {
+     "input_sha256": "603626518ba085b0593c1151c63d565026ac9f735041a361015d4105bd793e2d",
+     "missing_fields": [],
+     "request": {
+      "accessible_toilet_count": 1,
+      "behavior_policy_id": "sleep-aware-utility-softmax-v2",
+      "body_dynamics_policy_id": "body-feedback-complete-v2",
+      "care_outcome_policy_id": "typed-care-support-response-v1",
+      "default_supply_start_day": 4,
+      "disaster": "earthquake",
+      "duration_days": 2.0,
+      "evacuation_selection": {
+       "age_band_multipliers": {},
+       "source_ids": []
+      },
+      "evacuees": 40,
+      "facility_conditions": [],
+      "facility_zones": [],
+      "field_origins": {
+       "accessible_toilet_count": "default",
+       "disaster": "user",
+       "duration_days": "user",
+       "evacuation_selection": "llm_extracted",
+       "evacuees": "user",
+       "municipality": "user",
+       "operational_conditions": "llm_extracted",
+       "population_conditions": "llm_extracted",
+       "seed": "default"
+      },
+      "gross_area_m2": null,
+      "information_policy_id": "evidence-aware-rumor-v1",
+      "information_spread_enabled": true,
+      "model_parameter_overrides": {},
+      "municipality": "墨田区",
+      "municipality_code": null,
+      "operational_conditions": {
+       "equipment": [],
+       "infrastructure": null,
+       "initial_resources": {
+        "food_meal_units": null,
+        "source_ids": [],
+        "source_kind": "operator",
+        "status": "unknown",
+        "warehouse_id": "main_warehouse",
+        "water_ml": null,
+        "zone_id": null
+       },
+       "scheduled": [],
+       "source_geographic_scope": null,
+       "source_period": null,
+       "staff_shifts": []
+      },
+      "population_conditions": {
+       "additional_access_need_rates": {},
+       "care_support_need_rates": {},
+       "daily_rhythms": [],
+       "household_composition": null,
+       "information_access_weights": {},
+       "language_weights": {},
+       "medical_support_rate": null,
+       "medication_support_rate": null,
+       "pet_count_weights": {},
+       "pet_household_rate": null,
+       "source_ids": []
+      },
+      "queue_policy_id": "need-weighted-physical-queue-v1",
+      "relationship_policy_id": "distance-duration-repeat-trust-v1",
+      "season": null,
+      "seed": 2026,
+      "social_policy_id": "expressiveness-channel-openness-v1",
+      "social_propagation_enabled": true,
+      "social_proximity_policy_id": "disabled-proximity-v1",
+      "staff_count": null,
+      "staff_fatigue_policy_id": "staff-fatigue-linear-v1",
+      "staff_operations_policy_id": "staff-urgency-first-v1",
+      "target_date": null,
+      "weather_area_code": null,
+      "zone_area_shares": {},
+      "zone_hygiene_policy_id": "zone-hygiene-linear-v1",
+      "zone_privacy_policy_id": "zone-privacy-threshold-v1",
+      "zone_rest_policy_id": "zone-rest-multiplicative-v1",
+      "zone_temperature_policy_id": "zone-temperature-comfort-band-v1"
+     },
+     "source": "rules_fallback",
+     "warnings": [
+      "AIの入力整理を利用できず、明示された値のみを使用します。",
+      "生成された条件は下書きです。地域・人数・期間・設備を確認してから確定してください。"
+     ]
+    }
+   },
+   "text": "墨田区で地震。避難者40人、2日間。"
+  },
+  {
+   "name": "fenced",
+   "output": "```json\n{\"municipality\": \"\", \"disaster\": \"\", \"evacuees\": \"40\", \"duration_days\": \"\", \"gross_area_m2\": \"\", \"accessible_toilet_count\": \"\", \"staff_count\": \"\", \"seed\": \"\", \"season\": \"\", \"facility_conditions\": [], \"facility_zones\": [], \"operational_conditions\": {\"initial_resources\": {\"status\": \"unknown\", \"water_ml\": null, \"food_meal_units\": null, \"warehouse_id\": \"main_warehouse\", \"zone_id\": null, \"source_ids\": [], \"source_kind\": \"operator\"}, \"equipment\": [], \"scheduled\": [], \"staff_shifts\": [], \"infrastructure\": null, \"source_geographic_scope\": null, \"source_period\": null}, \"population_conditions\": {\"medical_support_rate\": null, \"medication_support_rate\": null, \"care_support_need_rates\": {}, \"pet_household_rate\": null, \"pet_count_weights\": {}, \"information_access_weights\": {}, \"language_weights\": {}, \"additional_access_need_rates\": {}, \"daily_rhythms\": [], \"household_composition\": null, \"source_ids\": []}, \"evacuation_selection\": {\"age_band_multipliers\": {}, \"source_ids\": []}, \"zone_area_shares\": {}}\n```",
+   "python": {
+    "kind": "ok",
+    "value": {
+     "input_sha256": "603626518ba085b0593c1151c63d565026ac9f735041a361015d4105bd793e2d",
+     "missing_fields": [],
+     "request": {
+      "accessible_toilet_count": 1,
+      "behavior_policy_id": "sleep-aware-utility-softmax-v2",
+      "body_dynamics_policy_id": "body-feedback-complete-v2",
+      "care_outcome_policy_id": "typed-care-support-response-v1",
+      "default_supply_start_day": 4,
+      "disaster": "earthquake",
+      "duration_days": 2.0,
+      "evacuation_selection": {
+       "age_band_multipliers": {},
+       "source_ids": []
+      },
+      "evacuees": 40,
+      "facility_conditions": [],
+      "facility_zones": [],
+      "field_origins": {
+       "accessible_toilet_count": "default",
+       "disaster": "user",
+       "duration_days": "user",
+       "evacuation_selection": "llm_extracted",
+       "evacuees": "user",
+       "municipality": "user",
+       "operational_conditions": "llm_extracted",
+       "population_conditions": "llm_extracted",
+       "seed": "default"
+      },
+      "gross_area_m2": null,
+      "information_policy_id": "evidence-aware-rumor-v1",
+      "information_spread_enabled": true,
+      "model_parameter_overrides": {},
+      "municipality": "墨田区",
+      "municipality_code": null,
+      "operational_conditions": {
+       "equipment": [],
+       "infrastructure": null,
+       "initial_resources": {
+        "food_meal_units": null,
+        "source_ids": [],
+        "source_kind": "operator",
+        "status": "unknown",
+        "warehouse_id": "main_warehouse",
+        "water_ml": null,
+        "zone_id": null
+       },
+       "scheduled": [],
+       "source_geographic_scope": null,
+       "source_period": null,
+       "staff_shifts": []
+      },
+      "population_conditions": {
+       "additional_access_need_rates": {},
+       "care_support_need_rates": {},
+       "daily_rhythms": [],
+       "household_composition": null,
+       "information_access_weights": {},
+       "language_weights": {},
+       "medical_support_rate": null,
+       "medication_support_rate": null,
+       "pet_count_weights": {},
+       "pet_household_rate": null,
+       "source_ids": []
+      },
+      "queue_policy_id": "need-weighted-physical-queue-v1",
+      "relationship_policy_id": "distance-duration-repeat-trust-v1",
+      "season": null,
+      "seed": 2026,
+      "social_policy_id": "expressiveness-channel-openness-v1",
+      "social_propagation_enabled": true,
+      "social_proximity_policy_id": "disabled-proximity-v1",
+      "staff_count": null,
+      "staff_fatigue_policy_id": "staff-fatigue-linear-v1",
+      "staff_operations_policy_id": "staff-urgency-first-v1",
+      "target_date": null,
+      "weather_area_code": null,
+      "zone_area_shares": {},
+      "zone_hygiene_policy_id": "zone-hygiene-linear-v1",
+      "zone_privacy_policy_id": "zone-privacy-threshold-v1",
+      "zone_rest_policy_id": "zone-rest-multiplicative-v1",
+      "zone_temperature_policy_id": "zone-temperature-comfort-band-v1"
+     },
+     "source": "rules_fallback",
+     "warnings": [
+      "AIの入力整理を利用できず、明示された値のみを使用します。",
+      "生成された条件は下書きです。地域・人数・期間・設備を確認してから確定してください。"
+     ]
+    }
+   },
+   "text": "墨田区で地震。避難者40人、2日間。"
+  },
+  {
+   "name": "empty",
+   "output": "   ",
+   "python": {
+    "kind": "ok",
+    "value": {
+     "input_sha256": "603626518ba085b0593c1151c63d565026ac9f735041a361015d4105bd793e2d",
+     "missing_fields": [],
+     "request": {
+      "accessible_toilet_count": 1,
+      "behavior_policy_id": "sleep-aware-utility-softmax-v2",
+      "body_dynamics_policy_id": "body-feedback-complete-v2",
+      "care_outcome_policy_id": "typed-care-support-response-v1",
+      "default_supply_start_day": 4,
+      "disaster": "earthquake",
+      "duration_days": 2.0,
+      "evacuation_selection": {
+       "age_band_multipliers": {},
+       "source_ids": []
+      },
+      "evacuees": 40,
+      "facility_conditions": [],
+      "facility_zones": [],
+      "field_origins": {
+       "accessible_toilet_count": "default",
+       "disaster": "user",
+       "duration_days": "user",
+       "evacuation_selection": "llm_extracted",
+       "evacuees": "user",
+       "municipality": "user",
+       "operational_conditions": "llm_extracted",
+       "population_conditions": "llm_extracted",
+       "seed": "default"
+      },
+      "gross_area_m2": null,
+      "information_policy_id": "evidence-aware-rumor-v1",
+      "information_spread_enabled": true,
+      "model_parameter_overrides": {},
+      "municipality": "墨田区",
+      "municipality_code": null,
+      "operational_conditions": {
+       "equipment": [],
+       "infrastructure": null,
+       "initial_resources": {
+        "food_meal_units": null,
+        "source_ids": [],
+        "source_kind": "operator",
+        "status": "unknown",
+        "warehouse_id": "main_warehouse",
+        "water_ml": null,
+        "zone_id": null
+       },
+       "scheduled": [],
+       "source_geographic_scope": null,
+       "source_period": null,
+       "staff_shifts": []
+      },
+      "population_conditions": {
+       "additional_access_need_rates": {},
+       "care_support_need_rates": {},
+       "daily_rhythms": [],
+       "household_composition": null,
+       "information_access_weights": {},
+       "language_weights": {},
+       "medical_support_rate": null,
+       "medication_support_rate": null,
+       "pet_count_weights": {},
+       "pet_household_rate": null,
+       "source_ids": []
+      },
+      "queue_policy_id": "need-weighted-physical-queue-v1",
+      "relationship_policy_id": "distance-duration-repeat-trust-v1",
+      "season": null,
+      "seed": 2026,
+      "social_policy_id": "expressiveness-channel-openness-v1",
+      "social_propagation_enabled": true,
+      "social_proximity_policy_id": "disabled-proximity-v1",
+      "staff_count": null,
+      "staff_fatigue_policy_id": "staff-fatigue-linear-v1",
+      "staff_operations_policy_id": "staff-urgency-first-v1",
+      "target_date": null,
+      "weather_area_code": null,
+      "zone_area_shares": {},
+      "zone_hygiene_policy_id": "zone-hygiene-linear-v1",
+      "zone_privacy_policy_id": "zone-privacy-threshold-v1",
+      "zone_rest_policy_id": "zone-rest-multiplicative-v1",
+      "zone_temperature_policy_id": "zone-temperature-comfort-band-v1"
+     },
+     "source": "rules_fallback",
+     "warnings": [
+      "AIの入力整理を利用できず、明示された値のみを使用します。",
+      "生成された条件は下書きです。地域・人数・期間・設備を確認してから確定してください。"
+     ]
+    }
+   },
+   "text": "墨田区で地震。避難者40人、2日間。"
+  },
+  {
+   "name": "missing-field",
+   "output": "{\"municipality\": \"\", \"disaster\": \"\", \"evacuees\": \"\", \"duration_days\": \"\", \"gross_area_m2\": \"\", \"accessible_toilet_count\": \"\", \"staff_count\": \"\", \"seed\": \"\", \"facility_conditions\": [], \"facility_zones\": [], \"operational_conditions\": {\"initial_resources\": {\"status\": \"unknown\", \"water_ml\": null, \"food_meal_units\": null, \"warehouse_id\": \"main_warehouse\", \"zone_id\": null, \"source_ids\": [], \"source_kind\": \"operator\"}, \"equipment\": [], \"scheduled\": [], \"staff_shifts\": [], \"infrastructure\": null, \"source_geographic_scope\": null, \"source_period\": null}, \"population_conditions\": {\"medical_support_rate\": null, \"medication_support_rate\": null, \"care_support_need_rates\": {}, \"pet_household_rate\": null, \"pet_count_weights\": {}, \"information_access_weights\": {}, \"language_weights\": {}, \"additional_access_need_rates\": {}, \"daily_rhythms\": [], \"household_composition\": null, \"source_ids\": []}, \"evacuation_selection\": {\"age_band_multipliers\": {}, \"source_ids\": []}, \"zone_area_shares\": {}}",
+   "python": {
+    "kind": "ok",
+    "value": {
+     "input_sha256": "603626518ba085b0593c1151c63d565026ac9f735041a361015d4105bd793e2d",
+     "missing_fields": [],
+     "request": {
+      "accessible_toilet_count": 1,
+      "behavior_policy_id": "sleep-aware-utility-softmax-v2",
+      "body_dynamics_policy_id": "body-feedback-complete-v2",
+      "care_outcome_policy_id": "typed-care-support-response-v1",
+      "default_supply_start_day": 4,
+      "disaster": "earthquake",
+      "duration_days": 2.0,
+      "evacuation_selection": {
+       "age_band_multipliers": {},
+       "source_ids": []
+      },
+      "evacuees": 40,
+      "facility_conditions": [],
+      "facility_zones": [],
+      "field_origins": {
+       "accessible_toilet_count": "default",
+       "disaster": "user",
+       "duration_days": "user",
+       "evacuation_selection": "llm_extracted",
+       "evacuees": "user",
+       "municipality": "user",
+       "operational_conditions": "llm_extracted",
+       "population_conditions": "llm_extracted",
+       "seed": "default"
+      },
+      "gross_area_m2": null,
+      "information_policy_id": "evidence-aware-rumor-v1",
+      "information_spread_enabled": true,
+      "model_parameter_overrides": {},
+      "municipality": "墨田区",
+      "municipality_code": null,
+      "operational_conditions": {
+       "equipment": [],
+       "infrastructure": null,
+       "initial_resources": {
+        "food_meal_units": null,
+        "source_ids": [],
+        "source_kind": "operator",
+        "status": "unknown",
+        "warehouse_id": "main_warehouse",
+        "water_ml": null,
+        "zone_id": null
+       },
+       "scheduled": [],
+       "source_geographic_scope": null,
+       "source_period": null,
+       "staff_shifts": []
+      },
+      "population_conditions": {
+       "additional_access_need_rates": {},
+       "care_support_need_rates": {},
+       "daily_rhythms": [],
+       "household_composition": null,
+       "information_access_weights": {},
+       "language_weights": {},
+       "medical_support_rate": null,
+       "medication_support_rate": null,
+       "pet_count_weights": {},
+       "pet_household_rate": null,
+       "source_ids": []
+      },
+      "queue_policy_id": "need-weighted-physical-queue-v1",
+      "relationship_policy_id": "distance-duration-repeat-trust-v1",
+      "season": null,
+      "seed": 2026,
+      "social_policy_id": "expressiveness-channel-openness-v1",
+      "social_propagation_enabled": true,
+      "social_proximity_policy_id": "disabled-proximity-v1",
+      "staff_count": null,
+      "staff_fatigue_policy_id": "staff-fatigue-linear-v1",
+      "staff_operations_policy_id": "staff-urgency-first-v1",
+      "target_date": null,
+      "weather_area_code": null,
+      "zone_area_shares": {},
+      "zone_hygiene_policy_id": "zone-hygiene-linear-v1",
+      "zone_privacy_policy_id": "zone-privacy-threshold-v1",
+      "zone_rest_policy_id": "zone-rest-multiplicative-v1",
+      "zone_temperature_policy_id": "zone-temperature-comfort-band-v1"
+     },
+     "source": "rules_fallback",
+     "warnings": [
+      "AIの入力整理を利用できず、明示された値のみを使用します。",
+      "生成された条件は下書きです。地域・人数・期間・設備を確認してから確定してください。"
+     ]
+    }
+   },
+   "text": "墨田区で地震。避難者40人、2日間。"
+  },
+  {
+   "name": "extra-field",
+   "output": "{\"municipality\": \"\", \"disaster\": \"\", \"evacuees\": \"\", \"duration_days\": \"\", \"gross_area_m2\": \"\", \"accessible_toilet_count\": \"\", \"staff_count\": \"\", \"seed\": \"\", \"season\": \"\", \"facility_conditions\": [], \"facility_zones\": [], \"operational_conditions\": {\"initial_resources\": {\"status\": \"unknown\", \"water_ml\": null, \"food_meal_units\": null, \"warehouse_id\": \"main_warehouse\", \"zone_id\": null, \"source_ids\": [], \"source_kind\": \"operator\"}, \"equipment\": [], \"scheduled\": [], \"staff_shifts\": [], \"infrastructure\": null, \"source_geographic_scope\": null, \"source_period\": null}, \"population_conditions\": {\"medical_support_rate\": null, \"medication_support_rate\": null, \"care_support_need_rates\": {}, \"pet_household_rate\": null, \"pet_count_weights\": {}, \"information_access_weights\": {}, \"language_weights\": {}, \"additional_access_need_rates\": {}, \"daily_rhythms\": [], \"household_composition\": null, \"source_ids\": []}, \"evacuation_selection\": {\"age_band_multipliers\": {}, \"source_ids\": []}, \"zone_area_shares\": {}, \"note\": \"x\"}",
+   "python": {
+    "kind": "ok",
+    "value": {
+     "input_sha256": "603626518ba085b0593c1151c63d565026ac9f735041a361015d4105bd793e2d",
+     "missing_fields": [],
+     "request": {
+      "accessible_toilet_count": 1,
+      "behavior_policy_id": "sleep-aware-utility-softmax-v2",
+      "body_dynamics_policy_id": "body-feedback-complete-v2",
+      "care_outcome_policy_id": "typed-care-support-response-v1",
+      "default_supply_start_day": 4,
+      "disaster": "earthquake",
+      "duration_days": 2.0,
+      "evacuation_selection": {
+       "age_band_multipliers": {},
+       "source_ids": []
+      },
+      "evacuees": 40,
+      "facility_conditions": [],
+      "facility_zones": [],
+      "field_origins": {
+       "accessible_toilet_count": "default",
+       "disaster": "user",
+       "duration_days": "user",
+       "evacuation_selection": "llm_extracted",
+       "evacuees": "user",
+       "municipality": "user",
+       "operational_conditions": "llm_extracted",
+       "population_conditions": "llm_extracted",
+       "seed": "default"
+      },
+      "gross_area_m2": null,
+      "information_policy_id": "evidence-aware-rumor-v1",
+      "information_spread_enabled": true,
+      "model_parameter_overrides": {},
+      "municipality": "墨田区",
+      "municipality_code": null,
+      "operational_conditions": {
+       "equipment": [],
+       "infrastructure": null,
+       "initial_resources": {
+        "food_meal_units": null,
+        "source_ids": [],
+        "source_kind": "operator",
+        "status": "unknown",
+        "warehouse_id": "main_warehouse",
+        "water_ml": null,
+        "zone_id": null
+       },
+       "scheduled": [],
+       "source_geographic_scope": null,
+       "source_period": null,
+       "staff_shifts": []
+      },
+      "population_conditions": {
+       "additional_access_need_rates": {},
+       "care_support_need_rates": {},
+       "daily_rhythms": [],
+       "household_composition": null,
+       "information_access_weights": {},
+       "language_weights": {},
+       "medical_support_rate": null,
+       "medication_support_rate": null,
+       "pet_count_weights": {},
+       "pet_household_rate": null,
+       "source_ids": []
+      },
+      "queue_policy_id": "need-weighted-physical-queue-v1",
+      "relationship_policy_id": "distance-duration-repeat-trust-v1",
+      "season": null,
+      "seed": 2026,
+      "social_policy_id": "expressiveness-channel-openness-v1",
+      "social_propagation_enabled": true,
+      "social_proximity_policy_id": "disabled-proximity-v1",
+      "staff_count": null,
+      "staff_fatigue_policy_id": "staff-fatigue-linear-v1",
+      "staff_operations_policy_id": "staff-urgency-first-v1",
+      "target_date": null,
+      "weather_area_code": null,
+      "zone_area_shares": {},
+      "zone_hygiene_policy_id": "zone-hygiene-linear-v1",
+      "zone_privacy_policy_id": "zone-privacy-threshold-v1",
+      "zone_rest_policy_id": "zone-rest-multiplicative-v1",
+      "zone_temperature_policy_id": "zone-temperature-comfort-band-v1"
+     },
+     "source": "rules_fallback",
+     "warnings": [
+      "AIの入力整理を利用できず、明示された値のみを使用します。",
+      "生成された条件は下書きです。地域・人数・期間・設備を確認してから確定してください。"
+     ]
+    }
+   },
+   "text": "墨田区で地震。避難者40人、2日間。"
+  },
+  {
+   "name": "number-not-string",
+   "output": "{\"municipality\": \"\", \"disaster\": \"\", \"evacuees\": 40, \"duration_days\": \"\", \"gross_area_m2\": \"\", \"accessible_toilet_count\": \"\", \"staff_count\": \"\", \"seed\": \"\", \"season\": \"\", \"facility_conditions\": [], \"facility_zones\": [], \"operational_conditions\": {\"initial_resources\": {\"status\": \"unknown\", \"water_ml\": null, \"food_meal_units\": null, \"warehouse_id\": \"main_warehouse\", \"zone_id\": null, \"source_ids\": [], \"source_kind\": \"operator\"}, \"equipment\": [], \"scheduled\": [], \"staff_shifts\": [], \"infrastructure\": null, \"source_geographic_scope\": null, \"source_period\": null}, \"population_conditions\": {\"medical_support_rate\": null, \"medication_support_rate\": null, \"care_support_need_rates\": {}, \"pet_household_rate\": null, \"pet_count_weights\": {}, \"information_access_weights\": {}, \"language_weights\": {}, \"additional_access_need_rates\": {}, \"daily_rhythms\": [], \"household_composition\": null, \"source_ids\": []}, \"evacuation_selection\": {\"age_band_multipliers\": {}, \"source_ids\": []}, \"zone_area_shares\": {}}",
+   "python": {
+    "kind": "ok",
+    "value": {
+     "input_sha256": "603626518ba085b0593c1151c63d565026ac9f735041a361015d4105bd793e2d",
+     "missing_fields": [],
+     "request": {
+      "accessible_toilet_count": 1,
+      "behavior_policy_id": "sleep-aware-utility-softmax-v2",
+      "body_dynamics_policy_id": "body-feedback-complete-v2",
+      "care_outcome_policy_id": "typed-care-support-response-v1",
+      "default_supply_start_day": 4,
+      "disaster": "earthquake",
+      "duration_days": 2.0,
+      "evacuation_selection": {
+       "age_band_multipliers": {},
+       "source_ids": []
+      },
+      "evacuees": 40,
+      "facility_conditions": [],
+      "facility_zones": [],
+      "field_origins": {
+       "accessible_toilet_count": "default",
+       "disaster": "user",
+       "duration_days": "user",
+       "evacuation_selection": "llm_extracted",
+       "evacuees": "user",
+       "municipality": "user",
+       "operational_conditions": "llm_extracted",
+       "population_conditions": "llm_extracted",
+       "seed": "default"
+      },
+      "gross_area_m2": null,
+      "information_policy_id": "evidence-aware-rumor-v1",
+      "information_spread_enabled": true,
+      "model_parameter_overrides": {},
+      "municipality": "墨田区",
+      "municipality_code": null,
+      "operational_conditions": {
+       "equipment": [],
+       "infrastructure": null,
+       "initial_resources": {
+        "food_meal_units": null,
+        "source_ids": [],
+        "source_kind": "operator",
+        "status": "unknown",
+        "warehouse_id": "main_warehouse",
+        "water_ml": null,
+        "zone_id": null
+       },
+       "scheduled": [],
+       "source_geographic_scope": null,
+       "source_period": null,
+       "staff_shifts": []
+      },
+      "population_conditions": {
+       "additional_access_need_rates": {},
+       "care_support_need_rates": {},
+       "daily_rhythms": [],
+       "household_composition": null,
+       "information_access_weights": {},
+       "language_weights": {},
+       "medical_support_rate": null,
+       "medication_support_rate": null,
+       "pet_count_weights": {},
+       "pet_household_rate": null,
+       "source_ids": []
+      },
+      "queue_policy_id": "need-weighted-physical-queue-v1",
+      "relationship_policy_id": "distance-duration-repeat-trust-v1",
+      "season": null,
+      "seed": 2026,
+      "social_policy_id": "expressiveness-channel-openness-v1",
+      "social_propagation_enabled": true,
+      "social_proximity_policy_id": "disabled-proximity-v1",
+      "staff_count": null,
+      "staff_fatigue_policy_id": "staff-fatigue-linear-v1",
+      "staff_operations_policy_id": "staff-urgency-first-v1",
+      "target_date": null,
+      "weather_area_code": null,
+      "zone_area_shares": {},
+      "zone_hygiene_policy_id": "zone-hygiene-linear-v1",
+      "zone_privacy_policy_id": "zone-privacy-threshold-v1",
+      "zone_rest_policy_id": "zone-rest-multiplicative-v1",
+      "zone_temperature_policy_id": "zone-temperature-comfort-band-v1"
+     },
+     "source": "rules_fallback",
+     "warnings": [
+      "AIの入力整理を利用できず、明示された値のみを使用します。",
+      "生成された条件は下書きです。地域・人数・期間・設備を確認してから確定してください。"
+     ]
+    }
+   },
+   "text": "墨田区で地震。避難者40人、2日間。"
+  },
+  {
+   "name": "too-long",
+   "output": "{\"municipality\": \"\", \"disaster\": \"\", \"evacuees\": \"1111111111111\", \"duration_days\": \"\", \"gross_area_m2\": \"\", \"accessible_toilet_count\": \"\", \"staff_count\": \"\", \"seed\": \"\", \"season\": \"\", \"facility_conditions\": [], \"facility_zones\": [], \"operational_conditions\": {\"initial_resources\": {\"status\": \"unknown\", \"water_ml\": null, \"food_meal_units\": null, \"warehouse_id\": \"main_warehouse\", \"zone_id\": null, \"source_ids\": [], \"source_kind\": \"operator\"}, \"equipment\": [], \"scheduled\": [], \"staff_shifts\": [], \"infrastructure\": null, \"source_geographic_scope\": null, \"source_period\": null}, \"population_conditions\": {\"medical_support_rate\": null, \"medication_support_rate\": null, \"care_support_need_rates\": {}, \"pet_household_rate\": null, \"pet_count_weights\": {}, \"information_access_weights\": {}, \"language_weights\": {}, \"additional_access_need_rates\": {}, \"daily_rhythms\": [], \"household_composition\": null, \"source_ids\": []}, \"evacuation_selection\": {\"age_band_multipliers\": {}, \"source_ids\": []}, \"zone_area_shares\": {}}",
+   "python": {
+    "kind": "ok",
+    "value": {
+     "input_sha256": "603626518ba085b0593c1151c63d565026ac9f735041a361015d4105bd793e2d",
+     "missing_fields": [],
+     "request": {
+      "accessible_toilet_count": 1,
+      "behavior_policy_id": "sleep-aware-utility-softmax-v2",
+      "body_dynamics_policy_id": "body-feedback-complete-v2",
+      "care_outcome_policy_id": "typed-care-support-response-v1",
+      "default_supply_start_day": 4,
+      "disaster": "earthquake",
+      "duration_days": 2.0,
+      "evacuation_selection": {
+       "age_band_multipliers": {},
+       "source_ids": []
+      },
+      "evacuees": 40,
+      "facility_conditions": [],
+      "facility_zones": [],
+      "field_origins": {
+       "accessible_toilet_count": "default",
+       "disaster": "user",
+       "duration_days": "user",
+       "evacuation_selection": "llm_extracted",
+       "evacuees": "user",
+       "municipality": "user",
+       "operational_conditions": "llm_extracted",
+       "population_conditions": "llm_extracted",
+       "seed": "default"
+      },
+      "gross_area_m2": null,
+      "information_policy_id": "evidence-aware-rumor-v1",
+      "information_spread_enabled": true,
+      "model_parameter_overrides": {},
+      "municipality": "墨田区",
+      "municipality_code": null,
+      "operational_conditions": {
+       "equipment": [],
+       "infrastructure": null,
+       "initial_resources": {
+        "food_meal_units": null,
+        "source_ids": [],
+        "source_kind": "operator",
+        "status": "unknown",
+        "warehouse_id": "main_warehouse",
+        "water_ml": null,
+        "zone_id": null
+       },
+       "scheduled": [],
+       "source_geographic_scope": null,
+       "source_period": null,
+       "staff_shifts": []
+      },
+      "population_conditions": {
+       "additional_access_need_rates": {},
+       "care_support_need_rates": {},
+       "daily_rhythms": [],
+       "household_composition": null,
+       "information_access_weights": {},
+       "language_weights": {},
+       "medical_support_rate": null,
+       "medication_support_rate": null,
+       "pet_count_weights": {},
+       "pet_household_rate": null,
+       "source_ids": []
+      },
+      "queue_policy_id": "need-weighted-physical-queue-v1",
+      "relationship_policy_id": "distance-duration-repeat-trust-v1",
+      "season": null,
+      "seed": 2026,
+      "social_policy_id": "expressiveness-channel-openness-v1",
+      "social_propagation_enabled": true,
+      "social_proximity_policy_id": "disabled-proximity-v1",
+      "staff_count": null,
+      "staff_fatigue_policy_id": "staff-fatigue-linear-v1",
+      "staff_operations_policy_id": "staff-urgency-first-v1",
+      "target_date": null,
+      "weather_area_code": null,
+      "zone_area_shares": {},
+      "zone_hygiene_policy_id": "zone-hygiene-linear-v1",
+      "zone_privacy_policy_id": "zone-privacy-threshold-v1",
+      "zone_rest_policy_id": "zone-rest-multiplicative-v1",
+      "zone_temperature_policy_id": "zone-temperature-comfort-band-v1"
+     },
+     "source": "rules_fallback",
+     "warnings": [
+      "AIの入力整理を利用できず、明示された値のみを使用します。",
+      "生成された条件は下書きです。地域・人数・期間・設備を確認してから確定してください。"
+     ]
+    }
+   },
+   "text": "墨田区で地震。避難者40人、2日間。"
+  },
+  {
+   "name": "nan-constant",
+   "output": "{\"municipality\": \"\", \"disaster\": \"\", \"evacuees\": \"\", \"duration_days\": \"\", \"gross_area_m2\": \"\", \"accessible_toilet_count\": \"\", \"staff_count\": \"\", \"seed\": \"\", \"season\": \"\", \"facility_conditions\": [], \"facility_zones\": [], \"operational_conditions\": {\"initial_resources\": {\"status\": \"unknown\", \"water_ml\": null, \"food_meal_units\": null, \"warehouse_id\": \"main_warehouse\", \"zone_id\": null, \"source_ids\": [], \"source_kind\": \"operator\"}, \"equipment\": [], \"scheduled\": [], \"staff_shifts\": [], \"infrastructure\": null, \"source_geographic_scope\": null, \"source_period\": null}, \"population_conditions\": {\"medical_support_rate\": null, \"medication_support_rate\": null, \"care_support_need_rates\": {}, \"pet_household_rate\": null, \"pet_count_weights\": {}, \"information_access_weights\": {}, \"language_weights\": {}, \"additional_access_need_rates\": {}, \"daily_rhythms\": [], \"household_composition\": null, \"source_ids\": []}, \"evacuation_selection\": {\"age_band_multipliers\": {}, \"source_ids\": []}, \"zone_area_shares\": {\"a\": NaN}}",
+   "python": {
+    "kind": "ok",
+    "value": {
+     "input_sha256": "603626518ba085b0593c1151c63d565026ac9f735041a361015d4105bd793e2d",
+     "missing_fields": [],
+     "request": {
+      "accessible_toilet_count": 1,
+      "behavior_policy_id": "sleep-aware-utility-softmax-v2",
+      "body_dynamics_policy_id": "body-feedback-complete-v2",
+      "care_outcome_policy_id": "typed-care-support-response-v1",
+      "default_supply_start_day": 4,
+      "disaster": "earthquake",
+      "duration_days": 2.0,
+      "evacuation_selection": {
+       "age_band_multipliers": {},
+       "source_ids": []
+      },
+      "evacuees": 40,
+      "facility_conditions": [],
+      "facility_zones": [],
+      "field_origins": {
+       "accessible_toilet_count": "default",
+       "disaster": "user",
+       "duration_days": "user",
+       "evacuation_selection": "llm_extracted",
+       "evacuees": "user",
+       "municipality": "user",
+       "operational_conditions": "llm_extracted",
+       "population_conditions": "llm_extracted",
+       "seed": "default"
+      },
+      "gross_area_m2": null,
+      "information_policy_id": "evidence-aware-rumor-v1",
+      "information_spread_enabled": true,
+      "model_parameter_overrides": {},
+      "municipality": "墨田区",
+      "municipality_code": null,
+      "operational_conditions": {
+       "equipment": [],
+       "infrastructure": null,
+       "initial_resources": {
+        "food_meal_units": null,
+        "source_ids": [],
+        "source_kind": "operator",
+        "status": "unknown",
+        "warehouse_id": "main_warehouse",
+        "water_ml": null,
+        "zone_id": null
+       },
+       "scheduled": [],
+       "source_geographic_scope": null,
+       "source_period": null,
+       "staff_shifts": []
+      },
+      "population_conditions": {
+       "additional_access_need_rates": {},
+       "care_support_need_rates": {},
+       "daily_rhythms": [],
+       "household_composition": null,
+       "information_access_weights": {},
+       "language_weights": {},
+       "medical_support_rate": null,
+       "medication_support_rate": null,
+       "pet_count_weights": {},
+       "pet_household_rate": null,
+       "source_ids": []
+      },
+      "queue_policy_id": "need-weighted-physical-queue-v1",
+      "relationship_policy_id": "distance-duration-repeat-trust-v1",
+      "season": null,
+      "seed": 2026,
+      "social_policy_id": "expressiveness-channel-openness-v1",
+      "social_propagation_enabled": true,
+      "social_proximity_policy_id": "disabled-proximity-v1",
+      "staff_count": null,
+      "staff_fatigue_policy_id": "staff-fatigue-linear-v1",
+      "staff_operations_policy_id": "staff-urgency-first-v1",
+      "target_date": null,
+      "weather_area_code": null,
+      "zone_area_shares": {},
+      "zone_hygiene_policy_id": "zone-hygiene-linear-v1",
+      "zone_privacy_policy_id": "zone-privacy-threshold-v1",
+      "zone_rest_policy_id": "zone-rest-multiplicative-v1",
+      "zone_temperature_policy_id": "zone-temperature-comfort-band-v1"
+     },
+     "source": "rules_fallback",
+     "warnings": [
+      "AIの入力整理を利用できず、明示された値のみを使用します。",
+      "生成された条件は下書きです。地域・人数・期間・設備を確認してから確定してください。"
+     ]
+    }
+   },
+   "text": "墨田区で地震。避難者40人、2日間。"
+  },
+  {
+   "name": "share-above-one",
+   "output": "{\"municipality\": \"\", \"disaster\": \"\", \"evacuees\": \"\", \"duration_days\": \"\", \"gross_area_m2\": \"\", \"accessible_toilet_count\": \"\", \"staff_count\": \"\", \"seed\": \"\", \"season\": \"\", \"facility_conditions\": [], \"facility_zones\": [], \"operational_conditions\": {\"initial_resources\": {\"status\": \"unknown\", \"water_ml\": null, \"food_meal_units\": null, \"warehouse_id\": \"main_warehouse\", \"zone_id\": null, \"source_ids\": [], \"source_kind\": \"operator\"}, \"equipment\": [], \"scheduled\": [], \"staff_shifts\": [], \"infrastructure\": null, \"source_geographic_scope\": null, \"source_period\": null}, \"population_conditions\": {\"medical_support_rate\": null, \"medication_support_rate\": null, \"care_support_need_rates\": {}, \"pet_household_rate\": null, \"pet_count_weights\": {}, \"information_access_weights\": {}, \"language_weights\": {}, \"additional_access_need_rates\": {}, \"daily_rhythms\": [], \"household_composition\": null, \"source_ids\": []}, \"evacuation_selection\": {\"age_band_multipliers\": {}, \"source_ids\": []}, \"zone_area_shares\": {\"sleeping\": 2}}",
+   "python": {
+    "kind": "ok",
+    "value": {
+     "input_sha256": "603626518ba085b0593c1151c63d565026ac9f735041a361015d4105bd793e2d",
+     "missing_fields": [],
+     "request": {
+      "accessible_toilet_count": 1,
+      "behavior_policy_id": "sleep-aware-utility-softmax-v2",
+      "body_dynamics_policy_id": "body-feedback-complete-v2",
+      "care_outcome_policy_id": "typed-care-support-response-v1",
+      "default_supply_start_day": 4,
+      "disaster": "earthquake",
+      "duration_days": 2.0,
+      "evacuation_selection": {
+       "age_band_multipliers": {},
+       "source_ids": []
+      },
+      "evacuees": 40,
+      "facility_conditions": [],
+      "facility_zones": [],
+      "field_origins": {
+       "accessible_toilet_count": "default",
+       "disaster": "user",
+       "duration_days": "user",
+       "evacuation_selection": "llm_extracted",
+       "evacuees": "user",
+       "municipality": "user",
+       "operational_conditions": "llm_extracted",
+       "population_conditions": "llm_extracted",
+       "seed": "default"
+      },
+      "gross_area_m2": null,
+      "information_policy_id": "evidence-aware-rumor-v1",
+      "information_spread_enabled": true,
+      "model_parameter_overrides": {},
+      "municipality": "墨田区",
+      "municipality_code": null,
+      "operational_conditions": {
+       "equipment": [],
+       "infrastructure": null,
+       "initial_resources": {
+        "food_meal_units": null,
+        "source_ids": [],
+        "source_kind": "operator",
+        "status": "unknown",
+        "warehouse_id": "main_warehouse",
+        "water_ml": null,
+        "zone_id": null
+       },
+       "scheduled": [],
+       "source_geographic_scope": null,
+       "source_period": null,
+       "staff_shifts": []
+      },
+      "population_conditions": {
+       "additional_access_need_rates": {},
+       "care_support_need_rates": {},
+       "daily_rhythms": [],
+       "household_composition": null,
+       "information_access_weights": {},
+       "language_weights": {},
+       "medical_support_rate": null,
+       "medication_support_rate": null,
+       "pet_count_weights": {},
+       "pet_household_rate": null,
+       "source_ids": []
+      },
+      "queue_policy_id": "need-weighted-physical-queue-v1",
+      "relationship_policy_id": "distance-duration-repeat-trust-v1",
+      "season": null,
+      "seed": 2026,
+      "social_policy_id": "expressiveness-channel-openness-v1",
+      "social_propagation_enabled": true,
+      "social_proximity_policy_id": "disabled-proximity-v1",
+      "staff_count": null,
+      "staff_fatigue_policy_id": "staff-fatigue-linear-v1",
+      "staff_operations_policy_id": "staff-urgency-first-v1",
+      "target_date": null,
+      "weather_area_code": null,
+      "zone_area_shares": {},
+      "zone_hygiene_policy_id": "zone-hygiene-linear-v1",
+      "zone_privacy_policy_id": "zone-privacy-threshold-v1",
+      "zone_rest_policy_id": "zone-rest-multiplicative-v1",
+      "zone_temperature_policy_id": "zone-temperature-comfort-band-v1"
+     },
+     "source": "rules_fallback",
+     "warnings": [
+      "AIの入力整理を利用できず、明示された値のみを使用します。",
+      "生成された条件は下書きです。地域・人数・期間・設備を確認してから確定してください。"
+     ]
+    }
+   },
+   "text": "墨田区で地震。避難者40人、2日間。"
+  },
+  {
+   "name": "not-an-object",
+   "output": "[]",
+   "python": {
+    "kind": "ok",
+    "value": {
+     "input_sha256": "603626518ba085b0593c1151c63d565026ac9f735041a361015d4105bd793e2d",
+     "missing_fields": [],
+     "request": {
+      "accessible_toilet_count": 1,
+      "behavior_policy_id": "sleep-aware-utility-softmax-v2",
+      "body_dynamics_policy_id": "body-feedback-complete-v2",
+      "care_outcome_policy_id": "typed-care-support-response-v1",
+      "default_supply_start_day": 4,
+      "disaster": "earthquake",
+      "duration_days": 2.0,
+      "evacuation_selection": {
+       "age_band_multipliers": {},
+       "source_ids": []
+      },
+      "evacuees": 40,
+      "facility_conditions": [],
+      "facility_zones": [],
+      "field_origins": {
+       "accessible_toilet_count": "default",
+       "disaster": "user",
+       "duration_days": "user",
+       "evacuation_selection": "llm_extracted",
+       "evacuees": "user",
+       "municipality": "user",
+       "operational_conditions": "llm_extracted",
+       "population_conditions": "llm_extracted",
+       "seed": "default"
+      },
+      "gross_area_m2": null,
+      "information_policy_id": "evidence-aware-rumor-v1",
+      "information_spread_enabled": true,
+      "model_parameter_overrides": {},
+      "municipality": "墨田区",
+      "municipality_code": null,
+      "operational_conditions": {
+       "equipment": [],
+       "infrastructure": null,
+       "initial_resources": {
+        "food_meal_units": null,
+        "source_ids": [],
+        "source_kind": "operator",
+        "status": "unknown",
+        "warehouse_id": "main_warehouse",
+        "water_ml": null,
+        "zone_id": null
+       },
+       "scheduled": [],
+       "source_geographic_scope": null,
+       "source_period": null,
+       "staff_shifts": []
+      },
+      "population_conditions": {
+       "additional_access_need_rates": {},
+       "care_support_need_rates": {},
+       "daily_rhythms": [],
+       "household_composition": null,
+       "information_access_weights": {},
+       "language_weights": {},
+       "medical_support_rate": null,
+       "medication_support_rate": null,
+       "pet_count_weights": {},
+       "pet_household_rate": null,
+       "source_ids": []
+      },
+      "queue_policy_id": "need-weighted-physical-queue-v1",
+      "relationship_policy_id": "distance-duration-repeat-trust-v1",
+      "season": null,
+      "seed": 2026,
+      "social_policy_id": "expressiveness-channel-openness-v1",
+      "social_propagation_enabled": true,
+      "social_proximity_policy_id": "disabled-proximity-v1",
+      "staff_count": null,
+      "staff_fatigue_policy_id": "staff-fatigue-linear-v1",
+      "staff_operations_policy_id": "staff-urgency-first-v1",
+      "target_date": null,
+      "weather_area_code": null,
+      "zone_area_shares": {},
+      "zone_hygiene_policy_id": "zone-hygiene-linear-v1",
+      "zone_privacy_policy_id": "zone-privacy-threshold-v1",
+      "zone_rest_policy_id": "zone-rest-multiplicative-v1",
+      "zone_temperature_policy_id": "zone-temperature-comfort-band-v1"
+     },
+     "source": "rules_fallback",
+     "warnings": [
+      "AIの入力整理を利用できず、明示された値のみを使用します。",
+      "生成された条件は下書きです。地域・人数・期間・設備を確認してから確定してください。"
+     ]
+    }
+   },
+   "text": "墨田区で地震。避難者40人、2日間。"
+  },
+  {
+   "name": "people-not-a-number",
+   "output": "{\"municipality\": \"\", \"disaster\": \"\", \"evacuees\": \"many\", \"duration_days\": \"\", \"gross_area_m2\": \"\", \"accessible_toilet_count\": \"\", \"staff_count\": \"\", \"seed\": \"\", \"season\": \"\", \"facility_conditions\": [], \"facility_zones\": [], \"operational_conditions\": {\"initial_resources\": {\"status\": \"unknown\", \"water_ml\": null, \"food_meal_units\": null, \"warehouse_id\": \"main_warehouse\", \"zone_id\": null, \"source_ids\": [], \"source_kind\": \"operator\"}, \"equipment\": [], \"scheduled\": [], \"staff_shifts\": [], \"infrastructure\": null, \"source_geographic_scope\": null, \"source_period\": null}, \"population_conditions\": {\"medical_support_rate\": null, \"medication_support_rate\": null, \"care_support_need_rates\": {}, \"pet_household_rate\": null, \"pet_count_weights\": {}, \"information_access_weights\": {}, \"language_weights\": {}, \"additional_access_need_rates\": {}, \"daily_rhythms\": [], \"household_composition\": null, \"source_ids\": []}, \"evacuation_selection\": {\"age_band_multipliers\": {}, \"source_ids\": []}, \"zone_area_shares\": {}}",
+   "python": {
+    "kind": "ok",
+    "value": {
+     "input_sha256": "5a1734c42067d05c6d3d19c3b847767a49bca0d3f14f144c68f75fc9756401ab",
+     "missing_fields": [
+      "evacuees"
+     ],
+     "request": null,
+     "source": "rules",
+     "warnings": [
+      "AIの入力整理を利用できず、明示された値のみを使用します。",
+      "生成された条件は下書きです。地域・人数・期間・設備を確認してから確定してください。"
+     ]
+    }
+   },
+   "text": "墨田区で地震。"
+  },
+  {
+   "name": "blank-seed",
+   "output": "{\"municipality\": \"\", \"disaster\": \"\", \"evacuees\": \"\", \"duration_days\": \"\", \"gross_area_m2\": \"\", \"accessible_toilet_count\": \"\", \"staff_count\": \"\", \"seed\": \" \", \"season\": \"\", \"facility_conditions\": [], \"facility_zones\": [], \"operational_conditions\": {\"initial_resources\": {\"status\": \"unknown\", \"water_ml\": null, \"food_meal_units\": null, \"warehouse_id\": \"main_warehouse\", \"zone_id\": null, \"source_ids\": [], \"source_kind\": \"operator\"}, \"equipment\": [], \"scheduled\": [], \"staff_shifts\": [], \"infrastructure\": null, \"source_geographic_scope\": null, \"source_period\": null}, \"population_conditions\": {\"medical_support_rate\": null, \"medication_support_rate\": null, \"care_support_need_rates\": {}, \"pet_household_rate\": null, \"pet_count_weights\": {}, \"information_access_weights\": {}, \"language_weights\": {}, \"additional_access_need_rates\": {}, \"daily_rhythms\": [], \"household_composition\": null, \"source_ids\": []}, \"evacuation_selection\": {\"age_band_multipliers\": {}, \"source_ids\": []}, \"zone_area_shares\": {}}",
+   "python": {
+    "kind": "ok",
+    "value": {
+     "input_sha256": "603626518ba085b0593c1151c63d565026ac9f735041a361015d4105bd793e2d",
+     "missing_fields": [],
+     "request": {
+      "accessible_toilet_count": 1,
+      "behavior_policy_id": "sleep-aware-utility-softmax-v2",
+      "body_dynamics_policy_id": "body-feedback-complete-v2",
+      "care_outcome_policy_id": "typed-care-support-response-v1",
+      "default_supply_start_day": 4,
+      "disaster": "earthquake",
+      "duration_days": 2.0,
+      "evacuation_selection": {
+       "age_band_multipliers": {},
+       "source_ids": []
+      },
+      "evacuees": 40,
+      "facility_conditions": [],
+      "facility_zones": [],
+      "field_origins": {
+       "accessible_toilet_count": "default",
+       "disaster": "user",
+       "duration_days": "user",
+       "evacuees": "user",
+       "municipality": "user",
+       "seed": "default"
+      },
+      "gross_area_m2": null,
+      "information_policy_id": "evidence-aware-rumor-v1",
+      "information_spread_enabled": true,
+      "model_parameter_overrides": {},
+      "municipality": "墨田区",
+      "municipality_code": null,
+      "operational_conditions": {
+       "equipment": [],
+       "infrastructure": null,
+       "initial_resources": {
+        "food_meal_units": null,
+        "source_ids": [],
+        "source_kind": "operator",
+        "status": "unknown",
+        "warehouse_id": "main_warehouse",
+        "water_ml": null,
+        "zone_id": null
+       },
+       "scheduled": [],
+       "source_geographic_scope": null,
+       "source_period": null,
+       "staff_shifts": []
+      },
+      "population_conditions": {
+       "additional_access_need_rates": {},
+       "care_support_need_rates": {},
+       "daily_rhythms": [],
+       "household_composition": null,
+       "information_access_weights": {},
+       "language_weights": {},
+       "medical_support_rate": null,
+       "medication_support_rate": null,
+       "pet_count_weights": {},
+       "pet_household_rate": null,
+       "source_ids": []
+      },
+      "queue_policy_id": "need-weighted-physical-queue-v1",
+      "relationship_policy_id": "distance-duration-repeat-trust-v1",
+      "season": null,
+      "seed": 2026,
+      "social_policy_id": "expressiveness-channel-openness-v1",
+      "social_propagation_enabled": true,
+      "social_proximity_policy_id": "disabled-proximity-v1",
+      "staff_count": null,
+      "staff_fatigue_policy_id": "staff-fatigue-linear-v1",
+      "staff_operations_policy_id": "staff-urgency-first-v1",
+      "target_date": null,
+      "weather_area_code": null,
+      "zone_area_shares": {},
+      "zone_hygiene_policy_id": "zone-hygiene-linear-v1",
+      "zone_privacy_policy_id": "zone-privacy-threshold-v1",
+      "zone_rest_policy_id": "zone-rest-multiplicative-v1",
+      "zone_temperature_policy_id": "zone-temperature-comfort-band-v1"
+     },
+     "source": "rules",
+     "warnings": [
+      "AIの入力整理を利用できず、明示された値のみを使用します。",
+      "生成された条件は下書きです。地域・人数・期間・設備を確認してから確定してください。"
+     ]
+    }
+   },
+   "text": "墨田区で地震。避難者40人、2日間。"
+  },
+  {
+   "name": "days-not-a-number",
+   "output": "{\"municipality\": \"\", \"disaster\": \"\", \"evacuees\": \"\", \"duration_days\": \"2日\", \"gross_area_m2\": \"\", \"accessible_toilet_count\": \"\", \"staff_count\": \"\", \"seed\": \"\", \"season\": \"\", \"facility_conditions\": [], \"facility_zones\": [], \"operational_conditions\": {\"initial_resources\": {\"status\": \"unknown\", \"water_ml\": null, \"food_meal_units\": null, \"warehouse_id\": \"main_warehouse\", \"zone_id\": null, \"source_ids\": [], \"source_kind\": \"operator\"}, \"equipment\": [], \"scheduled\": [], \"staff_shifts\": [], \"infrastructure\": null, \"source_geographic_scope\": null, \"source_period\": null}, \"population_conditions\": {\"medical_support_rate\": null, \"medication_support_rate\": null, \"care_support_need_rates\": {}, \"pet_household_rate\": null, \"pet_count_weights\": {}, \"information_access_weights\": {}, \"language_weights\": {}, \"additional_access_need_rates\": {}, \"daily_rhythms\": [], \"household_composition\": null, \"source_ids\": []}, \"evacuation_selection\": {\"age_band_multipliers\": {}, \"source_ids\": []}, \"zone_area_shares\": {}}",
+   "python": {
+    "kind": "ok",
+    "value": {
+     "input_sha256": "603626518ba085b0593c1151c63d565026ac9f735041a361015d4105bd793e2d",
+     "missing_fields": [],
+     "request": {
+      "accessible_toilet_count": 1,
+      "behavior_policy_id": "sleep-aware-utility-softmax-v2",
+      "body_dynamics_policy_id": "body-feedback-complete-v2",
+      "care_outcome_policy_id": "typed-care-support-response-v1",
+      "default_supply_start_day": 4,
+      "disaster": "earthquake",
+      "duration_days": 2.0,
+      "evacuation_selection": {
+       "age_band_multipliers": {},
+       "source_ids": []
+      },
+      "evacuees": 40,
+      "facility_conditions": [],
+      "facility_zones": [],
+      "field_origins": {
+       "accessible_toilet_count": "default",
+       "disaster": "user",
+       "duration_days": "user",
+       "evacuees": "user",
+       "municipality": "user",
+       "seed": "default"
+      },
+      "gross_area_m2": null,
+      "information_policy_id": "evidence-aware-rumor-v1",
+      "information_spread_enabled": true,
+      "model_parameter_overrides": {},
+      "municipality": "墨田区",
+      "municipality_code": null,
+      "operational_conditions": {
+       "equipment": [],
+       "infrastructure": null,
+       "initial_resources": {
+        "food_meal_units": null,
+        "source_ids": [],
+        "source_kind": "operator",
+        "status": "unknown",
+        "warehouse_id": "main_warehouse",
+        "water_ml": null,
+        "zone_id": null
+       },
+       "scheduled": [],
+       "source_geographic_scope": null,
+       "source_period": null,
+       "staff_shifts": []
+      },
+      "population_conditions": {
+       "additional_access_need_rates": {},
+       "care_support_need_rates": {},
+       "daily_rhythms": [],
+       "household_composition": null,
+       "information_access_weights": {},
+       "language_weights": {},
+       "medical_support_rate": null,
+       "medication_support_rate": null,
+       "pet_count_weights": {},
+       "pet_household_rate": null,
+       "source_ids": []
+      },
+      "queue_policy_id": "need-weighted-physical-queue-v1",
+      "relationship_policy_id": "distance-duration-repeat-trust-v1",
+      "season": null,
+      "seed": 2026,
+      "social_policy_id": "expressiveness-channel-openness-v1",
+      "social_propagation_enabled": true,
+      "social_proximity_policy_id": "disabled-proximity-v1",
+      "staff_count": null,
+      "staff_fatigue_policy_id": "staff-fatigue-linear-v1",
+      "staff_operations_policy_id": "staff-urgency-first-v1",
+      "target_date": null,
+      "weather_area_code": null,
+      "zone_area_shares": {},
+      "zone_hygiene_policy_id": "zone-hygiene-linear-v1",
+      "zone_privacy_policy_id": "zone-privacy-threshold-v1",
+      "zone_rest_policy_id": "zone-rest-multiplicative-v1",
+      "zone_temperature_policy_id": "zone-temperature-comfort-band-v1"
+     },
+     "source": "rules",
+     "warnings": [
+      "AIの入力整理を利用できず、明示された値のみを使用します。",
+      "生成された条件は下書きです。地域・人数・期間・設備を確認してから確定してください。"
+     ]
+    }
+   },
+   "text": "墨田区で地震。避難者40人、2日間。"
+  },
+  {
+   "name": "zone-invalid",
+   "output": "{\"municipality\": \"\", \"disaster\": \"\", \"evacuees\": \"\", \"duration_days\": \"\", \"gross_area_m2\": \"\", \"accessible_toilet_count\": \"\", \"staff_count\": \"\", \"seed\": \"\", \"season\": \"\", \"facility_conditions\": [], \"facility_zones\": [{\"kind\": \"x\"}], \"operational_conditions\": {\"initial_resources\": {\"status\": \"unknown\", \"water_ml\": null, \"food_meal_units\": null, \"warehouse_id\": \"main_warehouse\", \"zone_id\": null, \"source_ids\": [], \"source_kind\": \"operator\"}, \"equipment\": [], \"scheduled\": [], \"staff_shifts\": [], \"infrastructure\": null, \"source_geographic_scope\": null, \"source_period\": null}, \"population_conditions\": {\"medical_support_rate\": null, \"medication_support_rate\": null, \"care_support_need_rates\": {}, \"pet_household_rate\": null, \"pet_count_weights\": {}, \"information_access_weights\": {}, \"language_weights\": {}, \"additional_access_need_rates\": {}, \"daily_rhythms\": [], \"household_composition\": null, \"source_ids\": []}, \"evacuation_selection\": {\"age_band_multipliers\": {}, \"source_ids\": []}, \"zone_area_shares\": {}}",
+   "python": {
+    "kind": "ok",
+    "value": {
+     "input_sha256": "603626518ba085b0593c1151c63d565026ac9f735041a361015d4105bd793e2d",
+     "missing_fields": [],
+     "request": {
+      "accessible_toilet_count": 1,
+      "behavior_policy_id": "sleep-aware-utility-softmax-v2",
+      "body_dynamics_policy_id": "body-feedback-complete-v2",
+      "care_outcome_policy_id": "typed-care-support-response-v1",
+      "default_supply_start_day": 4,
+      "disaster": "earthquake",
+      "duration_days": 2.0,
+      "evacuation_selection": {
+       "age_band_multipliers": {},
+       "source_ids": []
+      },
+      "evacuees": 40,
+      "facility_conditions": [],
+      "facility_zones": [],
+      "field_origins": {
+       "accessible_toilet_count": "default",
+       "disaster": "user",
+       "duration_days": "user",
+       "evacuation_selection": "llm_extracted",
+       "evacuees": "user",
+       "municipality": "user",
+       "operational_conditions": "llm_extracted",
+       "population_conditions": "llm_extracted",
+       "seed": "default"
+      },
+      "gross_area_m2": null,
+      "information_policy_id": "evidence-aware-rumor-v1",
+      "information_spread_enabled": true,
+      "model_parameter_overrides": {},
+      "municipality": "墨田区",
+      "municipality_code": null,
+      "operational_conditions": {
+       "equipment": [],
+       "infrastructure": null,
+       "initial_resources": {
+        "food_meal_units": null,
+        "source_ids": [],
+        "source_kind": "operator",
+        "status": "unknown",
+        "warehouse_id": "main_warehouse",
+        "water_ml": null,
+        "zone_id": null
+       },
+       "scheduled": [],
+       "source_geographic_scope": null,
+       "source_period": null,
+       "staff_shifts": []
+      },
+      "population_conditions": {
+       "additional_access_need_rates": {},
+       "care_support_need_rates": {},
+       "daily_rhythms": [],
+       "household_composition": null,
+       "information_access_weights": {},
+       "language_weights": {},
+       "medical_support_rate": null,
+       "medication_support_rate": null,
+       "pet_count_weights": {},
+       "pet_household_rate": null,
+       "source_ids": []
+      },
+      "queue_policy_id": "need-weighted-physical-queue-v1",
+      "relationship_policy_id": "distance-duration-repeat-trust-v1",
+      "season": null,
+      "seed": 2026,
+      "social_policy_id": "expressiveness-channel-openness-v1",
+      "social_propagation_enabled": true,
+      "social_proximity_policy_id": "disabled-proximity-v1",
+      "staff_count": null,
+      "staff_fatigue_policy_id": "staff-fatigue-linear-v1",
+      "staff_operations_policy_id": "staff-urgency-first-v1",
+      "target_date": null,
+      "weather_area_code": null,
+      "zone_area_shares": {},
+      "zone_hygiene_policy_id": "zone-hygiene-linear-v1",
+      "zone_privacy_policy_id": "zone-privacy-threshold-v1",
+      "zone_rest_policy_id": "zone-rest-multiplicative-v1",
+      "zone_temperature_policy_id": "zone-temperature-comfort-band-v1"
+     },
+     "source": "rules_fallback",
+     "warnings": [
+      "AIの入力整理を利用できず、明示された値のみを使用します。",
+      "生成された条件は下書きです。地域・人数・期間・設備を確認してから確定してください。"
+     ]
+    }
+   },
+   "text": "墨田区で地震。避難者40人、2日間。"
+  },
+  {
+   "name": "season-not-canonical",
+   "output": "{\"municipality\": \"\", \"disaster\": \"\", \"evacuees\": \"\", \"duration_days\": \"\", \"gross_area_m2\": \"\", \"accessible_toilet_count\": \"\", \"staff_count\": \"\", \"seed\": \"\", \"season\": \"冬\", \"facility_conditions\": [], \"facility_zones\": [], \"operational_conditions\": {\"initial_resources\": {\"status\": \"unknown\", \"water_ml\": null, \"food_meal_units\": null, \"warehouse_id\": \"main_warehouse\", \"zone_id\": null, \"source_ids\": [], \"source_kind\": \"operator\"}, \"equipment\": [], \"scheduled\": [], \"staff_shifts\": [], \"infrastructure\": null, \"source_geographic_scope\": null, \"source_period\": null}, \"population_conditions\": {\"medical_support_rate\": null, \"medication_support_rate\": null, \"care_support_need_rates\": {}, \"pet_household_rate\": null, \"pet_count_weights\": {}, \"information_access_weights\": {}, \"language_weights\": {}, \"additional_access_need_rates\": {}, \"daily_rhythms\": [], \"household_composition\": null, \"source_ids\": []}, \"evacuation_selection\": {\"age_band_multipliers\": {}, \"source_ids\": []}, \"zone_area_shares\": {}}",
+   "python": {
+    "kind": "ok",
+    "value": {
+     "input_sha256": "603626518ba085b0593c1151c63d565026ac9f735041a361015d4105bd793e2d",
+     "missing_fields": [],
+     "request": {
+      "accessible_toilet_count": 1,
+      "behavior_policy_id": "sleep-aware-utility-softmax-v2",
+      "body_dynamics_policy_id": "body-feedback-complete-v2",
+      "care_outcome_policy_id": "typed-care-support-response-v1",
+      "default_supply_start_day": 4,
+      "disaster": "earthquake",
+      "duration_days": 2.0,
+      "evacuation_selection": {
+       "age_band_multipliers": {},
+       "source_ids": []
+      },
+      "evacuees": 40,
+      "facility_conditions": [],
+      "facility_zones": [],
+      "field_origins": {
+       "accessible_toilet_count": "default",
+       "disaster": "user",
+       "duration_days": "user",
+       "evacuation_selection": "llm_extracted",
+       "evacuees": "user",
+       "municipality": "user",
+       "operational_conditions": "llm_extracted",
+       "population_conditions": "llm_extracted",
+       "season": "llm_extracted",
+       "seed": "default"
+      },
+      "gross_area_m2": null,
+      "information_policy_id": "evidence-aware-rumor-v1",
+      "information_spread_enabled": true,
+      "model_parameter_overrides": {},
+      "municipality": "墨田区",
+      "municipality_code": null,
+      "operational_conditions": {
+       "equipment": [],
+       "infrastructure": null,
+       "initial_resources": {
+        "food_meal_units": null,
+        "source_ids": [],
+        "source_kind": "operator",
+        "status": "unknown",
+        "warehouse_id": "main_warehouse",
+        "water_ml": null,
+        "zone_id": null
+       },
+       "scheduled": [],
+       "source_geographic_scope": null,
+       "source_period": null,
+       "staff_shifts": []
+      },
+      "population_conditions": {
+       "additional_access_need_rates": {},
+       "care_support_need_rates": {},
+       "daily_rhythms": [],
+       "household_composition": null,
+       "information_access_weights": {},
+       "language_weights": {},
+       "medical_support_rate": null,
+       "medication_support_rate": null,
+       "pet_count_weights": {},
+       "pet_household_rate": null,
+       "source_ids": []
+      },
+      "queue_policy_id": "need-weighted-physical-queue-v1",
+      "relationship_policy_id": "distance-duration-repeat-trust-v1",
+      "season": "冬",
+      "seed": 2026,
+      "social_policy_id": "expressiveness-channel-openness-v1",
+      "social_propagation_enabled": true,
+      "social_proximity_policy_id": "disabled-proximity-v1",
+      "staff_count": null,
+      "staff_fatigue_policy_id": "staff-fatigue-linear-v1",
+      "staff_operations_policy_id": "staff-urgency-first-v1",
+      "target_date": null,
+      "weather_area_code": null,
+      "zone_area_shares": {},
+      "zone_hygiene_policy_id": "zone-hygiene-linear-v1",
+      "zone_privacy_policy_id": "zone-privacy-threshold-v1",
+      "zone_rest_policy_id": "zone-rest-multiplicative-v1",
+      "zone_temperature_policy_id": "zone-temperature-comfort-band-v1"
+     },
+     "source": "prepare_llm",
+     "warnings": [
+      "生成された条件は下書きです。地域・人数・期間・設備を確認してから確定してください。"
+     ]
+    }
+   },
+   "text": "墨田区で地震。避難者40人、2日間。"
+  },
+  {
+   "name": "zero-days",
+   "output": "{\"municipality\": \"\", \"disaster\": \"\", \"evacuees\": \"\", \"duration_days\": \"0\", \"gross_area_m2\": \"\", \"accessible_toilet_count\": \"\", \"staff_count\": \"\", \"seed\": \"\", \"season\": \"\", \"facility_conditions\": [], \"facility_zones\": [], \"operational_conditions\": {\"initial_resources\": {\"status\": \"unknown\", \"water_ml\": null, \"food_meal_units\": null, \"warehouse_id\": \"main_warehouse\", \"zone_id\": null, \"source_ids\": [], \"source_kind\": \"operator\"}, \"equipment\": [], \"scheduled\": [], \"staff_shifts\": [], \"infrastructure\": null, \"source_geographic_scope\": null, \"source_period\": null}, \"population_conditions\": {\"medical_support_rate\": null, \"medication_support_rate\": null, \"care_support_need_rates\": {}, \"pet_household_rate\": null, \"pet_count_weights\": {}, \"information_access_weights\": {}, \"language_weights\": {}, \"additional_access_need_rates\": {}, \"daily_rhythms\": [], \"household_composition\": null, \"source_ids\": []}, \"evacuation_selection\": {\"age_band_multipliers\": {}, \"source_ids\": []}, \"zone_area_shares\": {}}",
+   "python": {
+    "kind": "error"
+   },
+   "text": "墨田区で地震。避難者40人。"
+  },
+  {
+   "name": "too-many-people",
+   "output": "{\"municipality\": \"\", \"disaster\": \"\", \"evacuees\": \"999999999\", \"duration_days\": \"\", \"gross_area_m2\": \"\", \"accessible_toilet_count\": \"\", \"staff_count\": \"\", \"seed\": \"\", \"season\": \"\", \"facility_conditions\": [], \"facility_zones\": [], \"operational_conditions\": {\"initial_resources\": {\"status\": \"unknown\", \"water_ml\": null, \"food_meal_units\": null, \"warehouse_id\": \"main_warehouse\", \"zone_id\": null, \"source_ids\": [], \"source_kind\": \"operator\"}, \"equipment\": [], \"scheduled\": [], \"staff_shifts\": [], \"infrastructure\": null, \"source_geographic_scope\": null, \"source_period\": null}, \"population_conditions\": {\"medical_support_rate\": null, \"medication_support_rate\": null, \"care_support_need_rates\": {}, \"pet_household_rate\": null, \"pet_count_weights\": {}, \"information_access_weights\": {}, \"language_weights\": {}, \"additional_access_need_rates\": {}, \"daily_rhythms\": [], \"household_composition\": null, \"source_ids\": []}, \"evacuation_selection\": {\"age_band_multipliers\": {}, \"source_ids\": []}, \"zone_area_shares\": {}}",
+   "python": {
+    "kind": "error"
+   },
+   "text": "墨田区で地震。"
+  },
+  {
+   "name": "other-warehouse",
+   "output": "{\"municipality\": \"\", \"disaster\": \"\", \"evacuees\": \"\", \"duration_days\": \"\", \"gross_area_m2\": \"\", \"accessible_toilet_count\": \"\", \"staff_count\": \"\", \"seed\": \"\", \"season\": \"\", \"facility_conditions\": [], \"facility_zones\": [], \"operational_conditions\": {\"initial_resources\": {\"status\": \"unknown\", \"water_ml\": null, \"food_meal_units\": null, \"warehouse_id\": \"-x\", \"zone_id\": null, \"source_ids\": [], \"source_kind\": \"operator\"}, \"equipment\": [], \"scheduled\": [], \"staff_shifts\": [], \"infrastructure\": null, \"source_geographic_scope\": null, \"source_period\": null}, \"population_conditions\": {\"medical_support_rate\": null, \"medication_support_rate\": null, \"care_support_need_rates\": {}, \"pet_household_rate\": null, \"pet_count_weights\": {}, \"information_access_weights\": {}, \"language_weights\": {}, \"additional_access_need_rates\": {}, \"daily_rhythms\": [], \"household_composition\": null, \"source_ids\": []}, \"evacuation_selection\": {\"age_band_multipliers\": {}, \"source_ids\": []}, \"zone_area_shares\": {}}",
+   "python": {
+    "kind": "ok",
+    "value": {
+     "input_sha256": "603626518ba085b0593c1151c63d565026ac9f735041a361015d4105bd793e2d",
+     "missing_fields": [],
+     "request": {
+      "accessible_toilet_count": 1,
+      "behavior_policy_id": "sleep-aware-utility-softmax-v2",
+      "body_dynamics_policy_id": "body-feedback-complete-v2",
+      "care_outcome_policy_id": "typed-care-support-response-v1",
+      "default_supply_start_day": 4,
+      "disaster": "earthquake",
+      "duration_days": 2.0,
+      "evacuation_selection": {
+       "age_band_multipliers": {},
+       "source_ids": []
+      },
+      "evacuees": 40,
+      "facility_conditions": [],
+      "facility_zones": [],
+      "field_origins": {
+       "accessible_toilet_count": "default",
+       "disaster": "user",
+       "duration_days": "user",
+       "evacuation_selection": "llm_extracted",
+       "evacuees": "user",
+       "municipality": "user",
+       "operational_conditions": "llm_extracted",
+       "population_conditions": "llm_extracted",
+       "seed": "default"
+      },
+      "gross_area_m2": null,
+      "information_policy_id": "evidence-aware-rumor-v1",
+      "information_spread_enabled": true,
+      "model_parameter_overrides": {},
+      "municipality": "墨田区",
+      "municipality_code": null,
+      "operational_conditions": {
+       "equipment": [],
+       "infrastructure": null,
+       "initial_resources": {
+        "food_meal_units": null,
+        "source_ids": [],
+        "source_kind": "operator",
+        "status": "unknown",
+        "warehouse_id": "-x",
+        "water_ml": null,
+        "zone_id": null
+       },
+       "scheduled": [],
+       "source_geographic_scope": null,
+       "source_period": null,
+       "staff_shifts": []
+      },
+      "population_conditions": {
+       "additional_access_need_rates": {},
+       "care_support_need_rates": {},
+       "daily_rhythms": [],
+       "household_composition": null,
+       "information_access_weights": {},
+       "language_weights": {},
+       "medical_support_rate": null,
+       "medication_support_rate": null,
+       "pet_count_weights": {},
+       "pet_household_rate": null,
+       "source_ids": []
+      },
+      "queue_policy_id": "need-weighted-physical-queue-v1",
+      "relationship_policy_id": "distance-duration-repeat-trust-v1",
+      "season": null,
+      "seed": 2026,
+      "social_policy_id": "expressiveness-channel-openness-v1",
+      "social_propagation_enabled": true,
+      "social_proximity_policy_id": "disabled-proximity-v1",
+      "staff_count": null,
+      "staff_fatigue_policy_id": "staff-fatigue-linear-v1",
+      "staff_operations_policy_id": "staff-urgency-first-v1",
+      "target_date": null,
+      "weather_area_code": null,
+      "zone_area_shares": {},
+      "zone_hygiene_policy_id": "zone-hygiene-linear-v1",
+      "zone_privacy_policy_id": "zone-privacy-threshold-v1",
+      "zone_rest_policy_id": "zone-rest-multiplicative-v1",
+      "zone_temperature_policy_id": "zone-temperature-comfort-band-v1"
+     },
+     "source": "prepare_llm",
+     "warnings": [
+      "生成された条件は下書きです。地域・人数・期間・設備を確認してから確定してください。"
+     ]
+    }
+   },
+   "text": "墨田区で地震。避難者40人、2日間。"
+  },
+  {
+   "name": "population-condition",
+   "output": "{\"municipality\": \"\", \"disaster\": \"\", \"evacuees\": \"\", \"duration_days\": \"\", \"gross_area_m2\": \"\", \"accessible_toilet_count\": \"\", \"staff_count\": \"\", \"seed\": \"\", \"season\": \"\", \"facility_conditions\": [], \"facility_zones\": [], \"operational_conditions\": {\"initial_resources\": {\"status\": \"unknown\", \"water_ml\": null, \"food_meal_units\": null, \"warehouse_id\": \"main_warehouse\", \"zone_id\": null, \"source_ids\": [], \"source_kind\": \"operator\"}, \"equipment\": [], \"scheduled\": [], \"staff_shifts\": [], \"infrastructure\": null, \"source_geographic_scope\": null, \"source_period\": null}, \"population_conditions\": {\"medical_support_rate\": null, \"medication_support_rate\": null, \"care_support_need_rates\": {}, \"pet_household_rate\": 0.2, \"pet_count_weights\": {}, \"information_access_weights\": {}, \"language_weights\": {}, \"additional_access_need_rates\": {}, \"daily_rhythms\": [], \"household_composition\": null, \"source_ids\": []}, \"evacuation_selection\": {\"age_band_multipliers\": {}, \"source_ids\": []}, \"zone_area_shares\": {}}",
+   "python": {
+    "kind": "ok",
+    "value": {
+     "input_sha256": "603626518ba085b0593c1151c63d565026ac9f735041a361015d4105bd793e2d",
+     "missing_fields": [],
+     "request": {
+      "accessible_toilet_count": 1,
+      "behavior_policy_id": "sleep-aware-utility-softmax-v2",
+      "body_dynamics_policy_id": "body-feedback-complete-v2",
+      "care_outcome_policy_id": "typed-care-support-response-v1",
+      "default_supply_start_day": 4,
+      "disaster": "earthquake",
+      "duration_days": 2.0,
+      "evacuation_selection": {
+       "age_band_multipliers": {},
+       "source_ids": []
+      },
+      "evacuees": 40,
+      "facility_conditions": [],
+      "facility_zones": [],
+      "field_origins": {
+       "accessible_toilet_count": "default",
+       "disaster": "user",
+       "duration_days": "user",
+       "evacuation_selection": "llm_extracted",
+       "evacuees": "user",
+       "municipality": "user",
+       "operational_conditions": "llm_extracted",
+       "population_conditions": "llm_extracted",
+       "seed": "default"
+      },
+      "gross_area_m2": null,
+      "information_policy_id": "evidence-aware-rumor-v1",
+      "information_spread_enabled": true,
+      "model_parameter_overrides": {},
+      "municipality": "墨田区",
+      "municipality_code": null,
+      "operational_conditions": {
+       "equipment": [],
+       "infrastructure": null,
+       "initial_resources": {
+        "food_meal_units": null,
+        "source_ids": [],
+        "source_kind": "operator",
+        "status": "unknown",
+        "warehouse_id": "main_warehouse",
+        "water_ml": null,
+        "zone_id": null
+       },
+       "scheduled": [],
+       "source_geographic_scope": null,
+       "source_period": null,
+       "staff_shifts": []
+      },
+      "population_conditions": {
+       "additional_access_need_rates": {},
+       "care_support_need_rates": {},
+       "daily_rhythms": [],
+       "household_composition": null,
+       "information_access_weights": {},
+       "language_weights": {},
+       "medical_support_rate": null,
+       "medication_support_rate": null,
+       "pet_count_weights": {},
+       "pet_household_rate": 0.2,
+       "source_ids": []
+      },
+      "queue_policy_id": "need-weighted-physical-queue-v1",
+      "relationship_policy_id": "distance-duration-repeat-trust-v1",
+      "season": null,
+      "seed": 2026,
+      "social_policy_id": "expressiveness-channel-openness-v1",
+      "social_propagation_enabled": true,
+      "social_proximity_policy_id": "disabled-proximity-v1",
+      "staff_count": null,
+      "staff_fatigue_policy_id": "staff-fatigue-linear-v1",
+      "staff_operations_policy_id": "staff-urgency-first-v1",
+      "target_date": null,
+      "weather_area_code": null,
+      "zone_area_shares": {},
+      "zone_hygiene_policy_id": "zone-hygiene-linear-v1",
+      "zone_privacy_policy_id": "zone-privacy-threshold-v1",
+      "zone_rest_policy_id": "zone-rest-multiplicative-v1",
+      "zone_temperature_policy_id": "zone-temperature-comfort-band-v1"
+     },
+     "source": "prepare_llm",
+     "warnings": [
+      "生成された条件は下書きです。地域・人数・期間・設備を確認してから確定してください。"
+     ]
+    }
+   },
+   "text": "墨田区で地震。避難者40人、2日間。"
+  },
+  {
+   "name": "zone-shares",
+   "output": "{\"municipality\": \"\", \"disaster\": \"\", \"evacuees\": \"\", \"duration_days\": \"\", \"gross_area_m2\": \"\", \"accessible_toilet_count\": \"\", \"staff_count\": \"\", \"seed\": \"\", \"season\": \"\", \"facility_conditions\": [], \"facility_zones\": [], \"operational_conditions\": {\"initial_resources\": {\"status\": \"unknown\", \"water_ml\": null, \"food_meal_units\": null, \"warehouse_id\": \"main_warehouse\", \"zone_id\": null, \"source_ids\": [], \"source_kind\": \"operator\"}, \"equipment\": [], \"scheduled\": [], \"staff_shifts\": [], \"infrastructure\": null, \"source_geographic_scope\": null, \"source_period\": null}, \"population_conditions\": {\"medical_support_rate\": null, \"medication_support_rate\": null, \"care_support_need_rates\": {}, \"pet_household_rate\": null, \"pet_count_weights\": {}, \"information_access_weights\": {}, \"language_weights\": {}, \"additional_access_need_rates\": {}, \"daily_rhythms\": [], \"household_composition\": null, \"source_ids\": []}, \"evacuation_selection\": {\"age_band_multipliers\": {}, \"source_ids\": []}, \"zone_area_shares\": {\"sleeping\": 0.5}}",
+   "python": {
+    "kind": "ok",
+    "value": {
+     "input_sha256": "603626518ba085b0593c1151c63d565026ac9f735041a361015d4105bd793e2d",
+     "missing_fields": [],
+     "request": {
+      "accessible_toilet_count": 1,
+      "behavior_policy_id": "sleep-aware-utility-softmax-v2",
+      "body_dynamics_policy_id": "body-feedback-complete-v2",
+      "care_outcome_policy_id": "typed-care-support-response-v1",
+      "default_supply_start_day": 4,
+      "disaster": "earthquake",
+      "duration_days": 2.0,
+      "evacuation_selection": {
+       "age_band_multipliers": {},
+       "source_ids": []
+      },
+      "evacuees": 40,
+      "facility_conditions": [],
+      "facility_zones": [],
+      "field_origins": {
+       "accessible_toilet_count": "default",
+       "disaster": "user",
+       "duration_days": "user",
+       "evacuation_selection": "llm_extracted",
+       "evacuees": "user",
+       "municipality": "user",
+       "operational_conditions": "llm_extracted",
+       "population_conditions": "llm_extracted",
+       "seed": "default",
+       "zone_area_shares": "llm_extracted"
+      },
+      "gross_area_m2": null,
+      "information_policy_id": "evidence-aware-rumor-v1",
+      "information_spread_enabled": true,
+      "model_parameter_overrides": {},
+      "municipality": "墨田区",
+      "municipality_code": null,
+      "operational_conditions": {
+       "equipment": [],
+       "infrastructure": null,
+       "initial_resources": {
+        "food_meal_units": null,
+        "source_ids": [],
+        "source_kind": "operator",
+        "status": "unknown",
+        "warehouse_id": "main_warehouse",
+        "water_ml": null,
+        "zone_id": null
+       },
+       "scheduled": [],
+       "source_geographic_scope": null,
+       "source_period": null,
+       "staff_shifts": []
+      },
+      "population_conditions": {
+       "additional_access_need_rates": {},
+       "care_support_need_rates": {},
+       "daily_rhythms": [],
+       "household_composition": null,
+       "information_access_weights": {},
+       "language_weights": {},
+       "medical_support_rate": null,
+       "medication_support_rate": null,
+       "pet_count_weights": {},
+       "pet_household_rate": null,
+       "source_ids": []
+      },
+      "queue_policy_id": "need-weighted-physical-queue-v1",
+      "relationship_policy_id": "distance-duration-repeat-trust-v1",
+      "season": null,
+      "seed": 2026,
+      "social_policy_id": "expressiveness-channel-openness-v1",
+      "social_propagation_enabled": true,
+      "social_proximity_policy_id": "disabled-proximity-v1",
+      "staff_count": null,
+      "staff_fatigue_policy_id": "staff-fatigue-linear-v1",
+      "staff_operations_policy_id": "staff-urgency-first-v1",
+      "target_date": null,
+      "weather_area_code": null,
+      "zone_area_shares": {
+       "sleeping": 0.5
+      },
+      "zone_hygiene_policy_id": "zone-hygiene-linear-v1",
+      "zone_privacy_policy_id": "zone-privacy-threshold-v1",
+      "zone_rest_policy_id": "zone-rest-multiplicative-v1",
+      "zone_temperature_policy_id": "zone-temperature-comfort-band-v1"
+     },
+     "source": "prepare_llm",
+     "warnings": [
+      "生成された条件は下書きです。地域・人数・期間・設備を確認してから確定してください。"
+     ]
+    }
+   },
+   "text": "墨田区で地震。避難者40人、2日間。"
+  }
+ ],
+ "task": "region-scenario-extraction-v1"
+}

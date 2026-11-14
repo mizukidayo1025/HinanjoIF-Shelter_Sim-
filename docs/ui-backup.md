@@ -54,7 +54,7 @@ SHELTERSIM_LLM_MODE=record SHELTERSIM_LLM_ERROR_POLICY=stop \
 | ホーム | GET /api/v1/projects、GET P | 計算済みの例（Project `sample`の計算を終えたRun。ブラウザー版では「計算済みの例を取得する」で選んで取り寄せたもの、#411）、自分のシナリオ（このブラウザーの自分のProject）を並べる。読むだけで何も変えない（#371） |
 | API を有効にする（ブラウザー版） | POST /llm/v1/session（中継、#419） | ホームの「AIの機能（API）」で、配布した合言葉を中継に確かめ、相手の名前とサイト全体のその日の残りを出す。合言葉はこのブラウザー（localStorage）にだけ残し、中継が断ったら忘れる。解除できる。サーバー版には出さない（#420） |
 | Project作成・保存Run復元 | POST /api/v1/projects、GET P、GET P/runs | 実装済み / 新しいシナリオは例のProjectでなく自分のProjectに作る。開いているRunはURLが持つ |
-| 自然言語・基本条件・任意資源 | POST P/scenario-preview | 実装済み / 入力値を優先し、出典・補完仮定・警告・ブロッカーを表示 |
+| 自然言語・基本条件・任意資源 | POST P/scenario-preview | 実装済み / 入力値を優先し、出典・補完仮定・警告・ブロッカーを表示。ブラウザー版でAPIを有効にしていると、文を中継経由でAIが読み取り、プレビューに「AIが文を読み取りました」か「AIを使えず、文に明示された値だけで読み取りました」と、使えなかった理由を出す（#421） |
 | 施設種別 | request.facility_conditions | 条件の記録に対応 / 実施設の図面・適合性や別形状を推測しない |
 | 人口構成・施設概要 | preview.scenario、facility_design | 実装済み / 記録年齢の構成図と生成Geometryを描画 |
 | 明示承認・Run作成 | POST P/scenario-approve | 実装済み / preview_id、approved_hash、approved:trueを送信 |

@@ -104,6 +104,9 @@ fallbackの理由はoutcome別（max_api_calls、shared_allowance_unavailable、
 - 費用：サイト全体で、日本時間の1日に$5までです。PythonのLLMRouterと同じく、呼ぶ前に最大の費用（送る文のUTF-8のbytes＋256を1時間のcache書き込みの値段で、`max_tokens`を出力の値段で）を予約し、答えのusageで精算します。値段はPythonの`_OFFICIAL_MODEL_PRICE_FLOORS`と同じ表を`relay.mjs`の`PRICES`に持ち、`tests/unit/llm/test_relay.py`が同じであることを確かめます。Opusは、Pythonと同じく、thinkingの分として4,096 tokenを足して求めます。APIが誤りを返したときは0で、答えが来なかったときは予約した額で精算します。予約と精算は、サイトに1つのDurable Object（SQLite）で行います。
 - 合言葉は配る相手ごとに別で、中継はそのSHA-256と相手の名前だけを持ちます（secret `LLM_PASSPHRASES`）。比べるときは、全部の項目を最後まで比べます。相手ごとの回数・費用・tokenを記録し、ログにも合言葉、APIキー、送った文は出しません。
 - 標準のpytestとCIは本物のAPIを呼びません。中継のテストは、Anthropicへの接続を決めた答えに差し替えます。
+- 作業`scenario_text`（#421）：シナリオ設定の文を、Pythonの`parse_scenario_text`がrouterで読むのと同じ作業（`region-scenario-extraction-v1`、PREPAREのOpus、`effort: low`、答えは1,600 token、Pythonと同じsystem promptとschema）で読みます。作業の中身は`native/core/src/scenario/scenario_text_task.json`に1つだけ置き、中継とブラウザーの中核の両方が読みます。このファイルは`native/core/tools/scenario_text_task.py`がPythonから書き、`tests/unit/llm/test_region_prepare.py`が古くなっていないことを、`tests/unit/llm/test_relay.py`が中継の送るプロンプトがPythonと同じであることを確かめます。
+- 答えは、ブラウザーの中核（`sheltersim_core::scenario::text::parse_answer`）がPythonと同じく読みます。空・JSONでない・schemaに合わない答えはルールの代替（`rules_fallback`）、`_parse_llm_contract`が断る答えはルールの値だけ（`rules`）、使えた答えは`prepare_llm`です。答えに、ブラウザー版がまだ計算しない条件（人口の条件、避難の選び方、施設の区画、区画の面積の割合、運用の予定など）があるときは、答えを使わずにAPIキーなしと同じく読み、そのことを`warnings`の先頭に書きます（Pythonはこの答えを使います）。中継が答えないとき（合言葉、その日の上限、APIへの接続）も、APIキーなしと同じく読み、理由を`warnings`の先頭に書きます。`native/core/tests/scenario_text.rs`が、答えの例（`native/core/tests/data/scenario_text_answers.json`）でPythonと同じ結果になることを確かめます。
+- プレビューの`llm_usage`はPythonのrecord modeと同じ形（`mode: "record"`、呼んだ回数、費用）です。呼んだ記録（モデル、プロンプトの版、token、費用、結果）は、準備の勘定（`preparation.json`の`llm_calls`）に残り、承認でRunに結び付きます。合言葉はどこにも保存しません。
 
 ## プライバシーと安全性
 

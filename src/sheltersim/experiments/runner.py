@@ -339,13 +339,17 @@ class OfflineSimulationController(
         # The Run reads the handlers the core dispatches with (core/run.rs, Policies.dispatch).
         self._run_core.refresh_dispatch(self)
 
-    def _refresh_space(self) -> None:
-        """Rebuild immutable routing snapshots after an applied graph/geometry change."""
+    def _refresh_space(self, *, core_refreshed: bool = False) -> None:
+        """Rebuild immutable routing snapshots after an applied graph/geometry change.
+
+        `core_refreshed`: the core's dispatch already began the Run's new epoch (the native host's
+        `space_refreshed`, #368); the routers are built in it without beginning another.
+        """
         world = self.world
         # The kernels' routers, from the world's zone and edge tables now, with ZoneGraph's checks
         # (native/src/core/run.rs). The graphs below are for Python readers, and the kernels
         # where the tables cannot be read.
-        self._run_core.refresh_routes(world)
+        self._run_core.refresh_routes(world, refreshed=core_refreshed)
         self.space = SpaceRouter(
             ZoneGraph.from_states(
                 world.zones,

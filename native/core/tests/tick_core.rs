@@ -106,7 +106,7 @@ fn event_types(loaded: &Loaded) -> Vec<String> {
 // ---- The tests ---------------------------------------------------------------------------------------
 
 /// The worlds of `tick_core.json`.
-const WORLDS: [&str; 2] = ["small_replay", "generated"];
+const WORLDS: [&str; 3] = ["small_replay", "generated", "route_closed"];
 
 /// The detail of the record of a trip's event that a replan suppresses (`rules/replan.rs`): only
 /// `replan::stop` of the update phase's `update_movement` writes it.
@@ -332,6 +332,31 @@ fn the_plain_host_runs_each_world_to_the_native_path_s_world() {
         run.step().unwrap();
     }
     assert_eq!(run.host.plan_builds(), 5);
+}
+
+/// The Run's routers follow the space (#368): the core refreshes them where a geometry or structure
+/// event applied, whatever the host. `route_closed` closes the sleeping area's way out and opens it
+/// again, so the Run is at its third epoch; with the routers of minute 0 kept, the trips while the way
+/// was closed went through it, and the world was not the native path's.
+#[test]
+fn the_plain_run_refreshes_its_routes_where_the_space_changed() {
+    let fixture = load::entry("tick_core", "route_closed");
+    let mut run = PlainRun::of_entry(&fixture).unwrap();
+    assert_eq!(run.loaded.run.borrow().routes.epoch(), 0);
+    for _ in 0..fixture["expected"]["ticks"].as_i64().unwrap() {
+        run.step().unwrap();
+    }
+    // The log the native path wrote (the Run's own records are packed, #252): the closing and the
+    // opening.
+    let changes = fixture["expected"]["event_types"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|kind| matches!(kind.as_str(), Some("effect_program_geometry" | "effect_program_geometry_expire")))
+        .count();
+    assert_eq!(changes, 2);
+    assert_eq!(run.loaded.run.borrow().routes.epoch(), 2);
+    assert_eq!(digests(&run.loaded), expected(&fixture["expected"]["world"]));
 }
 
 /// A world's clock ends the Run: past its last minute a step says so and changes nothing.

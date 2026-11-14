@@ -72,9 +72,9 @@ def refreshes(monkeypatch: pytest.MonkeyPatch) -> dict[int, list[int]]:
     seen: dict[int, list[int]] = {}
     original = OfflineSimulationController._refresh_space
 
-    def counted(self: Any) -> None:
+    def counted(self: Any, **options: Any) -> None:
         seen.setdefault(id(self), []).append(self.world.minute_index)
-        original(self)
+        original(self, **options)
 
     monkeypatch.setattr(OfflineSimulationController, "_refresh_space", counted)
     return seen

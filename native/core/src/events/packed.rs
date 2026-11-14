@@ -449,7 +449,8 @@ impl<'a> Reader<'a> {
             MAP => {
                 let shape = self.varint()?;
                 let packer: &'a Packer = self.packer;
-                let keys = usize::try_from(shape).ok().and_then(|shape| packer.shape_keys.get(shape)).ok_or_else(|| corrupt("a shape the table does not hold"))?;
+                let keys =
+                    usize::try_from(shape).ok().and_then(|shape| packer.shape_keys.get(shape)).ok_or_else(|| corrupt("a shape the table does not hold"))?;
                 let mut map = IndexMap::with_capacity(keys.len());
                 for key in keys.iter() {
                     map.insert(key.clone(), self.value(depth + 1)?);

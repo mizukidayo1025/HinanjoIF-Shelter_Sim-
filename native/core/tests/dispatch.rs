@@ -166,7 +166,11 @@ fn pending(cell: &Shard<World>) -> Vec<String> {
 }
 
 fn foreign_calls(host: &TestHost) -> Vec<Call> {
-    host.calls.iter().filter(|call| matches!(call, Call::Foreign(_) | Call::SpaceRefreshed | Call::Cooperation { .. } | Call::InformationReaction { .. })).cloned().collect()
+    host.calls
+        .iter()
+        .filter(|call| matches!(call, Call::Foreign(_) | Call::SpaceRefreshed | Call::Cooperation { .. } | Call::InformationReaction { .. }))
+        .cloned()
+        .collect()
 }
 
 fn applied() -> Result<Foreign, Error> {

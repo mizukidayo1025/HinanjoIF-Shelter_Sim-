@@ -145,16 +145,11 @@ impl StaffRecord {
 /// `MAX_SHIFTS`, and none overlapping.
 pub fn shifts_are_valid(shifts: &[Shift]) -> bool {
     if shifts.len() > MAX_SHIFTS
-        || !shifts.iter().all(|shift| {
-            0 <= shift.start_minute
-                && shift.start_minute < shift.end_minute
-                && shift.end_minute <= MINUTES_PER_WEEK
-        })
+        || !shifts.iter().all(|shift| 0 <= shift.start_minute && shift.start_minute < shift.end_minute && shift.end_minute <= MINUTES_PER_WEEK)
     {
         return false;
     }
-    let mut ordered: Vec<(i64, i64)> =
-        shifts.iter().map(|shift| (shift.start_minute, shift.end_minute)).collect();
+    let mut ordered: Vec<(i64, i64)> = shifts.iter().map(|shift| (shift.start_minute, shift.end_minute)).collect();
     ordered.sort_unstable();
     ordered.windows(2).all(|pair| pair[0].1 <= pair[1].0)
 }
@@ -173,11 +168,11 @@ impl ConfigRow {
         {
             return false;
         }
-        let limits_are_valid = self.max_continuous_work_minutes_by_staff.0.as_ref().is_none_or(|limits| {
-            limits
-                .iter()
-                .all(|(id, limit)| !id.is_empty() && (1..=MINUTES_PER_DAY).contains(limit))
-        });
+        let limits_are_valid = self
+            .max_continuous_work_minutes_by_staff
+            .0
+            .as_ref()
+            .is_none_or(|limits| limits.iter().all(|(id, limit)| !id.is_empty() && (1..=MINUTES_PER_DAY).contains(limit)));
         if !limits_are_valid {
             return false;
         }
@@ -185,9 +180,7 @@ impl ConfigRow {
             (Some(windows), Some(recovery)) => {
                 (0.0..=1.0).contains(&recovery)
                     && (!v1 || (windows.is_empty() && recovery == 0.0))
-                    && windows
-                        .iter()
-                        .all(|(id, shifts)| !id.is_empty() && shifts_are_valid(shifts))
+                    && windows.iter().all(|(id, shifts)| !id.is_empty() && shifts_are_valid(shifts))
             }
             (None, None) => v1 && self.max_continuous_work_minutes_by_staff.0.is_none(),
             _ => false,

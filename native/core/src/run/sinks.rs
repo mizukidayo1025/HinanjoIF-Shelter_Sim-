@@ -68,10 +68,7 @@ impl Sinks {
             trace_level: artifacts.and_then(|held| match held.object()? {
                 Some(artifacts) => trace_level(artifacts),
                 // `getattr(None, "trace_level")`.
-                None => Err(Fault::new(
-                    FaultClass::Other(Arc::from("builtins.AttributeError")),
-                    "'NoneType' object has no attribute 'trace_level'",
-                )),
+                None => Err(Fault::new(FaultClass::Other(Arc::from("builtins.AttributeError")), "'NoneType' object has no attribute 'trace_level'")),
             }),
             llm_router: controller.is_none("llm_router").map(|none| !none),
             social_policy: controller.is_none("social_policy").map(|none| !none),

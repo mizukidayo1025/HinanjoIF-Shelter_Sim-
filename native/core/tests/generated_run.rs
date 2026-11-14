@@ -117,7 +117,6 @@ fn the_snapshot_is_the_python_rules_on_the_worlds_of_a_run() {
     assert_eq!(&sha(&dumps(&V::List(columns)))[..16], SNAPSHOTS_OF_THE_RUN);
 }
 
-
 /// The first world of the Run's (minute 20), loaded with its host.
 fn first_world() -> (Rc<Loaded>, TestHost) {
     let entry = generated();
@@ -165,7 +164,11 @@ fn a_person_with_two_open_requests_is_the_last_in_the_snapshot() {
     documents(|loaded, host| {
         let active: Vec<(Arc<str>, Arc<str>)> = edit(loaded, |world| {
             let rows = world.rows().unwrap();
-            rows.support_requests.iter().filter(|(_, request)| request.status == RequestStatus::Pending).map(|(id, request)| (id.clone(), request.agent_id.clone())).collect()
+            rows.support_requests
+                .iter()
+                .filter(|(_, request)| request.status == RequestStatus::Pending)
+                .map(|(id, request)| (id.clone(), request.agent_id.clone()))
+                .collect()
         });
         if active.len() < 2 {
             return true;

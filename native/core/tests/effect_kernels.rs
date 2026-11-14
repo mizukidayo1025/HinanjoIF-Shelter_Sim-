@@ -188,7 +188,8 @@ fn payload(event: &Value, changes: Value) -> Value {
 
 fn toilet(case: &Case) -> String {
     let document = case.document();
-    let mut toilets: Vec<String> = document["facilities"].as_array().unwrap().iter().filter(|row| row["kind"] == "toilet").map(|row| row["id"].as_str().unwrap().to_owned()).collect();
+    let mut toilets: Vec<String> =
+        document["facilities"].as_array().unwrap().iter().filter(|row| row["kind"] == "toilet").map(|row| row["id"].as_str().unwrap().to_owned()).collect();
     toilets.sort();
     toilets.remove(0)
 }
@@ -308,7 +309,8 @@ fn a_temporary_space_starts_and_expires() {
     case.recorded(apply, &start, "cbf4dc30d10ecc5ff2a026f1b6a9f9062666c3e70c537714cacf30f96aa9cd66");
     let modifier = start["payload"]["modifier_id"].as_str().unwrap().to_owned();
     let space = case.document()["model_state"]["temporary_spaces_v1"]["spaces"][&modifier].clone();
-    let fields = ["zone_id", "people_capacity", "sleeping_capacity", "start_minute", "end_minute", "active", "start_event_id", "end_event_id", "geometry_status"];
+    let fields =
+        ["zone_id", "people_capacity", "sleeping_capacity", "start_minute", "end_minute", "active", "start_event_id", "end_event_id", "geometry_status"];
     let read: Value = fields.iter().map(|name| (name.to_string(), space[*name].clone())).collect::<serde_json::Map<_, _>>().into();
     assert_eq!(
         read,
@@ -336,7 +338,10 @@ fn a_temporary_space_starts_and_expires() {
 fn a_new_member_or_toilet_is_the_python_rule_s() {
     // Recorded from the core in #225 lane M7; on the same kernel the pytest digests b36fac765c95
     // (add_staff) and 47fc03365bbc (add_toilet) passed.
-    for (op, digest) in [("add_staff", "be51a7abe81e6a3f0237a3cbd4518eeae5148da8172bd81511c1e7d908fab1ba"), ("add_toilet", "143fabffe1e16bab0a08373a3edf045ba822e4df65d378d98729b6ddbbebf2ef")] {
+    for (op, digest) in [
+        ("add_staff", "be51a7abe81e6a3f0237a3cbd4518eeae5148da8172bd81511c1e7d908fab1ba"),
+        ("add_toilet", "143fabffe1e16bab0a08373a3edf045ba822e4df65d378d98729b6ddbbebf2ef"),
+    ] {
         let mut case = case(&format!("kernel_{op}"));
         let zone = case.sorted_ids("zones").remove(0);
         let event = case.pending("effect_program_structure", Some(op));
@@ -346,14 +351,21 @@ fn a_new_member_or_toilet_is_the_python_rule_s() {
         let document = case.document();
         if op == "add_staff" {
             let added: Vec<String> = (1..=2).map(|index| format!("effect-staff-{suffix}-{index}")).collect();
-            let now: Vec<String> = document["staff"].as_array().unwrap().iter().map(|row| row["id"].as_str().unwrap().to_owned()).filter(|id| !staff.contains(id)).collect();
+            let now: Vec<String> =
+                document["staff"].as_array().unwrap().iter().map(|row| row["id"].as_str().unwrap().to_owned()).filter(|id| !staff.contains(id)).collect();
             assert_eq!(now, added);
             for row in document["staff"].as_array().unwrap().iter().filter(|row| added.iter().any(|id| row["id"] == **id)) {
                 assert_eq!((&row["zone_id"], &row["skills"]), (&json!(zone), &json!(["support"])));
             }
         } else {
             let added: Vec<String> = (1..=2).map(|index| format!("effect-toilet-{suffix}-{index}")).collect();
-            let now: Vec<String> = document["facilities"].as_array().unwrap().iter().map(|row| row["id"].as_str().unwrap().to_owned()).filter(|id| !facilities.contains(id)).collect();
+            let now: Vec<String> = document["facilities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|row| row["id"].as_str().unwrap().to_owned())
+                .filter(|id| !facilities.contains(id))
+                .collect();
             assert_eq!(now, added);
             for id in &added {
                 let row = case.facility(id);
@@ -375,8 +387,20 @@ fn the_bound_of_an_addition_is_the_python_rule_s() {
     // Recorded from the core in #225 lane M7; on the same kernel the pytest digests 73dfcd9ed2b1
     // (add_staff) and 3f29f03a3ff7 (add_toilet) passed.
     let bounds = [
-        ("add_staff", "staff", 100, "adding staff would exceed the 100-staff runtime bound", "2f4b05c3a25c6460490f24fa5c1170e764eb5d744e0cacf33c2090c05e0f4f32"),
-        ("add_toilet", "facilities", 200, "adding toilets would exceed the 200-facility bound", "a4fc227ec5caa77f7aee3ed0c7d4cf0b1f6be42d5f5e980ff9d1dc79d5bd79b1"),
+        (
+            "add_staff",
+            "staff",
+            100,
+            "adding staff would exceed the 100-staff runtime bound",
+            "2f4b05c3a25c6460490f24fa5c1170e764eb5d744e0cacf33c2090c05e0f4f32",
+        ),
+        (
+            "add_toilet",
+            "facilities",
+            200,
+            "adding toilets would exceed the 200-facility bound",
+            "a4fc227ec5caa77f7aee3ed0c7d4cf0b1f6be42d5f5e980ff9d1dc79d5bd79b1",
+        ),
     ];
     for (op, table, bound, text, digest) in bounds {
         let name = format!("kernel_bound_{op}");

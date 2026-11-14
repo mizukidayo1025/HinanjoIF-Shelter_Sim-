@@ -99,7 +99,10 @@ fn an_exported_world_s_sections_are_what_their_read_sites_read() {
     assert!(ok(filled(&entry, SectionId::Proximity).proximity.get()).is_none());
     assert_eq!(*ok(filled(&entry, SectionId::TransitCapacities).transit_capacities.get()), value("transit_capacities").as_bool().unwrap());
     let rooms = ok(filled(&entry, SectionId::OverlayRooms).overlay_rooms.get());
-    assert_eq!([rooms.is_dict, rooms.room_schema.clone().unwrap()], [value("overlay_rooms")[0].as_bool().unwrap(), value("overlay_rooms")[1].as_bool().unwrap()]);
+    assert_eq!(
+        [rooms.is_dict, rooms.room_schema.clone().unwrap()],
+        [value("overlay_rooms")[0].as_bool().unwrap(), value("overlay_rooms")[1].as_bool().unwrap()]
+    );
     assert_eq!(*ok(filled(&entry, SectionId::ExtensionsEnabled).extensions_enabled.get()), value("extensions_enabled").as_bool().unwrap());
 
     // The model selection and the plan of the end-of-tick check, which no read site returns.
@@ -154,13 +157,8 @@ fn an_exported_world_s_floor_plan_is_the_native_path_s() {
     // The facility geometry's other parts, as their read sites read them.
     let configs = filled(&entry, SectionId::FacilityGeometry);
     let geometry = ok(configs.facility_geometry.get());
-    let routes: Vec<Value> = geometry
-        .approach_routes
-        .clone()
-        .unwrap()
-        .iter()
-        .map(|route| serde_json::json!([&*route.route_id, route.travel_minutes.clone().unwrap()]))
-        .collect();
+    let routes: Vec<Value> =
+        geometry.approach_routes.clone().unwrap().iter().map(|route| serde_json::json!([&*route.route_id, route.travel_minutes.clone().unwrap()])).collect();
     assert_eq!(Value::Array(routes), expected["approach_routes"]);
     assert_eq!(geometry.independent_queues.clone().unwrap(), expected["independent_queues"].as_bool().unwrap());
 }

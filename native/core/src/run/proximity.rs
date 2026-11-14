@@ -32,9 +32,10 @@ pub struct Proximity {
 impl Proximity {
     pub fn of(controller: &Obj) -> Self {
         let policy = controller.object("proximity_policy").map(|policy| policy.cloned());
-        let known = policy.as_ref().map_err(Fault::clone).map(|policy| {
-            policy.as_ref().is_some_and(|policy| policy.class.is("sheltersim.policies.proximity", "DistanceSampledProximityPolicy"))
-        });
+        let known = policy
+            .as_ref()
+            .map_err(Fault::clone)
+            .map(|policy| policy.as_ref().is_some_and(|policy| policy.class.is("sheltersim.policies.proximity", "DistanceSampledProximityPolicy")));
         Self { config: controller.value("proximity_contact_config").cloned(), known, policy }
     }
 }

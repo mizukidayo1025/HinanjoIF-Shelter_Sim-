@@ -130,7 +130,10 @@ pub fn validate(view: &View<'_>) -> Result<()> {
     let V::Map(map) = &*state else {
         return Err(schema());
     };
-    if !has_exactly(map, &["schema_version", "policy_version", "queues", "requests"]) || !eq(&map["schema_version"], &V::Int(1)) || !is_text(&map["policy_version"], POLICY) {
+    if !has_exactly(map, &["schema_version", "policy_version", "queues", "requests"])
+        || !eq(&map["schema_version"], &V::Int(1))
+        || !is_text(&map["policy_version"], POLICY)
+    {
         return Err(schema());
     }
     let (V::Map(queues), V::Map(requests)) = (&map["queues"], &map["requests"]) else {
@@ -288,9 +291,21 @@ fn stall_valid(stall: &V) -> Result<bool> {
 
 /// The long condition on a request, in Python's order.
 #[allow(clippy::too_many_arguments)]
-fn request_valid(request: &Map, request_id: &V, queue_id: &str, point: &Point, is_queued: bool, minute: i64, agent_known: &dyn Fn(&V) -> Result<bool>) -> Result<bool> {
+fn request_valid(
+    request: &Map,
+    request_id: &V,
+    queue_id: &str,
+    point: &Point,
+    is_queued: bool,
+    minute: i64,
+    agent_known: &dyn Fn(&V) -> Result<bool>,
+) -> Result<bool> {
     let get = |name: &str| request.get(name).unwrap_or(&V::Null);
-    if !eq(get("request_id"), request_id) || !is_text(get("queue_id"), queue_id) || !is_text(get("facility_id"), &point.facility_id) || !eq(get("service_point_id"), &point.id) {
+    if !eq(get("request_id"), request_id)
+        || !is_text(get("queue_id"), queue_id)
+        || !is_text(get("facility_id"), &point.facility_id)
+        || !eq(get("service_point_id"), &point.id)
+    {
         return Ok(false);
     }
     if !agent_known(get("agent_id"))? || !in_texts(get("service_kind"), HELD, &["toilet", "water", "meal"])? {
@@ -334,7 +349,11 @@ fn queue_journeys(view: &View<'_>, requests: &Map) -> Result<()> {
             return Err(Error::Refused { label: "facility_queues.request_for_agent".to_owned(), reason: "the namespace has no row".into() });
         }
         let request = requests.values().find_map(|request| match request {
-            V::Map(request) if is_text(request.get("agent_id").unwrap_or(&V::Null), agent_id) && is_text(request.get("queue_id").unwrap_or(&V::Null), queue_id) => Some(request),
+            V::Map(request)
+                if is_text(request.get("agent_id").unwrap_or(&V::Null), agent_id) && is_text(request.get("queue_id").unwrap_or(&V::Null), queue_id) =>
+            {
+                Some(request)
+            }
             _ => None,
         });
         if !request.is_some_and(|request| is_text(request.get("status").unwrap_or(&V::Null), "queued")) {

@@ -25,17 +25,16 @@ use sheltersim_core::config::{Configs, Fault, Filled, Lazy, Section, SectionId};
 use sheltersim_core::error::Error as CoreError;
 use sheltersim_core::events::writer::WriteError;
 use sheltersim_core::events::{EventRow, EventStatus};
+use sheltersim_core::host::{
+    Again, Contract, Decision, DecisionSink, ErrorClass, Foreign, ForeignRecord, Holding, Host, HostFailure, Llm, MetricSink, Part, Phase, Stage, Trace,
+    TraceLevel, TxnKind,
+};
 use sheltersim_core::rules::behavior::Proposal;
 use sheltersim_core::rules::common_operations::Logged;
 use sheltersim_core::rules::decisions::Observed;
-use sheltersim_core::rules::world_view::ViewData;
-use sheltersim_core::host::{
-    Again, MetricSink,
-    Contract, Decision, DecisionSink, ErrorClass, Foreign, ForeignRecord, Holding, Host, HostFailure, Llm, Part, Phase, Stage, Trace,
-    TraceLevel, TxnKind,
-};
 use sheltersim_core::rules::kit::Kept;
 use sheltersim_core::rules::metrics::MetricSample;
+use sheltersim_core::rules::world_view::ViewData;
 use sheltersim_core::run::Policies;
 use sheltersim_core::value::V;
 use sheltersim_core::world::Snapshot;
@@ -43,14 +42,14 @@ use sheltersim_core::world::Snapshot;
 use crate::core::census;
 use crate::core::configs;
 use crate::core::errors::{self, to_py_err, Outcome};
+use crate::core::geometry::{Geo, GeoPy};
 use crate::core::row::{attribute, exact_dict, exact_list, exact_str};
 use crate::core::run::run_of;
 use crate::core::value::VPy;
 use crate::core::world_core::{attached_state, core_of, holding_of, mirror_of, raw_dict_get, raw_list_append, PyWorldCell};
 use crate::eventlog::EventStore;
-use crate::core::geometry::{Geo, GeoPy};
-use crate::state::information::{NAME as INFORMATION, SCHEMA_VERSION as INFORMATION_VERSION};
 use crate::state::events::{frozen, write_error, EventRowPy, QueueStore};
+use crate::state::information::{NAME as INFORMATION, SCHEMA_VERSION as INFORMATION_VERSION};
 use crate::Unsupported;
 
 /// A Python error, as the host's error.
@@ -195,7 +194,18 @@ pub(crate) struct PyHost<'py> {
 impl<'py> PyHost<'py> {
     /// A transaction's host: the world and what the transaction keeps.
     pub(crate) fn of_world(world: &Bound<'py, PyAny>, kept: Bound<'py, PyDict>) -> Self {
-        Self { world: world.clone(), controller: None, policies: None, observer: None, rng: None, kept, in_flight: None, holding: None, holding_reads: 0, handler: None }
+        Self {
+            world: world.clone(),
+            controller: None,
+            policies: None,
+            observer: None,
+            rng: None,
+            kept,
+            in_flight: None,
+            holding: None,
+            holding_reads: 0,
+            handler: None,
+        }
     }
 
     /// A tick's host: the controller's world, its `Policies`, and nothing a transaction keeps.
@@ -206,7 +216,18 @@ impl<'py> PyHost<'py> {
             Ok(run) => Some(run.get().policies()?),
             Err(_) => None,
         };
-        Ok(Self { world, controller: Some(controller.clone()), policies, observer: None, rng: None, kept: PyDict::new(py), in_flight: None, holding: None, holding_reads: 0, handler: None })
+        Ok(Self {
+            world,
+            controller: Some(controller.clone()),
+            policies,
+            observer: None,
+            rng: None,
+            kept: PyDict::new(py),
+            in_flight: None,
+            holding: None,
+            holding_reads: 0,
+            handler: None,
+        })
     }
 
     /// The host of a holder of the update steps (lane P8 a3): its policies as given
@@ -215,7 +236,18 @@ impl<'py> PyHost<'py> {
     pub(crate) fn of_holder(controller: &Bound<'py, PyAny>, policies: Arc<Policies>) -> Self {
         let py = controller.py();
         let world = controller.getattr(intern!(py, "world")).unwrap_or_else(|_| py.None().into_bound(py));
-        Self { world, controller: Some(controller.clone()), policies: Some(policies), observer: None, rng: None, kept: PyDict::new(py), in_flight: None, holding: None, holding_reads: 0, handler: None }
+        Self {
+            world,
+            controller: Some(controller.clone()),
+            policies: Some(policies),
+            observer: None,
+            rng: None,
+            kept: PyDict::new(py),
+            in_flight: None,
+            holding: None,
+            holding_reads: 0,
+            handler: None,
+        }
     }
 
     /// The host of a service manager a caller holds alone (lane P9-3b: the body-less `arbitrate` of
@@ -402,9 +434,10 @@ impl<'py> PyHost<'py> {
 fn recorder_of<'py>(artifacts: &Bound<'py, PyAny>) -> PyResult<Option<Bound<'py, PyAny>>> {
     let py = artifacts.py();
     let sink = artifacts.get_type();
-    let recorder = sink.getattr(intern!(py, "capture_metric_as_defined")).ok().filter(|defined| {
-        sink.getattr(intern!(py, "capture_metric")).is_ok_and(|now| now.is(defined))
-    });
+    let recorder = sink
+        .getattr(intern!(py, "capture_metric_as_defined"))
+        .ok()
+        .filter(|defined| sink.getattr(intern!(py, "capture_metric")).is_ok_and(|now| now.is(defined)));
     let own = artifacts.getattr(intern!(py, "__dict__"))?;
     Ok(match recorder {
         Some(_) if raw_dict_get(&own, intern!(py, "capture_metric").as_any())?.is_none() => {
@@ -433,9 +466,9 @@ impl<'py> Host for PyHost<'py> {
         self.ran_python();
         if let (Some(queue), _) = self.stores()? {
             // The queue's order is the same before and after, under new serials.
-            let moved = queue.get().with_queue(py, |now| {
-                before.queue().ordered().iter().zip(now.ordered()).map(|((_, old), (_, new))| (*old, *new)).collect::<Vec<_>>()
-            });
+            let moved = queue
+                .get()
+                .with_queue(py, |now| before.queue().ordered().iter().zip(now.ordered()).map(|((_, old), (_, new))| (*old, *new)).collect::<Vec<_>>());
             queue.get().txn_remap(py, &moved?)?;
         }
         self.state_mirror("_txn_canonicalized", None)
@@ -479,9 +512,7 @@ impl<'py> Host for PyHost<'py> {
     /// `validate_simulator_extensions(world)` of `domain/simulator_state.py`.
     fn validate_extensions(&mut self) -> Result<(), HostError> {
         let py = self.py();
-        py.import(intern!(py, "sheltersim.domain.simulator_state"))?
-            .getattr(intern!(py, "validate_simulator_extensions"))?
-            .call1((&self.world,))?;
+        py.import(intern!(py, "sheltersim.domain.simulator_state"))?.getattr(intern!(py, "validate_simulator_extensions"))?.call1((&self.world,))?;
         Ok(())
     }
 
@@ -562,19 +593,13 @@ impl<'py> Host for PyHost<'py> {
     fn consider_support_request(&mut self, agent_id: &str, request_id: &str) -> Result<(), HostError> {
         let py = self.py();
         self.ran_python();
-        self.consider(
-            intern!(py, "consider_support_request"),
-            &[(intern!(py, "agent_id"), agent_id), (intern!(py, "request_id"), request_id)],
-        )
+        self.consider(intern!(py, "consider_support_request"), &[(intern!(py, "agent_id"), agent_id), (intern!(py, "request_id"), request_id)])
     }
 
     fn consider_complaint_response(&mut self, agent_id: &str, request_id: &str) -> Result<(), HostError> {
         let py = self.py();
         self.ran_python();
-        self.consider(
-            intern!(py, "consider_complaint_response"),
-            &[(intern!(py, "agent_id"), agent_id), (intern!(py, "request_id"), request_id)],
-        )
+        self.consider(intern!(py, "consider_complaint_response"), &[(intern!(py, "agent_id"), agent_id), (intern!(py, "request_id"), request_id)])
     }
 
     fn consider_cooperation(&mut self, initiator: &str, participant: &str, trigger_event_id: &str) -> Result<(), HostError> {
@@ -590,13 +615,7 @@ impl<'py> Host for PyHost<'py> {
         )
     }
 
-    fn consider_information_reaction(
-        &mut self,
-        agent_id: &str,
-        participant: &str,
-        message_id: &str,
-        trigger_event_id: &str,
-    ) -> Result<(), HostError> {
+    fn consider_information_reaction(&mut self, agent_id: &str, participant: &str, message_id: &str, trigger_event_id: &str) -> Result<(), HostError> {
         let py = self.py();
         self.ran_python();
         self.consider(
@@ -784,8 +803,8 @@ impl<'py> Host for PyHost<'py> {
     /// slot follows (stamp None) are filled with what it read, and a section the accessor did not
     /// keep (a test's patch of the model selection) comes back in configs of its own (`Once`).
     fn fill_section(&mut self, configs: &Arc<Configs>, which: SectionId) -> Result<Filled, HostError> {
-        use sheltersim_core::config::{agent_dynamics, body, movement, overlay, population, queues, service, staff};
         use crate::rules;
+        use sheltersim_core::config::{agent_dynamics, body, movement, overlay, population, queues, service, staff};
         let world = &self.world;
         let py = self.py();
         if configs::current(world)?.stamp != configs.stamp {
@@ -846,11 +865,9 @@ impl<'py> Host for PyHost<'py> {
             SectionId::FacilityAwareness => {
                 finish(configs, |c| &c.facility_awareness, configs::kept_section(world, |c| &c.facility_awareness, agent_dynamics::awareness)?)
             }
-            SectionId::KnowledgeIsLimited => finish(
-                configs,
-                |c| &c.knowledge_is_limited,
-                configs::kept_section(world, |c| &c.knowledge_is_limited, agent_dynamics::knowledge_is_limited)?,
-            ),
+            SectionId::KnowledgeIsLimited => {
+                finish(configs, |c| &c.knowledge_is_limited, configs::kept_section(world, |c| &c.knowledge_is_limited, agent_dynamics::knowledge_is_limited)?)
+            }
             SectionId::ZoneEnvironment => finish(configs, |c| &c.zone_environment, configs::zone_environment_section(world)?),
             SectionId::Infrastructure => finish(configs, |c| &c.infrastructure, configs::infrastructure_section(world)?),
             SectionId::Proximity => finish(configs, |c| &c.proximity, configs::proximity_section(world)?),
@@ -866,22 +883,16 @@ impl<'py> Host for PyHost<'py> {
             SectionId::FacilityQueues => {
                 finish(configs, |c| &c.facility_queues, configs::kept_section(world, |c| &c.facility_queues, queues::QueueConfig::parse)?)
             }
-            SectionId::OverlaySchema => {
-                finish(configs, |c| &c.overlay_schema, configs::kept_section(world, |c| &c.overlay_schema, overlay::overlay_schema)?)
+            SectionId::OverlaySchema => finish(configs, |c| &c.overlay_schema, configs::kept_section(world, |c| &c.overlay_schema, overlay::overlay_schema)?),
+            SectionId::OverlayRooms => {
+                finish(configs, |c| &c.overlay_rooms, configs::kept(world, |c| &c.overlay_rooms, || Ok(configs::parsed(py, configs::overlay_rooms(world))))?)
             }
-            SectionId::OverlayRooms => finish(
-                configs,
-                |c| &c.overlay_rooms,
-                configs::kept(world, |c| &c.overlay_rooms, || Ok(configs::parsed(py, configs::overlay_rooms(world))))?,
-            ),
             SectionId::ResourceService => {
                 finish(configs, |c| &c.resource_service, configs::kept_section(world, |c| &c.resource_service, service::ResourceService::parse)?)
             }
-            SectionId::AccessibilityNeeds => finish(
-                configs,
-                |c| &c.accessibility_needs,
-                configs::kept_section(world, |c| &c.accessibility_needs, population::AccessibilityNeeds::parse)?,
-            ),
+            SectionId::AccessibilityNeeds => {
+                finish(configs, |c| &c.accessibility_needs, configs::kept_section(world, |c| &c.accessibility_needs, population::AccessibilityNeeds::parse)?)
+            }
             SectionId::ExtensionsEnabled => finish(
                 configs,
                 |c| &c.extensions_enabled,
@@ -1136,7 +1147,13 @@ impl<'py> PyHost<'py> {
 
     /// A section the core parses from the configs' value (H2, `kit::section_value`): the value, or
     /// the fault for the core to raise where its rule reads the section.
-    pub(crate) fn value_section<T>(&mut self, holding: &Holding, which: SectionId, get: fn(&Configs) -> &Lazy<T>, parse: fn(&V) -> Read<T>) -> PyResult<Kept<T>> {
+    pub(crate) fn value_section<T>(
+        &mut self,
+        holding: &Holding,
+        which: SectionId,
+        get: fn(&Configs) -> &Lazy<T>,
+        parse: fn(&V) -> Read<T>,
+    ) -> PyResult<Kept<T>> {
         use sheltersim_core::rules::kit;
         if let Some(configs) = self.coreless_configs() {
             return Ok(kit::kept_of(kit::section_in(self, configs, which, get).map_err(|error| error.0)?));
@@ -1252,10 +1269,13 @@ pub(crate) fn holding_and_reads<'py>(world: &Bound<'py, PyAny>, names: Vec<Strin
         Err(error) => format!("raises {}", error.value(py)),
     };
     let answers = |holding: &Holding, name: &str| {
-        (held_text(&holding.held(name, "other")), match holding.is_absent(name) {
-            Ok(flag) => flag.to_string(),
-            Err(reason) => format!("raises {reason}"),
-        })
+        (
+            held_text(&holding.held(name, "other")),
+            match holding.is_absent(name) {
+                Ok(flag) => flag.to_string(),
+                Err(reason) => format!("raises {reason}"),
+            },
+        )
     };
     for name in &names {
         let key = PyString::new(py, name);
@@ -1332,8 +1352,7 @@ fn call_on<'py>(host: &mut PyHost<'py>, controller: &Bound<'py, PyAny>, method: 
             done(host.consider_cooperation(&initiator, &participant, &trigger)).and_then(|()| none())
         }
         "consider_information_reaction" => {
-            let [agent, participant, message, trigger]: [String; 4] =
-                texts(arguments)?.try_into().map_err(|_| PyValueError::new_err("four texts"))?;
+            let [agent, participant, message, trigger]: [String; 4] = texts(arguments)?.try_into().map_err(|_| PyValueError::new_err("four texts"))?;
             done(host.consider_information_reaction(&agent, &participant, &message, &trigger)).and_then(|()| none())
         }
         "capture_metric" => {

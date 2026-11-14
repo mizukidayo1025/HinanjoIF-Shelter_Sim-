@@ -17,11 +17,13 @@ fn records() -> Vec<Unpacked> {
     for _ in 0..fixture["expected"]["ticks"].as_i64().unwrap() {
         run.step().unwrap();
     }
-    run.loaded.cell.with(|world| {
-        let log = world.log().unwrap();
-        (0..log.len()).map(|index| log.record(index).unwrap().unwrap()).collect()
-    })
-    .unwrap()
+    run.loaded
+        .cell
+        .with(|world| {
+            let log = world.log().unwrap();
+            (0..log.len()).map(|index| log.record(index).unwrap().unwrap()).collect()
+        })
+        .unwrap()
 }
 
 fn append(log: &mut EventLog, record: &Unpacked) {

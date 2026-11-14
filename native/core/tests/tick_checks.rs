@@ -10,7 +10,9 @@ use std::sync::Arc;
 use indexmap::IndexMap;
 use sheltersim_core::cell::Shard;
 use sheltersim_core::config::{ResourceNumbers, TickPlan};
-use sheltersim_core::entities::{Activity, AgentRow, AnyTable, Entities, FacilityRow, Mobility, NeedRow, ProfileRow, RequestRow, RequestStatus, Table, ZoneRow};
+use sheltersim_core::entities::{
+    Activity, AgentRow, AnyTable, Entities, FacilityRow, Mobility, NeedRow, ProfileRow, RequestRow, RequestStatus, Table, ZoneRow,
+};
 use sheltersim_core::error::{Error, Result};
 use sheltersim_core::events::log::EventLog;
 use sheltersim_core::events::queue::Queue;
@@ -142,7 +144,11 @@ fn absent() -> HeldNamespaces {
     held
 }
 
-fn entity_inputs<'a>(requests: Requests<'a>, absent: &'a Held, routes: &'a sheltersim_core::rules::kit::Kept<Option<sheltersim_core::config::movement::RouteCapacities>>) -> EntityInputs<'a> {
+fn entity_inputs<'a>(
+    requests: Requests<'a>,
+    absent: &'a Held,
+    routes: &'a sheltersim_core::rules::kit::Kept<Option<sheltersim_core::config::movement::RouteCapacities>>,
+) -> EntityInputs<'a> {
     EntityInputs { requests, resource_config: None, route_capacities: routes, ledger: absent, service: absent, spaces: absent, overlay: absent }
 }
 
@@ -237,7 +243,8 @@ fn the_entity_rules_read_the_rows() {
     assert_eq!(entity_rules(&world), Err(refusal("an agent's value is the Python rule's")));
     world.rows_mut().unwrap().agents.get_mut("a1").unwrap().stress = 0.2;
     // A v5 world with a resource config, or a v6 world without one, is the Python rule's.
-    let config = ResourceNumbers { water_ml_per_service: 250, food_meal_units_per_service: 1, water_staff_skill: text("water"), meal_staff_skill: text("meal") };
+    let config =
+        ResourceNumbers { water_ml_per_service: 250, food_meal_units_per_service: 1, water_staff_skill: text("water"), meal_staff_skill: text("meal") };
     let (absent, routes) = (Held::Absent, Ok(Arc::new(None)));
     let mut inputs = entity_inputs(Requests::All, &absent, &routes);
     inputs.resource_config = Some(&config);
@@ -433,9 +440,9 @@ fn the_population_validators_read_the_rows() {
     let person = |id: &str, path: Option<Vec<&str>>| {
         let mut record: IndexMap<Arc<str>, V> =
             [("agent_id", V::Str(text(id))), ("status", V::Str(text("admitted"))), ("transition_zone_id", V::Str(text("z0"))), ("since_minute", V::Int(0))]
-            .into_iter()
-            .map(|(key, value)| (text(key), value))
-            .collect();
+                .into_iter()
+                .map(|(key, value)| (text(key), value))
+                .collect();
         if let Some(path) = path {
             record.insert(text("archive_path"), V::List(path.into_iter().map(|part| V::Str(text(part))).collect()));
         }
@@ -445,7 +452,12 @@ fn the_population_validators_read_the_rows() {
         let people: IndexMap<Arc<str>, V> = people.into_iter().map(|(key, value)| (text(key), value)).collect();
         V::Map([(text("schema_version"), V::Int(1)), (text("people"), V::Map(people))].into_iter().collect())
     };
-    add_slot(&mut world, tick_validation::PRESENCE, Place::Namespace, Box::new(ValueRow(presence(vec![("a1", person("a1", None)), ("a2", person("a2", None))]))));
+    add_slot(
+        &mut world,
+        tick_validation::PRESENCE,
+        Place::Namespace,
+        Box::new(ValueRow(presence(vec![("a1", person("a1", None)), ("a2", person("a2", None))]))),
+    );
     assert_eq!(tick_validation::validate_presence(&world, &Held::Held, &Held::Absent), Ok(()));
     *world.slots.row_mut::<ValueRow>(tick_validation::PRESENCE).unwrap() = ValueRow(presence(vec![("a1", person("a1", None))]));
     assert_eq!(tick_validation::validate_presence(&world, &Held::Held, &Held::Absent), Err(refusal("the presence omits an admitted person")));

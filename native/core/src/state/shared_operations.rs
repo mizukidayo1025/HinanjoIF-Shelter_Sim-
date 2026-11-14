@@ -230,8 +230,7 @@ impl Receipt {
     /// record that has them (an int minute, a str event ID, a str event type), as the PyO3 crate
     /// reads one from Python. A new receipt is not verified.
     pub fn from_value(value: &V) -> std::result::Result<Self, Misfit> {
-        let mut receipt =
-            Receipt { minute: None, event_id: None, verified: false, reads_staff_history: true, bytes: value_bytes(value)? };
+        let mut receipt = Receipt { minute: None, event_id: None, verified: false, reads_staff_history: true, bytes: value_bytes(value)? };
         if let V::Map(record) = value {
             if let Some(V::Int(minute)) = record.get("minute") {
                 receipt.minute = Some(*minute);
@@ -301,4 +300,3 @@ impl SharedOperationsRow {
         self.schema_version == 1 && &*self.policy_version == POLICY && self.support_requests.are_valid()
     }
 }
-

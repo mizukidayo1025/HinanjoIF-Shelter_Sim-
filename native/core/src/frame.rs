@@ -160,7 +160,8 @@ pub fn frame<C: WorldCell, H: Host>(cell: &C, host: &mut H, request: &Request<'_
         Section::Absent => return Err(Error::unsupported("the configs have no spatial constraints").into()),
         Section::Fault(fault) => return Err(raise(host, SectionId::SpatialConstraints, &fault)),
     };
-    let schema = kit::kept_section_value(cell, host, &holding, SectionId::OverlaySchema, |configs| &configs.overlay_schema, crate::config::overlay::overlay_schema)?;
+    let schema =
+        kit::kept_section_value(cell, host, &holding, SectionId::OverlaySchema, |configs| &configs.overlay_schema, crate::config::overlay::overlay_schema)?;
     let reads = Reads { holding, geometry, spatial, schema };
     let wanted = cell.with(wanted_records)??;
     let records = records(cell, host, &wanted.all())?;
@@ -683,8 +684,7 @@ fn effective_spatial(document: &V, overlay: Option<&V>, configs: &Map) -> Result
             let original = configs.get("facility_geometry").and_then(|geometry| get(geometry, "facility_points")).and_then(|points| get(points, &facility));
             let old = point_of(original.ok_or_else(|| Error::unsupported("a moved footprint without its point"))?)?;
             let new = point_of(item(row, "point_m")?)?;
-            let polygon: Vec<V> =
-                points_of(item(footprint, "polygon")?)?.into_iter().map(|at| point(at.x + new.x - old.x, at.y + new.y - old.y)).collect();
+            let polygon: Vec<V> = points_of(item(footprint, "polygon")?)?.into_iter().map(|at| point(at.x + new.x - old.x, at.y + new.y - old.y)).collect();
             if let V::Map(footprint) = footprint {
                 footprint.insert(text("polygon"), V::List(polygon));
             }
@@ -981,17 +981,23 @@ fn build(world: &World, reads: &Reads, waits: &Waits, records: &Records, request
         put("needs", V::Map(needs));
         put("mobility", string(agent.profile.mobility.text()));
         put("support_need", V::Float(agent.profile.support_need));
-        put("traits", match &traits {
-            V::Map(traits) => traits.get(*id).cloned().unwrap_or(V::Null),
-            _ => return Err(Error::unsupported("the traits are not a dict")),
-        });
+        put(
+            "traits",
+            match &traits {
+                V::Map(traits) => traits.get(*id).cloned().unwrap_or(V::Null),
+                _ => return Err(Error::unsupported("the traits are not a dict")),
+            },
+        );
         put("context", context_people.get(*id).cloned().unwrap_or(V::Null));
         put("care_requests", V::List(care_requests));
         put("care_history", V::List(care_histories.get(*id).map_or_else(Vec::new, |history| history.iter().cloned().collect())));
-        put("decision", match agent_dynamics.as_ref().and_then(|row| row.agents.get(*id)) {
-            Some(memory) => field(memory)?,
-            None => V::Null,
-        });
+        put(
+            "decision",
+            match agent_dynamics.as_ref().and_then(|row| row.agents.get(*id)) {
+                Some(memory) => field(memory)?,
+                None => V::Null,
+            },
+        );
         put("beliefs", beliefs);
         put("dialogue", V::List(dialogue));
         put("dialogue_status", string(dialogue_status));
@@ -1013,12 +1019,8 @@ fn build(world: &World, reads: &Reads, waits: &Waits, records: &Records, request
         None => Vec::new(),
     };
     let incoming = incoming_arrivals(reads, geometry.as_ref(), &pending, minute, duration)?;
-    let capacity: i64 = rows
-        .zones
-        .iter()
-        .filter(|(id, _)| &***id == "sleeping" || id.starts_with("sleeping_"))
-        .map(|(_, zone)| zone.capacity.unwrap_or(0))
-        .sum();
+    let capacity: i64 =
+        rows.zones.iter().filter(|(id, _)| &***id == "sleeping" || id.starts_with("sleeping_")).map(|(_, zone)| zone.capacity.unwrap_or(0)).sum();
     let population = rows.agents.len();
     kpis.insert(text("population"), int(population));
     kpis.insert(text("pending_arrivals"), int(pending.len()));
@@ -1097,10 +1099,13 @@ fn build(world: &World, reads: &Reads, waits: &Waits, records: &Records, request
                 found.insert(text("accessibility"), item(access, "accessibility")?.clone());
                 found.insert(text("required_access_tags"), item(access, "required_access_tags")?.clone());
                 found.insert(text("required_staff_skills"), item(access, "required_staff_skills")?.clone());
-                found.insert(text("last_stall"), match queue.and_then(|queue| queue.last_stall.as_ref()) {
-                    Some(stall) => field(stall)?,
-                    None => V::Null,
-                });
+                found.insert(
+                    text("last_stall"),
+                    match queue.and_then(|queue| queue.last_stall.as_ref()) {
+                        Some(stall) => field(stall)?,
+                        None => V::Null,
+                    },
+                );
                 service_queues.push(V::Map(found));
             }
         }
@@ -1132,18 +1137,27 @@ fn build(world: &World, reads: &Reads, waits: &Waits, records: &Records, request
         found.insert(text("zone_id"), V::Str(member.zone_id.clone()));
         found.insert(text("skills"), V::List(member.skills.0.iter().cloned().map(V::Str).collect()));
         found.insert(text("active_task_id"), optional(&member.active_task_id));
-        found.insert(text("position"), match movement.as_ref().and_then(|movement| movement.staff_positions.get(*id)) {
-            Some(position) => field(position)?,
-            None => V::Null,
-        });
-        found.insert(text("dynamics"), match staff_dynamics.as_ref().and_then(|row| row.staff.get(*id)) {
-            Some(record) => field(record)?,
-            None => V::Null,
-        });
-        found.insert(text("operation"), match staff_operations.as_ref().and_then(|row| row.staff.get(*id)) {
-            Some(record) => field(record)?,
-            None => V::Null,
-        });
+        found.insert(
+            text("position"),
+            match movement.as_ref().and_then(|movement| movement.staff_positions.get(*id)) {
+                Some(position) => field(position)?,
+                None => V::Null,
+            },
+        );
+        found.insert(
+            text("dynamics"),
+            match staff_dynamics.as_ref().and_then(|row| row.staff.get(*id)) {
+                Some(record) => field(record)?,
+                None => V::Null,
+            },
+        );
+        found.insert(
+            text("operation"),
+            match staff_operations.as_ref().and_then(|row| row.staff.get(*id)) {
+                Some(record) => field(record)?,
+                None => V::Null,
+            },
+        );
         staff.push(found);
     }
 
@@ -1262,10 +1276,8 @@ fn build(world: &World, reads: &Reads, waits: &Waits, records: &Records, request
 
     // The projections of the declared namespaces (`entity_projections`): only the presence ledger
     // has one.
-    let presence_declared = configs
-        .get("state_contracts")
-        .and_then(|declaration| get(declaration, "namespaces"))
-        .is_some_and(|namespaces| get(namespaces, PRESENCE).is_some());
+    let presence_declared =
+        configs.get("state_contracts").and_then(|declaration| get(declaration, "namespaces")).is_some_and(|namespaces| get(namespaces, PRESENCE).is_some());
     let presence_people = get(presence.as_ref().unwrap_or(&V::Null), "people").cloned();
     for person in people.iter_mut() {
         let Some(V::Str(id)) = person.get("id").cloned() else { continue };
@@ -1333,10 +1345,7 @@ fn build(world: &World, reads: &Reads, waits: &Waits, records: &Records, request
     let mut recorded = Map::new();
     recorded.insert(
         text("decisions"),
-        V::Map(Map::from([
-            (text("source"), string("people[].decision")),
-            (text("retention"), string("latest selected action per active agent")),
-        ])),
+        V::Map(Map::from([(text("source"), string("people[].decision")), (text("retention"), string("latest selected action per active agent"))])),
     );
     recorded.insert(
         text("social"),
@@ -1364,10 +1373,7 @@ fn build(world: &World, reads: &Reads, waits: &Waits, records: &Records, request
             (text("retained_records"), int(shared_count)),
             (text("retention_limit"), V::Int(20000)),
             (text("read_route"), string("branch/history?kind=care or kind=operations")),
-            (
-                text("claim_boundary"),
-                string("only event-linked applied transitions are indexed; this does not imply an unrecorded outcome"),
-            ),
+            (text("claim_boundary"), string("only event-linked applied transitions are indexed; this does not imply an unrecorded outcome")),
         ])),
     );
     put("recorded_history", V::Map(recorded));

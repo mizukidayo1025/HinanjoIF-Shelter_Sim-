@@ -28,11 +28,11 @@ use pyo3::types::{PyBool, PyDict, PyFloat, PyInt, PyString, PyType};
 use indexmap::IndexMap;
 use rustc_hash::FxHashMap;
 use sheltersim_core::routes::{Router, Which};
-use sheltersim_core::run::held::{Class, Held, Obj, Spec};
 use sheltersim_core::rules::action_lifecycle::ActiveActions;
-use sheltersim_core::run::dispatch::RETURN_RULE;
-use sheltersim_core::run::policies::CONTROLLER;
 use sheltersim_core::rules::world_view::ViewCache;
+use sheltersim_core::run::dispatch::RETURN_RULE;
+use sheltersim_core::run::held::{Class, Held, Obj, Spec};
+use sheltersim_core::run::policies::CONTROLLER;
 use sheltersim_core::run::{Capacity, Policies, RouteCapacities, Run, RunConfig, Scratch};
 use sheltersim_core::value::V;
 
@@ -482,7 +482,10 @@ impl RunCore {
             match rust {
                 Some(rust) => (Some(Prior::View(rust.get().shared())), None),
                 None => {
-                    let minute = view.getattr(intern!(py, "minute_index")).ok().and_then(|minute| minute.downcast_exact::<PyInt>().ok().and_then(|minute| minute.extract::<i64>().ok()));
+                    let minute = view
+                        .getattr(intern!(py, "minute_index"))
+                        .ok()
+                        .and_then(|minute| minute.downcast_exact::<PyInt>().ok().and_then(|minute| minute.extract::<i64>().ok()));
                     (Some(Prior::Python { minute }), Some(PriorObject(view.clone().unbind())))
                 }
             }
@@ -554,11 +557,14 @@ impl RunCore {
                             add("operation", said(&native.operation()));
                         }
                         if native.handler.attrs.contains_key("after_complete") {
-                            add("after", said(&native.after_complete().map(|after| match after {
-                                AfterComplete::None => "none",
-                                AfterComplete::Own => "own",
-                                AfterComplete::Other => "other",
-                            })));
+                            add(
+                                "after",
+                                said(&native.after_complete().map(|after| match after {
+                                    AfterComplete::None => "none",
+                                    AfterComplete::Own => "own",
+                                    AfterComplete::Other => "other",
+                                })),
+                            );
                         }
                         for manager in ["toilet_service", "resource_service", "service"] {
                             if native.handler.attrs.contains_key(manager) {

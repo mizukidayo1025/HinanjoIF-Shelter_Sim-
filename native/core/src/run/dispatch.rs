@@ -62,11 +62,7 @@ const LEDGER: Spec = Spec::of(&[Attr::value("operation")]);
 const TOILET: Spec = Spec::of(&[Attr::value("after_complete")]);
 /// A manager a handler holds: whether a test set its own `request` on it.
 pub const MANAGER: Spec = Spec { attrs: &[], fields: false, class_own: &[], own: &["request"] };
-const TRAVEL: Spec = Spec::of(&[
-    Attr::object("toilet_service", &MANAGER),
-    Attr::object("resource_service", &MANAGER),
-    Attr::value("validate_request_state"),
-]);
+const TRAVEL: Spec = Spec::of(&[Attr::object("toilet_service", &MANAGER), Attr::object("resource_service", &MANAGER), Attr::value("validate_request_state")]);
 const SERVICE: Spec = Spec::of(&[Attr::object("service", &MANAGER)]);
 
 kinds! {

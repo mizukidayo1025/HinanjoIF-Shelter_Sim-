@@ -18,14 +18,12 @@ use indexmap::IndexMap;
 
 use crate::config::body::{AffectModel, BodyModels, TrustModel, DISTANCE_TRUST, DURATION_TRUST};
 use crate::config::{SectionId, Selection};
-use crate::host::Host;
 use crate::error::{Error, Result};
+use crate::host::Host;
 use crate::mathx::{hypot, py_max, py_min};
 use crate::row::IdMap;
 use crate::rules::kit;
-use crate::state::body_state::{
-    new_relationship, BodyRecord, BodyRow, Relationship, MAX_SOCIAL_HISTORY, MAX_SOCIAL_RELATIONSHIPS, NAME,
-};
+use crate::state::body_state::{new_relationship, BodyRecord, BodyRow, Relationship, MAX_SOCIAL_HISTORY, MAX_SOCIAL_RELATIONSHIPS, NAME};
 use crate::state::information::{InformationRow, NAME as INFORMATION};
 use crate::state::movement::{MovementRow, Position};
 use crate::value::V;
@@ -99,10 +97,7 @@ impl Inputs {
 
 /// The event types the rule records; any other changes nothing.
 pub fn records_event(event_type: &str) -> bool {
-    matches!(
-        event_type,
-        "proximity_contact_update" | "information_contact_update" | "social_interaction" | "information_correction"
-    )
+    matches!(event_type, "proximity_contact_update" | "information_contact_update" | "social_interaction" | "information_correction")
 }
 
 // ---- The operators ------------------------------------------------------------------------------
@@ -187,8 +182,7 @@ impl TrustPolicy {
     ) -> f64 {
         let decay = py_min(1.0, py_max(0.0, trust_decay_per_day * elapsed_minutes as f64 / 1440.0));
         let baseline = current * (1.0 - decay) + 0.5 * decay;
-        let duration_factor =
-            py_min(1.0, py_max(0.0, duration_minutes) / py_max(1.0, interaction_scale_minutes as f64));
+        let duration_factor = py_min(1.0, py_max(0.0, duration_minutes) / py_max(1.0, interaction_scale_minutes as f64));
         match self {
             Self::DistanceDurationRepeat { distance_scale_m, repeat_contact_bonus } => {
                 let distance_factor = match distance_m {
@@ -285,7 +279,10 @@ fn holds(event: &SocialEvent<'_>, key: &str) -> bool {
 enum Interaction {
     Cooperation,
     /// `include_uncertainty` is true only for `reassurance_exchange`.
-    Transfer { kind: Arc<str>, include_uncertainty: bool },
+    Transfer {
+        kind: Arc<str>,
+        include_uncertainty: bool,
+    },
     ComplaintResponse,
     None,
 }
@@ -493,8 +490,7 @@ impl Planner<'_> {
         if duration > LARGEST_DURATION {
             return Err(Error::unsupported("a duration is too long"));
         }
-        let trust =
-            self.models.trust.update_trust(before_trust, duration, scale, record.contact_count, elapsed, gain, decay, distance_m);
+        let trust = self.models.trust.update_trust(before_trust, duration, scale, record.contact_count, elapsed, gain, decay, distance_m);
         let Some(contact_count) = record.contact_count.checked_add(1) else {
             return Err(Error::unsupported("a count does not fit"));
         };
@@ -611,16 +607,10 @@ impl Planner<'_> {
                         let trust = self.relationship_trust(agent_id, other_id)?;
                         let trust_scale = self.models.affect.social_action(1.0, 1.0, trust).positive_affect;
                         let config = &self.row.config;
-                        record.positive_affect =
-                            unit(record.positive_affect + config_float(config, "cooperation_positive_gain")? * trust_scale);
-                        record.negative_affect = unit(
-                            record.negative_affect - config_float(config, "cooperation_negative_reduction")? * trust_scale,
-                        );
-                        record.reassurance =
-                            unit(record.reassurance + config_float(config, "cooperation_reassurance_gain")? * trust_scale);
-                        record.discontent = unit(
-                            record.discontent - config_float(config, "cooperation_discontent_reduction")? * trust_scale,
-                        );
+                        record.positive_affect = unit(record.positive_affect + config_float(config, "cooperation_positive_gain")? * trust_scale);
+                        record.negative_affect = unit(record.negative_affect - config_float(config, "cooperation_negative_reduction")? * trust_scale);
+                        record.reassurance = unit(record.reassurance + config_float(config, "cooperation_reassurance_gain")? * trust_scale);
+                        record.discontent = unit(record.discontent - config_float(config, "cooperation_discontent_reduction")? * trust_scale);
                         self.store(agent_id, record);
                         transfers.push((actor.clone(), agent_id.clone(), name.clone(), Self::transfer_deltas(&before, &record)));
                     }
@@ -702,9 +692,7 @@ impl Planner<'_> {
 fn correction_actors(world: &World, event: &SocialEvent<'_>, selection: &Selection) -> Result<Vec<Arc<str>>> {
     let zone = Item::read(event, "zone_id")?;
     let mut actors: Vec<Arc<str>> = match &zone {
-        Item::Text(zone) => {
-            world.rows()?.agents.iter().filter(|(_, agent)| agent.zone_id == *zone).map(|(id, _)| id.clone()).collect()
-        }
+        Item::Text(zone) => world.rows()?.agents.iter().filter(|(_, agent)| agent.zone_id == *zone).map(|(id, _)| id.clone()).collect(),
         Item::Nothing => Vec::new(),
         _ => return Err(Error::unsupported("a zone is not a str")),
     };
@@ -729,9 +717,11 @@ fn correction_actors(world: &World, event: &SocialEvent<'_>, selection: &Selecti
     Ok(actors
         .into_iter()
         .filter(|actor| {
-            beliefs.beliefs.get(&**actor).and_then(|held| held.get(&*message)).is_some_and(|belief| {
-                *belief.last_event_id == *event.event_id && belief.last_correction_accepted
-            })
+            beliefs
+                .beliefs
+                .get(&**actor)
+                .and_then(|held| held.get(&*message))
+                .is_some_and(|belief| *belief.last_event_id == *event.event_id && belief.last_correction_accepted)
         })
         .collect())
 }
@@ -742,11 +732,8 @@ fn action_of(world: &World, event: &SocialEvent<'_>, selection: &Selection, minu
     let (message, topic_id) = (Item::read(event, "message_id")?, Item::read(event, "topic_id")?);
     let transfer_topic = message.text().or(topic_id.text()).cloned();
     let interaction_duration = "interaction_duration_minutes";
-    let transfer_duration = if holds(event, interaction_duration) {
-        Item::read(event, interaction_duration)?.transfer_duration()
-    } else {
-        contact_minutes.transfer_duration()
-    };
+    let transfer_duration =
+        if holds(event, interaction_duration) { Item::read(event, interaction_duration)?.transfer_duration() } else { contact_minutes.transfer_duration() };
     let facts = EventFacts { minute, transfer_topic, transfer_duration };
     let people_are_known = |first: &Arc<str>, second: &Arc<str>| -> Result<bool> {
         let rows = world.rows()?;
@@ -763,9 +750,7 @@ fn action_of(world: &World, event: &SocialEvent<'_>, selection: &Selection, minu
                 _ => return Err(Error::unsupported("a distance is not a float")),
             };
             match (first, second, observed) {
-                (Some(first), Some(second), Item::Int(observed_minute))
-                    if first != second && people_are_known(&first, &second)? =>
-                {
+                (Some(first), Some(second), Item::Int(observed_minute)) if first != second && people_are_known(&first, &second)? => {
                     Action::Proximity { first, second, observed_minute, distance, duration: contact_minutes.relationship_duration() }
                 }
                 _ => Action::Nothing,
@@ -857,13 +842,7 @@ fn item_bytes(item: &PlannedItem, event: &SocialEvent<'_>) -> Result<Box<[u8]>> 
 
 /// `record_social_event` of an applied event. `selection` and `models` are what the PyO3 crate read
 /// of the configs (`selected_models`, the operators), after it found the namespace present.
-pub fn record_social_event(
-    world: &World,
-    event: &SocialEvent<'_>,
-    minute: i64,
-    selection: &Selection,
-    models: &BodyModels,
-) -> Result<()> {
+pub fn record_social_event(world: &World, event: &SocialEvent<'_>, minute: i64, selection: &Selection, models: &BodyModels) -> Result<()> {
     if kit::namespace_absent(world, NAME)? || !records_event(event.event_type) {
         return Ok(());
     }
@@ -875,8 +854,7 @@ pub fn record_social_event(
 
     let plan = {
         let row = world.row::<BodyRow>(NAME)?;
-        let movement =
-            if kit::namespace_absent(world, MOVEMENT)? { None } else { Some(world.row::<MovementRow>(MOVEMENT)?) };
+        let movement = if kit::namespace_absent(world, MOVEMENT)? { None } else { Some(world.row::<MovementRow>(MOVEMENT)?) };
         let mut planner = Planner {
             relationship_count: row.relationships.map.len(),
             row: &row,
@@ -906,11 +884,7 @@ pub fn record_social_event(
         if planned.new {
             row.relationships.map.insert(planned.key, planned.record);
         } else {
-            let record = row
-                .relationships
-                .map
-                .get_mut(&*planned.key)
-                .ok_or_else(|| Error::Runtime("a planned relationship left the row".to_owned()))?;
+            let record = row.relationships.map.get_mut(&*planned.key).ok_or_else(|| Error::Runtime("a planned relationship left the row".to_owned()))?;
             *record = planned.record;
         }
     }

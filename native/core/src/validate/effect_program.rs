@@ -26,19 +26,11 @@ use crate::value::V;
 
 pub const MARKER: &str = "effect_program_v1";
 const STATE_FIELDS: [&str; 3] = ["schema_version", "programs", "active_facility_modifiers"];
-const PROGRAM_FIELDS: [&str; 9] = [
-    "program_hash",
-    "source_text_hash",
-    "narrative",
-    "compiler_provenance",
-    "assumptions",
-    "support_mode",
-    "effect_ids",
-    "operators",
-    "scheduled_event_ids",
-];
+const PROGRAM_FIELDS: [&str; 9] =
+    ["program_hash", "source_text_hash", "narrative", "compiler_provenance", "assumptions", "support_mode", "effect_ids", "operators", "scheduled_event_ids"];
 const SUPPORT_MODES: [&str; 5] = ["native", "composed", "approximate", "clarification_required", "not_simulatable"];
-const MARKER_FIELDS: [&str; 9] = ["program_id", "effect_id", "op", "source_text_hash", "compiler_provenance", "assumption_ids", "policy_dependencies", "units", "phase"];
+const MARKER_FIELDS: [&str; 9] =
+    ["program_id", "effect_id", "op", "source_text_hash", "compiler_provenance", "assumption_ids", "policy_dependencies", "units", "phase"];
 const STACK_FIELDS: [&str; 2] = ["baseline_working_units", "modifiers"];
 const ENTRY_FIELDS: [&str; 6] = ["modifier_id", "program_id", "effect_id", "working_units", "start_minute", "sequence"];
 
@@ -280,10 +272,7 @@ pub fn validate(view: &View<'_>) -> Result<()> {
         };
         contracts::checked(&Checked::CompilerProvenance, &marker["compiler_provenance"], Holder::Frozen)?;
         let strs = |value: &V| matches!(value, V::List(items) if items.iter().all(|item| matches!(item, V::Str(_))));
-        if !strs(&marker["assumption_ids"])
-            || !strs(&marker["policy_dependencies"])
-            || !matches!(&marker["units"], V::Str(units) if is_stable_id(units))
-        {
+        if !strs(&marker["assumption_ids"]) || !strs(&marker["policy_dependencies"]) || !matches!(&marker["units"], V::Str(units) if is_stable_id(units)) {
             return Err(value_error("EffectProgram event provenance values are invalid"));
         }
         if has_guard {

@@ -29,11 +29,13 @@ use indexmap::IndexMap;
 
 use crate::cell::ShardRef;
 use crate::config::staff::StaffOperations;
+use crate::config::SectionId;
 use crate::entities::Entities;
 use crate::error::{Error, Result};
 use crate::events::writer::WriteResult;
 use crate::events::{EventKind, EventRow, EventStatus};
 use crate::geometry::Geo;
+use crate::host::Host;
 use crate::mathx::{py_max, py_min};
 use crate::row::ValueRow;
 use crate::rules::care_receipts::{self, Made, OperationOutcome};
@@ -47,8 +49,6 @@ use crate::state::effect_program::{EffectProgramRow, NAME as PROGRAM};
 use crate::state::movement::{MovementRow, Position};
 use crate::state::staff_operations::{FinishedTask, OperationRecord, Outcome, Phase, StaffOperationsRow, NAME};
 use crate::value::V;
-use crate::config::SectionId;
-use crate::host::Host;
 use crate::world::{World, WorldCell};
 
 const MOVEMENT: &str = "movement_v1";
@@ -111,11 +111,8 @@ impl<E> Gathered<E> {
     pub fn read<C: WorldCell, H: Host<Error = E>>(cell: &C, host: &mut H, geo: bool, formula: bool) -> std::result::Result<Self, E> {
         let holding = kit::holding(cell, host)?;
         let plan = if geo { Some(host.floor_plan()) } else { None };
-        let formula = if formula {
-            Some(kit::kept_section(cell, host, &holding, SectionId::StaffOperations, |configs| &configs.staff_operations)?)
-        } else {
-            None
-        };
+        let formula =
+            if formula { Some(kit::kept_section(cell, host, &holding, SectionId::StaffOperations, |configs| &configs.staff_operations)?) } else { None };
         Ok(Self {
             staff: holding.held_dict(NAME, OTHER_STAFF),
             movement: holding.held(crate::rules::movement::KEY, OTHER_MOVEMENT),
@@ -423,14 +420,7 @@ fn plan_interrupt(world: &World, inputs: &Inputs<'_>, staff_id: &str, event: &St
 
 /// `interrupt_staff_operation(world, staff_id, event, current_event_id=current)`: whether it stopped
 /// an operation. Its reads refuse before its first write.
-pub fn interrupt(
-    world: &World,
-    inputs: &Inputs<'_>,
-    staff_id: &str,
-    event: &Stopping<'_>,
-    current: Option<&str>,
-    taken: &mut Vec<u64>,
-) -> WriteResult<bool> {
+pub fn interrupt(world: &World, inputs: &Inputs<'_>, staff_id: &str, event: &Stopping<'_>, current: Option<&str>, taken: &mut Vec<u64>) -> WriteResult<bool> {
     let Some(plan) = plan_interrupt(world, inputs, staff_id, event, current)? else {
         return Ok(false);
     };
@@ -604,8 +594,7 @@ pub fn plan_relief(world: &World, inputs: &Inputs<'_>, event: &EventRow) -> Resu
     let provenance_is = |key: &str, wanted: &str| matches!(kit::provenance(event, key), Some(V::Str(text)) if &**text == wanted);
     let fields_are = match &event.payload {
         V::Map(payload) => {
-            payload.len() == 4
-                && ["task_id", "previous_staff_id", "replacement_staff_id", "reason_code"].iter().all(|name| payload.contains_key(*name))
+            payload.len() == 4 && ["task_id", "previous_staff_id", "replacement_staff_id", "reason_code"].iter().all(|name| payload.contains_key(*name))
         }
         _ => false,
     };
@@ -923,7 +912,13 @@ fn measurements(world: &World, inputs: &Inputs<'_>, kind: &str, target: &V, zone
                 if person.zone != *zone {
                     continue;
                 }
-                values.push(Measure { kind: "agent", entity: person.id.clone(), path: "trust".to_owned(), value: Number::Float(person.trust), unit: "normalized_0_1" });
+                values.push(Measure {
+                    kind: "agent",
+                    entity: person.id.clone(),
+                    path: "trust".to_owned(),
+                    value: Number::Float(person.trust),
+                    unit: "normalized_0_1",
+                });
                 if let Some(record) = body.as_ref().and_then(|body| body.agents.get(&*person.id)) {
                     for field in BODY_MEASURES {
                         values.push(Measure {
@@ -945,12 +940,20 @@ fn measurements(world: &World, inputs: &Inputs<'_>, kind: &str, target: &V, zone
 /// The work of a completed task, planned.
 pub enum Work {
     None,
-    Cleaning { zone: Arc<str>, sanitation: f64 },
-    Repair { facility: Arc<str>, units: i64 },
+    Cleaning {
+        zone: Arc<str>,
+        sanitation: f64,
+    },
+    Repair {
+        facility: Arc<str>,
+        units: i64,
+    },
     Blocked,
     /// Each person by the key of the table: the next uncertainty, reassurance and positive affect
     /// of a body record, and the next trust.
-    People { people: Vec<(Arc<str>, Arc<str>, Option<[f64; 3]>, f64)> },
+    People {
+        people: Vec<(Arc<str>, Arc<str>, Option<[f64; 3]>, f64)>,
+    },
     /// `admit_pending_arrivals`, which the PyO3 crate checks and runs before `write_complete`.
     Intake,
 }
@@ -1289,11 +1292,7 @@ pub fn interrupt_trips(world: &World, inputs: &Inputs<'_>, event: &Stopping<'_>,
         inputs.plan()?;
         let mut records: Vec<(&Arc<str>, &OperationRecord)> = row.staff.iter().collect();
         records.sort_unstable_by(|first, second| first.0.cmp(second.0));
-        records
-            .into_iter()
-            .filter(|(_, record)| record.phase == Phase::Travel)
-            .map(|(id, record)| (id.clone(), record.route_edge_ids.clone()))
-            .collect()
+        records.into_iter().filter(|(_, record)| record.phase == Phase::Travel).map(|(id, record)| (id.clone(), record.route_edge_ids.clone())).collect()
     };
     let geo = inputs.plan()?.clone();
     for (staff_id, route) in travelling {

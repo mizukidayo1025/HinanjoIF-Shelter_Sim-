@@ -105,16 +105,13 @@ impl PyEncoder for Encoder {
         } else if let Ok(number) = value.downcast::<PyFloat>() {
             self.float(number.value())?;
         } else if let Some(object) = as_readable_dict(value) {
-            let mut entries: Vec<(Bound<'_, PyAny>, Bound<'_, PyAny>)> =
-                Vec::with_capacity(object.len());
+            let mut entries: Vec<(Bound<'_, PyAny>, Bound<'_, PyAny>)> = Vec::with_capacity(object.len());
             for (key, item) in object.iter() {
                 entries.push((key, item));
             }
             let mut items: Vec<(&str, &Bound<'_, PyAny>)> = Vec::with_capacity(entries.len());
             for (key, item) in &entries {
-                let key = key
-                    .downcast::<PyString>()
-                    .map_err(|_| Unsupported::new_err("object key is not a str"))?;
+                let key = key.downcast::<PyString>().map_err(|_| Unsupported::new_err("object key is not a str"))?;
                 items.push((key.to_str()?, item));
             }
             // Python orders str by code point, the same as UTF-8 bytes.
@@ -161,16 +158,11 @@ impl PyEncoder for Encoder {
 
 fn py_int_repr(number: &Bound<'_, PyInt>) -> PyResult<String> {
     let int_type = number.py().get_type::<PyInt>();
-    int_type
-        .getattr("__repr__")?
-        .call1((number,))?
-        .extract::<String>()
+    int_type.getattr("__repr__")?.call1((number,))?.extract::<String>()
 }
 
 pub(crate) fn encode(value: &Bound<'_, PyAny>) -> PyResult<Vec<u8>> {
-    let mut encoder = Encoder {
-        out: Vec::with_capacity(256),
-    };
+    let mut encoder = Encoder { out: Vec::with_capacity(256) };
     encoder.value(value, 0)?;
     Ok(encoder.out)
 }

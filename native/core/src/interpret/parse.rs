@@ -18,12 +18,9 @@ pub(super) const PARSER_SOURCE_ID: &str = "offline-parser-h06";
 const MAX_STAFF: i64 = 100;
 const MAX_TOILETS: i64 = 20;
 
-static FACILITY_FAILURE: Pattern =
-    Pattern::new(r"故障|壊れ|使えな|使用できな|停止|故障|outage|fail(?:ed|s|ure)?|broken|unavailable", true);
-static WATER_FAILURE: Pattern = Pattern::new(
-    r"断水|水.{0,5}(?:止ま|停止|出な)|給水.{0,5}(?:止ま|停止)|water.{0,12}(?:outage|stop|stoppage|cut|fail)|(?:outage|cut).{0,12}water",
-    true,
-);
+static FACILITY_FAILURE: Pattern = Pattern::new(r"故障|壊れ|使えな|使用できな|停止|故障|outage|fail(?:ed|s|ure)?|broken|unavailable", true);
+static WATER_FAILURE: Pattern =
+    Pattern::new(r"断水|水.{0,5}(?:止ま|停止|出な)|給水.{0,5}(?:止ま|停止)|water.{0,12}(?:outage|stop|stoppage|cut|fail)|(?:outage|cut).{0,12}water", true);
 static ADD: Pattern = Pattern::new(r"追加|増員|増や|設置|導入|add(?:ed|ing)?|increase|install(?:ed|ing)?|provide", true);
 static TOILET: Pattern = Pattern::new(r"トイレ|便器|restroom|toilet", true);
 static STAFF: Pattern = Pattern::new(r"スタッフ|職員|職員|staff|worker", true);
@@ -73,23 +70,16 @@ static EVACUEE_COUNT: [Pattern; 2] = [
     ),
 ];
 
-static FACILITY_ID: Pattern =
-    Pattern::new(r"\b(?:toilet|restroom|facility|water_station)[_:#-]([a-z0-9][a-z0-9._:-]*)", true);
-static FACILITY_NAMED: Pattern =
-    Pattern::new(r"\b(?:toilet|restroom|facility|water station)\s+([a-z][a-z0-9._:-]*)", true);
+static FACILITY_ID: Pattern = Pattern::new(r"\b(?:toilet|restroom|facility|water_station)[_:#-]([a-z0-9][a-z0-9._:-]*)", true);
+static FACILITY_NAMED: Pattern = Pattern::new(r"\b(?:toilet|restroom|facility|water station)\s+([a-z][a-z0-9._:-]*)", true);
 static ZONE_ID: Pattern = Pattern::new(r"\b(?:zone|zone_id)\s*[:=#]?\s*([a-z][a-z0-9._:-]*)", true);
 
 static DAY: Pattern = Pattern::new(r"\bday\s*(\d{1,3})\b|(\d{1,3})\s*日目", true);
 static FULL_DATE: Pattern = Pattern::new(r"\b(\d{4})[-/](\d{1,2})[-/](\d{1,2})\b", false);
 static SHORT_DATE: Pattern = Pattern::new(r"\b(\d{1,2})/(\d{1,2})\b", false);
-static NEXT_MORNING: Pattern = Pattern::new(
-    r"翌朝|翌日(?:の)?(?:朝|午前|昼)?|次(?:の|の日の)?朝|\b(?:next|following)\s+(?:morning|day)\b",
-    true,
-);
-static DAY_REFERENCES: Pattern =
-    Pattern::new(r"\bday\s*\d{1,3}\b|\d{1,3}\s*日目|\b\d{4}[-/]\d{1,2}[-/]\d{1,2}\b", true);
-static VAGUE_TIME: Pattern =
-    Pattern::new(r"午後|午前|朝|昼|正午|夕方|夜|\b(?:afternoon|morning|evening|night|noon|midday)\b", true);
+static NEXT_MORNING: Pattern = Pattern::new(r"翌朝|翌日(?:の)?(?:朝|午前|昼)?|次(?:の|の日の)?朝|\b(?:next|following)\s+(?:morning|day)\b", true);
+static DAY_REFERENCES: Pattern = Pattern::new(r"\bday\s*\d{1,3}\b|\d{1,3}\s*日目|\b\d{4}[-/]\d{1,2}[-/]\d{1,2}\b", true);
+static VAGUE_TIME: Pattern = Pattern::new(r"午後|午前|朝|昼|正午|夕方|夜|\b(?:afternoon|morning|evening|night|noon|midday)\b", true);
 static RANGE: Pattern = Pattern::new(r"から.{0,24}まで|\bto\b|[-–—]", true);
 static TIMES: [Pattern; 4] = [
     Pattern::new(r"(?<!\d)(\d{1,2}):(\d{2})\s*(am|pm)?(?!\d)", true),
@@ -98,10 +88,7 @@ static TIMES: [Pattern; 4] = [
     Pattern::new(r"(?<!\d)(\d{1,2})\s*時(?:\s*(\d{1,2})\s*分)?", false),
 ];
 
-pub(super) static COVERAGE_CLAUSES: Pattern = Pattern::new(
-    r"[,、。;+]|\b(?:and|then|while)\b|さらに|そして|および|また|加えて|同時に|一方で|そのうえ",
-    true,
-);
+pub(super) static COVERAGE_CLAUSES: Pattern = Pattern::new(r"[,、。;+]|\b(?:and|then|while)\b|さらに|そして|および|また|加えて|同時に|一方で|そのうえ", true);
 static TEMPORAL: [Pattern; 9] = [
     Pattern::new(r"\bday\s*\d{1,3}\b", true),
     Pattern::new(r"\d{1,3}\s*日目", true),
@@ -114,7 +101,6 @@ static TEMPORAL: [Pattern; 9] = [
     Pattern::new(r"深夜|夜間|夜|朝|昼|夕方|午前|午後|ごろ|頃|から|まで|\d+", true),
 ];
 static TEMPORAL_PUNCTUATION: Pattern = Pattern::new(r"[\s:：,、。;；/()（）-]+", false);
-
 
 /// A `ParseIssue`: its code and message (the compiler's answer holds no issue's choices).
 #[derive(Clone, Debug)]
@@ -261,10 +247,7 @@ pub(super) fn parse(raw_text: &str, branch_id: &str, selected_minute: i64, summa
                     "facility_outage" => "停止するユニット",
                     _ => "避難者",
                 };
-                issues.push(Issue {
-                    code: "invalid_count",
-                    message: format!("{noun}の数は1以上{limit}以下で指定してください。"),
-                });
+                issues.push(Issue { code: "invalid_count", message: format!("{noun}の数は1以上{limit}以下で指定してください。") });
                 continue;
             }
         }
@@ -283,10 +266,7 @@ pub(super) fn parse(raw_text: &str, branch_id: &str, selected_minute: i64, summa
             }
         };
         if population && window.end.is_some() {
-            issues.push(fixed(
-                "unsupported_time_window",
-                "到着・帰宅は一時点のイベントです。開始時刻だけを指定してください。",
-            ));
+            issues.push(fixed("unsupported_time_window", "到着・帰宅は一時点のイベントです。開始時刻だけを指定してください。"));
             continue;
         }
         let (units, parameters, dependencies): (&'static str, (&'static str, V), Vec<&'static str>) = match op {
@@ -390,10 +370,7 @@ pub(super) fn detect_operations(text: &str) -> Result<Vec<&'static str>> {
         if text::found(STAFF.get()?, clause)? && is_add {
             ops.push("add_staff");
         }
-        if text::found(FACILITY_FAILURE.get()?, clause)?
-            && !has_water_failure
-            && (toilet || text::found(FACILITY_WORD.get()?, clause)?)
-        {
+        if text::found(FACILITY_FAILURE.get()?, clause)? && !has_water_failure && (toilet || text::found(FACILITY_WORD.get()?, clause)?) {
             ops.push("facility_outage");
         }
     }
@@ -466,9 +443,7 @@ fn is_toilet(kind: &str) -> bool {
 /// `_contains_label(text, label)`.
 fn contains_label(text: &str, label: &str) -> Result<bool> {
     let normalized = text::normalize(label);
-    if matches!(normalized.as_str(), "トイレ" | "便器" | "toilet" | "restroom" | "staff" | "water" | "水")
-        || normalized.is_empty()
-    {
+    if matches!(normalized.as_str(), "トイレ" | "便器" | "toilet" | "restroom" | "staff" | "water" | "水") || normalized.is_empty() {
         return Ok(false);
     }
     let first = normalized.chars().next().unwrap_or(' ');
@@ -512,12 +487,7 @@ fn selected_facility<'s>(selector: &Selector, summary: &'s Summary) -> Option<&'
 /// `_zones_for_operation(op, summary)`.
 fn zones_for_operation<'s>(op: &str, summary: &'s Summary) -> (Vec<&'s Zone>, &'static str) {
     let facility_zones = |matching: &dyn Fn(&str) -> bool| -> Vec<&str> {
-        summary
-            .facilities
-            .iter()
-            .filter(|facility| matching(&facility.kind))
-            .filter_map(|facility| facility.zone_id.as_deref())
-            .collect()
+        summary.facilities.iter().filter(|facility| matching(&facility.kind)).filter_map(|facility| facility.zone_id.as_deref()).collect()
     };
     match op {
         "add_toilet" => {
@@ -548,18 +518,11 @@ fn resolve_target(text: &str, op: &str, summary: &Summary) -> Result<Target> {
             let zones: Vec<&Zone> = summary
                 .zones
                 .iter()
-                .filter(|zone| {
-                    zone.has_water_station || facilities.iter().any(|item| item.zone_id.as_deref() == Some(zone.id.as_str()))
-                })
+                .filter(|zone| zone.has_water_station || facilities.iter().any(|item| item.zone_id.as_deref() == Some(zone.id.as_str())))
                 .collect();
             candidates.extend(zones.iter().map(|zone| (zone.id.as_str(), zone.name.as_str(), "zone")));
             if zones.is_empty() {
-                candidates.extend(
-                    facilities
-                        .iter()
-                        .filter(|item| item.zone_id.is_none())
-                        .map(|item| (item.id.as_str(), item.name.as_str(), "facility")),
-                );
+                candidates.extend(facilities.iter().filter(|item| item.zone_id.is_none()).map(|item| (item.id.as_str(), item.name.as_str(), "facility")));
             }
         } else {
             candidates.extend(facilities.iter().map(|item| (item.id.as_str(), item.name.as_str(), "facility")));
@@ -590,10 +553,7 @@ fn resolve_target(text: &str, op: &str, summary: &Summary) -> Result<Target> {
             }
         }
         if matches.is_empty() {
-            return Ok(Target::Issue(fixed(
-                "unknown_target",
-                "シナリオ内に対応する対象がありません。存在するIDを指定してください。",
-            )));
+            return Ok(Target::Issue(fixed("unknown_target", "シナリオ内に対応する対象がありません。存在するIDを指定してください。")));
         }
         if let [(id, _, kind)] = matches.as_slice() {
             return Ok(Target::Selected {
@@ -607,11 +567,7 @@ fn resolve_target(text: &str, op: &str, summary: &Summary) -> Result<Target> {
             return Err(invalid("Ambiguity"));
         }
         let ambiguity = Ambiguity { message: "対象を一つ選択してください。", choices: candidate_ids.clone() };
-        return Ok(Target::Selected {
-            selector: candidates_selector(matches[0].2, candidate_ids)?,
-            ambiguity: Some(ambiguity),
-            assumption: None,
-        });
+        return Ok(Target::Selected { selector: candidates_selector(matches[0].2, candidate_ids)?, ambiguity: Some(ambiguity), assumption: None });
     }
 
     let mut named = Vec::new();
@@ -643,10 +599,7 @@ fn resolve_target(text: &str, op: &str, summary: &Summary) -> Result<Target> {
         summary.zones.iter().collect()
     };
     if matches.is_empty() {
-        return Ok(Target::Issue(fixed(
-            "unknown_target",
-            "対象Zoneがシナリオにありません。存在するZone IDを指定してください。",
-        )));
+        return Ok(Target::Issue(fixed("unknown_target", "対象Zoneがシナリオにありません。存在するZone IDを指定してください。")));
     }
     if let [chosen] = matches.as_slice() {
         return Ok(Target::Selected {
@@ -694,22 +647,13 @@ fn time_window(text: &str, summary: &Summary) -> Result<std::result::Result<Opti
     let short_date = if full_date.is_some() { None } else { text::search(SHORT_DATE.get()?, text)? };
     let tokens = time_tokens(text)?;
     if text::found(NEXT_MORNING.get()?, text)? {
-        return Ok(Err(hh_mm(
-            "ambiguous_time",
-            "『翌朝』『翌日』は対象イベントとの基点が曖昧です。各作用のDay番号と時刻を指定してください。",
-        )));
+        return Ok(Err(hh_mm("ambiguous_time", "『翌朝』『翌日』は対象イベントとの基点が曖昧です。各作用のDay番号と時刻を指定してください。")));
     }
     if text::count(DAY_REFERENCES.get()?, text)? > 1 && tokens.len() > 1 {
-        return Ok(Err(hh_mm(
-            "ambiguous_time",
-            "複数のイベント時刻を一つの作用時刻にまとめられません。各作用にDay番号と時刻を指定してください。",
-        )));
+        return Ok(Err(hh_mm("ambiguous_time", "複数のイベント時刻を一つの作用時刻にまとめられません。各作用にDay番号と時刻を指定してください。")));
     }
     if text::found(VAGUE_TIME.get()?, text)? && tokens.is_empty() {
-        return Ok(Err(hh_mm(
-            "ambiguous_time",
-            "『午後』などの幅がある時間表現だけでは時刻を決められません。具体的な時刻を指定してください。",
-        )));
+        return Ok(Err(hh_mm("ambiguous_time", "『午後』などの幅がある時間表現だけでは時刻を決められません。具体的な時刻を指定してください。")));
     }
     if tokens.len() > 2 {
         return Ok(Err(fixed("ambiguous_time", "複数の時刻を読み取れません。開始・終了を一つずつ指定してください。")));
@@ -731,10 +675,7 @@ fn time_window(text: &str, summary: &Summary) -> Result<std::result::Result<Opti
             return Ok(Err(fixed("invalid_time", "日付が正しくありません。")));
         };
         let Some(start) = summary.start_date else {
-            return Ok(Err(fixed(
-                "missing_date_anchor",
-                "日付をシミュレーション分へ変換する開始日がありません。Day番号を指定してください。",
-            )));
+            return Ok(Err(fixed("missing_date_anchor", "日付をシミュレーション分へ変換する開始日がありません。Day番号を指定してください。")));
         };
         let days = (requested - start.0) * 1440;
         if days < 0 {
@@ -765,10 +706,7 @@ fn time_window(text: &str, summary: &Summary) -> Result<std::result::Result<Opti
     if let [_, (end_hour, end_minute)] = tokens.as_slice() {
         let value = base + end_hour * 60 + end_minute;
         if value <= start {
-            return Ok(Err(fixed(
-                "invalid_time_range",
-                "終了時刻は開始時刻より後にしてください。日をまたぐ指定はDay番号も付けてください。",
-            )));
+            return Ok(Err(fixed("invalid_time_range", "終了時刻は開始時刻より後にしてください。日をまたぐ指定はDay番号も付けてください。")));
         }
         end = Some(value);
     }

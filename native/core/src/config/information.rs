@@ -55,10 +55,7 @@ impl InformationSpread {
     pub fn from_v(config: &V) -> Read<Self> {
         let fields = map(config)?;
         let field = |name: &str| fields.get(name).unwrap_or(&V::Null);
-        let by_id = map(field("correction_source_reliability_by_id"))?
-            .iter()
-            .map(|(source, value)| (source.clone(), number(value)))
-            .collect();
+        let by_id = map(field("correction_source_reliability_by_id"))?.iter().map(|(source, value)| (source.clone(), number(value))).collect();
         Ok(Self {
             present: field("present").is_truthy(),
             enabled: field("enabled").is_truthy(),

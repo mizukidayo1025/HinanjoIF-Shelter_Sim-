@@ -60,7 +60,10 @@ fn sample_information<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, 
 }
 
 /// A refusal of the Run's policies whose read raised, as reading them again raises.
-fn policy_fault<C: WorldCell, H: Host, R: RunCell, T>(tick: &mut Tick<'_, C, H, R>, result: std::result::Result<T, H::Error>) -> std::result::Result<T, H::Error> {
+fn policy_fault<C: WorldCell, H: Host, R: RunCell, T>(
+    tick: &mut Tick<'_, C, H, R>,
+    result: std::result::Result<T, H::Error>,
+) -> std::result::Result<T, H::Error> {
     match result {
         Err(error) if is_refusal(&error).as_deref() == Some(POLICY_FAULT) => {
             tick.host.read_again(Again::Policy(&["proximity_contact_config"]))?;

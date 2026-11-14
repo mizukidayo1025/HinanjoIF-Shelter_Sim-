@@ -54,11 +54,8 @@ fn read(json: &Value) -> Result<std::result::Result<Held, Fault>> {
 /// An object as `RunCore.policies_document` wrote it.
 pub fn obj(json: &Value) -> Result<Obj> {
     let class = &json["class"];
-    let mut object = Obj::new(Class {
-        module: class[0].as_str().map(text),
-        qualname: class[1].as_str().map(text),
-        resolves: bool_of(&class[2], "a class's resolves")?,
-    });
+    let mut object =
+        Obj::new(Class { module: class[0].as_str().map(text), qualname: class[1].as_str().map(text), resolves: bool_of(&class[2], "a class's resolves")? });
     for (name, item) in super::object(&json["attrs"], "attrs")? {
         object.attrs.insert(text(name), read(item)?);
     }
@@ -128,10 +125,7 @@ pub fn route_capacities(json: &Value) -> Result<RouteCapacities> {
 pub fn neighbors(json: &Value) -> Result<Arc<ZoneNeighbors>> {
     let mut table: HashMap<String, Vec<String>> = HashMap::new();
     for (zone, near) in object(json, "zone_neighbors")? {
-        let near = super::array(near, "a zone's neighbors")?
-            .iter()
-            .map(|item| str_of(item, "a neighbor").map(str::to_owned))
-            .collect::<Result<_>>()?;
+        let near = super::array(near, "a zone's neighbors")?.iter().map(|item| str_of(item, "a neighbor").map(str::to_owned)).collect::<Result<_>>()?;
         table.insert(zone.clone(), near);
     }
     let social = Ok(table.iter().map(|(zone, near)| (zone.clone(), Ok(near.clone()))).collect());

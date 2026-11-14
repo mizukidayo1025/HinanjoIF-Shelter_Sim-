@@ -8,6 +8,7 @@ mod support;
 use std::sync::Arc;
 
 use indexmap::IndexMap;
+use sheltersim_core::cell::Shard;
 use sheltersim_core::config::information::InformationSpread;
 use sheltersim_core::config::{Fault, FaultClass, Selection};
 use sheltersim_core::entities::{Activity, AgentRow, AnyTable, EdgeRow, Entities, Mobility, NeedRow, ProfileRow, RequestRow, RequestStatus, Table, ZoneRow};
@@ -21,7 +22,6 @@ use sheltersim_core::rules::information_events::{self as info, Applied, Inputs, 
 use sheltersim_core::rules::kit::{Held, Kept};
 use sheltersim_core::rules::metrics::MetricSample;
 use sheltersim_core::rules::social_interaction::{self as social, Inputs as SocialInputs};
-use sheltersim_core::cell::Shard;
 use sheltersim_core::state::information::{BeliefRow, ContactRow, CountersRow, InformationRow, MessageRow, NAME};
 use sheltersim_core::value::V;
 use sheltersim_core::world::{Fit, Place, Seed, Snapshot, World, WorldCell};
@@ -220,7 +220,9 @@ fn inputs<'a>(config: &'a InformationSpread, held: &'a Held, selection: &'a Kept
 fn a_rumor_seeds_its_origin_and_marks_the_namespace() {
     let mut world = world();
     let (config, selection) = (config(true), selection(PLAIN));
-    let applied = on(&mut world, |cell| info::rumor(cell, &mut TestHost::default(), &inputs(&config, &Held::Held, &selection), &rumor_event("ev-r1", "m1", "false", "a1")));
+    let applied = on(&mut world, |cell| {
+        info::rumor(cell, &mut TestHost::default(), &inputs(&config, &Held::Held, &selection), &rumor_event("ev-r1", "m1", "false", "a1"))
+    });
     assert_eq!(applied, Ok(()));
     assert_eq!(written(&mut world), vec![NAME.to_owned()]);
     let state = state(&world);
@@ -236,7 +238,8 @@ fn a_rumor_seeds_its_origin_and_marks_the_namespace() {
     assert!(!belief.ever_misbelieved && !belief.correction_exposed && !belief.ever_forgotten);
     assert_eq!(state.query_pressure["a1"], 0.2);
     // A second claim comes after the first, as a dict keeps it.
-    on(&mut world, |cell| info::rumor(cell, &mut TestHost::default(), &inputs(&config, &Held::Held, &selection), &rumor_event("ev-r0", "m0", "true", "a1"))).unwrap();
+    on(&mut world, |cell| info::rumor(cell, &mut TestHost::default(), &inputs(&config, &Held::Held, &selection), &rumor_event("ev-r0", "m0", "true", "a1")))
+        .unwrap();
     assert_eq!(state_names(&world), ["m1", "m0"]);
     assert_eq!(state_pressure(&world, "a1"), 0.4);
 }
@@ -253,7 +256,8 @@ fn state_pressure(world: &World, agent: &str) -> f64 {
 fn an_evidence_aware_rumor_draws_its_strength_from_the_seed() {
     let mut world = world();
     let (config, selection) = (config(true), selection(AWARE));
-    on(&mut world, |cell| info::rumor(cell, &mut TestHost::default(), &inputs(&config, &Held::Held, &selection), &rumor_event("ev-r1", "m1", "true", "a1"))).unwrap();
+    on(&mut world, |cell| info::rumor(cell, &mut TestHost::default(), &inputs(&config, &Held::Held, &selection), &rumor_event("ev-r1", "m1", "true", "a1")))
+        .unwrap();
     let belief = state(&world).beliefs["a1"]["m1"].clone();
     // trust 0.75 and the source's 0.9: 0.5 + 0.8 * 0.25 + 0.6 * 0.4 = 0.94, against the draw of
     // ("rumor-belief-acceptance-v1", 10, "a1", "m1") under seed 7 (`claim_strength_of`).
@@ -299,7 +303,8 @@ fn a_rumor_s_texts_come_in_the_python_rule_s_order() {
     assert_eq!(again, fail("information message ID already exists"));
     // An ID the Python rule would turn down is left to it, with nothing written.
     let mut odd = clone_world(&world);
-    let refused = on(&mut odd, |cell| info::rumor(cell, &mut TestHost::default(), &inputs(&config, &Held::Held, &selection), &rumor_event("ev r1", "m1", "true", "a1")));
+    let refused =
+        on(&mut odd, |cell| info::rumor(cell, &mut TestHost::default(), &inputs(&config, &Held::Held, &selection), &rumor_event("ev r1", "m1", "true", "a1")));
     assert_eq!(refused, Err(unsupported("an ID for the Python rule to judge")));
     assert!(written(&mut odd).is_empty());
 }
@@ -315,9 +320,13 @@ fn correction_event(message: &str, zone: &str, belief: &str, causation: &str) ->
 fn a_correction_reaches_everyone_in_the_zone_by_id() {
     let mut world = world();
     let (config, selection) = (config(true), selection(PLAIN));
-    on(&mut world, |cell| info::rumor(cell, &mut TestHost::default(), &inputs(&config, &Held::Held, &selection), &rumor_event("ev-r1", "m1", "unknown", "a2"))).unwrap();
+    on(&mut world, |cell| info::rumor(cell, &mut TestHost::default(), &inputs(&config, &Held::Held, &selection), &rumor_event("ev-r1", "m1", "unknown", "a2")))
+        .unwrap();
     written(&mut world);
-    on(&mut world, |cell| info::correction(cell, &mut TestHost::default(), &inputs(&config, &Held::Held, &selection), &correction_event("m1", "z0", "rejected", "ev-r1"))).unwrap();
+    on(&mut world, |cell| {
+        info::correction(cell, &mut TestHost::default(), &inputs(&config, &Held::Held, &selection), &correction_event("m1", "z0", "rejected", "ev-r1"))
+    })
+    .unwrap();
     assert_eq!(written(&mut world), vec![NAME.to_owned()]);
     let state = state(&world);
     // An unknown claim takes the correction's truth.
@@ -342,7 +351,8 @@ fn a_correction_reaches_everyone_in_the_zone_by_id() {
 fn a_correction_s_texts_come_in_the_python_rule_s_order() {
     let mut world = world();
     let (config, selection) = (config(true), selection(PLAIN));
-    on(&mut world, |cell| info::rumor(cell, &mut TestHost::default(), &inputs(&config, &Held::Held, &selection), &rumor_event("ev-r1", "m1", "false", "a2"))).unwrap();
+    on(&mut world, |cell| info::rumor(cell, &mut TestHost::default(), &inputs(&config, &Held::Held, &selection), &rumor_event("ev-r1", "m1", "false", "a2")))
+        .unwrap();
     let fail = |text: &str| Err(Error::Outcome(Outcome::Failed, text.to_owned()));
     let run = |row: &EventRow| {
         let mut world = clone_world(&world);
@@ -381,9 +391,12 @@ fn contact_event(sender: &str, recipient: &str, belief: &str, basis: &str, minut
 fn a_contact_passes_a_claim_on_and_counts_it() {
     let mut world = world();
     let (config, selection) = (config(true), selection(PLAIN));
-    on(&mut world, |cell| info::rumor(cell, &mut TestHost::default(), &inputs(&config, &Held::Held, &selection), &rumor_event("ev-r1", "m1", "false", "a2"))).unwrap();
+    on(&mut world, |cell| info::rumor(cell, &mut TestHost::default(), &inputs(&config, &Held::Held, &selection), &rumor_event("ev-r1", "m1", "false", "a2")))
+        .unwrap();
     // a2 and a1 are a household (their profiles' group): the basis is family.
-    let applied = on(&mut world, |cell| info::contact(cell, &mut TestHost::default(), &inputs(&config, &Held::Held, &selection), &contact_event("a2", "a1", "heard", "family", V::Int(5))));
+    let applied = on(&mut world, |cell| {
+        info::contact(cell, &mut TestHost::default(), &inputs(&config, &Held::Held, &selection), &contact_event("a2", "a1", "heard", "family", V::Int(5)))
+    });
     assert_eq!(applied, Ok(Applied::Applied));
     let state = state(&world);
     let belief = &state.beliefs["a1"]["m1"];
@@ -391,7 +404,9 @@ fn a_contact_passes_a_claim_on_and_counts_it() {
     assert_eq!(state.query_pressure["a1"], 0.2);
     assert_eq!((state.counters.contact_deliveries, state.counters.correction_deliveries), (1, 0));
     // A second time, a1's belief is as strong.
-    let again = on(&mut world, |cell| info::contact(cell, &mut TestHost::default(), &inputs(&config, &Held::Held, &selection), &contact_event("a2", "a1", "heard", "family", V::Int(5))));
+    let again = on(&mut world, |cell| {
+        info::contact(cell, &mut TestHost::default(), &inputs(&config, &Held::Held, &selection), &contact_event("a2", "a1", "heard", "family", V::Int(5)))
+    });
     assert_eq!(again, Ok(Applied::Suppressed("recipient already has an equally strong belief")));
 }
 
@@ -399,7 +414,8 @@ fn a_contact_passes_a_claim_on_and_counts_it() {
 fn a_contact_s_texts_come_in_the_python_rule_s_order() {
     let mut world = world();
     let (config, selection) = (config(true), selection(PLAIN));
-    on(&mut world, |cell| info::rumor(cell, &mut TestHost::default(), &inputs(&config, &Held::Held, &selection), &rumor_event("ev-r1", "m1", "false", "a2"))).unwrap();
+    on(&mut world, |cell| info::rumor(cell, &mut TestHost::default(), &inputs(&config, &Held::Held, &selection), &rumor_event("ev-r1", "m1", "false", "a2")))
+        .unwrap();
     let fail = |text: &str| Err(Error::Outcome(Outcome::Failed, text.to_owned()));
     let suppressed = |text: &'static str| Ok(Applied::Suppressed(text));
     let run = |row: &EventRow| {
@@ -442,9 +458,12 @@ fn a_contact_s_texts_come_in_the_python_rule_s_order() {
 fn people_in_zones_with_only_a_closed_edge_are_not_in_contact() {
     let mut world = world();
     let (config, selection) = (config(true), selection(PLAIN));
-    on(&mut world, |cell| info::rumor(cell, &mut TestHost::default(), &inputs(&config, &Held::Held, &selection), &rumor_event("ev-r1", "m1", "false", "a2"))).unwrap();
+    on(&mut world, |cell| info::rumor(cell, &mut TestHost::default(), &inputs(&config, &Held::Held, &selection), &rumor_event("ev-r1", "m1", "false", "a2")))
+        .unwrap();
     on(&mut world, |cell| cell.with(|world| world.rows_mut().unwrap().agents.get_mut("a4").unwrap().zone_id = text("z2"))).unwrap();
-    let said = on(&mut world, |cell| info::contact(cell, &mut TestHost::default(), &inputs(&config, &Held::Held, &selection), &contact_event("a2", "a4", "heard", "same_zone", V::Int(5))));
+    let said = on(&mut world, |cell| {
+        info::contact(cell, &mut TestHost::default(), &inputs(&config, &Held::Held, &selection), &contact_event("a2", "a4", "heard", "same_zone", V::Int(5)))
+    });
     assert_eq!(said, Ok(Applied::Suppressed("Agents are no longer in a modeled contact zone")));
 }
 
@@ -526,7 +545,9 @@ fn a_state_of_another_schema_is_upgraded_by_the_host_before_the_event_s_checks()
     written(&mut world);
     let (config, selection) = (config(true), selection(PLAIN));
     // A host without Python refuses, and nothing is written.
-    let refused = on(&mut world, |cell| info::rumor(cell, &mut TestHost::default(), &inputs(&config, &Held::Held, &selection), &rumor_event("ev-r1", "m1", "true", "a1")));
+    let refused = on(&mut world, |cell| {
+        info::rumor(cell, &mut TestHost::default(), &inputs(&config, &Held::Held, &selection), &rumor_event("ev-r1", "m1", "true", "a1"))
+    });
     assert_eq!(refused, Err(unsupported(OLDER_STATE)));
     assert!(written(&mut world).is_empty());
     // The model's checks come first: a model that is off is not upgraded.
@@ -561,9 +582,12 @@ fn the_selection_s_errors_are_said_where_the_rule_reads_it() {
     // A rumor reads it only after its own checks, under the default model.
     let mut world = world();
     let config = config(true);
-    let unknown = on(&mut world, |cell| info::rumor(cell, &mut TestHost::default(), &inputs(&config, &Held::Held, &raised), &rumor_event("ev-r1", "m1", "true", "nobody")));
+    let unknown = on(&mut world, |cell| {
+        info::rumor(cell, &mut TestHost::default(), &inputs(&config, &Held::Held, &raised), &rumor_event("ev-r1", "m1", "true", "nobody"))
+    });
     assert_eq!(unknown, Err(Error::Outcome(Outcome::Failed, "information_rumor references an unknown Agent".to_owned())));
-    let corrupt = on(&mut world, |cell| info::rumor(cell, &mut TestHost::default(), &inputs(&config, &Held::Held, &raised), &rumor_event("ev-r1", "m1", "true", "a1")));
+    let corrupt =
+        on(&mut world, |cell| info::rumor(cell, &mut TestHost::default(), &inputs(&config, &Held::Held, &raised), &rumor_event("ev-r1", "m1", "true", "a1")));
     assert_eq!(corrupt, Err(Error::corrupt("model_configs", info::SELECTION_RAISED)));
     assert!(written(&mut world).is_empty());
 }
@@ -575,7 +599,9 @@ fn a_correction_s_acceptance_and_the_numbers_of_a_payload() {
     // trust 0.75 and the source's 0.9: min(0.95, 0.6 + 0.4 * 0.25 + 0.2 * 0.4) = 0.78.
     assert_eq!(info::acceptance_probability(&config, 0.75, 0.9), Ok(0.6 + 2.0 * 0.2 * (0.75 - 0.5) + 2.0 * 0.1 * (0.9 - 0.5)));
     assert_eq!(info::acceptance_probability(&config, 1.0, 1.0), Ok(0.6 + 2.0 * 0.2 * 0.5 + 2.0 * 0.1 * 0.5));
-    let accepted = on(&mut world, |cell| cell.with(|world| info::accepts(world, &config, "correction-acceptance-v1", 0.75, "trusted", 12, &["trusted", "a1", "m1"]))).unwrap();
+    let accepted =
+        on(&mut world, |cell| cell.with(|world| info::accepts(world, &config, "correction-acceptance-v1", 0.75, "trusted", 12, &["trusted", "a1", "m1"])))
+            .unwrap();
     assert_eq!(accepted, Ok(EXPECTED_ACCEPTANCE));
     let draws = Draws::of_seed("7").unwrap();
     assert_eq!(draws.random("correction-acceptance-v1", 12, &["trusted", "a1", "m1"]), CORRECTION_DRAW);
@@ -625,7 +651,8 @@ fn apply(world: &mut World, row: &EventRow, inputs: &SocialInputs) -> Result<soc
 fn a_social_action_relieves_the_participant_and_tires_a_helper() {
     let mut world = world();
     // No body state: the relief of affect 0.5 and 0.0 at the default transfer, 0.01.
-    let said = apply(&mut world, &social_event(action("reassurance_exchange", "a1", "a2", "offer_reassurance", "emotional_check_in")), &SocialInputs::default());
+    let said =
+        apply(&mut world, &social_event(action("reassurance_exchange", "a1", "a2", "offer_reassurance", "emotional_check_in")), &SocialInputs::default());
     assert_eq!(said, Ok(None));
     let (actor, participant) = (person(&world, "a1"), person(&world, "a2"));
     assert_eq!((participant.stress, participant.trust), (0.49, 0.755));
@@ -727,10 +754,8 @@ fn answering(kind: &str, extra: &[(&str, V)]) -> EventRow {
 #[test]
 fn a_cooperation_answers_an_applied_contact_a_minute_ago() {
     let mut world = world();
-    let cooperation = answering(
-        "cooperation",
-        &[("stress_threshold", V::Float(0.4)), ("relationship", string("same_group")), ("action", string("offer_mutual_support"))],
-    );
+    let cooperation =
+        answering("cooperation", &[("stress_threshold", V::Float(0.4)), ("relationship", string("same_group")), ("action", string("offer_mutual_support"))]);
     let found = |record: Option<Logged>| SocialInputs { trigger: Some((text("ev-k1"), record)), information: None };
     // Not looked up: the glue's bug, not the rule's text.
     assert!(matches!(apply(&mut world, &cooperation, &SocialInputs::default()), Err(Error::Runtime(_))));
@@ -749,7 +774,8 @@ fn a_cooperation_answers_an_applied_contact_a_minute_ago() {
 fn an_information_reaction_raises_the_query_pressure() {
     let mut world = world();
     let (config, selection) = (config(true), selection(PLAIN));
-    on(&mut world, |cell| info::rumor(cell, &mut TestHost::default(), &inputs(&config, &Held::Held, &selection), &rumor_event("ev-r1", "m1", "false", "a1"))).unwrap();
+    on(&mut world, |cell| info::rumor(cell, &mut TestHost::default(), &inputs(&config, &Held::Held, &selection), &rumor_event("ev-r1", "m1", "false", "a1")))
+        .unwrap();
     written(&mut world);
     let reaction = answering("information_reaction", &[("message_id", string("m1")), ("action", string("seek_claim_verification"))]);
     let kept: Kept<InformationSpread> = Ok(Arc::new(config.clone()));

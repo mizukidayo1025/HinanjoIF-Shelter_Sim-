@@ -4,9 +4,7 @@
 
 use serde_json::Value;
 use sheltersim_core::checkpoint::sha256_hex;
-use sheltersim_core::scenario::population::{
-    default_household_composition, generate_population, AgeBand, HouseholdSizeMix, PopulationInput,
-};
+use sheltersim_core::scenario::population::{default_household_composition, generate_population, AgeBand, HouseholdSizeMix, PopulationInput};
 use sheltersim_core::value::V;
 
 fn fixture() -> Value {
@@ -34,12 +32,7 @@ fn input(case: &Value) -> PopulationInput {
     }
     if let Some(mix) = case["household_mix"].as_object() {
         input.household_mix = Some(HouseholdSizeMix {
-            size_weights: mix["size_weights"]
-                .as_object()
-                .unwrap()
-                .iter()
-                .map(|(size, weight)| (size.parse().unwrap(), weight.as_f64().unwrap()))
-                .collect(),
+            size_weights: mix["size_weights"].as_object().unwrap().iter().map(|(size, weight)| (size.parse().unwrap(), weight.as_f64().unwrap())).collect(),
             source_ids: strings(&mix["source_ids"]),
         });
     }

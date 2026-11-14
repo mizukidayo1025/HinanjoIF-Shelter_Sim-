@@ -32,12 +32,7 @@ impl PyNum for Num {
         if let Ok(number) = value.downcast_exact::<PyFloat>() {
             return Some(Num::Float(number.value()));
         }
-        value
-            .downcast_exact::<PyInt>()
-            .ok()?
-            .extract()
-            .ok()
-            .map(Num::Int)
+        value.downcast_exact::<PyInt>().ok()?.extract().ok().map(Num::Int)
     }
 
     fn to_py<'py>(self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {

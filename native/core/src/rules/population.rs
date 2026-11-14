@@ -34,12 +34,12 @@ use sha2::{Digest, Sha256};
 use crate::cell::ShardRef;
 use crate::config::agent_dynamics::Awareness;
 use crate::config::geometry::ApproachRoute;
+use crate::config::{Section, SectionId};
 use crate::entities::{Activity, AgentRow, Entities, Mobility, NeedRow, ProfileRow};
 use crate::error::{Error, Result};
 use crate::events::writer::WriteError;
 use crate::events::{is_stable_id, EventKind, EventRow, EventStatus};
 use crate::geometry::{Geo, Pt};
-use crate::config::{Section, SectionId};
 use crate::host::{Again, Contract, ErrorClass, Host, HostFailure};
 use crate::json::Encoder;
 use crate::mathx::py_min;
@@ -383,19 +383,8 @@ const TRANSITION_FIELDS: [&str; 14] = [
     "state_snapshot_hash",
     "time_semantics",
 ];
-const ACTIONS: [&str; 11] = [
-    "arrived",
-    "approaching",
-    "approach_completed",
-    "waiting",
-    "admitted",
-    "departed",
-    "temporary_exit",
-    "returned",
-    "transferred",
-    "reunited",
-    "relocated",
-];
+const ACTIONS: [&str; 11] =
+    ["arrived", "approaching", "approach_completed", "waiting", "admitted", "departed", "temporary_exit", "returned", "transferred", "reunited", "relocated"];
 
 fn required_identifier(map: &Doc, key: &str) -> Result<Arc<str>> {
     match map.get(key) {
@@ -996,10 +985,7 @@ pub fn write_room_admission(world: &World, held: &Held, agent_id: &str, room_id:
 
 /// `state["positions"][id] = {...}` of a person now standing in a zone, and `finish_movement`.
 pub fn reset_position(world: &World, geo: &Geo, agent_id: &Arc<str>, zone_id: &Arc<str>) -> Result<()> {
-    world
-        .row_mut::<MovementRow>(MOVEMENT)?
-        .positions
-        .insert(agent_id.clone(), position_record(zone_id.clone(), None, KINDS.unavailable.clone(), None, 0.0));
+    world.row_mut::<MovementRow>(MOVEMENT)?.positions.insert(agent_id.clone(), position_record(zone_id.clone(), None, KINDS.unavailable.clone(), None, 0.0));
     movement::finish(world, geo, agent_id)
 }
 
@@ -1629,7 +1615,13 @@ struct Checked {
 }
 
 /// The plan of `queue_arrivals`, through the event's row. A host error is what a contract raised.
-pub fn plan_arrivals<C: WorldCell, H: Host>(cell: &C, host: &mut H, inputs: &Inputs, row: &EventRow, args: ArrivalArgs) -> std::result::Result<ArrivalsPlan, H::Error> {
+pub fn plan_arrivals<C: WorldCell, H: Host>(
+    cell: &C,
+    host: &mut H,
+    inputs: &Inputs,
+    row: &EventRow,
+    args: ArrivalArgs,
+) -> std::result::Result<ArrivalsPlan, H::Error> {
     // The rule's checks, in its order, each with its text.
     let zone = cell.with(|world| -> Result<Arc<str>> {
         match args.zone? {
@@ -2472,7 +2464,13 @@ pub(crate) fn check_queue_rows(world: &World) -> Result<()> {
 }
 
 /// The plan of `queue_departures` through the event's row. A host error is what a contract raised.
-pub fn plan_departures<C: WorldCell, H: Host>(cell: &C, host: &mut H, inputs: &Inputs, row: &EventRow, args: DepartureArgs) -> std::result::Result<Departures, H::Error> {
+pub fn plan_departures<C: WorldCell, H: Host>(
+    cell: &C,
+    host: &mut H,
+    inputs: &Inputs,
+    row: &EventRow,
+    args: DepartureArgs,
+) -> std::result::Result<Departures, H::Error> {
     let (zone, count) = cell.with(|world| -> Result<(Arc<str>, i64)> {
         let zone = match args.zone? {
             Some(zone) if zone_known(world, &zone)? => zone,
@@ -2493,7 +2491,15 @@ pub fn plan_departures<C: WorldCell, H: Host>(cell: &C, host: &mut H, inputs: &I
     Ok(cell.with(|world| plan_departures_in(world, inputs, row, new_state, &zone, count, include_initial))??)
 }
 
-fn plan_departures_in(world: &World, inputs: &Inputs, row: &EventRow, new_state: Option<V>, zone: &str, count: i64, include_initial: bool) -> Result<Departures> {
+fn plan_departures_in(
+    world: &World,
+    inputs: &Inputs,
+    row: &EventRow,
+    new_state: Option<V>,
+    zone: &str,
+    count: i64,
+    include_initial: bool,
+) -> Result<Departures> {
     let held = value_of(world, DYNAMICS, &inputs.namespaces.dynamics)?;
     let (keyed, busy) = {
         let state = state_in(&new_state, &held)?;
@@ -2511,7 +2517,9 @@ fn plan_departures_in(world: &World, inputs: &Inputs, row: &EventRow, new_state:
         }
         keyed.sort_by(|first, second| (first.0, first.1.as_bytes()).cmp(&(second.0, second.1.as_bytes())));
         let busy = keyed.iter().take(count as usize).any(|(_, id)| {
-            rows.agents.get(id).is_none_or(|agent| !matches!(agent.activity, Activity::Idle | Activity::Resting | Activity::Sleeping) || agent.support_request_id.is_some())
+            rows.agents
+                .get(id)
+                .is_none_or(|agent| !matches!(agent.activity, Activity::Idle | Activity::Resting | Activity::Sleeping) || agent.support_request_id.is_some())
         });
         (keyed, busy)
     };
@@ -2562,7 +2570,8 @@ pub(crate) fn cancels_of(pending: &[Arc<EventRow>], taken: &mut HashSet<Arc<str>
         if taken.contains(&row.event_id) {
             continue;
         }
-        let from_agent = &*row.event_type == "information_rumor" && matches!(kit::payload(row, "origin_agent_id"), Some(V::Str(origin)) if &**origin == agent_id);
+        let from_agent =
+            &*row.event_type == "information_rumor" && matches!(kit::payload(row, "origin_agent_id"), Some(V::Str(origin)) if &**origin == agent_id);
         let claim = matches!(kit::payload(row, "message_id"), Some(V::Str(message)) if withdrawn.contains(message));
         if from_agent || claim {
             taken.insert(row.event_id.clone());
@@ -2610,10 +2619,7 @@ fn remove_social_relationships(world: &World, inputs: &Inputs, agent_id: &str) -
     for key in keys {
         let pair = pair_of(&key)?;
         let record = network.relationships.map.shift_remove(&*key).ok_or_else(|| Error::Key(key.to_string()))?;
-        archived.push(V::Map(doc([
-            ("pair", V::List(pair.iter().map(|part| v_str(part)).collect())),
-            ("record", relationship_value(&record)),
-        ])));
+        archived.push(V::Map(doc([("pair", V::List(pair.iter().map(|part| v_str(part)).collect())), ("record", relationship_value(&record))])));
     }
     Ok(archived)
 }
@@ -2818,7 +2824,8 @@ fn context_is_plain(value: &V) -> Result<ContextParts> {
     let V::Map(map) = value else {
         return refuse("a context is not a mapping");
     };
-    const GENERATED: [&str; 8] = ["household_id", "caregiver_ids", "care_for_ids", "requires_review", "review_reasons", "roles", "guardian_status", "source_ids"];
+    const GENERATED: [&str; 8] =
+        ["household_id", "caregiver_ids", "care_for_ids", "requires_review", "review_reasons", "roles", "guardian_status", "source_ids"];
     if map.keys().any(|key| !GENERATED.contains(&&**key) && &**key != "care_support_needs") {
         return refuse("a context has a field a generated one lacks");
     }
@@ -2837,7 +2844,10 @@ fn context_is_plain(value: &V) -> Result<ContextParts> {
     }
     match map.get("roles") {
         None => {}
-        Some(V::List(items)) if items.iter().all(|item| matches!(item, V::Str(role) if ["parent", "child", "caregiver", "dependent", "partner", "alone"].contains(&&**role))) => {}
+        Some(V::List(items))
+            if items
+                .iter()
+                .all(|item| matches!(item, V::Str(role) if ["parent", "child", "caregiver", "dependent", "partner", "alone"].contains(&&**role))) => {}
         _ => return refuse("the roles are something else"),
     }
     match map.get("guardian_status") {
@@ -2962,7 +2972,8 @@ pub fn validate_facts(facts: &Facts<'_>) -> Result<()> {
     let V::Map(document) = state else {
         return invalid(SCHEMA);
     };
-    const FIELDS: [&str; 8] = ["schema_version", "policy_version", "source_id", "initial_agent_ids", "profile_traits", "pending_arrivals", "arrivals", "departures"];
+    const FIELDS: [&str; 8] =
+        ["schema_version", "policy_version", "source_id", "initial_agent_ids", "profile_traits", "pending_arrivals", "arrivals", "departures"];
     let has_context = document.contains_key("profile_context");
     if document.len() != FIELDS.len() + usize::from(has_context) || FIELDS.iter().any(|key| !document.contains_key(*key)) {
         return invalid(SCHEMA);
@@ -3145,7 +3156,8 @@ fn check_pending_items(facts: &Facts<'_>, pending: &[V], contexts: &Doc) -> Resu
             } else if !is_scalar(route_value) {
                 return refuse("a route ID is not hashable");
             }
-            let (Some(route), Some(V::Int(started)), Some(V::Int(due))) = (found, fields.get("approach_started_minute"), fields.get("approach_due_minute")) else {
+            let (Some(route), Some(V::Int(started)), Some(V::Int(due))) = (found, fields.get("approach_started_minute"), fields.get("approach_due_minute"))
+            else {
                 return invalid(TIMING);
             };
             match fields.get("created_minute") {
@@ -3188,7 +3200,10 @@ fn check_pending_items(facts: &Facts<'_>, pending: &[V], contexts: &Doc) -> Resu
                 if &*event.event_type != "population_approach_complete" {
                     return invalid(MISSING);
                 }
-                if event.due_minute != *due || !matches!(kit::payload(&event, "agent_id"), Some(V::Str(id)) if id == agent_id) || kit::payload(&event, "route_id") != Some(route_value) {
+                if event.due_minute != *due
+                    || !matches!(kit::payload(&event, "agent_id"), Some(V::Str(id)) if id == agent_id)
+                    || kit::payload(&event, "route_id") != Some(route_value)
+                {
                     return invalid("pending arrival approach completion event disagrees");
                 }
             } else if finished.is_none() && completion_id.is_some() {
@@ -3297,11 +3312,24 @@ impl Read {
     pub fn read<C: WorldCell, H: Host>(cell: &C, host: &mut H, routes: bool, plan: bool) -> std::result::Result<Self, H::Error> {
         let holding = kit::holding(cell, host)?;
         let namespaces = Namespaces::of(&holding);
-        let schema = kit::kept_section_value(cell, host, &holding, SectionId::OverlaySchema, |configs| &configs.overlay_schema, crate::config::overlay::overlay_schema)?;
-        let policy =
-            kit::kept_section_value(cell, host, &holding, SectionId::AgentDynamicsPolicy, |configs| &configs.agent_dynamics_policy, crate::config::agent_dynamics::policy)?;
-        let awareness =
-            kit::kept_section_value(cell, host, &holding, SectionId::FacilityAwareness, |configs| &configs.facility_awareness, crate::config::agent_dynamics::awareness)?;
+        let schema =
+            kit::kept_section_value(cell, host, &holding, SectionId::OverlaySchema, |configs| &configs.overlay_schema, crate::config::overlay::overlay_schema)?;
+        let policy = kit::kept_section_value(
+            cell,
+            host,
+            &holding,
+            SectionId::AgentDynamicsPolicy,
+            |configs| &configs.agent_dynamics_policy,
+            crate::config::agent_dynamics::policy,
+        )?;
+        let awareness = kit::kept_section_value(
+            cell,
+            host,
+            &holding,
+            SectionId::FacilityAwareness,
+            |configs| &configs.facility_awareness,
+            crate::config::agent_dynamics::awareness,
+        )?;
         // The floor plan is read only where a rule can reach it: with movement or the overlay.
         let (geo, geo_error) = if !plan && matches!(namespaces.movement, Held::Absent) && matches!(namespaces.overlay, Held::Absent) {
             (None, None)
@@ -3578,7 +3606,13 @@ pub fn approach_completion<C: WorldCell, H: Host>(cell: &C, host: &mut H, row: &
 }
 
 /// `schedule_population_retry(world, event, id_prefix=, subject=)`.
-pub fn schedule_retry_through<C: WorldCell, H: Host>(cell: &C, host: &mut H, row: &EventRow, id_prefix: &str, subject: &str) -> std::result::Result<(), H::Error> {
+pub fn schedule_retry_through<C: WorldCell, H: Host>(
+    cell: &C,
+    host: &mut H,
+    row: &EventRow,
+    id_prefix: &str,
+    subject: &str,
+) -> std::result::Result<(), H::Error> {
     let program = kit::holding(cell, host)?.held(EFFECT_PROGRAM, OTHER_PROGRAM);
     flat(cell.with(|world| schedule_retry(world, &program, row, id_prefix, subject)))
 }

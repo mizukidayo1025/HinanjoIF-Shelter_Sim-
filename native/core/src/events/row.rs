@@ -68,18 +68,7 @@ impl EventRow {
             && sequence >= 0
             && all_finite(&payload)
             && all_finite(&provenance);
-        good.then_some(Self {
-            event_id,
-            kind,
-            due_minute,
-            priority,
-            sequence,
-            event_type,
-            payload,
-            source_id,
-            causation_id,
-            provenance,
-        })
+        good.then_some(Self { event_id, kind, due_minute, priority, sequence, event_type, payload, source_id, causation_id, provenance })
     }
 
     /// The canonical JSON of `event.to_dict()`.
@@ -171,11 +160,6 @@ impl EventRow {
             causation_id: optional(event.get("causation_id")?)?,
             provenance: V::from_json(event.get("provenance")?)?,
         };
-        Some((
-            row,
-            document.get("realized_minute")?.as_i64()?,
-            EventStatus::parse(document.get("status")?.as_str()?)?,
-            optional(document.get("detail")?)?,
-        ))
+        Some((row, document.get("realized_minute")?.as_i64()?, EventStatus::parse(document.get("status")?.as_str()?)?, optional(document.get("detail")?)?))
     }
 }

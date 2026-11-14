@@ -103,9 +103,7 @@ impl Txn {
             world.txn_open = true;
             Ok(snapshot)
         })??;
-        let followed = host
-            .canonicalized(kind, &snapshot)
-            .and_then(|()| host.validate_candidate(kind, Stage::Candidate));
+        let followed = host.canonicalized(kind, &snapshot).and_then(|()| host.validate_candidate(kind, Stage::Candidate));
         let txn = Txn { kind, snapshot };
         match followed {
             Ok(()) => Ok(txn),
@@ -211,11 +209,6 @@ pub fn rule<C: WorldCell, H: Host, T>(
 }
 
 /// `rule` of a body that keeps what it wrote unless it fails: an error rolls back and passes on.
-pub fn rule_kept<C: WorldCell, H: Host, T>(
-    cell: &C,
-    host: &mut H,
-    kind: TxnKind,
-    body: impl FnOnce(&C, &mut H) -> Result<T, H::Error>,
-) -> Result<T, H::Error> {
+pub fn rule_kept<C: WorldCell, H: Host, T>(cell: &C, host: &mut H, kind: TxnKind, body: impl FnOnce(&C, &mut H) -> Result<T, H::Error>) -> Result<T, H::Error> {
     rule(cell, host, kind, |cell, host| body(cell, host).map(TxnEnd::Commit))
 }

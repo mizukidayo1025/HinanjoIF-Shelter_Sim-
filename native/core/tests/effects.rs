@@ -9,6 +9,7 @@ use std::sync::Arc;
 
 use indexmap::IndexMap;
 use sheltersim_core::cell::Shard;
+use sheltersim_core::config::environment::ZoneEnvironmentSpec;
 use sheltersim_core::entities::{Activity, AgentRow, Entities, FacilityRow, Mobility, NeedRow, ProfileRow, Skills, StaffRow, ZoneRow};
 use sheltersim_core::error::Error;
 use sheltersim_core::events::log::EventLog;
@@ -19,7 +20,6 @@ use sheltersim_core::row::{IdMap, ValueRow};
 use sheltersim_core::rules::effects::{self as effects, EnvironmentIn, EnvironmentPlan, GuardIn, SpaceIn, SpacePlan, Structure, StructureIn};
 use sheltersim_core::rules::kit::Held;
 use sheltersim_core::rules::metrics::MetricSample;
-use sheltersim_core::config::environment::ZoneEnvironmentSpec;
 use sheltersim_core::state::effect_program::{EffectProgramRow, FacilityModifiers, Modifier, Program, NAME as PROGRAM};
 use sheltersim_core::value::V;
 use sheltersim_core::world::{Fit, Place, Snapshot, World, WorldCell, ID_COUNTERS, MODEL_CONFIGS};
@@ -274,12 +274,14 @@ fn a_guard_reads_the_rows_and_a_guard_it_cannot_read_is_the_contract_s() {
     let (program, ledger) = guard_in();
     let ins = GuardIn { program: &program, ledger: &ledger };
     let leaf = |field: &str, operator: &str, value: V| map(vec![("operator", s(operator)), ("field", s(field)), ("value", value)]);
-    let guarded = |guard: V| event("ev1", 10, "effect_program_apply", vec![("facility_id", s("toilet_1"))], marker("set_facility_availability", Some(guard), &[]));
+    let guarded =
+        |guard: V| event("ev1", 10, "effect_program_apply", vec![("facility_id", s("toilet_1"))], marker("set_facility_availability", Some(guard), &[]));
     let mut host = TestHost::default();
     // The minute, a facility's units (3) and the zone's people (2), compared by value.
     assert_eq!(effects::guard(&cell, &mut host, &ins, &guarded(leaf("simulation.minute", "eq", V::Float(10.0)))), Ok(true));
     assert_eq!(effects::guard(&cell, &mut host, &ins, &guarded(leaf("target.working_units", "gt", V::Int(3)))), Ok(false));
-    let both = map(vec![("operator", s("and")), ("operands", V::List(vec![leaf("zone.occupancy", "gte", V::Int(2)), leaf("staff.available", "eq", V::Bool(true))]))]);
+    let both =
+        map(vec![("operator", s("and")), ("operands", V::List(vec![leaf("zone.occupancy", "gte", V::Int(2)), leaf("staff.available", "eq", V::Bool(true))]))]);
     // `staff.available` reads the payload's `staff_id or target`: the facility is no staff member.
     assert_eq!(failed(effects::guard(&cell, &mut host, &ins, &guarded(both))), "guard staff.available has no known staff target");
     assert!(host.calls.is_empty());
@@ -290,7 +292,10 @@ fn a_guard_reads_the_rows_and_a_guard_it_cannot_read_is_the_contract_s() {
     // one the contract takes is a refusal.
     let odd = leaf("target.capacity", "eq", V::List(Vec::new()));
     let mut refusing = Failing { contract: Some(Error::Value("1 validation error for GuardExpression".to_owned())), ..Failing::default() };
-    assert_eq!(failed(effects::guard(&cell, &mut refusing, &ins, &guarded(odd.clone()))), "EffectProgram guard is invalid: 1 validation error for GuardExpression");
+    assert_eq!(
+        failed(effects::guard(&cell, &mut refusing, &ins, &guarded(odd.clone()))),
+        "EffectProgram guard is invalid: 1 validation error for GuardExpression"
+    );
     assert_eq!(refusing.host.calls, [Call::Contract(Contract::Guard, odd.clone())]);
     assert!(matches!(effects::guard(&cell, &mut host, &ins, &guarded(odd)), Err(Error::Unsupported(_))));
 }
@@ -334,9 +339,15 @@ fn a_facility_modifier_keeps_a_stack_and_the_lowest_units() {
         let Modifier { modifier_id, working_units, start_minute, sequence, .. } = &modifiers[0];
         assert_eq!((&**modifier_id, *working_units, *start_minute, *sequence), (MODIFIER, 2, 10, 41));
         // The same modifier again is suppressed; fewer units than the people in it fail.
-        assert_eq!(effects::plan_facility(world, &Held::Held, &Held::Absent, &start, false).err(), Some(Error::suppressed("facility availability modifier is already active")));
+        assert_eq!(
+            effects::plan_facility(world, &Held::Held, &Held::Absent, &start, false).err(),
+            Some(Error::suppressed("facility availability modifier is already active"))
+        );
         let below = event("ev1", 10, "effect_program_apply", payload(Some(0)), V::Null);
-        assert_eq!(failed(effects::plan_facility(world, &Held::Held, &Held::Absent, &below, false)), "facility availability modifier violates capacity or occupancy");
+        assert_eq!(
+            failed(effects::plan_facility(world, &Held::Held, &Held::Absent, &below, false)),
+            "facility availability modifier violates capacity or occupancy"
+        );
     })
     .unwrap();
     // The expiry restores the baseline and the stack goes with its last modifier.
@@ -346,7 +357,10 @@ fn a_facility_modifier_keeps_a_stack_and_the_lowest_units() {
     cell.with(|world| {
         assert_eq!(world.rows().unwrap().facilities.get("toilet_1").unwrap().working_units, 3);
         assert!(world.row::<EffectProgramRow>(PROGRAM).unwrap().active_facility_modifiers.is_empty());
-        assert_eq!(effects::plan_facility(world, &Held::Held, &Held::Absent, &expiry, true).err(), Some(Error::suppressed("facility availability modifier is not active")));
+        assert_eq!(
+            effects::plan_facility(world, &Held::Held, &Held::Absent, &expiry, true).err(),
+            Some(Error::suppressed("facility availability modifier is not active"))
+        );
     })
     .unwrap();
 }
@@ -394,7 +408,20 @@ fn an_environment_modifier_records_the_contract_s_dump_and_wraps_the_check_s_val
     let keys: Vec<&str> = fields.keys().map(|key| &**key).collect();
     assert_eq!(
         keys,
-        ["modifier_id", "program_id", "effect_id", "op", "zone_id", "parameters", "start_event_id", "end_event_id", "start_minute", "end_minute", "source_id", "assumption_ids"]
+        [
+            "modifier_id",
+            "program_id",
+            "effect_id",
+            "op",
+            "zone_id",
+            "parameters",
+            "start_event_id",
+            "end_event_id",
+            "start_minute",
+            "end_minute",
+            "source_id",
+            "assumption_ids"
+        ]
     );
     assert_eq!(fields["end_event_id"], s("ev-end"));
     assert_eq!(fields["assumption_ids"], V::List(vec![s("ASM-A"), s("ASM-B")]));
@@ -422,7 +449,13 @@ fn an_environment_expiry_pops_its_record() {
     let mut host = TestHost::default();
     let plan = effects::plan_environment(&cell, &mut host, &ins, &environment_start(), false).unwrap();
     effects::write_environment(&cell, &mut host, &plan).unwrap();
-    let mut expiry = event("ev-end", 60, "effect_program_environment_expire", vec![("program_id", s("p1")), ("effect_id", s("e1")), ("modifier_id", s(MODIFIER)), ("zone_id", s("z1"))], marker("set_ambient_noise", None, &["zone_environment_v1"]));
+    let mut expiry = event(
+        "ev-end",
+        60,
+        "effect_program_environment_expire",
+        vec![("program_id", s("p1")), ("effect_id", s("e1")), ("modifier_id", s(MODIFIER)), ("zone_id", s("z1"))],
+        marker("set_ambient_noise", None, &["zone_environment_v1"]),
+    );
     // Not the start's cause: the record does not match.
     assert_eq!(failed(effects::plan_environment(&cell, &mut host, &ins, &expiry, true)), "zone environment expiry does not match its start");
     expiry.causation_id = Some(text("ev1"));
@@ -482,9 +515,15 @@ fn structure_event(op: &str, extra: Vec<(&str, V)>) -> EventRow {
 
 #[test]
 fn a_structure_s_branch_is_told_by_its_fields() {
-    assert_eq!(effects::structure_of(&structure_event("staff_task_order", vec![("staff_id", s("s1")), ("parameters", map(Vec::new()))])), Ok(Structure::TaskOrder));
+    assert_eq!(
+        effects::structure_of(&structure_event("staff_task_order", vec![("staff_id", s("s1")), ("parameters", map(Vec::new()))])),
+        Ok(Structure::TaskOrder)
+    );
     assert_eq!(effects::structure_of(&structure_event("staff_handoff", vec![("staff_id", s("s1")), ("parameters", map(Vec::new()))])), Ok(Structure::Handoff));
-    assert_eq!(effects::structure_of(&structure_event("facility_repair", vec![("facility_id", s("toilet_1")), ("parameters", map(Vec::new()))])), Ok(Structure::Repair));
+    assert_eq!(
+        effects::structure_of(&structure_event("facility_repair", vec![("facility_id", s("toilet_1")), ("parameters", map(Vec::new()))])),
+        Ok(Structure::Repair)
+    );
     assert_eq!(effects::structure_of(&structure_event("set_staff_role", vec![("staff_id", s("s1")), ("skills", V::List(Vec::new()))])), Ok(Structure::Role));
     assert_eq!(effects::structure_of(&structure_event("add_staff", vec![("zone_id", s("z0")), ("count", V::Int(1))])), Ok(Structure::Add));
 }
@@ -540,7 +579,10 @@ fn added_staff_get_their_records_where_the_world_has_the_namespace() {
         let Some(V::Map(statuses)) = operational.get("staff_status") else { panic!("no statuses") };
         assert_eq!(statuses.len(), 2);
         let record = statuses.values().next().unwrap();
-        assert_eq!(record, &map(vec![("available", V::Bool(true)), ("unavailability_event_id", V::Null), ("until_minute", V::Null), ("restore_event_id", V::Null)]));
+        assert_eq!(
+            record,
+            &map(vec![("available", V::Bool(true)), ("unavailability_event_id", V::Null), ("until_minute", V::Null), ("restore_event_id", V::Null)])
+        );
     })
     .unwrap();
     // Past the bound of 100 staff.

@@ -23,10 +23,10 @@ use std::sync::Arc;
 use serde_json::{json, Value};
 use sheltersim_core::cell::Shard;
 use sheltersim_core::error::Error;
+use sheltersim_core::row::ValueRow;
 use sheltersim_core::rules::care_receipts::Made;
 use sheltersim_core::rules::effects::{self, Structure};
 use sheltersim_core::rules::tick::{self, Tick};
-use sheltersim_core::row::ValueRow;
 use sheltersim_core::state::staff_operations::{Phase, StaffOperationsRow, NAME as STAFF_OPERATIONS};
 use sheltersim_core::value::V;
 use sheltersim_core::world::{self, Fit, World, WorldCell, ID_COUNTERS};
@@ -281,7 +281,8 @@ fn an_addition_s_texts_are_python_s() {
         let event = case.pending("effect_program_structure", Some(op));
         let invalid = "structural primitive target or operation is invalid";
         let fields = "structural primitive payload fields do not match";
-        let exceed = if op == "add_staff" { "adding staff would exceed the 100-staff runtime bound" } else { "adding toilets would exceed the 200-facility bound" };
+        let exceed =
+            if op == "add_staff" { "adding staff would exceed the 100-staff runtime bound" } else { "adding toilets would exceed the 200-facility bound" };
         let room = bound - case.entry["world"][table].as_array().unwrap().len() as i64;
         let cases: Vec<(Value, &str)> = vec![
             (json!({"other": 1}), fields),
@@ -485,7 +486,9 @@ fn a_handoff_s_texts_are_python_s() {
     assert_eq!(texts::sha(&documents(&case, &made)), "e6d8acece25965b78b621a68c4fef6bdf2251f54134fbc54c7fb5debb0195487");
 
     let approved = "staff handoff does not reference an approved program";
-    for change in [json!({"program_id": "no-such-program"}), json!({"op": "staff_task_order_x"}), json!({"staff_id": 1}), json!({"modifier_id": "modifier-other"})] {
+    for change in
+        [json!({"program_id": "no-such-program"}), json!({"op": "staff_task_order_x"}), json!({"staff_id": 1}), json!({"modifier_id": "modifier-other"})]
+    {
         handing_off().says(Structure, &payload(&event, change), FAILED, approved);
     }
     handing_off().says(Structure, &changed(&event, json!({}), json!({"provenance": {}})), FAILED, approved);
@@ -499,7 +502,12 @@ fn a_handoff_s_texts_are_python_s() {
     }
     let mut changed_parameters = parameters.clone();
     changed_parameters["replacement_staff_id"] = json!(other);
-    handing_off().says(Structure, &payload(&event, json!({"parameters": changed_parameters})), FAILED, "staff handoff requires a qualified idle replacement already at active work");
+    handing_off().says(
+        Structure,
+        &payload(&event, json!({"parameters": changed_parameters})),
+        FAILED,
+        "staff handoff requires a qualified idle replacement already at active work",
+    );
 
     // The replacement called away, through the dispatcher, at this minute (the handoff kept back
     // five minutes): one tick of the core, as `TickEngine.step` runs it.

@@ -38,22 +38,10 @@ pub fn zone_members<'a>(zones: &[&'a str]) -> HashMap<&'a str, Vec<usize>> {
 }
 
 /// The adjacent zones of `zone` that have people, in sorted order.
-pub fn nearby_buckets<'a>(
-    zone: &str,
-    neighbors: &'a HashMap<String, Vec<String>>,
-    members: &'a HashMap<&str, Vec<usize>>,
-) -> Vec<&'a [usize]> {
-    let mut names: Vec<&str> = neighbors
-        .get(zone)
-        .map(|names| names.iter().map(String::as_str).collect())
-        .unwrap_or_default();
+pub fn nearby_buckets<'a>(zone: &str, neighbors: &'a HashMap<String, Vec<String>>, members: &'a HashMap<&str, Vec<usize>>) -> Vec<&'a [usize]> {
+    let mut names: Vec<&str> = neighbors.get(zone).map(|names| names.iter().map(String::as_str).collect()).unwrap_or_default();
     names.sort_unstable();
-    names
-        .into_iter()
-        .filter_map(|name| members.get(name))
-        .filter(|people| !people.is_empty())
-        .map(Vec::as_slice)
-        .collect()
+    names.into_iter().filter_map(|name| members.get(name)).filter(|people| !people.is_empty()).map(Vec::as_slice).collect()
 }
 
 /// `_select_contacts`: at most `maximum` partners of `me`, with the draws of
@@ -96,8 +84,7 @@ pub fn select_contacts(
                 break;
             };
             let mut local = offset as usize;
-            if bucket.includes_self && local >= bucket.members.partition_point(|&other| other < me)
-            {
+            if bucket.includes_self && local >= bucket.members.partition_point(|&other| other < me) {
                 local += 1;
             }
             let source = bucket.members[local];

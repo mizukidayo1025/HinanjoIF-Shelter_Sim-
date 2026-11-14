@@ -306,10 +306,7 @@ fn signatures_of(view: &View<'_>, configs: &Map) -> Result<Signatures> {
         sign("operator:facility_awareness", format!("{FACILITY_AWARENESS_POLICY}@1:{hash}"));
     }
     if let Some((distance, interval, pairs)) = proximity {
-        sign(
-            "operator:social_proximity",
-            format!("{PROXIMITY_POLICY}@1:state1:distance={}:interval={interval}:pairs={pairs}", python_float_repr(distance)),
-        );
+        sign("operator:social_proximity", format!("{PROXIMITY_POLICY}@1:state1:distance={}:interval={interval}:pairs={pairs}", python_float_repr(distance)));
     }
     // The overlay's schema was checked above: an int of 1..4, or no overlay.
     let overlay_schema = match configs.get("geometry_overlay") {

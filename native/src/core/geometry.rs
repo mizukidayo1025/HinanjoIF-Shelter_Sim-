@@ -17,8 +17,8 @@ use pyo3::prelude::*;
 use pyo3::sync::GILOnceCell;
 use pyo3::types::{PyBool, PyString, PyTuple};
 pub(crate) use sheltersim_core::config::ApproachRoute;
-use sheltersim_core::config::{Configs, Fault, FacilityGeometry, FacilityPlan, Section, SpatialConstraints};
-use sheltersim_core::geometry::{OverlayKey, Opening, Route, Wall, Zone};
+use sheltersim_core::config::{Configs, FacilityGeometry, FacilityPlan, Fault, Section, SpatialConstraints};
+use sheltersim_core::geometry::{Opening, OverlayKey, Route, Wall, Zone};
 
 pub(crate) use sheltersim_core::geometry::*;
 
@@ -57,10 +57,7 @@ fn id_of(model: &Bound<'_, PyAny>, name: &Bound<'_, PyString>) -> PyResult<Arc<s
 }
 
 fn flag_of(model: &Bound<'_, PyAny>, name: &Bound<'_, PyString>) -> PyResult<bool> {
-    attribute(model, name)?
-        .downcast_exact::<PyBool>()
-        .map(|flag| flag.is_true())
-        .map_err(|_| Unsupported::new_err("not a bool"))
+    attribute(model, name)?.downcast_exact::<PyBool>().map(|flag| flag.is_true()).map_err(|_| Unsupported::new_err("not a bool"))
 }
 
 fn id_list(model: &Bound<'_, PyAny>, name: &Bound<'_, PyString>) -> PyResult<Vec<Arc<str>>> {
@@ -85,12 +82,7 @@ fn service_point_of(model: &Bound<'_, PyAny>) -> PyResult<ServicePoint> {
 /// The Scenario's plan of a parsed `FacilityGeometry`.
 fn plan_of(model: &Bound<'_, PyAny>) -> PyResult<FacilityPlan> {
     let py = model.py();
-    let mut plan = FacilityPlan {
-        zones: IdMap::default(),
-        routes: IdMap::default(),
-        facility_points: IdMap::default(),
-        service_points: Vec::new(),
-    };
+    let mut plan = FacilityPlan { zones: IdMap::default(), routes: IdMap::default(), facility_points: IdMap::default(), service_points: Vec::new() };
     for zone in tuple_of(model, intern!(py, "zones"))?.iter() {
         let polygon = points_of(&zone, intern!(py, "polygon"))?;
         if polygon.is_empty() {
@@ -399,9 +391,7 @@ fn overlay_key(world: &Bound<'_, PyAny>, present: bool, stamp: Option<sheltersim
 /// Whether `model_state` holds the overlay, and the stamp of its slot where one follows it.
 fn overlay_held(world: &Bound<'_, PyAny>) -> PyResult<(bool, Option<sheltersim_core::stamp::Stamp>)> {
     let py = world.py();
-    let table = world
-        .getattr(intern!(py, "model_state"))
-        .map_err(|_| Unsupported::new_err("an input has no such attribute"))?;
+    let table = world.getattr(intern!(py, "model_state")).map_err(|_| Unsupported::new_err("an input has no such attribute"))?;
     let dict = as_readable_dict(&table).ok_or_else(|| Unsupported::new_err("model_state is not a plain dict"))?;
     let Some(held) = dict.get_item(OVERLAY_KEY)? else {
         return Ok((false, None));

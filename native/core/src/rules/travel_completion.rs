@@ -14,10 +14,12 @@
 use std::sync::Arc;
 
 use crate::config::movement::Movement;
+use crate::config::SectionId;
 use crate::entities::{Activity, RequestStatus};
 use crate::error::{Error, Result};
 use crate::events::EventRow;
 use crate::geometry::{Geo, Pt};
+use crate::host::Host;
 use crate::row::ValueRow;
 use crate::rules::kit::{self, Events, Held, Kept};
 use crate::rules::population_lifecycle::{self as lifecycle, KEY as LIFECYCLE};
@@ -27,8 +29,6 @@ use crate::state::movement::MovementRow;
 use crate::state::resource_service::RequestRecord;
 use crate::text::py_repr;
 use crate::value::V;
-use crate::config::SectionId;
-use crate::host::Host;
 use crate::world::{World, WorldCell};
 
 #[track_caller]
@@ -175,7 +175,11 @@ fn queue_walk_fits(world: &World, inputs: &Inputs<'_>, row: &EventRow, walk: &Wa
     };
     let queue_id = payload_text(row, "queue_id");
     let at = |queue: Option<&str>| -> Result<movement::Where<'_>> {
-        Ok(movement::Where { geo: inputs.geo()?, movement: inputs.movement.clone(), queues: if queue.is_some() { inputs.queues.clone() } else { Held::Absent } })
+        Ok(movement::Where {
+            geo: inputs.geo()?,
+            movement: inputs.movement.clone(),
+            queues: if queue.is_some() { inputs.queues.clone() } else { Held::Absent },
+        })
     };
     let at_service_point = |facility: &str, point: Option<&str>| -> Result<bool> {
         let geo = inputs.geo()?;
@@ -206,7 +210,8 @@ fn queue_walk_fits(world: &World, inputs: &Inputs<'_>, row: &EventRow, walk: &Wa
             let Some(queue) = &queue_id else {
                 return refuse("a queue walk's queue_id is not a str");
             };
-            movement::at_queue_slot(world, &at(Some(queue))?, agent_id, facility, Some(queue))? || movement::at_trip_destination(world, &inputs.movement, agent_id)?
+            movement::at_queue_slot(world, &at(Some(queue))?, agent_id, facility, Some(queue))?
+                || movement::at_trip_destination(world, &inputs.movement, agent_id)?
         } else {
             match &request {
                 Some(request) => at_service_point(facility, Some(&request.service_point_id))?,
@@ -216,7 +221,9 @@ fn queue_walk_fits(world: &World, inputs: &Inputs<'_>, row: &EventRow, walk: &Wa
         (Some(contains), here)
     } else {
         let here = match facility_id {
-            Some(facility) if position => movement::at_queue_slot(world, &at(None)?, agent_id, facility, None)? || movement::at_trip_destination(world, &inputs.movement, agent_id)?,
+            Some(facility) if position => {
+                movement::at_queue_slot(world, &at(None)?, agent_id, facility, None)? || movement::at_trip_destination(world, &inputs.movement, agent_id)?
+            }
             Some(facility) => at_service_point(facility, None)?,
             None => false,
         };
@@ -380,7 +387,12 @@ pub fn decide(world: &World, inputs: &Inputs<'_>, row: &EventRow) -> Result<Opti
     let checked = {
         let rows = world.rows()?;
         match rows.active_tasks.get(task_id) {
-            Some(task) if matches!(&*task.kind, "travel_to_toilet" | "travel_to_resource" | "travel_return" | "staff_support_travel" | "toilet_queue" | "resource_service_queue") => {
+            Some(task)
+                if matches!(
+                    &*task.kind,
+                    "travel_to_toilet" | "travel_to_resource" | "travel_return" | "staff_support_travel" | "toilet_queue" | "resource_service_queue"
+                ) =>
+            {
                 match rows.agents.get(agent_id) {
                     Some(agent) if task.agent_id.as_ref() == Some(agent_id) && agent.profile.id == *agent_id => 0,
                     _ => 2,
@@ -425,7 +437,8 @@ pub fn decide(world: &World, inputs: &Inputs<'_>, row: &EventRow) -> Result<Opti
     }
     let at_target = |wanted: &str| target.as_deref() == Some(wanted);
     let returning = &*task_kind == "travel_return" && at_target(destination);
-    let facility_of = |id: &str| -> Result<Option<(Arc<str>, Arc<str>)>> { Ok(world.rows()?.facilities.get(id).map(|found| (found.zone_id.clone(), found.kind.clone()))) };
+    let facility_of =
+        |id: &str| -> Result<Option<(Arc<str>, Arc<str>)>> { Ok(world.rows()?.facilities.get(id).map(|found| (found.zone_id.clone(), found.kind.clone()))) };
     let mut bed = None;
     match purpose {
         "toilet_request" => {
@@ -448,10 +461,14 @@ pub fn decide(world: &World, inputs: &Inputs<'_>, row: &EventRow) -> Result<Opti
             };
             // The origin a str and a zone, and the route a list from it to the destination.
             let route_fits = match &walk.origin {
-                Origin::Zone(origin) => zone_known(origin)? && matches!(&walk.route_ends, Some((Some(first), Some(last))) if first == origin && last == destination),
+                Origin::Zone(origin) => {
+                    zone_known(origin)? && matches!(&walk.route_ends, Some((Some(first), Some(last))) if first == origin && last == destination)
+                }
                 Origin::Nothing | Origin::NotStr => false,
             };
-            let fits = facility_of(facility)?.is_some_and(|(zone, kind)| zone == *destination && route_fits && is_resource_facility(&kind)) && &*task_kind == "travel_to_resource" && at_target(facility);
+            let fits = facility_of(facility)?.is_some_and(|(zone, kind)| zone == *destination && route_fits && is_resource_facility(&kind))
+                && &*task_kind == "travel_to_resource"
+                && at_target(facility);
             if !fits {
                 return failed("resource travel completion does not match its target facility");
             }
@@ -612,7 +629,15 @@ fn action_of(kind: Option<&str>) -> &'static str {
 /// `_reject_room_approach`: for a resource request with a resource service (`resource`), the
 /// request's outcome rejected ("room_route_blocked") from the origin zone when a str, else the
 /// person's zone, and counted; always counted as `facility_approach_rejected_count`.
-pub fn reject_room(world: &World, service: &Held, metric_state_held: bool, resource: bool, agent_id: &str, facility_id: &str, origin: Option<&Arc<str>>) -> Result<()> {
+pub fn reject_room(
+    world: &World,
+    service: &Held,
+    metric_state_held: bool,
+    resource: bool,
+    agent_id: &str,
+    facility_id: &str,
+    origin: Option<&Arc<str>>,
+) -> Result<()> {
     kit::check_metric_state(world, metric_state_held)?;
     if resource {
         let (kind, zone) = {
@@ -741,7 +766,8 @@ const QUEUES: &str = crate::state::facility_queues::NAME;
 /// else of the configs Python holds, which must be a plain dict (lanes P9-1c, P9-3a).
 pub fn has_geometry<C: WorldCell, H: Host>(cell: &C, host: &mut H) -> std::result::Result<bool, H::Error> {
     let holding = kit::holding(cell, host)?;
-    kit::read_configs(cell, host, &holding, |configs| configs.contains_key("facility_geometry"))?.ok_or_else(|| Error::unsupported(crate::host::TABLE_NOT_PLAIN).into())
+    kit::read_configs(cell, host, &holding, |configs| configs.contains_key("facility_geometry"))?
+        .ok_or_else(|| Error::unsupported(crate::host::TABLE_NOT_PLAIN).into())
 }
 
 /// A walk that reached a toilet or a resource, as `_after_arrival` takes it.
@@ -817,7 +843,8 @@ pub fn arrive<C: WorldCell, H: Host, M: Managers<H>>(
         let section = kit::kept_section_value(cell, host, &holding, SectionId::Movement, |configs| &configs.movement, Movement::parse)?;
         let moving = holding.held(movement::KEY, OTHER_MOVEMENT);
         let queues = holding.held(QUEUES, OTHER_QUEUES);
-        let (agent, facility, destination): (Arc<str>, Arc<str>, Arc<str>) = (Arc::from(arrival.agent_id), Arc::from(arrival.facility_id), Arc::from(arrival.destination));
+        let (agent, facility, destination): (Arc<str>, Arc<str>, Arc<str>) =
+            (Arc::from(arrival.agent_id), Arc::from(arrival.facility_id), Arc::from(arrival.destination));
         let walking = Walking { movement: &moving, geo: plan.as_ref().ok() };
         let approach = cell.with(|world| arrival_approach(world, walking, &section, &queues, true, 0, &agent, arrival.purpose, &facility, &destination))?;
         let approach = match (approach, plan) {

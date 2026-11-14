@@ -416,7 +416,8 @@ impl Restore {
         }
         let mut log = self.log;
         log.adopt_packed(self.log_packer, Blocks::of_sealed(self.log_blocks), self.log_starts)?;
-        let samples = MetricSamples::adopt(self.sample_packer, Blocks::of_sealed(self.sample_blocks), self.sample_starts, self.sample_digest, self.sample_balances);
+        let samples =
+            MetricSamples::adopt(self.sample_packer, Blocks::of_sealed(self.sample_blocks), self.sample_starts, self.sample_digest, self.sample_balances);
         Ok((self.point, log, samples))
     }
 }

@@ -34,9 +34,9 @@ use sheltersim_core::state::resource_service::{ServiceRow, Stall};
 use sheltersim_core::value::V;
 use sheltersim_core::world::{Fit, World, WorldCell, MODEL_CONFIGS};
 
+use support::answers::{world_bytes, Answers};
 use support::dumps::dumps;
 use support::load::{self, Loaded};
-use support::answers::{world_bytes, Answers};
 use support::TestHost;
 
 const FILE: &str = "queue_rules";
@@ -920,7 +920,10 @@ fn someone_who_is_moved_from_another_activity_is_queued_by_the_walk() {
 /// with digests `f972edadbc0c` (0.0499) and `3de0a726d52c` (0.0501) passed.
 #[test]
 fn a_follower_within_the_tolerance_stands_in_their_slot() {
-    for (away, walks, recorded) in [(0.0499, false, "587d63b5d5a8ae4f46fe9a47ad24711cf8a2797a36d79b78aac43d8879ba36f9"), (0.0501, true, "d45d6d58b94e64dc84a8ed962d0db64ce426d6ec6fe8e70a29b8d439e157072d")] {
+    for (away, walks, recorded) in [
+        (0.0499, false, "587d63b5d5a8ae4f46fe9a47ad24711cf8a2797a36d79b78aac43d8879ba36f9"),
+        (0.0501, true, "d45d6d58b94e64dc84a8ed962d0db64ce426d6ec6fe8e70a29b8d439e157072d"),
+    ] {
         let mut case = Case::new();
         let mut answers = Answers::default();
         let toilet = case.facility("toilet");
@@ -1071,9 +1074,6 @@ fn without_a_task_the_rule_raises_its_own_error() {
     case.with(|world| world.rows_mut().unwrap().active_tasks.remove_row(&format!("queue-task-{}", person[0])));
     let minute = case.minute();
     let before = case.bytes();
-    assert_eq!(
-        case.progress(&toilet, false, minute, POSITIONS),
-        Err(Error::Value("physical queue reservation has no matching active queue task".to_owned()))
-    );
+    assert_eq!(case.progress(&toilet, false, minute, POSITIONS), Err(Error::Value("physical queue reservation has no matching active queue task".to_owned())));
     assert!(case.bytes() == before);
 }

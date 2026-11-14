@@ -117,10 +117,19 @@ fn answers_as_python(file: &str) {
                 Ok(dump) => format!("dump {dump:?}"),
                 Err(error) => format!("{:?}", class(error)),
             };
-            differ.push(format!("case {index} ({name} {}):\n  expected {expected}\n  got      {got}", case.get("patch").or(case.get("input")).map_or(String::new(), |value| value.to_string().chars().take(160).collect())));
+            differ.push(format!(
+                "case {index} ({name} {}):\n  expected {expected}\n  got      {got}",
+                case.get("patch").or(case.get("input")).map_or(String::new(), |value| value.to_string().chars().take(160).collect())
+            ));
         }
     }
-    assert!(differ.is_empty(), "{} of {} cases of {file} differ:\n{}", differ.len(), cases.len(), differ.iter().take(15).cloned().collect::<Vec<_>>().join("\n"));
+    assert!(
+        differ.is_empty(),
+        "{} of {} cases of {file} differ:\n{}",
+        differ.len(),
+        cases.len(),
+        differ.iter().take(15).cloned().collect::<Vec<_>>().join("\n")
+    );
 }
 
 #[test]

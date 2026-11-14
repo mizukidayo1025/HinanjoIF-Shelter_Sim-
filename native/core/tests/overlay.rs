@@ -127,12 +127,7 @@ fn overlay_state() -> V {
 }
 
 fn spaces_state() -> V {
-    map(vec![
-        ("schema_version", V::Int(1)),
-        ("policy_version", s("typed-temporary-capacity-v1")),
-        ("spaces", empty()),
-        ("history", V::List(Vec::new())),
-    ])
+    map(vec![("schema_version", V::Int(1)), ("policy_version", s("typed-temporary-capacity-v1")), ("spaces", empty()), ("history", V::List(Vec::new()))])
 }
 
 /// A world of 600 minutes at minute 7: a1 idle in z0, a2 walking to f1 (in z0), the zones z0 (10
@@ -144,17 +139,21 @@ fn world_with(overlay: V) -> World {
     let mut entities = Entities::default();
     put(&mut entities.agents, "a1", agent("a1", "z0", Activity::Idle, None));
     put(&mut entities.agents, "a2", agent("a2", "z1", Activity::Moving, Some("f1")));
-    put(&mut entities.facilities, "f1", FacilityRow {
-        id: text("f1"),
-        kind: text("info_desk"),
-        zone_id: text("z0"),
-        capacity: 1,
-        working_units: 1,
-        active_agent_ids: Vec::new(),
-        queue_agent_ids: Vec::new(),
-        resource_active_agent_ids: Vec::new(),
-        resource_queue_agent_ids: Vec::new(),
-    });
+    put(
+        &mut entities.facilities,
+        "f1",
+        FacilityRow {
+            id: text("f1"),
+            kind: text("info_desk"),
+            zone_id: text("z0"),
+            capacity: 1,
+            working_units: 1,
+            active_agent_ids: Vec::new(),
+            queue_agent_ids: Vec::new(),
+            resource_active_agent_ids: Vec::new(),
+            resource_queue_agent_ids: Vec::new(),
+        },
+    );
     for (id, capacity) in [("z0", Some(10)), ("z1", None)] {
         put(&mut entities.zones, id, ZoneRow { id: text(id), name: text(id), capacity, display_x: None, display_y: None });
     }
@@ -366,7 +365,10 @@ fn a_route_closure_writes_the_overlay_and_the_edge_row() {
         ]);
         assert_eq!(get(&overlay, &["route_modifiers", "e1"]), &map(vec![("base_closed", V::Bool(false)), ("modifiers", map(vec![("m1", modifier)]))]));
         let V::List(history) = get(&overlay, &["history"]) else { panic!() };
-        assert_eq!((get(&history[0], &["status"]), get(&history[0], &["causation_id"]), get(&history[0], &["target_id"])), (&s("applied"), &s("ev-cause"), &s("e1")));
+        assert_eq!(
+            (get(&history[0], &["status"]), get(&history[0], &["causation_id"]), get(&history[0], &["target_id"])),
+            (&s("applied"), &s("ev-cause"), &s("e1"))
+        );
     })
     .unwrap();
     // The expiry pops the modifier, drops the route's record and opens the edge again, asking no

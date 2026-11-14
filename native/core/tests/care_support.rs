@@ -96,19 +96,17 @@ fn world() -> World {
 }
 
 fn shared() -> SharedOperationsRow {
-    SharedOperationsRow { schema_version: 1, policy_version: text(POLICY), support_requests: Heads::default(), history: Receipts::default(), history_truncated: false }
+    SharedOperationsRow {
+        schema_version: 1,
+        policy_version: text(POLICY),
+        support_requests: Heads::default(),
+        history: Receipts::default(),
+        history_truncated: false,
+    }
 }
 
 fn record(reassurance: f64, hygiene_need: f64) -> BodyRecord {
-    BodyRecord {
-        sleep_debt_minutes: 0.0,
-        uncertainty: 0.25,
-        reassurance,
-        discontent: 0.25,
-        positive_affect: 0.5,
-        negative_affect: 0.5,
-        hygiene_need,
-    }
+    BodyRecord { sleep_debt_minutes: 0.0, uncertainty: 0.25, reassurance, discontent: 0.25, positive_affect: 0.5, negative_affect: 0.5, hygiene_need }
 }
 
 fn body(config: V) -> BodyRow {
@@ -362,7 +360,15 @@ fn assigned_world(kind: &str) -> World {
         staff.busy_until = 7;
         rows.active_tasks.insert(
             text("t-1"),
-            TaskRow { id: text("t-1"), kind: text("staff_support"), agent_id: Some(text("a1")), resource_id: None, start_minute: 2, due_minute: 7, staff_id: Some(text("s1")) },
+            TaskRow {
+                id: text("t-1"),
+                kind: text("staff_support"),
+                agent_id: Some(text("a1")),
+                resource_id: None,
+                start_minute: 2,
+                due_minute: 7,
+                staff_id: Some(text("s1")),
+            },
         );
     }
     slot(&mut world, SHARED, Place::Namespace, Box::new(shared()));
@@ -472,10 +478,7 @@ fn the_built_in_care_formulas_are_the_catalog_s() {
 fn the_support_kind_is_the_first_need_not_yet_met() {
     let mut world = world();
     assert_eq!(&*support::support_kind_of(&world, "a1").unwrap(), "emotional_support");
-    let person = map(&[
-        ("care_support_needs", V::List(vec![V::Int(3), V::Str(text("language_access"))])),
-        ("medication_support", V::Bool(true)),
-    ]);
+    let person = map(&[("care_support_needs", V::List(vec![V::Int(3), V::Str(text("language_access"))])), ("medication_support", V::Bool(true))]);
     let context = map(&[("people", map(&[("a1", person)]))]);
     slot(&mut world, care_receipts::POPULATION_CONTEXT, Place::Namespace, Box::new(ValueRow(context)));
     assert_eq!(&*support::support_kind_of(&world, "a1").unwrap(), "language_access");

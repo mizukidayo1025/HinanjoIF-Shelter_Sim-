@@ -91,17 +91,21 @@ fn entities(urgencies: [f64; 3]) -> Entities {
         put(&mut entities.agents, &id, agent(&id, urgency, Activity::Queued));
         put(&mut entities.active_tasks, &format!("t{}", index + 1), task(&format!("t{}", index + 1), &id, index as i64));
     }
-    put(&mut entities.facilities, TOILET, FacilityRow {
-        id: text(TOILET),
-        kind: text("toilet"),
-        zone_id: text("z0"),
-        capacity: 1,
-        working_units: 1,
-        active_agent_ids: Vec::new(),
-        queue_agent_ids: vec![text("a1"), text("a2"), text("a3")],
-        resource_active_agent_ids: Vec::new(),
-        resource_queue_agent_ids: Vec::new(),
-    });
+    put(
+        &mut entities.facilities,
+        TOILET,
+        FacilityRow {
+            id: text(TOILET),
+            kind: text("toilet"),
+            zone_id: text("z0"),
+            capacity: 1,
+            working_units: 1,
+            active_agent_ids: Vec::new(),
+            queue_agent_ids: vec![text("a1"), text("a2"), text("a3")],
+            resource_active_agent_ids: Vec::new(),
+            resource_queue_agent_ids: Vec::new(),
+        },
+    );
     entities
 }
 
@@ -155,15 +159,19 @@ fn world(urgencies: [f64; 3], minute: i64) -> World {
     for id in ["a1", "a2", "a3"] {
         positions.insert(text(id), position(10.0, 10.0));
     }
-    fill(MOVEMENT, Place::Namespace, Box::new(MovementRow {
-        schema_version: 2,
-        policy_version: text(walking::POLICY_VERSION),
-        positions,
-        staff_positions: IdMap::default(),
-        journeys: IdMap::default(),
-        edge_usage_minutes: IdMap::default(),
-        last_updated_minute: minute,
-    }));
+    fill(
+        MOVEMENT,
+        Place::Namespace,
+        Box::new(MovementRow {
+            schema_version: 2,
+            policy_version: text(walking::POLICY_VERSION),
+            positions,
+            staff_positions: IdMap::default(),
+            journeys: IdMap::default(),
+            edge_usage_minutes: IdMap::default(),
+            last_updated_minute: minute,
+        }),
+    );
     fill(fifo::STATE_KEY, Place::Namespace, Box::new(fifo::create_state(&geo()).unwrap()));
     world.hold_queue(Arc::new(Queue::new()));
     world.hold_log(Arc::new(EventLog::new()));
@@ -297,9 +305,24 @@ fn a_transition_payload_is_the_receipt_s_and_what_its_contract_refuses_is_refuse
     assert_eq!(
         keys,
         [
-            "schema_version", "record_type", "event_type", "event_id", "request_id", "queue_id", "service_point_id", "facility_id",
-            "agent_id", "service_kind", "transition", "minute", "requested_minute", "task_id", "queue_position",
-            "service_capacity_concurrent", "wait_minutes", "causation_id",
+            "schema_version",
+            "record_type",
+            "event_type",
+            "event_id",
+            "request_id",
+            "queue_id",
+            "service_point_id",
+            "facility_id",
+            "agent_id",
+            "service_kind",
+            "transition",
+            "minute",
+            "requested_minute",
+            "task_id",
+            "queue_position",
+            "service_capacity_concurrent",
+            "wait_minutes",
+            "causation_id",
         ]
     );
     assert_eq!(payload["event_id"], V::Str(text("facility-queue-transition-12")));
@@ -364,15 +387,7 @@ fn need_weighted() -> QueuePolicy {
 }
 
 fn prepare(policy: QueuePolicy, minute: i64, movement: Held) -> Prepare<'static> {
-    Prepare {
-        resource: false,
-        minute,
-        policy,
-        movement,
-        queues: Held::Absent,
-        service: Held::Absent,
-        kind_repr: None,
-    }
+    Prepare { resource: false, minute, policy, movement, queues: Held::Absent, service: Held::Absent, kind_repr: None }
 }
 
 fn queue_of(world: &World) -> Vec<Arc<str>> {
@@ -481,13 +496,8 @@ fn walk<'a>(geo: &'a Geo, model: &'a sheltersim_core::config::read::Read<Movemen
     Walk { geo, model, movement: Held::Held, queues, metric_state_held: true }
 }
 
-static MODEL: sheltersim_core::config::read::Read<MovementModel> = Ok(MovementModel {
-    independent: 72.0,
-    assisted: 36.0,
-    wheelchair: 48.0,
-    density_slowdown: 0.12,
-    maximum_slowdown: 2.5,
-});
+static MODEL: sheltersim_core::config::read::Read<MovementModel> =
+    Ok(MovementModel { independent: 72.0, assisted: 36.0, wheelchair: 48.0, density_slowdown: 0.12, maximum_slowdown: 2.5 });
 
 #[test]
 fn the_head_walks_to_the_service_point_with_its_event_and_journey() {
@@ -561,7 +571,10 @@ fn without_a_queue_task_the_rule_raises_its_own_error() {
     let raised = queues::head_to_service(&world, &walk(&geo, &MODEL, Held::Absent), TOILET, false, 5, None);
     assert_eq!(
         raised.err().map(|error| format!("{error:?}")),
-        Some(format!("{:?}", sheltersim_core::events::writer::WriteError::Error(Error::Value("physical queue reservation has no matching active queue task".into()))))
+        Some(format!(
+            "{:?}",
+            sheltersim_core::events::writer::WriteError::Error(Error::Value("physical queue reservation has no matching active queue task".into()))
+        ))
     );
     assert_eq!(counter(&world), 10);
 }

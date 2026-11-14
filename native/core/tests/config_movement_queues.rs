@@ -84,10 +84,7 @@ fn the_movement_model_and_its_refusals_in_the_order_of_its_keys() {
     assert_eq!(refused(speeds(json!({"independent": true, "assisted": 1, "wheelchair": 1}))), "a value is not a float");
     assert_eq!(refused(speeds(json!({"independent": "1", "assisted": 1, "wheelchair": 1}))), "a value is not a float");
     assert_eq!(refused(speeds(json!({"independent": EXACT_INT, "assisted": 1, "wheelchair": 1}))), "a coefficient is too large for a float");
-    assert_eq!(
-        refused(speeds(json!({"independent": 18446744073709551615u64, "assisted": 1, "wheelchair": 1}))),
-        "an int is too large"
-    );
+    assert_eq!(refused(speeds(json!({"independent": 18446744073709551615u64, "assisted": 1, "wheelchair": 1}))), "an int is too large");
     assert_eq!(refused(model(json!({"density_slowdown_per_person_m2": -0.1}))), "a slowdown is not a plain value");
     assert_eq!(refused(model(json!({"maximum_density_slowdown": 0.5}))), "a slowdown is not a plain value");
     assert_eq!(refused(model(json!({"other": 1}))), "the movement config has other fields");
@@ -144,13 +141,9 @@ fn the_route_capacities_up_to_the_edges() {
     assert_eq!(refused(routing.capacities[1].1.clone()), "a value is not an int");
     assert_eq!(refused(routing.capacities[2].1.clone()), "a value is not an int");
     assert_eq!(refused(parse(config(json!({"max_agents_in_transit_by_edge": null})))), "the route config lacks its capacities");
-    for extra in [
-        json!({"schema_version": true}),
-        json!({"schema_version": 1.0}),
-        json!({"source_type": "survey"}),
-        json!({"source_id": 5}),
-        json!({"other": 1}),
-    ] {
+    for extra in
+        [json!({"schema_version": true}), json!({"schema_version": 1.0}), json!({"source_type": "survey"}), json!({"source_id": 5}), json!({"other": 1})]
+    {
         assert_eq!(refused(parse(config(extra))), "the route config is the Python rule's");
     }
     assert_eq!(refused(parse(config(json!({"max_agents_in_transit_by_edge": [1]})))), "a value is not a plain dict");
@@ -166,10 +159,7 @@ fn the_queue_policies_and_the_errors_of_their_constructors() {
     let none = queues(json!({}));
     assert!(!none.has_geometry);
     assert_eq!(none.strict, Ok(QueuePolicy::Strict));
-    assert_eq!(
-        none.need_weighted,
-        Ok(QueuePolicy::NeedWeighted { limits: [120, 240, 360], threshold: 0.8, retry: RETRY_DELAY })
-    );
+    assert_eq!(none.need_weighted, Ok(QueuePolicy::NeedWeighted { limits: [120, 240, 360], threshold: 0.8, retry: RETRY_DELAY }));
     assert!(queues(json!({"facility_geometry": {}})).has_geometry);
     let given = queues(json!({"facility_queues": {
         "schema_version": 1,
@@ -204,17 +194,17 @@ fn the_queue_policies_and_the_errors_of_their_constructors() {
     assert_eq!(value_error(weighted(json!({"abandon_after_minutes_by_service": {"meal": 0}}))), limits);
     assert_eq!(value_error(weighted(json!({"abandon_after_minutes_by_service": {"meal": true}}))), limits);
     assert_eq!(value_error(weighted(json!({"abandon_after_minutes_by_service": {"meal": 5.0}}))), limits);
-    assert_eq!(
-        refused(weighted(json!({"abandon_after_minutes_by_service": {"meal": 18446744073709551615u64}}))),
-        "an int is too large"
-    );
+    assert_eq!(refused(weighted(json!({"abandon_after_minutes_by_service": {"meal": 18446744073709551615u64}}))), "an int is too large");
     let retry = "queue retry delay must be between 1 and 1440 minutes";
     assert_eq!(value_error(weighted(json!({"retry_delay_minutes": 1441}))), retry);
     let threshold = "queue persistence threshold must be normalized to 0..1";
     assert_eq!(value_error(weighted(json!({"persistence_urgency_threshold": 1.5}))), threshold);
     assert_eq!(value_error(weighted(json!({"persistence_urgency_threshold": false}))), threshold);
     assert_eq!(refused(weighted(json!({"persistence_urgency_threshold": 9007199254740993u64}))), "a number does not fit a float");
-    assert_eq!(weighted(json!({"persistence_urgency_threshold": 0})).unwrap(), QueuePolicy::NeedWeighted { limits: [120, 240, 360], threshold: 0.0, retry: 15 });
+    assert_eq!(
+        weighted(json!({"persistence_urgency_threshold": 0})).unwrap(),
+        QueuePolicy::NeedWeighted { limits: [120, 240, 360], threshold: 0.0, retry: 15 }
+    );
     // The strict policy reads no field of a dict.
     assert_eq!(queues(json!({"facility_queues": {"other": 1}})).strict, Ok(QueuePolicy::Strict));
 }
@@ -247,7 +237,8 @@ fn the_overlay_schema_the_service_and_the_needs() {
         "a3": {"accessibility_needs": "wheelchair"},
         "a4": {"accessibility_needs": [1]},
         "a5": [],
-    }}}))).unwrap();
+    }}})))
+    .unwrap();
     let names = |read: Read<&[Arc<str>]>| read.map(|needs| needs.iter().map(|need| need.to_string()).collect::<Vec<_>>());
     assert_eq!(names(needs.of("a1")), Ok(vec!["wheelchair".to_owned(), "quiet".to_owned()]));
     assert_eq!(names(needs.of("a2")), Ok(vec![]));

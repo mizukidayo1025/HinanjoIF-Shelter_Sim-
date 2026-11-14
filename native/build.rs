@@ -20,10 +20,8 @@ fn modules(directory: &Path) -> Vec<(String, PathBuf)> {
         .map(|path| {
             let stem = path.file_stem().and_then(|stem| stem.to_str());
             let name = stem.expect("a module file name is UTF-8").to_owned();
-            let valid = name.starts_with(|first: char| first.is_ascii_lowercase())
-                && name
-                    .chars()
-                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_');
+            let valid =
+                name.starts_with(|first: char| first.is_ascii_lowercase()) && name.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_');
             assert!(valid, "{} is not a snake_case module name", path.display());
             (name, path)
         })
@@ -42,11 +40,7 @@ fn main() {
         println!("cargo:rerun-if-changed=src/{group}");
         let found = modules(&directory);
         writeln!(declarations, "pub(crate) mod {group} {{").unwrap();
-        writeln!(
-            registrations,
-            "    let group = pyo3::types::PyModule::new(m.py(), {group:?})?;"
-        )
-        .unwrap();
+        writeln!(registrations, "    let group = pyo3::types::PyModule::new(m.py(), {group:?})?;").unwrap();
         for (name, path) in &found {
             // {:?} writes a Rust string literal, with the backslashes of a Windows path escaped.
             let path = path.to_str().expect("the source path is UTF-8");

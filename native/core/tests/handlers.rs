@@ -8,6 +8,7 @@ use std::sync::Arc;
 
 use indexmap::IndexMap;
 use serde_json::Value;
+use sheltersim_core::cell::Shard;
 use sheltersim_core::entities::{Entities, FacilityRow, ZoneRow};
 use sheltersim_core::error::Error;
 use sheltersim_core::events::log::EventLog;
@@ -21,7 +22,6 @@ use sheltersim_core::rules::common_operations::Logged;
 use sheltersim_core::rules::handlers::{self as handlers, FacilityIn, Infra, InfraIn, PopulationOp};
 use sheltersim_core::rules::kit::Held;
 use sheltersim_core::rules::metrics::MetricSample;
-use sheltersim_core::cell::Shard;
 use sheltersim_core::value::V;
 use sheltersim_core::world::{Fit, Place, Snapshot, World, WorldCell, ID_COUNTERS, MODEL_CONFIGS};
 use support::{Call, TestHost};
@@ -90,7 +90,8 @@ fn world(namespaces: Vec<(&str, V)>) -> World {
 }
 
 fn event(event_id: &str, sequence: i64, due: i64, event_type: &str, payload: Vec<(&str, V)>) -> EventRow {
-    EventRow::new(text(event_id), EventKind::Exogenous, due, 0, sequence, text(event_type), entries(payload), Some(text("scenario")), None, IndexMap::new()).unwrap()
+    EventRow::new(text(event_id), EventKind::Exogenous, due, 0, sequence, text(event_type), entries(payload), Some(text("scenario")), None, IndexMap::new())
+        .unwrap()
 }
 
 fn failed<T>(result: Result<T, Error>) -> String {
@@ -226,7 +227,13 @@ fn operational() -> V {
             "water_outages",
             map(vec![(
                 "o1",
-                map(vec![("outage_event_id", s("water-down")), ("restore_event_id", s("water-up")), ("target_kind", s("zone")), ("target_id", s("z1")), ("active", V::Bool(false))]),
+                map(vec![
+                    ("outage_event_id", s("water-down")),
+                    ("restore_event_id", s("water-up")),
+                    ("target_kind", s("zone")),
+                    ("target_id", s("z1")),
+                    ("active", V::Bool(false)),
+                ]),
             )]),
         ),
         (
@@ -255,10 +262,19 @@ fn a_water_outage_is_checked_in_the_rule_s_order_and_marks_its_record() {
     handlers::water_outage(&world, &held, &down).unwrap();
     let record = state(&world, handlers::OPERATIONAL);
     let V::Map(outages) = &record else { panic!() };
-    assert_eq!(outages["water_outages"], map(vec![(
-        "o1",
-        map(vec![("outage_event_id", s("water-down")), ("restore_event_id", s("water-up")), ("target_kind", s("zone")), ("target_id", s("z1")), ("active", V::Bool(true))]),
-    )]));
+    assert_eq!(
+        outages["water_outages"],
+        map(vec![(
+            "o1",
+            map(vec![
+                ("outage_event_id", s("water-down")),
+                ("restore_event_id", s("water-up")),
+                ("target_kind", s("zone")),
+                ("target_id", s("z1")),
+                ("active", V::Bool(true))
+            ]),
+        )])
+    );
     assert_eq!(failed(handlers::water_outage(&world, &held, &down)), "water outage is already active");
     let up = event("water-up", 2, 10, "water_restoration", vec![("outage_id", s("o1"))]);
     handlers::water_restoration(&world, &held, &up).unwrap();
@@ -286,14 +302,44 @@ fn a_staff_restoration_reads_its_token() {
 #[test]
 fn a_delivery_delay_moves_the_pending_delivery_and_keeps_its_identity() {
     let world = world(vec![(handlers::OPERATIONAL, operational())]);
-    let delivery = event("delivery-1", 7, 30, "resource_delivery", vec![("warehouse_id", s("w")), ("resource_id", s("water_ml")), ("quantity", V::Int(5)), ("shipment_id", s("sh1"))]);
+    let delivery = event(
+        "delivery-1",
+        7,
+        30,
+        "resource_delivery",
+        vec![("warehouse_id", s("w")), ("resource_id", s("water_ml")), ("quantity", V::Int(5)), ("shipment_id", s("sh1"))],
+    );
     assert_eq!(world.queue_mut().unwrap().schedule_row(delivery), 0);
     let mut marker = entries(vec![("program_id", s("p")), ("guard", s("g")), ("phase", s("start"))]);
     marker.insert(text("effect_id"), s("e"));
     let mut provenance = IndexMap::new();
     provenance.insert(text("effect_program_v1"), V::Map(marker));
-    let delay = EventRow::new(text("delay-1"), EventKind::Exogenous, 10, 0, 8, text("delivery_delayed"), entries(vec![("shipment_id", s("sh1")), ("to_minute", V::Int(60))]), Some(text("scenario")), None, provenance).unwrap();
-    let early = EventRow::new(text("delay-1"), EventKind::Exogenous, 10, 0, 8, text("delivery_delayed"), entries(vec![("shipment_id", s("sh1")), ("to_minute", V::Int(20))]), Some(text("scenario")), None, IndexMap::new()).unwrap();
+    let delay = EventRow::new(
+        text("delay-1"),
+        EventKind::Exogenous,
+        10,
+        0,
+        8,
+        text("delivery_delayed"),
+        entries(vec![("shipment_id", s("sh1")), ("to_minute", V::Int(60))]),
+        Some(text("scenario")),
+        None,
+        provenance,
+    )
+    .unwrap();
+    let early = EventRow::new(
+        text("delay-1"),
+        EventKind::Exogenous,
+        10,
+        0,
+        8,
+        text("delivery_delayed"),
+        entries(vec![("shipment_id", s("sh1")), ("to_minute", V::Int(20))]),
+        Some(text("scenario")),
+        None,
+        IndexMap::new(),
+    )
+    .unwrap();
     let mut taken = Vec::new();
     assert_eq!(failed(handlers::delivery_delay(&world, &Held::Held, &early, &mut taken)), "shipment delay must move a not-yet-due delivery forward");
     handlers::delivery_delay(&world, &Held::Held, &delay, &mut taken).unwrap();
@@ -314,7 +360,19 @@ fn a_delivery_delay_moves_the_pending_delivery_and_keeps_its_identity() {
     let V::Map(state) = state(&world, handlers::OPERATIONAL) else { panic!() };
     assert_eq!(state["shipments"], map(vec![("sh1", map(vec![("event_id", s("delivery-1")), ("resource_id", s("water_ml")), ("due_minute", V::Int(60))]))]));
     // Its delivery is due later now: a second delay must be later still.
-    let again = EventRow::new(text("delay-2"), EventKind::Exogenous, 10, 0, 9, text("delivery_delayed"), entries(vec![("shipment_id", s("sh1")), ("to_minute", V::Int(50))]), Some(text("scenario")), None, IndexMap::new()).unwrap();
+    let again = EventRow::new(
+        text("delay-2"),
+        EventKind::Exogenous,
+        10,
+        0,
+        9,
+        text("delivery_delayed"),
+        entries(vec![("shipment_id", s("sh1")), ("to_minute", V::Int(50))]),
+        Some(text("scenario")),
+        None,
+        IndexMap::new(),
+    )
+    .unwrap();
     assert_eq!(failed(handlers::delivery_delay(&world, &Held::Held, &again, &mut taken)), "shipment delay must move a not-yet-due delivery forward");
 }
 
@@ -329,7 +387,9 @@ fn a_facility_outage_takes_units_and_its_base_units() {
     let missing = event("out", 1, 10, "facility_outage", vec![("facility_id", s("nope")), ("units_out", V::Int(1))]);
     assert_eq!(failed(handlers::facility_units(&world, &inputs, &missing, false)), "facility 'nope' does not exist");
     let zero = event("out", 1, 10, "facility_outage", vec![("facility_id", s("toilet_1")), ("units_out", V::Int(0))]);
-    assert!(matches!(handlers::facility_units(&world, &inputs, &zero, false), Err(Error::Outcome(sheltersim_core::error::Outcome::Suppressed, ref text)) if text == "zero-unit facility outage has no effect"));
+    assert!(
+        matches!(handlers::facility_units(&world, &inputs, &zero, false), Err(Error::Outcome(sheltersim_core::error::Outcome::Suppressed, ref text)) if text == "zero-unit facility outage has no effect")
+    );
     let negative = event("out", 1, 10, "facility_outage", vec![("facility_id", s("toilet_1")), ("units_out", V::Big("-99999999999999999999".into()))]);
     assert_eq!(failed(handlers::facility_units(&world, &inputs, &negative, false)), "facility outage units_out cannot be negative");
     let too_many = event("out", 1, 10, "facility_outage", vec![("facility_id", s("toilet_1")), ("units_out", V::Int(3))]);
@@ -366,7 +426,10 @@ fn settling_with_records_takes_the_event_out_and_logs_it_and_its_records() {
             assert!(!world.queue().unwrap().has_event("cause"));
             let logged = records(world);
             assert_eq!(logged.len(), 2);
-            assert_eq!((logged[0]["event"]["event_id"].as_str(), logged[0]["status"].as_str(), &logged[0]["detail"]), (Some("cause"), Some("applied"), &Value::Null));
+            assert_eq!(
+                (logged[0]["event"]["event_id"].as_str(), logged[0]["status"].as_str(), &logged[0]["detail"]),
+                (Some("cause"), Some("applied"), &Value::Null)
+            );
             assert_eq!((logged[1]["event"]["event_id"].as_str(), logged[1]["detail"].as_str()), (Some("follow-41"), Some("receipt recorded")));
         })
         .unwrap();
@@ -378,10 +441,7 @@ fn infrastructure_state() -> V {
     map(vec![
         ("outages", V::Map(IndexMap::new())),
         ("base_working_units", map(vec![("water_1", V::Int(1)), ("toilet_1", V::Int(2))])),
-        (
-            "environmental_stressors",
-            map(vec![("heat", map(vec![("start_event_id", s("heat-on")), ("zone_id", s("z1")), ("active", V::Bool(false))]))]),
-        ),
+        ("environmental_stressors", map(vec![("heat", map(vec![("start_event_id", s("heat-on")), ("zone_id", s("z1")), ("active", V::Bool(false))]))])),
         ("route_interruptions", V::Map(IndexMap::new())),
     ])
 }
@@ -409,10 +469,19 @@ fn a_stressor_reads_the_spec_through_the_host_and_schedules_its_end() {
             assert_eq!(end.payload, map(vec![("stressor_id", s("heat")), ("zone_id", s("z1"))]));
             drop(queue);
             let V::Map(state) = state(world, handlers::INFRASTRUCTURE) else { panic!() };
-            assert_eq!(state["environmental_stressors"], map(vec![(
-                "heat",
-                map(vec![("start_event_id", s("heat-on")), ("zone_id", s("z1")), ("active", V::Bool(true)), ("end_event_id", s("environmental-stressor-end-40")), ("until_minute", V::Int(30))]),
-            )]));
+            assert_eq!(
+                state["environmental_stressors"],
+                map(vec![(
+                    "heat",
+                    map(vec![
+                        ("start_event_id", s("heat-on")),
+                        ("zone_id", s("z1")),
+                        ("active", V::Bool(true)),
+                        ("end_event_id", s("environmental-stressor-end-40")),
+                        ("until_minute", V::Int(30))
+                    ]),
+                )])
+            );
             assert_eq!(world.id_counter("event").unwrap(), Some(41));
         })
         .unwrap();
@@ -429,7 +498,15 @@ fn an_outage_sets_the_dependent_facilities_to_zero() {
     let V::Map(fields) = &mut initial else { unreachable!() };
     fields.insert(
         text("outages"),
-        map(vec![("p1", map(vec![("start_event_id", s("power-down")), ("event_type", s("power_outage")), ("affected_facility_ids", V::List(vec![s("water_1")])), ("active", V::Bool(false))]))]),
+        map(vec![(
+            "p1",
+            map(vec![
+                ("start_event_id", s("power-down")),
+                ("event_type", s("power_outage")),
+                ("affected_facility_ids", V::List(vec![s("water_1")])),
+                ("active", V::Bool(false)),
+            ]),
+        )]),
     );
     let world = Shard::new(world(vec![(handlers::INFRASTRUCTURE, initial)]));
     let (held, absent) = (Held::Held, Held::Absent);
@@ -447,7 +524,10 @@ fn an_outage_sets_the_dependent_facilities_to_zero() {
             let V::Map(state) = state(world, handlers::INFRASTRUCTURE) else { panic!() };
             let V::Map(outages) = &state["outages"] else { panic!() };
             let V::Map(record) = &outages["p1"] else { panic!() };
-            assert_eq!((&record["active"], &record["until_minute"], &record["units_out"], &record["restore_event_id"]), (&V::Bool(true), &V::Int(100), &V::Null, &V::Null));
+            assert_eq!(
+                (&record["active"], &record["until_minute"], &record["units_out"], &record["restore_event_id"]),
+                (&V::Bool(true), &V::Int(100), &V::Null, &V::Null)
+            );
             // Without the shared contract there is no receipt.
             assert!(handlers::infrastructure_receipts(world, true, &previous, &down).unwrap().is_empty());
         })
@@ -459,11 +539,27 @@ fn an_outage_sets_the_dependent_facilities_to_zero() {
 #[test]
 fn a_population_primitive_must_be_in_its_program() {
     let world = world(Vec::new());
-    let add = event("pop-1", 1, 10, "population_add", vec![("program_id", s("p")), ("effect_id", s("e")), ("op", s("add_evacuees")), ("zone_id", s("z0")), ("count", V::Int(2)), ("household_size", V::Int(1)), ("mobility", s("independent")), ("language", s("ja"))]);
+    let add = event(
+        "pop-1",
+        1,
+        10,
+        "population_add",
+        vec![
+            ("program_id", s("p")),
+            ("effect_id", s("e")),
+            ("op", s("add_evacuees")),
+            ("zone_id", s("z0")),
+            ("count", V::Int(2)),
+            ("household_size", V::Int(1)),
+            ("mobility", s("independent")),
+            ("language", s("ja")),
+        ],
+    );
     assert_eq!(failed(handlers::population_checks(&world, &Held::Absent, &add)), "population primitive is not in the approved program");
     let odd = event("pop-1", 1, 10, "population_add", vec![("op", s("teleport"))]);
     assert_eq!(failed(handlers::population_checks(&world, &Held::Absent, &odd)), "population primitive operation is invalid");
-    let short = event("pop-1", 1, 10, "population_add", vec![("program_id", s("p")), ("effect_id", s("e")), ("op", s("depart_evacuees")), ("zone_id", s("z0"))]);
+    let short =
+        event("pop-1", 1, 10, "population_add", vec![("program_id", s("p")), ("effect_id", s("e")), ("op", s("depart_evacuees")), ("zone_id", s("z0"))]);
     assert_eq!(failed(handlers::population_checks(&world, &Held::Absent, &short)), "population primitive payload fields do not match");
     assert_eq!(handlers::service_cancellation(&world), Ok(()));
     let _ = PopulationOp::Add;
@@ -488,7 +584,8 @@ fn a_proximity_contact_without_its_config_or_positions_is_refused_by_its_texts()
     )
     .unwrap();
     assert_eq!(failed(handlers::proximity(&world, None, &Held::Absent, &contact)), "proximity contact provenance or time is invalid");
-    let config = sheltersim_core::config::proximity::Proximity::from_v(&map(vec![("policy_version", s("v1")), ("max_distance_m", V::Float(2.0))])).unwrap().unwrap();
+    let config =
+        sheltersim_core::config::proximity::Proximity::from_v(&map(vec![("policy_version", s("v1")), ("max_distance_m", V::Float(2.0))])).unwrap().unwrap();
     assert_eq!(failed(handlers::proximity(&world, Some(&config), &Held::Absent, &contact)), "proximity contact provenance or time is invalid");
 }
 
@@ -511,7 +608,19 @@ fn an_idle_member_s_unavailability_schedules_the_restoration_and_marks_the_statu
     let inputs = StaffIn { operational: &held, ops: &ops, service: Err(Unread::Raised), cooldown: None, metric_state_held: true };
     let mut provenance = IndexMap::new();
     provenance.insert(text("effect_program_v1"), map(vec![("program_id", s("p")), ("guard", s("g"))]));
-    let gone = EventRow::new(text("gone-2"), EventKind::Exogenous, 10, 0, 5, text("staff_unavailable"), entries(vec![("staff_id", s("s1")), ("until_minute", V::Int(40))]), Some(text("scenario")), None, provenance).unwrap();
+    let gone = EventRow::new(
+        text("gone-2"),
+        EventKind::Exogenous,
+        10,
+        0,
+        5,
+        text("staff_unavailable"),
+        entries(vec![("staff_id", s("s1")), ("until_minute", V::Int(40))]),
+        Some(text("scenario")),
+        None,
+        provenance,
+    )
+    .unwrap();
     let mut taken = Vec::new();
     let done = handlers::staff_unavailable(&mut world, &inputs, &gone, &mut taken).ok().unwrap();
     assert!(done.records.is_empty() && done.applied.is_none() && taken.is_empty());
@@ -531,11 +640,21 @@ fn an_idle_member_s_unavailability_schedules_the_restoration_and_marks_the_statu
     drop(queue);
     assert_eq!(world.id_counter("event").unwrap(), Some(41));
     let V::Map(state) = state(&world, handlers::OPERATIONAL) else { panic!() };
-    assert_eq!(state["staff_status"], map(vec![(
-        "s1",
-        map(vec![("available", V::Bool(false)), ("unavailability_event_id", s("gone-2")), ("until_minute", V::Int(40)), ("restore_event_id", s("staff-restored-40"))]),
-    )]));
+    assert_eq!(
+        state["staff_status"],
+        map(vec![(
+            "s1",
+            map(vec![
+                ("available", V::Bool(false)),
+                ("unavailability_event_id", s("gone-2")),
+                ("until_minute", V::Int(40)),
+                ("restore_event_id", s("staff-restored-40"))
+            ]),
+        )])
+    );
     // The same absence again is suppressed; an unknown member fails.
     let again = handlers::staff_unavailable(&mut world, &inputs, &gone, &mut taken);
-    assert!(matches!(again, Err(sheltersim_core::rules::service::Failure::Write(WriteError::Error(Error::Outcome(_, ref text)))) if text == "staff unavailability was already applied"));
+    assert!(
+        matches!(again, Err(sheltersim_core::rules::service::Failure::Write(WriteError::Error(Error::Outcome(_, ref text)))) if text == "staff unavailability was already applied")
+    );
 }

@@ -215,22 +215,13 @@ fn events_are_scheduled_and_recorded_on_the_worlds_queue_log_and_counter() {
     assert_eq!(world.log().unwrap().len(), 2);
 
     // The errors of `schedule_event` and `EventLog.append`.
-    assert_eq!(
-        events.schedule(kit::new_event(new_event("e-a", 30, 40)).unwrap()),
-        Err(WriteError::Duplicate("duplicate event ID 'e-a'".to_owned()))
-    );
-    assert_eq!(
-        events.schedule(kit::new_event(new_event("e-c", 30, 41)).unwrap()),
-        Err(WriteError::Duplicate("event 'e-c' already realized".to_owned()))
-    );
+    assert_eq!(events.schedule(kit::new_event(new_event("e-a", 30, 40)).unwrap()), Err(WriteError::Duplicate("duplicate event ID 'e-a'".to_owned())));
+    assert_eq!(events.schedule(kit::new_event(new_event("e-c", 30, 41)).unwrap()), Err(WriteError::Duplicate("event 'e-c' already realized".to_owned())));
     assert_eq!(
         events.schedule(kit::new_event(new_event("e-late", 100, 42)).unwrap()),
         Err(WriteError::Error(Error::Value("event 'e-late' is outside the scenario".to_owned())))
     );
-    assert_eq!(
-        events.record(&realized, 5, EventStatus::Applied, None),
-        Err(WriteError::Duplicate("event 'e-c' already realized".to_owned()))
-    );
+    assert_eq!(events.record(&realized, 5, EventStatus::Applied, None), Err(WriteError::Duplicate("event 'e-c' already realized".to_owned())));
     assert_eq!(
         kit::log_record(&world, &kit::new_event(new_event("e-e", 4, 50)).unwrap(), -1, EventStatus::Applied, None),
         Err(WriteError::Error(Error::Value("realized_minute must be a non-negative integer".to_owned())))
@@ -338,14 +329,7 @@ fn a_persons_activity_target_and_mobility() {
 #[test]
 fn a_household_is_the_ledgers_or_else_the_profiles_group() {
     let entities = people();
-    let ledger = map(&[(
-        "people",
-        map(&[
-            ("a1", map(&[("household_id", string("h9"))])),
-            ("a2", map(&[("household_id", V::Null)])),
-            ("a3", map(&[])),
-        ]),
-    )]);
+    let ledger = map(&[("people", map(&[("a1", map(&[("household_id", string("h9"))])), ("a2", map(&[("household_id", V::Null)])), ("a3", map(&[]))]))]);
     let of = |presence: Option<&V>, agent: &str| kit::household_of(presence, &entities, agent);
     assert_eq!(of(Some(&ledger), "a1"), Ok(Some(text("h9"))));
     // The ledger's None is the answer; a person it does not know has none either.
@@ -357,18 +341,9 @@ fn a_household_is_the_ledgers_or_else_the_profiles_group() {
     assert_eq!(of(None, "nobody"), Ok(None));
     assert_eq!(of(Some(&map(&[])), "a1"), Ok(None));
     assert_eq!(kit::presence_household(None, "a1"), Ok(None));
-    assert_eq!(
-        of(Some(&map(&[("people", list(&[]))])), "a1"),
-        Err(unsupported("the presence state's people are for the Python rule"))
-    );
-    assert_eq!(
-        of(Some(&map(&[("people", map(&[("a1", list(&[]))]))])), "a1"),
-        Err(unsupported("a presence record is for the Python rule"))
-    );
-    assert_eq!(
-        of(Some(&map(&[("people", map(&[("a1", map(&[("household_id", V::Int(1))]))]))])), "a1"),
-        Err(unsupported("a value is not a str"))
-    );
+    assert_eq!(of(Some(&map(&[("people", list(&[]))])), "a1"), Err(unsupported("the presence state's people are for the Python rule")));
+    assert_eq!(of(Some(&map(&[("people", map(&[("a1", list(&[]))]))])), "a1"), Err(unsupported("a presence record is for the Python rule")));
+    assert_eq!(of(Some(&map(&[("people", map(&[("a1", map(&[("household_id", V::Int(1))]))]))])), "a1"), Err(unsupported("a value is not a str")));
 
     // Over a world's rows.
     let mut world = World::default();
@@ -390,13 +365,8 @@ fn a_toilet_is_known_by_its_folded_kind() {
 
 #[test]
 fn an_outage_is_an_active_record_that_names_the_facility() {
-    let outage = |active: V, ids: &[&str]| {
-        map(&[("active", active), ("affected_facility_ids", list(&ids.iter().map(|id| string(id)).collect::<Vec<_>>()))])
-    };
-    let state = map(&[(
-        "outages",
-        map(&[("o1", outage(V::Bool(false), &["f1"])), ("o2", outage(V::Bool(true), &["f2", "f3"]))]),
-    )]);
+    let outage = |active: V, ids: &[&str]| map(&[("active", active), ("affected_facility_ids", list(&ids.iter().map(|id| string(id)).collect::<Vec<_>>()))]);
+    let state = map(&[("outages", map(&[("o1", outage(V::Bool(false), &["f1"])), ("o2", outage(V::Bool(true), &["f2", "f3"]))]))]);
     assert_eq!(kit::active_outage(Some(&state), "f1"), Ok(false));
     assert_eq!(kit::active_outage(Some(&state), "f3"), Ok(true));
     assert_eq!(kit::active_outage(Some(&state), "f9"), Ok(false));
@@ -427,13 +397,7 @@ fn a_modifier_is_active_while_its_facility_has_any() {
 // ---- Places --------------------------------------------------------------------------------------
 
 fn position(zone: &str, point: Option<(f64, f64)>, kind: &str, progress: f64) -> Position {
-    Position {
-        zone_id: text(zone),
-        point: point.map(|(x, y)| Point { x, y }),
-        edge_id: None,
-        progress,
-        position_kind: text(kind),
-    }
+    Position { zone_id: text(zone), point: point.map(|(x, y)| Point { x, y }), edge_id: None, progress, position_kind: text(kind) }
 }
 
 #[test]
@@ -467,10 +431,7 @@ fn a_person_is_placed_at_their_bed_on_the_row() {
 #[test]
 fn a_refusal_after_a_write_began_is_a_runtime_error() {
     assert_eq!(kit::writing(Ok(3)), Ok(3));
-    assert_eq!(
-        kit::writing::<()>(Err(unsupported("no row"))),
-        Err(Error::Runtime("a kernel refused after it began writing: Unsupported: no row".to_owned()))
-    );
+    assert_eq!(kit::writing::<()>(Err(unsupported("no row"))), Err(Error::Runtime("a kernel refused after it began writing: Unsupported: no row".to_owned())));
     assert_eq!(kit::writing::<()>(Err(Error::Value("bad".into()))), Err(Error::Value("bad".into())));
 }
 
@@ -568,10 +529,7 @@ fn a_waiting_arrival_the_admission_could_not_take_is_refused_first() {
     assert_eq!(refused(&[("admission_zone_ids", V::Null)], "z1"), Err(unsupported("the admission zones are not a list")));
     assert_eq!(refused(&[("admission_zone_ids", list(&[V::Int(1)]))], "z1"), Err(unsupported("a value is not a str")));
     assert_eq!(refused(&[], "bad zone"), Err(unsupported("a value is not an Identifier")));
-    assert_eq!(
-        refused(&[("traits", map(&[("household_id", string("not an id"))]))], "z1"),
-        Err(unsupported("a value is not an Identifier"))
-    );
+    assert_eq!(refused(&[("traits", map(&[("household_id", string("not an id"))]))], "z1"), Err(unsupported("a value is not an Identifier")));
     // A trait that is not a dict names no household; a group then does.
     assert_eq!(refused(&[("traits", string("x"))], "z1"), Ok(()));
     let grouped = waiting("p1", "z1", &[("profile", map(&[("id", string("p1")), ("group_id", string("bad group"))]))]);
@@ -579,9 +537,7 @@ fn a_waiting_arrival_the_admission_could_not_take_is_refused_first() {
     let no_group = waiting("p1", "z1", &[("profile", map(&[("id", string("p1"))]))]);
     assert_eq!(check(Some(&with(no_group))).0, Err(Error::Key("group_id".to_owned())));
     // The profile's source, or the population's.
-    let sourced = |provenance: V| {
-        waiting("p1", "z1", &[("profile", map(&[("id", string("p1")), ("group_id", V::Null), ("provenance", provenance)]))])
-    };
+    let sourced = |provenance: V| waiting("p1", "z1", &[("profile", map(&[("id", string("p1")), ("group_id", V::Null), ("provenance", provenance)]))]);
     assert_eq!(check(Some(&with(sourced(map(&[("source_id", string("SRC-1"))]))))).0, Ok(()));
     assert_eq!(check(Some(&with(sourced(map(&[]))))).0, Ok(()));
     assert_eq!(check(Some(&with(sourced(map(&[("source_id", V::Null)]))))).0, Err(unsupported("a value is not a str")));

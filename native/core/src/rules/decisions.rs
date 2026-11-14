@@ -464,9 +464,7 @@ pub fn record_outcome<C: WorldCell, H: Host>(
     if record(cell, host, recording)? == Sunk::Python {
         return Ok(Sunk::Python);
     }
-    cell.with(|world| commit(world, active, recording))
-        .and_then(|done| done)
-        .map_err(|error| Error::refused(LIFECYCLE, error))?;
+    cell.with(|world| commit(world, active, recording)).and_then(|done| done).map_err(|error| Error::refused(LIFECYCLE, error))?;
     cell.with(|world| remember(world, recording)).and_then(|done| done).map_err(|error| Error::refused(MEMORY, error))?;
     Ok(Sunk::Recorded)
 }

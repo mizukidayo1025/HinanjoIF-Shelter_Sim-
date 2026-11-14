@@ -147,8 +147,7 @@ impl Key {
 
     pub fn int(&mut self, part: i64) -> &mut Self {
         self.separate();
-        self.bytes
-            .extend_from_slice(itoa::Buffer::new().format(part).as_bytes());
+        self.bytes.extend_from_slice(itoa::Buffer::new().format(part).as_bytes());
         self
     }
 

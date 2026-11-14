@@ -183,10 +183,7 @@ impl Seed {
     /// or None for any other text.
     pub fn from_text(text: &str) -> Option<Seed> {
         let digits = text.strip_prefix('-').unwrap_or(text);
-        let decimal = !digits.is_empty()
-            && digits.bytes().all(|byte| byte.is_ascii_digit())
-            && (digits == "0" || !digits.starts_with('0'))
-            && text != "-0";
+        let decimal = !digits.is_empty() && digits.bytes().all(|byte| byte.is_ascii_digit()) && (digits == "0" || !digits.starts_with('0')) && text != "-0";
         decimal.then(|| Seed { text: Arc::from(text), small: text.parse().ok() })
     }
 }
@@ -609,16 +606,7 @@ impl Clone for Slot {
 
 impl Slot {
     pub fn new(place: Place) -> Self {
-        Self {
-            place,
-            row: None,
-            taint: None,
-            detached: false,
-            generation: Stamp::next(),
-            counts: SlotCounts::default(),
-            written: false,
-            keys: None,
-        }
+        Self { place, row: None, taint: None, detached: false, generation: Stamp::next(), counts: SlotCounts::default(), written: false, keys: None }
     }
 
     /// The row as its type, to write from a kernel of the core: the slot gets a new stamp and its
@@ -795,11 +783,7 @@ impl Slots {
         if !self.any_written.load(Ordering::Relaxed) {
             return Vec::new();
         }
-        self.by_name
-            .iter()
-            .filter(|(_, slot)| slot.try_borrow().is_ok_and(|slot| slot.written))
-            .map(|(name, _)| name.clone())
-            .collect()
+        self.by_name.iter().filter(|(_, slot)| slot.try_borrow().is_ok_and(|slot| slot.written)).map(|(name, _)| name.clone()).collect()
     }
 
     /// `try_row_mut`, shared.

@@ -146,7 +146,23 @@ fn reaches_the_native_path(name: &str) -> (Value, Ran) {
     assert_eq!(asked.iter().filter(|question| *question == "effects").count() as i64, ticks, "{name}");
     for call in &host.calls {
         assert!(
-            matches!(call, Call::Holding | Call::FillSection(_) | Call::FloorPlan | Call::Phase(..) | Call::Metric(..) | Call::Validate(..) | Call::Committed(_) | Call::Canonicalized(_) | Call::ValidateWorld | Call::ValidateExtensions | Call::StartNamespace(_) | Call::ResourcesChanged(..) | Call::Contract(..) | Call::SpaceRefreshed),
+            matches!(
+                call,
+                Call::Holding
+                    | Call::FillSection(_)
+                    | Call::FloorPlan
+                    | Call::Phase(..)
+                    | Call::Metric(..)
+                    | Call::Validate(..)
+                    | Call::Committed(_)
+                    | Call::Canonicalized(_)
+                    | Call::ValidateWorld
+                    | Call::ValidateExtensions
+                    | Call::StartNamespace(_)
+                    | Call::ResourcesChanged(..)
+                    | Call::Contract(..)
+                    | Call::SpaceRefreshed
+            ),
             "{name}: {call:?}"
         );
     }
@@ -210,7 +226,9 @@ fn the_core_walks_and_replans_the_generated_world_alone_and_reaches_the_native_p
     ran.loaded
         .cell
         .with(|world| {
-            for name in ["agent_dynamics_v1", "social_network_v1", "staff_dynamics_v1", "staff_operations_v1", "movement_v1", "facility_queues_v1", "effect_program_v1"] {
+            for name in
+                ["agent_dynamics_v1", "social_network_v1", "staff_dynamics_v1", "staff_operations_v1", "movement_v1", "facility_queues_v1", "effect_program_v1"]
+            {
                 let slot = world.slots.get(name).unwrap_or_else(|| panic!("no {name}")).try_borrow().unwrap();
                 assert_eq!(slot.place, Place::Namespace, "{name}");
                 assert!(slot.row::<ValueRow>().is_err(), "{name} is not a typed row");
@@ -229,7 +247,8 @@ fn the_core_walks_and_replans_the_generated_world_alone_and_reaches_the_native_p
         assert!(types.iter().any(|found| found == kind), "{kind}");
     }
     // The floor plan was built from the export, and again after each move (`load::Following`).
-    let moves = records(&ran.loaded).iter().filter(|record| record["event"]["event_type"] == "effect_program_geometry" && record["status"] == "applied").count();
+    let moves =
+        records(&ran.loaded).iter().filter(|record| record["event"]["event_type"] == "effect_program_geometry" && record["status"] == "applied").count();
     assert_eq!(moves, 4);
     assert_eq!(ran.host.world.as_ref().unwrap().builds(), 1 + moves);
     // The core started the social model's namespace and wrote `world.resources` itself (Issue #244,
@@ -257,7 +276,6 @@ fn two_runs_of_the_core_give_the_same_bytes() {
         assert!(seen[0] == seen[1], "{name}");
     }
 }
-
 
 /// The crate's host without Python (`plain::PlainRun`, #244 PR 4-3; the host of the WASM
 /// prototype) runs each world to the native path's world and samples, as the `TestHost` does: the

@@ -691,7 +691,10 @@ fn plan_serve(world: &World, manager: &Manager<'_>, serve: &Serve<'_>, pending: 
                 let mut found = None;
                 let mut count = 0;
                 for (_, task) in rows.active_tasks.iter() {
-                    if &*task.kind == "resource_service_queue" && task.agent_id.as_deref() == Some(&**agent_id) && task.resource_id.as_deref() == Some(facility_name) {
+                    if &*task.kind == "resource_service_queue"
+                        && task.agent_id.as_deref() == Some(&**agent_id)
+                        && task.resource_id.as_deref() == Some(facility_name)
+                    {
                         count += 1;
                         found = Some((task.id.clone(), task.start_minute));
                     }
@@ -705,7 +708,14 @@ fn plan_serve(world: &World, manager: &Manager<'_>, serve: &Serve<'_>, pending: 
         let Some((task_id, start)) = found else {
             return Err(Error::unsupported("a person with no queue task"));
         };
-        (agent_id.clone(), task_id, start, facility.zone_id.clone(), facility.capacity.min(facility.working_units), facility.resource_active_agent_ids.len() as i64)
+        (
+            agent_id.clone(),
+            task_id,
+            start,
+            facility.zone_id.clone(),
+            facility.capacity.min(facility.working_units),
+            facility.resource_active_agent_ids.len() as i64,
+        )
     };
     if !is_stable_id(&task_id) || !is_stable_id(&agent_id) {
         return Err(Error::unsupported("an ID is for the Python rule to judge"));
@@ -831,7 +841,15 @@ fn plan_serve(world: &World, manager: &Manager<'_>, serve: &Serve<'_>, pending: 
     ) else {
         return Err(Error::unsupported("the event's values are not what an event takes"));
     };
-    let audit = audit_row(&events, &source, "reserve", completion_sequence + 1, minute, operation_payload(&warehouse, &resource_arc, &task_id, &agent_id, quantity), task_id.clone())?;
+    let audit = audit_row(
+        &events,
+        &source,
+        "reserve",
+        completion_sequence + 1,
+        minute,
+        operation_payload(&warehouse, &resource_arc, &task_id, &agent_id, quantity),
+        task_id.clone(),
+    )?;
     let wait = minute.checked_sub(task_start).ok_or_else(|| Error::unsupported("a start out of range"))?;
     if wait.abs() >= 1 << 53 {
         return Err(Error::unsupported("a wait too long for a float"));
@@ -839,12 +857,37 @@ fn plan_serve(world: &World, manager: &Manager<'_>, serve: &Serve<'_>, pending: 
     // `record_queue_transition` after the start: the record takes the next sequence.
     let transition = match &head {
         Some(head) => {
-            let row = transition_row(&events, &head.request, "service_started", &task_id, Some(wait), Some(&completion_id), None, Some(head.point_capacity), audit.sequence + 1, minute)?;
+            let row = transition_row(
+                &events,
+                &head.request,
+                "service_started",
+                &task_id,
+                Some(wait),
+                Some(&completion_id),
+                None,
+                Some(head.point_capacity),
+                audit.sequence + 1,
+                minute,
+            )?;
             Some((head.request.request_id.clone(), row))
         }
         None => None,
     };
-    Ok(Ok(Start { completion, completion_sequence, audit, transition, index, warehouse, source_id: source.source_id, agent_id, task_id, staff_id, quantity, due, wait }))
+    Ok(Ok(Start {
+        completion,
+        completion_sequence,
+        audit,
+        transition,
+        index,
+        warehouse,
+        source_id: source.source_id,
+        agent_id,
+        task_id,
+        staff_id,
+        quantity,
+        due,
+        wait,
+    }))
 }
 
 /// `_serve_head`'s writes, once the ledger took the reservation.
@@ -917,7 +960,13 @@ pub fn previous_stall(world: &World, service: &Held, facility_id: &str) -> Resul
 
 /// `_record_independent_queue_stall`: keep a still-waiting head's record, else record the first
 /// stalled queue's head.
-pub fn record_independent_stall(world: &World, manager: &Manager<'_>, facility_id: &str, stalls: &[(Arc<str>, Arc<str>)], previous: Option<&Stall>) -> Result<()> {
+pub fn record_independent_stall(
+    world: &World,
+    manager: &Manager<'_>,
+    facility_id: &str,
+    stalls: &[(Arc<str>, Arc<str>)],
+    previous: Option<&Stall>,
+) -> Result<()> {
     let Some((agent_id, reason)) = stalls.first() else {
         return Ok(());
     };
@@ -1053,7 +1102,11 @@ fn plan_complete(world: &World, manager: &Manager<'_>, event: &EventRow) -> Resu
     // `facilities[task.resource_id or ""]`, read only when all of the above match.
     let mut facility_view = None;
     if matches {
-        let found = world.rows()?.facilities.get(task.resource_id.as_deref().unwrap_or("")).map(|facility| (facility.kind.clone(), facility.resource_active_agent_ids.clone()));
+        let found = world
+            .rows()?
+            .facilities
+            .get(task.resource_id.as_deref().unwrap_or(""))
+            .map(|facility| (facility.kind.clone(), facility.resource_active_agent_ids.clone()));
         let Some((kind, active)) = found else {
             return Err(Error::unsupported("no such facility"));
         };
@@ -1080,7 +1133,10 @@ fn plan_complete(world: &World, manager: &Manager<'_>, event: &EventRow) -> Resu
     let (reserved, warehouse) = {
         let row = manager.ledger(world)?;
         let reserved = row.accounts.of(index).reservations.get(&*task.id).is_some_and(|found| {
-            found.reservation_id == task.id && &*found.resource_id == resource_id && Some(&found.agent_id) == task.agent_id.as_ref() && found.quantity == expected
+            found.reservation_id == task.id
+                && &*found.resource_id == resource_id
+                && Some(&found.agent_id) == task.agent_id.as_ref()
+                && found.quantity == expected
         });
         (reserved, row.warehouse_id.clone())
     };
@@ -1134,7 +1190,15 @@ fn plan_complete(world: &World, manager: &Manager<'_>, event: &EventRow) -> Resu
     let source = Source::of(manager)?;
     let resource_arc = if is_water { NAMES.water.clone() } else { NAMES.food.clone() };
     let consume_sequence = events.next_sequence()?;
-    let audit = audit_row(&events, &source, "consume", consume_sequence, minute, operation_payload(&warehouse, &resource_arc, &task_arc, &agent_id, quantity), event_id.clone())?;
+    let audit = audit_row(
+        &events,
+        &source,
+        "consume",
+        consume_sequence,
+        minute,
+        operation_payload(&warehouse, &resource_arc, &task_arc, &agent_id, quantity),
+        event_id.clone(),
+    )?;
     // `finish_service` and `record_queue_transition`, with the record's next sequence.
     let finished = match finishing_request(world, &manager.queues, task_id)? {
         Some((request, position)) => {
@@ -1318,7 +1382,9 @@ pub fn queue_up(world: &World, manager: &Manager<'_>, request: &Request<'_>, pen
             let Some(agent) = rows.agents.get(agent_name) else {
                 return Err(Turned::UnknownAgent);
             };
-            let Some((facility, resource)) = rows.facilities.get(facility_name).and_then(|facility| resource_of(&facility.kind).map(|resource| (facility, resource))) else {
+            let Some((facility, resource)) =
+                rows.facilities.get(facility_name).and_then(|facility| resource_of(&facility.kind).map(|resource| (facility, resource)))
+            else {
                 return Err(Turned::NotAFacility);
             };
             if agent.zone_id != facility.zone_id {
@@ -1469,7 +1535,14 @@ pub fn queue_up(world: &World, manager: &Manager<'_>, request: &Request<'_>, pen
 }
 
 /// `choose_queue_id`, with the population's accessibility needs as the PyO3 crate read them.
-pub(crate) fn choose_queue(world: &World, queues: &Held, geo: &Geo, facility_id: &str, agent_id: &str, needs: &Kept<AccessibilityNeeds>) -> Result<Option<Arc<str>>> {
+pub(crate) fn choose_queue(
+    world: &World,
+    queues: &Held,
+    geo: &Geo,
+    facility_id: &str,
+    agent_id: &str,
+    needs: &Kept<AccessibilityNeeds>,
+) -> Result<Option<Arc<str>>> {
     if *queues == Held::Absent {
         return Ok(None);
     }
@@ -1533,12 +1606,16 @@ fn plan_cancel(world: &World, manager: &Manager<'_>, event_id: &Arc<str>, task_i
     #[allow(clippy::type_complexity)]
     let checked: std::result::Result<(TaskRow, Arc<str>, Option<(&'static str, bool)>), Turned> = {
         let rows = world.rows()?;
-        let Some(task) = rows.active_tasks.get(task_id).filter(|task| matches!(&*task.kind, "resource_service_queue" | "resource_service_water" | "resource_service_food")) else {
+        let Some(task) =
+            rows.active_tasks.get(task_id).filter(|task| matches!(&*task.kind, "resource_service_queue" | "resource_service_water" | "resource_service_food"))
+        else {
             return Err(Error::failed("resource cancellation does not match an active task"));
         };
         // `agents[task.agent_id or ""]` and `facilities[task.resource_id or ""]`: a KeyError is the
         // Python rule's.
-        let (Some(agent), Some(facility)) = (rows.agents.get(task.agent_id.as_deref().unwrap_or("")), rows.facilities.get(task.resource_id.as_deref().unwrap_or(""))) else {
+        let (Some(agent), Some(facility)) =
+            (rows.agents.get(task.agent_id.as_deref().unwrap_or("")), rows.facilities.get(task.resource_id.as_deref().unwrap_or("")))
+        else {
             return Err(Error::unsupported("the task's person or facility is gone"));
         };
         let agent_id = agent.profile.id.clone();
@@ -1553,10 +1630,9 @@ fn plan_cancel(world: &World, manager: &Manager<'_>, event_id: &Arc<str>, task_i
                 None => Err(Turned::NotAResourceFacility),
                 Some(_) if !facility.resource_active_agent_ids.contains(&agent_id) => Err(Turned::NoSlot),
                 Some(resource) => {
-                    let staff_matches = rows
-                        .staff
-                        .get(task.staff_id.as_deref().unwrap_or(""))
-                        .is_some_and(|staff| staff.active_task_id.as_deref() == Some(&*task.id) && staff.work_queue.len() == 1 && staff.work_queue[0] == task.id);
+                    let staff_matches = rows.staff.get(task.staff_id.as_deref().unwrap_or("")).is_some_and(|staff| {
+                        staff.active_task_id.as_deref() == Some(&*task.id) && staff.work_queue.len() == 1 && staff.work_queue[0] == task.id
+                    });
                     Ok((task.clone(), agent_id, Some((resource, staff_matches))))
                 }
             }
@@ -1578,7 +1654,13 @@ fn plan_cancel(world: &World, manager: &Manager<'_>, event_id: &Arc<str>, task_i
             let Some(index) = resource_index(resource) else {
                 return Err(Error::unsupported("an unknown resource"));
             };
-            let reserved = manager.ledger(world)?.accounts.of(index).reservations.get(&*task.id).is_some_and(|found| found.agent_id == agent_id && &*found.resource_id == resource);
+            let reserved = manager
+                .ledger(world)?
+                .accounts
+                .of(index)
+                .reservations
+                .get(&*task.id)
+                .is_some_and(|found| found.agent_id == agent_id && &*found.resource_id == resource);
             let owned = manager.service(world)?.active_reservation_ids.iter().any(|id| *id == task.id);
             if !staff_matches || !reserved || !owned {
                 return Err(Error::failed("active resource cancellation does not match reservation, slot, and staff"));
@@ -1773,7 +1855,13 @@ pub fn interrupt(world: &mut World, manager: &Manager<'_>, pending: &[Pending], 
     let Some(index) = resource_index(resource) else {
         return Err(Error::unsupported("an unknown resource").into());
     };
-    let reserved = manager.ledger(world)?.accounts.of(index).reservations.get(&*task_id).is_some_and(|found| found.agent_id == agent_id && &*found.resource_id == resource);
+    let reserved = manager
+        .ledger(world)?
+        .accounts
+        .of(index)
+        .reservations
+        .get(&*task_id)
+        .is_some_and(|found| found.agent_id == agent_id && &*found.resource_id == resource);
     let owned = manager.service(world)?.active_reservation_ids.iter().any(|id| *id == task_id);
     if !reserved || !owned {
         return Err(Error::failed("interrupted service reservation is inconsistent").into());
@@ -1830,7 +1918,8 @@ pub fn interrupt(world: &mut World, manager: &Manager<'_>, pending: &[Pending], 
             let Some(point) = point_of(manager.geo, &prior.queue_id) else {
                 return Err(Error::unsupported("no such service point").into());
             };
-            let fits = fifo::queues(world, &manager.queues)?.map(|row| !row.requests.contains_key(&*queue_task_id) && row.queues.contains_key(&*prior.queue_id));
+            let fits =
+                fifo::queues(world, &manager.queues)?.map(|row| !row.requests.contains_key(&*queue_task_id) && row.queues.contains_key(&*prior.queue_id));
             if fits != Some(true) {
                 return Err(Error::unsupported("the queue is not installed or the request's ID is in use").into());
             }
@@ -1847,7 +1936,18 @@ pub fn interrupt(world: &mut World, manager: &Manager<'_>, pending: &[Pending], 
                 active_task_id: queue_task_id.clone(),
             };
             // First in its queue by then.
-            let record = transition_row(&events, &request, "requeued", &queue_task_id, None, Some(&cause), Some(1), Some(point.service_capacity), sequence + 1 + plan.sequences, minute)?;
+            let record = transition_row(
+                &events,
+                &request,
+                "requeued",
+                &queue_task_id,
+                None,
+                Some(&cause),
+                Some(1),
+                Some(point.service_capacity),
+                sequence + 1 + plan.sequences,
+                minute,
+            )?;
             Some((point, record))
         }
     };
@@ -1912,7 +2012,9 @@ pub fn interrupt(world: &mut World, manager: &Manager<'_>, pending: &[Pending], 
 /// IDs of the started events, in order. The manager is the one `tick.policies` read: the
 /// controller's, of the class the driver was installed with, or one a caller holds alone (lane
 /// P9-3b, its body-less Python entry).
-pub fn arbitrate<C: WorldCell, H: Host, R: crate::rules::tick::RunCell>(tick: &mut crate::rules::tick::Tick<'_, C, H, R>) -> crate::rules::tick::Step<Vec<Arc<str>>, H::Error> {
+pub fn arbitrate<C: WorldCell, H: Host, R: crate::rules::tick::RunCell>(
+    tick: &mut crate::rules::tick::Tick<'_, C, H, R>,
+) -> crate::rules::tick::Step<Vec<Arc<str>>, H::Error> {
     use crate::rules::tick::Labelled;
     let due = facilities_of(tick).at("service.facilities_to_serve")?;
     let mut started = Vec::new();
@@ -1936,7 +2038,10 @@ pub fn arbitrate<C: WorldCell, H: Host, R: crate::rules::tick::RunCell>(tick: &m
 }
 
 /// `facility.resource_queue_agent_ids` is not empty.
-fn has_queue<C: WorldCell, H: Host, R: crate::rules::tick::RunCell>(tick: &mut crate::rules::tick::Tick<'_, C, H, R>, id: &str) -> std::result::Result<bool, H::Error> {
+fn has_queue<C: WorldCell, H: Host, R: crate::rules::tick::RunCell>(
+    tick: &mut crate::rules::tick::Tick<'_, C, H, R>,
+    id: &str,
+) -> std::result::Result<bool, H::Error> {
     tick.cell
         .with(|world| -> Result<bool> {
             let rows = world.rows()?;
@@ -2006,7 +2111,9 @@ impl ManagerIn {
     }
 }
 
-fn manager_of<C: WorldCell, H: Host, R: crate::rules::tick::RunCell>(tick: &mut crate::rules::tick::Tick<'_, C, H, R>) -> std::result::Result<ManagerIn, H::Error> {
+fn manager_of<C: WorldCell, H: Host, R: crate::rules::tick::RunCell>(
+    tick: &mut crate::rules::tick::Tick<'_, C, H, R>,
+) -> std::result::Result<ManagerIn, H::Error> {
     let policies = tick.policies.clone();
     manager_parts(tick.cell, tick.host, &policies)
 }
@@ -2049,12 +2156,16 @@ pub fn manager_parts<C: WorldCell, H: Host>(cell: &C, host: &mut H, policies: &c
 }
 
 /// `manager_parts` of the tick's Run.
-pub fn manager_in<C: WorldCell, H: Host, R: crate::rules::tick::RunCell>(tick: &mut crate::rules::tick::Tick<'_, C, H, R>) -> std::result::Result<ManagerIn, H::Error> {
+pub fn manager_in<C: WorldCell, H: Host, R: crate::rules::tick::RunCell>(
+    tick: &mut crate::rules::tick::Tick<'_, C, H, R>,
+) -> std::result::Result<ManagerIn, H::Error> {
     manager_of(tick)
 }
 
 /// `facilities_to_serve` of the manager's world, as `(facility, resource_id)`.
-fn facilities_of<C: WorldCell, H: Host, R: crate::rules::tick::RunCell>(tick: &mut crate::rules::tick::Tick<'_, C, H, R>) -> std::result::Result<Vec<(Arc<str>, &'static str)>, H::Error> {
+fn facilities_of<C: WorldCell, H: Host, R: crate::rules::tick::RunCell>(
+    tick: &mut crate::rules::tick::Tick<'_, C, H, R>,
+) -> std::result::Result<Vec<(Arc<str>, &'static str)>, H::Error> {
     use crate::run::held::Held as Read;
     let policies = tick.policies.clone();
     if let Ok(manager) = policies.services.resource.object() {
@@ -2140,7 +2251,10 @@ fn serve_of<C: WorldCell, H: Host, R: crate::rules::tick::RunCell>(
 }
 
 /// The stall a pass of an independent facility starts from.
-fn previous_of<C: WorldCell, H: Host, R: crate::rules::tick::RunCell>(tick: &mut crate::rules::tick::Tick<'_, C, H, R>, id: &str) -> std::result::Result<Option<Stall>, H::Error> {
+fn previous_of<C: WorldCell, H: Host, R: crate::rules::tick::RunCell>(
+    tick: &mut crate::rules::tick::Tick<'_, C, H, R>,
+    id: &str,
+) -> std::result::Result<Option<Stall>, H::Error> {
     let holding = tick.holding()?;
     let service = holding.held(KEY, "the world holds another service state");
     tick.cell.with(|world| previous_stall(world, &service, id)).and_then(|stall| stall).map_err(H::Error::from)

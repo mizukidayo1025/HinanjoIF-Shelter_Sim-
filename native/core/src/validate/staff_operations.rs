@@ -141,7 +141,11 @@ pub fn canonical_staff_operations_config(raw: &V) -> Result<Map> {
     };
     for (zone_id, effects) in effects_by_zone {
         let effects = match effects {
-            V::Map(effects) if !zone_id.is_empty() && !effects.is_empty() && effects.keys().all(|name| EFFECTS.iter().any(|(effect, ..)| *effect == &**name)) => effects,
+            V::Map(effects)
+                if !zone_id.is_empty() && !effects.is_empty() && effects.keys().all(|name| EFFECTS.iter().any(|(effect, ..)| *effect == &**name)) =>
+            {
+                effects
+            }
             _ => return value_error("staff_operations per-zone effect entry is invalid"),
         };
         for (name, value) in effects {
@@ -174,11 +178,7 @@ fn idle_record() -> V {
 /// The pending events in queue order (`world.event_queue.pending()`).
 fn pending(view: &View<'_>) -> Result<Vec<Arc<EventRow>>> {
     let queue = view.queue()?;
-    queue
-        .ordered()
-        .iter()
-        .map(|(_, serial)| queue.slot(*serial).row.clone().ok_or_else(|| Error::unsupported("a pending event is not in the core")))
-        .collect()
+    queue.ordered().iter().map(|(_, serial)| queue.slot(*serial).row.clone().ok_or_else(|| Error::unsupported("a pending event is not in the core"))).collect()
 }
 
 /// The check, as `validate` (`validate/mod.rs`) calls it in Python's order.
@@ -403,7 +403,9 @@ fn check_record(rows: &crate::entities::Entities, pending: &[Arc<EventRow>], dur
         .collect();
     let arrivals: Vec<&Arc<EventRow>> = pending
         .iter()
-        .filter(|event| &*event.event_type == "staff_operation_arrive" && eq(&payload(event, "task_id"), task_id) && eq(&payload(event, "staff_id"), &staff_value))
+        .filter(|event| {
+            &*event.event_type == "staff_operation_arrive" && eq(&payload(event, "task_id"), task_id) && eq(&payload(event, "staff_id"), &staff_value)
+        })
         .collect();
     let consistent = completions.len() == 1
         && eq(&payload(completions[0], "task_kind"), field("task_kind"))
@@ -446,7 +448,9 @@ fn history_item_fits(rows: &crate::entities::Entities, item: &V) -> Result<bool>
         return Ok(false);
     }
     let arrival = get(item, "arrival_minute");
-    if matches!(arrival, V::Null) && !(eq_str(Some(get(item, "status")), "interrupted") && py::wide(get(item, "travel_minutes")).is_some_and(|travel| travel > 0)) {
+    if matches!(arrival, V::Null)
+        && !(eq_str(Some(get(item, "status")), "interrupted") && py::wide(get(item, "travel_minutes")).is_some_and(|travel| travel > 0))
+    {
         return Ok(false);
     }
     if !matches!(arrival, V::Null) && (!py::is_exact_int(arrival) || !(start <= py::wide(arrival) && py::wide(arrival) <= complete)) {

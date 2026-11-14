@@ -441,7 +441,9 @@ fn historical_ids(world: &World, held: &HeldNamespaces, with_departures: bool) -
 /// the config's.
 fn body_history(world: &World, held: &HeldNamespaces, body: &BodyRow, minute: i64) -> Result<()> {
     let items = &body.history.items;
-    let parse = |index: usize| -> Result<serde_json::Value> { serde_json::from_slice(&items[index]).map_err(|_| Error::unsupported("a body history item is not JSON")) };
+    let parse = |index: usize| -> Result<serde_json::Value> {
+        serde_json::from_slice(&items[index]).map_err(|_| Error::unsupported("a body history item is not JSON"))
+    };
     let mut start = items.len();
     while start > 0 {
         let item = parse(start - 1)?;
@@ -536,7 +538,12 @@ fn infrastructure(world: &World, state: Option<&V>) -> Result<()> {
         Some(V::Map(base)) => Some(base),
         _ => None,
     };
-    if state.len() != 5 || !matches!(state.get("schema_version"), Some(V::Int(1))) || !is_map("outages") || !is_map("environmental_stressors") || !is_map("route_interruptions") {
+    if state.len() != 5
+        || !matches!(state.get("schema_version"), Some(V::Int(1)))
+        || !is_map("outages")
+        || !is_map("environmental_stressors")
+        || !is_map("route_interruptions")
+    {
         return refuse("the infrastructure state is the Python rule's");
     }
     let Some(base) = base else {

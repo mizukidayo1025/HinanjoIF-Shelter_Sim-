@@ -44,16 +44,14 @@ use crate::world::{World, METRIC_STATE};
 
 const LONG_TERM_POLICIES: [&str; 2] = ["mean-reverting-distress-v1", "mean-reverting-life-state-v1"];
 const MONITOR_PREFIX: &str = "acute_distress_monitor:";
-const MONITOR_SUFFIXES: [&str; 5] =
-    [":current_run", ":longest_run", ":episodes", ":recovered_run_total", ":recovered_run_count"];
+const MONITOR_SUFFIXES: [&str; 5] = [":current_run", ":longest_run", ":episodes", ":recovered_run_total", ":recovered_run_count"];
 const MINUTES_PER_DAY: i64 = 1440;
 
 /// `PsychologyUpdateResult.policy_version` of a result that does not name its model.
 pub const DEFAULT_POLICY_VERSION: &str = "causal-stress-v1";
 
 /// The names of the body values of `AgentStateDelta`, in the order of `Delta::body`.
-pub const BODY_NAMES: [&str; 7] =
-    ["sleep_debt_minutes", "uncertainty", "reassurance", "discontent", "positive_affect", "negative_affect", "hygiene_need"];
+pub const BODY_NAMES: [&str; 7] = ["sleep_debt_minutes", "uncertainty", "reassurance", "discontent", "positive_affect", "negative_affect", "hygiene_need"];
 
 #[track_caller]
 fn unsupported<T>(reason: &'static str) -> Result<T> {
@@ -292,9 +290,10 @@ fn plan_monitor(metrics: &MetricRow, people: &[Person<'_>], threshold: f64) -> R
 fn monitor_changes(metrics: &MetricRow, people: &[Person<'_>], steps: &[[f64; 5]]) -> bool {
     let mut buffer = String::with_capacity(64);
     people.iter().zip(steps).any(|(person, next)| {
-        MONITOR_SUFFIXES.iter().zip(next).any(|(suffix, value)| {
-            metrics.get(metric_key(&mut buffer, person.id, suffix)).is_none_or(|held| held.to_bits() != value.to_bits())
-        })
+        MONITOR_SUFFIXES
+            .iter()
+            .zip(next)
+            .any(|(suffix, value)| metrics.get(metric_key(&mut buffer, person.id, suffix)).is_none_or(|held| held.to_bits() != value.to_bits()))
     })
 }
 
@@ -501,13 +500,7 @@ fn write_long_term(row: &mut DistressRow, people: &[Person<'_>], minute: i64, pl
 /// which the caller checked to be str and floats within 0..1; `metric_state_held` is whether
 /// `world.metric_state` holds its slot's tree (a field assigned whole does not). Nothing is written
 /// unless every check passes.
-pub fn update_long_term(
-    world: &World,
-    long_term: &LongTerm<'_>,
-    finals: &[(&str, f64)],
-    minute: i64,
-    metric_state_held: bool,
-) -> Result<()> {
+pub fn update_long_term(world: &World, long_term: &LongTerm<'_>, finals: &[(&str, f64)], minute: i64, metric_state_held: bool) -> Result<()> {
     // `previous_by_agent` and `current_by_agent` of the Python step, or Unsupported if the Python
     // rules would do anything but read them: their keys differ, or a value is out of bounds. The
     // previous values are the rows': nothing has written a person since the view was made.
@@ -828,14 +821,12 @@ fn mean_reverting_terms(value: f64, baseline: f64, kappa: f64) -> Result<(f64, f
 fn step(model: Model, rates: &Rates, body: Option<&BodyRates>, a: &Input, mut stages: Option<&mut Stages>) -> Result<Next> {
     // SimplePsychologyPolicy.explain_update
     let (fatigue_delta, stress_recovery) = match a.activity {
-        Activity::Sleeping => (
-            -rates.sleeping_fatigue_recovery * a.rest_efficiency,
-            if rates.direct_rest_recovery { rates.sleeping_stress_recovery } else { 0.0 },
-        ),
-        Activity::Resting => (
-            -rates.resting_fatigue_recovery * a.rest_efficiency,
-            if rates.direct_rest_recovery { rates.resting_stress_recovery } else { 0.0 },
-        ),
+        Activity::Sleeping => {
+            (-rates.sleeping_fatigue_recovery * a.rest_efficiency, if rates.direct_rest_recovery { rates.sleeping_stress_recovery } else { 0.0 })
+        }
+        Activity::Resting => {
+            (-rates.resting_fatigue_recovery * a.rest_efficiency, if rates.direct_rest_recovery { rates.resting_stress_recovery } else { 0.0 })
+        }
         _ => (a.awake_fatigue, 0.0),
     };
     let mut highest = py_max(py_max(a.toilet, a.hunger), a.fatigue);
@@ -848,8 +839,7 @@ fn step(model: Model, rates: &Rates, body: Option<&BodyRates>, a: &Input, mut st
     let queue_wait_stress = if queued { rates.queued_stress } else { 0.0 };
     let support_wait_stress = if a.support_open { rates.support_wait_stress } else { 0.0 };
     let environmental_stress = a.environmental_per_minute * a.sensitivity;
-    let stress_delta =
-        need_pressure_stress + queue_wait_stress + support_wait_stress + environmental_stress - stress_recovery;
+    let stress_delta = need_pressure_stress + queue_wait_stress + support_wait_stress + environmental_stress - stress_recovery;
     let simple_stress = clamp(a.stress + stress_delta);
     if let Some(stages) = stages.as_deref_mut() {
         stages.highest = highest;
@@ -922,21 +912,13 @@ fn step(model: Model, rates: &Rates, body: Option<&BodyRates>, a: &Input, mut st
     };
     let debt = py_min(1440.0, py_max(0.0, next_debt));
     let reassurance = py_max(0.0, life.reassurance - g.reassurance_decay);
-    let uncertainty_without = py_min(
-        1.0,
-        py_max(
-            0.0,
-            life.uncertainty + life.query_pressure * g.uncertainty_drift
-                - g.uncertainty_decay
-                - reassurance * g.uncertainty_decay,
-        ),
-    );
+    let uncertainty_without =
+        py_min(1.0, py_max(0.0, life.uncertainty + life.query_pressure * g.uncertainty_drift - g.uncertainty_decay - reassurance * g.uncertainty_decay));
     let uncertainty = py_min(
         1.0,
         py_max(
             0.0,
-            life.uncertainty
-                + (life.query_pressure + life.misinformation_pressure) * g.uncertainty_drift
+            life.uncertainty + (life.query_pressure + life.misinformation_pressure) * g.uncertainty_drift
                 - g.uncertainty_decay
                 - reassurance * g.uncertainty_decay,
         ),
@@ -950,7 +932,9 @@ fn step(model: Model, rates: &Rates, body: Option<&BodyRates>, a: &Input, mut st
         1.0,
         py_max(
             0.0,
-            life.discontent + reference * g.discontent_stress + queue_pressure
+            life.discontent
+                + reference * g.discontent_stress
+                + queue_pressure
                 + life.privacy_discontent
                 + py_max(0.0, need_pressure - 0.5) * g.discontent_stress
                 - support_relief
@@ -958,29 +942,17 @@ fn step(model: Model, rates: &Rates, body: Option<&BodyRates>, a: &Input, mut st
         ),
     );
     let positive = 0.5 + (life.positive - 0.5) * py_max(0.0, 1.0 - g.positive_affect_decay);
-    let hygiene = py_min(
-        1.0,
-        py_max(
-            0.0,
-            life.hygiene + g.hygiene_growth + life.ventilation_growth
-                + (1.0 - life.sanitation) * g.sanitation_hygiene_growth,
-        ),
-    );
-    let negative = py_min(
-        1.0,
-        py_max(
-            0.0,
-            life.negative + reference * g.negative_affect_stress
-                - reassurance * g.negative_affect_stress,
-        ),
-    );
+    let hygiene = py_min(1.0, py_max(0.0, life.hygiene + g.hygiene_growth + life.ventilation_growth + (1.0 - life.sanitation) * g.sanitation_hygiene_growth));
+    let negative = py_min(1.0, py_max(0.0, life.negative + reference * g.negative_affect_stress - reassurance * g.negative_affect_stress));
     // BodyDynamicsFormula.stress_feedback, and the same with the shared rates without a formula.
     let feedback_with = |uncertainty: f64| -> f64 {
         let debt_component = debt / 1440.0 * life.sleep_rate;
         if g.sleep_debt_only {
             return debt_component;
         }
-        debt_component + uncertainty * life.negative_rate + discontent * life.discontent_rate
+        debt_component
+            + uncertainty * life.negative_rate
+            + discontent * life.discontent_rate
             + hygiene * g.sanitation_stress
             + (1.0 - life.sanitation) * g.sanitation_stress
             + family_pressure
@@ -1104,8 +1076,7 @@ fn person_trace(model: Model, rates: &Rates, a: &Input, next: &Next, stages: &St
         Model::Simple => {}
         // It scales four fields and leaves the first stage's components and deltas.
         Model::Bounded => {
-            let pressure =
-                py_sum(&[s.need_pressure_stress, s.queue_wait_stress, s.support_wait_stress, s.environmental_stress]);
+            let pressure = py_sum(&[s.need_pressure_stress, s.queue_wait_stress, s.support_wait_stress, s.environmental_stress]);
             let scale = if pressure != 0.0 { s.added / pressure } else { 0.0 };
             trace.need_pressure_stress = s.need_pressure_stress * scale;
             trace.queue_wait_stress = s.queue_wait_stress * scale;
@@ -1130,21 +1101,8 @@ fn person_trace(model: Model, rates: &Rates, a: &Input, next: &Next, stages: &St
             let values = next.body.unwrap_or_default();
             trace.family_pressure_int = s.family_pressure_int;
             trace.life_state = Some((
-                [
-                    life.debt,
-                    life.uncertainty,
-                    life.reassurance,
-                    life.discontent,
-                    life.positive,
-                    life.negative,
-                    life.hygiene,
-                    s.family_pressure,
-                    misinformation,
-                ],
-                [
-                    values[0], values[1], values[2], values[3], values[4], values[5], values[6], s.family_pressure,
-                    misinformation,
-                ],
+                [life.debt, life.uncertainty, life.reassurance, life.discontent, life.positive, life.negative, life.hygiene, s.family_pressure, misinformation],
+                [values[0], values[1], values[2], values[3], values[4], values[5], values[6], s.family_pressure, misinformation],
             ));
             let life_feedback = s.feedback - s.information_feedback;
             trace.life_state_feedback_stress = life_feedback;
@@ -1162,13 +1120,7 @@ fn person_trace(model: Model, rates: &Rates, a: &Input, next: &Next, stages: &St
                     ("recovery", recovery),
                     (
                         "base_stage_clip",
-                        s.simple_stress
-                            - (before
-                                + s.need_pressure_stress
-                                + s.queue_wait_stress
-                                + s.support_wait_stress
-                                + s.environmental_stress
-                                + recovery),
+                        s.simple_stress - (before + s.need_pressure_stress + s.queue_wait_stress + s.support_wait_stress + s.environmental_stress + recovery),
                     ),
                     ("life_state_feedback", life_feedback),
                     ("information_belief_via_uncertainty", s.information_feedback),
@@ -1379,19 +1331,12 @@ pub fn update(world: &World, view: &ViewData, params: &Params<'_>, minute: i64, 
                 return unsupported("a trust is outside 0..1");
             }
             // The checks of _mean_reverting_terms.
-            if reversion
-                && !((0.0..=1.0).contains(&row.stress)
-                    && (0.0..=1.0).contains(&person.baseline)
-                    && person.kappa.is_finite()
-                    && person.kappa >= 0.0)
-            {
+            if reversion && !((0.0..=1.0).contains(&row.stress) && (0.0..=1.0).contains(&person.baseline) && person.kappa.is_finite() && person.kappa >= 0.0) {
                 return unsupported("a value of the mean reversion is out of bounds");
             }
             // `request.status` of the view, which is None for an id with no request.
             let support_open = row.support_request_id.as_ref().is_some_and(|request| {
-                rows.support_requests
-                    .get(request)
-                    .is_some_and(|request| matches!(request.status, RequestStatus::Pending | RequestStatus::Assigned))
+                rows.support_requests.get(request).is_some_and(|request| matches!(request.status, RequestStatus::Pending | RequestStatus::Assigned))
             });
             inputs.push(Input {
                 activity: row.activity,
@@ -1508,8 +1453,7 @@ pub fn apply(world: &World, deltas: &[Applied<'_>], body_state: bool) -> Result<
             let Some(row) = rows.agents.get(applied.agent_id) else {
                 return unsupported("a delta names nobody in the world");
             };
-            let current =
-                [row.needs.toilet_urgency, row.needs.hunger, row.needs.fatigue, row.needs.hydration_need, row.stress, row.trust];
+            let current = [row.needs.toilet_urgency, row.needs.hunger, row.needs.fatigue, row.needs.hydration_need, row.stress, row.trust];
             changed.push(current.iter().zip(&applied.values).any(|(now, next)| now.to_bits() != next.to_bits()));
         }
         for (applied, changed) in deltas.iter().zip(changed) {

@@ -87,7 +87,14 @@ fn serve(case: &mut Case, facility: &str, resource: &str) -> Result<Option<Arc<s
         let pending = tick.cell.with(|world| service::reserves_of(world))??;
         let walking = tick.walking(false)?;
         let walk = walking.as_ref().map(|walking| walking.walk());
-        let pass = Serve { facility_id: facility, resource_id: resource, minute, queue_id: None, walk: walk.as_ref(), placement: walking.as_ref().map(|walking| &*walking.geo) };
+        let pass = Serve {
+            facility_id: facility,
+            resource_id: resource,
+            minute,
+            queue_id: None,
+            walk: walk.as_ref(),
+            placement: walking.as_ref().map(|walking| &*walking.geo),
+        };
         match tick.cell.with(|world| service::serve(world, &manager.manager(), &pass, &pending))? {
             Ok(Served::Started(event_id, balance)) => {
                 tick.resources_taken(balance)?;
@@ -151,7 +158,11 @@ fn pending_count(doc: &Value) -> usize {
 #[test]
 fn a_still_action_gives_up_the_target_and_waits() {
     let given = inputs("still_action");
-    for (action, digest) in [(Action::Wait, "788883555654f44faafd52106860682d8704804d33c69b239bf9109efa625db2"), (Action::Rest, "d18ea2567725cfac4af6cca167e2e9fd3fe3a63501e903e8c4e848d14cfa1aa8"), (Action::Sleep, "595aeb86c21fd5a31606c095bbf1a4dea76c09d9f195cd1262fced6191ae33db")] {
+    for (action, digest) in [
+        (Action::Wait, "788883555654f44faafd52106860682d8704804d33c69b239bf9109efa625db2"),
+        (Action::Rest, "d18ea2567725cfac4af6cca167e2e9fd3fe3a63501e903e8c4e848d14cfa1aa8"),
+        (Action::Sleep, "595aeb86c21fd5a31606c095bbf1a4dea76c09d9f195cd1262fced6191ae33db"),
+    ] {
         let mut case = Case::of(FILE, s(&given["world"]));
         assert_eq!(case.apply(action, s(&given["agent"]), None).unwrap(), applied(None, 12, true), "{action:?}");
         assert_eq!(case.hex(), digest);
@@ -163,7 +174,11 @@ fn a_still_action_gives_up_the_target_and_waits() {
 #[test]
 fn a_social_action_schedules_its_event() {
     let pair = &inputs("social_action")["pair"];
-    for (action, digest) in [(Action::Socialize, "eaad70fba8884eb3bb41d5c79d1aa777815c15c114abcda263ebaf71b66239dc"), (Action::CareFamily, "d18609dc17987b3f5dc3c98411fb61da716c4415bd6a9542c5d778df66112cf4"), (Action::HelpOthers, "474c9a742050631497ed943b2ab4f5bc26599e3244e4ea7f252ac03c20113f1c")] {
+    for (action, digest) in [
+        (Action::Socialize, "eaad70fba8884eb3bb41d5c79d1aa777815c15c114abcda263ebaf71b66239dc"),
+        (Action::CareFamily, "d18609dc17987b3f5dc3c98411fb61da716c4415bd6a9542c5d778df66112cf4"),
+        (Action::HelpOthers, "474c9a742050631497ed943b2ab4f5bc26599e3244e4ea7f252ac03c20113f1c"),
+    ] {
         let mut case = Case::of(FILE, "minute_5");
         let pending = pending_count(&case.doc());
         assert_eq!(case.apply(action, s(&pair[0]), Some(s(&pair[1]))).unwrap(), applied(Some(s(&pair[1])), 10, true), "{action:?}");
@@ -230,7 +245,11 @@ fn a_held_bed_is_given_up_and_sleep_keeps_it() {
 #[test]
 fn each_trip_action_from_each_zone() {
     let given = inputs("trip_action_from_each_zone");
-    for (action, name, digest) in [(Action::RequestToilet, "request_toilet", "a767620cbf126e353a5f6e57c18169c2037c385b6eee8ae508798354c3a7f611"), (Action::FetchWater, "fetch_water", "b174f3a00192ab06ad94d7a44c2b41188654abb5784b8f2e0085cc727e5ea862"), (Action::CollectMeal, "collect_meal", "4b65eda4321f4188da8543e785e740338e9f54376718426e93c08d8344b44d35")] {
+    for (action, name, digest) in [
+        (Action::RequestToilet, "request_toilet", "a767620cbf126e353a5f6e57c18169c2037c385b6eee8ae508798354c3a7f611"),
+        (Action::FetchWater, "fetch_water", "b174f3a00192ab06ad94d7a44c2b41188654abb5784b8f2e0085cc727e5ea862"),
+        (Action::CollectMeal, "collect_meal", "4b65eda4321f4188da8543e785e740338e9f54376718426e93c08d8344b44d35"),
+    ] {
         let mut case = Case::of(FILE, "minute_5");
         let mut worlds = Vec::new();
         for step in given[name].as_array().unwrap() {
@@ -310,7 +329,10 @@ fn a_toilet_kind_beyond_ascii_is_folded_as_python_folds_it() {
 #[test]
 fn a_request_of_the_run_s_last_minute_is_closed_at_once() {
     let given = inputs("request_of_the_last_minute");
-    for (action, digest) in [(Action::SeekHelp, "c40bf28ea9019d19c5147af1a3fce8752508b1694d6e423d9a014f07d67633f2"), (Action::SeekInformation, "1894b65ff8b4bef838afc7e05d76d3df9330fefe4ce51ec8895e6c8de64349cb")] {
+    for (action, digest) in [
+        (Action::SeekHelp, "c40bf28ea9019d19c5147af1a3fce8752508b1694d6e423d9a014f07d67633f2"),
+        (Action::SeekInformation, "1894b65ff8b4bef838afc7e05d76d3df9330fefe4ce51ec8895e6c8de64349cb"),
+    ] {
         let mut case = Case::of(FILE, s(&given["world"]));
         let request = "support-5d7322b2c209034dac8ce21e";
         assert_eq!(case.apply(action, s(&given["agent"]), None).unwrap(), applied(Some(request), 12, false), "{action:?}");
@@ -434,7 +456,13 @@ fn a_head_at_the_point_starts_its_service() {
 #[test]
 fn each_wait_is_recorded_once() {
     let given = inputs("each_wait");
-    for (reason, digest) in [("capacity", "94c8f29eab35dc23f4a60f989e010ab69ab776e6550cb61b662bc9e406511e53"), ("staff", "8c2f95dcbfa36c3cd412811dafde900bbcaff0bf8d5a321e4afc8bdaa71a3794"), ("stock", "86263baecc8f7516e02556136a29a3339bbe3b21d65c155e80756aea6ff9c5e3"), ("run_end", "953c52f1e4c5e548d0363e291425fe47eec8a6bc1c208d0a3cbb7cc95e38c6b0"), ("water_outage", "10bbd629abecc5fdde927892646a274684b70b5d298bcc5a6a9f2b9cd4ba9610")] {
+    for (reason, digest) in [
+        ("capacity", "94c8f29eab35dc23f4a60f989e010ab69ab776e6550cb61b662bc9e406511e53"),
+        ("staff", "8c2f95dcbfa36c3cd412811dafde900bbcaff0bf8d5a321e4afc8bdaa71a3794"),
+        ("stock", "86263baecc8f7516e02556136a29a3339bbe3b21d65c155e80756aea6ff9c5e3"),
+        ("run_end", "953c52f1e4c5e548d0363e291425fe47eec8a6bc1c208d0a3cbb7cc95e38c6b0"),
+        ("water_outage", "10bbd629abecc5fdde927892646a274684b70b5d298bcc5a6a9f2b9cd4ba9610"),
+    ] {
         let case_inputs = &given[reason];
         let (agent, facility) = (s(&case_inputs["agent"]), s(&case_inputs["facility"]));
         let mut case = Case::of(FILE, s(&case_inputs["world"]));
@@ -461,7 +489,9 @@ fn a_taken_reservation_id_is_python_s_error() {
     let mut case = Case::of(FILE, s(&given["world"]));
     let before = case.bytes();
     match serve(&mut case, s(&given["facility"]), "water_ml") {
-        Err(Error::Invariant(text)) => assert_eq!(text, format!("resource service task ID 'queue-task-{}' conflicts with an H01 reservation", s(&given["agent"]))),
+        Err(Error::Invariant(text)) => {
+            assert_eq!(text, format!("resource service task ID 'queue-task-{}' conflicts with an H01 reservation", s(&given["agent"])))
+        }
         other => panic!("{other:?}"),
     }
     assert!(case.bytes() == before);
@@ -491,8 +521,22 @@ fn only_the_queues_with_people_are_served() {
 #[test]
 fn a_completion_relieves_the_need() {
     for (kind, resource, need, relief, started, completed) in [
-        ("at_water_station", "water_ml", "hydration_need", "hydration_relief", "2319ada0d5e77cd7f91359bd25a8cb4330ae6a87c29dbb17046963df5c8a0e91", "43fe303a1559d31c6272e84ba0385661fed101e10a54a7457d81b4e2f32799bb"),
-        ("at_meal_distribution", "food_meal_units", "hunger", "hunger_relief", "d644111bba0410254eb0884e01595f8bd6a04687ab53e7469dbb123cfd7cc365", "aadaa255a8c5f614720e9c65da8846b830f1304407417af0cd1826e7e9d5825c"),
+        (
+            "at_water_station",
+            "water_ml",
+            "hydration_need",
+            "hydration_relief",
+            "2319ada0d5e77cd7f91359bd25a8cb4330ae6a87c29dbb17046963df5c8a0e91",
+            "43fe303a1559d31c6272e84ba0385661fed101e10a54a7457d81b4e2f32799bb",
+        ),
+        (
+            "at_meal_distribution",
+            "food_meal_units",
+            "hunger",
+            "hunger_relief",
+            "d644111bba0410254eb0884e01595f8bd6a04687ab53e7469dbb123cfd7cc365",
+            "aadaa255a8c5f614720e9c65da8846b830f1304407417af0cd1826e7e9d5825c",
+        ),
     ] {
         let given = inputs(kind);
         let (agent, facility) = (s(&given["agent"]), s(&given["facility"]));
@@ -544,7 +588,9 @@ fn a_completion_that_does_not_match_is_python_s_error() {
         });
         let before = case.bytes();
         match complete(&mut case, &event_id) {
-            Err(Error::Outcome(Outcome::Failed, text)) => assert_eq!(text, "resource service completion does not match its full reservation, slot, or staff", "{change}"),
+            Err(Error::Outcome(Outcome::Failed, text)) => {
+                assert_eq!(text, "resource service completion does not match its full reservation, slot, or staff", "{change}")
+            }
             other => panic!("{change}: {other:?}"),
         }
         assert!(case.bytes() == before, "{change}");

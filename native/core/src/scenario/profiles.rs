@@ -181,14 +181,7 @@ impl Profile {
                 ]),
             ),
             ("rng_key", text(&self.rng_key)),
-            (
-                "provenance",
-                map(vec![
-                    ("source_kind", text("synthetic")),
-                    ("generator", text(&self.generator)),
-                    ("seed", V::Int(self.seed)),
-                ]),
-            ),
+            ("provenance", map(vec![("source_kind", text("synthetic")), ("generator", text(&self.generator)), ("seed", V::Int(self.seed))])),
         ])
     }
 }
@@ -227,10 +220,7 @@ pub struct ProfileSet {
 impl ProfileSet {
     /// `{"profiles": [...], "manifest": {...}}`, as pydantic dumps the dataclass in a model.
     pub fn dump(&self) -> V {
-        map(vec![
-            ("profiles", V::List(self.profiles.iter().map(Profile::dump).collect())),
-            ("manifest", self.manifest.dump()),
-        ])
+        map(vec![("profiles", V::List(self.profiles.iter().map(Profile::dump).collect())), ("manifest", self.manifest.dump())])
     }
 }
 
@@ -277,8 +267,7 @@ pub fn generate_profiles(count: i64, seed: i64, zone_ids: &[String], template: &
         }
         let range = |value: f64, low: f64, high: f64| low + value * (high - low);
         let support_need = range(draw("support_need"), template.support_need_min, template.support_need_max);
-        let stress_sensitivity =
-            range(draw("stress_sensitivity"), template.stress_sensitivity_min, template.stress_sensitivity_max);
+        let stress_sensitivity = range(draw("stress_sensitivity"), template.stress_sensitivity_min, template.stress_sensitivity_max);
         let initial_needs = InitialNeeds {
             toilet_urgency: range(draw("toilet_urgency"), template.toilet_urgency_min, template.toilet_urgency_max),
             hunger: range(draw("hunger"), template.hunger_min, template.hunger_max),
@@ -298,8 +287,5 @@ pub fn generate_profiles(count: i64, seed: i64, zone_ids: &[String], template: &
             seed,
         });
     }
-    Ok(ProfileSet {
-        profiles,
-        manifest: ProfileManifest { seed, template: template.clone(), profile_count: count, zone_ids: available },
-    })
+    Ok(ProfileSet { profiles, manifest: ProfileManifest { seed, template: template.clone(), profile_count: count, zone_ids: available } })
 }

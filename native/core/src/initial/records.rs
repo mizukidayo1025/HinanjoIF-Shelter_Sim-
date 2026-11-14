@@ -141,8 +141,7 @@ fn private_key(key: &str) -> bool {
 
 /// `re.IGNORECASE` of an ASCII letter (lower case) against a character, with Python's extras.
 fn ci(char: char, letter: char) -> bool {
-    (char.is_ascii() && char.to_ascii_lowercase() == letter)
-        || matches!((letter, char), ('i', '\u{130}' | '\u{131}') | ('k', '\u{212a}') | ('s', '\u{17f}'))
+    (char.is_ascii() && char.to_ascii_lowercase() == letter) || matches!((letter, char), ('i', '\u{130}' | '\u{131}') | ('k', '\u{212a}') | ('s', '\u{17f}'))
 }
 
 /// Whether `_redact` could change the text: an `@`; `sk-` with 12 or more of `[A-Za-z0-9_-]`
@@ -153,7 +152,11 @@ fn may_redact(value: &str) -> bool {
         return true;
     }
     let chars: Vec<char> = value.chars().collect();
-    let word = |start: usize, letters: &str| letters.chars().enumerate().all(|(offset, letter)| chars.get(start + offset).is_some_and(|char| if letter.is_ascii_alphabetic() { ci(*char, letter) } else { *char == letter }));
+    let word = |start: usize, letters: &str| {
+        letters.chars().enumerate().all(|(offset, letter)| {
+            chars.get(start + offset).is_some_and(|char| if letter.is_ascii_alphabetic() { ci(*char, letter) } else { *char == letter })
+        })
+    };
     let key_char = |char: char| char.is_ascii_alphanumeric() || char == '_' || char == '-' || matches!(char, '\u{130}' | '\u{131}' | '\u{17f}' | '\u{212a}');
     for start in 0..chars.len() {
         if word(start, "sk-") && chars[start + 3..].iter().take_while(|char| key_char(**char)).count() >= 12 {

@@ -323,9 +323,7 @@ fn plan_person(shared: &Shared<'_>, me: usize) -> Result<PersonPlan> {
     for &(source, basis) in &selected {
         let key = pair_key(&quoted[me], &quoted[source])?;
         let duration = match shared.previous.get(key.as_str()) {
-            Some(record) if record.last_seen_minute == last_minute => {
-                checked(record.consecutive_minutes.checked_add(1))?
-            }
+            Some(record) if record.last_seen_minute == last_minute => checked(record.consecutive_minutes.checked_add(1))?,
             _ => 1,
         };
         out.contacts.push((key, ContactRecord { last_seen_minute: minute, consecutive_minutes: duration }));
@@ -337,17 +335,8 @@ fn plan_person(shared: &Shared<'_>, me: usize) -> Result<PersonPlan> {
             }
             if settings.policy == Model::Sparse && minute >= cooldown.unwrap_or(0) {
                 let difference = py_max(0.0, people[source].stress - person.stress);
-                let contribution = min_num(
-                    settings.pair_cap,
-                    Num::Float(difference * settings.spread * duration as f64),
-                );
-                let remaining = py_max(
-                    0.0,
-                    py_min(
-                        settings.agent_cap.value() - additions,
-                        1.0 - py_max(0.0, person.base - settings.recovery) - additions,
-                    ),
-                );
+                let contribution = min_num(settings.pair_cap, Num::Float(difference * settings.spread * duration as f64));
+                let remaining = py_max(0.0, py_min(settings.agent_cap.value() - additions, 1.0 - py_max(0.0, person.base - settings.recovery) - additions));
                 let kept = min_num(contribution, Num::Float(remaining));
                 sparse_contribution = kept;
                 let contribution = kept.value();
@@ -396,13 +385,7 @@ fn plan_person(shared: &Shared<'_>, me: usize) -> Result<PersonPlan> {
             out.observed.extend(lasting.iter().map(|&(source, _)| (me, source)));
             let can_contribute = minute >= shared.cooldowns_before.get(person.id).copied().unwrap_or(0);
             let mut details = traced.then(ChannelDetails::default);
-            let (stress, shift) = channel_stress(
-                settings,
-                people,
-                person,
-                if can_contribute { &lasting } else { &[] },
-                details.as_mut(),
-            )?;
+            let (stress, shift) = channel_stress(settings, people, person, if can_contribute { &lasting } else { &[] }, details.as_mut())?;
             if shift.value() != 0.0 {
                 cooldown = Some(cooldown_after);
                 set_cooldown = Some(cooldown_after);
@@ -503,17 +486,10 @@ pub fn plan(
             group_members.entry(group).or_default().push(index);
         }
     }
-    let nearby_of_zone: HashMap<&str, Vec<&[usize]>> = members
-        .keys()
-        .map(|&zone| (zone, nearby_buckets(zone, neighbors, &members)))
-        .collect();
+    let nearby_of_zone: HashMap<&str, Vec<&[usize]>> = members.keys().map(|&zone| (zone, nearby_buckets(zone, neighbors, &members))).collect();
 
     let keep_all = settings.policy == Model::Sparse;
-    let mut cooldowns: BTreeMap<&str, i64> = cooldowns_before
-        .iter()
-        .filter(|(_, &due)| keep_all || due > minute)
-        .map(|(id, &due)| (&**id, due))
-        .collect();
+    let mut cooldowns: BTreeMap<&str, i64> = cooldowns_before.iter().filter(|(_, &due)| keep_all || due > minute).map(|(id, &due)| (&**id, due)).collect();
     if settings.policy == Model::DeGroot {
         cooldowns.clear();
     }
@@ -563,16 +539,10 @@ pub fn plan(
     drop(shared);
     cooldowns.extend(new_cooldowns);
 
-    let new_cooldowns: Vec<(&str, i64)> =
-        cooldowns.into_iter().filter(|&(_, due)| due > minute).collect();
+    let new_cooldowns: Vec<(&str, i64)> = cooldowns.into_iter().filter(|&(_, due)| due > minute).collect();
     let unchanged = cooldowns_before.len() == new_cooldowns.len()
-        && cooldowns_before
-            .iter()
-            .zip(&new_cooldowns)
-            .all(|((id, due), (new_id, new_due))| &**id == *new_id && due == new_due);
-    let cooldowns = (!unchanged).then(|| {
-        new_cooldowns.into_iter().map(|(id, due)| (Arc::from(id), due)).collect::<IdMap<i64>>()
-    });
+        && cooldowns_before.iter().zip(&new_cooldowns).all(|((id, due), (new_id, new_due))| &**id == *new_id && due == new_due);
+    let cooldowns = (!unchanged).then(|| new_cooldowns.into_iter().map(|(id, due)| (Arc::from(id), due)).collect::<IdMap<i64>>());
     Ok(Plan { stresses, contacts, cooldowns, observed, trace })
 }
 
@@ -603,15 +573,9 @@ fn channel_stress(
     let mut shift = Num::Float(0.0);
     if weight_total > 0.0 {
         let gamma = py_min(1.0, settings.spread * weight_total);
-        let raw: Vec<f64> = eligible
-            .iter()
-            .zip(&weights)
-            .map(|(&(source, _), &weight)| gamma * weight / weight_total * (people[source].stress - person.stress))
-            .collect();
-        let pair_shifts: Vec<Num> = raw
-            .iter()
-            .map(|&value| max_num(settings.pair_cap.neg(), min_num(settings.pair_cap, Num::Float(value))))
-            .collect();
+        let raw: Vec<f64> =
+            eligible.iter().zip(&weights).map(|(&(source, _), &weight)| gamma * weight / weight_total * (people[source].stress - person.stress)).collect();
+        let pair_shifts: Vec<Num> = raw.iter().map(|&value| max_num(settings.pair_cap.neg(), min_num(settings.pair_cap, Num::Float(value)))).collect();
         // math.fsum reads an int as its float.
         let pair_values: Vec<f64> = pair_shifts.iter().map(|value| value.value()).collect();
         let raw_shift = py_fsum(&pair_values).ok_or_else(|| Error::unsupported("shifts are not finite"))?;
@@ -629,13 +593,7 @@ fn channel_stress(
 }
 
 /// The new stress of `DeGrootContactPolicy.update`. `neighbors` are by source.
-fn degroot_stress(
-    settings: &Settings,
-    people: &[Person<'_>],
-    person: &Person<'_>,
-    neighbors: &[(usize, Basis)],
-    details: Option<&mut DeGrootDetails>,
-) -> f64 {
+fn degroot_stress(settings: &Settings, people: &[Person<'_>], person: &Person<'_>, neighbors: &[(usize, Basis)], details: Option<&mut DeGrootDetails>) -> f64 {
     let alpha = py_min(1.0, settings.spread);
     let count = neighbors.len().max(1) as f64;
     let contributions: Vec<Num> = neighbors
@@ -700,11 +658,7 @@ pub struct Planned {
 impl Planned {
     /// The deltas after the social model, in ID order: each base delta with its new stress.
     pub fn deltas(&self, base: &[Delta]) -> Vec<Delta> {
-        self.order
-            .iter()
-            .zip(&self.plan.stresses)
-            .map(|(&place, &stress)| Delta { stress, ..base[place].clone() })
-            .collect()
+        self.order.iter().zip(&self.plan.stresses).map(|(&place, &stress)| Delta { stress, ..base[place].clone() }).collect()
     }
 
     /// Whether the plan is written.
@@ -827,13 +781,11 @@ pub fn update(world: &World, inputs: &Inputs<'_>) -> Result<Planned> {
     let observed = if kit::namespace_absent(world, SOCIAL_NETWORK)? {
         None
     } else {
-        let pairs: Vec<(&str, &str)> =
-            plan.observed.iter().map(|&(recipient, source)| (people[recipient].id, people[source].id)).collect();
+        let pairs: Vec<(&str, &str)> = plan.observed.iter().map(|&(recipient, source)| (people[recipient].id, people[source].id)).collect();
         Some(social_network::observed_contacts(world, &pairs, inputs.minute)?)
     };
     let ids = people.iter().map(|person| Arc::from(person.id)).collect();
-    let mut planned =
-        Planned { order: found.iter().map(|item| item.0).collect(), ids, plan, observed, first_use, written: false };
+    let mut planned = Planned { order: found.iter().map(|item| item.0).collect(), ids, plan, observed, first_use, written: false };
     if !first_use {
         write(world, &mut planned)?;
     }

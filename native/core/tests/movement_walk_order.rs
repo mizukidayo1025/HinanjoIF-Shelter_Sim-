@@ -241,7 +241,9 @@ fn a_replan_of_the_facility_s_own_queue() {
 /// `a7b6df0115fe` (A001 ahead) and `93004fcf3e62` (A002 ahead).
 #[test]
 fn a_slot_read_with_the_one_ahead_before_or_after_their_walk() {
-    for (index, digest) in [(0, "b3b696eb15def86d8d40aee4619073d010edb06afc514659d0fdf55864bfe669"), (1, "cdd53c952ebbff51704ebc30efcdb4b71da74148fb4d2febb223beb8357d899c")] {
+    for (index, digest) in
+        [(0, "b3b696eb15def86d8d40aee4619073d010edb06afc514659d0fdf55864bfe669"), (1, "cdd53c952ebbff51704ebc30efcdb4b71da74148fb4d2febb223beb8357d899c")]
+    {
         let name = format!("a_slot_read_with_the_one_ahead_before_or_after_their_walk[people{index}]");
         let (mut case, _) = setup(&name);
         walked(&mut case);
@@ -283,7 +285,9 @@ fn a_replan_seen_by_the_slot_of_someone_later_in_the_walk() {
 /// digests `660dd9e12fd0` (A001, A002, A003) and `85b36c90eab3` (A003, A002, A001).
 #[test]
 fn people_placed_in_slots_read_who_has_walked() {
-    for (index, digest) in [(0, "d01705fa5bb17119e59d904498bfe6af141ef5a186608d3db7fcd8416e960fc8"), (1, "10dc3256d272330a0a68df42718866ed6a5ba55b1ee1173f706238dd778d3c8c")] {
+    for (index, digest) in
+        [(0, "d01705fa5bb17119e59d904498bfe6af141ef5a186608d3db7fcd8416e960fc8"), (1, "10dc3256d272330a0a68df42718866ed6a5ba55b1ee1173f706238dd778d3c8c")]
+    {
         let name = format!("people_placed_in_slots_read_who_has_walked[queue_order{index}]");
         let (mut case, _) = setup(&name);
         walked(&mut case);

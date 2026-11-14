@@ -62,7 +62,13 @@ fn router_of(graph: &Value) -> Router {
         if edge["closed"].as_bool().unwrap() || capacity.is_some_and(|capacity| capacity <= 0) {
             return None;
         }
-        Some(Edge { id: Arc::from(s(&edge["id"])), from: Arc::from(s(&edge["from"])), to: Arc::from(s(&edge["to"])), minutes: edge["minutes"].as_i64().unwrap(), capacity })
+        Some(Edge {
+            id: Arc::from(s(&edge["id"])),
+            from: Arc::from(s(&edge["from"])),
+            to: Arc::from(s(&edge["to"])),
+            minutes: edge["minutes"].as_i64().unwrap(),
+            capacity,
+        })
     });
     Router::new(zones.collect::<Vec<_>>(), edges.collect::<Vec<_>>())
 }
@@ -71,49 +77,51 @@ fn router_of(graph: &Value) -> Router {
 /// has a task to take, again with the routes, the floor plan and the formula.
 fn assign_operations(case: &mut Case, minute: i64, graph: &Value) -> Vec<Arc<str>> {
     let router = router_of(graph);
-    let result = case.tick(|tick| -> Result<Vec<Arc<str>>, Error> {
-        let holding = tick.holding()?;
-        if tick.is_absent(&holding, "staff_operations_v1")? {
-            return Ok(Vec::new());
-        }
-        let known = tick.value_section(&holding, SectionId::StaffOperationsKnown, |configs| &configs.staff_operations_known, known_staff_operations)?;
-        let staff = Staff::of(&holding)?;
-        let first = tick.cell.with(|world| staff::assign_operations(world, &staff.inputs(None), &known, minute, None))?;
-        match written(first)? {
-            Operations::Done(started) => Ok(started),
-            Operations::NeedsRoutes => {
-                tick.host.read_queue_rows()?;
-                let tasks = tick.gathered(&holding, true, true)?;
-                let movement = holding.held("movement_v1", "the world holds another movement state");
-                let loads = holding.held("staff_operations_v1", OTHER);
-                let routed = Routed { router: &router, movement: &movement, loads_staff: &loads };
-                let task_inputs = tasks.inputs();
-                let inputs = staff.inputs(Some(&task_inputs));
-                let result = tick.cell.with(|world| staff::assign_operations(world, &inputs, &known, minute, Some(&routed)))?;
-                match tasks.finish(written(result))? {
-                    Operations::Done(started) => Ok(started),
-                    Operations::NeedsRoutes => panic!("the tasks asked for their routes again"),
+    let result = case
+        .tick(|tick| -> Result<Vec<Arc<str>>, Error> {
+            let holding = tick.holding()?;
+            if tick.is_absent(&holding, "staff_operations_v1")? {
+                return Ok(Vec::new());
+            }
+            let known = tick.value_section(&holding, SectionId::StaffOperationsKnown, |configs| &configs.staff_operations_known, known_staff_operations)?;
+            let staff = Staff::of(&holding)?;
+            let first = tick.cell.with(|world| staff::assign_operations(world, &staff.inputs(None), &known, minute, None))?;
+            match written(first)? {
+                Operations::Done(started) => Ok(started),
+                Operations::NeedsRoutes => {
+                    tick.host.read_queue_rows()?;
+                    let tasks = tick.gathered(&holding, true, true)?;
+                    let movement = holding.held("movement_v1", "the world holds another movement state");
+                    let loads = holding.held("staff_operations_v1", OTHER);
+                    let routed = Routed { router: &router, movement: &movement, loads_staff: &loads };
+                    let task_inputs = tasks.inputs();
+                    let inputs = staff.inputs(Some(&task_inputs));
+                    let result = tick.cell.with(|world| staff::assign_operations(world, &inputs, &known, minute, Some(&routed)))?;
+                    match tasks.finish(written(result))? {
+                        Operations::Done(started) => Ok(started),
+                        Operations::NeedsRoutes => panic!("the tasks asked for their routes again"),
+                    }
                 }
             }
-        }
-    })
-    .unwrap();
+        })
+        .unwrap();
     case.answered(&result);
     result
 }
 
 /// `schedule_staff_operation_relief(world, minute)`.
 fn relief(case: &mut Case, minute: i64) -> Vec<Arc<str>> {
-    let result = case.tick(|tick| -> Result<Vec<Arc<str>>, Error> {
-        let holding = tick.holding()?;
-        if tick.is_absent(&holding, "staff_operations_v1")? {
-            return Ok(Vec::new());
-        }
-        tick.host.read_queue_rows()?;
-        let staff = Staff::of(&holding)?;
-        written(tick.cell.with(|world| staff::relief(world, &staff.inputs(None), minute))?)
-    })
-    .unwrap();
+    let result = case
+        .tick(|tick| -> Result<Vec<Arc<str>>, Error> {
+            let holding = tick.holding()?;
+            if tick.is_absent(&holding, "staff_operations_v1")? {
+                return Ok(Vec::new());
+            }
+            tick.host.read_queue_rows()?;
+            let staff = Staff::of(&holding)?;
+            written(tick.cell.with(|world| staff::relief(world, &staff.inputs(None), minute))?)
+        })
+        .unwrap();
     case.answered(&result);
     result
 }
@@ -150,7 +158,9 @@ fn waits(case: &mut Case, sample: i64) -> Vec<(String, String, i64, Vec<String>)
         let mut out: Vec<(String, String, i64, Vec<String>)> = found
             .requests
             .iter()
-            .map(|request| (request.agent.to_string(), ids[request.index].to_string(), request.waited, found.reasons_of(request).into_iter().map(str::to_owned).collect()))
+            .map(|request| {
+                (request.agent.to_string(), ids[request.index].to_string(), request.waited, found.reasons_of(request).into_iter().map(str::to_owned).collect())
+            })
             .collect();
         // `sorted(active_support, key=agent_id)`, stable.
         out.sort_by(|first, second| first.0.as_bytes().cmp(second.0.as_bytes()));
@@ -184,11 +194,16 @@ fn assigned(label: &str) -> (Case, Vec<Arc<str>>, String) {
 /// `ranks.staff-travel-first-v1` `9b591b8fac3c7782`).
 #[test]
 fn a_worker_takes_the_task_ranked_first() {
-    for (label, digest) in [("ranks.None", "17287dde79cf795a8ce46b51c3efff0075546b730a57d7927d123764328f93c0"), ("ranks.staff-urgency-first-v1", "3938dd5c25049781b552f19a1cc4f72afe1d7db59d771a46a1bd2cbb1d50cd46"), ("ranks.staff-travel-first-v1", "8e51ed1c6f24583fe5851b9c9f2ba7358d33fb506a1265cb6a58eb885b12f565")] {
+    for (label, digest) in [
+        ("ranks.None", "17287dde79cf795a8ce46b51c3efff0075546b730a57d7927d123764328f93c0"),
+        ("ranks.staff-urgency-first-v1", "3938dd5c25049781b552f19a1cc4f72afe1d7db59d771a46a1bd2cbb1d50cd46"),
+        ("ranks.staff-travel-first-v1", "8e51ed1c6f24583fe5851b9c9f2ba7358d33fb506a1265cb6a58eb885b12f565"),
+    ] {
         let (case, answer, got) = assigned(label);
         assert_eq!(answer.len(), 2, "{label}");
         let doc = case.doc();
-        let mut kinds: Vec<&Value> = doc["model_state"]["staff_operations_v1"]["staff"].as_object().unwrap().values().map(|record| &record["task_kind"]).collect();
+        let mut kinds: Vec<&Value> =
+            doc["model_state"]["staff_operations_v1"]["staff"].as_object().unwrap().values().map(|record| &record["task_kind"]).collect();
         kinds.sort_by_key(|kind| kind.to_string());
         kinds.dedup();
         assert!(kinds.len() >= 2, "{label}");
@@ -212,7 +227,12 @@ fn a_zone_s_threshold_names_the_reason() {
 /// goes to even, and the ties go by ID.
 #[test]
 fn the_rotation_reads_the_history_and_the_fatigue() {
-    for (label, digest) in [("rotation.0.0005", "722db56ee1ad8a9779632be43ba07feb5181fcfc4003973e98bfd29b8b61c635"), ("rotation.0.0015", "18cbe24980e156c0b5bafc2abf6028efa3ad4d97e31d197892c748ea880aa879"), ("rotation.0.0025", "a39e73c8cf2bfa85088961a6ce3870bde6f6c03e7fa472c0c23d41c7ca36aabb"), ("rotation.0.001", "73abc72e023cc5b6fe44886cf900c2cfa0d2f3f7ecc033f9753e3176c45ca141")] {
+    for (label, digest) in [
+        ("rotation.0.0005", "722db56ee1ad8a9779632be43ba07feb5181fcfc4003973e98bfd29b8b61c635"),
+        ("rotation.0.0015", "18cbe24980e156c0b5bafc2abf6028efa3ad4d97e31d197892c748ea880aa879"),
+        ("rotation.0.0025", "a39e73c8cf2bfa85088961a6ce3870bde6f6c03e7fa472c0c23d41c7ca36aabb"),
+        ("rotation.0.001", "73abc72e023cc5b6fe44886cf900c2cfa0d2f3f7ecc033f9753e3176c45ca141"),
+    ] {
         let (_, answer, got) = assigned(label);
         assert_eq!(answer.len(), 1, "{label}");
         assert_eq!(got, digest);
@@ -224,7 +244,10 @@ fn the_rotation_reads_the_history_and_the_fatigue() {
 /// side of the rank, a 1% change of the factor swaps them.
 #[test]
 fn a_patrol_s_urgency_is_half_the_mean_stress() {
-    for (label, kind, digest) in [("patrol_urgency.0.598", "cleaning", "cc8a4f033c9a68561df7b82d7479e12c1df2bb8184edc7ff557da4ffcc96bb2d"), ("patrol_urgency.0.602", "patrol", "184a999d3f07c439e2b7b0db1b2e56989d8a8e64a0de4d062735e101149f8faa")] {
+    for (label, kind, digest) in [
+        ("patrol_urgency.0.598", "cleaning", "cc8a4f033c9a68561df7b82d7479e12c1df2bb8184edc7ff557da4ffcc96bb2d"),
+        ("patrol_urgency.0.602", "patrol", "184a999d3f07c439e2b7b0db1b2e56989d8a8e64a0de4d062735e101149f8faa"),
+    ] {
         let (case, answer, got) = assigned(label);
         assert!(!answer.is_empty());
         assert_eq!(staff_state(&case.doc(), "S01")["task_kind"], json!(kind), "{label}");
@@ -297,15 +320,16 @@ fn a_full_passage_keeps_a_worker_from_a_task() {
 
 /// The passages' loads at a minute (`shared_passage_edge_loads`).
 fn passage_loads(case: &mut Case, minute: i64) -> Vec<(String, i64)> {
-    let mut loads: Vec<(String, i64)> = case.tick(|tick| {
-        let holding = tick.holding().unwrap();
-        let movement = holding.held("movement_v1", "the world holds another movement state");
-        let loads = holding.held("staff_operations_v1", OTHER);
-        tick.cell.with(|world| travel::passage_edge_loads(world, &movement, &loads, minute).unwrap()).unwrap()
-    })
-    .into_iter()
-    .map(|(edge, load)| (edge.to_string(), load))
-    .collect();
+    let mut loads: Vec<(String, i64)> = case
+        .tick(|tick| {
+            let holding = tick.holding().unwrap();
+            let movement = holding.held("movement_v1", "the world holds another movement state");
+            let loads = holding.held("staff_operations_v1", OTHER);
+            tick.cell.with(|world| travel::passage_edge_loads(world, &movement, &loads, minute).unwrap()).unwrap()
+        })
+        .into_iter()
+        .map(|(edge, load)| (edge.to_string(), load))
+        .collect();
     loads.sort();
     loads
 }
@@ -340,7 +364,9 @@ fn a_trip_under_way_loads_the_edge_its_share_of_the_time_has_reached() {
 // ---- schedule_staff_operation_relief --------------------------------------------------------------
 
 fn replacement(case: &Case) -> Value {
-    case.doc()["event_queue"].as_array().unwrap().iter().find(|event| event["event_type"] == "staff_operation_relief").unwrap()["payload"]["replacement_staff_id"].clone()
+    case.doc()["event_queue"].as_array().unwrap().iter().find(|event| event["event_type"] == "staff_operation_relief").unwrap()["payload"]
+        ["replacement_staff_id"]
+        .clone()
 }
 
 /// `test_a_relief_goes_to_the_replacement_the_python_rule_picks` (pytest digest
@@ -385,7 +411,12 @@ fn no_relief_for_a_worker_still_on_shift_or_too_near_the_end() {
 #[test]
 fn the_reasons_a_free_worker_s_route_gives() {
     let steps = inputs("waits")["free_worker"].clone();
-    let wanted = ["assignment_not_attempted_at_sampled_minute", "assignment_failure_reason_not_recorded", "assignment_failure_reason_not_recorded", "route_unavailable_at_assignment"];
+    let wanted = [
+        "assignment_not_attempted_at_sampled_minute",
+        "assignment_failure_reason_not_recorded",
+        "assignment_failure_reason_not_recorded",
+        "route_unavailable_at_assignment",
+    ];
     for (name, reason) in steps.as_array().unwrap().iter().zip(wanted) {
         assert_eq!(reasons(&mut Case::of(FILE, s(name))), [[reason]], "{name}");
     }
@@ -459,7 +490,13 @@ fn many_worlds_read_the_same_reasons_with_free_and_busy_workers() {
     }
     assert_eq!(drawn.as_array().unwrap().len(), 120);
     assert_eq!(answers.hex(), "325e8aeb57bd3c831c3161b661c4a29987f78545901cd7d811c957bc0406a0a4");
-    for reason in ["staff_busy", "assignment_not_attempted_at_sampled_minute", "assignment_failure_reason_not_recorded", "insufficient_run_time", "staff_destination_full"] {
+    for reason in [
+        "staff_busy",
+        "assignment_not_attempted_at_sampled_minute",
+        "assignment_failure_reason_not_recorded",
+        "insufficient_run_time",
+        "staff_destination_full",
+    ] {
         assert!(seen.iter().any(|seen| seen == reason), "{reason}");
     }
 }
@@ -502,43 +539,44 @@ fn a_route_with_room_on_its_edges_counts_the_trips_under_way() {
 /// it: the plain case first, and where a request may be assigned, the controller's own route and
 /// trip.
 fn assign_pending(case: &mut Case, minute: i64) -> Vec<Arc<str>> {
-    let result = case.tick(|tick| -> Result<Vec<Arc<str>>, Error> {
-        let policies = tick.policies.clone();
-        let service = staff_service(policies.services.staff.object().unwrap()).unwrap();
-        let holding = tick.holding()?;
-        let staff = Staff::of(&holding)?;
-        let mut taken = Vec::new();
-        let first = tick.cell.with(|world| staff::assign_pending(world, &staff.inputs(None), &service, minute, None, &mut taken))?;
-        match written(first)? {
-            Assigned::Done(assigned) => Ok(assigned),
-            Assigned::NeedsAll => {
-                tick.host.read_queue_rows()?;
-                let tasks = tick.gathered(&holding, true, false)?;
-                let graph = match service.resolver {
-                    Step::Own => Some(propose::graph(tick)?),
-                    _ => None,
-                };
-                let plan = tick.plan();
-                let section = tick.value_section(&holding, SectionId::Movement, |configs| &configs.movement, Movement::parse)?;
-                let movement = holding.held("movement_v1", "the world holds another movement state");
-                let loads = holding.held("staff_operations_v1", OTHER);
-                let travel = graph.as_ref().map(|graph| Travel {
-                    routing: Routing { graph, geo: plan.get(), movement: &section, staff: &loads },
-                    walking: Walking { movement: &movement, geo: plan.get() },
-                });
-                let full = Full { travel };
-                let task_inputs = tasks.inputs();
-                let inputs = staff.inputs(Some(&task_inputs));
-                let result = tick.cell.with(|world| staff::assign_pending(world, &inputs, &service, minute, Some(&full), &mut taken))?;
-                tick.host.slots_changed(&taken)?;
-                match tasks.finish(written(result))? {
-                    Assigned::Done(assigned) => Ok(assigned),
-                    Assigned::NeedsAll => panic!("the assignment asked for its inputs again"),
+    let result = case
+        .tick(|tick| -> Result<Vec<Arc<str>>, Error> {
+            let policies = tick.policies.clone();
+            let service = staff_service(policies.services.staff.object().unwrap()).unwrap();
+            let holding = tick.holding()?;
+            let staff = Staff::of(&holding)?;
+            let mut taken = Vec::new();
+            let first = tick.cell.with(|world| staff::assign_pending(world, &staff.inputs(None), &service, minute, None, &mut taken))?;
+            match written(first)? {
+                Assigned::Done(assigned) => Ok(assigned),
+                Assigned::NeedsAll => {
+                    tick.host.read_queue_rows()?;
+                    let tasks = tick.gathered(&holding, true, false)?;
+                    let graph = match service.resolver {
+                        Step::Own => Some(propose::graph(tick)?),
+                        _ => None,
+                    };
+                    let plan = tick.plan();
+                    let section = tick.value_section(&holding, SectionId::Movement, |configs| &configs.movement, Movement::parse)?;
+                    let movement = holding.held("movement_v1", "the world holds another movement state");
+                    let loads = holding.held("staff_operations_v1", OTHER);
+                    let travel = graph.as_ref().map(|graph| Travel {
+                        routing: Routing { graph, geo: plan.get(), movement: &section, staff: &loads },
+                        walking: Walking { movement: &movement, geo: plan.get() },
+                    });
+                    let full = Full { travel };
+                    let task_inputs = tasks.inputs();
+                    let inputs = staff.inputs(Some(&task_inputs));
+                    let result = tick.cell.with(|world| staff::assign_pending(world, &inputs, &service, minute, Some(&full), &mut taken))?;
+                    tick.host.slots_changed(&taken)?;
+                    match tasks.finish(written(result))? {
+                        Assigned::Done(assigned) => Ok(assigned),
+                        Assigned::NeedsAll => panic!("the assignment asked for its inputs again"),
+                    }
                 }
             }
-        }
-    })
-    .unwrap();
+        })
+        .unwrap();
     case.answered(&result);
     result
 }
@@ -550,7 +588,11 @@ fn assign_pending(case: &mut Case, minute: i64) -> Vec<Arc<str>> {
 #[test]
 fn the_controller_s_own_route_and_trip_decide_an_assignment() {
     let given = inputs("own_route_and_trip");
-    for (label, reason, digest) in [("full", Some("route_unavailable_at_assignment"), "bc48de1c93c48e8539cd28ffdd08af84d2de05cc9d2206bc52b389c1216dd936"), ("late", Some("insufficient_run_time"), "3a9c62a05211176bd0c6aa43725587165bcc620627991e8a06bc153897b27d1a"), ("trip", None, "e66cf39b52e14cfb77d7994eaf9b45fe0aa7afa85b07e78a49ec70de3b56418b")] {
+    for (label, reason, digest) in [
+        ("full", Some("route_unavailable_at_assignment"), "bc48de1c93c48e8539cd28ffdd08af84d2de05cc9d2206bc52b389c1216dd936"),
+        ("late", Some("insufficient_run_time"), "3a9c62a05211176bd0c6aa43725587165bcc620627991e8a06bc153897b27d1a"),
+        ("trip", None, "e66cf39b52e14cfb77d7994eaf9b45fe0aa7afa85b07e78a49ec70de3b56418b"),
+    ] {
         let mut case = Case::of(FILE, s(&given[label]["world"]));
         let assigned = assign_pending(&mut case, 0);
         let wanted: Vec<Arc<str>> = if reason.is_some() { Vec::new() } else { vec![Arc::from("support-1")] };

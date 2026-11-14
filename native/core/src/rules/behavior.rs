@@ -61,19 +61,8 @@ pub enum Action {
 }
 
 /// The values of `ActionKind`, in the order of `Action`.
-pub const ACTION_VALUES: [&str; 11] = [
-    "wait",
-    "request_toilet",
-    "rest",
-    "sleep",
-    "seek_help",
-    "fetch_water",
-    "collect_meal",
-    "seek_information",
-    "socialize",
-    "care_family",
-    "help_others",
-];
+pub const ACTION_VALUES: [&str; 11] =
+    ["wait", "request_toilet", "rest", "sleep", "seek_help", "fetch_water", "collect_meal", "seek_information", "socialize", "care_family", "help_others"];
 
 impl Action {
     pub fn value(self) -> &'static str {
@@ -366,19 +355,11 @@ fn target_for_action(frozen: &Frozen<'_>, index: usize, action: Action) -> Optio
     match action {
         Action::Socialize => zone_peers().next(),
         Action::CareFamily => {
-            let peers: Vec<usize> = frozen
-                .group_of(agent)
-                .iter()
-                .copied()
-                .filter(|peer| *peer != index && data.agents[*peer].zone == agent.zone)
-                .collect();
-            let explicit: Vec<usize> =
-                peers.iter().copied().filter(|peer| is_care_linked(agent, &data.agents[*peer])).collect();
+            let peers: Vec<usize> = frozen.group_of(agent).iter().copied().filter(|peer| *peer != index && data.agents[*peer].zone == agent.zone).collect();
+            let explicit: Vec<usize> = peers.iter().copied().filter(|peer| is_care_linked(agent, &data.agents[*peer])).collect();
             if !explicit.is_empty() {
                 frozen.most_pressed(explicit.into_iter())
-            } else if agent.person.personal_context_present
-                || peers.iter().any(|peer| data.agents[*peer].person.personal_context_present)
-            {
+            } else if agent.person.personal_context_present || peers.iter().any(|peer| data.agents[*peer].person.personal_context_present) {
                 None
             } else {
                 frozen.most_pressed(peers.into_iter())
@@ -420,15 +401,14 @@ fn candidates_of(frozen: &Frozen<'_>, index: usize) -> Vec<Candidate> {
     distress = py_max(distress, body.discontent * 0.75);
     distress = py_max(distress, body.negative_affect * 0.6);
 
-    let has_open_request = agent.support_request_id.is_some()
-        && matches!(agent.support_request_status, None | Some(RequestStatus::Pending) | Some(RequestStatus::Assigned));
+    let has_open_request =
+        agent.support_request_id.is_some() && matches!(agent.support_request_status, None | Some(RequestStatus::Pending) | Some(RequestStatus::Assigned));
     let query_enabled = settings.query_enabled();
-    let query_trigger = query_enabled
-        && (agent.information_query_pressure >= settings.query_threshold
-            || body.uncertainty >= py_max(0.65, settings.query_threshold));
+    let query_trigger =
+        query_enabled && (agent.information_query_pressure >= settings.query_threshold || body.uncertainty >= py_max(0.65, settings.query_threshold));
     let cooled_down = agent.support_cooldown_remaining_minutes == 0;
-    let can_seek_help = (agent.support_need >= 0.25 && distress >= 0.50 && !has_open_request && cooled_down)
-        || (query_trigger && !has_open_request && cooled_down);
+    let can_seek_help =
+        (agent.support_need >= 0.25 && distress >= 0.50 && !has_open_request && cooled_down) || (query_trigger && !has_open_request && cooled_down);
     let can_seek_information = query_enabled && query_trigger && !has_open_request && cooled_down;
 
     let minute_of_day = data.minute_index.rem_euclid(1440);
@@ -440,8 +420,7 @@ fn candidates_of(frozen: &Frozen<'_>, index: usize) -> Vec<Candidate> {
             sleep_time <= minute_of_day && minute_of_day < wake_time
         };
     }
-    let sleep_rhythm_due =
-        data.autonomy_enabled && sleep_window && person.required_sleep_minutes.is_some_and(|minutes| minutes > 0);
+    let sleep_rhythm_due = data.autonomy_enabled && sleep_window && person.required_sleep_minutes.is_some_and(|minutes| minutes > 0);
     let mut meal_rhythm_due = false;
     if data.autonomy_enabled {
         if let Some(wake_time) = person.usual_wake_minute {
@@ -452,12 +431,7 @@ fn candidates_of(frozen: &Frozen<'_>, index: usize) -> Vec<Candidate> {
     }
 
     let mut candidates = Vec::with_capacity(11);
-    candidates.push(Candidate {
-        action: Action::Wait,
-        eligible: true,
-        utility: 0.10 + 0.15 * (1.0 - distress),
-        priority: 0,
-    });
+    candidates.push(Candidate { action: Action::Wait, eligible: true, utility: 0.10 + 0.15 * (1.0 - distress), priority: 0 });
     candidates.push(Candidate {
         action: Action::RequestToilet,
         eligible: needs.toilet_urgency >= 0.25 || body.hygiene_need >= 0.5,
@@ -473,16 +447,14 @@ fn candidates_of(frozen: &Frozen<'_>, index: usize) -> Vec<Candidate> {
     candidates.push(Candidate {
         action: Action::Sleep,
         eligible: needs.fatigue >= 0.65 || body.sleep_debt_minutes >= 240.0 || sleep_rhythm_due,
-        utility: 0.25 + 0.90 * needs.fatigue + sleep_debt_utility(agent, settings)
-            + (if sleep_rhythm_due { 0.20 } else { 0.0 })
+        utility: 0.25 + 0.90 * needs.fatigue + sleep_debt_utility(agent, settings) + (if sleep_rhythm_due { 0.20 } else { 0.0 })
             - 0.20 * py_max(0.0, zone.lighting_level - 0.3),
         priority: 0,
     });
     candidates.push(Candidate {
         action: Action::SeekHelp,
         eligible: can_seek_help,
-        utility: 0.15 + 0.65 * distress + 0.25 * agent.support_need + 0.10 * agent.trust + 0.20 * body.uncertainty
-            + 0.15 * body.discontent
+        utility: 0.15 + 0.65 * distress + 0.25 * agent.support_need + 0.10 * agent.trust + 0.20 * body.uncertainty + 0.15 * body.discontent
             - 0.10 * body.reassurance
             + settings.query_weight * agent.information_query_pressure,
         priority: i64::from(distress >= 0.80),
@@ -496,12 +468,7 @@ fn candidates_of(frozen: &Frozen<'_>, index: usize) -> Vec<Candidate> {
     if data.autonomy_enabled && settings.autonomy {
         let zone_people = &frozen.by_zone[agent.zone];
         let zone_peers = || zone_people.iter().copied().filter(|peer| *peer != index);
-        let mut family: Vec<usize> = frozen
-            .group_of(agent)
-            .iter()
-            .copied()
-            .filter(|peer| *peer != index && data.agents[*peer].zone == agent.zone)
-            .collect();
+        let mut family: Vec<usize> = frozen.group_of(agent).iter().copied().filter(|peer| *peer != index && data.agents[*peer].zone == agent.zone).collect();
         let explicit: Vec<usize> = zone_peers().filter(|peer| is_care_linked(agent, &data.agents[*peer])).collect();
         if !explicit.is_empty() {
             family.retain(|peer| explicit.contains(peer));
@@ -591,13 +558,7 @@ fn score(candidates: &[Candidate], modifiers: &[DemandModifier], temperature: f6
     probabilities[*last] = py_max(0.0, 1.0 - others_sum);
     let mut scored = Vec::with_capacity(candidates.len());
     for ((candidate, total), probability) in candidates.iter().zip(totals).zip(probabilities) {
-        let item = Scored {
-            action: candidate.action,
-            eligible: candidate.eligible,
-            utility: total,
-            priority: candidate.priority,
-            probability,
-        };
+        let item = Scored { action: candidate.action, eligible: candidate.eligible, utility: total, priority: candidate.priority, probability };
         check_candidate(&item)?;
         scored.push(item);
     }
@@ -634,13 +595,7 @@ fn compute(frozen: &Frozen<'_>, index: usize, temperature: f64, base_minutes: i6
         }
     }
     let interval = |action: Action| -> std::result::Result<i64, &'static str> {
-        let minutes = decision_interval(
-            base_minutes,
-            action,
-            demand_of(modifiers, action),
-            zone.min_rest_decision_minutes,
-            zone.max_rest_decision_minutes,
-        )?;
+        let minutes = decision_interval(base_minutes, action, demand_of(modifiers, action), zone.min_rest_decision_minutes, zone.max_rest_decision_minutes)?;
         minute.checked_add(minutes).ok_or("a minute is out of range")
     };
     let mut next_decision_at = interval(selected.action)?;
@@ -654,11 +609,7 @@ fn compute(frozen: &Frozen<'_>, index: usize, temperature: f64, base_minutes: i6
         let mut best: Option<(i64, f64)> = None;
         for item in evidence.iter().filter(|item| item.eligible) {
             best = match best {
-                Some((priority, utility))
-                    if item.priority < priority || (item.priority == priority && item.utility <= utility) =>
-                {
-                    Some((priority, utility))
-                }
+                Some((priority, utility)) if item.priority < priority || (item.priority == priority && item.utility <= utility) => Some((priority, utility)),
                 _ => Some((item.priority, item.utility)),
             };
         }
@@ -895,12 +846,7 @@ pub fn due(data: &ViewData, scoring: &Scoring<'_>, seed: &str, state_hash: Arc<s
         let outcome = compute(&frozen, index, temperature, interval).map_err(Error::unsupported)?;
         outcomes.push((index, outcome));
     }
-    let common = Arc::new(Common {
-        triggers,
-        state_hash,
-        scorer_version: scorer_version.clone(),
-        policy_version: policy_version.clone(),
-    });
+    let common = Arc::new(Common { triggers, state_hash, scorer_version: scorer_version.clone(), policy_version: policy_version.clone() });
     Ok(Some(outcomes.into_iter().map(|(index, outcome)| Proposal { index, outcome, common: common.clone() }).collect()))
 }
 

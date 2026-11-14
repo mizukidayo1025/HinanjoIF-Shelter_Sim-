@@ -90,7 +90,8 @@ fn check_with<H: Host>(
     let holding = kit::holding(cell, host)?;
     let plan = kit::kept_of(kit::section(cell, host, &holding, SectionId::TickPlan, |configs| &configs.tick_plan)?);
     let plan = kit::kept(&plan)?.clone();
-    let route_capacities = kit::kept_section_value(cell, host, &holding, SectionId::RouteCapacities, |configs| &configs.route_capacities, RouteCapacities::parse)?;
+    let route_capacities =
+        kit::kept_section_value(cell, host, &holding, SectionId::RouteCapacities, |configs| &configs.route_capacities, RouteCapacities::parse)?;
     let overlay = kit::kept_section_value(cell, host, &holding, SectionId::OverlaySchema, |configs| &configs.overlay_schema, overlay_schema)?;
     let stamp = cell
         .with(|world| -> Result<_> {
@@ -178,8 +179,15 @@ pub fn validate_after_tick<H: Host>(cell: &Shard<World>, host: &mut H, stepping:
 pub enum StepError<E> {
     /// The world's clock is complete: no tick is left.
     Complete,
-    Tick { minute: i64, label: Option<&'static str>, error: E },
-    Check { minute: i64, error: E },
+    Tick {
+        minute: i64,
+        label: Option<&'static str>,
+        error: E,
+    },
+    Check {
+        minute: i64,
+        error: E,
+    },
 }
 
 /// A tick of the loaded Run at `minute`, with this host: the world, the Run, its policies, the
@@ -232,7 +240,9 @@ pub fn metric_line(sample: &MetricSample, minute: i64) -> Result<Vec<u8>> {
     ints(&mut encoder, sample.toilet_active_users);
     next(&mut encoder);
     encoder.int(sample.toilet_working_units);
-    for value in [sample.toilet_wait_count, sample.toilet_wait_total_minutes, sample.toilet_wait_mean_minutes, sample.toilet_wait_max_minutes, sample.stress_mean] {
+    for value in
+        [sample.toilet_wait_count, sample.toilet_wait_total_minutes, sample.toilet_wait_mean_minutes, sample.toilet_wait_max_minutes, sample.stress_mean]
+    {
         next(&mut encoder);
         encoder.try_float(value)?;
     }

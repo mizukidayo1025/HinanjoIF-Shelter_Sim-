@@ -31,22 +31,11 @@ static DETACHED: AtomicPtr<ffi::PyObject> = AtomicPtr::new(null_mut());
 
 /// Remember the exact classes. Each stays alive for the life of the process.
 #[pyfunction]
-pub fn install_tracked_types(
-    tracked_dict: &Bound<'_, PyType>,
-    tracked_list: &Bound<'_, PyType>,
-    namespace_table: &Bound<'_, PyType>,
-) -> PyResult<()> {
-    if !tracked_dict.is_subclass_of::<PyDict>()?
-        || !namespace_table.is_subclass_of::<PyDict>()?
-        || !tracked_list.is_subclass_of::<PyList>()?
-    {
+pub fn install_tracked_types(tracked_dict: &Bound<'_, PyType>, tracked_list: &Bound<'_, PyType>, namespace_table: &Bound<'_, PyType>) -> PyResult<()> {
+    if !tracked_dict.is_subclass_of::<PyDict>()? || !namespace_table.is_subclass_of::<PyDict>()? || !tracked_list.is_subclass_of::<PyList>()? {
         return Err(pyo3::exceptions::PyTypeError::new_err("not dict and list subclasses"));
     }
-    for (slot, class) in [
-        (&TRACKED_DICT, tracked_dict),
-        (&TRACKED_LIST, tracked_list),
-        (&NAMESPACE_TABLE, namespace_table),
-    ] {
+    for (slot, class) in [(&TRACKED_DICT, tracked_dict), (&TRACKED_LIST, tracked_list), (&NAMESPACE_TABLE, namespace_table)] {
         // The new reference is never dropped, so the pointer stays valid.
         let pointer = class.clone().unbind().into_ptr();
         slot.store(pointer.cast(), Ordering::Release);
@@ -87,8 +76,7 @@ pub(crate) fn is_detached(value: &Bound<'_, PyAny>) -> bool {
 /// `_DetachingTable` while one of them is detached.
 #[inline]
 pub(crate) fn is_table_type(kind: *mut ffi::PyTypeObject) -> bool {
-    !kind.is_null()
-        && (kind == NAMESPACE_TABLE.load(Ordering::Relaxed) || kind == DETACHING_TABLE.load(Ordering::Relaxed))
+    !kind.is_null() && (kind == NAMESPACE_TABLE.load(Ordering::Relaxed) || kind == DETACHING_TABLE.load(Ordering::Relaxed))
 }
 
 pub(crate) fn id_map_type() -> *mut ffi::PyTypeObject {
@@ -120,9 +108,7 @@ pub(crate) fn is_readable_list_type(kind: *mut ffi::PyTypeObject) -> bool {
 }
 
 #[inline]
-pub(crate) fn as_readable_dict<'a, 'py>(
-    value: &'a Bound<'py, PyAny>,
-) -> Option<&'a Bound<'py, PyDict>> {
+pub(crate) fn as_readable_dict<'a, 'py>(value: &'a Bound<'py, PyAny>) -> Option<&'a Bound<'py, PyDict>> {
     // SAFETY: the type's pointer is only compared, and every accepted type is a dict.
     if is_readable_dict_type(unsafe { ffi::Py_TYPE(value.as_ptr()) }) {
         Some(unsafe { value.downcast_unchecked() })
@@ -132,9 +118,7 @@ pub(crate) fn as_readable_dict<'a, 'py>(
 }
 
 #[inline]
-pub(crate) fn as_readable_list<'a, 'py>(
-    value: &'a Bound<'py, PyAny>,
-) -> Option<&'a Bound<'py, PyList>> {
+pub(crate) fn as_readable_list<'a, 'py>(value: &'a Bound<'py, PyAny>) -> Option<&'a Bound<'py, PyList>> {
     // SAFETY: the type's pointer is only compared, and every accepted type is a list.
     if is_readable_list_type(unsafe { ffi::Py_TYPE(value.as_ptr()) }) {
         Some(unsafe { value.downcast_unchecked() })

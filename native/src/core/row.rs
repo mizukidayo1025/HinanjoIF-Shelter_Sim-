@@ -29,13 +29,10 @@ use pyo3::types::{PyBool, PyDict, PyFloat, PyInt, PyList, PyString};
 use pyo3::IntoPyObjectExt;
 use rustc_hash::FxBuildHasher;
 
-pub(crate) use sheltersim_core::row::{
-    same_names, Atom, Field, IdMap, Items, Maybe, Part, StrEnum, TreeSink,
-    ABSENT_KEY,
-};
+pub(crate) use sheltersim_core::row::{same_names, Atom, Field, IdMap, Items, Maybe, Part, StrEnum, TreeSink, ABSENT_KEY};
 
 use super::tracked::{as_readable_dict, as_readable_list};
-use super::value::{V, VPy};
+use super::value::{VPy, V};
 use super::world_core::{apply_to_value, emptied_after, Misfit, OrMisfit, Write};
 use crate::Unsupported;
 
@@ -93,10 +90,7 @@ pub(crate) fn atom_to_py<'py>(py: Python<'py>, atom: Atom<'_>) -> PyResult<Bound
 
 impl PyField for f64 {
     fn from_py(value: &Bound<'_, PyAny>) -> Result<Self, Misfit> {
-        Ok(value
-            .downcast_exact::<PyFloat>()
-            .map_err(|_| Misfit::new("not a float"))?
-            .value())
+        Ok(value.downcast_exact::<PyFloat>().map_err(|_| Misfit::new("not a float"))?.value())
     }
 
     fn to_py<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
@@ -107,10 +101,7 @@ impl PyField for f64 {
 impl PyField for i64 {
     fn from_py(value: &Bound<'_, PyAny>) -> Result<Self, Misfit> {
         // bool is an int subclass, so the exact check turns it down too.
-        Ok(value
-            .downcast_exact::<PyInt>()
-            .map_err(|_| Misfit::new("not an int"))?
-            .extract().or_misfit()?)
+        Ok(value.downcast_exact::<PyInt>().map_err(|_| Misfit::new("not an int"))?.extract().or_misfit()?)
     }
 
     fn to_py<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
@@ -120,10 +111,7 @@ impl PyField for i64 {
 
 impl PyField for bool {
     fn from_py(value: &Bound<'_, PyAny>) -> Result<Self, Misfit> {
-        Ok(value
-            .downcast_exact::<PyBool>()
-            .map_err(|_| Misfit::new("not a bool"))?
-            .is_true())
+        Ok(value.downcast_exact::<PyBool>().map_err(|_| Misfit::new("not a bool"))?.is_true())
     }
 
     fn to_py<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
@@ -133,12 +121,7 @@ impl PyField for bool {
 
 impl PyField for Arc<str> {
     fn from_py(value: &Bound<'_, PyAny>) -> Result<Self, Misfit> {
-        Ok(Arc::from(
-            value
-                .downcast_exact::<PyString>()
-                .map_err(|_| Misfit::new("not a str"))?
-                .to_str().or_misfit()?,
-        ))
+        Ok(Arc::from(value.downcast_exact::<PyString>().map_err(|_| Misfit::new("not a str"))?.to_str().or_misfit()?))
     }
 
     fn to_py<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
@@ -231,9 +214,7 @@ impl<T: PyField> PyField for IdMap<T> {
         let dict = as_readable_dict(value).ok_or_else(|| Misfit::new("not a dict"))?;
         let mut map = IdMap::with_capacity_and_hasher(dict.len(), FxBuildHasher);
         for (key, item) in dict.iter() {
-            let key = key
-                .downcast_exact::<PyString>()
-                .map_err(|_| Misfit::new("not a str key"))?;
+            let key = key.downcast_exact::<PyString>().map_err(|_| Misfit::new("not a str key"))?;
             map.insert(Arc::from(key.to_str().or_misfit()?), T::from_py(&item)?);
         }
         Ok(map)
@@ -259,19 +240,12 @@ impl<T: PyField> PyField for IdMap<T> {
                 }
                 Ok(())
             }
-            ([], Write::Delete { key: Part::Key(key) }) => {
-                self.shift_remove(*key)
-                    .map(|_| ())
-                    .ok_or_else(|| Misfit::new(format!("no key {key:?}")))
-            }
+            ([], Write::Delete { key: Part::Key(key) }) => self.shift_remove(*key).map(|_| ()).ok_or_else(|| Misfit::new(format!("no key {key:?}"))),
             ([], Write::Clear) => {
                 self.clear();
                 Ok(())
             }
-            ([Part::Key(key), rest @ ..], write) => self
-                .get_mut(*key)
-                .ok_or_else(|| Misfit::new(format!("no key {key:?}")))?
-                .apply(rest, write),
+            ([Part::Key(key), rest @ ..], write) => self.get_mut(*key).ok_or_else(|| Misfit::new(format!("no key {key:?}")))?.apply(rest, write),
             _ => Err(Misfit::new("the write does not fit a map")),
         }
     }
@@ -328,16 +302,10 @@ impl<T: PyField> PyField for Vec<T> {
             }
             ([], Write::Reverse) => self.reverse(),
             ([], Write::ReplaceAll { items }) => {
-                *self = items
-                    .iter()
-                    .map(|item| T::from_py(&item))
-                    .collect::<Result<Vec<T>, Misfit>>()?;
+                *self = items.iter().map(|item| T::from_py(&item)).collect::<Result<Vec<T>, Misfit>>()?;
             }
             ([Part::Index(index), rest @ ..], write) => {
-                return self
-                    .get_mut(*index)
-                    .ok_or_else(|| Misfit::new(format!("no index {index}")))?
-                    .apply(rest, write);
+                return self.get_mut(*index).ok_or_else(|| Misfit::new(format!("no index {index}")))?.apply(rest, write);
             }
             _ => return Err(Misfit::new("the write does not fit a list")),
         }
@@ -365,10 +333,7 @@ pub(crate) fn unsupported<T>(reason: &'static str) -> PyResult<T> {
 }
 
 /// An attribute of an object a kernel was given, which may not be the class it expects.
-pub(crate) fn attribute<'py>(
-    object: &Bound<'py, PyAny>,
-    name: &Bound<'py, PyString>,
-) -> PyResult<Bound<'py, PyAny>> {
+pub(crate) fn attribute<'py>(object: &Bound<'py, PyAny>, name: &Bound<'py, PyString>) -> PyResult<Bound<'py, PyAny>> {
     object.getattr(name).map_err(|_| Unsupported::new_err("an input has no such attribute"))
 }
 

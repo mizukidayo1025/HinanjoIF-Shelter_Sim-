@@ -66,9 +66,7 @@ fn the_split_work_gives_the_bytes_of_a_plain_loop() {
     // The parts: the same runs, in order, each folded in its order.
     let parts = parts_in_order(PEOPLE, PER_PART, part);
     let per_part = PER_PART.min(PER_HELPER);
-    let plain: Vec<_> = (0..PEOPLE.div_ceil(per_part))
-        .map(|index| part(index * per_part..PEOPLE.min((index + 1) * per_part)))
-        .collect();
+    let plain: Vec<_> = (0..PEOPLE.div_ceil(per_part)).map(|index| part(index * per_part..PEOPLE.min((index + 1) * per_part))).collect();
     assert_eq!(parts, plain);
     for (run, sum) in &parts {
         digest.update(format!("{}..{}:", run.start, run.end).as_bytes());

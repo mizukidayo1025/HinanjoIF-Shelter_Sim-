@@ -114,12 +114,8 @@ fn is_python_s(answers: &[String], digest: &str) {
 
 #[test]
 fn the_pairs_of_a_sample_are_the_python_rules_from_the_row() {
-    let radii = [
-        (V::Float(0.25), "e0a1057cd2ac16bd"),
-        (V::Float(1.5), "37315c7ce0bf997c"),
-        (V::Int(2), "e2a86b4db6b2805e"),
-        (V::Float(10.0), "9a06c87007643049"),
-    ];
+    let radii =
+        [(V::Float(0.25), "e0a1057cd2ac16bd"), (V::Float(1.5), "37315c7ce0bf997c"), (V::Int(2), "e2a86b4db6b2805e"), (V::Float(10.0), "9a06c87007643049")];
     for (radius, digest) in radii {
         let (entry, cell) = world("start");
         let zones: Vec<Arc<str>> = cell
@@ -324,7 +320,10 @@ fn the_step_schedules_the_events_of_the_python_rule() {
     let (entry, cell) = world("stepped");
     let order = position_order(&entry);
     positions(&cell, |positions| {
-        let zone = order.iter().find_map(|id| positions.get(id.as_str()).unwrap().point.as_ref().map(|_| positions.get(id.as_str()).unwrap().zone_id.clone())).unwrap();
+        let zone = order
+            .iter()
+            .find_map(|id| positions.get(id.as_str()).unwrap().point.as_ref().map(|_| positions.get(id.as_str()).unwrap().zone_id.clone()))
+            .unwrap();
         for (number, id) in order.iter().enumerate() {
             let record = positions.get_mut(id.as_str()).unwrap();
             if record.point.is_some() {

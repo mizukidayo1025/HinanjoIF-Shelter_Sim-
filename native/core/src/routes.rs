@@ -161,11 +161,7 @@ impl Router {
     /// The graph of the same zones with only the edges `keep` takes: the staff's graph of a floor
     /// plan, whose edges are those `route_is_physically_clear` takes for an independent walker.
     pub fn keeping(&self, keep: impl Fn(&Edge) -> bool) -> Self {
-        let outgoing = self
-            .outgoing
-            .iter()
-            .map(|(zone, edges)| (zone.clone(), edges.iter().filter(|edge| keep(edge)).cloned().collect()))
-            .collect();
+        let outgoing = self.outgoing.iter().map(|(zone, edges)| (zone.clone(), edges.iter().filter(|edge| keep(edge)).cloned().collect())).collect();
         Self { zones: self.zones.clone(), outgoing, closed: Mutex::default() }
     }
 

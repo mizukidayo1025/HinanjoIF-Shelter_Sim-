@@ -21,11 +21,7 @@ pub const RESOURCE_CLASS: (&str, &str) = ("sheltersim.domain.resource_service", 
 pub const STAFF_CLASS: (&str, &str) = ("sheltersim.domain.staff", "StaffService");
 
 pub const TOILET: Attr = Attr::object("toilet_service", &TOILET_SPEC);
-const TOILET_SPEC: Spec = Spec::of(&[
-    Attr::value("policy_version"),
-    Attr::value("min_service_minutes"),
-    Attr::value("max_service_minutes"),
-]);
+const TOILET_SPEC: Spec = Spec::of(&[Attr::value("policy_version"), Attr::value("min_service_minutes"), Attr::value("max_service_minutes")]);
 
 pub const RESOURCE: Attr = Attr::object("resource_service", &RESOURCE_SPEC);
 const RESOURCE_SPEC: Spec = Spec::of(&[Attr::value("policy_version"), Attr::value("config")]);
@@ -54,10 +50,7 @@ pub struct Manager {
 impl Manager {
     fn of(controller: &Obj, name: &str, (module, qualname): (&str, &str)) -> Self {
         let manager = controller.object(name).map(|manager| manager.cloned());
-        let known = manager
-            .as_ref()
-            .map_err(Fault::clone)
-            .map(|manager| manager.as_ref().is_some_and(|manager| manager.class.is(module, qualname)));
+        let known = manager.as_ref().map_err(Fault::clone).map(|manager| manager.as_ref().is_some_and(|manager| manager.class.is(module, qualname)));
         Self { manager, known }
     }
 
@@ -95,9 +88,9 @@ impl Services {
 /// travel scheduler None, the controller's own steps (`Held::Method`), or another callable. A read
 /// that raised is its fault (policy E14).
 pub fn staff_service(service: &Obj) -> Read<crate::rules::staff::Service> {
+    use super::held::Held;
     use crate::rules::staff::{Service, Step};
     use crate::value::V;
-    use super::held::Held;
     let policy = match service.get("policy_version")? {
         Held::Value(V::Str(text)) => text.clone(),
         _ => return Err(Fault::refused("a value is not a str")),

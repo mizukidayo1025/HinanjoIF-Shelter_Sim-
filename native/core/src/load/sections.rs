@@ -31,9 +31,7 @@ use crate::config::proximity::Proximity;
 use crate::config::read::Read;
 use crate::config::staff::StaffOperations;
 use crate::config::tick_plan::{ResourceNumbers, TickPlan};
-use crate::config::{
-    ApproachRoute, Configs, FacilityGeometry, FacilityPlan, Fault, FaultClass, Lazy, Section, SectionId, Selection, SpatialConstraints,
-};
+use crate::config::{ApproachRoute, Configs, FacilityGeometry, FacilityPlan, Fault, FaultClass, Lazy, Section, SectionId, Selection, SpatialConstraints};
 use crate::error::{Error, Result};
 use crate::geometry::{usable, zone_center, Geo, Opening, OverlayKey, Pt, Route, ServicePoint, Wall, Zone};
 use crate::row::IdMap;
@@ -160,8 +158,7 @@ fn service_point(json: &Value) -> Parsed<ServicePoint> {
 
 /// `plan_of`: the Scenario's plan of a parsed `FacilityGeometry`.
 fn facility_plan(json: &Value) -> Parsed<FacilityPlan> {
-    let mut plan =
-        FacilityPlan { zones: IdMap::default(), routes: IdMap::default(), facility_points: IdMap::default(), service_points: Vec::new() };
+    let mut plan = FacilityPlan { zones: IdMap::default(), routes: IdMap::default(), facility_points: IdMap::default(), service_points: Vec::new() };
     for zone in array(&json["zones"], "zones")? {
         let polygon = read!(points(&zone["polygon"]));
         if polygon.is_empty() {
@@ -453,9 +450,7 @@ impl Sections {
                 Error::unsupported("the Python rule's parse raises")
             }
         };
-        let raised = |which: SectionId, raised: &str| {
-            Error::Runtime(format!("the PyO3 crate raises out of fill_section({}): {raised}", which.name()))
-        };
+        let raised = |which: SectionId, raised: &str| Error::Runtime(format!("the PyO3 crate raises out of fill_section({}): {raised}", which.name()));
         let facility = match &self.facility_geometry {
             Ok(Section::Absent) => None,
             Ok(Section::Ok(geometry)) => Some(geometry.plan.clone().map_err(|fault| refusal(&fault))?),

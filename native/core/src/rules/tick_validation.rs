@@ -355,13 +355,7 @@ pub fn entity_rules(world: &World, inputs: &EntityInputs<'_>, watch: &mut dyn Fn
             other => other,
         };
         person_at.insert(key, people.len());
-        people.push(Person {
-            id: key,
-            activity,
-            zone,
-            target: agent.target_id.as_deref(),
-            request: agent.support_request_id.as_deref(),
-        });
+        people.push(Person { id: key, activity, zone, target: agent.target_id.as_deref(), request: agent.support_request_id.as_deref() });
     }
 
     // ---- Facilities and who is in them.
@@ -686,9 +680,10 @@ pub fn entity_rules(world: &World, inputs: &EntityInputs<'_>, watch: &mut dyn Fn
                 return refuse("a resource service task without a ledger");
             };
             let account = ledger.accounts.of(usize::from(!is_water));
-            let reserved = account.reservations.get(work.id).is_some_and(|reservation| {
-                &*reservation.agent_id == *agent && &*reservation.resource_id == resource_id && reservation.quantity == quantity
-            });
+            let reserved = account
+                .reservations
+                .get(work.id)
+                .is_some_and(|reservation| &*reservation.agent_id == *agent && &*reservation.resource_id == resource_id && reservation.quantity == quantity);
             if !reserved {
                 return refuse("a resource service task has no reservation");
             }
@@ -697,7 +692,12 @@ pub fn entity_rules(world: &World, inputs: &EntityInputs<'_>, watch: &mut dyn Fn
                 return refuse("a resource service task's staff is unknown");
             };
             let has_skill = worker.skills.iter().any(|item| &**item == skill);
-            if worker.active_task != Some(work.id) || !only(worker.work_queue, work.id) || worker.busy_until != work.due || worker.zone != place.zone || !has_skill {
+            if worker.active_task != Some(work.id)
+                || !only(worker.work_queue, work.id)
+                || worker.busy_until != work.due
+                || worker.zone != place.zone
+                || !has_skill
+            {
                 return refuse("a resource service task's staff is the Python rule's");
             }
         }
@@ -805,7 +805,12 @@ pub fn entity_rules(world: &World, inputs: &EntityInputs<'_>, watch: &mut dyn Fn
                 let (Some(worker), Some(work)) = (workers.get(worker_id), work_at.get(task_id).map(|at| &works[*at])) else {
                     return refuse("an assigned request's staff or task is unknown");
                 };
-                if work.kind != "staff_support" || work.staff != Some(worker_id) || work.agent != Some(agent) || worker.active_task != Some(work.id) || work.due != worker.busy_until {
+                if work.kind != "staff_support"
+                    || work.staff != Some(worker_id)
+                    || work.agent != Some(agent)
+                    || worker.active_task != Some(work.id)
+                    || work.due != worker.busy_until
+                {
                     return refuse("an assigned request lacks one matching staff task");
                 }
                 let Some(who) = person(agent) else {
@@ -832,7 +837,11 @@ pub fn entity_rules(world: &World, inputs: &EntityInputs<'_>, watch: &mut dyn Fn
                 let Some(event) = one_named(&staff_events, task_id).map(|at| events[at]) else {
                     return refuse("an assigned request needs one completion");
                 };
-                if event.due_minute != work.due || !field(event, "request_id")?.is(id) || !field(event, "agent_id")?.is(agent) || !field(event, "staff_id")?.is(worker_id) {
+                if event.due_minute != work.due
+                    || !field(event, "request_id")?.is(id)
+                    || !field(event, "agent_id")?.is(agent)
+                    || !field(event, "staff_id")?.is(worker_id)
+                {
                     return refuse("an assigned request's completion is the Python rule's");
                 }
                 open_by_agent.entry(agent).or_insert((0, id)).0 += 1;
@@ -1110,7 +1119,8 @@ pub fn validate_presence(world: &World, presence: &Held, lifecycle: &Held) -> Re
             let V::Map(receipt) = receipt else {
                 return refuse("a presence receipt is not a mapping");
             };
-            let (Some(V::Str(id)), Some(V::Str(agent_id)), Some(V::Int(at))) = (receipt.get("transition_id"), receipt.get("agent_id"), receipt.get("minute")) else {
+            let (Some(V::Str(id)), Some(V::Str(agent_id)), Some(V::Int(at))) = (receipt.get("transition_id"), receipt.get("agent_id"), receipt.get("minute"))
+            else {
                 return refuse("a presence receipt lacks a field");
             };
             if !ids.insert(id) || !people.contains_key(&**agent_id) || *at < previous || *at > minute {

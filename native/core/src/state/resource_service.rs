@@ -68,10 +68,7 @@ pub fn request_outcome_is_known(record: &RequestRecord) -> bool {
         (&*record.outcome, &*record.reason),
         ("queued", "arrived_at_facility")
             | ("travel_scheduled", "route_available" | "in_room_route_available")
-            | (
-                "rejected",
-                "room_route_blocked" | "no_facility" | "no_route" | "request_rejected" | "travel_rejected" | "service_disabled"
-            )
+            | ("rejected", "room_route_blocked" | "no_facility" | "no_route" | "request_rejected" | "travel_rejected" | "service_disabled")
     )
 }
 
@@ -102,12 +99,15 @@ impl ServiceRow {
     /// world of these rows, people and zones, at this minute; `heads` are the heads of the
     /// independent queues of each facility that has them. True says the Python rules accept; false
     /// decides nothing.
-    pub fn passes_rules<W: ServiceWorld>(&self, rows: &Entities, known: &W, minute_index: i64, heads: &HashMap<Arc<str>, Vec<Arc<str>>>) -> std::result::Result<bool, W::Error> {
+    pub fn passes_rules<W: ServiceWorld>(
+        &self,
+        rows: &Entities,
+        known: &W,
+        minute_index: i64,
+        heads: &HashMap<Arc<str>, Vec<Arc<str>>>,
+    ) -> std::result::Result<bool, W::Error> {
         let row = self;
-        if row.schema_version != SCHEMA_VERSION
-            || !listed_once(&row.cancelled_task_ids)
-            || !listed_once(&row.active_reservation_ids)
-        {
+        if row.schema_version != SCHEMA_VERSION || !listed_once(&row.cancelled_task_ids) || !listed_once(&row.active_reservation_ids) {
             return Ok(false);
         }
         let from = window_start(&row.request_history, |record| record.minute, minute_index);

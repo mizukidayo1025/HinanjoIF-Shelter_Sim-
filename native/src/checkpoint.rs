@@ -21,36 +21,22 @@ use rayon::prelude::*;
 /// the privacy patterns could match, read in parallel without the GIL. Raises ValueError
 /// when a string can not be read.
 #[pyfunction]
-pub fn sensitive_candidates(
-    py: Python<'_>,
-    raws: Vec<Bound<'_, PyBytes>>,
-) -> PyResult<(Vec<String>, Vec<String>)> {
+pub fn sensitive_candidates(py: Python<'_>, raws: Vec<Bound<'_, PyBytes>>) -> PyResult<(Vec<String>, Vec<String>)> {
     if let [raw] = raws.as_slice() {
-        let (keys, strings) =
-            bytes::candidates(raw.as_bytes()).map_err(pyo3::exceptions::PyValueError::new_err)?;
+        let (keys, strings) = bytes::candidates(raw.as_bytes()).map_err(pyo3::exceptions::PyValueError::new_err)?;
         return Ok((keys.into_iter().collect(), strings.into_iter().collect()));
     }
     let slices: Vec<&[u8]> = raws.iter().map(|raw| raw.as_bytes()).collect();
-    let (keys, strings) = py
-        .allow_threads(|| bytes::sensitive_candidates(&slices))
-        .map_err(pyo3::exceptions::PyValueError::new_err)?;
+    let (keys, strings) = py.allow_threads(|| bytes::sensitive_candidates(&slices)).map_err(pyo3::exceptions::PyValueError::new_err)?;
     Ok((keys.into_iter().collect(), strings.into_iter().collect()))
 }
 
 /// Where each chunk of items starts when a chunk ends after an item whose hash is
 /// `average - 1` modulo `average`, or once it holds `maximum` items (#138).
 #[pyfunction]
-pub fn content_chunk_starts(
-    py: Python<'_>,
-    items: &Bound<'_, PyList>,
-    average: u64,
-    maximum: usize,
-) -> PyResult<Vec<usize>> {
+pub fn content_chunk_starts(py: Python<'_>, items: &Bound<'_, PyList>, average: u64, maximum: usize) -> PyResult<Vec<usize>> {
     bytes::chunk_sizes_valid(average, maximum).or_py()?;
-    let held: Vec<Bound<'_, PyBytes>> = items
-        .iter()
-        .map(|item| item.downcast_into::<PyBytes>().map_err(PyErr::from))
-        .collect::<PyResult<_>>()?;
+    let held: Vec<Bound<'_, PyBytes>> = items.iter().map(|item| item.downcast_into::<PyBytes>().map_err(PyErr::from)).collect::<PyResult<_>>()?;
     let slices: Vec<&[u8]> = held.iter().map(|item| item.as_bytes()).collect();
     py.allow_threads(|| bytes::content_chunk_starts(&slices, average, maximum)).or_py()
 }
@@ -58,11 +44,7 @@ pub fn content_chunk_starts(
 /// The SHA-256 hex digest of `[item,item,...]` for each (start, count) of items, a list
 /// of bytes, computed in parallel without the GIL and without joining the items.
 #[pyfunction]
-pub fn chunk_hashes(
-    py: Python<'_>,
-    items: &Bound<'_, PyList>,
-    chunks: Vec<(usize, usize)>,
-) -> PyResult<Vec<String>> {
+pub fn chunk_hashes(py: Python<'_>, items: &Bound<'_, PyList>, chunks: Vec<(usize, usize)>) -> PyResult<Vec<String>> {
     let mut held: Vec<Vec<Bound<'_, PyBytes>>> = Vec::with_capacity(chunks.len());
     for (start, count) in &chunks {
         let mut chunk = Vec::with_capacity(*count);
@@ -71,22 +53,13 @@ pub fn chunk_hashes(
         }
         held.push(chunk);
     }
-    let slices: Vec<Vec<&[u8]>> = held
-        .iter()
-        .map(|chunk| chunk.iter().map(|item| item.as_bytes()).collect())
-        .collect();
+    let slices: Vec<Vec<&[u8]>> = held.iter().map(|chunk| chunk.iter().map(|item| item.as_bytes()).collect()).collect();
     Ok(py.allow_threads(|| bytes::chunk_hashes(&slices)))
 }
 
 // Keys of an index row that link it to events, by how the row holds them.
 const EVENT_REFERENCE_KEYS: [&str; 2] = ["event_id", "causation_id"];
-const EVENT_REFERENCE_LISTS: [&str; 5] = [
-    "event_ids",
-    "source_event_ids",
-    "causation_event_ids",
-    "modifier_event_ids",
-    "environmental_stressor_event_ids",
-];
+const EVENT_REFERENCE_LISTS: [&str; 5] = ["event_ids", "source_event_ids", "causation_event_ids", "modifier_event_ids", "environmental_stressor_event_ids"];
 // Identity keys whose values no entity filter can name (`_NOT_ENTITY_KEYS` of
 // storage/history_index.py, #138): the index leaves them out of its entities.
 const NOT_ENTITY_KEYS: [&str; 24] = [
@@ -228,17 +201,7 @@ fn is_container(value: &Bound<'_, PyAny>) -> bool {
 pub fn index_row<'py>(
     py: Python<'py>,
     row: &Bound<'py, PyDict>,
-) -> PyResult<
-    Option<(
-        Bound<'py, PyString>,
-        String,
-        Vec<Bound<'py, PyString>>,
-        Vec<Bound<'py, PyString>>,
-        String,
-        Vec<String>,
-        Option<String>,
-    )>,
-> {
+) -> PyResult<Option<(Bound<'py, PyString>, String, Vec<Bound<'py, PyString>>, Vec<Bound<'py, PyString>>, String, Vec<String>, Option<String>)>> {
     let mut identities = Vec::new();
     let mut references = Vec::new();
     if !row_links(row.as_any(), &mut identities, &mut references, MAX_ROW_DEPTH)? {
@@ -247,8 +210,7 @@ pub fn index_row<'py>(
     let Ok(raw) = crate::encode(row.as_any()) else {
         return Ok(None);
     };
-    let (keys, strings) =
-        bytes::candidates(&raw).map_err(pyo3::exceptions::PyValueError::new_err)?;
+    let (keys, strings) = bytes::candidates(&raw).map_err(pyo3::exceptions::PyValueError::new_err)?;
     let mut keys: Vec<String> = keys.into_iter().collect();
     if keys.iter().any(|key| key.contains('\0')) {
         return Ok(None);
@@ -256,15 +218,7 @@ pub fn index_row<'py>(
     keys.sort_unstable();
     let hash = bytes::sha256_hex(&raw);
     let text = std::str::from_utf8(&raw).map_err(|error| pyo3::exceptions::PyValueError::new_err(error.to_string()))?;
-    Ok(Some((
-        PyString::new(py, text),
-        hash,
-        identities,
-        references,
-        keys.join("\0"),
-        strings.into_iter().collect(),
-        token_text(row)?,
-    )))
+    Ok(Some((PyString::new(py, text), hash, identities, references, keys.join("\0"), strings.into_iter().collect(), token_text(row)?)))
 }
 
 /// `len(json.dumps(value, ensure_ascii=False).encode())` of a plain JSON value: its canonical JSON
@@ -351,11 +305,7 @@ pub fn record_json<'py>(
 }
 
 /// `record_json`, as bytes that need no Python object.
-pub(crate) fn encode_record(
-    record: &Bound<'_, PyAny>,
-    record_type: &Bound<'_, PyAny>,
-    event_type: &Bound<'_, PyAny>,
-) -> PyResult<Option<Vec<u8>>> {
+pub(crate) fn encode_record(record: &Bound<'_, PyAny>, record_type: &Bound<'_, PyAny>, event_type: &Bound<'_, PyAny>) -> PyResult<Option<Vec<u8>>> {
     if !record.get_type().is(record_type) {
         return Ok(None);
     }
@@ -363,12 +313,7 @@ pub(crate) fn encode_record(
     if !event.get_type().is(event_type) {
         return Ok(None);
     }
-    encode_outcome(
-        &event,
-        &record.getattr("realized_minute")?,
-        &record.getattr("status")?.getattr("value")?,
-        &record.getattr("detail")?,
-    )
+    encode_outcome(&event, &record.getattr("realized_minute")?, &record.getattr("status")?.getattr("value")?, &record.getattr("detail")?)
 }
 
 /// The same bytes from the event and its outcome, for a rule that makes no record object.
@@ -389,11 +334,7 @@ pub(crate) fn encode_outcome(
         if index > 0 {
             encoder.out.push(b',');
         }
-        let value = if *name == "kind" {
-            event.getattr("kind")?.getattr("value")?
-        } else {
-            event.getattr(*name)?
-        };
+        let value = if *name == "kind" { event.getattr("kind")?.getattr("value")? } else { event.getattr(*name)? };
         if !write_field(&mut encoder, name, &value)? {
             return Ok(None);
         }
@@ -418,18 +359,7 @@ fn write_field(encoder: &mut Encoder, name: &str, value: &Bound<'_, PyAny>) -> P
 }
 
 // The fields of a saved event in sorted order.
-const EVENT_ORDER: [&str; 10] = [
-    "causation_id",
-    "due_minute",
-    "event_id",
-    "event_type",
-    "kind",
-    "payload",
-    "priority",
-    "provenance",
-    "sequence",
-    "source_id",
-];
+const EVENT_ORDER: [&str; 10] = ["causation_id", "due_minute", "event_id", "event_type", "kind", "payload", "priority", "provenance", "sequence", "source_id"];
 
 // Deeper values are left to the caller, which compares the restored records.
 const MAX_SAME_DEPTH: usize = 64;
@@ -444,9 +374,7 @@ fn same_frozen(value: &Bound<'_, PyAny>, document: &serde_json::Value, depth: us
     }
     Ok(match document {
         Value::Null => value.is_none(),
-        Value::Bool(flag) => {
-            value.is_exact_instance_of::<PyBool>() && value.downcast_exact::<PyBool>()?.is_true() == *flag
-        }
+        Value::Bool(flag) => value.is_exact_instance_of::<PyBool>() && value.downcast_exact::<PyBool>()?.is_true() == *flag,
         Value::String(text) => match value.downcast_exact::<PyString>() {
             Ok(string) => string.to_str()? == text,
             Err(_) => false,
@@ -484,9 +412,7 @@ fn same_frozen(value: &Bound<'_, PyAny>, document: &serde_json::Value, depth: us
                             return Ok(false);
                         }
                     }
-                    Err(error) if error.is_instance_of::<pyo3::exceptions::PyKeyError>(value.py()) => {
-                        return Ok(false)
-                    }
+                    Err(error) if error.is_instance_of::<pyo3::exceptions::PyKeyError>(value.py()) => return Ok(false),
                     Err(error) => return Err(error),
                 }
             }
@@ -509,11 +435,7 @@ fn same_enum(owner: &Bound<'_, PyAny>, name: &str, document: &serde_json::Value)
     }
 }
 
-fn same_record(
-    record: &Bound<'_, PyAny>,
-    document: &serde_json::Value,
-    types: (&Bound<'_, PyAny>, &Bound<'_, PyAny>),
-) -> PyResult<bool> {
+fn same_record(record: &Bound<'_, PyAny>, document: &serde_json::Value, types: (&Bound<'_, PyAny>, &Bound<'_, PyAny>)) -> PyResult<bool> {
     use crate::eventlog::{EVENT_FIELDS, RECORD_FIELDS};
     let exact = |value: &serde_json::Value, count: usize| value.as_object().is_some_and(|fields| fields.len() == count);
     let Some(event_document) = document.get("event") else {
@@ -540,11 +462,7 @@ fn same_record(
         }
     }
     for name in EVENT_FIELDS {
-        let same = if name == "kind" {
-            same_enum(&event, name, event_document)?
-        } else {
-            same_attribute(&event, name, event_document)?
-        };
+        let same = if name == "kind" { same_enum(&event, name, event_document)? } else { same_attribute(&event, name, event_document)? };
         if !same {
             return Ok(false);
         }
@@ -567,12 +485,7 @@ pub fn same_saved_records(
         return Ok(false);
     }
     let slices: Vec<&[u8]> = raws.iter().map(|raw| raw.as_bytes()).collect();
-    let documents: Result<Vec<serde_json::Value>, _> = py.allow_threads(|| {
-        slices
-            .par_iter()
-            .map(|raw| serde_json::from_slice(raw))
-            .collect()
-    });
+    let documents: Result<Vec<serde_json::Value>, _> = py.allow_threads(|| slices.par_iter().map(|raw| serde_json::from_slice(raw)).collect());
     let Ok(documents) = documents else {
         return Ok(false);
     };

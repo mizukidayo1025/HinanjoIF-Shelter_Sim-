@@ -247,13 +247,7 @@ fn fingerprint(world: &World) -> Fingerprint {
             (name.to_string(), bytes, slot.generation.get())
         })
         .collect();
-    Fingerprint {
-        entities,
-        slots,
-        queue: format!("{:?}", *world.queue().unwrap()),
-        log: world.log().unwrap().clone(),
-        in_transaction: world.in_transaction(),
-    }
+    Fingerprint { entities, slots, queue: format!("{:?}", *world.queue().unwrap()), log: world.log().unwrap().clone(), in_transaction: world.in_transaction() }
 }
 
 fn print(cell: &Shard<World>) -> Fingerprint {
@@ -380,7 +374,8 @@ fn world(op: Option<&str>, namespaces: Vec<(&str, V)>) -> World {
     }
     world.hold_queue(Arc::new(Queue::new()));
     world.hold_log(Arc::new(EventLog::new()));
-    let earlier = EventRow::new(text("earlier"), EventKind::Exogenous, 5, 0, 3, text("note"), IndexMap::new(), Some(text("scenario")), None, IndexMap::new()).unwrap();
+    let earlier =
+        EventRow::new(text("earlier"), EventKind::Exogenous, 5, 0, 3, text("note"), IndexMap::new(), Some(text("scenario")), None, IndexMap::new()).unwrap();
     sheltersim_core::rules::kit::log_record(&world, &earlier, 5, sheltersim_core::events::EventStatus::Applied, None).unwrap();
     world
 }
@@ -417,7 +412,8 @@ fn effect_event(event_id: &str, event_type: &str, payload: Vec<(&str, V)>, marke
 }
 
 fn exogenous(event_id: &str, sequence: i64, event_type: &str, payload: Vec<(&str, V)>) -> EventRow {
-    EventRow::new(text(event_id), EventKind::Exogenous, 10, 0, sequence, text(event_type), entries(payload), Some(text("scenario")), None, IndexMap::new()).unwrap()
+    EventRow::new(text(event_id), EventKind::Exogenous, 10, 0, sequence, text(event_type), entries(payload), Some(text("scenario")), None, IndexMap::new())
+        .unwrap()
 }
 
 /// Run `handler` on `world` with a host that fails the changed world's check: the outcome's text,
@@ -531,7 +527,19 @@ fn an_environment_modifier_rolls_back_on_the_world_s_check() {
         marker("set_ambient_noise", &["zone_environment_v1"]),
     );
     let built = world(Some("set_ambient_noise"), vec![("zone_environment_v1", map(vec![("modifiers", map(Vec::new()))]))]);
-    let expiry = EventRow::new(text("ev-end"), EventKind::Intervention, 60, 0, 50, text("effect_program_environment_expire"), entries(vec![("modifier_id", s(MODIFIER))]), Some(text("SRC-1")), None, IndexMap::new()).unwrap();
+    let expiry = EventRow::new(
+        text("ev-end"),
+        EventKind::Intervention,
+        60,
+        0,
+        50,
+        text("effect_program_environment_expire"),
+        entries(vec![("modifier_id", s(MODIFIER))]),
+        Some(text("SRC-1")),
+        None,
+        IndexMap::new(),
+    )
+    .unwrap();
     built.queue_mut().unwrap().add(text("ev-end"), (60, 0, 50), Some(Arc::new(expiry)));
     // The environment wraps the check's value error; an outcome goes on as it is.
     let text = rolls_back(built, rolled_back("Effect", "validate_world"), |cell, host| effects::environment_event(cell, host, &start, false));
@@ -569,7 +577,8 @@ fn structure_event(op: &str, extra: Vec<(&str, V)>) -> EventRow {
 #[test]
 fn a_role_change_rolls_back_on_the_world_s_check() {
     let role = structure_event("set_staff_role", vec![("staff_id", s("s1")), ("skills", V::List(vec![s("zeta"), s("alpha")]))]);
-    let text = rolls_back(world(Some("set_staff_role"), Vec::new()), rolled_back("Effect", "validate_world"), |cell, host| effects::role_event(cell, host, &role));
+    let text =
+        rolls_back(world(Some("set_staff_role"), Vec::new()), rolled_back("Effect", "validate_world"), |cell, host| effects::role_event(cell, host, &role));
     assert_eq!(text, FAILS);
 }
 
@@ -594,7 +603,13 @@ fn operational() -> V {
             "water_outages",
             map(vec![(
                 "o1",
-                map(vec![("outage_event_id", s("water-down")), ("restore_event_id", s("water-up")), ("target_kind", s("zone")), ("target_id", s("z1")), ("active", V::Bool(false))]),
+                map(vec![
+                    ("outage_event_id", s("water-down")),
+                    ("restore_event_id", s("water-up")),
+                    ("target_kind", s("zone")),
+                    ("target_id", s("z1")),
+                    ("active", V::Bool(false)),
+                ]),
             )]),
         ),
         (
@@ -640,7 +655,12 @@ fn a_staff_restoration_rolls_back_on_the_world_s_check() {
 #[test]
 fn a_delivery_delay_rolls_back_on_the_world_s_check() {
     let built = world(None, vec![(handlers::OPERATIONAL, operational())]);
-    let delivery = exogenous("delivery-1", 7, "resource_delivery", vec![("warehouse_id", s("w")), ("resource_id", s("water_ml")), ("quantity", V::Int(5)), ("shipment_id", s("sh1"))]);
+    let delivery = exogenous(
+        "delivery-1",
+        7,
+        "resource_delivery",
+        vec![("warehouse_id", s("w")), ("resource_id", s("water_ml")), ("quantity", V::Int(5)), ("shipment_id", s("sh1"))],
+    );
     let delivery = EventRow { due_minute: 30, ..delivery };
     built.queue_mut().unwrap().schedule_row(delivery);
     let delay = exogenous("delay-1", 8, "delivery_delayed", vec![("shipment_id", s("sh1")), ("to_minute", V::Int(60))]);
@@ -657,7 +677,18 @@ fn a_staff_unavailability_rolls_back_on_the_world_s_check() {
 #[test]
 fn an_infrastructure_event_rolls_back_on_the_world_s_check() {
     let infrastructure = map(vec![
-        ("outages", map(vec![("p1", map(vec![("start_event_id", s("power-down")), ("event_type", s("power_outage")), ("affected_facility_ids", V::List(vec![s("water_1")])), ("active", V::Bool(false))]))])),
+        (
+            "outages",
+            map(vec![(
+                "p1",
+                map(vec![
+                    ("start_event_id", s("power-down")),
+                    ("event_type", s("power_outage")),
+                    ("affected_facility_ids", V::List(vec![s("water_1")])),
+                    ("active", V::Bool(false)),
+                ]),
+            )]),
+        ),
         ("base_working_units", map(vec![("water_1", V::Int(1)), ("toilet_1", V::Int(3))])),
         ("environmental_stressors", map(Vec::new())),
         ("route_interruptions", map(Vec::new())),

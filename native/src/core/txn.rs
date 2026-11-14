@@ -60,10 +60,5 @@ pub(crate) fn end(world: &Bound<'_, PyAny>, commit: bool) -> PyResult<()> {
     let open = open.ok_or_else(|| PyRuntimeError::new_err("no transaction is open on the world"))?;
     let mut host = PyHost::of_world(world, open.kept.into_bound(py));
     let cell = PyWorldCell(world);
-    if commit {
-        open.txn.commit(&cell, &mut host)
-    } else {
-        open.txn.rollback(&cell, &mut host)
-    }
-    .map_err(|error| error.0)
+    if commit { open.txn.commit(&cell, &mut host) } else { open.txn.rollback(&cell, &mut host) }.map_err(|error| error.0)
 }

@@ -156,12 +156,9 @@ impl V {
     /// `==`, and every map in the same order (`==` of a map ignores its order).
     pub fn same_in_order(&self, other: &V) -> bool {
         match (self, other) {
-            (V::List(mine), V::List(theirs)) => {
-                mine.len() == theirs.len() && mine.iter().zip(theirs).all(|(a, b)| a.same_in_order(b))
-            }
+            (V::List(mine), V::List(theirs)) => mine.len() == theirs.len() && mine.iter().zip(theirs).all(|(a, b)| a.same_in_order(b)),
             (V::Map(mine), V::Map(theirs)) => {
-                mine.len() == theirs.len()
-                    && mine.iter().zip(theirs).all(|((key, a), (other, b))| key == other && a.same_in_order(b))
+                mine.len() == theirs.len() && mine.iter().zip(theirs).all(|((key, a), (other, b))| key == other && a.same_in_order(b))
             }
             _ => self == other,
         }
@@ -182,14 +179,11 @@ impl V {
             V::Big(text) => text.len(),
             // An `Arc<str>` holds its two counts next to the text.
             V::Str(text) => text.len() + 2 * std::mem::size_of::<usize>(),
-            V::List(items) => {
-                items.capacity() * std::mem::size_of::<V>() + items.iter().map(V::heap_bytes).sum::<usize>()
-            }
+            V::List(items) => items.capacity() * std::mem::size_of::<V>() + items.iter().map(V::heap_bytes).sum::<usize>(),
             V::Map(map) => {
                 // An entry is its hash, key and value; the index table holds one usize per entry.
                 let entry = std::mem::size_of::<(u64, Arc<str>, V)>() + std::mem::size_of::<usize>();
-                map.capacity() * entry
-                    + map.iter().map(|(key, item)| key.len() + 2 * std::mem::size_of::<usize>() + item.heap_bytes()).sum::<usize>()
+                map.capacity() * entry + map.iter().map(|(key, item)| key.len() + 2 * std::mem::size_of::<usize>() + item.heap_bytes()).sum::<usize>()
             }
         }
     }

@@ -17,15 +17,15 @@
 //! A minute crosses the boundary as an `f64` (a JS number), not an `i64` (a `BigInt`): a world's
 //! minutes are far below 2^53.
 
-use sheltersim_core::events::packed::{Blocks, Packer};
-use sheltersim_core::{archive, canonical, checkpoint, frame, history};
 use sheltersim_core::engine::StepError;
 use sheltersim_core::error::Error;
+use sheltersim_core::events::packed::{Blocks, Packer};
 use sheltersim_core::json::Encoder;
 use sheltersim_core::plain::PlainRun;
 use sheltersim_core::program::EffectProgram;
 use sheltersim_core::value::V;
 use sheltersim_core::world::WorldCell;
+use sheltersim_core::{archive, canonical, checkpoint, frame, history};
 use wasm_bindgen::prelude::*;
 
 fn js_error(error: Error) -> JsError {
@@ -653,7 +653,16 @@ impl KpiHistory {
             (None, None) => None,
             _ => return Err(JsError::new("a cursor's row has a minute and a key")),
         };
-        let query = history::KpiQuery { start: minute_of(start)?, end: minute_of(end)?, step: minute_of(step)?, limit: limit as usize, after, filtered, run_id, branch_id };
+        let query = history::KpiQuery {
+            start: minute_of(start)?,
+            end: minute_of(end)?,
+            step: minute_of(step)?,
+            limit: limit as usize,
+            after,
+            filtered,
+            run_id,
+            branch_id,
+        };
         let page = self.table.page(&query).map_err(js_error)?;
         Ok(KpiPage { items: String::from_utf8(page.items).map_err(|error| JsError::new(&error.to_string()))?, last: page.last, more: page.more })
     }
@@ -701,7 +710,9 @@ impl Simulation {
             .run
             .loaded
             .cell
-            .with(|world| world.log().and_then(|log| if index >= 0.0 && index < log.len() as f64 { log.write_record(index as usize, &mut out) } else { Ok(false) }))
+            .with(|world| {
+                world.log().and_then(|log| if index >= 0.0 && index < log.len() as f64 { log.write_record(index as usize, &mut out) } else { Ok(false) })
+            })
             .and_then(|written| written)
             .map_err(js_error)?;
         if !written {

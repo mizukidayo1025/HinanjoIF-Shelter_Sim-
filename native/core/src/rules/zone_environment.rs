@@ -96,8 +96,7 @@ struct Baseline {
     temperature_c: f64,
 }
 
-const DEFAULT_BASELINE: Baseline =
-    Baseline { ventilation_effectiveness: 0.7, lighting_level: 0.5, privacy_level: 0.5, temperature_c: 20.0 };
+const DEFAULT_BASELINE: Baseline = Baseline { ventilation_effectiveness: 0.7, lighting_level: 0.5, privacy_level: 0.5, temperature_c: 20.0 };
 
 struct Config {
     is_v2: bool,
@@ -612,17 +611,10 @@ impl ZoneInputs {
                 sources.extend(assumption_ids(record)?);
                 sources.push(record.text("source_id")?);
             }
-            let duration_multiplier = if matches!(&*action, "rest" | "sleep") {
-                py_min(2.0, py_max(0.5, duration))
-            } else {
-                1.0
-            };
+            let duration_multiplier = if matches!(&*action, "rest" | "sleep") { py_min(2.0, py_max(0.5, duration)) } else { 1.0 };
             demand_modifiers.push(DemandModifier {
                 action,
-                probability_multiplier: py_min(
-                    config.max_probability_multiplier,
-                    py_max(config.min_probability_multiplier, probability),
-                ),
+                probability_multiplier: py_min(config.max_probability_multiplier, py_max(config.min_probability_multiplier, probability)),
                 duration_multiplier,
                 modifier_event_ids: sorted_set(event_ids),
                 assumption_ids: sorted_set(sources),
@@ -652,11 +644,7 @@ impl ZoneInputs {
             privacy_discontent_per_minute: privacy_discontent(formulas.privacy, privacy, config),
             temperature_stress_per_minute: degree_deviation * config.temperature_stress_per_degree_minute,
             condition_modifier_event_ids: condition_event_ids,
-            condition_assumption_ids: if has_condition_records || config.is_v2 {
-                sorted_set(condition_sources)
-            } else {
-                Vec::new()
-            },
+            condition_assumption_ids: if has_condition_records || config.is_v2 { sorted_set(condition_sources) } else { Vec::new() },
         })
     }
 }

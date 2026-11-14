@@ -30,9 +30,8 @@ fn offline_answers_are_pythons() {
             Err(error) => format!("error: {error}"),
         };
         if got != expected {
-            let shown = compile_offline(&serde_json::to_vec(&request).unwrap())
-                .map(|body| String::from_utf8(body).unwrap())
-                .unwrap_or_else(|error| error.to_string());
+            let shown =
+                compile_offline(&serde_json::to_vec(&request).unwrap()).map(|body| String::from_utf8(body).unwrap()).unwrap_or_else(|error| error.to_string());
             failures.push(format!("{} / {:?}: expected {expected}, got {got}\n  {shown}", case["summary"], case["text"]));
         }
     }

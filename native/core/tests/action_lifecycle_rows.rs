@@ -18,9 +18,7 @@ use std::sync::{Arc, OnceLock};
 
 use serde_json::{json, Value};
 use sheltersim_core::cell::Shard;
-use sheltersim_core::config::agent_dynamics::{
-    awareness, canonical_policy, policy, MUST_CITE, UNSUPPORTED_FIELDS, UNSUPPORTED_VERSION, V1_SOURCE,
-};
+use sheltersim_core::config::agent_dynamics::{awareness, canonical_policy, policy, MUST_CITE, UNSUPPORTED_FIELDS, UNSUPPORTED_VERSION, V1_SOURCE};
 use sheltersim_core::error::Error;
 use sheltersim_core::events::{EventRow, EventStatus};
 use sheltersim_core::json::Encoder;
@@ -140,13 +138,8 @@ fn dynamics_text(row: &AgentDynamicsRow) -> V {
 fn the_canonical_config_is_the_python_rule_s_policy_or_its_text() {
     let read = |raw: Value| canonical_policy(Some(&load::v(&raw))).unwrap();
     assert_eq!(canonical_policy(None), Ok(Ok(POLICY_V1)));
-    for raw in [
-        json!({}),
-        json!({"schema_version": 1}),
-        json!({"policy_version": POLICY_V1}),
-        json!({"schema_version": 1.0}),
-        json!({"schema_version": true}),
-    ] {
+    for raw in [json!({}), json!({"schema_version": 1}), json!({"policy_version": POLICY_V1}), json!({"schema_version": 1.0}), json!({"schema_version": true})]
+    {
         assert_eq!(read(raw.clone()), Ok(POLICY_V1), "{raw}");
     }
     assert_eq!(read(json!({"policy_version": POLICY_V2})), Ok(POLICY_V2));

@@ -7,10 +7,10 @@
 //! errors all become `declared model-state validation failed`, so only whether it passes counts.
 
 use super::catalog::{catalog, StateContract};
+use super::models;
 use super::py::equal;
 use super::selection::select;
 use super::View;
-use super::models;
 use crate::error::{Error, Result};
 use crate::value::V;
 
@@ -51,17 +51,14 @@ pub fn declared_states(configs: &V) -> Result<Vec<&'static StateContract>> {
             .map(|(key, value)| (key.into(), value))
             .collect(),
         );
-        let requested_ok = matches!(requested, V::Map(requested) if matches!(requested.get("schema_version"), Some(V::Int(_))))
-            && equal(requested, &signature);
+        let requested_ok = matches!(requested, V::Map(requested) if matches!(requested.get("schema_version"), Some(V::Int(_)))) && equal(requested, &signature);
         if !requested_ok {
             return Err(value_error("model-state implementation/schema mismatch; migration required"));
         }
         if let Some(domain) = &contract.policy_domain {
             let selection = select(configs)?;
-            let fits = selection
-                .get(domain)
-                .and_then(|model| catalog.models.get(&**model))
-                .is_some_and(|model| model.state_schema_version == contract.schema_version);
+            let fits =
+                selection.get(domain).and_then(|model| catalog.models.get(&**model)).is_some_and(|model| model.state_schema_version == contract.schema_version);
             if !fits {
                 return Err(value_error("selected policy cannot use this installed state schema"));
             }

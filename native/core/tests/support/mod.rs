@@ -39,15 +39,11 @@ use sheltersim_core::config::population::AccessibilityNeeds;
 use sheltersim_core::config::queues::QueueConfig;
 use sheltersim_core::config::service::ResourceService;
 use sheltersim_core::config::staff::{StaffFatigue, StaffOperations};
-use sheltersim_core::config::{
-    agent_dynamics, Configs, FacilityGeometry, Fault, Filled, Lazy, Section, SectionId, Selection, SpatialConstraints, TickPlan,
-};
+use sheltersim_core::config::{agent_dynamics, Configs, FacilityGeometry, Fault, Filled, Lazy, Section, SectionId, Selection, SpatialConstraints, TickPlan};
 use sheltersim_core::error::Error;
 use sheltersim_core::events::EventRow;
-use sheltersim_core::host::{
-    Contract, Decision, DecisionSink, Foreign, Holding, Host, Llm, Part, Phase, Stage, Trace, TraceLevel, TxnKind, NO_FOREIGN,
-};
 use sheltersim_core::geometry::Geo;
+use sheltersim_core::host::{Contract, Decision, DecisionSink, Foreign, Holding, Host, Llm, Part, Phase, Stage, Trace, TraceLevel, TxnKind, NO_FOREIGN};
 use sheltersim_core::rules::behavior::Proposal;
 use sheltersim_core::rules::common_operations::Logged;
 use sheltersim_core::rules::decisions::Observed;
@@ -191,9 +187,7 @@ pub fn fill_section(configs: &Configs, which: SectionId) {
         ),
         SectionId::SpatialConstraints => put(&configs.spatial_constraints, SpatialConstraints::default()),
         SectionId::StaffFatigue => put(&configs.staff_fatigue, StaffFatigue::parse(&empty).unwrap()),
-        SectionId::StaffOperations => {
-            put(&configs.staff_operations, StaffOperations { model_id: text("staff-operations-test-v1"), selected_source: None })
-        }
+        SectionId::StaffOperations => put(&configs.staff_operations, StaffOperations { model_id: text("staff-operations-test-v1"), selected_source: None }),
         SectionId::StaffOperationsKnown => put(&configs.staff_operations_known, ()),
         SectionId::SupportTaskMinutes => put(&configs.support_task_minutes, 10),
         SectionId::SupportCooldownMinutes => put(&configs.support_cooldown_minutes, 30),
@@ -204,20 +198,16 @@ pub fn fill_section(configs: &Configs, which: SectionId) {
         }
         SectionId::BodyModels => put(&configs.body_models, BodyModels { affect: AffectModel::Linear, trust: TrustModel::DurationOnly }),
         SectionId::SocialInteractionMinutes => put(&configs.social_interaction_minutes, 15),
-        SectionId::CareOutcome => {
-            put(&configs.care_outcome, CareOutcome::new(text("care-outcome-test-v1"), text("ASM-TEST"), empty.clone()).unwrap())
-        }
+        SectionId::CareOutcome => put(&configs.care_outcome, CareOutcome::new(text("care-outcome-test-v1"), text("ASM-TEST"), empty.clone()).unwrap()),
         SectionId::AgentDynamicsPolicy => put(&configs.agent_dynamics_policy, agent_dynamics::policy(&empty).unwrap()),
         SectionId::FacilityAwareness => put(&configs.facility_awareness, agent_dynamics::awareness(&empty).unwrap()),
         SectionId::KnowledgeIsLimited => put(&configs.knowledge_is_limited, agent_dynamics::knowledge_is_limited(&empty).unwrap()),
-        SectionId::ZoneEnvironment => put(
-            &configs.zone_environment,
-            ZoneEnvironmentSpec { policy_version: text("zone-environment-v1"), source_id: text("ASM-TEST") },
-        ),
-        SectionId::Infrastructure => put(
-            &configs.infrastructure,
-            Infrastructure::from_v(&V::Map(IndexMap::from([(text("source_id"), V::Str(text("ASM-TEST")))]))).unwrap(),
-        ),
+        SectionId::ZoneEnvironment => {
+            put(&configs.zone_environment, ZoneEnvironmentSpec { policy_version: text("zone-environment-v1"), source_id: text("ASM-TEST") })
+        }
+        SectionId::Infrastructure => {
+            put(&configs.infrastructure, Infrastructure::from_v(&V::Map(IndexMap::from([(text("source_id"), V::Str(text("ASM-TEST")))]))).unwrap())
+        }
         SectionId::Proximity => put(&configs.proximity, None),
         SectionId::Movement => put(&configs.movement, Movement::parse(&empty).unwrap()),
         SectionId::RouteCapacities => put(&configs.route_capacities, RouteCapacities::parse(&empty).unwrap()),
@@ -306,12 +296,7 @@ impl Host for TestHost {
 
     fn consider_information_reaction(&mut self, agent: &str, participant: &str, message: &str, trigger: &str) -> Result<(), Error> {
         self.llm_ran();
-        self.calls.push(Call::InformationReaction {
-            agent: text(agent),
-            participant: text(participant),
-            message: text(message),
-            trigger: text(trigger),
-        });
+        self.calls.push(Call::InformationReaction { agent: text(agent), participant: text(participant), message: text(message), trigger: text(trigger) });
         Ok(())
     }
 
@@ -414,11 +399,7 @@ impl Host for TestHost {
         next_decision_at: i64,
         _observed: &Observed<'_>,
     ) -> Result<(), Error> {
-        self.calls.push(Call::DecisionPython {
-            agent: data.agents[proposal.index].id.clone(),
-            target: target_id.map(text),
-            next: next_decision_at,
-        });
+        self.calls.push(Call::DecisionPython { agent: data.agents[proposal.index].id.clone(), target: target_id.map(text), next: next_decision_at });
         Ok(())
     }
 

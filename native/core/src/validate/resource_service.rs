@@ -9,9 +9,9 @@ use std::sync::Arc;
 
 use indexmap::IndexMap;
 
+use super::models;
 use super::py::{equal, unhashable};
 use super::{wrap_value, View};
-use super::models;
 use crate::error::{Error, Result};
 use crate::rules::facility_queues::independent_heads;
 use crate::state::facility_queues::QueuesRow;
@@ -180,11 +180,8 @@ pub fn validate(view: &View<'_>) -> Result<Option<ServiceConfig>> {
     let rows = view.rows()?;
     let minute_index = view.minute_index()?;
     let known_agent = |id: &str| rows.agents.contains_key(id) || retained.contains(id);
-    let (requests, stalls) = if view.history {
-        (&requests[..], &stalls[..])
-    } else {
-        (since_previous_tick(requests, minute_index), since_previous_tick(stalls, minute_index))
-    };
+    let (requests, stalls) =
+        if view.history { (&requests[..], &stalls[..]) } else { (since_previous_tick(requests, minute_index), since_previous_tick(stalls, minute_index)) };
     let request_fields = ["minute", "agent_id", "action", "outcome", "reason", "facility_id", "origin_zone_id", "detail"];
     for record in requests {
         let bad = || invariant("resource service request history is invalid");

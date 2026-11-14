@@ -18,14 +18,14 @@ use sheltersim_core::events::log::EventLog;
 use sheltersim_core::events::queue::Queue;
 use sheltersim_core::events::{EventKind, EventRow, EventStatus};
 use sheltersim_core::host::{Foreign, Phase, NO_PLAN};
-use sheltersim_core::rules::dispatch::RUN_PHASE;
 use sheltersim_core::row::IdMap;
+use sheltersim_core::rules::dispatch::RUN_PHASE;
 use sheltersim_core::rules::kit::movement::POLICY_VERSION;
 use sheltersim_core::rules::tick::{self, update, Prior, Seed, Step, Tick, ZoneNeighbors, RUN_TICK};
 use sheltersim_core::run::dispatch::{Dispatch, Handler};
 use sheltersim_core::run::{Policies, Run, RunConfig};
-use sheltersim_core::value::V;
 use sheltersim_core::state::movement::MovementRow;
+use sheltersim_core::value::V;
 use sheltersim_core::world::{Fit, Place, World, WorldCell};
 
 use support::{Call, TestHost};
@@ -125,15 +125,18 @@ fn the_tick_begins_the_scratch_dispatches_and_starts_the_update_phase_with_the_m
     assert_eq!(&made[..expected.len().min(made.len())], &expected[..], "{made:?}");
     assert!(matches!(failed.label, Some(update::VIEW) | Some(update::PSYCHOLOGY)), "{failed:?}");
     assert_eq!(run.borrow().scratch.minute(), Some(MINUTE));
-    assert_eq!(&Phase::ORDER[..], &[
-        Phase::DispatchDueEvents,
-        Phase::CompleteScheduledTasks,
-        Phase::UpdateAgentState,
-        Phase::ProposeActions,
-        Phase::ArbitrateActions,
-        Phase::SampleEndogenousEvents,
-        Phase::CollectMetrics,
-    ]);
+    assert_eq!(
+        &Phase::ORDER[..],
+        &[
+            Phase::DispatchDueEvents,
+            Phase::CompleteScheduledTasks,
+            Phase::UpdateAgentState,
+            Phase::ProposeActions,
+            Phase::ArbitrateActions,
+            Phase::SampleEndogenousEvents,
+            Phase::CollectMetrics,
+        ]
+    );
 }
 
 #[test]

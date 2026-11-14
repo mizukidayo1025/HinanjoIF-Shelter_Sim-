@@ -124,17 +124,7 @@ fn view_of(world: &World) -> ViewData {
 }
 
 fn delta(id: &str, stress: f64) -> Delta {
-    Delta {
-        agent_id: text(id),
-        minute_index: 10,
-        toilet_urgency: 0.125,
-        hunger: 0.25,
-        fatigue: 0.375,
-        hydration_need: 0.5,
-        stress,
-        trust: 0.625,
-        body: None,
-    }
+    Delta { agent_id: text(id), minute_index: 10, toilet_urgency: 0.125, hunger: 0.25, fatigue: 0.375, hydration_need: 0.5, stress, trust: 0.625, body: None }
 }
 
 fn base_deltas() -> Vec<Delta> {
@@ -170,10 +160,7 @@ fn neighbors() -> Neighbors {
 fn social_row(contacts: &[(&str, i64, i64)], cooldowns: &[(&str, i64)]) -> SocialRow {
     SocialRow {
         schema_version: 1,
-        contacts: contacts
-            .iter()
-            .map(|&(key, last, minutes)| (text(key), ContactRecord { last_seen_minute: last, consecutive_minutes: minutes }))
-            .collect(),
+        contacts: contacts.iter().map(|&(key, last, minutes)| (text(key), ContactRecord { last_seen_minute: last, consecutive_minutes: minutes })).collect(),
         agent_cooldown_until: cooldowns.iter().map(|&(id, due)| (text(id), due)).collect(),
     }
 }
@@ -198,7 +185,14 @@ fn social_world(state: Option<SocialRow>, with_network: bool) -> World {
     world
 }
 
-fn social_inputs<'a>(settings: &'a Settings, expressiveness: &'a social::Table, view: &'a ViewData, deltas: &'a [Delta], neighbors: &'a Neighbors, traced: bool) -> social::Inputs<'a> {
+fn social_inputs<'a>(
+    settings: &'a Settings,
+    expressiveness: &'a social::Table,
+    view: &'a ViewData,
+    deltas: &'a [Delta],
+    neighbors: &'a Neighbors,
+    traced: bool,
+) -> social::Inputs<'a> {
     social::Inputs { settings, expressiveness, view, deltas, minute: 10, seed: "2026", neighbors, traced }
 }
 
@@ -217,15 +211,7 @@ fn a_plan_has_the_bits_of_the_kernel_before() {
     let people: Vec<Person<'_>> = ids
         .iter()
         .zip(&rows)
-        .map(|(id, &(group, zone, stress, sensitivity, expressiveness, base))| Person {
-            id,
-            group,
-            zone,
-            stress,
-            sensitivity,
-            expressiveness,
-            base,
-        })
+        .map(|(id, &(group, zone, stress, sensitivity, expressiveness, base))| Person { id, group, zone, stress, sensitivity, expressiveness, base })
         .collect();
     let mut neighbors = HashMap::new();
     neighbors.insert("z0".to_owned(), vec!["z1".to_owned()]);
@@ -398,10 +384,7 @@ fn the_trace_of_a_minute_goes_to_the_host() {
         ]
     );
     assert_eq!(document["minute_index"], V::Int(10));
-    assert_eq!(
-        document["aggregation"],
-        V::Str(text("snapshot weighted synchrony; pair cap then recipient cap then [0,1] bound"))
-    );
+    assert_eq!(document["aggregation"], V::Str(text("snapshot weighted synchrony; pair cap then recipient cap then [0,1] bound")));
     let trace = traced.plan.trace.as_ref().unwrap();
     assert_eq!(document["selected_contact_count"], V::Int(trace.contacts.len() as i64));
 }
@@ -593,10 +576,7 @@ fn a_minute_writes_the_row_and_schedules_each_transfer() {
     let document = information::information_document(&plan, InfoModel::Sparse, &V::Int(10), TraceLevel::Full);
     let V::Map(document) = document else { panic!("a document") };
     let keys: Vec<&str> = document.keys().map(|key| &**key).collect();
-    assert_eq!(
-        keys,
-        ["minute_index", "policy_version", "selected_contact_count", "truncated_contact_count", "contacts", "proposed_transfer_count"]
-    );
+    assert_eq!(keys, ["minute_index", "policy_version", "selected_contact_count", "truncated_contact_count", "contacts", "proposed_transfer_count"]);
     assert_eq!(document["policy_version"], V::Str(text("sparse-information-contact-v1")));
     assert_eq!(document["selected_contact_count"], V::Int(plan.traces.len() as i64));
     assert_eq!(document["proposed_transfer_count"], V::Int(pending.len() as i64));

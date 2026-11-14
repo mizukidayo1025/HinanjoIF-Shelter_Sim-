@@ -188,8 +188,7 @@ fn operational_enabled(scenario: &Scenario) -> Result<bool> {
     };
     Ok(configured
         || scenario.events.iter().any(|event| {
-            H03_EVENT_TYPES.contains(&&*event.event_type)
-                || (&*event.event_type == "resource_delivery" && member(&event.payload, "shipment_id").is_some())
+            H03_EVENT_TYPES.contains(&&*event.event_type) || (&*event.event_type == "resource_delivery" && member(&event.payload, "shipment_id").is_some())
         }))
 }
 
@@ -206,11 +205,7 @@ fn operational_events(scenario: &Scenario) -> Result<V> {
         if &*event.event_type == "resource_delivery" && member(&event.payload, "shipment_id").is_some() {
             shipments.insert(
                 key(payload(event, "shipment_id")?)?,
-                vmap([
-                    ("event_id", V::Str(event.event_id.clone())),
-                    ("resource_id", payload(event, "resource_id")?),
-                    ("due_minute", V::Int(event.due_minute)),
-                ]),
+                vmap([("event_id", V::Str(event.event_id.clone())), ("resource_id", payload(event, "resource_id")?), ("due_minute", V::Int(event.due_minute))]),
             );
         }
         if &*event.event_type == "water_restored" {
@@ -238,12 +233,7 @@ fn operational_events(scenario: &Scenario) -> Result<V> {
         );
     }
     let status = records(&staff_ids(scenario), |_| {
-        Ok(vmap([
-            ("available", V::Bool(true)),
-            ("unavailability_event_id", V::Null),
-            ("until_minute", V::Null),
-            ("restore_event_id", V::Null),
-        ]))
+        Ok(vmap([("available", V::Bool(true)), ("unavailability_event_id", V::Null), ("until_minute", V::Null), ("restore_event_id", V::Null)]))
     })?;
     Ok(vmap([
         ("schema_version", V::Int(1)),
@@ -302,10 +292,7 @@ fn psychological(scenario: &Scenario) -> Result<Vec<(&'static str, V)>> {
 /// `create_information_runtime_state(set(world.agents))`.
 fn information(scenario: &Scenario) -> Result<Vec<(&'static str, V)>> {
     let ids = agent_ids(scenario);
-    Ok(vec![
-        ("beliefs", records(&ids, |_| Ok(V::Map(IndexMap::new())))?),
-        ("query_pressure", records(&ids, |_| Ok(V::Float(0.0)))?),
-    ])
+    Ok(vec![("beliefs", records(&ids, |_| Ok(V::Map(IndexMap::new())))?), ("query_pressure", records(&ids, |_| Ok(V::Float(0.0)))?)])
 }
 
 /// `create_agent_dynamics_state`: what each person knows (the facilities of their zone and, past
@@ -351,10 +338,7 @@ fn population_dynamics(scenario: &Scenario) -> Result<Vec<(&'static str, V)>> {
         }
         traits.sort_by(|first, _, second, _| first.as_bytes().cmp(second.as_bytes()));
     }
-    Ok(vec![
-        ("initial_agent_ids", V::List(agent_ids(scenario).into_iter().map(V::Str).collect())),
-        ("profile_traits", V::Map(traits)),
-    ])
+    Ok(vec![("initial_agent_ids", V::List(agent_ids(scenario).into_iter().map(V::Str).collect())), ("profile_traits", V::Map(traits))])
 }
 
 /// `create_staff_dynamics_state`'s record of each staff member.
@@ -374,9 +358,7 @@ fn staff_dynamics(scenario: &Scenario) -> Result<Vec<(&'static str, V)>> {
 
 /// `create_staff_operations_state`: each zone's sanitation and each staff member idle.
 fn staff_operations(scenario: &Scenario) -> Result<Vec<(&'static str, V)>> {
-    let zones = records(&sorted_ids(scenario.zones.iter().map(|zone| &zone.id)), |_| {
-        Ok(vmap([("sanitation", V::Float(1.0)), ("updated_minute", V::Int(0))]))
-    })?;
+    let zones = records(&sorted_ids(scenario.zones.iter().map(|zone| &zone.id)), |_| Ok(vmap([("sanitation", V::Float(1.0)), ("updated_minute", V::Int(0))])))?;
     let staff = records(&staff_ids(scenario), |_| {
         Ok(vmap([
             ("phase", vstr("idle")),
@@ -448,10 +430,7 @@ fn zone_centers(scenario: &Scenario) -> Result<IndexMap<Arc<str>, Option<Pt>>> {
         let Some(V::List(corners)) = member(zone, "polygon") else {
             return Err(bad("a floor plan's zone has no polygon"));
         };
-        let polygon = corners
-            .iter()
-            .map(|corner| Ok(Pt { x: number(member(corner, "x"))?, y: number(member(corner, "y"))? }))
-            .collect::<Result<Vec<Pt>>>()?;
+        let polygon = corners.iter().map(|corner| Ok(Pt { x: number(member(corner, "x"))?, y: number(member(corner, "y"))? })).collect::<Result<Vec<Pt>>>()?;
         if polygon.is_empty() {
             return Err(bad("a floor plan's zone has no corners"));
         }

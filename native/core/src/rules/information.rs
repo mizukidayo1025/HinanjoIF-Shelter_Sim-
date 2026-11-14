@@ -137,8 +137,7 @@ pub fn settings(information: &Information, model: Model) -> Got<Settings> {
         return Err(Bad::Refused(Error::unsupported("a contact setting is out of range")));
     }
     let forgetting = read("forgetting_rate_per_minute")?;
-    let forget_probability =
-        if model == Model::EvidenceAware { -expm1(-forgetting).map_err(|error| Bad::Refused(error.into()))? } else { 0.0 };
+    let forget_probability = if model == Model::EvidenceAware { -expm1(-forgetting).map_err(|error| Bad::Refused(error.into()))? } else { 0.0 };
     Ok(Settings {
         maximum_contacts,
         minimum_contact_minutes,
@@ -254,14 +253,7 @@ fn basis_name(basis: Basis) -> &'static str {
 
 /// `InformationSpreadPolicy._transmission_probability`, and its override in
 /// `HazardInformationPolicy`.
-pub fn transmission_probability(
-    settings: &Settings,
-    model: Model,
-    trust: f64,
-    basis: Basis,
-    contact_minutes: i64,
-    correction: bool,
-) -> Result<f64> {
+pub fn transmission_probability(settings: &Settings, model: Model, trust: f64, basis: Basis, contact_minutes: i64, correction: bool) -> Result<f64> {
     let duration_factor = py_min(1.0, contact_minutes as f64 / settings.duration_scale);
     let trust_factor = 1.0 + settings.trust_sensitivity * (2.0 * trust - 1.0);
     let basis_factor = match basis {
@@ -270,10 +262,7 @@ pub fn transmission_probability(
         Basis::Nearby => settings.adjacent_multiplier,
     };
     let correction_factor = if correction { settings.correction_multiplier } else { 1.0 };
-    let propensity = py_min(
-        1.0,
-        settings.base_probability * duration_factor * trust_factor * basis_factor * correction_factor,
-    );
+    let propensity = py_min(1.0, settings.base_probability * duration_factor * trust_factor * basis_factor * correction_factor);
     if model != Model::Hazard {
         return Ok(propensity);
     }
@@ -319,11 +308,7 @@ fn forget<'a>(
                         key.int(minute).text(agent_id).text(message_id);
                         key.draw(draws) < settings.forget_probability
                     };
-                    let share = if forgotten {
-                        0.0
-                    } else {
-                        py_max(0.0, record.share_propensity - settings.share_decay)
-                    };
+                    let share = if forgotten { 0.0 } else { py_max(0.0, record.share_propensity - settings.share_decay) };
                     if forgotten || share.to_bits() != record.share_propensity.to_bits() {
                         changes.push(BeliefChange { agent: agent_place, message: message_place, share, forgotten });
                     }
@@ -400,19 +385,13 @@ fn plan_rows(
         select_contacts(draws, &mut head, me, &buckets, settings.maximum_contacts, false, &mut selected);
         for &(source, drawn_basis) in &selected {
             let sender = &people[source];
-            let basis = if person.group.is_some() && person.group == sender.group {
-                Basis::Family
-            } else {
-                drawn_basis
-            };
+            let basis = if person.group.is_some() && person.group == sender.group { Basis::Family } else { drawn_basis };
             let key = pair_key(&quoted[me], &quoted[source])?;
             let contact_minutes = match row.contacts.get(key.as_str()) {
-                Some(previous) if previous.last_seen_minute == minute - 1 => {
-                    match previous.consecutive_minutes.checked_add(1) {
-                        Some(minutes) if (minutes as u64) < 1 << 53 => minutes,
-                        _ => return unsupported("a contact's minutes do not fit"),
-                    }
-                }
+                Some(previous) if previous.last_seen_minute == minute - 1 => match previous.consecutive_minutes.checked_add(1) {
+                    Some(minutes) if (minutes as u64) < 1 << 53 => minutes,
+                    _ => return unsupported("a contact's minutes do not fit"),
+                },
                 _ => 1,
             };
             contacts.push((Arc::from(key), ContactRow { last_seen_minute: minute, consecutive_minutes: contact_minutes }));
@@ -442,8 +421,7 @@ fn plan_rows(
             let mut best: Option<(usize, i64)> = None;
             for (place, (message_id, _)) in sender_records.iter().enumerate() {
                 let rank = sender_current[place].rank;
-                let receiver_rank =
-                    recipient_records.get_index_of(&**message_id).map_or(0, |index| recipient_current[index].rank);
+                let receiver_rank = recipient_records.get_index_of(&**message_id).map_or(0, |index| recipient_current[index].rank);
                 if rank <= receiver_rank {
                     continue;
                 }
@@ -484,8 +462,7 @@ fn plan_rows(
                 }
                 continue;
             }
-            let propensity =
-                transmission_probability(settings, inputs.model, person.trust, basis, contact_minutes, belief.rank == 2)?;
+            let propensity = transmission_probability(settings, inputs.model, person.trust, basis, contact_minutes, belief.rank == 2)?;
             let probability = py_min(1.0, propensity * sharing_factor(settings, inputs.model, belief.share, sender.stress));
             let mut key = Key::labelled(label::INFORMATION_CONTACT_TRANSFER);
             key.int(minute).quoted(&quoted[me]).quoted(&quoted[source]).text(message_id).text(belief.status);
@@ -666,9 +643,8 @@ pub fn information_document(plan: &Plan, model: Model, minute: &V, level: TraceL
     let mut traces: Vec<&ContactTrace> = plan.traces.iter().collect();
     let empty: Arc<str> = Arc::from("");
     traces.sort_by(|first, second| {
-        let key = |trace: &ContactTrace| {
-            (plan.ids[trace.recipient].clone(), plan.ids[trace.sender].clone(), trace.message.clone().unwrap_or_else(|| empty.clone()))
-        };
+        let key =
+            |trace: &ContactTrace| (plan.ids[trace.recipient].clone(), plan.ids[trace.sender].clone(), trace.message.clone().unwrap_or_else(|| empty.clone()));
         key(first).cmp(&key(second))
     });
     let text = |value: &str| V::Str(Arc::from(value));

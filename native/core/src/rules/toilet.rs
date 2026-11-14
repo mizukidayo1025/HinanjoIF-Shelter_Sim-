@@ -28,7 +28,10 @@ use crate::rng::{label, Key, KeyedDraws};
 use crate::rules::facility_queues::{self as fifo, point_of};
 use crate::rules::kit::{add_metric, check_metric_state, held_row, is_toilet, set_agent, Events, Held, Kept};
 use crate::rules::queues::{self as queues, Walk};
-use crate::rules::service::{choose_queue, finishing_request, first_available, payload_text, plain, record_wait, release_staff, remove_from, remove_task, service_capacity, transition_row};
+use crate::rules::service::{
+    choose_queue, finishing_request, first_available, payload_text, plain, record_wait, release_staff, remove_from, remove_task, service_capacity,
+    transition_row,
+};
 use crate::state::body_state::{BodyRow, NAME as BODY_STATE};
 use crate::state::facility_queues::QueueRequest;
 use crate::text::py_repr;
@@ -479,7 +482,9 @@ fn pass(world: &World, start: &Start<'_>, drawn: Option<f64>) -> WriteResult<Pas
             rows.staff
                 .iter()
                 .filter(|(_, person)| {
-                    head.required_skills.iter().all(|wanted| person.skills.0.contains(wanted)) && person.zone_id == facility.zone_id && person.active_task_id.is_none()
+                    head.required_skills.iter().all(|wanted| person.skills.0.contains(wanted))
+                        && person.zone_id == facility.zone_id
+                        && person.active_task_id.is_none()
                 })
                 .map(|(_, person)| person.id.clone())
                 .collect()
@@ -524,7 +529,15 @@ fn pass(world: &World, start: &Start<'_>, drawn: Option<f64>) -> WriteResult<Pas
     provenance.insert(Arc::from("queue_wait_minutes"), V::Int(wait));
     provenance.insert(Arc::from("requested_at"), V::Int(queue_start));
     provenance.insert(Arc::from("service_started_at"), V::Int(minute));
-    let mut rng_key = vec![text(label::TOILET_SERVICE), V::Str(facility_arc.clone()), V::Str(agent_id.clone()), text("minute"), V::Int(minute), V::Str(start.policy.clone()), text("duration")];
+    let mut rng_key = vec![
+        text(label::TOILET_SERVICE),
+        V::Str(facility_arc.clone()),
+        V::Str(agent_id.clone()),
+        text("minute"),
+        V::Int(minute),
+        V::Str(start.policy.clone()),
+        text("duration"),
+    ];
     if let Some(head) = &head {
         rng_key.push(V::Str(head.queue_id.clone()));
     }
@@ -549,7 +562,18 @@ fn pass(world: &World, start: &Start<'_>, drawn: Option<f64>) -> WriteResult<Pas
     };
     check_metric_state(world, start.metric_state_held)?;
     let transition = match &head {
-        Some(head) => Some(transition_row(&events, &head.request, "service_started", &task_id, Some(wait), Some(&event_id), None, Some(head.point_capacity), sequence + 1, minute)?),
+        Some(head) => Some(transition_row(
+            &events,
+            &head.request,
+            "service_started",
+            &task_id,
+            Some(wait),
+            Some(&event_id),
+            None,
+            Some(head.point_capacity),
+            sequence + 1,
+            minute,
+        )?),
         None => None,
     };
 
@@ -671,7 +695,10 @@ pub fn complete(world: &World, event: &EventRow, queues: &Held, geo: &Geo, body:
         // The check of a reserved person, which the Python rule makes after it has written.
         if let Some(staff_id) = &task.staff_id {
             let consistent = rows.staff.get(staff_id).is_some_and(|staff| {
-                staff.active_task_id.as_deref() == Some(&*task.id) && staff.work_queue.len() == 1 && staff.work_queue[0] == task.id && staff.busy_until == task.due_minute
+                staff.active_task_id.as_deref() == Some(&*task.id)
+                    && staff.work_queue.len() == 1
+                    && staff.work_queue[0] == task.id
+                    && staff.busy_until == task.due_minute
             });
             if !consistent {
                 return Err(Error::unsupported("the staff reservation is inconsistent").into());
@@ -748,7 +775,9 @@ pub fn complete(world: &World, event: &EventRow, queues: &Held, geo: &Geo, body:
 /// `tick.policies` read: the controller's, of the class the driver was installed with (the driver
 /// refused another before the tick began), or one a caller holds alone (lane P9-3b, its body-less
 /// Python entry).
-pub fn arbitrate<C: WorldCell, H: Host, R: crate::rules::tick::RunCell>(tick: &mut crate::rules::tick::Tick<'_, C, H, R>) -> crate::rules::tick::Step<Vec<Arc<str>>, H::Error> {
+pub fn arbitrate<C: WorldCell, H: Host, R: crate::rules::tick::RunCell>(
+    tick: &mut crate::rules::tick::Tick<'_, C, H, R>,
+) -> crate::rules::tick::Step<Vec<Arc<str>>, H::Error> {
     use crate::rules::tick::Labelled;
     let due = facilities_of(tick).at("toilet.facilities_to_serve")?;
     let mut started = Vec::new();
@@ -798,14 +827,19 @@ pub fn arbitrate_independent<C: WorldCell, H: Host, R: crate::rules::tick::RunCe
 }
 
 /// `facilities_to_serve` of the manager's world.
-fn facilities_of<C: WorldCell, H: Host, R: crate::rules::tick::RunCell>(tick: &mut crate::rules::tick::Tick<'_, C, H, R>) -> std::result::Result<Vec<Arc<str>>, H::Error> {
+fn facilities_of<C: WorldCell, H: Host, R: crate::rules::tick::RunCell>(
+    tick: &mut crate::rules::tick::Tick<'_, C, H, R>,
+) -> std::result::Result<Vec<Arc<str>>, H::Error> {
     let holding = tick.holding()?;
     let queues = holding.held("facility_queues_v1", "the world holds another queue state");
     tick.cell.with(|world| facilities_to_serve(world, &queues)).and_then(|due| due).map_err(H::Error::from)
 }
 
 /// `has_room` of the tick (`toilet.has_room`).
-fn room_of<C: WorldCell, H: Host, R: crate::rules::tick::RunCell>(tick: &mut crate::rules::tick::Tick<'_, C, H, R>, id: &str) -> std::result::Result<bool, H::Error> {
+fn room_of<C: WorldCell, H: Host, R: crate::rules::tick::RunCell>(
+    tick: &mut crate::rules::tick::Tick<'_, C, H, R>,
+    id: &str,
+) -> std::result::Result<bool, H::Error> {
     let holding = tick.holding()?;
     if !holding.table {
         return Err(Error::unsupported("a value is not a plain dict").into());

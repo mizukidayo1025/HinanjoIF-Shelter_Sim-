@@ -179,11 +179,7 @@ fn zone_known(rows: &Entities, zone_id: &str) -> Result<bool> {
 /// The pending events in queue order, as their rows.
 fn pending_rows(world: &World) -> Result<Vec<Arc<EventRow>>> {
     let queue = world.queue()?;
-    queue
-        .ordered()
-        .iter()
-        .map(|(_, serial)| queue.slot(*serial).row.clone().ok_or_else(|| Error::unsupported(PENDING_UNREAD)))
-        .collect()
+    queue.ordered().iter().map(|(_, serial)| queue.slot(*serial).row.clone().ok_or_else(|| Error::unsupported(PENDING_UNREAD))).collect()
 }
 
 /// Write the dict at this path of a namespace held as a value (its tree follows the row, lane
@@ -936,8 +932,7 @@ pub fn write_facility<C: WorldCell, H: Host>(cell: &C, host: &mut H, plan: &Faci
 
 const ZONE_EXPIRE_FIELDS: [&str; 4] = ["program_id", "effect_id", "modifier_id", "zone_id"];
 const ENVIRONMENT_APPLY_FIELDS: [&str; 7] = ["program_id", "effect_id", "modifier_id", "zone_id", "op", "parameters", "end_minute"];
-const ENVIRONMENT_OPERATORS: [&str; 6] =
-    ["set_ambient_noise", "modify_demand_rate", "set_ventilation", "set_lighting", "set_privacy", "set_temperature"];
+const ENVIRONMENT_OPERATORS: [&str; 6] = ["set_ambient_noise", "modify_demand_rate", "set_ventilation", "set_lighting", "set_privacy", "set_temperature"];
 
 /// What the environment's rule reads besides the world's rows.
 pub struct EnvironmentIn<'a> {
@@ -1391,7 +1386,13 @@ fn geometry_active(world: &World, ins: &GeometryIn<'_>, row: &EventRow, op: &str
 /// its refusal is its `KernelRefusal`), and the world's check: their ValueError, KeyError or
 /// TypeError is the event's failure with its text. `GEOMETRY_PLAN_UNREAD` for a floor plan the
 /// PyO3 crate could not read.
-pub fn write_geometry<C: WorldCell, H: Host>(cell: &C, host: &mut H, change: &overlay::Change<'_>, row: &EventRow, expire: bool) -> std::result::Result<(), H::Error> {
+pub fn write_geometry<C: WorldCell, H: Host>(
+    cell: &C,
+    host: &mut H,
+    change: &overlay::Change<'_>,
+    row: &EventRow,
+    expire: bool,
+) -> std::result::Result<(), H::Error> {
     if let Err(error) = overlay::apply_change(cell, host, change, row, expire) {
         if error.class() == ErrorClass::Refused {
             let reason = error.text();
@@ -1552,7 +1553,12 @@ pub fn plan_task_order<C: WorldCell, H: Host>(cell: &C, host: &mut H, ins: &Stru
 
 /// `order_staff_operation` on the transaction's world (its checks raise before any change), and the
 /// world's check.
-pub fn write_task_order<C: WorldCell, H: Host>(cell: &C, host: &mut H, inputs: &staff_operation_events::Inputs<'_>, order: &TaskOrder) -> std::result::Result<(), H::Error>
+pub fn write_task_order<C: WorldCell, H: Host>(
+    cell: &C,
+    host: &mut H,
+    inputs: &staff_operation_events::Inputs<'_>,
+    order: &TaskOrder,
+) -> std::result::Result<(), H::Error>
 where
     H::Error: From<WriteError>,
 {
@@ -2011,7 +2017,14 @@ fn add_one_staff(world: &mut World, ins: &AddIn<'_>, staff_id: &str, zone_id: &A
     let key: Arc<str> = text(staff_id);
     world.rows_mut()?.staff.insert(
         key.clone(),
-        StaffRow { id: key.clone(), zone_id: zone_id.clone(), skills: Skills(vec![text("support")]), work_queue: Vec::new(), busy_until: 0, active_task_id: None },
+        StaffRow {
+            id: key.clone(),
+            zone_id: zone_id.clone(),
+            skills: Skills(vec![text("support")]),
+            work_queue: Vec::new(),
+            busy_until: 0,
+            active_task_id: None,
+        },
     );
     if matches!(state_value(world, OPERATIONAL, ins.operational)?, Some(state) if !matches!(state, V::Null)) {
         let mut status = Doc::with_capacity(4);
@@ -2109,7 +2122,9 @@ pub fn write_add<C: WorldCell, H: Host>(cell: &C, host: &mut H, ins: &AddIn<'_>,
             if cell.with(|world| add_one_toilet(world, ins, plan, &facility_id))?? {
                 place_toilet(cell, host, ins, plan, &facility_id)?;
             }
-            cell.with(|world| agent_dynamics::announce_installed_facility(world, Some(&facility_id), ins.policy).map_err(|error| Error::refused(ANNOUNCE, error)))??;
+            cell.with(|world| {
+                agent_dynamics::announce_installed_facility(world, Some(&facility_id), ins.policy).map_err(|error| Error::refused(ANNOUNCE, error))
+            })??;
         }
     }
     validate(host)?;
@@ -2180,7 +2195,8 @@ pub fn expected_event_type(phase: &str, op: &str) -> Option<&'static str> {
     })
 }
 
-const MARKER_FIELDS: [&str; 9] = ["program_id", "effect_id", "op", "source_text_hash", "compiler_provenance", "assumption_ids", "policy_dependencies", "units", "phase"];
+const MARKER_FIELDS: [&str; 9] =
+    ["program_id", "effect_id", "op", "source_text_hash", "compiler_provenance", "assumption_ids", "policy_dependencies", "units", "phase"];
 
 /// `CompilerProvenance.model_validate`, for a value the contract surely takes.
 fn compiler_provenance_passes(value: &V) -> bool {
@@ -2696,13 +2712,11 @@ pub fn add_event<C: WorldCell, H: Host>(cell: &C, host: &mut H, row: &EventRow) 
             staff_ops: staff_ops.as_ref().and_then(|read| read.as_ref().ok()),
         };
         match write_add(cell, host, &ins, &plan) {
-            Err(error) if error.class() == ErrorClass::Refused && error.text() == SNAPSHOT_UNREAD => {
-                match (plan_read.take(), staff_ops.take()) {
-                    (Some(Err(read)), _) => Err(by_name(SNAPSHOTS, read, None)),
-                    (_, Some(Err(read))) => Err(by_name(SNAPSHOTS, H::Error::from(read), None)),
-                    _ => Err(error),
-                }
-            }
+            Err(error) if error.class() == ErrorClass::Refused && error.text() == SNAPSHOT_UNREAD => match (plan_read.take(), staff_ops.take()) {
+                (Some(Err(read)), _) => Err(by_name(SNAPSHOTS, read, None)),
+                (_, Some(Err(read))) => Err(by_name(SNAPSHOTS, H::Error::from(read), None)),
+                _ => Err(error),
+            },
             other => other,
         }
     })

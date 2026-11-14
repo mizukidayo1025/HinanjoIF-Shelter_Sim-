@@ -149,9 +149,7 @@ fn validate(view: &View<'_>) -> Result<()> {
     if version != 5 && version != 6 {
         return Err(Error::Invariant(format!("unsupported world-state schema version: {version}")));
     }
-    let selection = selection::selected_models(view)
-        .and_then(|selection| declared::validate(view).map(|()| selection))
-        .map_err(wrap_value(""))?;
+    let selection = selection::selected_models(view).and_then(|selection| declared::validate(view).map(|()| selection)).map_err(wrap_value(""))?;
     if has_extensions(view)? {
         simulator_extensions(view).map_err(|error| {
             if is_value_error(&error) || matches!(error, Error::Key(_) | Error::Type(_)) {

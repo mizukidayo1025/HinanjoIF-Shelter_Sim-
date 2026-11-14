@@ -599,7 +599,11 @@ fn action(world: &Loaded, world_host: &mut TestHost, candidate: &Loaded, candida
     let command = Command::of_dumped(dumped, ids).unwrap();
     let read = lifecycle::Read::read(&candidate.cell, &mut *candidate_host, &*command.action == "relocate")?;
     let effects = kit::holding(&world.cell, &mut *world_host)?.held(EFFECT_PROGRAM, OTHER_PROGRAM);
-    let logged = if matches!(&*command.action, "temporary_exit" | "return") { lifecycle::logged_through(&world.cell, &mut *world_host, &effects, row)? } else { Logged::new() };
+    let logged = if matches!(&*command.action, "temporary_exit" | "return") {
+        lifecycle::logged_through(&world.cell, &mut *world_host, &effects, row)?
+    } else {
+        Logged::new()
+    };
     let reads = world.cell.with(|world| lifecycle::world_reads(world, &effects, &logged, row, &command))?;
     match read.run::<_, Error, _>(&candidate.cell, |world, inputs| lifecycle::presence_action(world, inputs, row, &command, &reads))? {
         Acted::Done(done) => Ok(done.receipt),
@@ -660,7 +664,8 @@ fn arrivals_take_an_alternate_zone() {
     let (zone, other) = (case.zone(), case.other_zone());
     case.set_capacity(&zone, Some(case.occupancy(&zone)));
     assert_eq!(case.arrive(2, 2, Alternates::Zones(vec![text(&other)])), 2);
-    let zones: Vec<Arc<str>> = case.edit(|world| world.rows().unwrap().agents.iter().filter(|(id, _)| id.starts_with("arrival-")).map(|(_, agent)| agent.zone_id.clone()).collect());
+    let zones: Vec<Arc<str>> =
+        case.edit(|world| world.rows().unwrap().agents.iter().filter(|(id, _)| id.starts_with("arrival-")).map(|(_, agent)| agent.zone_id.clone()).collect());
     assert_eq!(zones.len(), 2);
     assert!(zones.iter().all(|zone| **zone == *other));
 }
@@ -910,7 +915,9 @@ fn who_waits_is_checked_before_a_departure_writes() {
         *field(&mut pending[0], "created_minute") = V::Bool(true);
     });
     let before = case.bytes();
-    unsupported(case.departures(&event("departure-event", 0, json!({})), DepartureGiven { zone: Ok(Some(text(&zone))), count: Ok(Some(1)), include_initial: None }));
+    unsupported(
+        case.departures(&event("departure-event", 0, json!({})), DepartureGiven { zone: Ok(Some(text(&zone))), count: Ok(Some(1)), include_initial: None }),
+    );
     assert!(case.bytes() == before, "the world changed");
 }
 
@@ -977,7 +984,8 @@ fn a_retry_at_the_end_of_the_scenario_is_suppressed() {
 fn a_person_leaves_and_returns_with_the_same_state() {
     let mut case = case("generated", "test_a_person_leaves_and_returns_with_the_same_state");
     let person = case.person();
-    let needs_of = |case: &Case| case.doc()["agents"].as_array().unwrap().iter().find(|agent| agent["profile"]["id"] == person.as_str()).unwrap()["needs"].clone();
+    let needs_of =
+        |case: &Case| case.doc()["agents"].as_array().unwrap().iter().find(|agent| agent["profile"]["id"] == person.as_str()).unwrap()["needs"].clone();
     let (needs, zone) = (needs_of(&case), case.agent(&person, |agent| agent.zone_id.clone()));
     let receipt = case.command(1, "exit_9_sources");
     assert_eq!(get(&receipt, "action"), &s("temporary_exit"));
@@ -1018,14 +1026,23 @@ fn a_return_to_a_full_zone_waits_and_the_rule_admits_it_later() {
 
 #[test]
 fn an_exit_of_someone_busy_is_deferred_as_the_rule_says() {
-    let ways: [(&str, &str); 3] = [("queued", "the person is queued"), ("request", "the person is waiting for support"), ("task", "the person owns an active task")];
+    let ways: [(&str, &str); 3] =
+        [("queued", "the person is queued"), ("request", "the person is waiting for support"), ("task", "the person owns an active task")];
     for (index, (how, reason)) in ways.into_iter().enumerate() {
         let mut case = case("generated", &format!("test_an_exit_of_someone_busy_is_deferred_as_the_rule_says[{index}-{index}]"));
         let person = case.person();
         match how {
             "request" => case.agent(&person, |agent| agent.support_request_id = Some(text("some-request"))),
             "task" => case.edit(|world| {
-                let task = TaskRow { id: text("some-task"), kind: text("travel_return"), agent_id: Some(text(&person)), resource_id: None, start_minute: 0, due_minute: 5, staff_id: None };
+                let task = TaskRow {
+                    id: text("some-task"),
+                    kind: text("travel_return"),
+                    agent_id: Some(text(&person)),
+                    resource_id: None,
+                    start_minute: 0,
+                    due_minute: 5,
+                    staff_id: None,
+                };
                 world.rows_mut().unwrap().active_tasks.insert(text("some-task"), task);
             }),
             _ => case.agent(&person, |agent| agent.activity = Activity::Queued),
@@ -1154,9 +1171,21 @@ fn the_plan_reads_the_world_in_any_order() {
     for case_name in ["busy", "return_due"] {
         let case = case("out_and_back", "test_the_plan_reads_the_world_in_any_order");
         let (person, other) = (case.person(), input("walker"));
-        let mut exit_event = case.pending().into_iter().find(|event| event["event_type"] == "effect_program_population" && event["payload"]["command"]["action"] == "temporary_exit").expect("the exit");
+        let mut exit_event = case
+            .pending()
+            .into_iter()
+            .find(|event| event["event_type"] == "effect_program_population" && event["payload"]["command"]["action"] == "temporary_exit")
+            .expect("the exit");
         for (task_id, agent_id) in [("task-b", &person), ("task-a", &other)] {
-            let task = TaskRow { id: text(task_id), kind: text("travel_return"), agent_id: Some(text(agent_id)), resource_id: None, start_minute: 0, due_minute: 5, staff_id: None };
+            let task = TaskRow {
+                id: text(task_id),
+                kind: text("travel_return"),
+                agent_id: Some(text(agent_id)),
+                resource_id: None,
+                start_minute: 0,
+                due_minute: 5,
+                staff_id: None,
+            };
             case.edit(|world| world.rows_mut().unwrap().active_tasks.insert(text(task_id), task));
         }
         let expected = if case_name == "busy" {
@@ -1253,10 +1282,16 @@ fn a_room_admission_keeps_half_a_metre_from_who_is_there() {
 fn a_broken_population_state_raises_the_rule_s_text() {
     type Break = fn(&mut V);
     let breaks: [(Break, Option<&str>); 4] = [
-        (|state| *field(&mut list(field(state, "pending_arrivals"))[0], "zone_id") = V::Str(text("no-such-zone")), Some("population_dynamics_v1 pending arrival is invalid")),
+        (
+            |state| *field(&mut list(field(state, "pending_arrivals"))[0], "zone_id") = V::Str(text("no-such-zone")),
+            Some("population_dynamics_v1 pending arrival is invalid"),
+        ),
         // PersonTraits refused it: a contract's error is not the rule's own text.
         (|state| *field(field(&mut list(field(state, "pending_arrivals"))[0], "traits"), "age_years") = V::Int(500), None),
-        (|state| *field(first_value(field(state, "profile_context")), "source_ids") = V::List(Vec::new()), Some("dynamic household context disagrees with generated profile provenance")),
+        (
+            |state| *field(first_value(field(state, "profile_context")), "source_ids") = V::List(Vec::new()),
+            Some("dynamic household context disagrees with generated profile provenance"),
+        ),
         (
             |state| {
                 let V::Map(pending) = &mut list(field(state, "pending_arrivals"))[0] else { panic!() };
@@ -1290,8 +1325,14 @@ fn a_broken_lifecycle_state_raises_the_rule_s_text() {
             },
             "population_lifecycle_v1 has an invalid exact schema",
         ),
-        (|state| *field(field(first_value(field(state, "people")), "agent"), "stress") = V::Float(2.0), "population lifecycle normalized Agent value is invalid"),
-        (|state| list(field(state, "relationship_archive")).push(load::v(&json!({"namespace": "other"}))), "population_lifecycle_v1 relationship archive is invalid"),
+        (
+            |state| *field(field(first_value(field(state, "people")), "agent"), "stress") = V::Float(2.0),
+            "population lifecycle normalized Agent value is invalid",
+        ),
+        (
+            |state| list(field(state, "relationship_archive")).push(load::v(&json!({"namespace": "other"}))),
+            "population_lifecycle_v1 relationship archive is invalid",
+        ),
         (|state| list(field(state, "pending_returns")).push(load::v(&json!({"agent_id": "nobody"}))), "population_lifecycle_v1 pending return is invalid"),
     ];
     for (index, (breaks, expected)) in breaks.into_iter().enumerate() {

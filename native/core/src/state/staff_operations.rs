@@ -22,15 +22,10 @@ const POLICY: &str = "autonomous-routed-staff-v1";
 const SOURCE: &str = "ASM-STAFF-OPERATIONS-V1";
 const MAX_HISTORY: usize = 20_000;
 const TASK_KINDS: [&str; 5] = ["cleaning", "maintenance", "information_outreach", "intake", "patrol"];
-const THRESHOLDS: [&str; 3] =
-    ["cleaning_sanitation_below", "outreach_uncertainty_at_least", "patrol_stress_at_least"];
+const THRESHOLDS: [&str; 3] = ["cleaning_sanitation_below", "outreach_uncertainty_at_least", "patrol_stress_at_least"];
 /// A global rate of the config and the upper bound of the same rate in a zone.
-const EFFECTS: [(&str, f64); 4] = [
-    ("sanitation_use_per_person_minute", 0.01),
-    ("cleaning_sanitation_recovery", 1.0),
-    ("outreach_uncertainty_relief", 1.0),
-    ("patrol_reassurance", 1.0),
-];
+const EFFECTS: [(&str, f64); 4] =
+    [("sanitation_use_per_person_minute", 0.01), ("cleaning_sanitation_recovery", 1.0), ("outreach_uncertainty_relief", 1.0), ("patrol_reassurance", 1.0)];
 const MAX_TASK_MINUTES: i64 = 24 * 60;
 
 str_enum! {
@@ -158,10 +153,7 @@ fn zone_table_is_valid(table: &V, zones: &HashSet<String>, entry_is_valid: impl 
         let V::Map(entry) = entry else {
             return false;
         };
-        !zone.is_empty()
-            && zones.contains(&**zone)
-            && !entry.is_empty()
-            && entry.iter().all(|(name, value)| entry_is_valid(name, value))
+        !zone.is_empty() && zones.contains(&**zone) && !entry.is_empty() && entry.iter().all(|(name, value)| entry_is_valid(name, value))
     })
 }
 
@@ -176,10 +168,10 @@ fn config_is_canonical(config: &V, zones: &HashSet<String>) -> bool {
     }
     let text = |name: &str, expected: &str| matches!(config.get(name), Some(V::Str(text)) if &**text == expected);
     let durations_are_valid = matches!(config.get("task_duration_minutes"), Some(V::Map(durations))
-        if durations.len() == TASK_KINDS.len()
-            && TASK_KINDS.iter().all(|kind| {
-                matches!(durations.get(*kind), Some(V::Int(minutes)) if (1..=MAX_TASK_MINUTES).contains(minutes))
-            }));
+    if durations.len() == TASK_KINDS.len()
+        && TASK_KINDS.iter().all(|kind| {
+            matches!(durations.get(*kind), Some(V::Int(minutes)) if (1..=MAX_TASK_MINUTES).contains(minutes))
+        }));
     let mut known = 8;
     if !(matches!(config.get("schema_version"), Some(V::Int(1)))
         && text("policy_version", POLICY)
@@ -191,17 +183,13 @@ fn config_is_canonical(config: &V, zones: &HashSet<String>) -> bool {
     }
     if let Some(table) = config.get("thresholds_by_zone") {
         known += 1;
-        if !zone_table_is_valid(table, zones, |name, value| {
-            THRESHOLDS.contains(&name) && number_in(value, 0.0, 1.0)
-        }) {
+        if !zone_table_is_valid(table, zones, |name, value| THRESHOLDS.contains(&name) && number_in(value, 0.0, 1.0)) {
             return false;
         }
     }
     if let Some(table) = config.get("effects_by_zone") {
         known += 1;
-        if !zone_table_is_valid(table, zones, |name, value| {
-            EFFECTS.iter().any(|(effect, upper)| *effect == name && number_in(value, 0.0, *upper))
-        }) {
+        if !zone_table_is_valid(table, zones, |name, value| EFFECTS.iter().any(|(effect, upper)| *effect == name && number_in(value, 0.0, *upper))) {
             return false;
         }
     }
@@ -263,7 +251,6 @@ fn active_of(staff_id: &str, record: &OperationRecord, config: &V) -> Option<Act
         duration: *duration,
     })
 }
-
 
 impl StaffOperationsRow {
     /// The rules of `validate_staff_operations_state` that read the row alone, for a world of these

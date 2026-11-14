@@ -7,22 +7,19 @@ use std::sync::Arc;
 use indexmap::IndexMap;
 use serde_json::{json, Value};
 use sheltersim_core::config::agent_dynamics::{
-    awareness, canonical_policy, knowledge_is_limited, policy, MUST_CITE, UNSUPPORTED_FIELDS, UNSUPPORTED_VERSION,
-    V1_SOURCE,
+    awareness, canonical_policy, knowledge_is_limited, policy, MUST_CITE, UNSUPPORTED_FIELDS, UNSUPPORTED_VERSION, V1_SOURCE,
 };
 use sheltersim_core::config::body::{social_interaction_minutes, AffectModel, BodyModels, CareOutcome, TrustModel};
 use sheltersim_core::config::environment::{Infrastructure, ZoneEnvironmentSpec};
 use sheltersim_core::config::information::InformationSpread;
 use sheltersim_core::config::proximity::Proximity;
 use sheltersim_core::config::read::Read;
-use sheltersim_core::config::staff::{
-    known_staff_operations, support_task_minutes, StaffFatigue, StaffOperations, OPERATIONS_POLICY, OPERATIONS_SOURCE,
-};
+use sheltersim_core::config::staff::{known_staff_operations, support_task_minutes, StaffFatigue, StaffOperations, OPERATIONS_POLICY, OPERATIONS_SOURCE};
 use sheltersim_core::config::{parse_configs, Configs, Fault, Section};
 use sheltersim_core::row::ValueRow;
-use sheltersim_core::world::{Place, World, MODEL_CONFIGS};
 use sheltersim_core::state::agent_dynamics::{POLICY_V1, POLICY_V2, POLICY_V3};
 use sheltersim_core::value::V;
+use sheltersim_core::world::{Place, World, MODEL_CONFIGS};
 
 fn v(value: Value) -> V {
     match value {
@@ -147,14 +144,8 @@ fn the_information_config_is_read_where_the_rules_read_it() {
 #[test]
 fn the_body_operators_of_the_models_this_kernel_knows() {
     let none = v(json!({}));
-    assert_eq!(
-        BodyModels::parse("linear-positive-negative-v1", None, &none),
-        Ok(BodyModels { affect: AffectModel::Linear, trust: TrustModel::DurationOnly })
-    );
-    assert_eq!(
-        BodyModels::parse("trust-weighted-positive-negative-v1", Some("duration-contact-trust-v1"), &none).unwrap().affect,
-        AffectModel::TrustWeighted
-    );
+    assert_eq!(BodyModels::parse("linear-positive-negative-v1", None, &none), Ok(BodyModels { affect: AffectModel::Linear, trust: TrustModel::DurationOnly }));
+    assert_eq!(BodyModels::parse("trust-weighted-positive-negative-v1", Some("duration-contact-trust-v1"), &none).unwrap().affect, AffectModel::TrustWeighted);
     let distance = "distance-duration-repeat-trust-v1";
     assert_eq!(
         BodyModels::parse("linear-positive-negative-v1", Some(distance), &none).unwrap().trust,
@@ -169,7 +160,12 @@ fn the_body_operators_of_the_models_this_kernel_knows() {
         ("other", None, json!({}), "an affect model this kernel doesn't know"),
         ("linear-positive-negative-v1", Some("other"), json!({}), "a relationship model this kernel doesn't know"),
         ("linear-positive-negative-v1", Some(distance), json!({"body_dynamics": {"relationship_distance_scale_m": 0}}), "the distance scale is not positive"),
-        ("linear-positive-negative-v1", Some(distance), json!({"body_dynamics": {"relationship_distance_scale_m": null}}), "a relationship parameter is not a number"),
+        (
+            "linear-positive-negative-v1",
+            Some(distance),
+            json!({"body_dynamics": {"relationship_distance_scale_m": null}}),
+            "a relationship parameter is not a number",
+        ),
         ("linear-positive-negative-v1", Some(distance), json!({"body_dynamics": []}), "a value is not a plain dict"),
         ("linear-positive-negative-v1", Some(distance), json!([]), "a value is not a plain dict"),
     ] {
@@ -215,10 +211,7 @@ fn the_policy_of_agent_dynamics_in_the_order_of_the_python_checks() {
     assert_eq!(refused(canonical_policy(Some(&raw(json!({"policy_version": []}))))), "an unhashable policy");
     assert_eq!(canonical_policy(Some(&raw(json!({"source_id": "x"})))), Ok(Err(V1_SOURCE)));
     assert_eq!(canonical_policy(Some(&raw(json!({"policy_version": POLICY_V2})))), Ok(Ok(POLICY_V2)));
-    assert_eq!(
-        canonical_policy(Some(&raw(json!({"policy_version": POLICY_V3, "source_id": "ASM-INTAKE-FACILITY-ORIENTATION-V1"})))),
-        Ok(Ok(POLICY_V3))
-    );
+    assert_eq!(canonical_policy(Some(&raw(json!({"policy_version": POLICY_V3, "source_id": "ASM-INTAKE-FACILITY-ORIENTATION-V1"})))), Ok(Ok(POLICY_V3)));
     assert_eq!(canonical_policy(Some(&raw(json!({"policy_version": POLICY_V3, "source_id": 1})))), Ok(Err(MUST_CITE)));
     assert_eq!(policy(&raw(json!({}))), Ok(POLICY_V1));
     assert_eq!(policy(&raw(json!({"agent_dynamics": {"policy_version": POLICY_V2}}))), Ok(POLICY_V2));
@@ -287,9 +280,7 @@ fn the_environment_specs_and_the_dependents_of_a_component() {
 #[test]
 fn the_proximity_config_is_none_where_the_sampler_is_off() {
     assert_eq!(Proximity::from_v(&V::Null), Ok(None));
-    let config = Proximity::from_v(&v(json!({"policy_version": "distance-sampled-proximity-v1", "max_distance_m": 2.5})))
-        .unwrap()
-        .unwrap();
+    let config = Proximity::from_v(&v(json!({"policy_version": "distance-sampled-proximity-v1", "max_distance_m": 2.5}))).unwrap().unwrap();
     assert_eq!(&*config.policy_version, "distance-sampled-proximity-v1");
     assert_eq!(config.max_distance_m, Ok(2.5));
 }
@@ -316,12 +307,10 @@ fn a_section_is_parsed_from_the_row_of_the_configs_slot() {
     assert!(parse_configs(&world, support_task_minutes).unwrap().is_none());
     let index = world.slots.add(Arc::from(MODEL_CONFIGS), Place::Field).unwrap();
     assert!(parse_configs(&world, support_task_minutes).unwrap().is_none());
-    world.slots.at(index).unwrap().try_borrow_mut().unwrap().row =
-        Some(Box::new(ValueRow(v(json!({"staff": {"support_task_minutes": 12}})))));
+    world.slots.at(index).unwrap().try_borrow_mut().unwrap().row = Some(Box::new(ValueRow(v(json!({"staff": {"support_task_minutes": 12}})))));
     let Some(Section::Ok(minutes)) = parse_configs(&world, support_task_minutes).unwrap() else { panic!("a value") };
     assert_eq!(*minutes, 12);
-    world.slots.at(index).unwrap().try_borrow_mut().unwrap().row =
-        Some(Box::new(ValueRow(v(json!({"policy_registry": {"staff_operations": "other"}})))));
+    world.slots.at(index).unwrap().try_borrow_mut().unwrap().row = Some(Box::new(ValueRow(v(json!({"policy_registry": {"staff_operations": "other"}})))));
     let Some(Section::Fault(fault)) = parse_configs(&world, known_staff_operations).unwrap() else { panic!("a fault") };
     assert_eq!(fault, Fault::refused("another staff operations formula"));
     // A borrowed slot is the core's error, not a parse.

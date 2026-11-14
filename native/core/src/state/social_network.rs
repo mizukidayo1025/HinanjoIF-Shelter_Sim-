@@ -17,8 +17,8 @@ use std::sync::Arc;
 use crate::error::{Misfit, Result};
 use crate::json::Encoder;
 use crate::row::{Field, IdMap};
-use crate::value::V;
 use crate::state_row;
+use crate::value::V;
 
 pub const NAME: &str = "social_network_v1";
 const SCHEMA_VERSION: i64 = 1;

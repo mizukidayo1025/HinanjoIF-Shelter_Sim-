@@ -47,12 +47,8 @@ const DISASTER_TERMS: [(&str, &[&str]); 8] = [
     ("heavy_snow", &["大雪", "豪雪"]),
     ("heatwave", &["猛暑", "熱波"]),
 ];
-const SEASONS: [(&str, &[&str]); 4] = [
-    ("spring", &["春", "spring"]),
-    ("summer", &["夏", "summer"]),
-    ("autumn", &["秋", "autumn", "fall"]),
-    ("winter", &["冬", "winter"]),
-];
+const SEASONS: [(&str, &[&str]); 4] =
+    [("spring", &["春", "spring"]), ("summer", &["夏", "summer"]), ("autumn", &["秋", "autumn", "fall"]), ("winter", &["冬", "winter"])];
 const CONDITIONS: [(&str, &[&str]); 4] = [
     ("ペット", &["ペット", "pet"]),
     ("授乳・乳幼児", &["授乳", "乳幼児", "infant"]),
@@ -326,16 +322,21 @@ fn explicit_fields(text: &Text, folded: &str) -> Result<Values, Refusal> {
     }
     // ([0-9][0-9,]*)\s*(?:人|名|people|evacuees)
     let people = text.search(|start| {
-        text.number_then(start, |char| char.is_ascii_digit() || char == ',', |end| {
-            let at = text.spaces(end);
-            text.any_of(at, &["人", "名"], false).or_else(|| text.any_of(at, &["people", "evacuees"], true))
-        })
+        text.number_then(
+            start,
+            |char| char.is_ascii_digit() || char == ',',
+            |end| {
+                let at = text.spaces(end);
+                text.any_of(at, &["人", "名"], false).or_else(|| text.any_of(at, &["people", "evacuees"], true))
+            },
+        )
     });
     if let Some((digits, _)) = people {
         values.insert("evacuees", int_value(&digits.replace(',', "")));
     }
     // ([0-9]+(?:\.[0-9]+)?)\s*(?:日間|日|days?|d), else hours, else weeks.
-    let unit = |first: &'static str, letter: char| move |at: usize| text.literal(at, first).or_else(|| text.at(at).filter(|char| ci(*char, letter)).map(|_| at + 1));
+    let unit =
+        |first: &'static str, letter: char| move |at: usize| text.literal(at, first).or_else(|| text.at(at).filter(|char| ci(*char, letter)).map(|_| at + 1));
     let days = text.search(|start| decimal_then(text, start, unit("日", 'd')));
     if let Some(days) = days {
         values.insert("duration_days", V::Float(float_value(&days)?));
@@ -350,10 +351,14 @@ fn explicit_fields(text: &Text, folded: &str) -> Result<Values, Refusal> {
     }
     // ([0-9][0-9,.]*)\s*(?:m2|m²|㎡|平方メートル)
     let area = text.search(|start| {
-        text.number_then(start, |char| char.is_ascii_digit() || char == ',' || char == '.', |end| {
-            let at = text.spaces(end);
-            text.any_of(at, &["m2", "m²"], true).or_else(|| text.any_of(at, &["㎡", "平方メートル"], false))
-        })
+        text.number_then(
+            start,
+            |char| char.is_ascii_digit() || char == ',' || char == '.',
+            |end| {
+                let at = text.spaces(end);
+                text.any_of(at, &["m2", "m²"], true).or_else(|| text.any_of(at, &["㎡", "平方メートル"], false))
+            },
+        )
     });
     if let Some((area, _)) = area {
         values.insert("gross_area_m2", V::Float(float_value(&area.replace(',', ""))?));
@@ -363,13 +368,17 @@ fn explicit_fields(text: &Text, folded: &str) -> Result<Values, Refusal> {
     let kinds = ["車いす", "車椅子", "バリアフリー"];
     let toilet = |at: usize| text.any_of(at, &["トイレ", "便所"], false);
     let counted = text.search(|start| {
-        text.number_then(start, |char| char.is_ascii_digit(), |end| {
-            let mut at = text.any_of(text.spaces(end), &["基", "台"], false)?;
-            at = text.spaces(at);
-            at = text.spaces(text.literal(at, "の").unwrap_or(at));
-            at = text.spaces(text.any_of(at, &kinds, false).unwrap_or(at));
-            toilet(at)
-        })
+        text.number_then(
+            start,
+            |char| char.is_ascii_digit(),
+            |end| {
+                let mut at = text.any_of(text.spaces(end), &["基", "台"], false)?;
+                at = text.spaces(at);
+                at = text.spaces(text.literal(at, "の").unwrap_or(at));
+                at = text.spaces(text.any_of(at, &kinds, false).unwrap_or(at));
+                toilet(at)
+            },
+        )
     });
     let accessible = counted.or_else(|| {
         text.search(|start| {
@@ -384,11 +393,15 @@ fn explicit_fields(text: &Text, folded: &str) -> Result<Values, Refusal> {
     }
     // ([0-9]+)\s*(?:人|名)\s*(?:の)?\s*(?:職員|スタッフ)
     let staff = text.search(|start| {
-        text.number_then(start, |char| char.is_ascii_digit(), |end| {
-            let at = text.spaces(text.any_of(text.spaces(end), &["人", "名"], false)?);
-            let at = text.spaces(text.literal(at, "の").unwrap_or(at));
-            text.any_of(at, &["職員", "スタッフ"], false)
-        })
+        text.number_then(
+            start,
+            |char| char.is_ascii_digit(),
+            |end| {
+                let at = text.spaces(text.any_of(text.spaces(end), &["人", "名"], false)?);
+                let at = text.spaces(text.literal(at, "の").unwrap_or(at));
+                text.any_of(at, &["職員", "スタッフ"], false)
+            },
+        )
     });
     if let Some((count, _)) = staff {
         values.insert("staff_count", int_value(&count));
@@ -405,14 +418,18 @@ fn explicit_fields(text: &Text, folded: &str) -> Result<Values, Refusal> {
             .or_else(|| text.literal(start, "水").map(|at| text.any_of(at, &["の在庫", "在庫"], false).unwrap_or(at)))
             .or_else(|| text.ci_literal(start, "water").map(|at| text.ci_literal(at, " stock").unwrap_or(at)))?;
         let at = colon(named, &[':', '：', '=']);
-        text.number_then(at, |char| char.is_ascii_digit() || char == ',' || char == '.', |end| {
-            let at = text.spaces(end);
-            if text.ci_literal(at, "ml").is_some() {
-                return Some(false);
-            }
-            let liters = text.any_of(at, &["リットル", "ℓ"], false).is_some() || text.at(at).is_some_and(|char| ci(char, 'l'));
-            liters.then_some(true)
-        })
+        text.number_then(
+            at,
+            |char| char.is_ascii_digit() || char == ',' || char == '.',
+            |end| {
+                let at = text.spaces(end);
+                if text.ci_literal(at, "ml").is_some() {
+                    return Some(false);
+                }
+                let liters = text.any_of(at, &["リットル", "ℓ"], false).is_some() || text.at(at).is_some_and(|char| ci(char, 'l'));
+                liters.then_some(true)
+            },
+        )
     });
     // (?:食料|食糧|食事在庫|food(?: stock)?|meal(?: stock)?)\s*[:：=]?\s*([0-9][0-9,]*)\s*(?:食分|食|meal units?)
     let food = text.search(|start| {
@@ -421,10 +438,14 @@ fn explicit_fields(text: &Text, folded: &str) -> Result<Values, Refusal> {
             .or_else(|| text.ci_literal(start, "food").map(|at| text.ci_literal(at, " stock").unwrap_or(at)))
             .or_else(|| text.ci_literal(start, "meal").map(|at| text.ci_literal(at, " stock").unwrap_or(at)))?;
         let at = colon(named, &[':', '：', '=']);
-        text.number_then(at, |char| char.is_ascii_digit() || char == ',', |end| {
-            let at = text.spaces(end);
-            text.literal(at, "食").or_else(|| text.ci_literal(at, "meal unit"))
-        })
+        text.number_then(
+            at,
+            |char| char.is_ascii_digit() || char == ',',
+            |end| {
+                let at = text.spaces(end);
+                text.literal(at, "食").or_else(|| text.ci_literal(at, "meal unit"))
+            },
+        )
     });
     let water_ml = match &water {
         Some((amount, liters)) => Some(rounded(float_value(&amount.replace(',', ""))? * if *liters { 1_000.0 } else { 1.0 })?),
@@ -466,11 +487,8 @@ fn explicit_fields(text: &Text, folded: &str) -> Result<Values, Refusal> {
             values.insert("municipality", V::Str(Arc::from(place.as_str())));
         }
     }
-    let conditions: Vec<V> = CONDITIONS
-        .iter()
-        .filter(|(_, terms)| terms.iter().any(|term| folded.contains(&*casefold(term))))
-        .map(|(label, _)| V::Str(Arc::from(*label)))
-        .collect();
+    let conditions: Vec<V> =
+        CONDITIONS.iter().filter(|(_, terms)| terms.iter().any(|term| folded.contains(&*casefold(term)))).map(|(label, _)| V::Str(Arc::from(*label))).collect();
     if !conditions.is_empty() {
         values.insert("facility_conditions", V::List(conditions));
     }
@@ -534,8 +552,7 @@ pub fn parse(text: &str) -> Result<TextParse, Refusal> {
     let (source, mut warnings) = if fits { ("rules_fallback", vec![FALLBACK_WARNING]) } else { ("rules", vec![FALLBACK_WARNING]) };
     // `_merge_explicit` of the fallback read back: the conditions the rules left unset, at their
     // defaults (the request's defaults too, so only their origin is written here).
-    let extracted: &[&'static str] =
-        if fits { &["operational_conditions", "population_conditions", "evacuation_selection"] } else { &[] };
+    let extracted: &[&'static str] = if fits { &["operational_conditions", "population_conditions", "evacuation_selection"] } else { &[] };
     let missing: Vec<&'static str> = REQUIRED.into_iter().filter(|field| !truthy(explicit.get(field))).collect();
     let mut request = None;
     if missing.is_empty() {
@@ -568,19 +585,10 @@ pub fn parse(text: &str) -> Result<TextParse, Refusal> {
         if let Some(conditions) = value("operational_conditions") {
             fields.push(("operational_conditions", conditions));
         }
-        fields.push((
-            "field_origins",
-            V::Map(origins.into_iter().map(|(field, origin)| (Arc::from(field), V::Str(Arc::from(origin)))).collect()),
-        ));
+        fields.push(("field_origins", V::Map(origins.into_iter().map(|(field, origin)| (Arc::from(field), V::Str(Arc::from(origin)))).collect())));
         let document = V::Map(fields.into_iter().map(|(key, value)| (Arc::from(key), value)).collect());
         request = Some(InitialScenarioRequest::of_value(&document)?);
     }
     warnings.push(DRAFT_WARNING);
-    Ok(TextParse {
-        request,
-        missing_fields: missing,
-        source,
-        warnings,
-        input_sha256: crate::checkpoint::sha256_hex(text.as_bytes()),
-    })
+    Ok(TextParse { request, missing_fields: missing, source, warnings, input_sha256: crate::checkpoint::sha256_hex(text.as_bytes()) })
 }

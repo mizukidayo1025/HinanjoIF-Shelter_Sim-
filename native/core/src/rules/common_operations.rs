@@ -22,16 +22,16 @@ use indexmap::IndexMap;
 
 use crate::error::{Error, Result};
 use crate::events::{EventRow, EventStatus};
+use crate::host::{Hold, Holding, Host, NOT_OWNED, TABLE_NOT_PLAIN};
 use crate::json::Encoder;
 use crate::row::Row;
+use crate::rules::kit;
 use crate::rules::staff_dynamics::namespace;
 use crate::state::shared_operations::{
     is_identifier, is_support_kind, CareHead, CareStatus, Receipt as Record, SharedOperationsRow, MAX_HISTORY, MAX_REQUESTS, NAME,
 };
 use crate::state::staff_operations::{StaffOperationsRow, NAME as OPERATIONS};
 use crate::value::V;
-use crate::host::{Hold, Holding, Host, NOT_OWNED, TABLE_NOT_PLAIN};
-use crate::rules::kit;
 use crate::world::{World, WorldCell, RESOURCES};
 
 pub const MINUTE: &str = "shared operation receipt must use the current simulation boundary minute";
@@ -81,9 +81,7 @@ pub fn py_eq(first: &V, second: &V) -> bool {
         (V::Str(one), V::Str(two)) => one == two,
         (V::Big(one), V::Big(two)) => one == two,
         (V::List(one), V::List(two)) => one.len() == two.len() && one.iter().zip(two).all(|(a, b)| py_eq(a, b)),
-        (V::Map(one), V::Map(two)) => {
-            one.len() == two.len() && one.iter().all(|(key, value)| two.get(key).is_some_and(|other| py_eq(value, other)))
-        }
+        (V::Map(one), V::Map(two)) => one.len() == two.len() && one.iter().all(|(key, value)| two.get(key).is_some_and(|other| py_eq(value, other))),
         _ => match (number(first), number(second)) {
             (Some(Ok(a)), Some(Ok(b))) => a == b,
             (Some(Err(a)), Some(Err(b))) => a == b,
@@ -817,7 +815,9 @@ pub fn record_shared_operation(world: &mut World, receipt: &Receipt, found: &Fou
 /// The event of a receipt: applied at this minute, of the receipt's type.
 fn applied_event<'a>(found: &'a Found, receipt: &Receipt, minute: i64) -> Result<&'a Logged> {
     match found.get(receipt.event_id())? {
-        Some(logged) if logged.status == EventStatus::Applied && logged.realized_minute == minute && &*logged.event.event_type == receipt.event_type() => Ok(logged),
+        Some(logged) if logged.status == EventStatus::Applied && logged.realized_minute == minute && &*logged.event.event_type == receipt.event_type() => {
+            Ok(logged)
+        }
         _ => Err(Error::value_error(NO_EVENT)),
     }
 }
@@ -835,10 +835,7 @@ fn record_care(world: &mut World, care: &CareReceipt, found: &Found) -> Result<(
         return Err(Error::value_error(RECORDED));
     }
     let event = &logged.event;
-    if event.payload != document
-        || event.causation_id != care.causation_id
-        || !event.source_id.as_ref().is_none_or(|source| care.source_ids.contains(source))
-    {
+    if event.payload != document || event.causation_id != care.causation_id || !event.source_id.as_ref().is_none_or(|source| care.source_ids.contains(source)) {
         return Err(Error::value_error(NOT_THE_PAYLOAD));
     }
     let plan = plan_record(world, care)?;
@@ -907,9 +904,10 @@ fn record_other(world: &mut World, receipt: &Receipt, found: &Found) -> Result<(
         Receipt::Handoff(handoff) => check_handoff(world, handoff)?,
         Receipt::Recovery(recovery) => {
             let rows = world.rows()?;
-            let fits = rows.facilities.get(&*recovery.facility_id).is_some_and(|facility| {
-                recovery.working_units <= facility.capacity && facility.working_units == recovery.working_units
-            });
+            let fits = rows
+                .facilities
+                .get(&*recovery.facility_id)
+                .is_some_and(|facility| recovery.working_units <= facility.capacity && facility.working_units == recovery.working_units);
             if !fits {
                 return Err(Error::value_error("facility recovery receipt does not match the applied facility state"));
             }
@@ -1037,10 +1035,7 @@ fn check_handoff(world: &World, receipt: &HandoffReceipt) -> Result<()> {
 fn check_staff_operation(world: &World, receipt: &OperationReceipt, history_truncated: bool) -> Result<()> {
     let operations = namespace::<StaffOperationsRow>(world, OPERATIONS)?;
     let history = operations.as_ref().map_or(&[][..], |row| &row.history[..]);
-    let matches: Vec<_> = history
-        .iter()
-        .filter(|row| row.task_id == receipt.task_id && row.complete_minute == receipt.minute)
-        .collect();
+    let matches: Vec<_> = history.iter().filter(|row| row.task_id == receipt.task_id && row.complete_minute == receipt.minute).collect();
     let Some(row) = matches.first() else {
         // `history and all(...)`: an empty history has no later row.
         let all_later = !history.is_empty() && history.iter().all(|row| row.complete_minute > receipt.minute);
@@ -1255,13 +1250,8 @@ pub fn write_record(world: &mut World, care: &CareReceipt, document: &V, plan: P
     let (event_id, request_id, minute) = (&care.event_id, &care.request_id, care.minute);
     let mut encoder = Encoder::with_capacity(512);
     document.write_json(&mut encoder)?;
-    let receipt = Record {
-        minute: Some(minute),
-        event_id: Some(event_id.clone()),
-        verified: true,
-        reads_staff_history: false,
-        bytes: encoder.out.into_boxed_slice(),
-    };
+    let receipt =
+        Record { minute: Some(minute), event_id: Some(event_id.clone()), verified: true, reads_staff_history: false, bytes: encoder.out.into_boxed_slice() };
     let new_head = care.status.is_open().then(|| CareHead {
         request_id: request_id.clone(),
         agent_id: care.agent_id.clone(),

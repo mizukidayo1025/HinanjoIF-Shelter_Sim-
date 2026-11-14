@@ -81,9 +81,8 @@ fn every_recorded_broken_world_ends_a_tick_with_python_s_error() {
                 skipped += 1;
                 continue;
             };
-            let wanted: Found = case["expected"]["validate_tick"]
-                .as_array()
-                .map(|pair| (pair[0].as_str().unwrap().to_owned(), pair[1].as_str().unwrap().to_owned()));
+            let wanted: Found =
+                case["expected"]["validate_tick"].as_array().map(|pair| (pair[0].as_str().unwrap().to_owned(), pair[1].as_str().unwrap().to_owned()));
             // What the whole validation gives on the world as loaded: Python's, but where the
             // loader cannot hold the broken value (the case's test changes the loaded world).
             let whole = outcome_of(validate::world(&world, &Options { history: false, in_flight: None }));
@@ -192,4 +191,3 @@ fn a_namespace_held_as_a_value_leaves_the_tick_to_the_whole_validation() {
     assert_eq!(run.stepping.refused.len(), 1, "{:?}", run.stepping.refused);
     assert_eq!(run.stepping.refused[0].1, "the namespace has another row");
 }
-

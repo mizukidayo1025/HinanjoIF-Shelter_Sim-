@@ -32,9 +32,7 @@ const CONSTANTS_JSON: &str = include_str!("constants.json");
 /// The builder's constants (`constants.json`).
 pub fn constants() -> &'static V {
     static CONSTANTS: OnceLock<V> = OnceLock::new();
-    CONSTANTS.get_or_init(|| {
-        serde_json::from_str::<serde_json::Value>(CONSTANTS_JSON).ok().and_then(|value| V::from_json(&value)).unwrap_or(V::Null)
-    })
+    CONSTANTS.get_or_init(|| serde_json::from_str::<serde_json::Value>(CONSTANTS_JSON).ok().and_then(|value| V::from_json(&value)).unwrap_or(V::Null))
 }
 
 fn id_of(name: &str) -> Result<String> {
@@ -162,11 +160,12 @@ fn insert(target: &mut V, key: &str, value: V) {
 }
 
 fn record_id(record: &V) -> String {
-    opt(record, "id").map(|id| match id {
-        V::Str(text) => text.to_string(),
-        other => format!("{other:?}"),
-    })
-    .unwrap_or_default()
+    opt(record, "id")
+        .map(|id| match id {
+            V::Str(text) => text.to_string(),
+            other => format!("{other:?}"),
+        })
+        .unwrap_or_default()
 }
 
 /// An assumption-kind source record of an assumption (`{"id", "title": subject, ...}`).
@@ -429,10 +428,8 @@ pub fn assemble(parts: &Parts, service_warnings: impl FnOnce(&V) -> Result<Vec<S
             if missing_toilet {
                 reasons.push("アクセシブルトイレとして識別された設備がありません".to_owned());
             }
-            let blocker = format!(
-                "移動支援ニーズのある避難者が生成されています。{}。経路幅と設備を確認するまでシミュレーションを開始できません。",
-                reasons.join("。")
-            );
+            let blocker =
+                format!("移動支援ニーズのある避難者が生成されています。{}。経路幅と設備を確認するまでシミュレーションを開始できません。", reasons.join("。"));
             design_warnings.push(blocker.clone());
             approval_blockers.push(blocker);
         }
@@ -475,10 +472,7 @@ pub fn assemble(parts: &Parts, service_warnings: impl FnOnce(&V) -> Result<Vec<S
                     ("support_fairness_minutes", V::Int(30)),
                 ]),
             ),
-            (
-                "reason",
-                s("Generic support timing and fairness-aging delay used by the simulation model; not an operational staffing standard."),
-            ),
+            ("reason", s("Generic support timing and fairness-aging delay used by the simulation model; not an operational staffing standard.")),
             ("source_id", s("ASM-STAFF-SUPPORT-LIFECYCLE-V1")),
         ]),
         map(vec![
@@ -507,10 +501,7 @@ pub fn assemble(parts: &Parts, service_warnings: impl FnOnce(&V) -> Result<Vec<S
                 ("id", s(&source_id)),
                 ("title", s("Operator-declared population input reference")),
                 ("source_kind", s("operator")),
-                (
-                    "description",
-                    s("Identifier supplied with operator population/selection input; external citation and applicability have not been verified."),
-                ),
+                ("description", s("Identifier supplied with operator population/selection input; external citation and applicability have not been verified.")),
             ])
         });
     }
@@ -600,7 +591,8 @@ pub fn assemble(parts: &Parts, service_warnings: impl FnOnce(&V) -> Result<Vec<S
     if compiled.contains_key("infrastructure") {
         return Err(Error::Unsupported("infrastructure conditions".into()));
     }
-    let facility_source_ids: Vec<String> = facility_assumptions.iter().map(|item| at(item, &["source_id"]).and_then(|id| text(id, "source_id"))).collect::<Result<_>>()?;
+    let facility_source_ids: Vec<String> =
+        facility_assumptions.iter().map(|item| at(item, &["source_id"]).and_then(|id| text(id, "source_id"))).collect::<Result<_>>()?;
     for assumption in &model_assumptions {
         let source_id = text(at(assumption, &["source_id"])?, "source_id")?;
         if !facility_source_ids.contains(&source_id) {
@@ -785,10 +777,7 @@ pub fn assemble(parts: &Parts, service_warnings: impl FnOnce(&V) -> Result<Vec<S
         ("subject", s("initial_facility_knowledge")),
         ("value", map(vec![("known_facility_kinds", kinds.clone())])),
         ("source_id", s(&orientation)),
-        (
-            "reason",
-            s("Agents choose only facilities they know; shared services are known from the start, group-specific spaces are learned on arrival."),
-        ),
+        ("reason", s("Agents choose only facilities they know; shared services are known from the start, group-specific spaces are learned on arrival.")),
     ]));
     let announcement = id_of("INSTALLED_FACILITY_ANNOUNCEMENT_SOURCE_ID")?;
     sources.push(installed(
@@ -817,10 +806,7 @@ pub fn assemble(parts: &Parts, service_warnings: impl FnOnce(&V) -> Result<Vec<S
         ("subject", s("psychology_model")),
         ("value", map(vec![("policy_version", s(&id_of("INTEGRATED_PSYCHOLOGY_POLICY_VERSION")?))])),
         ("source_id", s(&psychology)),
-        (
-            "reason",
-            s("New generated Scenarios select the research psychology model; legacy models remain only for saved inputs and explicit comparisons."),
-        ),
+        ("reason", s("New generated Scenarios select the research psychology model; legacy models remain only for saved inputs and explicit comparisons.")),
     ]));
     for (model_id, source_id, title) in selected_policy_sources()? {
         if !has_source(&sources, &source_id) {
@@ -921,10 +907,8 @@ pub fn assemble(parts: &Parts, service_warnings: impl FnOnce(&V) -> Result<Vec<S
                     }
                 }
             }
-            provenance.insert(
-                Arc::from("scenario_input"),
-                map(vec![("sha256", s(&parts.input.sha256)), ("extraction_source", s(&parts.input.extraction_source))]),
-            );
+            provenance
+                .insert(Arc::from("scenario_input"), map(vec![("sha256", s(&parts.input.sha256)), ("extraction_source", s(&parts.input.extraction_source))]));
         }
     }
     let canonical = canonical_json(&scenario)?;

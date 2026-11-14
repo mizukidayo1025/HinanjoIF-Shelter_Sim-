@@ -63,7 +63,11 @@ fn a_sample_design_is_python_s_value_for_value() {
             let (made, expected) = (String::from_utf8(made.to_json().unwrap()).unwrap(), String::from_utf8(expected.to_json().unwrap()).unwrap());
             let at = made.bytes().zip(expected.bytes()).position(|(a, b)| a != b).unwrap_or(made.len().min(expected.len()));
             let from = at.saturating_sub(120);
-            panic!("{name} differs at byte {at}:\n made     {}\n expected {}", &made[from..(at + 80).min(made.len())], &expected[from..(at + 80).min(expected.len())]);
+            panic!(
+                "{name} differs at byte {at}:\n made     {}\n expected {}",
+                &made[from..(at + 80).min(made.len())],
+                &expected[from..(at + 80).min(expected.len())]
+            );
         }
     }
 }

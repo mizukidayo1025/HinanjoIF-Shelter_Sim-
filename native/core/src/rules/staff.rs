@@ -36,8 +36,8 @@ use crate::events::{EventKind, EventStatus};
 use crate::geometry::Geo;
 use crate::host::Host;
 use crate::mathx::{py_fsum, py_max, py_round_int};
-use crate::row::{map_set, ValueRow};
 use crate::routes::{EdgeLoads, Route, Router};
+use crate::row::{map_set, ValueRow};
 use crate::rules::kit::{self, Events, Held, Kept, NewEvent, NoTree};
 use crate::rules::movement;
 use crate::rules::staff_dynamics::{self, on_shift};
@@ -508,7 +508,14 @@ fn resolve(world: &World, travel: Option<&Travel<'_>>, origin: &Arc<str>, destin
 /// pending request stays pending records the attempt and the minute's exposure; otherwise, without
 /// `full`, nothing is written and `NeedsAll` asks for it. Another route resolver or travel
 /// scheduler is refused there, before anything is written.
-pub fn assign_pending(world: &World, inputs: &Inputs<'_>, service: &Service, minute: i64, full: Option<&Full<'_>>, taken: &mut Vec<u64>) -> WriteResult<Assigned> {
+pub fn assign_pending(
+    world: &World,
+    inputs: &Inputs<'_>,
+    service: &Service,
+    minute: i64,
+    full: Option<&Full<'_>>,
+    taken: &mut Vec<u64>,
+) -> WriteResult<Assigned> {
     if minute != world.minute_index()? {
         // The rule's first check, before any change; marked, so that the step's catch lets it by.
         return Err(Error::MarkedValue("staff assignment minute must match WorldState".to_owned()).into());
@@ -723,7 +730,8 @@ fn preempt_worker(
     taken: &mut Vec<u64>,
 ) -> WriteResult<Option<usize>> {
     // `model_state.get(NAME)`: no preemption without the namespace.
-    let Some(phases) = inputs.operations_row(world)?.map(|row| row.staff.iter().map(|(id, record)| (id.clone(), record.phase)).collect::<FxHashMap<_, _>>()) else {
+    let Some(phases) = inputs.operations_row(world)?.map(|row| row.staff.iter().map(|(id, record)| (id.clone(), record.phase)).collect::<FxHashMap<_, _>>())
+    else {
         return Ok(None);
     };
     let mut order: Vec<usize> = (0..workers.len()).collect();
@@ -947,7 +955,14 @@ fn movement_minutes(world: &World, inputs: &WaitRoutes<'_>, agent_id: &str, rout
 
 /// `_support_route_wait_reasons`, of a person with candidates: the reasons, and whether a route is
 /// feasible.
-fn route_wait_reasons(world: &World, inputs: &WaitRoutes<'_>, reads: &mut RouteReads, agent_id: &str, destinations: &[Arc<str>], minute: i64) -> Result<(BTreeSet<&'static str>, bool)> {
+fn route_wait_reasons(
+    world: &World,
+    inputs: &WaitRoutes<'_>,
+    reads: &mut RouteReads,
+    agent_id: &str,
+    destinations: &[Arc<str>],
+    minute: i64,
+) -> Result<(BTreeSet<&'static str>, bool)> {
     let (zone, mobility) = {
         let rows = world.rows()?;
         let Some(agent) = rows.agents.get(agent_id) else {
@@ -1094,7 +1109,14 @@ fn routed_reasons(
 /// `support_waited_minutes` and `support_wait_reason_codes` of each request of these IDs, or with
 /// `only_open` of each one that is pending or assigned. None, where a request's routes are to be
 /// read and `routes` is None: the call again with them answers. Nothing is written.
-pub fn open_waits(world: &World, staff: &Inputs<'_>, routes: Option<&WaitRoutes<'_>>, ids: &[Arc<str>], sample: i64, only_open: bool) -> Result<Option<OpenWaits>> {
+pub fn open_waits(
+    world: &World,
+    staff: &Inputs<'_>,
+    routes: Option<&WaitRoutes<'_>>,
+    ids: &[Arc<str>],
+    sample: i64,
+    only_open: bool,
+) -> Result<Option<OpenWaits>> {
     let kinds = CareKinds::of(world, staff)?;
     let mut waits: Vec<KindWait> = Vec::new();
     let mut workers: Option<Vec<Worker>> = None;
@@ -1333,7 +1355,10 @@ fn a_task_is_open(world: &World, inputs: &Inputs<'_>, row: &StaffOperationsRow, 
     }
     let reserved = |kind: &str, zone: &str| {
         row.staff.values().any(|record| {
-            record.phase != Phase::Idle && record.task_kind.as_deref() == Some(kind) && record.target_zone_id.as_deref() == Some(zone) && record.target_id.is_none()
+            record.phase != Phase::Idle
+                && record.task_kind.as_deref() == Some(kind)
+                && record.target_zone_id.as_deref() == Some(zone)
+                && record.target_id.is_none()
         })
     };
     if cleaners {
@@ -1642,7 +1667,15 @@ fn plan_operations(world: &World, inputs: &Inputs<'_>, at: i64, routed: &Routed<
             *loads.entry(edge.clone()).or_insert(0) += 1;
         }
         reserved.insert((Arc::from(task.kind), task.zone.clone(), task.target.clone()));
-        starts.push(PlannedOperation { worker: index, kind: task.kind, zone: task.zone.clone(), target: task.target.clone(), reason: task.reason.clone(), route, due });
+        starts.push(PlannedOperation {
+            worker: index,
+            kind: task.kind,
+            zone: task.zone.clone(),
+            target: task.target.clone(),
+            reason: task.reason.clone(),
+            route,
+            due,
+        });
     }
     Ok(starts)
 }

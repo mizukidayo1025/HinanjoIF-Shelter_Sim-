@@ -7,15 +7,8 @@ use sheltersim_core::rng::{Key, KeyedDraws};
 
 #[test]
 fn float_repr_is_pythons() {
-    let cases = [
-        (1e16, "1e+16"),
-        (1e-5, "1e-05"),
-        (-0.0, "-0.0"),
-        (0.1, "0.1"),
-        (123456789012345678.0, "1.2345678901234568e+17"),
-        (1.5e-7, "1.5e-07"),
-        (2.5, "2.5"),
-    ];
+    let cases =
+        [(1e16, "1e+16"), (1e-5, "1e-05"), (-0.0, "-0.0"), (0.1, "0.1"), (123456789012345678.0, "1.2345678901234568e+17"), (1.5e-7, "1.5e-07"), (2.5, "2.5")];
     for (value, expected) in cases {
         assert_eq!(python_float_repr(value), expected, "{value}");
     }

@@ -92,9 +92,7 @@ fn either<'a>(event: &'a EventRow, first: &str, second: &str) -> Option<&'a V> {
 
 /// `uses_operational_events`.
 fn uses_operational_events<'a>(events: impl IntoIterator<Item = &'a Arc<EventRow>>) -> bool {
-    events
-        .into_iter()
-        .any(|event| H03_TYPES.contains(&&*event.event_type) || (&*event.event_type == "resource_delivery" && has(event, "shipment_id")))
+    events.into_iter().any(|event| H03_TYPES.contains(&&*event.event_type) || (&*event.event_type == "resource_delivery" && has(event, "shipment_id")))
 }
 
 /// `value == None`, a missing value being None.
@@ -360,7 +358,8 @@ impl Found {
                 if zone {
                     let has_station = match target {
                         Some(V::Str(zone_id)) => {
-                            rows.zones.contains_key(zone_id) && rows.facilities.iter().any(|(_, facility)| &*facility.kind == "water_station" && facility.zone_id == *zone_id)
+                            rows.zones.contains_key(zone_id)
+                                && rows.facilities.iter().any(|(_, facility)| &*facility.kind == "water_station" && facility.zone_id == *zone_id)
                         }
                         other => in_table(other, |_| false)?,
                     };
@@ -565,8 +564,7 @@ fn staff_status(view: &View<'_>, state: &IndexMap<Arc<str>, V>, found: &Found, l
     }
     // The latest applied absence of each member, by the staff ID of its payload.
     let mut latest: FxHashMap<Arc<str>, Arc<EventRow>> = FxHashMap::default();
-    let mut absences: Vec<Arc<EventRow>> =
-        log.records_of_types(&ABSENCES)?.into_iter().filter(|(_, applied)| *applied).map(|(event, _)| event).collect();
+    let mut absences: Vec<Arc<EventRow>> = log.records_of_types(&ABSENCES)?.into_iter().filter(|(_, applied)| *applied).map(|(event, _)| event).collect();
     if let Some(event) = view.in_flight.filter(|event| ABSENCES.contains(&&*event.event_type)) {
         absences.push(Arc::new(event.clone()));
     }
@@ -599,9 +597,7 @@ fn staff_status(view: &View<'_>, state: &IndexMap<Arc<str>, V>, found: &Found, l
                     && is_text(get(&unavailable.payload, "staff_id"), staff_id)
                     && eq(get(&unavailable.payload, "until_minute"), until)
                     && unavailable.source_id.is_some()
-                    && until_number.is_some_and(|until| {
-                        !(until < duration && restore.is_none()) && !(until == duration && !is_none(restore_id))
-                    })
+                    && until_number.is_some_and(|until| !(until < duration && restore.is_none()) && !(until == duration && !is_none(restore_id)))
                     && restore.as_ref().is_none_or(|restore| {
                         &*restore.event_type == "staff_restored"
                             && is_text(get(&restore.payload, "staff_id"), staff_id)
@@ -635,7 +631,8 @@ fn staff_status(view: &View<'_>, state: &IndexMap<Arc<str>, V>, found: &Found, l
             return invalid("operational staff availability does not match applied event history");
         }
         if !available {
-            let busy = rows.staff.get(staff_id).is_some_and(|member| member.active_task_id.is_some() || !member.work_queue.is_empty() || member.busy_until != 0);
+            let busy =
+                rows.staff.get(staff_id).is_some_and(|member| member.active_task_id.is_some() || !member.work_queue.is_empty() || member.busy_until != 0);
             if busy {
                 return invalid("unavailable staff cannot retain an active task or busy state");
             }

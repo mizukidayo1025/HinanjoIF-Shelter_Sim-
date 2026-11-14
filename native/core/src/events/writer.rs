@@ -98,13 +98,7 @@ pub fn schedule(queue: &mut Queue, log: &EventLog, duration: i64, row: EventRow)
 }
 
 /// `EventLogRecord(...)` and `EventLog.append` of an outcome, with their errors.
-pub fn record(
-    log: &mut EventLog,
-    event: &EventRow,
-    realized_minute: i64,
-    status: EventStatus,
-    detail: Option<&str>,
-) -> WriteResult<()> {
+pub fn record(log: &mut EventLog, event: &EventRow, realized_minute: i64, status: EventStatus, detail: Option<&str>) -> WriteResult<()> {
     // EventLogRecord refuses this before EventLog.append sees it, and the log could not restore it.
     if realized_minute < 0 {
         return Err(Error::Value("realized_minute must be a non-negative integer".into()).into());

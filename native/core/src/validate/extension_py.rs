@@ -209,7 +209,13 @@ fn write_sorted(out: &mut String, value: &V) -> Result<()> {
         V::Int(number) => out.push_str(&number.to_string()),
         V::Big(text) => out.push_str(text),
         V::Float(number) if !number.is_finite() => {
-            let repr = if number.is_nan() { "nan" } else if *number > 0.0 { "inf" } else { "-inf" };
+            let repr = if number.is_nan() {
+                "nan"
+            } else if *number > 0.0 {
+                "inf"
+            } else {
+                "-inf"
+            };
             return Err(Error::Value(format!("Out of range float values are not JSON compliant: {repr}")));
         }
         V::Float(number) => out.push_str(&crate::json::python_float_repr(*number)),

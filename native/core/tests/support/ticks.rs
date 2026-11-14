@@ -29,7 +29,11 @@ pub fn check_after_tick(loaded: &Loaded, host: &mut TestHost, memo: &mut Memo, c
 }
 
 /// A tick of the loaded Run at `minute`, with this host (`engine::tick_at`).
-pub fn tick_at<'a>(loaded: &'a Loaded, host: &'a mut TestHost, minute: i64) -> Tick<'a, sheltersim_core::cell::Shard<World>, TestHost, std::cell::RefCell<sheltersim_core::run::Run>> {
+pub fn tick_at<'a>(
+    loaded: &'a Loaded,
+    host: &'a mut TestHost,
+    minute: i64,
+) -> Tick<'a, sheltersim_core::cell::Shard<World>, TestHost, std::cell::RefCell<sheltersim_core::run::Run>> {
     engine::tick_at(loaded, host, minute)
 }
 

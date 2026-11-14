@@ -9,14 +9,11 @@ use std::sync::Arc;
 use sheltersim_core::cell::{Shard, ShardMut, ShardRef, BORROWED};
 use sheltersim_core::entities::Entities;
 use sheltersim_core::error::Error;
+use sheltersim_core::row::IdMap;
 use sheltersim_core::row::ValueRow;
 use sheltersim_core::stamp::Stamp;
 use sheltersim_core::value::V;
-use sheltersim_core::row::IdMap;
-use sheltersim_core::world::{
-    id_counter, set_id_counter, Fit, Place, ResourcesRow, Scalars, Seed, Slot, Slots, World, ID_COUNTERS, RESOURCES,
-    SCALAR_NAMES,
-};
+use sheltersim_core::world::{id_counter, set_id_counter, Fit, Place, ResourcesRow, Scalars, Seed, Slot, Slots, World, ID_COUNTERS, RESOURCES, SCALAR_NAMES};
 
 fn borrowed() -> Error {
     Error::Runtime(BORROWED.to_owned())
@@ -87,10 +84,7 @@ fn slots_keep_their_index_and_refuse_a_second_owner() {
     let mut slots = Slots::default();
     assert_eq!(slots.add(Arc::from("metric_state"), Place::Field).unwrap(), 0);
     assert_eq!(slots.add(Arc::from("body_state_v1"), Place::Namespace).unwrap(), 1);
-    assert_eq!(
-        slots.add(Arc::from("metric_state"), Place::Field).err(),
-        Some(Error::Value("metric_state is owned already".to_owned()))
-    );
+    assert_eq!(slots.add(Arc::from("metric_state"), Place::Field).err(), Some(Error::Value("metric_state is owned already".to_owned())));
     assert_eq!(slots.len(), 2);
     assert_eq!(slots.index_of("body_state_v1"), Some(1));
     assert_eq!(slots.index_of("other"), None);
@@ -104,14 +98,8 @@ fn slots_keep_their_index_and_refuse_a_second_owner() {
 fn a_row_is_read_as_its_type_or_refused() {
     let mut slots = Slots::default();
     slots.add(Arc::from("population"), Place::Namespace).unwrap();
-    assert_eq!(
-        slots.try_row_mut::<ValueRow>("population").err(),
-        Some(Error::Unsupported("the namespace has no row".into()))
-    );
-    assert_eq!(
-        slots.try_row::<ValueRow>("other").err(),
-        Some(Error::Unsupported("the namespace is not owned".into()))
-    );
+    assert_eq!(slots.try_row_mut::<ValueRow>("population").err(), Some(Error::Unsupported("the namespace has no row".into())));
+    assert_eq!(slots.try_row::<ValueRow>("other").err(), Some(Error::Unsupported("the namespace is not owned".into())));
     slots.get("population").unwrap().try_borrow_mut().unwrap().row = Some(Box::new(ValueRow(V::Int(3))));
     {
         let row = slots.try_row::<ValueRow>("population").unwrap();
@@ -122,10 +110,7 @@ fn a_row_is_read_as_its_type_or_refused() {
     slots.try_row_mut::<ValueRow>("population").unwrap().0 = V::Bool(true);
     assert_eq!(slots.row_mut::<ValueRow>("population").unwrap().0, V::Bool(true));
     // Another type: refused, and the slot is free again.
-    assert_eq!(
-        slots.try_row_mut::<f64>("population").err(),
-        Some(Error::Unsupported("the namespace has another row".into()))
-    );
+    assert_eq!(slots.try_row_mut::<f64>("population").err(), Some(Error::Unsupported("the namespace has another row".into())));
     assert!(!slots.get("population").unwrap().is_borrowed());
 }
 
@@ -159,9 +144,7 @@ fn stamps_are_unique_across_slots_and_threads() {
     for slot in &slots {
         assert!(seen.insert(slot.generation));
     }
-    let threads: Vec<_> = (0..4)
-        .map(|_| std::thread::spawn(|| (0..1000).map(|_| Stamp::next()).collect::<Vec<_>>()))
-        .collect();
+    let threads: Vec<_> = (0..4).map(|_| std::thread::spawn(|| (0..1000).map(|_| Stamp::next()).collect::<Vec<_>>())).collect();
     for thread in threads {
         for stamp in thread.join().unwrap() {
             assert!(seen.insert(stamp), "a stamp came twice");

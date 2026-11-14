@@ -69,9 +69,7 @@ fn could_match(text: &[u8]) -> bool {
         return false;
     }
     match std::str::from_utf8(text) {
-        Ok(decoded) => decoded
-            .chars()
-            .any(|c| c == '\u{17f}' || c == '\u{212a}' || (!c.is_ascii() && c.is_numeric())),
+        Ok(decoded) => decoded.chars().any(|c| c == '\u{17f}' || c == '\u{212a}' || (!c.is_ascii() && c.is_numeric())),
         Err(_) => true,
     }
 }
@@ -82,9 +80,7 @@ fn decode(raw: &[u8]) -> std::result::Result<String, String> {
 
 /// decode of a quoted string with no escape or control character in it.
 fn decode_plain(quoted: &[u8]) -> std::result::Result<String, String> {
-    std::str::from_utf8(&quoted[1..quoted.len() - 1])
-        .map(str::to_owned)
-        .map_err(|error| error.to_string())
+    std::str::from_utf8(&quoted[1..quoted.len() - 1]).map(str::to_owned).map_err(|error| error.to_string())
 }
 
 /// The distinct keys and the distinct string values to check in raw, one JSON text.
@@ -149,10 +145,7 @@ pub fn sensitive_candidates(raws: &[&[u8]]) -> std::result::Result<Candidates, S
     read
 }
 
-fn merge_candidates(
-    (mut keys, mut strings): Candidates,
-    (more_keys, more_strings): Candidates,
-) -> std::result::Result<Candidates, String> {
+fn merge_candidates((mut keys, mut strings): Candidates, (more_keys, more_strings): Candidates) -> std::result::Result<Candidates, String> {
     keys.extend(more_keys);
     strings.extend(more_strings);
     Ok((keys, strings))

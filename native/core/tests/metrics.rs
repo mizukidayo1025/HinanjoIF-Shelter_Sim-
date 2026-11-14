@@ -110,15 +110,7 @@ fn request(id: &str, agent: &str, requested: i64, status: RequestStatus, task: O
 }
 
 fn task(id: &str, start_minute: i64, due_minute: i64) -> TaskRow {
-    TaskRow {
-        id: text(id),
-        kind: text("support"),
-        agent_id: None,
-        resource_id: None,
-        start_minute,
-        due_minute,
-        staff_id: None,
-    }
+    TaskRow { id: text(id), kind: text("support"), agent_id: None, resource_id: None, start_minute, due_minute, staff_id: None }
 }
 
 fn put<R: Clone>(table: &mut Table<R>, id: &str, row: R) {
@@ -182,19 +174,8 @@ fn add(world: &mut World, name: &str, row: ValueRow) {
 }
 
 fn event(event_id: &str, sequence: i64) -> EventRow {
-    EventRow::new(
-        text(event_id),
-        EventKind::Endogenous,
-        30,
-        0,
-        sequence,
-        text("test_event"),
-        IndexMap::new(),
-        None,
-        None,
-        IndexMap::new(),
-    )
-    .expect("a valid row")
+    EventRow::new(text(event_id), EventKind::Endogenous, 30, 0, sequence, text("test_event"), IndexMap::new(), None, None, IndexMap::new())
+        .expect("a valid row")
 }
 
 fn log() -> EventLog {
@@ -350,10 +331,7 @@ fn what_the_kernel_refused_it_still_refuses_with_its_text() {
 
     let mut world = self::world();
     put(&mut world.entities.get_mut().facilities, "f9", facility("f9", "toilet", i64::MAX, &[], &[]));
-    assert_eq!(
-        sample_of(&world, true).err(),
-        Some(unsupported("the working units do not fit an i64"))
-    );
+    assert_eq!(sample_of(&world, true).err(), Some(unsupported("the working units do not fit an i64")));
 
     let world = self::world();
     assert_eq!(sample_of(&world, false).err(), Some(unsupported("the field holds another dict")));

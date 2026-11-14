@@ -73,10 +73,7 @@ impl BodyModels {
                 if distance_scale_m <= 0.0 {
                     return Err(Fault::refused("the distance scale is not positive"));
                 }
-                TrustModel::DistanceDurationRepeat {
-                    distance_scale_m,
-                    repeat_contact_bonus: parameter("relationship_repeat_contact_bonus", 0.05)?,
-                }
+                TrustModel::DistanceDurationRepeat { distance_scale_m, repeat_contact_bonus: parameter("relationship_repeat_contact_bonus", 0.05)? }
             }
             _ => return Err(Fault::refused("a relationship model this kernel doesn't know")),
         };
@@ -147,14 +144,12 @@ impl CareOutcome {
         }
         let value = |name: &str, default: f64| self.configured(name, default, agent_id);
         Ok(match kind {
-            "caregiver_assistance" => vec![
-                ("stress", -value("caregiver_assistance_stress_relief", 0.03)?),
-                ("reassurance", value("caregiver_assistance_reassurance_gain", 0.02)?),
-            ],
-            "dependent_assistance" => vec![
-                ("stress", -value("dependent_assistance_stress_relief", 0.04)?),
-                ("reassurance", value("dependent_assistance_reassurance_gain", 0.03)?),
-            ],
+            "caregiver_assistance" => {
+                vec![("stress", -value("caregiver_assistance_stress_relief", 0.03)?), ("reassurance", value("caregiver_assistance_reassurance_gain", 0.02)?)]
+            }
+            "dependent_assistance" => {
+                vec![("stress", -value("dependent_assistance_stress_relief", 0.04)?), ("reassurance", value("dependent_assistance_reassurance_gain", 0.03)?)]
+            }
             "privacy_accommodation" => vec![("discontent", -value("privacy_accommodation_discontent_relief", 0.02)?)],
             "mobility_assistance" => vec![("stress", -value("mobility_assistance_stress_relief", 0.03)?)],
             "language_access" => vec![("uncertainty", -value("language_access_uncertainty_relief", 0.05)?)],

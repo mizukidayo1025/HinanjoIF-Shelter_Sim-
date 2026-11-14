@@ -130,7 +130,13 @@ fn staff_operations(world: &World) -> StaffOperationsRow {
         source_id: text("ASM-STAFF-OPERATIONS-TEST"),
         config: map(vec![(
             "task_duration_minutes",
-            map(vec![("cleaning", V::Int(30)), ("maintenance", V::Int(45)), ("information_outreach", V::Int(20)), ("intake", V::Int(15)), ("patrol", V::Int(20))]),
+            map(vec![
+                ("cleaning", V::Int(30)),
+                ("maintenance", V::Int(45)),
+                ("information_outreach", V::Int(20)),
+                ("intake", V::Int(15)),
+                ("patrol", V::Int(20)),
+            ]),
         )]),
         zones: IdMap::default(),
         staff,
@@ -368,7 +374,10 @@ fn a_geometry_change_that_fails_leaves_the_world_as_it_was() {
     );
     // A route the world does not have, and a closure without an end: the change's own checks, in
     // the transaction, which gives the world back.
-    assert_eq!(failed(effects::geometry_event(&loaded.cell, &mut host, &route_event("no_such_edge", Some(30), ROUTE_MODIFIER), false)), "target_missing: route does not exist");
+    assert_eq!(
+        failed(effects::geometry_event(&loaded.cell, &mut host, &route_event("no_such_edge", Some(30), ROUTE_MODIFIER), false)),
+        "target_missing: route does not exist"
+    );
     assert_eq!(
         failed(effects::geometry_event(&loaded.cell, &mut host, &route_event("corridor_toilet", None, ROUTE_MODIFIER), false)),
         "expiry_required: route-access changes require a bounded end"

@@ -72,10 +72,7 @@ fn a_parse_inside_a_parse_keeps_the_section_of_the_first_to_finish() {
 
 #[test]
 fn a_selection_keeps_the_order_of_the_dict() {
-    let selection = Selection::new(vec![
-        (Arc::from("psychology"), Arc::from("causal-stress-v1")),
-        (Arc::from("behavior"), Arc::from("utility-softmax-v1")),
-    ]);
+    let selection = Selection::new(vec![(Arc::from("psychology"), Arc::from("causal-stress-v1")), (Arc::from("behavior"), Arc::from("utility-softmax-v1"))]);
     let domains: Vec<&str> = selection.iter().map(|(domain, _)| domain).collect();
     assert_eq!(domains, ["psychology", "behavior"]);
     assert_eq!(selection.len(), 2);

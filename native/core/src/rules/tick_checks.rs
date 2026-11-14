@@ -145,8 +145,15 @@ impl<'a, C: WorldCell, H: Host> CoreChecks<'a, C, H> {
         if self.with(|world| absent(world, held, agent_dynamics::NAME))? {
             return Ok(true);
         }
-        let policy = kit::kept_section_value(self.cell, self.host, self.holding, SectionId::AgentDynamicsPolicy, |configs| &configs.agent_dynamics_policy, crate::config::agent_dynamics::policy)
-            .map_err(host_refusal)?;
+        let policy = kit::kept_section_value(
+            self.cell,
+            self.host,
+            self.holding,
+            SectionId::AgentDynamicsPolicy,
+            |configs| &configs.agent_dynamics_policy,
+            crate::config::agent_dynamics::policy,
+        )
+        .map_err(host_refusal)?;
         let policy = *kit::kept(&policy)?;
         self.with(|world| {
             let row = world.row::<AgentDynamicsRow>(agent_dynamics::NAME)?;

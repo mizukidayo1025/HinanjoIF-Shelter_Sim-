@@ -135,7 +135,10 @@ fn a_reopened_request_comes_back_in_the_order_of_the_table() {
             continue;
         };
         assert!(loaded.cell.with(|world| written(world)).unwrap().contains(&id));
-        let wanted: Vec<Arc<str>> = loaded.cell.with(|world| world.rows().unwrap().support_requests.iter().filter(|(_, row)| !is_settled(row)).map(|(key, _)| key.clone()).collect()).unwrap();
+        let wanted: Vec<Arc<str>> = loaded
+            .cell
+            .with(|world| world.rows().unwrap().support_requests.iter().filter(|(_, row)| !is_settled(row)).map(|(key, _)| key.clone()).collect())
+            .unwrap();
         assert!(wanted.contains(&id));
         check(&loaded, &mut host, &mut memo).unwrap();
         assert_eq!(memo.open, wanted);

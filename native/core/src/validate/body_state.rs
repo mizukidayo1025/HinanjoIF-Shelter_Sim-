@@ -23,8 +23,7 @@ const POPULATION: &str = "population_dynamics_v1";
 const MAX_SOCIAL_HISTORY: usize = 20_000;
 const MAX_SOCIAL_RELATIONSHIPS: usize = 100_000;
 const FIELDS: [&str; 7] = ["schema_version", "policy_version", "source_id", "config", "agents", "relationships", "history"];
-const RECORD_FIELDS: [&str; 7] =
-    ["sleep_debt_minutes", "uncertainty", "reassurance", "discontent", "positive_affect", "negative_affect", "hygiene_need"];
+const RECORD_FIELDS: [&str; 7] = ["sleep_debt_minutes", "uncertainty", "reassurance", "discontent", "positive_affect", "negative_affect", "hygiene_need"];
 const RELATIONSHIP_FIELDS: [&str; 6] = ["contact_count", "trust", "contact_minutes", "last_contact_minute", "last_interaction", "topic_ids"];
 const HISTORY_FIELDS: [&str; 7] = ["event_id", "minute", "kind", "actor_ids", "topic_id", "causation_id", "deltas"];
 const AFFECT_MODELS: [&str; 2] = ["linear-positive-negative-v1", "trust-weighted-positive-negative-v1"];

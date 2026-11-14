@@ -15,20 +15,12 @@ pub(crate) struct PyStrings {
 }
 
 impl PyStrings {
-    pub(crate) fn get<'py>(
-        &mut self,
-        py: Python<'py>,
-        interner: &Interner,
-        symbol: Sym,
-    ) -> Bound<'py, PyString> {
+    pub(crate) fn get<'py>(&mut self, py: Python<'py>, interner: &Interner, symbol: Sym) -> Bound<'py, PyString> {
         let index = symbol.index();
         if index >= self.objects.len() {
             self.objects.resize_with(index + 1, || None);
         }
-        self.objects[index]
-            .get_or_insert_with(|| PyString::intern(py, interner.text(symbol)).unbind())
-            .bind(py)
-            .clone()
+        self.objects[index].get_or_insert_with(|| PyString::intern(py, interner.text(symbol)).unbind()).bind(py).clone()
     }
 }
 
@@ -39,10 +31,7 @@ pub(crate) struct EnumTable {
 
 impl EnumTable {
     pub(crate) fn from_class(class: &Bound<'_, PyAny>) -> PyResult<Self> {
-        let members = class
-            .try_iter()?
-            .map(|item| Ok(item?.unbind()))
-            .collect::<PyResult<_>>()?;
+        let members = class.try_iter()?.map(|item| Ok(item?.unbind())).collect::<PyResult<_>>()?;
         Ok(Self { members })
     }
 
@@ -53,9 +42,6 @@ impl EnumTable {
     /// The index of this very object; a value equal to a member but not it is `None`, and the
     /// caller leaves it to Python.
     pub(crate) fn index_of(&self, value: &Bound<'_, PyAny>) -> Option<u8> {
-        self.members
-            .iter()
-            .position(|member| member.as_ptr() == value.as_ptr())
-            .map(|index| index as u8)
+        self.members.iter().position(|member| member.as_ptr() == value.as_ptr()).map(|index| index as u8)
     }
 }

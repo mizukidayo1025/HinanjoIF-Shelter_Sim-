@@ -43,9 +43,9 @@ use crate::engine::{self, StepError, Stepping};
 use crate::error::{Error, Result};
 use crate::events::packed::{put_varint, put_zigzag, Blocks, Cursor, Packer};
 use crate::events::EventRow;
-use crate::json::Encoder;
 use crate::geometry::Geo;
 use crate::host::{Contract, Decision, DecisionSink, Foreign, Holding, Host, Llm, Phase, Stage, Trace, TraceLevel, TxnKind, NO_FOREIGN};
+use crate::json::Encoder;
 use crate::load::{self, FloorPlans, Loaded, Sections};
 use crate::rules::action_lifecycle::ActiveActions;
 use crate::rules::common_operations::Logged;
@@ -140,7 +140,9 @@ impl MetricSamples {
             put_varint(&mut packed, count as u64);
         }
         put_zigzag(&mut packed, sample.toilet_working_units);
-        for value in [sample.toilet_wait_count, sample.toilet_wait_total_minutes, sample.toilet_wait_mean_minutes, sample.toilet_wait_max_minutes, sample.stress_mean] {
+        for value in
+            [sample.toilet_wait_count, sample.toilet_wait_total_minutes, sample.toilet_wait_mean_minutes, sample.toilet_wait_max_minutes, sample.stress_mean]
+        {
             packed.extend_from_slice(&value.to_bits().to_le_bytes());
         }
         for count in [sample.stress_high_count, sample.staff_assigned_task_count, sample.staff_busy_count] {

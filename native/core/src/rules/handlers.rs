@@ -274,11 +274,7 @@ fn exact_key(value: &V) -> Result<Arc<str>> {
 /// Python scheduled first).
 fn pending_rows(world: &World) -> Result<Vec<Arc<EventRow>>> {
     let queue = world.queue()?;
-    queue
-        .ordered()
-        .iter()
-        .map(|(_, serial)| queue.slot(*serial).row.clone().ok_or_else(|| Error::unsupported("a pending event has no row")))
-        .collect()
+    queue.ordered().iter().map(|(_, serial)| queue.slot(*serial).row.clone().ok_or_else(|| Error::unsupported("a pending event has no row"))).collect()
 }
 
 /// The pending event a value names, as `next(e for e in pending if e.event_id == wanted)` finds it,
@@ -430,9 +426,8 @@ pub fn proximity(world: &World, config: Option<&Proximity>, movement: &Held, eve
     let row = kit::held_row::<MovementRow>(world, MOVEMENT, movement)?;
     for (id, point) in [(&first_id, first_point), (&second_id, second_point)] {
         let position = row.as_ref().and_then(|row| row.positions.get(&**id));
-        let fresh = position.is_some_and(|position| {
-            &*position.position_kind == "physical" && eq_text(zone_value, &position.zone_id) && py_eq(&point_value(position), point)
-        });
+        let fresh = position
+            .is_some_and(|position| &*position.position_kind == "physical" && eq_text(zone_value, &position.zone_id) && py_eq(&point_value(position), point));
         if !fresh {
             return Err(Error::suppressed("proximity contact sample is stale"));
         }
@@ -635,7 +630,14 @@ pub fn facility_units(world: &World, inputs: &FacilityIn<'_>, event: &EventRow, 
 /// record and the records go to the log, each continuity receipt goes into `shared_operations_v1`
 /// where the configs select the shared contract, and the world is validated. `shared` is whether the
 /// world holds `shared_operations_v1`.
-pub fn settle<C: WorldCell, H: Host>(cell: &C, host: &mut H, shared: &Held, event: &EventRow, records: &[Made], taken: &mut Vec<u64>) -> std::result::Result<(), H::Error>
+pub fn settle<C: WorldCell, H: Host>(
+    cell: &C,
+    host: &mut H,
+    shared: &Held,
+    event: &EventRow,
+    records: &[Made],
+    taken: &mut Vec<u64>,
+) -> std::result::Result<(), H::Error>
 where
     H::Error: From<WriteError>,
 {
@@ -729,7 +731,9 @@ pub fn delivery_delay(world: &World, operational: &Held, event: &EventRow, taken
     let now = world.minute_index()?;
     // An int past 64 bits is at or past the Run's end, or before the delivery: the same text.
     let to_minute = match wide_int(item(payload, "to_minute")?) {
-        Some(Wide::Int(to_minute)) if !(target_due <= now || to_minute <= target_due || to_minute <= now || to_minute >= world.duration_minutes()?) => to_minute,
+        Some(Wide::Int(to_minute)) if !(target_due <= now || to_minute <= target_due || to_minute <= now || to_minute >= world.duration_minutes()?) => {
+            to_minute
+        }
         _ => return Err(Error::failed("shipment delay must move a not-yet-due delivery forward")),
     };
     let V::Map(mut provenance) = target.provenance.clone() else {
@@ -889,7 +893,9 @@ fn pending_reserves(world: &World) -> Result<Vec<Pending>> {
 fn interrupt_service(world: &mut World, inputs: &StaffIn<'_>, staff_id: &str, event: &EventRow) -> service::Outcome<Option<Applied>> {
     const LABEL: &str = "interrupt_for_staff";
     let result = match &inputs.service {
-        Ok(manager) => pending_reserves(world).map_err(Failure::from).and_then(|pending| service::interrupt(world, manager, &pending, staff_id, Some(&event.event_id))),
+        Ok(manager) => {
+            pending_reserves(world).map_err(Failure::from).and_then(|pending| service::interrupt(world, manager, &pending, staff_id, Some(&event.event_id)))
+        }
         Err(Unread::Refused(reason)) => Err(Error::unsupported(reason.clone()).into()),
         Err(Unread::Raised) => return Err(Error::unsupported(SERVICE_UNREAD).into()),
     };
@@ -1000,7 +1006,14 @@ pub fn staff_unavailable(world: &mut World, inputs: &StaffIn<'_>, event: &EventR
 }
 
 /// `_interrupt_support_task`, on the transaction's world: its continuity receipt.
-fn interrupt_support_task(world: &World, inputs: &StaffIn<'_>, task_id: &Arc<str>, staff_id: &Arc<str>, causation: &EventRow, taken: &mut Vec<u64>) -> WriteResult<Made> {
+fn interrupt_support_task(
+    world: &World,
+    inputs: &StaffIn<'_>,
+    task_id: &Arc<str>,
+    staff_id: &Arc<str>,
+    causation: &EventRow,
+    taken: &mut Vec<u64>,
+) -> WriteResult<Made> {
     let inconsistent = || Error::failed("interrupted support task has inconsistent ownership");
     let (request, agent_id, task_due) = {
         let rows = world.rows()?;
@@ -1418,7 +1431,13 @@ fn record_of(state: &V, kind: &str, id: &V) -> Result<V> {
 }
 
 /// `_recalculate_infrastructure_capacity`.
-fn recalculate_capacity<C: WorldCell, H: Host>(cell: &C, host: &mut H, spec: &mut Spec, inputs: &InfraIn<'_>, cause: &EventRow) -> std::result::Result<(), H::Error> {
+fn recalculate_capacity<C: WorldCell, H: Host>(
+    cell: &C,
+    host: &mut H,
+    spec: &mut Spec,
+    inputs: &InfraIn<'_>,
+    cause: &EventRow,
+) -> std::result::Result<(), H::Error> {
     let ids = cell.with(|world| -> Result<BTreeSet<String>> {
         let state = infrastructure_state(world, inputs, cause)?;
         let changed = record_of(&state, "outages", get(&cause.payload, "outage_id")?)?;
@@ -1716,7 +1735,11 @@ fn plan_route(world: &World, inputs: &InfraIn<'_>, event: &EventRow, outage_id: 
             return Err(cannot()?);
         };
         let delivery_due = delivery.due_minute;
-        if &*delivery.event_type != "resource_delivery" || delivery_due <= due || !eq_int(item(shipment, "due_minute")?, delivery_due) || delivery_due + delay >= duration {
+        if &*delivery.event_type != "resource_delivery"
+            || delivery_due <= due
+            || !eq_int(item(shipment, "due_minute")?, delivery_due)
+            || delivery_due + delay >= duration
+        {
             return Err(cannot()?);
         }
         delays.push((shipment_id.clone(), delivery_due + delay));
@@ -1728,7 +1751,14 @@ fn plan_route(world: &World, inputs: &InfraIn<'_>, event: &EventRow, outage_id: 
 /// Each delay runs inside this rule's transaction, as `DeliveryDelayHandler` did inside it: the world
 /// is validated as a transaction's start validates it, the delay's rule writes it, the world is
 /// validated with the delay in flight, and the delay leaves the queue.
-fn interrupt_route<C: WorldCell, H: Host>(cell: &C, host: &mut H, spec: &mut Spec, inputs: &InfraIn<'_>, event: &EventRow, taken: &mut Vec<u64>) -> std::result::Result<Vec<Followed>, H::Error>
+fn interrupt_route<C: WorldCell, H: Host>(
+    cell: &C,
+    host: &mut H,
+    spec: &mut Spec,
+    inputs: &InfraIn<'_>,
+    event: &EventRow,
+    taken: &mut Vec<u64>,
+) -> std::result::Result<Vec<Followed>, H::Error>
 where
     H::Error: From<WriteError>,
 {
@@ -1815,7 +1845,14 @@ fn restore_route(world: &World, inputs: &InfraIn<'_>, event: &EventRow) -> Resul
 
 /// `InfrastructureEventHandler`'s rule of this kind, on the transaction's world: the APPLIED records
 /// of the deliveries a route's interruption delayed.
-pub fn infrastructure<C: WorldCell, H: Host>(cell: &C, host: &mut H, inputs: &InfraIn<'_>, event: &EventRow, kind: Infra, taken: &mut Vec<u64>) -> std::result::Result<Vec<Followed>, H::Error>
+pub fn infrastructure<C: WorldCell, H: Host>(
+    cell: &C,
+    host: &mut H,
+    inputs: &InfraIn<'_>,
+    event: &EventRow,
+    kind: Infra,
+    taken: &mut Vec<u64>,
+) -> std::result::Result<Vec<Followed>, H::Error>
 where
     H::Error: From<WriteError>,
 {
@@ -1987,7 +2024,14 @@ struct ServiceRead {
 impl ServiceRead {
     /// What the manager reads, in its order, or what its first read that failed said.
     fn of<C: WorldCell, H: Host>(cell: &C, host: &mut H, holding: &crate::host::Holding) -> std::result::Result<Self, H::Error> {
-        let service = kit::kept_section_value(cell, host, holding, crate::config::SectionId::ResourceService, |configs| &configs.resource_service, crate::config::service::ResourceService::parse)?;
+        let service = kit::kept_section_value(
+            cell,
+            host,
+            holding,
+            crate::config::SectionId::ResourceService,
+            |configs| &configs.resource_service,
+            crate::config::service::ResourceService::parse,
+        )?;
         let service = kit::kept(&service).map(|service| (service.present, service.config.clone()))?;
         if !service.0 {
             return Err(Error::unsupported("no resource service").into());
@@ -2137,7 +2181,12 @@ where
 }
 
 /// The receipts of the facilities an infrastructure event changed, once the world has changed.
-pub fn infrastructure_after<C: WorldCell, H: Host>(cell: &C, host: &mut H, previous: &[(Arc<str>, i64)], event: &EventRow) -> std::result::Result<Vec<Made>, H::Error> {
+pub fn infrastructure_after<C: WorldCell, H: Host>(
+    cell: &C,
+    host: &mut H,
+    previous: &[(Arc<str>, i64)],
+    event: &EventRow,
+) -> std::result::Result<Vec<Made>, H::Error> {
     let shared_absent = !kit::in_model_state(&*kit::holding(cell, host)?, SHARED_OPERATIONS)?;
     Ok(cell.with(|world| infrastructure_receipts(world, shared_absent, previous, event))??)
 }

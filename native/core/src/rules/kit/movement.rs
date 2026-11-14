@@ -40,18 +40,12 @@ pub struct Kinds {
     pub unavailable: Arc<str>,
 }
 
-pub static KINDS: LazyLock<Kinds> = LazyLock::new(|| Kinds {
-    physical: Arc::from("physical"),
-    display_only: Arc::from("display_only"),
-    unavailable: Arc::from("unavailable"),
-});
+pub static KINDS: LazyLock<Kinds> =
+    LazyLock::new(|| Kinds { physical: Arc::from("physical"), display_only: Arc::from("display_only"), unavailable: Arc::from("unavailable") });
 
 /// A journey to a place of a facility's queue or service.
 pub fn is_queue_trip(purpose: &str) -> bool {
-    matches!(
-        purpose,
-        "toilet_queue_position" | "resource_queue_position" | "toilet_queue_service" | "resource_queue_service"
-    )
+    matches!(purpose, "toilet_queue_position" | "resource_queue_position" | "toilet_queue_service" | "resource_queue_service")
 }
 
 /// The point of a position record.
@@ -134,8 +128,7 @@ pub fn queue_slot_in(
         "assisted" => SPACING_ASSISTED,
         _ => SPACING_WHEELCHAIR,
     };
-    let occupied: Vec<Pt> =
-        queue[..slot_index].iter().filter_map(|other| position_point(row.positions.get(&**other))).collect();
+    let occupied: Vec<Pt> = queue[..slot_index].iter().filter_map(|other| position_point(row.positions.get(&**other))).collect();
     if occupied.iter().any(|point| !usable(point.x, point.y)) {
         return Err(Error::unsupported("a position is not a usable point"));
     }
@@ -149,8 +142,7 @@ pub fn queue_slot_in(
         for side in [0.0, 1.0, -1.0, 2.0, -2.0] {
             let along = spacing * ring as f64;
             let across = spacing * side;
-            let candidate =
-                Pt { x: facility_point.x + ux * along - uy * across, y: facility_point.y + uy * along + ux * across };
+            let candidate = Pt { x: facility_point.x + ux * along - uy * across, y: facility_point.y + uy * along + ux * across };
             if point_walkable(candidate, &zone.polygon, blocked)
                 && occupied.iter().all(|other| distance(candidate, *other) >= spacing)
                 && geo.room_route(&facility.zone_id, Some(start), candidate, mobility).map_err(refused)?.is_some()
@@ -235,9 +227,11 @@ pub fn approach_point(
         },
     };
     let mut candidates = vec![facility_point];
-    let footprint = geo.constraints.as_ref().filter(|_| service_point.is_none()).and_then(|constraints| {
-        constraints.footprints.iter().find(|(id, _)| &**id == facility_id).map(|(_, polygon)| polygon)
-    });
+    let footprint = geo
+        .constraints
+        .as_ref()
+        .filter(|_| service_point.is_none())
+        .and_then(|constraints| constraints.footprints.iter().find(|(id, _)| &**id == facility_id).map(|(_, polygon)| polygon));
     if let Some(footprint) = footprint {
         let count = footprint.len() as f64;
         let not_plain = || Error::unsupported("a footprint's centre is not a plain sum");
@@ -387,11 +381,7 @@ pub fn plan_start(
     } else {
         off_path
     };
-    let kind = if point.is_some() && (!edge_ids.is_empty() || !points.is_empty()) {
-        KINDS.physical.clone()
-    } else {
-        KINDS.unavailable.clone()
-    };
+    let kind = if point.is_some() && (!edge_ids.is_empty() || !points.is_empty()) { KINDS.physical.clone() } else { KINDS.unavailable.clone() };
     changes.positions.push((agent_id.clone(), record(origin.clone(), point, kind, edge_ids.first().cloned(), initial_progress)));
     changes.new_journeys.push((agent_id.clone(), journey));
     Ok(changes)

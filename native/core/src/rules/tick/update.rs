@@ -15,16 +15,16 @@ use crate::config::overlay::overlay_schema as parse_overlay_schema;
 use crate::config::SectionId;
 use crate::error::Error;
 use crate::events::writer::WriteError;
-use crate::host::{Again, Host, Holding, TraceLevel};
+use crate::host::{Again, Holding, Host, TraceLevel};
 use crate::rules::care_receipts;
 use crate::rules::kit::{check_metric_state, POLICY_FAULT};
 use crate::rules::movement::{self, KEY as MOVEMENT};
 use crate::rules::overlay::{Beds, OVERLAY_KEY, PLAN_UNREAD};
-use crate::rules::replan::{self, Replanning, Second};
-use crate::rules::travel::{Routing, Walking};
 use crate::rules::psychology::{self, Applied, Delta, PsychologyResult};
+use crate::rules::replan::{self, Replanning, Second};
 use crate::rules::social_propagation as social;
 use crate::rules::trace::{self, TraceInputs};
+use crate::rules::travel::{Routing, Walking};
 use crate::rules::world_view::{self as view, Inputs, ViewData};
 use crate::run::held::Held as Read;
 use crate::state::body_state::NAME as BODY_STATE;
@@ -70,7 +70,9 @@ impl<C: WorldCell, H: Host, R: RunCell> Tick<'_, C, H, R> {
             }
         };
         let selection = self.host_section(holding, SectionId::Selection, |configs| &configs.selection)?;
-        let selection = selection.map_err(|fault| if fault.text.as_ref() == super::read::NO_SUCH_SECTION { crate::config::Fault::refused("not a selection") } else { fault });
+        let selection =
+            selection
+                .map_err(|fault| if fault.text.as_ref() == super::read::NO_SUCH_SECTION { crate::config::Fault::refused("not a selection") } else { fault });
         Ok(Gathered { selection, configs })
     }
 
@@ -201,7 +203,10 @@ where
     let taken = tick.written(stopped)?;
     *written = true;
     tick.host.slots_changed(&taken)?;
-    let second = tick.cell.with(|world| replan::second_step(world, replanning, agent_id, &journey, minute)).map_err(|error: Error| <H::Error as From<Error>>::from(error))?;
+    let second = tick
+        .cell
+        .with(|world| replan::second_step(world, replanning, agent_id, &journey, minute))
+        .map_err(|error: Error| <H::Error as From<Error>>::from(error))?;
     let second = tick.written(second);
     // What reading the floor plan raised, where the step read it (`PLAN_UNREAD`): read again.
     let second = match second {
@@ -266,7 +271,11 @@ fn update_psychology<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H
 }
 
 /// `_social_propagation`: the deltas after the social model, in ID order.
-fn update_social<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R>, data: &ViewData, result: &PsychologyResult) -> std::result::Result<Vec<Delta>, H::Error> {
+fn update_social<C: WorldCell, H: Host, R: RunCell>(
+    tick: &mut Tick<'_, C, H, R>,
+    data: &ViewData,
+    result: &PsychologyResult,
+) -> std::result::Result<Vec<Delta>, H::Error> {
     let policies = tick.policies.clone();
     let stress = &policies.stress;
     match social::enabled(stress) {
@@ -332,7 +341,12 @@ fn held_value(held: &Read) -> crate::error::Result<V> {
 }
 
 /// `_record_psychology_trace`.
-fn record_trace<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R>, data: &ViewData, result: &PsychologyResult, finals: &[Delta]) -> std::result::Result<(), H::Error> {
+fn record_trace<C: WorldCell, H: Host, R: RunCell>(
+    tick: &mut Tick<'_, C, H, R>,
+    data: &ViewData,
+    result: &PsychologyResult,
+    finals: &[Delta],
+) -> std::result::Result<(), H::Error> {
     if tick.host.trace_level()? == TraceLevel::Off {
         return Ok(());
     }

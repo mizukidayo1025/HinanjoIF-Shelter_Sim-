@@ -95,10 +95,7 @@ fn a_floor_plan_closes_edges_by_mobility() {
     routes.insert(id("steps"), passage(2.0, false));
     let plan = FacilityPlan { zones: IdMap::default(), routes, facility_points: IdMap::default(), service_points: Vec::new() };
     let geo = Arc::new(Geo::new(Some(&plan), None, None, None).unwrap());
-    let graph = router(
-        &["a", "b"],
-        vec![edge("wide", "a", "b", 3), edge("narrow", "a", "b", 1), edge("steps", "a", "b", 2), edge("unplanned", "b", "a", 1)],
-    );
+    let graph = router(&["a", "b"], vec![edge("wide", "a", "b", 3), edge("narrow", "a", "b", 1), edge("steps", "a", "b", 2), edge("unplanned", "b", "a", 1)]);
     let set = |names: &[&str]| names.iter().map(|name| id(name)).collect::<HashSet<Arc<str>>>();
     // `_physically_closed_edges` reads the plan's routes; an edge the plan lacks is not in it.
     assert_eq!(*graph.closed_to(&geo, "independent").unwrap(), set(&[]));

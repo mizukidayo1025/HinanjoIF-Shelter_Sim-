@@ -113,23 +113,16 @@ fn entities() -> Entities {
     let mut entities = Entities::default();
     put(&mut entities.agents, "a1", agent("a1", "z0", Activity::Moving));
     put(&mut entities.agents, "a2", agent("a2", "z1", Activity::Idle));
-    put(&mut entities.active_tasks, "t1", TaskRow {
-        id: text("t1"),
-        kind: text("travel"),
-        agent_id: Some(text("a1")),
-        resource_id: None,
-        start_minute: 0,
-        due_minute: 4,
-        staff_id: None,
-    });
-    put(&mut entities.staff, "s1", StaffRow {
-        id: text("s1"),
-        zone_id: text("z1"),
-        skills: Skills(Vec::new()),
-        work_queue: Vec::new(),
-        busy_until: 0,
-        active_task_id: None,
-    });
+    put(
+        &mut entities.active_tasks,
+        "t1",
+        TaskRow { id: text("t1"), kind: text("travel"), agent_id: Some(text("a1")), resource_id: None, start_minute: 0, due_minute: 4, staff_id: None },
+    );
+    put(
+        &mut entities.staff,
+        "s1",
+        StaffRow { id: text("s1"), zone_id: text("z1"), skills: Skills(Vec::new()), work_queue: Vec::new(), busy_until: 0, active_task_id: None },
+    );
     for (id, x, y) in [("z0", 1.0, 2.0), ("z1", 3.0, 4.0)] {
         put(&mut entities.zones, id, ZoneRow { id: text(id), name: text(id), capacity: None, display_x: Some(x), display_y: Some(y) });
     }
@@ -160,8 +153,7 @@ fn journey(purpose: &str) -> Journey {
 }
 
 fn event(event_id: &str, sequence: i64) -> EventRow {
-    EventRow::new(text(event_id), EventKind::Completion, 4, 0, sequence, text("agent_travel_complete"), IndexMap::new(), None, None, IndexMap::new())
-        .unwrap()
+    EventRow::new(text(event_id), EventKind::Completion, 4, 0, sequence, text("agent_travel_complete"), IndexMap::new(), None, None, IndexMap::new()).unwrap()
 }
 
 /// A world of 100 minutes at minute 1 holding its queue (ev1 pending), log, `id_counters`,
@@ -181,15 +173,20 @@ fn world() -> World {
     positions.insert(text("a2"), position("z1", 15.0, 5.0));
     let mut journeys = IdMap::default();
     journeys.insert(text("a1"), journey("travel"));
-    add(&mut world, MOVEMENT, Place::Namespace, Box::new(MovementRow {
-        schema_version: 2,
-        policy_version: text(POLICY_VERSION),
-        positions,
-        staff_positions: IdMap::default(),
-        journeys,
-        edge_usage_minutes: IdMap::default(),
-        last_updated_minute: 0,
-    }));
+    add(
+        &mut world,
+        MOVEMENT,
+        Place::Namespace,
+        Box::new(MovementRow {
+            schema_version: 2,
+            policy_version: text(POLICY_VERSION),
+            positions,
+            staff_positions: IdMap::default(),
+            journeys,
+            edge_usage_minutes: IdMap::default(),
+            last_updated_minute: 0,
+        }),
+    );
     let mut queue = Queue::new();
     assert_eq!(queue.schedule_row(event("ev1", 3)), 0);
     world.hold_queue(Arc::new(queue));
@@ -395,31 +392,39 @@ fn staff_world(started: Option<i64>) -> World {
     let mut world = world();
     world.rows_mut().unwrap().staff.get_mut("s1").unwrap().zone_id = text("z0");
     let mut staff = IdMap::default();
-    staff.insert(text("s1"), OperationRecord {
-        phase: Phase::Travel,
-        task_id: Some(text("cleaning-1")),
-        task_kind: Some(text("cleaning")),
-        target_id: None,
-        target_zone_id: Some(text("z1")),
-        reason: Some(text("sanitation")),
-        started_minute: started,
-        travel_due_minute: Some(4),
-        arrival_minute: None,
-        due_minute: None,
-        route_zone_ids: vec![text("z0")],
-        route_edge_ids: vec![text("e1")],
-        travel_minutes: 4,
-        causation_event_ids: Vec::new(),
-    });
-    add(&mut world, STAFF_OPERATIONS, Place::Namespace, Box::new(StaffOperationsRow {
-        schema_version: 1,
-        policy_version: text("autonomous-routed-staff-v1"),
-        source_id: text("ASM-STAFF-OPERATIONS-V1"),
-        config: V::Map(IndexMap::new()),
-        zones: IdMap::default(),
-        staff,
-        history: Vec::new(),
-    }));
+    staff.insert(
+        text("s1"),
+        OperationRecord {
+            phase: Phase::Travel,
+            task_id: Some(text("cleaning-1")),
+            task_kind: Some(text("cleaning")),
+            target_id: None,
+            target_zone_id: Some(text("z1")),
+            reason: Some(text("sanitation")),
+            started_minute: started,
+            travel_due_minute: Some(4),
+            arrival_minute: None,
+            due_minute: None,
+            route_zone_ids: vec![text("z0")],
+            route_edge_ids: vec![text("e1")],
+            travel_minutes: 4,
+            causation_event_ids: Vec::new(),
+        },
+    );
+    add(
+        &mut world,
+        STAFF_OPERATIONS,
+        Place::Namespace,
+        Box::new(StaffOperationsRow {
+            schema_version: 1,
+            policy_version: text("autonomous-routed-staff-v1"),
+            source_id: text("ASM-STAFF-OPERATIONS-V1"),
+            config: V::Map(IndexMap::new()),
+            zones: IdMap::default(),
+            staff,
+            history: Vec::new(),
+        }),
+    );
     world
 }
 
@@ -571,8 +576,7 @@ fn the_row_is_checked_against_the_rows_of_the_world() {
     assert_eq!(movement::validate(&world, &Held::Absent, None).unwrap(), Validated::Is(false));
     world.row_mut::<MovementRow>(MOVEMENT).unwrap().positions.get_mut("a2").unwrap().zone_id = text("z1");
     // A journey in a room needs the floor plan, asked for before any check.
-    world.row_mut::<MovementRow>(MOVEMENT).unwrap().journeys.get_mut("a1").unwrap().route_points =
-        vec![Point { x: 1.0, y: 1.0 }, Point { x: 2.0, y: 2.0 }];
+    world.row_mut::<MovementRow>(MOVEMENT).unwrap().journeys.get_mut("a1").unwrap().route_points = vec![Point { x: 1.0, y: 1.0 }, Point { x: 2.0, y: 2.0 }];
     assert_eq!(movement::validate(&world, &Held::Absent, None).unwrap(), Validated::NeedsGeo);
     // Its points must be in the person's room, and its edges none.
     assert_eq!(movement::validate(&world, &Held::Absent, Some(&geo())).unwrap(), Validated::Is(false));

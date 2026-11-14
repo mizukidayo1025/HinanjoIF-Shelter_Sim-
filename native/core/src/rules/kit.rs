@@ -27,13 +27,13 @@ use crate::events::log::EventLog;
 use crate::events::writer::{self, Reserved, WriteError, WriteResult, MAX_RULE_COUNTER};
 use crate::events::{is_stable_id, EventKind, EventRow, EventStatus};
 use crate::geometry::Pt;
+use crate::host::{Holding, Host};
 use crate::row::{map_set, Atom, TreeSink, ValueRow};
 use crate::state::effect_program::EffectProgramRow;
 use crate::state::metric_state::MetricRow;
 use crate::state::movement::{MovementRow, Point, Position};
 use crate::text::casefold;
 use crate::value::V;
-use crate::host::{Holding, Host};
 use crate::world::{set_id_counter, World, WorldCell, ID_COUNTERS, METRIC_STATE, MODEL_CONFIGS};
 
 /// What the queue rules ask of the movement rules (lane c1).
@@ -91,10 +91,7 @@ impl Counts {
 
     /// `("label: reason", times)` of what was refused, in that text's order.
     pub fn refusal_counts(&self) -> Vec<(String, u64)> {
-        self.refusals
-            .lock()
-            .map(|refusals| refusals.iter().map(|(reason, times)| (reason.clone(), *times)).collect())
-            .unwrap_or_default()
+        self.refusals.lock().map(|refusals| refusals.iter().map(|(reason, times)| (reason.clone(), *times)).collect()).unwrap_or_default()
     }
 }
 
@@ -499,7 +496,12 @@ impl<E: From<Error> + crate::host::HostFailure> StaffRead<E> {
 /// A section of configs the caller has, kept there or filled by the host: the read of a world the core
 /// does not hold (a save's world being validated before its core; lane P10-1c), whose configs no
 /// slot follows.
-pub fn section_in<H: Host, T>(host: &mut H, configs: Arc<Configs>, which: SectionId, get: fn(&Configs) -> &Lazy<T>) -> std::result::Result<Section<T>, H::Error> {
+pub fn section_in<H: Host, T>(
+    host: &mut H,
+    configs: Arc<Configs>,
+    which: SectionId,
+    get: fn(&Configs) -> &Lazy<T>,
+) -> std::result::Result<Section<T>, H::Error> {
     if let Some(section) = get(&configs).get() {
         return Ok(section.clone());
     }
@@ -521,11 +523,7 @@ fn filled<H: Host, T>(host: &mut H, configs: Arc<Configs>, which: SectionId, get
 /// PyO3 crate's `configs::selection` reads it: the host keeps it for the configs' stamp, unless a test
 /// patched `selected_models`, whose selection serves one read. The selection, and whether it is the
 /// kept one (lane P9-1a).
-pub fn selection<C: WorldCell, H: Host>(
-    cell: &C,
-    host: &mut H,
-    holding: &Holding,
-) -> std::result::Result<(Kept<crate::config::Selection>, bool), H::Error> {
+pub fn selection<C: WorldCell, H: Host>(cell: &C, host: &mut H, holding: &Holding) -> std::result::Result<(Kept<crate::config::Selection>, bool), H::Error> {
     let configs = cell.with(|world| configs_now(world, holding))??;
     let (from, kept) = match host.fill_section(&configs, SectionId::Selection)? {
         Filled::Kept => (configs, true),
@@ -908,9 +906,7 @@ pub fn active_outage(infrastructure: Option<&V>, facility_id: &str) -> Result<bo
 
 /// `has_active_facility_modifier`, of the row of `effect_program_v1` if the world holds one.
 pub fn has_active_modifier(program: Option<&EffectProgramRow>, facility_id: &str) -> bool {
-    program
-        .and_then(|program| program.active_facility_modifiers.get(facility_id))
-        .is_some_and(|record| !record.modifiers.is_empty())
+    program.and_then(|program| program.active_facility_modifiers.get(facility_id)).is_some_and(|record| !record.modifiers.is_empty())
 }
 
 // ---- Places ---------------------------------------------------------------------------------------

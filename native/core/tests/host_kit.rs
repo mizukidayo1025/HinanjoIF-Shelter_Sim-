@@ -13,7 +13,7 @@ use sheltersim_core::config::{self, Configs, Parser, Section, SectionId};
 use sheltersim_core::error::{Error, CLOCK};
 use sheltersim_core::events::{EventKind, EventRow};
 use sheltersim_core::host::{
-    ErrorClass, Hold, Holding, Host, Key, HostFailure, NOT_OWNED, NO_FOREIGN, NO_PYTHON_SINK, NO_SECTIONS, TABLE_MAPPING, TABLE_NOT_PLAIN,
+    ErrorClass, Hold, Holding, Host, HostFailure, Key, NOT_OWNED, NO_FOREIGN, NO_PYTHON_SINK, NO_SECTIONS, TABLE_MAPPING, TABLE_NOT_PLAIN,
 };
 use sheltersim_core::row::{Row, ValueRow};
 use sheltersim_core::rules::kit::{self, Held as Kept};
@@ -252,10 +252,8 @@ fn the_core_knows_the_29_handler_classes_by_their_names() {
 
 #[test]
 fn a_handlers_values_read_as_its_rule_reads_them() {
-    let support = handler(
-        HandlerKind::StaffSupportCompletion,
-        vec![("cooldown_minutes", Held::Value(V::Int(30))), ("require_colocated", Held::Value(V::Bool(true)))],
-    );
+    let support =
+        handler(HandlerKind::StaffSupportCompletion, vec![("cooldown_minutes", Held::Value(V::Int(30))), ("require_colocated", Held::Value(V::Bool(true)))]);
     assert_eq!(support.cooldown_minutes(), Ok(30));
     assert_eq!(support.require_colocated(), Ok(true));
     // `bool(x)` of a plain value; `exact_int` refuses a bool.
@@ -309,10 +307,8 @@ fn a_run_reads_its_dispatcher_or_refuses() {
     // A Run without a controller refuses; a controller's Run waits for its dispatcher.
     let absent = Policies::absent();
     assert_eq!(absent.dispatch.handler("social_interaction").unwrap_err().text.as_ref(), NO_CONTROLLER);
-    let table = IndexMap::from([
-        (text("social_interaction"), Handler::Native(handler(HandlerKind::SocialInteraction, vec![]))),
-        (text("probe"), Handler::Foreign),
-    ]);
+    let table =
+        IndexMap::from([(text("social_interaction"), Handler::Native(handler(HandlerKind::SocialInteraction, vec![]))), (text("probe"), Handler::Foreign)]);
     let dispatch = Dispatch { known: Ok(true), handlers: Ok(Arc::new(table)) };
     assert!(matches!(dispatch.handler("social_interaction"), Ok(Some(Handler::Native(native))) if native.kind == HandlerKind::SocialInteraction));
     assert_eq!(dispatch.handler("probe"), Ok(Some(&Handler::Foreign)));

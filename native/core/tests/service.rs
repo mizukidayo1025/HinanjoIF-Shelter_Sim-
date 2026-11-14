@@ -92,11 +92,27 @@ fn facility(id: &str, kind: &str) -> FacilityRow {
 }
 
 fn staff(id: &str, skills: &[&str]) -> StaffRow {
-    StaffRow { id: text(id), zone_id: text("z0"), skills: Skills(skills.iter().map(|skill| text(skill)).collect()), work_queue: Vec::new(), busy_until: 0, active_task_id: None }
+    StaffRow {
+        id: text(id),
+        zone_id: text("z0"),
+        skills: Skills(skills.iter().map(|skill| text(skill)).collect()),
+        work_queue: Vec::new(),
+        busy_until: 0,
+        active_task_id: None,
+    }
 }
 
 fn account(remaining: i64) -> Account {
-    Account { initial: remaining, delivered: 0, served: 0, losses: 0, remaining, reserved: 0, source_ids: vec![text("SRC-INIT")], reservations: IdMap::default() }
+    Account {
+        initial: remaining,
+        delivered: 0,
+        served: 0,
+        losses: 0,
+        remaining,
+        reserved: 0,
+        source_ids: vec![text("SRC-INIT")],
+        reservations: IdMap::default(),
+    }
 }
 
 fn initial(resource: &str, remaining: i64) -> AuditRecord {
@@ -406,7 +422,8 @@ fn a_cancel_of_a_queued_task_lets_the_person_go_and_lists_the_task() {
     let mut payload = IndexMap::new();
     payload.insert(text("task_id"), V::Str(text("resource-service-task-0")));
     payload.insert(text("reason"), V::Str(text("operator_cancelled")));
-    let event = EventRow::new(text("cancel-1"), EventKind::Intervention, 5, 0, 3, text("resource_service_cancel"), payload, None, None, IndexMap::new()).unwrap();
+    let event =
+        EventRow::new(text("cancel-1"), EventKind::Intervention, 5, 0, 3, text("resource_service_cancel"), payload, None, None, IndexMap::new()).unwrap();
     assert_eq!(service::cancel(&mut world, &manager, &event).unwrap(), None);
     let rows = world.rows().unwrap();
     assert!(rows.facilities.get(WATER).unwrap().resource_queue_agent_ids.is_empty());

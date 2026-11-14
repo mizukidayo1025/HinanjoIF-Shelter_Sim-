@@ -83,9 +83,5 @@ pub fn model_of(policy: &Obj) -> Read<Model> {
         ("sheltersim.policies.psychology", "LifeStatePsychologyPolicy", Model::LifeState),
         ("sheltersim.policies.psychology", "IntegratedDistressLifeStatePolicy", Model::Integrated),
     ];
-    KNOWN
-        .iter()
-        .find(|(module, name, _)| class.has_name(module, name))
-        .map(|(_, _, model)| *model)
-        .ok_or_else(|| Fault::refused(UNKNOWN))
+    KNOWN.iter().find(|(module, name, _)| class.has_name(module, name)).map(|(_, _, model)| *model).ok_or_else(|| Fault::refused(UNKNOWN))
 }

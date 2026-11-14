@@ -130,7 +130,14 @@ impl Case {
     fn requested(&mut self, agent_id: &str, facility_id: &str, minute: Minute, validates: bool) -> Result<Requested, Error> {
         let manager = service::manager_parts(&self.loaded.cell, &mut self.host, &self.loaded.policies)?;
         let holding = kit::holding(&self.loaded.cell, &mut self.host)?;
-        let needs = kit::kept_section_value(&self.loaded.cell, &mut self.host, &holding, SectionId::AccessibilityNeeds, |configs| &configs.accessibility_needs, AccessibilityNeeds::parse)?;
+        let needs = kit::kept_section_value(
+            &self.loaded.cell,
+            &mut self.host,
+            &holding,
+            SectionId::AccessibilityNeeds,
+            |configs| &configs.accessibility_needs,
+            AccessibilityNeeds::parse,
+        )?;
         let pending = self.loaded.cell.with(|world| service::reserves_of(world)).unwrap()?;
         let request = Request { agent_id, facility_id, minute, queue_id: None, needs: &needs };
         service::request(&self.loaded.cell, &mut self.host, &manager.manager(), &request, &pending, validates)
@@ -285,7 +292,9 @@ fn a_completion_in_a_world_not_v6_fails_with_the_handler_s_text() {
         .cell
         .with(|world| {
             let log = world.log().unwrap();
-            (0..log.len()).map(|index| serde_json::from_slice::<Value>(log.written(index).unwrap()).unwrap()).find(|record| record["event"]["event_id"] == event_id.as_str())
+            (0..log.len())
+                .map(|index| serde_json::from_slice::<Value>(log.written(index).unwrap()).unwrap())
+                .find(|record| record["event"]["event_id"] == event_id.as_str())
         })
         .unwrap()
         .expect("the completion's record");

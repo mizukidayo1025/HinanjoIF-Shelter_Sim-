@@ -52,8 +52,7 @@ impl ActiveActions {
     /// Read the plain dict into rows if there is one; Unsupported, keeping it, if it does not fit.
     fn into_rows(&mut self, py: Python<'_>) -> PyResult<()> {
         if let Some(plain) = &self.plain {
-            let rows = IdMap::<ActiveAction>::from_py(plain.bind(py))
-                .map_err(|_| Unsupported::new_err("an active action does not fit its row"))?;
+            let rows = IdMap::<ActiveAction>::from_py(plain.bind(py)).map_err(|_| Unsupported::new_err("an active action does not fit its row"))?;
             let rows = rules::ActiveActions::from_rows(rows).or_py()?;
             self.rows(|held| *held = rows)?;
             self.plain = None;

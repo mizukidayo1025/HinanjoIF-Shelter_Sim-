@@ -22,9 +22,7 @@
 use std::sync::Arc;
 
 use crate::error::{Error, Result};
-use crate::state::resource_ledger::{
-    is_valid_id, resource_index, Account, AuditRecord, LedgerRow, LedgerWorld, Reservation, AUDIT_SCHEMA_VERSION, NAME,
-};
+use crate::state::resource_ledger::{is_valid_id, resource_index, Account, AuditRecord, LedgerRow, LedgerWorld, Reservation, AUDIT_SCHEMA_VERSION, NAME};
 use crate::value::V;
 use crate::world::World;
 
@@ -167,7 +165,6 @@ pub struct OperationEvent<'a> {
     pub source_id: &'a V,
     pub event_id: &'a V,
 }
-
 
 /// One operation's values, read from its event or given by a rule that hasn't made the event.
 pub struct Operation<'a> {
@@ -320,18 +317,7 @@ fn text_repr(text: &str) -> std::result::Result<String, Fail> {
 /// its `ResourceLedgerError`, and a state its check of the ledger turned down is Unsupported, both
 /// with nothing changed. Every ID is checked by the caller to be a stable ID.
 pub fn apply_planned(world: &mut World, planned: &Operation<'_>) -> std::result::Result<Applied, Fail> {
-    let &Operation {
-        operation: operation_text,
-        warehouse_id,
-        resource_id,
-        index,
-        quantity,
-        beyond,
-        reservation_id,
-        agent_id,
-        source_id,
-        event_id,
-    } = planned;
+    let &Operation { operation: operation_text, warehouse_id, resource_id, index, quantity, beyond, reservation_id, agent_id, source_id, event_id } = planned;
     if let Some(agent) = agent_id {
         if !world.rows()?.agents.contains_key(agent) {
             return ledger(format!("unknown resource Agent ID {}", quoted(agent)));
@@ -352,13 +338,8 @@ pub fn apply_planned(world: &mut World, planned: &Operation<'_>) -> std::result:
             return ledger(format!("unknown resource warehouse ID {}", quoted(warehouse_id)));
         }
         let account = row.accounts.of(index);
-        let mut next = Balances {
-            delivered: account.delivered,
-            served: account.served,
-            losses: account.losses,
-            remaining: account.remaining,
-            reserved: account.reserved,
-        };
+        let mut next =
+            Balances { delivered: account.delivered, served: account.served, losses: account.losses, remaining: account.remaining, reserved: account.reserved };
         let mut change = ReservationChange::None;
         let mut record_quantity = quantity;
         match operation_text {
@@ -408,11 +389,7 @@ pub fn apply_planned(world: &mut World, planned: &Operation<'_>) -> std::result:
                     next.served = added(next.served, quantity)?;
                     next.remaining = taken(next.remaining, quantity)?;
                     next.reserved = taken(next.reserved, quantity)?;
-                    change = if quantity == found.quantity {
-                        ReservationChange::Remove
-                    } else {
-                        ReservationChange::Reduce(found.quantity - quantity)
-                    };
+                    change = if quantity == found.quantity { ReservationChange::Remove } else { ReservationChange::Reduce(found.quantity - quantity) };
                 }
             }
         }
@@ -480,9 +457,7 @@ pub fn metric_values(world: &World) -> Result<[[i64; 6]; 2]> {
     if !ledger_passes(world, &row)? {
         return Err(Error::unsupported("the state is for the Python rule to judge"));
     }
-    let of = |account: &Account| {
-        [account.initial, account.delivered, account.served, account.losses, account.remaining, account.reserved]
-    };
+    let of = |account: &Account| [account.initial, account.delivered, account.served, account.losses, account.remaining, account.reserved];
     Ok([of(row.accounts.of(0)), of(row.accounts.of(1))])
 }
 

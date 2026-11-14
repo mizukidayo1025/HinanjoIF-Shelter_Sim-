@@ -197,30 +197,18 @@ impl EventLog {
         let index = self.entries.len();
         if fields.event_type == "care_support_transition" {
             if let Some(request_id) = &fields.request_id {
-                self.first_care_request
-                    .entry(request_id.clone())
-                    .or_insert_with(|| fields.event_id.clone());
+                self.first_care_request.entry(request_id.clone()).or_insert_with(|| fields.event_id.clone());
             }
-            if let (true, true, Some(agent), Some(kind)) = (
-                fields.applied,
-                fields.payload_status_completed,
-                &fields.agent_id,
-                &fields.support_kind,
-            ) {
+            if let (true, true, Some(agent), Some(kind)) = (fields.applied, fields.payload_status_completed, &fields.agent_id, &fields.support_kind) {
                 let kinds = self.completed_support_kinds.entry(agent.clone()).or_default();
                 if !kinds.contains(kind) {
                     kinds.push(kind.clone());
                 }
             }
         }
-        if fields.applied
-            && (fields.event_type == "facility_outage" || fields.event_type == "facility_recovery")
-        {
+        if fields.applied && (fields.event_type == "facility_outage" || fields.event_type == "facility_recovery") {
             if let Some(facility_id) = &fields.facility_id {
-                let events = self
-                    .applied_facility_events
-                    .entry(facility_id.clone())
-                    .or_default();
+                let events = self.applied_facility_events.entry(facility_id.clone()).or_default();
                 if !events.contains(&fields.event_id) {
                     events.push(fields.event_id.clone());
                 }
@@ -239,9 +227,7 @@ impl EventLog {
                 };
                 let step = match fields.transition.as_deref() {
                     Some("started" | "continued") => LifecycleStep::Set,
-                    Some("completed" | "interrupted" | "abandoned" | "censored") => {
-                        LifecycleStep::End
-                    }
+                    Some("completed" | "interrupted" | "abandoned" | "censored") => LifecycleStep::End,
                     _ => LifecycleStep::Other,
                 };
                 self.lifecycle.push((agent, step, index));
@@ -289,13 +275,7 @@ impl EventLog {
     /// `EventLog.append` of an outcome of `event`: 0, or 1 for a realized ID, 2 for a realized
     /// sequence, with nothing changed. `writer::record` raises the errors `EventLog.append`
     /// raises.
-    pub fn append_row(
-        &mut self,
-        event: &EventRow,
-        realized_minute: i64,
-        status: EventStatus,
-        detail: Option<&str>,
-    ) -> Result<u8> {
+    pub fn append_row(&mut self, event: &EventRow, realized_minute: i64, status: EventStatus, detail: Option<&str>) -> Result<u8> {
         let refused = self.refusal(&event.event_id, event.sequence);
         if refused != 0 {
             return Ok(refused);
@@ -451,11 +431,7 @@ impl EventLog {
     /// back here, and they are not of a type `scan_type` was asked for.
     pub fn releasable(&self, end: usize) -> impl Iterator<Item = usize> + '_ {
         let end = end.min(self.entries.len());
-        let kept: HashSet<u32> = self
-            .scanned_types
-            .iter()
-            .filter_map(|name| self.type_ids.get(name).copied())
-            .collect();
+        let kept: HashSet<u32> = self.scanned_types.iter().filter_map(|name| self.type_ids.get(name).copied()).collect();
         (0..end).filter(move |index| {
             let entry = &self.entries[*index];
             entry.exact && !kept.contains(&entry.event_type)
@@ -518,10 +494,7 @@ impl EventLog {
 
     /// The event types with records, in no set order.
     pub fn event_types(&self) -> Vec<String> {
-        self.by_type
-            .keys()
-            .map(|id| self.type_names[*id as usize].clone())
-            .collect()
+        self.by_type.keys().map(|id| self.type_names[*id as usize].clone()).collect()
     }
 
     pub fn with_provenance_object(&self, key: &str) -> &[usize] {
@@ -543,10 +516,7 @@ impl EventLog {
 
     /// The positions of a type's records in append order; empty for a type with none.
     pub fn positions_of_type(&self, event_type: &str) -> &[usize] {
-        self.type_ids
-            .get(event_type)
-            .and_then(|id| self.by_type.get(id))
-            .map_or(&[], Vec::as_slice)
+        self.type_ids.get(event_type).and_then(|id| self.by_type.get(id)).map_or(&[], Vec::as_slice)
     }
 
     /// The positions of the records of these distinct types at `start` or later, in append order.
@@ -573,10 +543,7 @@ impl EventLog {
         for (order, (agent, step, index)) in self.lifecycle.iter().enumerate() {
             match step {
                 LifecycleStep::Set => {
-                    active
-                        .entry(*agent)
-                        .and_modify(|entry| entry.1 = *index)
-                        .or_insert((order, *index));
+                    active.entry(*agent).and_modify(|entry| entry.1 = *index).or_insert((order, *index));
                 }
                 LifecycleStep::End => {
                     active.remove(agent);
@@ -787,11 +754,7 @@ pub fn fields_of_row(new: NewFields<'_>) -> Fields {
         _ => None,
     };
     let provenance_objects = match new.provenance {
-        Some(V::Map(provenance)) => provenance
-            .iter()
-            .filter(|(_, value)| matches!(value, V::Map(_)))
-            .map(|(key, _)| String::from(&**key))
-            .collect(),
+        Some(V::Map(provenance)) => provenance.iter().filter(|(_, value)| matches!(value, V::Map(_))).map(|(key, _)| String::from(&**key)).collect(),
         _ => Vec::new(),
     };
     Fields {
@@ -833,8 +796,7 @@ fn bad_document(what: &str) -> String {
 /// check that the bytes are its canonical JSON. Runs without the GIL.
 pub fn fields_of_bytes(bytes: &[u8]) -> std::result::Result<Fields, String> {
     use serde_json::Value;
-    let document: Value =
-        serde_json::from_slice(bytes).map_err(|error| bad_document(&error.to_string()))?;
+    let document: Value = serde_json::from_slice(bytes).map_err(|error| bad_document(&error.to_string()))?;
     check_saved_record(&document).map_err(|what| bad_document(what))?;
     let mut canonical = Vec::with_capacity(bytes.len());
     write_canonical(&mut canonical, &document).map_err(|what| bad_document(what))?;
@@ -855,23 +817,14 @@ pub fn fields_of_bytes(bytes: &[u8]) -> std::result::Result<Fields, String> {
     }
     Ok(Fields {
         event_id: text(event.get("event_id")).ok_or_else(|| bad_document("event_id"))?,
-        sequence: event
-            .get("sequence")
-            .and_then(Value::as_i64)
-            .ok_or_else(|| bad_document("sequence"))?,
+        sequence: event.get("sequence").and_then(Value::as_i64).ok_or_else(|| bad_document("sequence"))?,
         event_type: text(event.get("event_type")).ok_or_else(|| bad_document("event_type"))?,
-        minute: document
-            .get("realized_minute")
-            .and_then(Value::as_i64)
-            .ok_or_else(|| bad_document("realized_minute"))?,
+        minute: document.get("realized_minute").and_then(Value::as_i64).ok_or_else(|| bad_document("realized_minute"))?,
         applied: document.get("status").and_then(Value::as_str) == Some("applied"),
         request_id: payload_text("request_id"),
         agent_id: payload_text("agent_id"),
         support_kind: payload_text("support_kind"),
-        payload_status_completed: payload
-            .and_then(|value| value.get("status"))
-            .and_then(Value::as_str)
-            == Some("completed"),
+        payload_status_completed: payload.and_then(|value| value.get("status")).and_then(Value::as_str) == Some("completed"),
         facility_id: payload_text("facility_id"),
         provenance_objects,
         transition: payload_text("transition"),
@@ -879,18 +832,8 @@ pub fn fields_of_bytes(bytes: &[u8]) -> std::result::Result<Fields, String> {
 }
 
 pub const RECORD_FIELDS: [&str; 4] = ["detail", "event", "realized_minute", "status"];
-pub const EVENT_FIELDS: [&str; 10] = [
-    "causation_id",
-    "due_minute",
-    "event_id",
-    "event_type",
-    "kind",
-    "payload",
-    "priority",
-    "provenance",
-    "sequence",
-    "source_id",
-];
+pub const EVENT_FIELDS: [&str; 10] =
+    ["causation_id", "due_minute", "event_id", "event_type", "kind", "payload", "priority", "provenance", "sequence", "source_id"];
 const EVENT_KINDS: [&str; 4] = ["exogenous", "completion", "endogenous", "intervention"];
 const EVENT_STATUSES: [&str; 3] = ["applied", "failed", "suppressed"];
 
@@ -909,9 +852,7 @@ fn exact_int(value: &serde_json::Value, minimum: Option<i64>) -> bool {
 pub fn check_saved_record(document: &serde_json::Value) -> std::result::Result<(), &'static str> {
     use serde_json::Value;
     let has_fields = |value: &Value, names: &[&str]| {
-        value
-            .as_object()
-            .is_some_and(|object| object.len() == names.len() && names.iter().all(|name| object.contains_key(*name)))
+        value.as_object().is_some_and(|object| object.len() == names.len() && names.iter().all(|name| object.contains_key(*name)))
     };
     if !has_fields(document, &RECORD_FIELDS) {
         return Err("record fields do not match EventLogRecord");

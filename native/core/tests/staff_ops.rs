@@ -86,13 +86,8 @@ fn idle() -> OperationRecord {
 }
 
 fn config() -> V {
-    let durations = map(vec![
-        ("cleaning", V::Int(20)),
-        ("maintenance", V::Int(30)),
-        ("information_outreach", V::Int(15)),
-        ("intake", V::Int(10)),
-        ("patrol", V::Int(10)),
-    ]);
+    let durations =
+        map(vec![("cleaning", V::Int(20)), ("maintenance", V::Int(30)), ("information_outreach", V::Int(15)), ("intake", V::Int(10)), ("patrol", V::Int(10))]);
     map(vec![
         ("task_duration_minutes", durations),
         ("cleaning_sanitation_recovery", V::Float(0.25)),
@@ -148,7 +143,12 @@ struct Given {
 
 impl Given {
     fn new() -> Self {
-        Self { staff: Held::Held, absent: Held::Absent, geo: Arc::new(Geo::new(None, None, None, None).unwrap()), formula: StaffOperations { model_id: text("urgency-first"), selected_source: None } }
+        Self {
+            staff: Held::Held,
+            absent: Held::Absent,
+            geo: Arc::new(Geo::new(None, None, None, None).unwrap()),
+            formula: StaffOperations { model_id: text("urgency-first"), selected_source: None },
+        }
     }
 
     fn inputs(&self) -> Inputs<'_> {
@@ -175,7 +175,19 @@ fn records(world: &World) -> Vec<Value> {
 
 fn event(event_id: &str, sequence: i64, due: i64, event_type: &str, payload: Vec<(&str, V)>) -> EventRow {
     let V::Map(payload) = map(payload) else { unreachable!() };
-    EventRow::new(text(event_id), EventKind::Completion, due, 5, sequence, text(event_type), payload, Some(text("autonomous-routed-staff-v1")), None, IndexMap::new()).unwrap()
+    EventRow::new(
+        text(event_id),
+        EventKind::Completion,
+        due,
+        5,
+        sequence,
+        text(event_type),
+        payload,
+        Some(text("autonomous-routed-staff-v1")),
+        None,
+        IndexMap::new(),
+    )
+    .unwrap()
 }
 
 fn s(value: &str) -> V {
@@ -206,11 +218,23 @@ fn travelling(world: &World) -> (EventRow, EventRow) {
     );
     drop(row);
     let mut rows = world.rows_mut().unwrap();
-    rows.active_tasks.insert(text("t1"), TaskRow { id: text("t1"), kind: text("staff_operation"), agent_id: None, resource_id: None, start_minute: 10, due_minute: 34, staff_id: Some(text("s1")) });
+    rows.active_tasks.insert(
+        text("t1"),
+        TaskRow {
+            id: text("t1"),
+            kind: text("staff_operation"),
+            agent_id: None,
+            resource_id: None,
+            start_minute: 10,
+            due_minute: 34,
+            staff_id: Some(text("s1")),
+        },
+    );
     *rows.staff.get_mut("s1").unwrap() = staff("s1", "z0", &["cleaning"], Some("t1"));
     drop(rows);
     let common = |kind: &str| vec![("staff_id", s("s1")), ("task_id", s("t1")), ("task_kind", s(kind)), ("target_id", V::Null), ("target_zone_id", s("z1"))];
-    let arrive = event("staff-operation-arrive-30", 30, 14, "staff_operation_arrive", vec![("staff_id", s("s1")), ("task_id", s("t1")), ("target_zone_id", s("z1"))]);
+    let arrive =
+        event("staff-operation-arrive-30", 30, 14, "staff_operation_arrive", vec![("staff_id", s("s1")), ("task_id", s("t1")), ("target_zone_id", s("z1"))]);
     let complete = event("staff-operation-complete-31", 31, 34, "staff_operation_complete", common("cleaning"));
     for row in [&arrive, &complete] {
         assert_eq!(world.queue_mut().unwrap().schedule_row(row.clone()), 0);
@@ -301,7 +325,10 @@ fn a_closed_edge_stops_the_trips_over_it() {
     // Halfway (2 of 4 minutes) rounds to the next zone.
     assert_eq!(&*world.rows().unwrap().staff.get("s1").unwrap().zone_id, "z1");
     let row = world.row::<StaffOperationsRow>(NAME).unwrap();
-    assert_eq!(row.history[0].causation_event_ids, vec![text("cause"), text("close-e1"), text("staff-operation-arrive-30"), text("staff-operation-complete-31")]);
+    assert_eq!(
+        row.history[0].causation_event_ids,
+        vec![text("cause"), text("close-e1"), text("staff-operation-arrive-30"), text("staff-operation-complete-31")]
+    );
 }
 
 #[test]
@@ -318,9 +345,29 @@ fn a_tainted_namespace_is_refused_before_anything_is_written() {
 // ---- Relief -----------------------------------------------------------------------------------------
 
 fn relief(task: &str, previous: &str, replacement: &str) -> EventRow {
-    let V::Map(payload) = map(vec![("task_id", s(task)), ("previous_staff_id", s(previous)), ("replacement_staff_id", s(replacement)), ("reason_code", s("shift_end"))]) else { unreachable!() };
-    let V::Map(provenance) = map(vec![("source_type", s("assumption")), ("source_id", s("ASM-STAFF-RELIEF-V1")), ("policy_version", s("same-site-staff-relief-v1"))]) else { unreachable!() };
-    EventRow::new(text("relief-1"), EventKind::Endogenous, 10, 0, 35, text("staff_operation_relief"), payload, Some(text("same-site-staff-relief-v1")), None, provenance).unwrap()
+    let V::Map(payload) =
+        map(vec![("task_id", s(task)), ("previous_staff_id", s(previous)), ("replacement_staff_id", s(replacement)), ("reason_code", s("shift_end"))])
+    else {
+        unreachable!()
+    };
+    let V::Map(provenance) =
+        map(vec![("source_type", s("assumption")), ("source_id", s("ASM-STAFF-RELIEF-V1")), ("policy_version", s("same-site-staff-relief-v1"))])
+    else {
+        unreachable!()
+    };
+    EventRow::new(
+        text("relief-1"),
+        EventKind::Endogenous,
+        10,
+        0,
+        35,
+        text("staff_operation_relief"),
+        payload,
+        Some(text("same-site-staff-relief-v1")),
+        None,
+        provenance,
+    )
+    .unwrap()
 }
 
 /// s1 cleaning z0 since minute 8 (task t1), due at 28, and its completion; s1 is no longer
@@ -342,7 +389,18 @@ fn working(world: &mut World) {
     row.staff.insert(text("s1"), record);
     drop(row);
     let mut rows = world.rows_mut().unwrap();
-    rows.active_tasks.insert(text("t1"), TaskRow { id: text("t1"), kind: text("staff_operation"), agent_id: None, resource_id: None, start_minute: 8, due_minute: 28, staff_id: Some(text("s1")) });
+    rows.active_tasks.insert(
+        text("t1"),
+        TaskRow {
+            id: text("t1"),
+            kind: text("staff_operation"),
+            agent_id: None,
+            resource_id: None,
+            start_minute: 8,
+            due_minute: 28,
+            staff_id: Some(text("s1")),
+        },
+    );
     *rows.staff.get_mut("s1").unwrap() = staff("s1", "z0", &["cleaning"], Some("t1"));
     drop(rows);
     let complete = event("staff-operation-complete-31", 31, 28, "staff_operation_complete", vec![("staff_id", s("s1")), ("task_id", s("t1"))]);
@@ -432,12 +490,15 @@ fn an_order_writes_the_task_and_its_events() {
     assert_eq!(pending, vec![(text("staff-operation-arrive-40"), 14), (text("staff-operation-complete-41"), 34)]);
     let (_, serial) = queue.ordered()[1];
     let complete = queue.slot(serial).row.clone().unwrap();
-    assert_eq!(complete.provenance, map(vec![
-        ("source_type", s("assumption")),
-        ("source_id", s("ASM-STAFF-OPERATIONS-V1")),
-        ("policy_version", s("autonomous-routed-staff-v1")),
-        ("reason", s("operator")),
-    ]));
+    assert_eq!(
+        complete.provenance,
+        map(vec![
+            ("source_type", s("assumption")),
+            ("source_id", s("ASM-STAFF-OPERATIONS-V1")),
+            ("policy_version", s("autonomous-routed-staff-v1")),
+            ("reason", s("operator")),
+        ])
+    );
     drop(queue);
     world.scalars.get_mut().minute_index = Fit::Ok(90);
     *world.row_mut::<StaffOperationsRow>(NAME).unwrap().staff.get_mut("s2").unwrap() = idle();

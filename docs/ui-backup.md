@@ -1,6 +1,6 @@
 # 避難所IF！ バックアップUI (`/demo-v2`)
 
-`/demo`、`/admin`とは独立した、HTML/CSS/JavaScriptの4画面です。WorldState、Run、Checkpoint、EffectProgram、モデル係数の契約を変更しません。
+利用者向けの唯一の画面で、HTML/CSS/JavaScriptの4画面です（以前の画面`/demo`、`/admin`は#376でなくし、その道は`/demo-v2`へ転送します）。WorldState、Run、Checkpoint、EffectProgram、モデル係数の契約を変更しません。
 
 2026-10-25の参照画像との再比較、修正内容、両解像度での実測、残る相違は [視覚レビュー記録](ui-backup-visual-review.md) にまとめています。
 
@@ -83,9 +83,7 @@ SHELTERSIM_LLM_MODE=record SHELTERSIM_LLM_ERROR_POLICY=stop \
 ```sh
 SHELTERSIM_LLM_MODE=offline PYTHONPATH=src python -m pytest \
   tests/integration/test_web_routes.py tests/unit/web/test_server.py \
-  tests/integration/test_demo_v2_routes.py \
-  tests/integration/test_web_demo.py tests/unit/web/test_demo.py \
-  tests/e2e/test_web_demo_story_review.py tests/unit/storage/test_projects.py \
+  tests/integration/test_demo_v2_routes.py tests/unit/storage/test_projects.py \
   tests/unit/web/test_results_chat.py tests/integration/test_results_chat.py
 ```
 

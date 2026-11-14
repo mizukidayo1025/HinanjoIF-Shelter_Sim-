@@ -10,11 +10,11 @@ from support.paths import SCENARIO_100_AGENTS
 from sheltersim.core.world import WorldState
 from sheltersim.domain.zones import ZoneConnection, ZoneGraph, ZoneNode
 from sheltersim.events.models import EventKind, ScheduledEvent
+from sheltersim.experiments.branch import BranchRuntime, command_from_dict
 from sheltersim.experiments.runner import OfflineSimulationController
 from sheltersim.experiments.scenario import ScenarioSpec
 from sheltersim.inspection.traces import RunArtifactWriter
 from sheltersim.policies.space import SpaceRouter, ZoneRoute
-from sheltersim.web.demo import DemoService
 
 
 def fixture_graph() -> ZoneGraph:
@@ -211,26 +211,19 @@ def test_travel_time_only_route_edit_keeps_route_assumption_provenance(
     tmp_path: Path, small_replay_scenario
 ) -> None:
     scenario = small_replay_scenario()
-    demo = DemoService(scenario)
-    demo.dispatch("start")
-    demo.dispatch("pause", {"branch_id": "baseline"})
-    result = demo.dispatch(
-        "layout-branch",
-        {
-            "source_branch_id": "baseline",
-            "idempotency_key": "route-time-provenance",
-            "commands": [
-                {
-                    "kind": "set_zone_edge",
-                    "edge_id": "corridor_toilet",
-                    "travel_minutes": 8,
-                    "closed": False,
-                    "max_agents_in_transit": None,
-                }
-            ],
-        },
+    child = BranchRuntime.from_world(WorldState.from_scenario(scenario)).fork("route-time")
+    child.apply(
+        command_from_dict(
+            {
+                "kind": "set_zone_edge",
+                "edge_id": "corridor_toilet",
+                "travel_minutes": 8,
+                "closed": False,
+                "max_agents_in_transit": None,
+            }
+        )
     )
-    world = demo.branches[result["branch_id"]].runtime.world
+    world = child.world
     assert world.model_configs["layout_routing"]["max_agents_in_transit_by_edge"] == {}
     controller = OfflineSimulationController(
         world,

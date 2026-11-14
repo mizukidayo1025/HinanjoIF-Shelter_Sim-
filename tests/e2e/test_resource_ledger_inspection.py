@@ -1,5 +1,5 @@
 """A Run's resource ledger is saved the same at every trace level and read back
-through the Run inspector and the HTTP API.
+through the Run inspector (the CLI's `inspect`).
 
 The ledger's accounting, reservations and checks are tested in
 tests/unit/domain/test_resources.py.
@@ -9,15 +9,12 @@ from __future__ import annotations
 
 import csv
 import json
-import shutil
 from pathlib import Path
 
 from sheltersim.core.engine import TraceLevel
 from sheltersim.domain.resources import RESOURCE_LEDGER_KEY
 from sheltersim.experiments.runner import run_scenario
 from sheltersim.inspection.query import RunInspector
-from sheltersim.web.inspector import InspectorService
-from sheltersim.web.server import _dispatch_api
 
 
 def test_resource_metrics_logs_and_state_are_trace_level_independent(
@@ -80,6 +77,7 @@ def test_resource_metrics_logs_and_state_are_trace_level_independent(
     summary_manifest = json.loads((summary_directory / "manifest.json").read_text(encoding="utf-8"))
     assert off_manifest["resource_ledger_summary"] == summary_manifest["resource_ledger_summary"]
     assert off_manifest["resource_ledger_summary"]["audit_entry_count"] == 4
+    assert off_manifest["resource_ledger_summary"]["zone_id"] == "sleeping"
     assert off_manifest["initial_stock"]["source_ids"] == ["ASM-H01-TEST-INITIAL-STOCK-V1"]
     assert (off_directory / "resource_ledger.json").is_file()
     ledger = json.loads((off_directory / "resource_ledger.json").read_text(encoding="utf-8"))
@@ -87,17 +85,3 @@ def test_resource_metrics_logs_and_state_are_trace_level_independent(
     assert ledger["warehouse_id"] == "warehouse-main"
     query = RunInspector(off_directory).resource_ledger()
     assert query == ledger
-    run_id = off_manifest["run_id"]
-    runs_directory = tmp_path / "runs"
-    runs_directory.mkdir()
-    shutil.copytree(off_directory, runs_directory / run_id)
-    web_inspector = InspectorService(runs_directory)
-    assert web_inspector.resource_ledger(run_id) == {"enabled": True, "ledger": ledger}
-    assert _dispatch_api(web_inspector, f"/api/v1/runs/{run_id}/resource-ledger", {}) == {
-        "enabled": True,
-        "ledger": ledger,
-    }
-    assert (
-        web_inspector.overview(run_id)["manifest"]["resource_ledger_summary"]["zone_id"]
-        == "sleeping"
-    )

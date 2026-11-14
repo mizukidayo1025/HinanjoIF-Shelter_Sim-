@@ -16,7 +16,6 @@ pytest_plugins = [
     "results_log",
     "support.generated",
     "support.fixture_scenarios",
-    "support.demo",
     "support.storage",
     "support.web",
     "support.llm",

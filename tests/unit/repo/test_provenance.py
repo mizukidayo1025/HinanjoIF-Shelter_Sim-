@@ -213,12 +213,6 @@ def test_optional_and_runtime_assumptions_match_the_implemented_defaults() -> No
     assert zone_layout["y_step"] == 110
 
 
-def test_packaged_failure_fixture_stays_in_sync_with_source_fixture() -> None:
-    source = FAILURE_DAY3.read_bytes()
-    packaged = ROOT / "src" / "sheltersim" / "web" / "examples" / "failure_day3.json"
-    assert packaged.read_bytes() == source
-
-
 def test_scenario_models_and_failure_events_are_explicitly_hypothetical() -> None:
     manifest = json.loads(SOURCE_MANIFEST.read_text(encoding="utf-8"))
     assumptions = {item["id"]: item for item in manifest["assumptions"]}

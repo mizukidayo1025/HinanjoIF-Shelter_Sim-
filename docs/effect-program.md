@@ -30,11 +30,9 @@ schedule_effect_program(world, program)は事前検証を再度行い、世界�
 
 ## 承認済みCheckpointからのBranch
 
-POST /api/v1/demo/branch-planは、正確なDraftPlan preview hash、source Branch ID、idempotency keyに結び付いたApprovedPlanを受け取ります。このreceiptは利用者がpreviewを明示確認した後にだけclientが作成する想定です。serverはpreviewとの対応を検証しますが、誰がクリックしたかは認証しません。
+Projectの介入は、Branchの`intervention-preview`と`intervention-apply`で作ります（[APIリファレンス](api-reference.md#projectと介入の流れ)）。previewは指定minuteのstateを復元してprogramを検証し、元Branchを変えません。applyはpreview ID、program hash、明示承認、child IDを要求します。serverはpreviewとの対応を検証しますが、誰がクリックしたかは認証しません。
 
-source Branchはpauseまたは完了状態である必要があります。要求した分岐minute以前の最新Checkpointを復元し、共有履歴をreplayしてからprogramをscheduleします。全programの検証とreplayが成功してからchildを作成します。却下時にsourceやBranch一覧は変わりません。
-
-過去minuteからの分岐では、そのminuteにscheduleし、sourceの現在時刻までreplayします。将来の計画はsourceの現在時刻に留まり、eventをqueueへ追加します。応答にはsource、origin、scheduled、final Checkpoint、program receipt、approval hash、lineageを含みます。child Checkpointはidempotency keyのhashと結果を保存し、生keyや元文章は保存しません。同一承認を再送すると既存childを返し、異なるpreviewでkeyを再利用すると拒否します。guard state、期限event、安定event ID、causation IDはWorldState/Checkpoint契約で復元されます。
+applyは、指定minuteのstateを保存したCheckpointから復元し（保存の間のminuteは直前の保存から計算し直します）、previewが見たstate hashと一致することを確かめてから、子Branchを作ってprogramをscheduleします。却下時に元Branchや兄弟Branchは変わりません。以前の画面の`POST /api/v1/demo/branch-plan`（idempotency keyつきのApprovedPlan）は#376でなくしました。
 
 Program ID、effect ID、modifier IDは安定しています。eventにはeffect ID、source ID、可能な場合は親原因、compiler種別・版、source文章SHA-256、仮定、単位、依存Policyを記録します。元文章はWorldStateへ複製しません。資源配布、shipment遅延、staff不在、水停止は既存の型付きhandlerが処理します。
 

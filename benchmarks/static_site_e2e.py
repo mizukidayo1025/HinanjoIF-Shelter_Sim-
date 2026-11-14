@@ -694,7 +694,7 @@ class PythonSide:
     def request(self, method: str, route: str, body: Any = None) -> tuple[int, str]:
         """Python's answer, as server.py makes it, to the request at the store's state now."""
         from sheltersim.storage.projects import StorageError
-        from sheltersim.web.inspector import WebQueryError
+        from sheltersim.web.results_chat import WebQueryError
 
         api = self._open()
         path, _, query = route.partition("?")

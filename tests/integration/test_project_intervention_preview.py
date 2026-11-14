@@ -1,10 +1,9 @@
 """A Project's intervention preview sends a running generated Scenario to Opus, and
 an approved preview forks the Branch without changing it.
 
-The preview-and-apply tests are the Project screen's counterparts of the demo's
-tests/integration/test_nl_demo.py and tests/e2e/test_nl_demo_branching.py (#137);
-their text is read by the offline rules, as in
-tests/e2e/test_project_scenario_to_results.py.
+The preview-and-apply tests took over from the older demo's natural-language tests (#137;
+the demo went with the older screens in #376); their text is read by the offline rules, as
+in tests/e2e/test_project_scenario_to_results.py.
 
 The compiler's own contract (repair, fallback, redaction, stop policy) is
 checked in tests/unit/llm/test_natural_language.py.

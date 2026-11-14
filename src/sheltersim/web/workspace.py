@@ -581,7 +581,7 @@ class ProjectWorkspace:
                 if action == "questions":
                     from sheltersim.web.results_chat import ResultsChatService
 
-                    return ResultsChatService(None, None, self.api).ask(
+                    return ResultsChatService(self.api).ask(
                         {**body, "project_id": project_id, "run_id": run_id, "branch_id": branch_id}
                     )
                 if action == "intervention-preview":

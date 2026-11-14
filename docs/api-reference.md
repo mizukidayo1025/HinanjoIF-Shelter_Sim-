@@ -28,7 +28,7 @@ Scenario JSON、Run manifest、CheckpointはJSONを使います。eventとdecisi
 - project: Project、Run、Checkpoint、Branch、履歴の永続操作を行います。
 - model-catalog: 選択モデル、係数、単位、範囲、source分類を表示します。
 - evaluate-models: 明示的に依頼されたoffline対応比較実験を実行します。
-- web: ローカルブラウザーworkspaceとInspectorを起動します。
+- web: ローカルのブラウザーの画面（`/demo-v2`）とProject APIを起動します。Projectは`--runs-dir`の下の`.projects`に保存します。
 - usage: CLI/Demoの利用記録と、PC全体の累積上限の記録を表示します。--unfreeze ACCOUNT_ID --confirm ACCOUNT_ID --reason TEXT で、凍結された利用記録を解除します（llm-integration.md参照）。
 
 実行例はREADME.mdとdevelopment.mdにあります。
@@ -45,9 +45,7 @@ serverは型付きrequest契約と、許可されたfield/queryだけを受け�
 | /api/v1/projects/{project}/scenario-approve | preview hashを承認し、保存ScenarioとRunを作成します |
 | /api/v1/projects/{project}/runs/{run} | Runを再開・取消し、telemetryや比較を参照します。取消し（`POST …/cancel`）は `branch_id` を渡すとそのBranchの計算だけを、渡さなければRunのすべての計算を止めます。Runの参照の `branches` には、Branchごとの計算の状態（`status`）が付きます（#48） |
 | /api/v1/projects/{project}/runs/{run}/branches/{branch} | timeline、履歴、report、会話、LLM fallback集計（llm-status）を参照し、型付きBranch操作を送ります |
-| /api/v1/runs | read-only Inspectorから保存Run成果物を検索します |
-| /api/v1/demo | process内DemoとBranchを参照します |
-| /api/v1/usage/runtime | CLI/Demoの上限付き利用記録を参照します |
+| /api/v1/usage/runtime | CLI（と以前の画面のDemo）の上限付き利用記録を参照します |
 
 Project APIはasset、確認済みfacility geometry、draft、evaluation、dataset、履歴index、Checkpoint、証拠検索も扱います。OpenAPI documentは別途生成していません。field・responseの正確な契約は現在のPydantic modelとtestを参照してください。
 
@@ -65,7 +63,7 @@ Project APIはasset、確認済みfacility geometry、draft、evaluation、datas
 - 今と違うモデルの版で計算したRunは閲覧のみです。timeline frame、replay-frames、比較の各frameには`model_view`（`view_only`、`recorded_version`、`installed_version`、`differences`、`message`）が付き、保存の間の時刻は直前の保存の時点を返して`saved_point_rounding`（`requested_minute`、`saved_minute`、`message`）を付けます。`minute`は表示した保存の時点です。resume、fork、intervention-preview・applyは409、`code: run_model_view_only`で拒否します（[project-persistence.md](project-persistence.md#旧モデルのrun閲覧のみ)）。
 - Branchへの質問は保存Run/Branchの証拠を読むだけで、simulation stateを変更しません。詳細はproject-persistence.md、adaptive-event-compiler.md、effect-program.mdを参照してください。
 
-ブラウザーrouteは /demo、/admin、および独立したバックアップUIの /demo-v2 です。/demo-v2 は同じProject APIと承認契約を利用します（[対応表](ui-backup.md)）。root routeは /demo へredirectします。ブラウザー版（静的サイト、#266）では、画面の中のWorkerが計算済みのRunの道（Project・Run・Branchの記録、timeline、1つの分岐のreplay-frames、evidenceなど）に同じJSONで答え、それ以外の道は「ブラウザー版では未対応」（409、`code`は`browser_unsupported`）を返します（[development.md](development.md#ブラウザー版のapi266)）。serverは既定で127.0.0.1にbindし、認証機能を持ちません。信頼できないnetworkへ公開しないでください。
+ブラウザーrouteは /demo-v2 だけです。Project APIと承認契約を利用します（[対応表](ui-backup.md)）。`/` と、以前の画面の道（`/demo`、`/admin`、`/index.html`）は、クエリを保ったまま /demo-v2 へ302で送ります（#376）。以前の画面だけが使った `/api/v1/runs`（`sheltersim run --output` の成果物の参照）、`/api/v1/demo`、`/api/v1/nl`、`/api/v1/jobs`、`/api/v1/results-chat` はありません。CLIのRunは `sheltersim inspect` で確かめます。ブラウザー版（静的サイト、#266）では、画面の中のWorkerが計算済みのRunの道（Project・Run・Branchの記録、timeline、1つの分岐のreplay-frames、evidenceなど）に同じJSONで答え、それ以外の道は「ブラウザー版では未対応」（409、`code`は`browser_unsupported`）を返します（[development.md](development.md#ブラウザー版のapi266)）。serverは既定で127.0.0.1にbindし、認証機能を持ちません。信頼できないnetworkへ公開しないでください。
 
 POSTはsame-origin確認、JSON content type、request size上限、厳密なfield allowlistを使います。正確な上限とvalidatorはsource契約および回帰testで管理します。
 

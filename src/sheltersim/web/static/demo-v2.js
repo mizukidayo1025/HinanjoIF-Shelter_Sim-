@@ -327,7 +327,9 @@
     });
     const result = await response.json();
     if (!response.ok)
-      throw new Error(result.error || `HTTP ${response.status}`);
+      throw Object.assign(new Error(result.error || `HTTP ${response.status}`), {
+        code: result.code,
+      });
     return result;
   }
   function stopPlayback(preserve = false) {
@@ -2785,11 +2787,14 @@
     show(requestedPage || (state.run ? "simulation" : "scenario"));
     controls();
   }
+  // What the screen says when it cannot open: the browser version's own failures (its store,
+  // its Worker, #393) say what to do themselves, and the URL is not the cause.
+  function loadFailure(error) {
+    if (String(error?.code || "").startsWith("browser_")) return error.message;
+    return `読み込みに失敗しました：${error.message}。URLのproject/run指定を確認してください。`;
+  }
   init().catch((e) => {
-    note(
-      `読み込みに失敗しました：${e.message}。URLのproject/run指定を確認してください。`,
-      "error",
-    );
+    note(loadFailure(e), "error");
     controls();
   });
 })();

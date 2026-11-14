@@ -217,7 +217,7 @@ python scripts/serve_static_site.py ../hinanjo-if-site --port 8000
 - ほかのserverでは、拡張子のない道を`.html`で答える設定が要ります。例えばnginxなら`try_files $uri $uri.html =404;`です。`.mjs`は`text/javascript`、`.wasm`は`application/wasm`で送ります。
 - 1つのファイルは`--part-mib`以下か、それより小さく保ちます（道具は20 MiBを超えると止まります。Cloudflare Workersの静的なファイルの配信とCloudflare Pagesの上限は、1ファイル25 MiBです）。
 - サーバーの機能（認証、PDF、LLMの中継）はありません。
-- 初めて開くと、例のファイル全体を取り寄せてブラウザーのOPFSに保存します（大きさと時間は#266）。OPFSを使えないブラウザー（設定やprivateの窓によっては）では、お知らせ欄に誤りを出します。
+- 初めて開くと、例のファイル全体を取り寄せてブラウザーのOPFSに保存します（大きさと時間は#266）。OPFSを使えないブラウザー（設定やprivateの窓によっては。PlaywrightのWebKitの使い捨てのcontextでは`navigator.storage.getDirectory()`が`UnknownError`になります）では、Workerが最初にOPFSを開いて失敗を見分け、APIは503の`browser_storage_unavailable`で、お知らせ欄は「このブラウザーでは、計算の結果を保存する場所（OPFS）を使えません。…通常のウインドウで開いてください。」と答えます（#393）。ほかの準備の失敗は`browser_unavailable`です。どちらのときも、画面は「URLのproject/run指定を確認」の文を付けません。
 
 サイトが画面の道に正しく答えるかは、`benchmarks/static_site_check.py`で確かめます。サイトを上のserverで配り、PlaywrightのChromiumとFirefoxで、それぞれ空のOPFSから開きます。`/`のリンクから`/demo-v2`を開き、例を読み込み、時刻の帯で分へ飛び、240×で数秒再生し、レポートの頁の時系列のグラフが出ること、ページの誤り・consoleの誤り・お知らせ欄の誤りがないことを確かめます。`--python-projects`に、`scripts/build_project_sample.py`で作ったProjectStore（例のmainと同じScenarioをPythonのProjectの経路で計算したもの）を渡すと、記録、保存した点とその間の分のtimeline、飛んだ後と続く再生の窓、いくつかの`step`とページ送りの時系列、report、llm-statusについて、ブラウザーの答えのJSONとPythonのserverの答え（同じプロセスの`ProjectAPI`）を、値の型まで比べます。違って当然の項目（置き場の大きさ、Branchの`checkpoint_hash`と時系列の`anchor_hash`・cursorの中のanchor）は除き、除いた項目と理由を結果に書きます。0分の`state_hash`も比べます。Scenarioから作った世界は、0分から乱数の名前（`rng_state`、`CounterRNG`の`algorithm`と`seed`）を持つので（#281）、PythonのProjectの経路の最初の保存と、ブラウザーが始める書き出した世界は同じです。PlaywrightとそのbrowserはProjectの依存ではないので、確かめる環境に入れます。計った時間は#266に記録しています。
 

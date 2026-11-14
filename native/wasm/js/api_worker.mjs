@@ -15,11 +15,13 @@
 // Messages in:  { type: "start", sampleUrl } once, then { type: "request", id, method, path,
 //               search, body } or { type: "stats", id }
 // Messages out: { type: "progress", phase, bytes, total } while the sample is installed;
-//               { type: "ready", installed, ms } or { type: "failed", message } once;
+//               { type: "ready", installed, ms } or { type: "failed", code, message } once
+//               (code `browser_storage_unavailable` when the browser refuses the store, #393,
+//               otherwise `browser_unavailable`; the message is what the screen shows);
 //               { type: "answer", id, status, contentType, body } for each request;
 //               { type: "stats", id, stats } for { type: "stats", id } (checks).
 
-import { BrowserApi, installSample, SAMPLE_MARKER } from "./browser_api.mjs";
+import { BrowserApi, installSample, openStore, SAMPLE_MARKER } from "./browser_api.mjs";
 import { ensureComputeRun, recoverInterrupted } from "./compute.mjs";
 import { opfsTree } from "./project_store.mjs";
 import { RegionProviderError } from "./research.mjs";
@@ -67,10 +69,10 @@ async function writeFile(folder, name, bytes) {
 }
 
 async function start(sampleUrl) {
+  // The store first: a browser that refuses it (a private window, #393) gets its own answer.
+  const root = await openStore(navigator.storage);
   const wasm = await import(new URL("./pkg/sheltersim_wasm.js", import.meta.url).href);
   await wasm.default();
-  if (!navigator.storage?.getDirectory) throw new Error("このブラウザーはサイト専用の保存（OPFS）を使えません");
-  const root = await navigator.storage.getDirectory();
   const tree = opfsTree(await root.getDirectoryHandle("projects", { create: true }));
   const manifestUrl = new URL(sampleUrl, self.location.href);
   const response = await fetch(manifestUrl, { cache: "no-cache" });
@@ -146,12 +148,22 @@ async function start(sampleUrl) {
 
 let ready = null;
 
+/// What a request is answered when the Worker could not start: the store's own answer when the
+/// browser refused it (openStore), otherwise `browser_unavailable` with the reason.
+function failure(error) {
+  if (error?.code === "browser_storage_unavailable") return { code: error.code, message: error.message };
+  return { code: "browser_unavailable", message: `ブラウザー版の準備に失敗しました：${error?.message ?? error}` };
+}
+
 self.onmessage = async ({ data }) => {
   if (data.type === "start") {
     ready = start(data.sampleUrl);
     ready.then(
       ({ installed }) => self.postMessage({ type: "ready", installed: installed.installed, ms: installed.ms }),
-      (error) => self.postMessage({ type: "failed", message: String(error?.message ?? error) }),
+      (error) => {
+        if (error?.cause) console.warn("the browser's store cannot be opened:", error.cause);
+        self.postMessage({ type: "failed", ...failure(error) });
+      },
     );
     return;
   }
@@ -167,11 +179,8 @@ self.onmessage = async ({ data }) => {
     const { api } = await ready;
     answer = await api.answer(data);
   } catch (error) {
-    answer = {
-      status: 503,
-      type: "application/json; charset=utf-8",
-      body: JSON.stringify({ error: `ブラウザー版の準備に失敗しました：${error?.message ?? error}`, code: "browser_unavailable" }),
-    };
+    const { code, message } = failure(error);
+    answer = { status: 503, type: "application/json; charset=utf-8", body: JSON.stringify({ error: message, code }) };
   }
   self.postMessage({ type: "answer", id: data.id, status: answer.status, contentType: answer.type, body: answer.body });
 };

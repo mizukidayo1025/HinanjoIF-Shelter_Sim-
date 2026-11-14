@@ -274,14 +274,14 @@ gh workflow run deploy-browser.yml --ref main                    # 公開する
 gh workflow run deploy-browser.yml --ref <branch> -f dry_run=true  # 作って確かめるだけ
 ~~~
 
-workflowは、上の「ブラウザー版の静的サイト」と同じ手順でサイトを作ります（Pythonのkernelはprofile `ci`、WASMは`--release`、wasm-bindgenはCIの`ブラウザー版の計算`のjobと同じ版とsha256、避難所の索引は`--fetch-shelters`）。それから`wrangler deploy --dry-run`で設定とファイルを確かめ、Cloudflareへ送ります。送るときは、Workerの版にcommitのhashを`--tag`（先頭12桁）と`--message`で残します。
+workflowは、上の「ブラウザー版の静的サイト」と同じ手順でサイトを作ります。PythonのkernelとWASMは別のjobで並べて作り、例のRunとサイトの組み立てのjobに渡します（#415。Pythonのkernelはprofile `ci`、WASMは`--release`、wasm-bindgenはCIの`ブラウザー版の計算`のjobと同じ版とsha256、避難所の索引は`--fetch-shelters`）。それから`wrangler deploy --dry-run`で設定とファイルを確かめ、Cloudflareへ送ります。送るときは、Workerの版にcommitのhashを`--tag`（先頭12桁）と`--message`で残します。
 
 - 公開するのは`main`だけです。ほかのbranchで公開を選ぶと、何も作らずに止まります。`dry_run`はどのbranchでも使え、Cloudflareには何も送らず、secretも読みません。
 - 同時に動く公開は1つだけです。後から起動したものは、前のものが終わるのを待ちます。
 - 公開の後に、次の2つを確かめます。どちらかが通らないと、workflowは失敗します。
   1. 道ごとの答え：`/browser/gsi-shelter-index.json`（サイトを作った時刻を持ちます）が今回作ったものになるまで待ち（最大5分）、`/`と`/demo-v2`が200の`text/html`、`/demo-v2.html`が`/demo-v2`への307、ないファイル（`/nope`）が404の`text/html`、`/browser/api_worker.mjs`が`text/javascript`、`/browser/pkg/sheltersim_wasm_bg.wasm`が`application/wasm`、`/sample/sample.json`と自治体コードごとの避難所の行（`/browser/gsi-shelters/`の最初のファイル）が`application/json`であること。
-  2. 画面：公開したURLを`benchmarks/static_site_e2e.py --url`で、PlaywrightのChromiumとFirefoxで、それぞれ空のOPFSから開いて、すべての段を画面で通すこと（Pythonとは比べません）。
-- サイトを作った要約（`site-build.json`）と、画面の確かめの結果（`e2e-url.json`、画面の写し）は、runのartifact `deploy-browser`に30日残します。
+  2. 画面：公開したURLを`benchmarks/static_site_e2e.py --url`で、PlaywrightのChromiumとFirefoxで、それぞれ空のOPFSから開いて、すべての段を画面で通すこと（Pythonとは比べません）。ブラウザーごとに別のjobで同時に確かめます。Chromiumは一度に最後まで計算し（`--modes full`）、Firefoxは途中で止めて続けます（`--modes pieces`）。
+- サイトを作った要約（`site-build.json`）はrunのartifact `deploy-browser-site`に、画面の確かめの結果（`e2e-url.json`、画面の写し）は`deploy-browser-screen-chromium`と`deploy-browser-screen-firefox`に、30日残します。
 - 公開した版を戻すときは、Cloudflareのdashboardか`wrangler rollback`で前の版に戻すか、戻したいcommitを`main`に入れて公開し直します。
 
 workflowが使うsecret（リポジトリーのSettings → Secrets and variables → Actions。登録はCloudflareのアカウントを持つ人が行います）：

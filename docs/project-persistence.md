@@ -74,7 +74,7 @@ Pythonの欄のうち、ブラウザーで意味が変わるもの：
 
 | 欄 | ブラウザーで入るもの |
 |---|---|
-| Branchの`checkpoint_hash` | 先頭（`computed_until`の世界）を記録した目録の行のsha256。保存したRunの最後の`end`の行で、分とdigestを持つ。ブラウザーで途中まで計算したBranch（#267）では、その分の途中の点の`saved`の行（0分なら`export`の行）。計算前は`null`。画面は先頭が変わったかどうかにだけ使う |
+| Branchの`checkpoint_hash` | 先頭（`computed_until`の世界）を記録した目録の行の「先頭のhash」：行のJSONから圧縮後の場所と長さ（`offset`・`length`）を除いたもののsha256（#368）。圧縮の仕方が違っても同じ値です。保存したRunの最後の`end`の行で、分とdigestを持つ。ブラウザーで途中まで計算したBranch（#267）では、その分の途中の点の`saved`の行（0分なら`export`の行）。計算前は`null`。画面は先頭が変わったかどうかにだけ使う |
 | Runの`status` | `run.json`に持つ（Pythonは`status.json`に分ける） |
 | Projectの一覧の`storage` | `bytes`と`files`は置き場のファイルの合計、`limit_bytes`は呼ぶ側が渡す値（ページでは`navigator.storage.estimate()`の`quota`） |
 | Runの`last_fork` | 返さない（分岐は#267） |
@@ -82,9 +82,9 @@ Pythonの欄のうち、ブラウザーで意味が変わるもの：
 
 誤りは`ProjectStoreError`で、`message`はPythonの`StorageError`と同じ文（あれば）、`code`はその符号です。
 
-1つのファイル（`sheltersim-project-bundle`、版1、拡張子`.shelterproj`）は、Projectのフォルダーのファイルをそのまま並べたものです。先頭から、16 bytesの印（`0x89`、`SHELTERSIM-PRJ`、`0x0a`）、版（4 bytes、big-endian）、目録の長さ（4 bytes）、目録のsha256（32 bytes）、目録（JSON：`format`、`version`、`project_id`、作った道具の`source`、各entryの`path`・`length`・`sha256`）、各entryのbytesの順です。Branchの保存したRunは、目録のpieceの種類を読まずにファイルごと運ぶので、#251が足す途中の世界もそのまま入ります。
+1つのファイル（`sheltersim-project-bundle`、版2、拡張子`.shelterproj`）は、Projectのフォルダーのファイルをそのまま並べたものです。中のBranchの保存したRunを形v5（#368）にしたので、版を2に上げました。版1のファイルは古い形のRunを持つので読まず、「版1は読めない」という誤りにします（計算し直します）。先頭から、16 bytesの印（`0x89`、`SHELTERSIM-PRJ`、`0x0a`）、版（4 bytes、big-endian）、目録の長さ（4 bytes）、目録のsha256（32 bytes）、目録（JSON：`format`、`version`、`project_id`、作った道具の`source`、各entryの`path`・`length`・`sha256`）、各entryのbytesの順です。Branchの保存したRunは、目録のpieceの種類を読まずにファイルごと運ぶので、#251が足す途中の世界もそのまま入ります。
 
-読み込み（`importProject`）は、印、版、目録とentryのsha256、記録どうしの関係（Scenarioのhash、RunのScenario、Branchの親）を確かめます。続けて、各Branchの保存したRunを、メモリーの中に置いたentryから読み戻し、digest（`readAndVerify`）と記録の先頭を確かめます。すべて合ってから書きます。どれかが合わなければ誤りにし、何も書きません。`project.json`は最後に書くので、途中で止まったProjectは一覧に出ません。同じIDのProjectがあれば断ります。`replace`では、ファイルを確かめ終えてから古いものを消して書きます。そのため、確かめで断られたときは古いProjectがそのまま残ります（#273）。消した後に書き込みそのものが失敗したとき（容量が足りないなど）は、古いProjectは戻らず、新しいものも残りません。違う版のファイルは「版Nは読めない」という誤りにします。
+読み込み（`importProject`）は、印、版、目録とentryのsha256、記録どうしの関係（Scenarioのhash、RunのScenario、Branchの親）を確かめます。続けて、各Branchの保存したRunを、メモリーの中に置いたentryから読み戻し、digest（`readAndVerify`。分岐の子は、親のentryの部分も読みます）と記録の先頭を確かめます。すべて合ってから書きます。どれかが合わなければ誤りにし、何も書きません。`project.json`は最後に書くので、途中で止まったProjectは一覧に出ません。同じIDのProjectがあれば断ります。`replace`では、ファイルを確かめ終えてから古いものを消して書きます。そのため、確かめで断られたときは古いProjectがそのまま残ります（#273）。消した後に書き込みそのものが失敗したとき（容量が足りないなど）は、古いProjectは戻らず、新しいものも残りません。違う版のファイルは「版Nは読めない」という誤りにします。
 
 | 関数 | 使う所 |
 |---|---|
@@ -97,11 +97,11 @@ Pythonの欄のうち、ブラウザーで意味が変わるもの：
 
 ### ブラウザーで計算するBranchの先頭（#267）
 
-ブラウザーで計算する（`POST runs/{run}/resume`、`native/wasm/js/compute.mjs`）Branchの記録は、保存したRunの目録の「先頭にできる行」を指します。先頭にできるのは、`export`の行（0分）、その前にログと標本の塊がすべて保存された`saved`の行、`end`の行です。目録の行を書いて書き込みを終えて（flush）から記録を書くので、記録が計算の確定点です。記録の先頭より後の行は、次の先頭まで届かなかった計算で、続けるときに切り落とします（目録を先に、続けて`data.pack`の、どの行も指さないbytesを切ります）。先頭にできる行と、切り落とす長さは中核が決めます（`run_store::Journal::heads`、`Journal::cut`、#368）。
+ブラウザーで計算する（`POST runs/{run}/resume`、`native/wasm/js/compute.mjs`）Branchの記録は、保存したRunの目録の「先頭にできる行」を指します。先頭にできるのは、`export`の行（0分）、`saved`の行（どれも、その前にログと標本の塊がすべて保存されています）、`end`の行です。目録の行を書いて書き込みを終えて（flush）から記録を書くので、記録が計算の確定点です。記録の先頭より後の行は、次の先頭まで届かなかった計算で、続けるときに切り落とします（目録を先に、続けて`data.pack`の、どの行も指さないbytesを切ります）。先頭にできる行と、切り落とす長さは中核が決めます（`run_store::Journal::heads`、`Journal::cut`、#368）。そのBranchから分岐した子が、先頭より後の行まで親の部分を読む場合は、切り落とさずに断ります（子は親の部分を写さずに参照するので、#368の決定6）。
 
-途中の点を先頭にできるよう、ブラウザーの計算は、点を保存する前にログと標本の塊を閉じます（中核の`RunWriter::save`の`seal`、`Blocks::seal`）。閉じた後の記録は新しい塊に入るので、点の前に保存した塊だけで点に戻せ、戻したRunはそのまま後ろへ塊を足していけます（#251の`Restore`は、戻したRunの塊をすべて閉じたものとして持ちます）。塊の区切りが変わるだけで、記録、標本、digestは変わりません。保存したRunの形（`sheltersim-browser-run-v3`）も同じで、`runAndStore`は今までどおり閉じずに保存します。続けるときは、先頭の点に戻したRunの表と塊の数が、目録のその点までの表と塊の行と合うことを確かめ（`RunWriter::after`と`fits`）、合わなければ続けずに`failed`にします。
+途中の点を先頭にできるよう、点を保存する前に、いつもログと標本の塊を閉じます（中核の`RunWriter::save`、`Blocks::seal`。形v5からは`runAndStore`も同じで、目録の`saved`の行の塊の数は、その行の前に保存した塊の数と等しくなります。#368の決定2）。閉じた後の記録は新しい塊に入るので、点の前に保存した塊だけで点に戻せ、戻したRunはそのまま後ろへ塊を足していけます（#251の`Restore`は、戻したRunの塊をすべて閉じたものとして持ちます）。塊の区切りが変わるだけで、記録、標本、digestは変わりません。続けるときは、先頭の点に戻したRunの表と塊の数が、目録のその点までの表と塊の行と合うことを確かめ（`RunWriter::after`と`fits`）、合わなければ続けずに`failed`にします。
 
-ブラウザーでの`resume`・`cancel`の答えは、Pythonのserverと同じstatus、JSON、誤りの文と符号です。違う所：`target_minute`の`60.0`のようなJSONの小数は、JSでは整数と区別できないので受け付けます（Pythonは断ります）。PythonのRunのモデル版の確かめ（古いモデル版のRunは閲覧のみ）はありません（ブラウザーのRunはこのWASMのモデルで作ります）。`measure_performance`は真偽値か確かめるだけで、計測は記録しません。`400`の誤り（JSONでない本文）は`"code": null`を持ちます（#266の`POST /api/v1/projects`と同じ。Pythonは`code`を持ちません）。
+ブラウザーでの`resume`・`cancel`の答えは、Pythonのserverと同じstatus、JSON、誤りの文と符号です。違う所：`target_minute`の`60.0`のようなJSONの小数は、JSでは整数と区別できないので受け付けます（Pythonは断ります）。別のモデル版で計算したRunは、Pythonと同じく閲覧のみです（#368の決定8）。保存したRunの`run`の行の`model_versions`を、中核が今そのScenarioについて記録する版（`modelVersions`）と比べ（規則と文はPythonの`model_version.py`と同じ中核の`model_version`）、違えば`resume`、`intervention-preview`、`intervention-apply`を409の`run_model_view_only`で断ります。frameなどの閲覧はできます。違う所：中核が署名できないScenario（中核の表にないもの。試験の世界だけ）では、Pythonのように閲覧のみにせず、エンジンの版（`engine:model`・`engine:rng_algorithm`）だけを比べます。保存の間の分は、Pythonのように直前の保存の時点に丸めず、今のモデルで計算し直して表示します。`measure_performance`は真偽値か確かめるだけで、計測は記録しません。`400`の誤り（JSONでない本文）は`"code": null`を持ちます（#266の`POST /api/v1/projects`と同じ。Pythonは`code`を持ちません）。
 
 ## ブラウザーの時系列・レポート・LLMの状態（#266）
 
@@ -126,7 +126,7 @@ Pythonの欄のうち、ブラウザーで意味が変わるもの：
 | 時系列の`indexed_through_minute` | Branchの`computed_until`（保存したRunは先頭まで標本を持つので、索引の遅れはありません） |
 | 時系列の`first_indexed_checkpoint_minute` | Branchの`fork_minute`（保存したRunの始まり） |
 | `kind`が`kpis`以外の時系列 | 409、`browser_unsupported`（範囲などのserverの確かめの後） |
-| `v1`・`v2`の形で保存したBranchの時系列 | 409、`browser_run_outdated`（標本が資源の台帳の列を持たないため。計算し直します） |
+| 古い形（v1〜v4）で保存したBranch | どの道でも409、`stored_run_outdated`（「このシナリオの計算結果は古い保存の形（…）で保存されています。…計算し直してください。」。#368の決定7） |
 | 保存したRunのないBranch | `anchor_hash`と`indexed_through_minute`と`first_indexed_checkpoint_minute`が`null`、行なし |
 | レポート | serverは計算が終わったときに書きます。ブラウザーは、終わったBranchで最初に聞かれたときに、保存したRunの最後の分から作り（最後の点に戻すので、100人・7日のNodeで約4秒）、Branchのフォルダーに`report.json`として残します。終わっていなければ`{"status":"not_generated"}` |
 | LLMの状態の`checkpoint_hash` | Branchの先頭。`mode`は`offline`、記録はありません |
@@ -143,7 +143,7 @@ Pythonの欄のうち、ブラウザーで意味が変わるもの：
 
 - プレビューは、Branchのその分の世界から要約（`Simulation.scenarioSummary`、#302）を作り、文をAPIキーなしで読み取ります（`compileInterventionOffline`、#303）。案が`compiled`なら、そのEffectProgram（`effectProgramDump`、#304）を世界で確かめ（`validateEffectProgram`）、承認のhash（programの正規のJSONのsha256）と下書きの`preview_id`を足します。下書きはProjectのフォルダーの`drafts/<preview_id>.json`に置き、Projectの1つのファイル（bundle）には入れません。下書きに伏せるべき文（連絡先、鍵）があれば、serverと同じく409で断ります。
 - 適用は、下書きと承認のhashを確かめ、serverのprocessのworkerと同じ`{"status": "running", "branch_id", "minute"}`を返します。子の分岐は答えの前に作ります。親をその分に戻し、プレビューが見た状態（`state_hash`）と同じことを確かめ、programを予定に入れ（`Simulation.applyEffectProgram`、#305）、子の保存したRunを書きます。結果は、serverと同じくRunの記録（`GET runs/{run}`）の`last_fork`（`{"status": "created", "branch_id", "minute", "state_hash"}`か`{"status": "failed", "error", "code"}`）で返します。子の記録は`paused`、`fork_minute`と`computed_until`は分岐の分です。続きは`resume`で計算します。
-- 子の保存したRunは、形`sheltersim-browser-run-v4`です。`run`の行に`fork_minute`と`parent_branch_id`を持ち、その次の`fork`の行に分岐の元（`fork_origin`：親、分、分岐前の世界のdigest、親の先頭）、予定に入れたprogramの正規のJSON、承認のhash、受領（Pythonの`command_log`に足す記録）を持ちます。部分は、親の0分の世界（親の部分を圧縮したまま写します）、分岐の分までのログと標本の表と塊、programを予定に入れた後の分岐の分の途中の点です。親の記録を写すので、子は親の分岐までの大きさを持ちます（親の部分を参照して小さくするのは後の課題です）。分岐の分より前の分は、このRunの分ではありません（中核の`Journal::seek`が断ります）。
+- 子の保存したRunは、形`sheltersim-run-v5`です（#368）。`run`の行に`fork_minute`と`parent_branch_id`を持ち、その次の`fork`の行に分岐の元（`fork_origin`：親、分、分岐前の世界のdigest、親の先頭）、予定に入れたprogramの正規のJSON、承認のhash、受領（Pythonの`command_log`に足す記録）と、親の保存したRunのどこまでを読むか（`base`：親の目録の行の番号、その行の先頭のhash、分、親がその行までに保存した表・塊・判断の記録の数）を持ちます。子は親の部分を写さず、`base`の行（分岐の世界を戻した親の途中の点。0分からなら`export`の行）まで親の部分を読みます（中核の`run_store::Chain`、#368の決定6）。子が持つのは、そこから分岐の分までのログ・標本・判断の記録と、programを予定に入れた後の分岐の分の途中の点、その後の計算です。読むときは親の目録も読み、`base`の行が同じ先頭のhashで残っていることを確かめます。親を消すのはRunごとなので（`POST runs/{run}/delete`）、子だけが残ることはありません。分岐の分より前の分は、このRunの分ではありません（中核の`Chain::seek`が断ります）。
 
 serverと違うのは次のところです。
 
@@ -160,7 +160,7 @@ serverと違うのは次のところです。
 
 `GET runs/{run}/compare?branch_ids=&minute=`と2つの分岐の`GET runs/{run}/replay-frames`は、serverと同じ比較を返します（`native/wasm/js/comparison.mjs`）。各分岐のその分のframe、共通の計算済みの範囲、各分岐の分岐の受領（`fork_origin`。子の保存したRunの`fork`の行から読みます。分岐で作っていない分岐は`null`）、同じ元を持つか、最初の分岐からの指標の差です。差は中核が求めます（`kpiDifferences`）。整数どうしの差は整数、小数を含む差は小数で、Pythonと同じ書き方になります。受領の`checkpoint_hash`は、子を作ったときの親の先頭（目録の行のsha256）で、serverのCheckpointのhashではありません。
 
-`POST …/branches/{branch}/questions`は、APIキーのないVMと同じ答えを返します（`native/wasm/js/questions.mjs`）。serverと同じ順に、要求の欄、質問の長さ、分、人、比べる分岐（計算が終わった分岐か、その分のframeにその人がいるか、比較の確かめ）を確かめ、「Claude APIが利用できないため、結果に関する質問へ回答できません。…」と、質問の文脈（`context`）とそのid（`context_id`）を返します。idは、文脈の正規のJSONのsha256の先頭32桁と24桁の乱数で、要求が同じ文脈のidを渡したときはそれを使います。会話はBranchのフォルダーの`conversations.jsonl`に1行ずつ残し、質問はserverと同じく連絡先と人などの名前を伏せた文にします（中核の`questionText`）。`history_query`（保存した履歴を根拠にする質問）は#376でなくし、serverもブラウザーも知らない欄として断ります。
+`POST …/branches/{branch}/questions`は、APIキーのないVMと同じ答えを返します（`native/wasm/js/questions.mjs`）。serverと同じ順に、要求の欄、質問の長さ、分、人、比べる分岐（計算が終わった分岐か、その分のframeにその人がいるか、比較の確かめ）を確かめ、「Claude APIが利用できないため、結果に関する質問へ回答できません。…」と、質問の文脈（`context`）とそのid（`context_id`）を返します。idは、文脈の正規のJSONのsha256の先頭32桁と24桁の乱数で、要求が同じ文脈のidを渡したときはそれを使います。会話はBranchの保存したRunに、`end`の行の後の`conversations`の部分として1つずつ残し（#368。Branchの先頭は変わりません）、質問はserverと同じく連絡先と人などの名前を伏せた文にします（中核の`questionText`）。`history_query`（保存した履歴を根拠にする質問）は#376でなくし、serverもブラウザーも知らない欄として断ります。
 
 `native/wasm/tests/node_interventions.mjs`が、同じRunで、比較と2つの分岐の再生（受領の`checkpoint_hash`は伏せます）と、質問の答え（`context_id`の乱数の部分は伏せます）と残した質問が、serverと同じになることを確かめます。
 

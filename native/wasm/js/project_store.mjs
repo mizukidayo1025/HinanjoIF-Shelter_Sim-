@@ -493,24 +493,17 @@ export async function branchBackend(tree, projectId, runId, branchId) {
   return tree.folder(branchPath(projectId, runId, branchId));
 }
 
-/// The head of a stored Run's journal text: the last "end" line before the journal ends or a line
-/// does not match its sha256, as `{minute, checkpointHash, duration}` (the line's sha256, and the
-/// minute the clock is complete at, of the "run" line), or null.
+/// The head of a stored Run's journal text: its "end" line (the core's `Journal::heads`), as
+/// `{minute, checkpointHash, duration}` (the line's sha256, and the minute the clock is complete
+/// at, of the "run" line), or null for a Run not stored to its end.
 export function journalHead(wasm, text) {
-  let head = null;
-  let duration = null;
-  for (const line of text.split("\n")) {
-    if (line === "") continue;
-    const tab = line.lastIndexOf("\t");
-    if (tab < 0) break;
-    const json = line.slice(0, tab);
-    const sha = line.slice(tab + 1);
-    if (wasm.sha256Hex(encoder.encode(json)) !== sha) break;
-    const entry = JSON.parse(json);
-    if (entry.kind === "run") duration = entry.duration_minutes;
-    if (entry.kind === "end") head = { minute: entry.minute, checkpointHash: sha, duration };
+  const journal = new wasm.Journal(encoder.encode(text));
+  try {
+    const end = JSON.parse(journal.headsJson()).findLast((head) => head.kind === "end");
+    return end ? { minute: end.minute, checkpointHash: end.sha, duration: journal.duration() } : null;
+  } finally {
+    journal.free();
   }
-  return head;
 }
 
 async function headOf(wasm, backend) {

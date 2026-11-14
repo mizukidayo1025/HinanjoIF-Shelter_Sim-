@@ -29,7 +29,7 @@
 import { ApiError } from "./api_answers.mjs";
 import { checkFields } from "./compute.mjs";
 import * as store from "./project_store.mjs";
-import { FORMAT, RunReader, RunWriter, SAVE_EVERY } from "./run_store.mjs";
+import { RunReader, RunWriter } from "./run_store.mjs";
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -184,60 +184,32 @@ async function fork(api, projectId, runId, parent, minute, childId, preview) {
   api.freeLive();
   const parentBackend = await store.branchBackend(tree, projectId, runId, parent.branch_id);
   const reader = await RunReader.open({ wasm, backend: parentBackend });
-  let simulation;
-  let runLine;
-  let exportLine;
-  let compressed;
   try {
-    runLine = reader.run;
-    exportLine = reader.lines.find((line) => line.kind === "export");
-    if (!exportLine) throw new Error("the parent's stored Run has no exported world");
-    await reader.raw(exportLine);
-    compressed = reader.data.read(exportLine.offset, exportLine.length);
-    simulation = (await reader.seek(minute)).simulation;
+    const exportIndex = reader.journal.find("export");
+    if (exportIndex === undefined) throw new Error("the parent's stored Run has no exported world");
+    const compressed = await reader.compressed(exportIndex);
+    const simulation = (await reader.seek(minute)).simulation;
+    try {
+      const origin = simulation.stateDigest();
+      if (origin !== preview.state_hash) throw refused("source state changed; preview the intervention again");
+      const receipt = simulation.applyEffectProgram(encoder.encode(preview.programText));
+      const backend = await store.branchBackend(tree, projectId, runId, childId);
+      const writer = await RunWriter.create(wasm, backend);
+      let head;
+      try {
+        writer.core.forkStart(reader.journal, minute, parent.branch_id, origin, parent.checkpoint_hash, preview.programText, preview.hash, receipt);
+        await writer.flush(compressed);
+        head = await writer.save(simulation, { seal: true });
+      } finally {
+        writer.close();
+      }
+      await store.writeBranch(tree, projectId, runId, { branch_id: childId, parent_branch_id: parent.branch_id, fork_minute: minute, computed_until: minute, checkpoint_hash: head, status: "paused" });
+      return { branch_id: childId, minute, state_hash: simulation.stateDigest() };
+    } finally {
+      simulation.free();
+    }
   } finally {
     reader.close();
-  }
-  try {
-    const origin = simulation.stateDigest();
-    if (origin !== preview.state_hash) throw refused("source state changed; preview the intervention again");
-    const receipt = simulation.applyEffectProgram(encoder.encode(preview.programText));
-    const backend = await store.branchBackend(tree, projectId, runId, childId);
-    const writer = await RunWriter.create(wasm, backend);
-    let head;
-    try {
-      writer.line({
-        kind: "run",
-        format: FORMAT,
-        export_sha256: runLine.export_sha256,
-        export_bytes: runLine.export_bytes,
-        world: runLine.world ?? null,
-        duration_minutes: runLine.duration_minutes,
-        save_every: runLine.save_every || SAVE_EVERY,
-        fork_minute: minute,
-        parent_branch_id: parent.branch_id,
-      });
-      writer.line({
-        kind: "fork",
-        parent_branch_id: parent.branch_id,
-        minute,
-        fork_origin: { branch_id: parent.branch_id, minute, state_hash: origin, checkpoint_hash: parent.checkpoint_hash },
-        program: preview.programText,
-        approved_program_hash: preview.hash,
-        receipt,
-      });
-      const offset = writer.data.size();
-      writer.data.write(compressed, offset);
-      writer.data.flush();
-      writer.line({ kind: "export", offset, length: compressed.length, raw_length: exportLine.raw_length, sha256: exportLine.sha256 });
-      head = await writer.save(simulation, { seal: true });
-    } finally {
-      writer.close();
-    }
-    await store.writeBranch(tree, projectId, runId, { branch_id: childId, parent_branch_id: parent.branch_id, fork_minute: minute, computed_until: minute, checkpoint_hash: head, status: "paused" });
-    return { branch_id: childId, minute, state_hash: simulation.stateDigest() };
-  } finally {
-    simulation.free();
   }
 }
 

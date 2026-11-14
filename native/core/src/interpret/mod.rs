@@ -907,6 +907,19 @@ pub fn redacts(value: &str) -> Result<bool> {
     Ok(secret || text::found(PHONE_NUMBER.get()?, value)?)
 }
 
+/// `_PRIVATE` (src/sheltersim/storage/projects.py): a key that names private data.
+static PRIVATE: text::Pattern = text::Pattern::new(r"api.?key|secret|password|credential|authorization|raw.?prompt|full.?name|email|phone|address", true);
+
+/// `_private_field` (src/sheltersim/storage/projects.py): whether `_PRIVATE` finds a key that
+/// names private data in `key`, ignoring case as `re.IGNORECASE` does (`ı` and `İ` match `i`
+/// there, which the regex crate's case folding does not do).
+pub fn private_field(key: &str) -> Result<bool> {
+    if key.contains(['\u{130}', '\u{131}']) {
+        return text::found(PRIVATE.get()?, &key.replace(['\u{130}', '\u{131}'], "i"));
+    }
+    text::found(PRIVATE.get()?, key)
+}
+
 /// Whether `safe_document(document) != document` for a JSON document of strings, numbers and
 /// containers whose keys are not private: some string of it is redacted.
 pub fn document_redacts(document: &[u8]) -> Result<bool> {

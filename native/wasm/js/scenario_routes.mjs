@@ -39,7 +39,7 @@
 import { ApiError } from "./api_answers.mjs";
 import * as store from "./project_store.mjs";
 import { BrowserUnsupported, PyFloat, pyJson, pyStrip, research, researchRequest } from "./research.mjs";
-import { RunWriter, SAVE_EVERY } from "./run_store.mjs";
+import { COMPRESSION, RunWriter, SAVE_EVERY } from "./run_store.mjs";
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -480,7 +480,7 @@ export class ScenarioRoutes {
     try {
       const writer = await RunWriter.create(this.wasm, backend);
       try {
-        writer.core.start(simulation, entry, null, SAVE_EVERY);
+        writer.core.start(simulation, entry, null, SAVE_EVERY, JSON.stringify(modelVersions), COMPRESSION);
         head = await writer.flush();
       } finally {
         writer.close();

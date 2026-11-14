@@ -8,9 +8,9 @@
 // hours), and runs it again without storing, keeping the digests at each minute it seeks to. Then it
 // seeks the stored Run to each saved point, to minutes between them and before the first, and to
 // the end: the world has the uninterrupted Run's digests there. Seeking to a minute in the middle
-// and going on to the end gives the native path's digests. A Run of the earlier format (v1, without
-// saved points) seeks by computing from minute 0; a changed saved point, a minute out of the Run,
-// and a format this code does not know are errors.
+// and going on to the end gives the native path's digests. A changed saved point, a minute out of
+// the Run, and a format this code does not know are errors; a Run of an older format is the error
+// that says to compute it again (#368).
 
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -109,7 +109,7 @@ for (const [name, every] of [["small_replay", 360], ["generated", 60]]) {
   console.log(`${name}: ${failures === 0 ? "ok" : "FAILED"} (${saved.length} saved points, ${targets.size} minutes sought, saving ${ran.saveMs.toFixed(0)} ms)`);
 }
 
-// A Run of format v1 (#252: no saved points) reads back, and seeks by computing from minute 0.
+// A Run of an older format is not read: compute it again (#368). An unknown format is an error.
 {
   const backend = store.memoryBackend();
   await store.runAndStore({ wasm, exportBytes: raw, world: "small_replay", backend, ticks: 60, saveEvery: 0 });
@@ -120,18 +120,13 @@ for (const [name, every] of [["small_replay", 360], ["generated", 60]]) {
     const json = JSON.stringify(first);
     backend.files.set("journal.jsonl", encoder.encode([`${json}\t${wasm.sha256Hex(encoder.encode(json))}`, ...journal.slice(1)].join("\n")));
   };
-  rewrite("sheltersim-browser-run-v1");
-  const back = await store.readAndVerify({ wasm, backend });
-  check(back.verified && back.savedPoints === 0, `v1: read back ${back.mismatches}`);
-  const reader = await store.RunReader.open({ wasm, backend });
-  const sought = await reader.seek(700);
-  check(sought.from === 0 && sought.simulation.minute() === 700, `v1: sought from ${sought.from} to ${sought.simulation.minute()}`);
-  sought.simulation.free();
-  reader.close();
-  rewrite("sheltersim-browser-run-v9");
-  await assert.rejects(store.readAndVerify({ wasm, backend }), Error, "an unknown format");
-  await assert.rejects(store.RunReader.open({ wasm, backend }), Error, "an unknown format");
-  console.log(`format v1: ${failures === 0 ? "ok" : "FAILED"}`);
+  rewrite("sheltersim-browser-run-v4");
+  await assert.rejects(store.RunReader.open({ wasm, backend }), (error) => error.message.startsWith(`${store.OUTDATED_CODE}: `) && error.message.includes("計算し直してください"));
+  await assert.rejects(store.readAndVerify({ wasm, backend }), (error) => error.message.startsWith(`${store.OUTDATED_CODE}: `));
+  rewrite("sheltersim-run-v9");
+  await assert.rejects(store.readAndVerify({ wasm, backend }), /a stored Run of format sheltersim-run-v9/);
+  await assert.rejects(store.RunReader.open({ wasm, backend }), /a stored Run of format sheltersim-run-v9/);
+  console.log(`older formats: ${failures === 0 ? "ok" : "FAILED"}`);
 }
 
 // What is not a saved point is a JS error, and the module still works after it.

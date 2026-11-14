@@ -24,7 +24,7 @@ use sheltersim_core::plain::PlainRun;
 use sheltersim_core::program::EffectProgram;
 use sheltersim_core::value::V;
 use sheltersim_core::world::WorldCell;
-use sheltersim_core::{archive, checkpoint, frame, history, run_store};
+use sheltersim_core::{archive, checkpoint, frame, history, model_version, run_store};
 use wasm_bindgen::prelude::*;
 
 fn js_error(error: Error) -> JsError {
@@ -206,11 +206,18 @@ impl Simulation {
         let entry = PlainRun::entry_of_worlds_json(file, name).map_err(js_error)?;
         Ok(Simulation { run: PlainRun::restore(entry, restore.inner.take().map_err(js_error)?).map_err(js_error)? })
     }
+
+    /// Whether the Run collects its decisions' records (`PlainRun::collect_decisions`, #368): a
+    /// stored Run keeps them (`RunWriter.take`). The world is the same either way.
+    #[wasm_bindgen(js_name = collectDecisions)]
+    pub fn collect_decisions(&mut self, on: bool) {
+        self.run.collect_decisions(on);
+    }
 }
 
 /// A saved point being restored (`archive::Restore`): made of the saved point's bytes, then given
-/// the stored log's and samples' pieces its journal names (`Journal.nextRestoreRead`,
-/// `readEntry`), then used by `Simulation.restore`.
+/// the stored log's and samples' pieces its chain names (`Chain.nextRestoreRead`, `readEntry`),
+/// then used by `Simulation.restore`.
 #[wasm_bindgen]
 pub struct Restore {
     inner: archive::RestoreOnce,
@@ -224,21 +231,21 @@ impl Restore {
         Ok(Restore { inner: archive::RestoreOnce::new(point).map_err(js_error)? })
     }
 
-    /// Reads the piece `index` of `journal`, decompressed (`raw`), checked against its line
-    /// (`run_store::Journal::restore_read`).
+    /// Reads the piece at `position` of `chain`, decompressed (`raw`), checked against its line
+    /// (`run_store::Chain::restore_read`).
     #[wasm_bindgen(js_name = readEntry)]
-    pub fn read_entry(&mut self, journal: &Journal, index: u32, raw: &[u8]) -> Result<(), JsError> {
+    pub fn read_entry(&mut self, chain: &Chain, position: u32, raw: &[u8]) -> Result<(), JsError> {
         let restore = self.inner.get_mut().map_err(js_error)?;
-        journal.inner.restore_read(index as usize, raw, restore).map_err(js_error)
+        chain.inner.restore_read(position as usize, raw, restore).map_err(js_error)
     }
 }
 
-// ---- The stored Run (#368: `sheltersim_core::run_store`) ------------------------------------------
+// ---- The stored Run (#368: `sheltersim_core::run_store`, format v5) ------------------------------
 //
 // The format of a Run the page stores (`journal.jsonl` and `data.pack`) is the core's: the page's
 // `js/run_store.mjs` opens the files, compresses and decompresses the pieces (deflate-raw), and
-// passes the bytes through these. A line's index in the journal crosses as a u32, and a count of
-// bytes or a minute as an f64 (a JS number).
+// passes the bytes through these. A line's index in a journal, and a piece's position in a chain,
+// cross as a u32; a count of bytes or a minute as an f64 (a JS number).
 
 /// A count of bytes given as a JS number: a whole number, not negative.
 fn count_of(count: f64) -> Result<u64, JsError> {
@@ -248,8 +255,90 @@ fn count_of(count: f64) -> Result<u64, JsError> {
     Ok(count as u64)
 }
 
+/// A JSON object of strings, as model versions are (`model_version::Versions`).
+fn versions_of(json: &str) -> Result<model_version::Versions, JsError> {
+    model_version::versions_of_json(json.as_bytes()).map_err(js_error)
+}
+
+fn versions_json(versions: &model_version::Versions) -> String {
+    let mut encoder = Encoder::with_capacity(256);
+    encoder.out.push(b'{');
+    for (index, (key, value)) in versions.iter().enumerate() {
+        if index > 0 {
+            encoder.out.push(b',');
+        }
+        encoder.string(key);
+        encoder.out.push(b':');
+        encoder.string(value);
+    }
+    encoder.out.push(b'}');
+    String::from_utf8_lossy(&encoder.out).into_owned()
+}
+
+/// The whole-model items this code records (`model_version::engine_signatures`), as JSON.
+#[wasm_bindgen(js_name = engineSignatures)]
+pub fn engine_signatures() -> String {
+    versions_json(&model_version::engine_signatures())
+}
+
+/// How the model versions a Run was computed with (`recorded`, JSON) compare with the installed
+/// ones (`installed`, JSON, or undefined for configs the core cannot sign:
+/// `ModelStatus::unreadable`), as JSON: `current`, `view_only`, `recorded_version`,
+/// `installed_version`, `differences`, `message` (Python's text, or null) and `error` (the
+/// refusal's text, `run_model_view_only: …`, or null).
+#[wasm_bindgen(js_name = modelStatus)]
+pub fn model_status(recorded: &str, installed: Option<String>) -> Result<String, JsError> {
+    let recorded = versions_of(recorded)?;
+    let status = match installed {
+        Some(installed) => model_version::ModelStatus::of(&recorded, &versions_of(&installed)?),
+        None => model_version::ModelStatus::unreadable(&recorded),
+    };
+    let mut encoder = Encoder::with_capacity(512);
+    encoder.out.extend_from_slice(b"{\"current\":");
+    encoder.bool(status.current());
+    encoder.out.extend_from_slice(b",\"view_only\":");
+    encoder.bool(!status.current());
+    encoder.out.extend_from_slice(b",\"recorded_version\":");
+    encoder.string(&status.recorded_version);
+    encoder.out.extend_from_slice(b",\"installed_version\":");
+    encoder.string(&status.installed_version);
+    encoder.out.extend_from_slice(b",\"differences\":[");
+    for (index, difference) in status.differences.iter().enumerate() {
+        if index > 0 {
+            encoder.out.push(b',');
+        }
+        encoder.string(difference);
+    }
+    encoder.out.extend_from_slice(b"],\"message\":");
+    if status.current() {
+        encoder.null();
+        encoder.out.extend_from_slice(b",\"error\":");
+        encoder.null();
+    } else {
+        encoder.string(&status.message());
+        encoder.out.extend_from_slice(b",\"error\":");
+        encoder.string(&status.error_text());
+    }
+    encoder.out.push(b'}');
+    Ok(String::from_utf8_lossy(&encoder.out).into_owned())
+}
+
+/// The fields an answer of a Run of other model versions adds (`ModelStatus::describe_json`, D2),
+/// as JSON: `model_view` (the status of `recorded` against `installed`, as `modelStatus` takes
+/// them) and, where `saved_minute` (the saved point shown) is not `requested_minute`,
+/// `saved_point_rounding`.
+#[wasm_bindgen(js_name = viewFields)]
+pub fn view_fields(recorded: &str, installed: Option<String>, saved_minute: f64, requested_minute: f64) -> Result<String, JsError> {
+    let recorded = versions_of(recorded)?;
+    let status = match installed {
+        Some(installed) => model_version::ModelStatus::of(&recorded, &versions_of(&installed)?),
+        None => model_version::ModelStatus::unreadable(&recorded),
+    };
+    String::from_utf8(status.describe_json(minute_of(saved_minute)?, minute_of(requested_minute)?)).map_err(|error| JsError::new(&error.to_string()))
+}
+
 /// A stored Run's journal read back (`run_store::Journal::parse`): its lines up to the first that
-/// is cut short or does not match its sha256, and what a reader decides of them.
+/// is cut short or does not match its sha256, and what a reader decides of them alone.
 #[wasm_bindgen]
 pub struct Journal {
     inner: run_store::Journal,
@@ -257,8 +346,8 @@ pub struct Journal {
 
 #[wasm_bindgen]
 impl Journal {
-    /// The journal's bytes; an error for a line that matches its sha256 but is not one of a
-    /// stored Run of a format this core reads.
+    /// The journal's bytes; an error for a line that matches its sha256 but is not one of this
+    /// format (one of an older format: `stored_run_outdated: …`).
     #[wasm_bindgen(constructor)]
     pub fn new(bytes: &[u8]) -> Result<Journal, JsError> {
         Ok(Journal { inner: run_store::Journal::parse(bytes).map_err(js_error)? })
@@ -296,13 +385,6 @@ impl Journal {
         self.inner.run().map(|_| ()).map_err(js_error)
     }
 
-    /// Whether its format is one whose samples hold the ledger's columns (v3 on): the KPI history
-    /// answers it, and a computation goes on in it.
-    #[wasm_bindgen(js_name = isCurrent)]
-    pub fn is_current(&self) -> Result<bool, JsError> {
-        Ok(self.inner.run().map_err(js_error)?.format.is_current())
-    }
-
     /// The minute the Run starts at: the fork's of a branch made by a fork, else 0.
     #[wasm_bindgen(js_name = forkMinute)]
     pub fn fork_minute(&self) -> Result<f64, JsError> {
@@ -314,14 +396,28 @@ impl Journal {
         Ok(self.inner.duration().map_err(js_error)? as f64)
     }
 
-    /// Minutes between saved points (the default where the "run" line has none).
+    /// Minutes between saved points (0: at the end only).
     #[wasm_bindgen(js_name = saveEvery)]
     pub fn save_every(&self) -> Result<f64, JsError> {
-        Ok(self.inner.run().map_err(js_error)?.save_every_or_default() as f64)
+        Ok(self.inner.run().map_err(js_error)?.save_every as f64)
+    }
+
+    /// The model versions the Run is computed with, as JSON.
+    #[wasm_bindgen(js_name = modelVersionsJson)]
+    pub fn model_versions_json(&self) -> Result<String, JsError> {
+        Ok(versions_json(&self.inner.run().map_err(js_error)?.model_versions))
+    }
+
+    /// The line of the parent's journal a fork's Run reads the parent's pieces up to (its "fork"
+    /// line's base), or undefined for a Run from minute 0.
+    #[wasm_bindgen(js_name = forkBase)]
+    pub fn fork_base(&self) -> Option<u32> {
+        self.inner.fork().map(|fork| fork.base.line as u32)
     }
 
     /// The lines a branch's head may be (`run_store::Journal::heads`), as a JSON list of
-    /// `{kind, minute, index, sha}`.
+    /// `{kind, minute, index, head}`: `head` is the line's head hash, a branch record's
+    /// `checkpoint_hash`.
     #[wasm_bindgen(js_name = headsJson)]
     pub fn heads_json(&self) -> String {
         let mut encoder = Encoder::with_capacity(256);
@@ -336,25 +432,40 @@ impl Journal {
             encoder.int(head.minute);
             encoder.out.extend_from_slice(b",\"index\":");
             encoder.int(head.index as i64);
-            encoder.out.extend_from_slice(b",\"sha\":");
-            encoder.string(&self.inner.entries()[head.index].sha256);
+            encoder.out.extend_from_slice(b",\"head\":");
+            encoder.string(&self.inner.entries()[head.index].head);
             encoder.out.push(b'}');
         }
         encoder.out.push(b']');
         String::from_utf8_lossy(&encoder.out).into_owned()
     }
 
-    /// The stored Run cut back to the head `sha` (`run_store::Journal::cut`): `[the head's line
-    /// index, the journal's bytes to keep, data.pack's bytes to keep]`.
-    pub fn cut(&self, sha: &str) -> Result<Vec<f64>, JsError> {
-        let cut = self.inner.cut(sha).map_err(js_error)?;
+    /// The stored Run cut back to the head `head` (`run_store::Journal::cut`), refused where a fork
+    /// of the branch reads its lines up to `kept_through`, past the head: `[the head's line index,
+    /// the journal's bytes to keep, data.pack's bytes to keep]`.
+    pub fn cut(&self, head: &str, kept_through: Option<u32>) -> Result<Vec<f64>, JsError> {
+        let cut = self.inner.cut(head, kept_through.map(|line| line as usize)).map_err(js_error)?;
         Ok(vec![cut.head.index as f64, cut.journal_end as f64, cut.data_end as f64])
     }
 
     /// The writer that goes on after the line `head` (`run_store::RunWriter::after`).
     #[wasm_bindgen(js_name = writerAfter)]
     pub fn writer_after(&self, head: u32) -> Result<RunWriter, JsError> {
-        Ok(RunWriter { inner: run_store::RunWriter::after(&self.inner, head as usize).map_err(js_error)?, last_sha256: None })
+        Ok(RunWriter { inner: run_store::RunWriter::after(&self.inner, head as usize).map_err(js_error)?, last_head: None })
+    }
+
+    /// The writer that appends conversation turns to a Run stored to its end
+    /// (`run_store::RunWriter::after_end`).
+    #[wasm_bindgen(js_name = writerAfterEnd)]
+    pub fn writer_after_end(&self) -> Result<RunWriter, JsError> {
+        Ok(RunWriter { inner: run_store::RunWriter::after_end(&self.inner).map_err(js_error)?, last_head: None })
+    }
+
+    /// The minute of the saved point at or before `minute` (`run_store::Journal::saved_minute_at`):
+    /// what a Run of other model versions shows for `minute`.
+    #[wasm_bindgen(js_name = savedMinuteAt)]
+    pub fn saved_minute_at(&self, minute: f64) -> Result<f64, JsError> {
+        Ok(self.inner.saved_minute_at(minute_of(minute)?).map_err(js_error)? as f64)
     }
 
     /// The "saved" lines a seek can restore, by their indexes.
@@ -363,38 +474,10 @@ impl Journal {
         self.inner.saved_points().into_iter().map(|index| index as u32).collect()
     }
 
-    /// Where a seek to `minute` starts (`run_store::Journal::seek`): `[the "saved" line's index or
-    /// -1 for the exported world, the "export" line's index, the minute it is computed from]`. An
-    /// error for a minute that is not one of the Run.
-    pub fn seek(&self, minute: f64) -> Result<Vec<f64>, JsError> {
-        let seek = self.inner.seek(minute_of(minute)?).map_err(js_error)?;
-        Ok(vec![seek.from.map_or(-1.0, |index| index as f64), seek.export as f64, seek.from_minute as f64])
-    }
-
-    /// The next piece from the line `start` on that `restore` needs, or undefined once it needs
-    /// none.
-    #[wasm_bindgen(js_name = nextRestoreRead)]
-    pub fn next_restore_read(&self, start: u32, restore: &Restore) -> Result<Option<u32>, JsError> {
-        let restore = restore.inner.get().map_err(js_error)?;
-        Ok(self.inner.next_restore_read(start as usize, restore).map(|index| index as u32))
-    }
-
-    /// The samples' pieces, by their indexes: what the KPI history reads.
-    #[wasm_bindgen(js_name = samplePieces)]
-    pub fn sample_pieces(&self) -> Vec<u32> {
-        self.inner.sample_pieces().into_iter().map(|index| index as u32).collect()
-    }
-
     /// Where the piece `index` is: `[offset, length]` of its compressed bytes in data.pack.
     pub fn place(&self, index: u32) -> Result<Vec<f64>, JsError> {
         let stored = &self.inner.piece(index as usize).map_err(js_error)?.stored;
         Ok(vec![stored.offset as f64, stored.length as f64])
-    }
-
-    /// An error where `length` bytes were read for the piece `index`.
-    #[wasm_bindgen(js_name = checkStored)]
-    pub fn check_stored(&self, index: u32, length: f64) -> Result<(), JsError> {
-        self.inner.check_stored(index as usize, count_of(length)?).map_err(js_error)
     }
 
     /// An error where `raw`, the piece `index` decompressed, is not the bytes written.
@@ -402,6 +485,119 @@ impl Journal {
     pub fn check_raw(&self, index: u32, raw: &[u8]) -> Result<(), JsError> {
         self.inner.check_raw(index as usize, raw).map_err(js_error)
     }
+}
+
+/// A stored Run with the stored Runs of its parents it reads pieces of (`run_store::Chain`): made
+/// of the branch's journal, then given each journal `parentNeeded` names (`addParent`). A piece is
+/// named by its position in the chain; `place` says which level's data.pack holds it (0: the Run
+/// from minute 0, the branch's the last).
+#[wasm_bindgen]
+pub struct Chain {
+    inner: run_store::Chain,
+}
+
+#[wasm_bindgen]
+impl Chain {
+    /// The chain of the branch's journal (a copy of it).
+    #[wasm_bindgen(constructor)]
+    pub fn new(journal: &Journal) -> Result<Chain, JsError> {
+        Ok(Chain { inner: run_store::Chain::new(journal.inner.clone()).map_err(js_error)? })
+    }
+
+    /// The branch whose journal the chain needs next, or undefined once it is complete.
+    #[wasm_bindgen(js_name = parentNeeded)]
+    pub fn parent_needed(&self) -> Option<String> {
+        self.inner.parent_needed().map(str::to_owned)
+    }
+
+    /// Adds the journal of the branch `parentNeeded` names (a copy of it): an error where it does
+    /// not hold the fork's base as it was.
+    #[wasm_bindgen(js_name = addParent)]
+    pub fn add_parent(&mut self, journal: &Journal) -> Result<(), JsError> {
+        self.inner.add_parent(journal.inner.clone()).map_err(js_error)
+    }
+
+    /// How many journals the chain holds.
+    pub fn levels(&self) -> u32 {
+        self.inner.levels().len() as u32
+    }
+
+    /// How many pieces the chain has.
+    pub fn pieces(&self) -> u32 {
+        self.inner.pieces().len() as u32
+    }
+
+    /// The kind of the piece at `position`.
+    pub fn kind(&self, position: u32) -> Result<String, JsError> {
+        Ok(self.inner.piece(position as usize).map_err(js_error)?.0.piece.kind().to_owned())
+    }
+
+    /// Where the piece at `position` is: `[level, offset, length]` of its compressed bytes.
+    pub fn place(&self, position: u32) -> Result<Vec<f64>, JsError> {
+        let (level, stored) = self.inner.stored(position as usize).map_err(js_error)?;
+        Ok(vec![level as f64, stored.offset as f64, stored.length as f64])
+    }
+
+    /// An error where `length` bytes were read for the piece at `position`.
+    #[wasm_bindgen(js_name = checkStored)]
+    pub fn check_stored(&self, position: u32, length: f64) -> Result<(), JsError> {
+        self.inner.check_stored(position as usize, count_of(length)?).map_err(js_error)
+    }
+
+    /// An error where `raw`, the piece at `position` decompressed, is not the bytes written.
+    #[wasm_bindgen(js_name = checkRaw)]
+    pub fn check_raw(&self, position: u32, raw: &[u8]) -> Result<(), JsError> {
+        self.inner.check_raw(position as usize, raw).map_err(js_error)
+    }
+
+    /// The exported world's piece.
+    pub fn export(&self) -> Result<u32, JsError> {
+        Ok(self.inner.export().map_err(js_error)? as u32)
+    }
+
+    /// Where a seek to `minute` starts (`run_store::Chain::seek`): `[the branch's "saved" line's
+    /// index or -1 for the exported world, the branch's line restored (the base a fork made there
+    /// goes on from), the exported world's piece, the minute it is computed from]`.
+    pub fn seek(&self, minute: f64) -> Result<Vec<f64>, JsError> {
+        let seek = self.inner.seek(minute_of(minute)?).map_err(js_error)?;
+        Ok(vec![seek.from.map_or(-1.0, |index| index as f64), seek.base as f64, seek.export as f64, seek.from_minute as f64])
+    }
+
+    /// The next piece from `start` on that `restore` needs, or undefined once it needs none.
+    #[wasm_bindgen(js_name = nextRestoreRead)]
+    pub fn next_restore_read(&self, start: u32, restore: &Restore) -> Result<Option<u32>, JsError> {
+        let restore = restore.inner.get().map_err(js_error)?;
+        Ok(self.inner.next_restore_read(start as usize, restore).map_err(js_error)?.map(|position| position as u32))
+    }
+
+    /// The samples' pieces: what the KPI history reads.
+    #[wasm_bindgen(js_name = samplePieces)]
+    pub fn sample_pieces(&self) -> Result<Vec<u32>, JsError> {
+        Ok(self.inner.sample_pieces().map_err(js_error)?.into_iter().map(|position| position as u32).collect())
+    }
+
+    /// The pieces of the records of `kind` ("decisions", "conversations" or "llm_tape").
+    pub fn records(&self, kind: &str) -> Result<Vec<u32>, JsError> {
+        let kind =
+            run_store::RecordKind::ALL.into_iter().find(|each| each.name() == kind).ok_or_else(|| JsError::new(&format!("no records of kind {kind}")))?;
+        Ok(self.inner.records(kind).map_err(js_error)?.into_iter().map(|position| position as u32).collect())
+    }
+}
+
+/// The JSON texts of a records piece, decompressed (`run_store::records::read`), as a JSON list.
+#[wasm_bindgen(js_name = recordsJson)]
+pub fn records_json(raw: &[u8]) -> Result<String, JsError> {
+    let records = run_store::records::read(raw).map_err(js_error)?;
+    let mut text = Vec::with_capacity(records.iter().map(|record| record.len() + 1).sum::<usize>() + 2);
+    text.push(b'[');
+    for (index, record) in records.iter().enumerate() {
+        if index > 0 {
+            text.push(b',');
+        }
+        text.extend_from_slice(record);
+    }
+    text.push(b']');
+    String::from_utf8(text).map_err(|error| JsError::new(&error.to_string()))
 }
 
 /// A stored Run read back to its digests (`run_store::Verify`).
@@ -417,20 +613,20 @@ impl VerifyRun {
         VerifyRun { inner: run_store::Verify::new() }
     }
 
-    /// The pieces to read, in order, by their indexes.
-    pub fn reads(&self, journal: &Journal) -> Vec<u32> {
-        run_store::Verify::reads(&journal.inner).into_iter().map(|index| index as u32).collect()
+    /// The pieces to read, in order, by their positions in `chain`.
+    pub fn reads(&self, chain: &Chain) -> Result<Vec<u32>, JsError> {
+        Ok(run_store::Verify::reads(&chain.inner).map_err(js_error)?.into_iter().map(|position| position as u32).collect())
     }
 
-    /// Reads the piece `index`, decompressed (`raw`).
-    pub fn read(&mut self, journal: &Journal, index: u32, raw: &[u8]) -> Result<(), JsError> {
-        self.inner.read(&journal.inner, index as usize, raw).map_err(js_error)
+    /// Reads the piece at `position`, decompressed (`raw`).
+    pub fn read(&mut self, chain: &Chain, position: u32, raw: &[u8]) -> Result<(), JsError> {
+        self.inner.read(&chain.inner, position as usize, raw).map_err(js_error)
     }
 
     /// What reading back gave (`run_store::Verified::to_json`).
     #[wasm_bindgen(js_name = resultJson)]
-    pub fn result_json(&self, journal: &Journal) -> Result<String, JsError> {
-        let result = self.inner.result(&journal.inner).map_err(js_error)?;
+    pub fn result_json(&self, chain: &Chain) -> Result<String, JsError> {
+        let result = self.inner.result(&chain.inner).map_err(js_error)?;
         String::from_utf8(result.to_json()).map_err(|error| JsError::new(&error.to_string()))
     }
 }
@@ -447,7 +643,7 @@ impl Default for VerifyRun {
 #[wasm_bindgen]
 pub struct RunWriter {
     inner: run_store::RunWriter,
-    last_sha256: Option<String>,
+    last_head: Option<String>,
 }
 
 #[wasm_bindgen]
@@ -455,13 +651,24 @@ impl RunWriter {
     /// The writer of a new Run.
     #[wasm_bindgen(constructor)]
     pub fn new() -> RunWriter {
-        RunWriter { inner: run_store::RunWriter::new(), last_sha256: None }
+        RunWriter { inner: run_store::RunWriter::new(), last_head: None }
     }
 
     /// Queues the "run" line and the "export" piece of a new Run of the exported world `export`
-    /// (the world `world` of a file of named worlds) that `simulation` was made of.
-    pub fn start(&mut self, simulation: &Simulation, export: Vec<u8>, world: Option<String>, save_every: f64) -> Result<(), JsError> {
-        self.inner.start(&simulation.run, export, world, count_of(save_every)?).map_err(js_error)
+    /// (the world `world` of a file of named worlds) that `simulation` was made of, computed with
+    /// the model versions `model_versions` (JSON), its pieces compressed by `compression`, saved
+    /// every `save_every` minutes.
+    pub fn start(
+        &mut self,
+        simulation: &Simulation,
+        export: Vec<u8>,
+        world: Option<String>,
+        save_every: f64,
+        model_versions: &str,
+        compression: String,
+    ) -> Result<(), JsError> {
+        let storing = run_store::Storing { model_versions: versions_of(model_versions)?, compression, save_every: count_of(save_every)? };
+        self.inner.start(&simulation.run, export, world, &storing).map_err(js_error)
     }
 
     /// Queues the start of a Run from minute 0 of the stored Run `source`'s exported world: its
@@ -471,13 +678,15 @@ impl RunWriter {
         self.inner.same_start(&source.inner).map_err(js_error)
     }
 
-    /// Queues the start of the Run of a branch made by a fork from `parent` at `minute` (#306):
-    /// its "run" line, the "fork" line and the parent's "export" piece, copied.
+    /// Queues the start of the Run of a branch made by a fork from `parent` at `minute` (#306),
+    /// which reads `parent`'s pieces up to its line `base` (the line the fork's world was restored
+    /// from): its "run" and "fork" lines.
     #[allow(clippy::too_many_arguments)]
     #[wasm_bindgen(js_name = forkStart)]
     pub fn fork_start(
         &mut self,
         parent: &Journal,
+        base: u32,
         minute: f64,
         parent_branch_id: String,
         state_hash: String,
@@ -487,7 +696,7 @@ impl RunWriter {
         receipt: String,
     ) -> Result<(), JsError> {
         let minute = minute_of(minute)?;
-        let fork = run_store::ForkLine {
+        let fork = run_store::Fork {
             origin: run_store::ForkOrigin { branch_id: parent_branch_id.clone(), minute, state_hash, checkpoint_hash },
             parent_branch_id,
             minute,
@@ -495,27 +704,34 @@ impl RunWriter {
             approved_program_hash,
             receipt,
         };
-        self.inner.fork_start(&parent.inner, fork).map_err(js_error)
+        self.inner.fork_start(&parent.inner, base as usize, fork).map_err(js_error)
     }
 
-    /// Queues the tables' new entries and the newly sealed blocks (every block when `last`).
-    pub fn take(&mut self, simulation: &Simulation, last: bool) -> Result<(), JsError> {
-        self.inner.take(&simulation.run, last).map_err(js_error)
+    /// Takes the decision records `simulation` collected, and queues the tables' new entries and the
+    /// newly sealed blocks (every block when `last`).
+    pub fn take(&mut self, simulation: &mut Simulation, last: bool) -> Result<(), JsError> {
+        self.inner.take(&mut simulation.run, last).map_err(js_error)
     }
 
-    /// Queues a saved point of `simulation` now, the blocks sealed first with `seal`.
-    pub fn save(&mut self, simulation: &mut Simulation, seal: bool) -> Result<(), JsError> {
-        self.inner.save(&mut simulation.run, seal).map_err(js_error)
+    /// Queues a saved point of `simulation` now, its blocks sealed and stored first.
+    pub fn save(&mut self, simulation: &mut Simulation) -> Result<(), JsError> {
+        self.inner.save(&mut simulation.run).map_err(js_error)
     }
 
-    /// Queues the "world" piece and the "end" line.
-    pub fn finish(&mut self, simulation: &Simulation) -> Result<(), JsError> {
-        self.inner.finish(&simulation.run).map_err(js_error)
+    /// Queues the decision records left, the "world" piece and the "end" line.
+    pub fn finish(&mut self, simulation: &mut Simulation) -> Result<(), JsError> {
+        self.inner.finish(&mut simulation.run).map_err(js_error)
     }
 
     /// Whether `simulation`, restored at the head the writer goes on after, holds what is stored.
     pub fn fits(&self, simulation: &Simulation) -> Result<bool, JsError> {
         self.inner.fits(&simulation.run).map_err(js_error)
+    }
+
+    /// Queues a piece of one conversation turn (its JSON text), of a writer after the end
+    /// (`Journal.writerAfterEnd`).
+    pub fn turn(&mut self, turn: Vec<u8>) -> Result<(), JsError> {
+        self.inner.turns(&[turn]).map_err(js_error)
     }
 
     /// The kind of the item to write next ("line" for a line without a piece, "copy:<kind>" for a
@@ -542,7 +758,7 @@ impl RunWriter {
     #[wasm_bindgen(js_name = commitLine)]
     pub fn commit_line(&mut self) -> Result<Vec<u8>, JsError> {
         let encoded = self.inner.commit_line().map_err(js_error)?;
-        self.last_sha256 = Some(encoded.sha256);
+        self.last_head = Some(encoded.head);
         Ok(encoded.bytes)
     }
 
@@ -551,14 +767,14 @@ impl RunWriter {
     #[wasm_bindgen(js_name = commitPiece)]
     pub fn commit_piece(&mut self, offset: f64, length: f64) -> Result<Vec<u8>, JsError> {
         let encoded = self.inner.commit_piece(count_of(offset)?, count_of(length)?).map_err(js_error)?;
-        self.last_sha256 = Some(encoded.sha256);
+        self.last_head = Some(encoded.head);
         Ok(encoded.bytes)
     }
 
-    /// The sha256 of the last line committed (a branch's head is one).
-    #[wasm_bindgen(js_name = lastSha256)]
-    pub fn last_sha256(&self) -> Option<String> {
-        self.last_sha256.clone()
+    /// The head hash of the last line committed (a branch's head is one).
+    #[wasm_bindgen(js_name = lastHead)]
+    pub fn last_head(&self) -> Option<String> {
+        self.last_head.clone()
     }
 
     /// The saved points' lines committed, as a JSON list of their fields.
@@ -574,6 +790,7 @@ impl RunWriter {
             let fields = [
                 ("records", saved.records),
                 ("samples", saved.samples),
+                ("decisions", saved.counts.decisions),
                 ("point_version", saved.point_version),
                 ("log_blocks", saved.log_blocks),
                 ("sample_blocks", saved.sample_blocks),

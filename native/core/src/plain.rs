@@ -266,6 +266,22 @@ impl MetricSamples {
         self.blocks.blocks().get(index).cloned().unwrap_or_default()
     }
 
+    /// The lines of the samples in the block `index` (`engine::metric_line`), in order: what a
+    /// stored Run's check of private data reads (`sensitive`).
+    pub fn block_lines(&self, index: usize) -> Result<Vec<Vec<u8>>> {
+        let mut bytes = self.blocks.blocks().get(index).map(Vec::as_slice).unwrap_or_default();
+        let mut lines = Vec::new();
+        while !bytes.is_empty() {
+            let unpacked = unpack_sample(&self.packer, bytes)?;
+            if unpacked.used == 0 {
+                return Err(Error::Value("not a packed sample: an empty one".to_owned()));
+            }
+            lines.push(engine::metric_line(&unpacked.sample, unpacked.minute)?);
+            bytes = &bytes[unpacked.used..];
+        }
+        Ok(lines)
+    }
+
     /// The line of the sample `index` (`engine::metric_line`), or None past the last.
     pub fn line(&self, index: usize) -> Result<Option<Vec<u8>>> {
         self.sample(index)?.map(|(sample, minute, _)| engine::metric_line(&sample, minute)).transpose()
@@ -746,6 +762,24 @@ impl PlainRun {
     /// How many of the log's blocks there are, and how many of them are sealed: `[blocks, sealed]`.
     pub fn log_block_counts(&self) -> Result<[usize; 2]> {
         self.log_store(|_, blocks| [blocks.blocks().len(), blocks.sealed()])
+    }
+
+    /// The JSON of each record in the log's block `index` (`Unpacked::record_json`), in order: what
+    /// a stored Run's check of private data reads (`sensitive`).
+    pub fn log_block_json(&self, index: usize) -> Result<Vec<Box<[u8]>>> {
+        self.log_store(|packer, blocks| -> Result<Vec<Box<[u8]>>> {
+            let mut bytes = blocks.blocks().get(index).map(Vec::as_slice).unwrap_or_default();
+            let mut records = Vec::new();
+            while !bytes.is_empty() {
+                let (record, used) = packer.unpack(bytes)?;
+                if used == 0 {
+                    return Err(Error::Value("not a packed record: an empty one".to_owned()));
+                }
+                records.push(record.record_json()?);
+                bytes = &bytes[used..];
+            }
+            Ok(records)
+        })?
     }
 
     /// A copy of the log's block `index` (empty past the last).

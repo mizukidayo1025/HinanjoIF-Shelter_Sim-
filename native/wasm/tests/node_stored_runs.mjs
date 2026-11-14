@@ -13,16 +13,17 @@
 // hold the compressed pieces' offsets and lengths) and data.pack are the same on every machine.
 //
 // The Runs (native/core/tests/data/stored_runs/<name>.journal.jsonl, and runs.json with each Run's
-// data.pack's length and sha256):
+// data.pack's length and sha256), all of format v5 (#368), their decision records collected:
 //   from_zero    runAndStore of tick_core's `small_replay` (a day), saved points every 360 minutes
-//   no_points    the same without saved points (saveEvery 0)
-//   v1, v2, v3   the formats still read: no_points's journal with the "run" line of format v1 (as
-//                its writer wrote it, without `save_every`), from_zero's with format v2 and v3
+//   no_points    the same without saved points but the end's (saveEvery 0)
 //   computed     a Run to compute (compute_run.mjs, the Run the site offered until #411): its
-//                "run" line and the sample's "export" piece copied, then computed in chunks to a target between saved
+//                "run" line and the sample's "export" piece copied, then computed in chunks to a
+//                target between saved
 //                points (paused) and on to the end
-//   fork         a branch made by an intervention (js/interventions.mjs) on interventions.json's
-//                world at minute 400, computed to the end
+//   fork_parent  the branch `main` of interventions.json's world, computed to the end
+//   fork         a branch made by an intervention (js/interventions.mjs) on fork_parent at minute
+//                400, computed to the end: it reads fork_parent's pieces up to its saved point at
+//                360 and stores its own from there
 // Each Run also reads back to its digests (`readAndVerify`).
 
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -43,6 +44,8 @@ const data = join(here, "..", "..", "core", "tests", "data");
 const out = join(data, "stored_runs");
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
+// The model versions the fixtures' Runs record: the engine's items.
+const engine = JSON.parse(wasm.engineSignatures());
 
 /// deflate-raw of stored blocks (RFC 1951, BTYPE 00): at most 65535 bytes each, the last BFINAL.
 function storedDeflate(bytes) {
@@ -99,8 +102,8 @@ const check = (ok, message) => {
 /// A Run's files: its journal's text and its data.pack.
 const made = new Map();
 
-async function verified(name, backend) {
-  const back = await runs.readAndVerify({ wasm, backend });
+async function verified(name, backend, parent = null) {
+  const back = await runs.readAndVerify({ wasm, backend, parent });
   check(back.complete && back.verified && !back.torn, `${name}: does not read back (${back.mismatches})`);
 }
 
@@ -113,24 +116,6 @@ for (const [name, saveEvery] of [["from_zero", 360], ["no_points", 0]]) {
   made.set(name, { journal: decoder.decode(backend.files.get("journal.jsonl")), data: backend.files.get("data.pack") });
 }
 
-/// The journal `text` with its "run" line made by `edit` of its document, and its sha256 again.
-function withRunLine(text, edit) {
-  const [first, ...rest] = text.split("\n");
-  const json = JSON.stringify(edit(JSON.parse(first.slice(0, first.lastIndexOf("\t")))));
-  return [`${json}\t${wasm.sha256Hex(encoder.encode(json))}`, ...rest].join("\n");
-}
-
-made.set("v1", {
-  journal: withRunLine(made.get("no_points").journal, ({ save_every: _, ...line }) => ({ ...line, format: "sheltersim-browser-run-v1" })),
-  data: made.get("no_points").data,
-});
-for (const version of ["v2", "v3"]) {
-  made.set(version, {
-    journal: withRunLine(made.get("from_zero").journal, (line) => ({ ...line, format: `sheltersim-browser-run-${version}` })),
-    data: made.get("from_zero").data,
-  });
-}
-
 // computed: the Run to compute, beside a sample computed with runAndStore.
 {
   const tree = store.memoryTree();
@@ -140,7 +125,7 @@ for (const version of ["v2", "v3"]) {
   await store.createProject(tree, "p1");
   const scenarioBytes = encoder.encode(`{"duration_minutes":${duration},"id":"trial","seed":7}`);
   await store.saveScenario(tree, "p1", { scenarioBytes, scenarioHash: await store.sha256Hex(scenarioBytes) });
-  await store.createRun(tree, "p1", { runId: "r-sample", scenarioId: "trial", scenarioVersion: 1, seed: 7, modelVersions: { m: "1" }, evidenceBytes: encoder.encode('{"schema_version":1}') });
+  await store.createRun(tree, "p1", { runId: "r-sample", scenarioId: "trial", scenarioVersion: 1, seed: 7, modelVersions: engine, evidenceBytes: encoder.encode('{"schema_version":1}') });
   await store.computeBranch({ wasm, tree, projectId: "p1", runId: "r-sample", branchId: "main", run: { exportBytes: tick, world: "small_replay", ticks: 120 } });
   await store.setRunStatus(tree, "p1", "r-sample", "completed");
   await makeComputeRun({ wasm, tree, projectId: "p1" });
@@ -184,9 +169,11 @@ for (const version of ["v2", "v3"]) {
   for (const job of [...browser.computing.jobs.values()]) await job.finished;
   browser.close();
   const backend = await store.branchBackend(tree, projectId, runId, "c1");
-  await verified("fork", backend);
-  const folder = [projectId, "runs", runId, "branches", "c1"];
-  made.set("fork", { journal: decoder.decode(await tree.read([...folder, "journal.jsonl"])), data: await tree.read([...folder, "data.pack"]) });
+  await verified("fork", backend, store.runBackends(tree, projectId, runId));
+  for (const [name, branch] of [["fork_parent", "main"], ["fork", "c1"]]) {
+    const folder = [projectId, "runs", runId, "branches", branch];
+    made.set(name, { journal: decoder.decode(await tree.read([...folder, "journal.jsonl"])), data: await tree.read([...folder, "data.pack"]) });
+  }
 }
 
 const summary = {};

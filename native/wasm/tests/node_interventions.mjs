@@ -11,8 +11,9 @@
 // once computed. The Run is computed here in WASM and stored as the browser stores it, and the same
 // requests go through BrowserApi: each body, masked as the builder masks it (`preview_id` and the
 // branches' heads), has the server's sha256, and a refusal the server's body. Then what only the
-// browser does: a typed `program` is refused as unsupported, the child's stored Run is of format
-// v4 and starts at the fork, and it reads back to its digests.
+// browser does: a typed `program` is refused as unsupported, the questions' turns are kept in the
+// branch's stored Run, the child's stored Run is of format v5, starts at the fork and reads its
+// parent's pieces up to its base (no copy of them), and it reads back to its digests.
 
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -153,10 +154,17 @@ for (const item of fixture.cases) {
 }
 console.log(`${fixture.cases.length} answers compared with the server's in ${((performance.now() - started) / 1000).toFixed(2)} s`);
 
-// Each question answered is kept as a turn beside its branch, its question as the server keeps it.
+// Each question answered is kept as a turn in its branch's stored Run, after its end, its question
+// as the server keeps it.
 {
-  const lines = decoder.decode((await tree.read([projectId, "runs", runId, "branches", "main", "conversations.jsonl"])) ?? new Uint8Array(0)).trim().split("\n");
-  const questions = lines.map((line) => JSON.parse(line).question);
+  const reader = await store.branchReader(wasm, tree, projectId, runId, "main");
+  let questions;
+  try {
+    questions = (await reader.records("conversations")).map((turn) => turn.question);
+    check(reader.lines.at(-1).kind === "conversations" && reader.lines.findLastIndex((line) => line.kind === "end") < reader.lines.length - 1, "the turns follow the end line");
+  } finally {
+    reader.close();
+  }
   check(JSON.stringify(questions) === JSON.stringify(fixture.stored_questions), `the questions kept: ${JSON.stringify(questions)}, not ${JSON.stringify(fixture.stored_questions)}`);
 }
 
@@ -166,21 +174,24 @@ console.log(`${fixture.cases.length} answers compared with the server's in ${((p
   check(got.status === 409 && JSON.parse(got.body).code === "browser_unsupported", `a typed program: ${got.body}`);
 }
 
-// The child's stored Run: format v4, its "run" line holds the fork, it starts at the fork's minute,
-// and it reads back to its digests.
+// The child's stored Run: format v5, its "run" line holds the fork, it starts at the fork's minute,
+// it reads its parent's pieces up to its base (it holds no exported world of its own), and it reads
+// back to its digests. Without its parent's, it is not read.
 {
   const backend = await store.branchBackend(tree, projectId, runId, child);
-  const reader = await runStore.RunReader.open({ wasm, backend });
+  await assert.rejects(runStore.RunReader.open({ wasm, backend }), /needs its parent's \(branch main\)/);
+  const reader = await store.branchReader(wasm, tree, projectId, runId, child);
   try {
     assert.equal(reader.run.format, runStore.FORMAT);
     assert.equal(reader.run.fork_minute, fixture.run.fork_minute);
     const forkLine = reader.lines.find((line) => line.kind === "fork");
     check(forkLine?.fork_origin?.branch_id === "main" && forkLine.minute === fixture.run.fork_minute, "the fork line names its origin");
+    check(forkLine.base.minute <= fixture.run.fork_minute && reader.chain.levels() === 2 && !reader.lines.some((line) => line.kind === "export"), "the child reads its parent's pieces");
     await assert.rejects(reader.seek(fixture.run.fork_minute - 1));
   } finally {
     reader.close();
   }
-  const back = await runStore.readAndVerify({ wasm, backend });
+  const back = await runStore.readAndVerify({ wasm, backend, parent: store.runBackends(tree, projectId, runId) });
   check(back.complete && back.verified, `the child's stored Run reads back to its digests: ${JSON.stringify(back).slice(0, 300)}`);
 }
 

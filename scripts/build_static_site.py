@@ -92,12 +92,14 @@ COMPUTE_RUN = "run-browser-compute"
 SAMPLE_FORMAT = "sheltersim-site-sample"
 SAMPLE_VERSION = 1
 # The line the browser build adds to demo-v2.html, before the screen's first script: the script
-# that answers the API, with the sample's Project and the Run the browser computes (the home).
+# that answers the API, with the sample's Project and the Run the browser computes (the home),
+# and on a site without the shelter index, that it cannot make Scenarios (#372).
 SHIM = (
     '<script src="/browser/api_fetch.js" data-worker="/browser/api_worker.mjs"'
     ' data-sample="/sample/sample.json" data-example-project="{project}"'
-    f' data-compute-run="{COMPUTE_RUN}"></script>'
+    f' data-compute-run="{COMPUTE_RUN}"{{scenarios}}></script>'
 )
+NO_SCENARIOS = ' data-scenarios="unavailable"'
 FIRST_SCRIPT = '<script src="/demo-v2-scene.js" defer></script>'
 # The licenses of what the WASM holds (#290): its crates' in NOTICES, the Rust standard library's
 # in RUST_LIBRARY_NOTICES (the notices rustc ships for programs it builds).
@@ -116,13 +118,16 @@ HEADER = len(MAGIC) + 4 + 4 + 32
 LIMIT_MIB = 20
 
 
-def browser_html(server_html: str, project_id: str) -> str:
-    """The server's demo-v2.html with the browser version's script before the screen's."""
+def browser_html(server_html: str, project_id: str, *, scenarios: bool = True) -> str:
+    """The server's demo-v2.html with the browser version's script before the screen's;
+    `scenarios` is False on a site that cannot make Scenarios (no shelter index)."""
     if server_html.count(FIRST_SCRIPT) != 1:
         raise ValueError(f"demo-v2.html has not exactly one {FIRST_SCRIPT}")
     if not re.fullmatch(r"[A-Za-z0-9_.-]+", project_id):
         raise ValueError(f"the sample's Project id {project_id!r} is not a plain id")
-    shim = SHIM.replace("{project}", project_id)
+    shim = SHIM.replace("{project}", project_id).replace(
+        "{scenarios}", "" if scenarios else NO_SCENARIOS
+    )
     return server_html.replace(FIRST_SCRIPT, f"{shim}\n    {FIRST_SCRIPT}")
 
 
@@ -372,7 +377,11 @@ def build(
     output.mkdir(parents=True, exist_ok=True)
     for name in SCREEN_FILES:
         shutil.copyfile(STATIC / name, output / name)
-    page = browser_html((STATIC / "demo-v2.html").read_text(encoding="utf-8"), project_id)
+    page = browser_html(
+        (STATIC / "demo-v2.html").read_text(encoding="utf-8"),
+        project_id,
+        scenarios=shelters is not None,
+    )
     (output / "demo-v2.html").write_text(page, encoding="utf-8")
     # `/` is the same page, which opens on its home (#371).
     (output / "index.html").write_text(page, encoding="utf-8")

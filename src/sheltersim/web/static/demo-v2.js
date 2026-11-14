@@ -373,6 +373,16 @@
       });
     return result;
   }
+  // The play buttons' icon and words (the header's shows the icon alone on a narrow screen).
+  function setPlayLabels(playing) {
+    const label = playing ? "再生を一時停止" : "シミュレーションを再生";
+    for (const id of ["play", "timeline-play"]) {
+      const button = $(id);
+      button.querySelector(".play-icon").textContent = playing ? "Ⅱ" : "▶";
+      button.querySelector(".play-label").textContent = label;
+      button.setAttribute("aria-label", label);
+    }
+  }
   function stopPlayback(preserve = false) {
     state.playing = false;
     state.playToken++;
@@ -385,8 +395,7 @@
       state.motion = null;
       state.visualMs = 0;
     }
-    $("play").textContent = "▶ シミュレーションを再生";
-    $("timeline-play").textContent = "▶ シミュレーションを再生";
+    setPlayLabels(false);
     $("replay-status").textContent = preserve
       ? "一時停止 · 位置と姿勢を保持"
       : "計算済みの記録を再生";
@@ -439,6 +448,7 @@
     if (page === "report" && state.run)
       void action("レポートと記録済みの根拠を取得しています…", loadReport);
     if (page === "home") loadHome().catch((e) => note(loadFailure(e), "error"));
+    if (page === "scenario") renderScenarioPage();
   }
   // A Run's name on the home and in the header: where, what disaster, how many people, how long.
   function runTitle(run, scenarios) {
@@ -536,6 +546,8 @@
         : []),
     );
     $("home-browser-notes").hidden = !window.HinanjoBrowserApi;
+    $("home-new").disabled = site.scenarios === "unavailable";
+    $("home-new-note").hidden = site.scenarios !== "unavailable";
     const mine = own?.runs || [];
     $("home-own-list").replaceChildren(
       ...(mine.length
@@ -641,8 +653,54 @@
     $("events").replaceChildren();
     $("people-list").replaceChildren();
     $("person-detail").replaceChildren();
-    $("scenario-name").textContent = "避難所の「もしも」";
-    $("scenario-summary").textContent = "条件を入力して\nシミュレーションを始めましょう。";
+    $("scenario-name").textContent = "まだ開いていません";
+    $("scenario-summary").textContent = "";
+    state.scenario = null;
+    showMode(null);
+  }
+  // How the open Run answers questions (its LLM mode), on the report's chat.
+  function showMode(llm) {
+    state.mode = llm?.mode ?? null;
+    $("chat-mode").textContent = !llm
+      ? "回答の作り方は、シナリオを開くと表示します"
+      : llm.mode === "record"
+        ? "Claude APIに接続して回答を生成します"
+        : llm.mode === "replay"
+          ? "記録したAPIの応答を再生して回答します"
+          : "APIキーのない環境です。AIの回答は作らず、記録から確かめられることだけを返します";
+  }
+  // The scenario page: the open Run's conditions, or the form for a new Scenario, or why this
+  // site cannot make one (a browser site built without the shelter index, api_fetch.js).
+  function renderScenarioPage() {
+    const open = Boolean(state.run && state.scenario),
+      unavailable = !open && site.scenarios === "unavailable";
+    document.body.dataset.scenario = open ? "open" : unavailable ? "unavailable" : "new";
+    $("scenario-open").hidden = !open;
+    $("scenario-unavailable").hidden = !unavailable;
+    $("scenario-unavailable-reason").textContent = unavailable
+      ? "このブラウザー版のサイトは、地域の避難所の一覧を入れずに作られているため、条件から新しいシナリオを作れません。計算済みの例を開いてください。"
+      : "";
+    if (!open) return;
+    const scenario = state.scenario,
+      request =
+        scenario.provenance?.natural_language_input ||
+        scenario.provenance?.initial_scenario_request ||
+        {};
+    $("scenario-open-chips").replaceChildren(
+      ...[
+        request.municipality,
+        request.disaster ? disasterName(request.disaster) : null,
+        scenario.profiles ? `避難者 ${scenario.profiles.length}人` : null,
+        scenario.staff ? `スタッフ ${scenario.staff.length}人` : null,
+        scenario.duration_minutes
+          ? `${num(scenario.duration_minutes / 1440)}日間`
+          : null,
+        typeof scenario.seed === "number" ? `seed ${scenario.seed}` : null,
+      ]
+        .filter(Boolean)
+        .map((t) => el("span", t, "chip")),
+    );
+    $("scenario-open-json").textContent = json(scenario);
   }
   function invalidateIntervention() {
     state.intervention = null;
@@ -696,6 +754,12 @@
     for (const id of ["compute", "compute-end", "intervention-preview"])
       $(id).disabled = !has || working;
     $("cancel").disabled = !running;
+    // A site that cannot make Scenarios has no scenario page until a Run is open.
+    const scenarioNav = document.querySelector('[data-page="scenario"]');
+    scenarioNav.disabled = site.scenarios === "unavailable" && !state.run;
+    scenarioNav.title = scenarioNav.disabled
+      ? "このサイトでは条件から新しいシナリオを作れません"
+      : "";
     $("target").disabled = !has || running;
     $("timeline-play").disabled = !has || state.busy || upper() <= lower();
     $("play").disabled =
@@ -998,7 +1062,6 @@
     $("scenario-check").checked = false;
     $("scenario-check").disabled = !p.can_start;
     state.mode = p.llm_usage?.mode ?? "未記録";
-    $("mode-badge").textContent = llmModeLabel(state.mode);
     drawMap(
       $("preview-map"),
       {
@@ -1600,8 +1663,7 @@
                 playing: false,
               };
             $("replay-status").textContent = "一時停止 · 位置と姿勢を保持";
-            $("play").textContent = "▶ シミュレーションを再生";
-            $("timeline-play").textContent = "▶ シミュレーションを再生";
+            setPlayLabels(false);
           }
           if (status === "end")
             $("replay-status").textContent = "計算済み範囲の終点";
@@ -1614,8 +1676,7 @@
     }
     state.playing = true;
     state.replay.setRate(Number($("speed").value));
-    $("play").textContent = "Ⅱ 再生を一時停止";
-    $("timeline-play").textContent = "Ⅱ 再生を一時停止";
+    setPlayLabels(true);
     state.replay.play();
   }
   async function compute(
@@ -2037,9 +2098,7 @@
     if (scope !== state.scope) return;
     state.report = report;
     state.evidence = evidence;
-    state.mode = llm.mode;
-    $("mode-badge").textContent =
-      `${llmModeLabel(llm.mode)} / fallback ${llm.outcomes?.fallback_count ?? "集計を参照"}`;
+    showMode(llm);
     const draft = report.status === "not_generated";
     $("report-draft-note").hidden = !draft;
     $("report-status").classList.toggle("draft-badge", draft);
@@ -2584,6 +2643,7 @@
     show("home");
   });
   $("home-new").addEventListener("click", newScenario);
+  $("scenario-new").addEventListener("click", newScenario);
   $("home-reset").addEventListener("click", () => {
     resetCompute().catch((e) => {
       $("home-reset-note").textContent = `消せませんでした：${e.message}`;
@@ -3010,15 +3070,12 @@
     });
     renderKpis($("sim-kpis"));
     renderKpis($("report-kpis"));
-    $("mode-badge").textContent = "実計算 / modeはRun記録で確認";
     const projects = await api("/api/v1/projects");
     if (projects.projects.some((p) => p.project_id === state.project)) {
       await refreshRuns();
       if (state.run) {
         await refreshRun();
-        const llm = await api(`${branchBase()}/llm-status`);
-        state.mode = llm.mode;
-        $("mode-badge").textContent = llmModeLabel(llm.mode);
+        showMode(await api(`${branchBase()}/llm-status`));
       }
     } else if (state.run) {
       state.run = null;

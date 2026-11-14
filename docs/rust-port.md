@@ -437,7 +437,7 @@ EventLog の比較の保証：`same_saved_records` は保存した bytes を読�
 | 保存の前の完全検証 | 古い項目と規則が読むものを壊すと同じ保存で止まること、止めるエラーが省かない検証と同じこと（`tests/integration/test_save_validation.py`） |
 | 保存の形 | Rust が作る正規化した JSON・chunk・目録が、Python のものと1バイト違わないこと（B3 までは目録・ハッシュも同じ） |
 | 速さ | 計測器の「Run の終わりだけを測る」機能（`--from-project`・`--fork-minute`）で、7日目の保存と tick を数分で測る |
-| 3つの OS | `オフラインCI`（3つの OS で Rust の部品を作って入れたテスト） |
+| 3つの OS | `PRの確認`（旧名`オフラインCI`。3つの OS で Rust の部品を作って入れたテスト） |
 
 ## 決めたこと（2026-10-30）
 

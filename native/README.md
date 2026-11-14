@@ -51,7 +51,8 @@ cargo build --manifest-path native/Cargo.toml -p sheltersim_core --target wasm32
 cargo test --manifest-path native/Cargo.toml -p sheltersim_core --no-default-features
 ```
 
-CI's lint job runs these, after `cargo test -p sheltersim_core` with the feature.
+CI's job 「ブラウザー版の計算」 runs these, beside 「Rustの計算部分のテスト」, which runs
+`cargo test -p sheltersim_core` with the feature.
 `core/tests/parallel.rs` compares both builds with one frozen digest, and
 `core/tests/no_platform.rs` fails if the core's source names `std::time`, `fs`, `env` or
 `thread` (they are missing on wasm32 and would tie results to the machine; `thread_local!`,
@@ -176,7 +177,7 @@ split PR by PR; its last section sums up what is where.
   (`digests_json`, `canonical::run_digests`) and of the samples (`metrics_digest`); `memoryBytes` is the WASM memory's size. It builds the core
   without the feature `parallel` (one thread, decision 5). `wasm/tests/node_digests.mjs` runs the
   worlds of `core/tests/data/tick_core.json` in Node and checks the native path's digests; CI's
-  lint job runs it (docs/development.md has the commands).
+  job 「ブラウザー版の計算」 runs it (docs/development.md has the commands).
 - **The frame of a minute** (#264, stage 6 of #132): `frame.rs` makes, from a World, the frame the
   API's `timeline` gives (`TimelineFrame`), byte for byte the frame Python's
   `inspection/frames.py` made: canonical JSON, the same ints and floats. What Python parses (the

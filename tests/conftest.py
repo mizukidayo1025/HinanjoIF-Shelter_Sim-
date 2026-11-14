@@ -6,6 +6,8 @@ as before. docs/testing.md lists what each module holds.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 from support.isolation import _isolate
 
@@ -14,13 +16,11 @@ pytest_plugins = [
     "results_log",
     "support.generated",
     "support.fixture_scenarios",
-    "support.demo",
     "support.storage",
     "support.web",
     "support.llm",
     "support.reports",
     "support.world",
-    "support.plans",
     "support.public_data",
     # The python_rules mark, which turns the Rust twins of the validators off for a test.
     "support.python_rules",
@@ -54,6 +54,11 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         metavar="I/N",
         help="run only part I of N (1 <= I <= N): the selected tests taken in turn (#118)",
     )
+    parser.addoption(
+        "--os-subset",
+        action="store_true",
+        help="keep only tests/unit, tests/e2e and the tests marked os_dependent (#380)",
+    )
 
 
 def _shard(config: pytest.Config) -> tuple[int, int] | None:
@@ -68,6 +73,36 @@ def _shard(config: pytest.Config) -> tuple[int, int] | None:
     if not 1 <= index <= total:
         raise pytest.UsageError(f"--shard takes I/N with 1 <= I <= N, not {value!r}")
     return index, total
+
+
+# What --os-subset keeps whole: quick tests, and the flows through HTTP or the CLI.
+OS_SUBSET_DIRECTORIES = ("unit", "e2e")
+
+
+def _take_os_subset(config: pytest.Config, items: list[pytest.Item]) -> None:
+    """Keep what the Windows and macOS jobs of 「PRの確認」 (ci.yml) run (#380).
+
+    The bytes of a Run are the same on every OS (the hashes of every path, checked on each),
+    so those jobs leave out the tests that only compute: they keep the quick tests of
+    tests/unit and tests/e2e, and the tests marked os_dependent, whose files, locks,
+    processes or OS measurements behave differently by OS. The whole suite runs on each OS by
+    hand (the long regression's `full`).
+    """
+    if not config.getoption("--os-subset"):
+        return
+    tests = Path(__file__).parent
+
+    def kept(item: pytest.Item) -> bool:
+        if item.get_closest_marker("os_dependent") is not None:
+            return True
+        if not item.path.is_relative_to(tests):
+            return False
+        return item.path.relative_to(tests).parts[0] in OS_SUBSET_DIRECTORIES
+
+    dropped = [item for item in items if not kept(item)]
+    if dropped:
+        config.hook.pytest_deselected(items=dropped)
+        items[:] = [item for item in items if kept(item)]
 
 
 def _take_shard(config: pytest.Config, items: list[pytest.Item]) -> None:
@@ -91,7 +126,7 @@ def _take_shard(config: pytest.Config, items: list[pytest.Item]) -> None:
 # Last, so that -m and -k have deselected first: the parts share what is left.
 @pytest.hookimpl(trylast=True)
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
-    """Keep this run's shard, then give each parallel worker one long simulation to start with.
+    """Keep this run's subset and shard, then give each worker one long simulation to start with.
 
     pytest-xdist's worksteal scheduler hands each worker a contiguous block of the
     collected items and lets idle workers steal from the end of other blocks. When
@@ -99,6 +134,7 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
     others finish early; putting one at the head of each block starts them all at once.
     Every worker collects in this same order, so the blocks still agree.
     """
+    _take_os_subset(config, items)
     _take_shard(config, items)
     workers = getattr(config, "workerinput", {}).get("workercount", 1)
     long_runs = [item for item in items if item.get_closest_marker("long_simulation")]

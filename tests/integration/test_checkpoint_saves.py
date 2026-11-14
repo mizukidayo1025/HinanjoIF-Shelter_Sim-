@@ -15,6 +15,10 @@ from sheltersim.experiments.timeline import TimelineStore
 from sheltersim.storage.checkpoints import CheckpointArchive
 from sheltersim.storage.projects import ProjectStore
 
+# Run on every pull request on Windows and macOS too (pytest --os-subset, #380): saving,
+# cancelling and restarting a Run write and replace files.
+pytestmark = pytest.mark.os_dependent
+
 
 def _same_as_public_archive(directory, checkpoint, public):
     """The saved manifest packs the document as a fresh archive does, and each of

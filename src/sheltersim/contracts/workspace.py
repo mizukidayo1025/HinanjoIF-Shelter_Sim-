@@ -144,22 +144,6 @@ class HistoryQuery(ExtensionModel):
         return self
 
 
-class ComparisonTarget(ExtensionModel):
-    run_id: Identifier
-    branch_id: Identifier
-
-
-class ComparisonQuery(ExtensionModel):
-    schema_version: Literal[1] = 1
-    targets: tuple[ComparisonTarget, ...] = Field(min_length=2, max_length=8)
-    minute: int = Field(strict=True, ge=0)
-
-
-class ComparisonDifferenceQuery(ComparisonQuery):
-    limit: int = Field(default=25, strict=True, ge=1, le=100)
-    cursor: str | None = Field(default=None, max_length=4096)
-
-
 class StateDescriptor(ExtensionModel):
     """Installed code declares this; scenario JSON cannot authorize Python code."""
 
@@ -172,65 +156,3 @@ class StateDescriptor(ExtensionModel):
     entity_kind: Literal["agent", "staff"] = "agent"
     entity_collection: Identifier | None = None
     policy_domain: Identifier | None = None
-
-
-class DatasetLink(ExtensionModel):
-    model_id: Identifier
-    parameter_path: str = Field(pattern=r"^[A-Za-z0-9_]+\.[A-Za-z0-9_.]+$", max_length=128)
-
-
-class DatasetInput(ExtensionModel):
-    source_id: Identifier
-    url: str = Field(pattern=r"^https://", max_length=2048)
-    title: str = Field(min_length=1, max_length=240)
-    unit: str = Field(min_length=1, max_length=80)
-    lower: Finite
-    upper: Finite
-    applicability: dict[str, Any]
-    model_parameter_links: tuple[DatasetLink, ...] = Field(max_length=100)
-
-    @model_validator(mode="after")
-    def range_is_ordered(self) -> DatasetInput:
-        if self.lower > self.upper:
-            raise ValueError("dataset lower bound exceeds upper bound")
-        import re
-        from urllib.parse import parse_qsl, urlsplit
-
-        url = urlsplit(self.url)
-        if (
-            not url.netloc
-            or url.username is not None
-            or url.password is not None
-            or any(
-                re.search(r"key|token|secret|password|appid", key, re.I)
-                for key, _ in parse_qsl(url.query)
-            )
-        ):
-            raise ValueError("dataset requires a public source URL without credentials")
-        return self
-
-
-class DivergenceQuery(ExtensionModel):
-    schema_version: Literal[1] = 1
-    targets: tuple[ComparisonTarget, ...] = Field(min_length=2, max_length=8)
-    start: int = Field(default=0, strict=True, ge=0)
-    end: int = Field(strict=True, ge=0)
-    mode: Literal["kpis", "world", "person"] = "kpis"
-    agent_id: Identifier | None = None
-    metrics: tuple[Identifier, ...] = Field(default=(), max_length=20)
-    scan_limit: int = Field(default=20, strict=True, ge=1, le=100)
-    cursor: str | None = Field(default=None, max_length=2048)
-
-    @model_validator(mode="after")
-    def coherent_window(self) -> DivergenceQuery:
-        if self.start > self.end:
-            raise ValueError("divergence start exceeds end")
-        if self.mode == "person" and self.agent_id is None:
-            raise ValueError("person divergence requires agent_id")
-        if self.mode != "person" and self.agent_id is not None:
-            raise ValueError("agent_id applies only to person divergence")
-        if self.mode != "kpis" and self.metrics:
-            raise ValueError("metrics apply only to KPI divergence")
-        if len({(t.run_id, t.branch_id) for t in self.targets}) != len(self.targets):
-            raise ValueError("divergence targets must differ")
-        return self

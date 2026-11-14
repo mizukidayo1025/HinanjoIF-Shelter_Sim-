@@ -291,20 +291,6 @@ def test_an_older_model_run_is_read_through_the_project_api(
             30,
         ]
 
-        from sheltersim.contracts.workspace import HistoryQuery
-        from sheltersim.web.project_queries import ProjectQueries
-
-        people = ProjectQueries(store).history(
-            "p", "r", "main", HistoryQuery(kind="people", agent_id="A001", start=29, end=31)
-        )
-        assert [(row["minute"], row["exact"]) for row in people["items"]] == [
-            (29, False),
-            (30, True),
-            (31, False),
-        ]
-        assert people["items"][2]["saved_point_rounding"]["saved_minute"] == 30
-        assert people["coverage"] == "saved_points_of_an_older_model_run"
-
         from sheltersim.web.pdf_report import collect_report
 
         report = collect_report(api, "p", "r", ["main", "child"], 60)
@@ -360,8 +346,10 @@ def test_continuing_forking_submitting_or_applying_to_an_older_model_run_fails(
             )
         )
         _refused(
-            lambda: api.post(
-                ["p", "runs", "r", "branches", "main", "fork"],
+            lambda: api.fork(
+                "p",
+                "r",
+                "main",
                 {
                     "minute": 30,
                     "child_id": "new-child",

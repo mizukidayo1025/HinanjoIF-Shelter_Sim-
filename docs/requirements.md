@@ -21,7 +21,7 @@ Scenarioは説明用の条件です。取込データ、仮定、承認時の注
 - ニーズ、行動、施設queue、職員task、物資サービス、移動、運営イベント、および任意の社会・情報機構の実行。
 - 型付きEffectProgramによる介入案の作成、全体検証、仮定のプレビュー、利用者承認、独立Branchへの適用。
 - Checkpoint、過去時点のframe、Run復元、証拠検索、Branch比較。
-- ローカルWeb画面、保存Run Inspector、CLI、永続Project store。
+- ローカルWeb画面（`/demo-v2`）、CLI（保存Runの`inspect`を含む）、永続Project store。
 - 対応する準備、選択的なruntime提案、レビュー、保存済み証拠へのread-only質問のための、上限付き任意Claude連携。
 
 利用できるoperator、入力schema、HTTP routeはAPIリファレンスとEffectProgram文書を参照してください。未対応機構は未対応のまま明示します。自然言語入力だけで新しいモデルを追加することはできません。
@@ -31,7 +31,7 @@ Scenarioは説明用の条件です。取込データ、仮定、承認時の注
 - 対応する実行環境では、Scenario、seed、モデル版、Provider応答テープが同じなら、状態とイベント履歴も再現可能であること。
 - 状態変更は型付きで検証可能、出典を追跡可能で、Branch間の変更を分離すること。
 - Scenario、モデル、イベント、出典の版を永続データに記録すること。
-- Inspectorとtraceの出力に上限を設け、read-only参照が状態を変更しないこと。
+- 参照とtraceの出力に上限を設け、read-only参照が状態を変更しないこと。
 - offline利用と標準テストに外部アカウントや有料APIを必要としないこと。
 - 利用者入力と取込計画を信頼せず、検証すること。
 

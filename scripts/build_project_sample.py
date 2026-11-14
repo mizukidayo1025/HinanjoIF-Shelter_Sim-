@@ -8,8 +8,8 @@ Scenario the new UI generates from its example text (the 「例文を使う」 b
 100 synthetic people in a standard synthetic shelter in 墨田区, earthquake, 7 days,
 seed 2026): the branch `main` computed to the end, and a branch forked at Day 4 14:00
 (minute 5160) with "Day 4 14:00 toilet_01 outage", computed to the end. It is the
-comparison of the old UI's fixed replay (scripts/build_demo_replay.py), on a Scenario
-whose map the new UI draws.
+comparison of the old UI's fixed replay (removed in #376), on a Scenario whose map the new
+UI draws.
 
 It goes through the ProjectAPI routes the new UI calls, in this process: the Project,
 `scenario-preview` of the text with the offline parser, `scenario-approve`, `resume` to
@@ -72,7 +72,7 @@ RESEARCH_WARNING = (
     "計算済みの例のため、地域の公開データは調べていません。"
     "標準の合成施設と既定値だけで作ったシナリオです。"
 )
-# As the old demo's replay says of itself (scripts/build_demo_replay.py).
+# As the old demo's replay said of itself (removed in #376).
 NOTE = (
     "Precomputed offline sample of a synthetic scenario, not a live simulation and not "
     "real shelter records. The single-seed comparison is descriptive and is not a "

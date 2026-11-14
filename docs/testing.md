@@ -28,7 +28,7 @@ cargo fmt --manifest-path native/Cargo.toml --all -- --check
 
 - `-n auto`（pytest-xdist）で並列に実行します。`pyproject.toml`の`--dist worksteal`で、手の空いたworkerが残りのテストを引き取ります。
 - `long_simulation`の印は、7日間のsimulationを実行するテストと、1件で30秒以上（直列）かかるテストに付けます。`tests/conftest.py`の`pytest_collection_modifyitems`が、並列のときにこれらを各workerの塊の先頭に1本ずつ置くので、長いテストは最初から並んで走ります。
-- 開発中は`-m "not long_simulation"`で長いテストを除けます。印のない`pytest`は全件を実行します。`オフラインCI`（`.github/workflows/ci.yml`）は、mainへのPull Requestごとに自動で、または手動で、Linux・Windows・macOSの3つでRustのkernelを作って導入し、長いテストを除いた全件を`-n auto`で実行します。3つのOSで動くことを確かめるためです（#48）。テストはCPUの量で時間が決まるので、OSごとに2つのjobに分け、それぞれ半分ずつ実行します（`--shard 1/2`と`--shard 2/2`、#118）。テストのjobは、kernelを`native/Cargo.toml`のprofile`ci`で作ります。releaseと最適化の水準は同じで、LTOをthinに、codegen unitを16にして、作る時間を短くしたものです。Runのbytesは変わりません（#217）。全経路のハッシュ（`benchmarks/gate_all_paths.py --expect`）も3つのOSで同じ`fixtures/gate-all-paths.json`と比べます。Linuxでは待ち時間が延びないよう別のjobとして並べ、配布と同じ`--release`で作ったkernelで確かめます。WindowsとmacOSでは、1つ目のjobのテストの後の手順として、profile`ci`のkernelで動かします（テストが失敗しても動きます）。lint・format・clippyはLinuxだけの別のjobです。formatはPythonの`ruff format --check .`とRustの`cargo fmt --all -- --check`の両方を確かめます（#367）。同じjobで、Rustの中核（`native/core`、#152）がpyo3に依存しないことを確かめ、その`cargo test`を実行します。続けて、中核を既定の機能`parallel`（rayon）なしで`wasm32-unknown-unknown`向けに作り、`parallel`なしの`cargo test`も実行します。lintのjobは`benchmarks/rust_port/glue_check.py`も実行し、Rustの窓口の規則のファイル（`native/src/rules/*.rs`）がglueだけであること（#152）を確かめます。手動実行の`長時間simulation回帰`（`.github/workflows/long-regression.yml`）の`long`は、長いテストだけを3つのOSで実行します。`オフラインCI`と同じく、Rustのkernelを作って導入してから実行します。
+- 開発中は`-m "not long_simulation"`で長いテストを除けます。印のない`pytest`は全件を実行します。workflow`PRの確認`（`.github/workflows/ci.yml`、2026-11-15までの名前は`オフラインCI`）は、mainへのPull Requestごとに自動で、または手動で、Linux・Windows・macOSの3つでRustのkernelを作って導入し、テストを`-n auto`で実行します。3つのOSで動くことを確かめるためです（#48）。Linuxは長いテストを除いた全件を実行します。テストはCPUの量で時間が決まるので、2つのjobに分け、それぞれ半分ずつ実行します（`--shard 1/2`と`--shard 2/2`、#118）。WindowsとmacOSは、それぞれ1つのjobで、OSによって振る舞いが変わりうるテストだけを実行します（`--os-subset`、#380）。`tests/unit`と`tests/e2e`のすべてと、`tests/integration`のうち印`os_dependent`を付けたファイルです。Runのbytesは全経路のハッシュで3つのOSで同じと確かめるので、計算の結果だけを確かめるテストはLinuxで足ります。ファイルの書込み・置換え・削除やロック、プロセスの起動、OSを通した計測（メモリーなど）、CPythonの数の関数（OSのlibm、Windowsで32 bitのC long）を確かめる`tests/integration`のファイルには、`pytestmark = pytest.mark.os_dependent`と、その理由のコメントを付けます。審査に出す前や公開の前などには、手動実行の`全件の確認（手動・3つのOS）`の`full`で、3つのOSで全件を実行します。テストのjobは、kernelを`native/Cargo.toml`のprofile`ci`で作ります。releaseと最適化の水準は同じで、LTOをthinに、codegen unitを16にして、作る時間を短くしたものです。Runのbytesは変わりません（#217）。全経路のハッシュ（`benchmarks/gate_all_paths.py --expect`）も3つのOSで同じ`fixtures/gate-all-paths.json`と比べます。Linuxでは待ち時間が延びないよう別のjobとして並べ、配布と同じ`--release`で作ったkernelで確かめます。WindowsとmacOSでは、テストの後の手順として、profile`ci`のkernelで動かします（テストが失敗しても動きます）。lint・format・clippyはLinuxだけの別のjob（`書式・規則`）です。formatはPythonの`ruff format --check .`とRustの`cargo fmt --all -- --check`の両方を確かめます（#367）。その隣の別のjob（`Rustの計算部分のテスト`）で、Rustの中核（`native/core`、#152）がpyo3に依存しないことを確かめ、その`cargo test`を実行します。中核の`cargo test`は、`native/Cargo.toml`のprofile`ci-test`で作ります。devの検査（overflow、`debug_assert`）を残したままopt-level 1にしたもので、テストの中のシミュレーションが速く進みます（#380）。`native/core/tests`のファイルはそれぞれ別のバイナリになるので、LTOを使うprofile（`ci`、`release`）では、リンクに時間がかかりすぎます。もう1つの別のjob（`ブラウザー版の計算`）で、中核を既定の機能`parallel`（rayon）なしで`wasm32-unknown-unknown`向けに作り、`parallel`なしの`cargo test`も実行します。機能が違うと中核のテストを作り直すので、`Rustの計算部分のテスト`と並べて実行します（#380）。`書式・規則`のjobは`benchmarks/rust_port/glue_check.py`も実行し、Rustの窓口の規則のファイル（`native/src/rules/*.rs`）がglueだけであること（#152）を確かめます。手動実行の`全件の確認（手動・3つのOS）`（`.github/workflows/long-regression.yml`）の`long`は、長いテストだけを3つのOSで実行します。`PRの確認`と同じく、Rustのkernelを作って導入してから実行します。
 
 ### 結果の残り方と見方
 
@@ -46,7 +46,7 @@ test results: 1 failed, 967 passed, 4 skipped; failed: tests/unit/x/test_y.py::t
 
 失敗の原因は、もう一度実行せずに`summary.txt`で確かめます。`.pytest_cache`の失敗記録（`--lf`）は、次に全件が通ると消えるので、記録としては使いません。コーディングエージェントも、`| tail -1`などで集計行だけを見て判断しないでください。失敗があったら、この最後の行で名前を、`summary.txt`で原因を確かめ、テストの名前と原因を報告します。結果を残したくない実行では`-p no:results_log`を付けます。
 
-`オフラインCI`は、jobごとの`.test-results/`を`test-results-<OS>-<1か2>`のartifactとして7日間保存します。失敗したときは、そのartifactの`summary.txt`で原因を確かめます。WindowsとmacOSの全経路のハッシュは、`gate-<OS>`のartifact（`summary.json`）に残ります。
+`PRの確認`は、jobごとの`.test-results/`を`test-results-<OS>-<1か2かos>`のartifactとして7日間保存します。失敗したときは、そのartifactの`summary.txt`で原因を確かめます。WindowsとmacOSの全経路のハッシュは、`gate-<OS>`のartifact（`summary.json`）に残ります。
 
 ### 網羅率の計測
 
@@ -76,7 +76,7 @@ python -m coverage report --sort=cover
 - 名前に、不具合名（例：`resource_loss_without_operational_state`）、開発の回の名前（例：`round2_common_services`）、`regressions`を使いません。不具合の再発防止テストはその機能のファイルに足し、守るべき振る舞いを関数名に書き、Issue番号をdocstringかコメントに書きます。
 - ブラウザー用の静的ファイル（JavaScript、HTML）を確かめる単体は、Pythonのモジュール名がないので`tests/unit/web/test_static_<ファイル名>.py`にします。例：`demo-v2.js`なら`test_static_demo_v2.py`。nodeで関数を動かすテストは、nodeがない環境ではskipします。
 - 何を確かめるか（結果・契約・画面）は、ディレクトリにも印にもしません。実行の選び分けに使わない印は、付け忘れても気づけず、すぐ実態とずれるためです。確かめる振る舞いは、関数名とファイルのdocstringに書きます。
-- 背景で動くjob（`DemoJobManager`、`ProjectAPI`）の終わりは、実時間の短い期限で状態を読み続けて待ちません。CPUが混むと期限を超えて失敗するためです（#143）。どちらもworkerが1つなので、`wait_for_job`のfixture（`DemoJobManager`）か、`api.wait_idle(timeout=120)`（`ProjectAPI`）で、それまでのjobが終わるのを待ってから状態を確かめます。`timeout`は止まったときにテストを終わらせるためだけのものです。
+- 背景で動くjob（`ProjectAPI`）の終わりは、実時間の短い期限で状態を読み続けて待ちません。CPUが混むと期限を超えて失敗するためです（#143）。workerが1つなので、`api.wait_idle(timeout=120)`で、それまでのjobが終わるのを待ってから状態を確かめます。`timeout`は止まったときにテストを終わらせるためだけのものです。
 - `tests/unit/repo/test_test_layout.py`は、`tests/`直下のテストファイル、決まった場所以外のテストファイル、`tests/live/`以外での`live_api`の印を見つけると失敗します。`scripts/`のファイルに書かれたテストファイルのパスが存在しないときも失敗します（#146）。
 - 件数が要るときは、`pytest --collect-only -q <ディレクトリ>`で数えます。
 
@@ -86,19 +86,17 @@ python -m coverage report --sort=cover
 
 - 状態や後片付けがある準備（保存先、API、偽のサービス、保存済みRunなど）は、fixtureにします。テストファイルはfixtureとして受け取ります。
 - 状態を持たないものは、テストファイルから直接importしてかまいません。`fixtures/`のファイルのパス（`support/paths.py`の`SCENARIO_100_AGENTS`など。テストの中で`Path(__file__).parents[N]`から組み立てません）と、合成データの定数とそれを作る関数（`support/plans.py`の`SHELTER_TRACE`・`shelter_plan_png`、`support/public_data.py`の`MUNICIPALITY`など）です。
-- `tests/conftest.py`に残すのは、すべてのテストに効く設定（ローカルの状態の隔離、`--shard`による分割、並列実行のときの長いテストの並べ替え）と、結果を残すplugin `tests/results_log.py`の読み込みだけです。
+- `tests/conftest.py`に残すのは、すべてのテストに効く設定（ローカルの状態の隔離、`--shard`による分割と`--os-subset`による選り分け、並列実行のときの長いテストの並べ替え）と、結果を残すplugin `tests/results_log.py`の読み込みだけです。
 - 新しい準備は、題材が合うモジュールに足します。合うモジュールがなければ、新しいモジュールを作って`pytest_plugins`に加え、下の表にも足します。
 
 | モジュール | 題材 | 主なfixture |
 |---|---|---|
 | `support/generated.py` | UIで作る生成ScenarioとProject画面のAPI | `generated_scenario`、`generated_scenario_with`、`generated_previews`、`ui_project_api`、`generated_request`、`place_three_at_facility`、`add_toilets_program` |
 | `support/fixture_scenarios.py` | `fixtures/`のScenarioを基に、1つの仕組みを確かめるために組み立てたScenario | `small_replay_scenario`、`small_benchmark_scenario`、`resource_service_scenario`、`information_spread_scenario`、`research_psychology_scenario` |
-| `support/demo.py` | 旧UIのdemo（`web/demo.py`）と、その計画・HTTP | `small_replay_demo`、`failure_day3_demo`、`day3_demo`、`day4_plan`、`multi_plan_draft`、`wait_for_job`、`demo_world_hash` |
 | `support/storage.py` | Projectの保存、保存済みRunとCheckpoint、ほかのOSでの保存 | `project_store_at`、`saved_timeline`、`engine_v1_run`、`newer_engine`、`no_checkpoint_decode`、`windows_like` |
-| `support/web.py` | 保存したRunのinspectorと、socketのないrequest handler | `demo_timeline_inspector`、`audit_inspector`、`full_trace_inspector`、`bare_request_handler` |
+| `support/web.py` | Projectの保存先を持つ、socketのないrequest handler | `bare_request_handler` |
 | `support/llm.py` | 偽のLLM Providerと、有料APIのライブの確認 | `counting_provider`、`recording_router`、`live_model_check`、`live_source_search_check` |
 | `support/reports.py` | PDFレポートの保存済みRun、根拠つきの文章、偽のOpus | `report_saved_run`、`prose_document`、`report_router`、`install_report_router` |
-| `support/plans.py` | 取り込む図面：合成の避難所の図面（画像・GeoJSON）と、手で描いたそのトレース | `shelter_trace`、`upload_plan` |
 | `support/public_data.py` | 地域の調べが呼ぶ公開サービス（国土地理院の住所検索・指定緊急避難場所、e-Stat、気象庁の予報、設定した地域の公開データ）の偽物。存在しない自治体（合成県合成市）の合成の記録を返し、`fail()`で接続の失敗を起こせる。ネットワークには出ない | `public_data`、`researching_project_api`、`research_request` |
 | `support/world.py` | WorldState・イベント・検証の部品 | `make_event`、`record_handler`、`stress_delta`、`count_validations`、`live_checkpoint_world`、`keep_trees`（切り離す名前空間に木を持たせる。kernel が書く木を鍵の順まで固定したテストに） |
 | `support/python_rules.py` | `python_rules`の印：そのテストでは検証のRustの双子を切り、Pythonの検証（`validate_*`）にすべての名前空間を読ませる | `_python_rules`（自動）、`without_kernels` |
@@ -115,7 +113,7 @@ tickの規則はRustのkernelだけで、Pythonの本体はありません（`ke
 
 `tests/unit/repo/test_world_swap_lint.py`は、`src/`で`<x>.__dict__.clear()`か`<x>.__dict__.update(`を、決めた場所（`state_mirror.transaction_or_copy`の差し替え、`WorldState._bare_world`、世界でないもの）の外に見つけると失敗します。世界を変えるときは、写して差し替えずに`state_mirror.transaction`で世界そのものを変えます。
 
-関数を返すfixtureは、呼ぶたびに新しいものを作るだけで状態を持ちません。そのうち`saved_timeline`、`add_toilets_program`、`demo_world_hash`、`recording_router`はsession単位にして、module単位のfixtureからも使えるようにしています。テストファイルの中のhelperがこれらを使うときは、テストが受け取ったfixtureを引数で渡します（例：`integration/test_intervention_outcomes.py`の`_main_and_child`）。
+関数を返すfixtureは、呼ぶたびに新しいものを作るだけで状態を持ちません。そのうち`saved_timeline`、`add_toilets_program`、`recording_router`はsession単位にして、module単位のfixtureからも使えるようにしています。テストファイルの中のhelperがこれらを使うときは、テストが受け取ったfixtureを引数で渡します（例：`integration/test_intervention_outcomes.py`の`_main_and_child`）。
 
 ### 中核のテストのfixture
 
@@ -137,7 +135,7 @@ tickの規則はRustのkernelだけで、Pythonの本体はありません（`ke
   - 拡張の署名（`simulator_signatures`）と`validate_simulator_extensions`の頭（足りない状態、`temporary_spaces_v1`、旧い待ち行列の印、#349）は`tests/support/core_validate_signatures.py`の`validate_signatures.json`で確かめます。各入り口の事例のほかに、設定を変えた世界ごとにPythonが作る署名（辞書の順の`[キー, 値]`）を記録し、`native/core/tests/validate_signatures.rs`が中核の署名と比べます。署名が読む設定のpydanticの`ValidationError`（`FacilityGeometry`、`ScenarioZoneEnvironmentConfig`、`FacilityAwarenessConfig`）は、中核でも同じ文の`Error::Validation`です（#360）。
 - 実体の規則（`_validate_entity_rules`と`_validate_zone_capacity`、#348）の事例は`tests/support/core_validate_entities.py`が書きます。拡張の検証がない世界（`small_replay`、トイレの利用中の`h00_small_replay`）と、食事の配布とトイレの利用と待ちがある生成Scenarioの世界（`service`）を変えます。WorldState v5の文書は水分の必要と資源の枠を持たず、読み込みでも空になるので、その事例は`validate_entity_rows.json`に分け、`native/core/tests/validate_entities.rs`が読み込んだ世界の行を同じに変えてから比べます。
 - 運営のイベント（`validate_operational_events_state`）とインフラ（`validate_infrastructure_runtime_state`）の事例は`tests/support/core_validate_operations.py`が書きます。ゲートの運営の条件（停電、設備の故障、暑さ、職員の不在の繰り返し、配送）を入れた生成Scenarioの50分の世界に、イベントを足す・状態を変える変更を1つずつ加えます。インフラの設定の誤りの文は、中核の`contracts`が書くpydanticの文です。
-- WASMの中核のテストは`native/wasm/tests/node_digests.mjs`です（#244）。wasm-bindgenで作った`sheltersim_wasm`をNode.jsで読み、`tick_core.json`の世界をWASMで進めて、ネイティブの経路のdigestと比べます。世界はファイルのbytesのまま中核に渡します（`Simulation.fromWorlds`）。JSで`JSON.parse`して書き直すと、`1.0`のような数の書き方が変わり、浮動小数か整数かが変わるからです。CIのlintのjobが実行します。
+- WASMの中核のテストは`native/wasm/tests/node_digests.mjs`です（#244）。wasm-bindgenで作った`sheltersim_wasm`をNode.jsで読み、`tick_core.json`の世界をWASMで進めて、ネイティブの経路のdigestと比べます。世界はファイルのbytesのまま中核に渡します（`Simulation.fromWorlds`）。JSで`JSON.parse`して書き直すと、`1.0`のような数の書き方が変わり、浮動小数か整数かが変わるからです。`PRの確認`の`ブラウザー版の計算`のjobが実行します（#380でlintのjobから分けました）。
 - 中核のframe（#264）は、`tests/support/core_frames.py`が書く`frames.json`の世界と分で確かめます。ネイティブの経路の`world_frame`が作ったframeのsha256と`state_hash`を記録し（PR #270で、Pythonが作っていたframeと同じbytesであることを確かめた値です）、`native/core/tests/frames.rs`（`PlainRun`）と`native/wasm/tests/node_frames.mjs`（WASM）が、0分から進めた世界のframeと比べます。
 - 介入の文の読み取りに渡す世界の要約（`ScenarioSummary`、#302）は、`tests/support/core_summaries.py`が書く`summaries.json`の世界と分で確かめます。Pythonの`scenario_summary_from_world`が作った要約の正準JSONのsha256を記録し、`native/core/tests/summaries.rs`（`PlainRun`）と`native/wasm/tests/node_summaries.mjs`（WASM）が、0分から進めた世界の要約と比べます。世界は、`tick_core.json`の2つと、職員の不在・届く前の物資・人の出入りがある`operations`、zoneが1つの`one_zone`です。
 - 介入のEffectProgramの契約と確かめ（#304）は、`tests/support/core_programs.py`が書く`programs.json`で確かめます。programのJSONごとに、Pythonの`EffectProgram.model_validate`が断ったか、`model_dump(mode="json")`の正準JSONのsha256（承認のhash）と、世界と分ごとの`validate_effect_program`の問題の並びを記録し、`native/core/tests/programs.rs`（`PlainRun`）と`native/wasm/tests/node_programs.mjs`（WASM）が比べます。文から読み取る6つの作用だけを確かめ、ほかの作用と、pydanticの文が入る問題は、中核が`Unsupported`で断ります。問題のないprogramは、その世界をその分まで新しく進めて予定に入れ（`schedule_effect_program`、#305）、`command_log`の項目と、直後とRunの終わりの世界のdigest（`core_tick.world_digests`）を記録し、中核の`PlainRun::apply_effect_program`と比べます。

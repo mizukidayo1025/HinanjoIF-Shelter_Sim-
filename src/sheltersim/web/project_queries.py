@@ -6,16 +6,13 @@ import base64
 import json
 from typing import Any
 
-from sheltersim.contracts.workspace import ComparisonQuery, HistoryQuery
-from sheltersim.core.checkpoint_cache import CheckpointHistoryCache
-from sheltersim.core.model_version import same_models, saved_point_view
-from sheltersim.core.state_mirror import read_only_part
-from sheltersim.experiments.timeline import TimelineStore, requested_minute
+from sheltersim.contracts.workspace import HistoryQuery
 from sheltersim.storage.projects import ProjectStore, StorageError, canonical, digest
 
-# Ticks a replay may take instead of restoring a Checkpoint: one restore of a day-long
-# history takes about as long as 60 ticks.
-_REPLAY_RATHER_THAN_RESTORE = 60
+# The kinds of history a Branch answers (#368 decision A): the KPIs and the conversation of
+# the questions. The history index still writes the other kinds until it is removed (#368
+# step 10); the routes that read them went with the older screens (#376).
+HISTORY_KINDS = frozenset({"kpis", "conversations"})
 
 
 def page(
@@ -69,380 +66,33 @@ class ProjectQueries:
         reference = self.store.branch_reference(project_id, run_id, branch_id)
         if not reference.fork_minute <= query.start <= query.end <= reference.computed_until:
             raise StorageError("history_outside_computed_range")
-        if query.kind not in {"people", "households"}:
-            from sheltersim.storage.history_index import HistoryIndex
-
-            # The search reads one index transaction and names the indexed head it
-            # answers as of, so a save that moves the pointer meanwhile changes
-            # nothing it returns (#262).
-            result = HistoryIndex(self.store, project_id, run_id).search(
-                branch_id, query, reference.checkpoint_hash, reference.computed_until
+        # After the range, as the browser checks it (native/wasm/js/api_answers.mjs).
+        if query.kind not in HISTORY_KINDS:
+            raise StorageError(
+                f"history_kind_unavailable: only {', '.join(sorted(HISTORY_KINDS))} are answered"
             )
-            time_semantics = "end_of_tick" if query.kind == "kpis" else "recorded_event_minute"
-            for item in result.get("items", []):
-                if isinstance(item, dict):
-                    item.setdefault("run_id", run_id)
-                    item.setdefault("branch_id", branch_id)
-                    item.setdefault("time_semantics", time_semantics)
-            result.update(
-                {
-                    "run_id": run_id,
-                    "branch_id": branch_id,
-                    "kind": query.kind,
-                    "computed_until": reference.computed_until,
-                    "complete_lifetime_history": False,
-                    "time_semantics": time_semantics,
-                }
-            )
-            return result
-        if any((query.zone_id, query.event_type, query.source_id, query.status, query.text)):
-            raise StorageError("snapshot_filters_unsupported: search recorded evidence instead")
-        scope = {
-            "project_id": project_id,
-            "run_id": run_id,
-            "branch_id": branch_id,
-            **query.model_dump(mode="json", exclude={"cursor", "limit"}),
-        }
-        anchor = reference.checkpoint_hash
-        # Page timestamps before reconstruction; no request can replay an unbounded interval.
-        minutes = range(query.start, query.end + 1, query.step)
-        result = page(minutes, scope, anchor, limit=min(query.limit, 20), cursor=query.cursor)
-        timeline = TimelineStore(self.store, project_id, run_id)
-        rows = []
-        requested_minutes = list(result["items"])
-        replay: Any = None
-        world: Any = None
-        for minute in requested_minutes:
-            # Replaying from the previous minute gives the same world as restoring this
-            # one; it is cheaper while the gap is shorter than a restore takes.
-            # A Run of another model version yields its saved points (D2), one per minute.
-            if world is None or minute - requested_minute(world) > _REPLAY_RATHER_THAN_RESTORE:
-                replay = iter(timeline.iter_worlds(branch_id, minute, requested_minutes[-1]))
-            world = next(replay)
-            while requested_minute(world) < minute:
-                world = next(replay)
-            view = saved_point_view(world)
-            from sheltersim.inspection.frames import person_projection, social_event_records
+        from sheltersim.storage.history_index import HistoryIndex
 
-            presence = read_only_part(world, "population_presence_v1", "people", {})
-            if query.kind == "people":
-                ids = [query.agent_id]
-            else:
-                from sheltersim.contracts.population import population_context_people
-
-                context = population_context_people(world)
-                ids = sorted(
-                    {
-                        key
-                        for key, agent in world.agents.items()
-                        if (
-                            presence.get(key, {}).get(
-                                "household_id",
-                                context.get(key, {}).get("household_id", agent.profile.group_id),
-                            )
-                        )
-                        == query.household_id
-                    }
-                    | {
-                        key
-                        for key, value in presence.items()
-                        if value.get("household_id") == query.household_id
-                    }
-                )
-            interactions, _ = social_event_records(world)
-            projections = [
-                person_projection(world, identity, social_events=interactions) for identity in ids
-            ]
-            from sheltersim.contracts.runtime import entity_projections
-
-            extensions = entity_projections(world, entity_ids=set(ids))
-            for identity, projection in zip(ids, projections):
-                if projection["person"] is not None and ("agent", identity) in extensions:
-                    projection["person"]["extensions"] = extensions[("agent", identity)]
-            people = [row["person"] for row in projections if row["person"] is not None]
-            positions = [row["position"] for row in projections if row["position"] is not None]
-            recorded_presence = [
-                row["presence"] for row in projections if row["presence"] is not None
-            ]
-            data = {"people": people, "positions": positions, "presence_records": recorded_presence}
-            rows.append(
-                {
-                    "minute": minute,
-                    "exact": view is None or not view.rounded,
-                    "time_semantics": "before_tick",
-                    "run_id": run_id,
-                    "branch_id": branch_id,
-                    "state_hash": None,
-                    "projection_hash": digest(data),
-                    "integrity_scope": "selected_records_only",
-                    **data,
-                    "absent": not people,
-                    **(view.describe() if view is not None else {}),
-                }
-            )
-        result["items"] = rows
-        result["effective_limit"] = min(query.limit, 20)
-        if query.kind == "households":
-            result["membership_basis"] = "presence_else_current_context_else_initial_profile"
-        # A concurrent append must not silently combine two head versions.
-        latest = self.store.branch_reference(project_id, run_id, branch_id)
-        if latest.checkpoint_hash != reference.checkpoint_hash:
-            raise StorageError("history_changed_during_query: retry")
+        # The search reads one index transaction and names the indexed head it
+        # answers as of, so a save that moves the pointer meanwhile changes
+        # nothing it returns (#262).
+        result = HistoryIndex(self.store, project_id, run_id).search(
+            branch_id, query, reference.checkpoint_hash, reference.computed_until
+        )
+        time_semantics = "end_of_tick" if query.kind == "kpis" else "recorded_event_minute"
+        for item in result.get("items", []):
+            if isinstance(item, dict):
+                item.setdefault("run_id", run_id)
+                item.setdefault("branch_id", branch_id)
+                item.setdefault("time_semantics", time_semantics)
         result.update(
             {
                 "run_id": run_id,
                 "branch_id": branch_id,
-                "computed_until": reference.computed_until,
                 "kind": query.kind,
-                "coverage": "exact_checkpoint_replay_for_requested_sample_minutes",
-                "completeness": "complete_for_requested_samples",
-                "completeness_reason": (
-                    "Each returned minute is reconstructed exactly; this sampled response does "
-                    "not claim every intervening event or lifetime record."
-                ),
-                "oldest_minute": requested_minutes[0] if requested_minutes else None,
-                "newest_minute": requested_minutes[-1] if requested_minutes else None,
-                "retention_limit": None,
-                "retention_limit_reason": (
-                    "No sample retention cap applies; the query is bounded by pagination and the "
-                    "computed Run range."
-                ),
-                "requested_range": [query.start, query.end],
+                "computed_until": reference.computed_until,
                 "complete_lifetime_history": False,
+                "time_semantics": time_semantics,
             }
         )
-        if any(not row["exact"] for row in rows):
-            result["coverage"] = "saved_points_of_an_older_model_run"
-            result["completeness_reason"] = (
-                "This Run was computed with another model version and is view-only: a minute "
-                "between saved points shows the saved point before it (saved_point_rounding) "
-                "and is not computed again."
-            )
         return result
-
-    @staticmethod
-    def _mentions(value: Any, identity: str) -> bool:
-        from collections.abc import Mapping
-
-        if isinstance(value, Mapping):
-            return any(ProjectQueries._mentions(item, identity) for item in value.values())
-        if isinstance(value, (list, tuple)):
-            return any(ProjectQueries._mentions(item, identity) for item in value)
-        return value == identity
-
-    def compare(self, project_id: str, query: ComparisonQuery) -> dict[str, Any]:
-        keys = [(target.run_id, target.branch_id) for target in query.targets]
-        if len(keys) != len(set(keys)):
-            raise StorageError("comparison_targets_must_be_distinct")
-        frames, metadata = [], []
-        for target in query.targets:
-            run = self.store.run(project_id, target.run_id)
-            scenario = self.store.scenario(project_id, run["scenario_id"], run["scenario_version"])
-            frame = TimelineStore(self.store, project_id, target.run_id).frame(
-                target.branch_id, query.minute
-            )
-            frames.append(frame)
-            inputs = json.loads(scenario.canonical_json())
-            initial = {
-                key: inputs.get(key)
-                for key in (
-                    "profiles",
-                    "zones",
-                    "zone_edges",
-                    "facilities",
-                    "staff",
-                    "initial_stock",
-                    "scheduled_events",
-                    "duration_minutes",
-                )
-            }
-            initial["spatial_population_inputs"] = {
-                key: scenario.model_configs.get(key)
-                for key in (
-                    "facility_geometry",
-                    "spatial_constraints",
-                    "population",
-                    "population_context",
-                    "layout",
-                    "layout_routing",
-                )
-            }
-            fingerprint = digest(initial)
-            metadata.append(
-                {
-                    "run_id": target.run_id,
-                    "branch_id": target.branch_id,
-                    "seed": run["seed"],
-                    "model_versions": run["model_versions"],
-                    "initial_conditions_hash": fingerprint,
-                    "configuration_hash": digest(scenario.model_configs),
-                    "scenario_hash": run["scenario_hash"],
-                }
-            )
-        baseline = metadata[0]
-        compatibility = [
-            {
-                "target": item,
-                "same_seed": item["seed"] == baseline["seed"],
-                "same_models": same_models(item["model_versions"], baseline["model_versions"]),
-                "same_configuration": item["configuration_hash"] == baseline["configuration_hash"],
-                "same_initial_conditions": item["initial_conditions_hash"]
-                == baseline["initial_conditions_hash"],
-            }
-            for item in metadata[1:]
-        ]
-        return {
-            "schema_version": 1,
-            "minute": query.minute,
-            "frames": frames,
-            "metadata": metadata,
-            "compatibility": compatibility,
-            "interpretation": (
-                "Descriptive model comparison; seed equality alone does not establish pairing or "
-                "real-world causation."
-            ),
-        }
-
-    def first_divergence(self, project: str, query: Any) -> dict[str, Any]:
-        from sheltersim.contracts.workspace import HistoryQuery
-        from sheltersim.storage.history_index import HistoryIndex, cursor_decode, cursor_encode
-
-        refs = [self.store.branch_reference(project, t.run_id, t.branch_id) for t in query.targets]
-        if any(
-            not ref.fork_minute <= query.start <= query.end <= ref.computed_until for ref in refs
-        ):
-            raise StorageError("divergence_outside_common_computed_range")
-        anchors = [ref.checkpoint_hash for ref in refs]
-        anchor = digest(anchors)
-        scope = digest(
-            {"project": project, **query.model_dump(mode="json", exclude={"cursor", "scan_limit"})}
-        )
-        from sheltersim.storage.query_cursors import seal, unseal
-
-        after = (
-            cursor_decode(unseal(self.store, query.cursor), scope, anchor) if query.cursor else None
-        )
-        prior_gap = bool(after and after[1] == "gap")
-        if after and (after[1] not in {"", "gap"} or not query.start <= after[0] < query.end):
-            raise StorageError("invalid_scan_progress_cursor")
-        start = after[0] + 1 if after else query.start
-        limit = min(query.scan_limit, 20) if query.mode != "kpis" else query.scan_limit
-        end = min(query.end, start + limit - 1)
-        if start > query.end:
-            raise StorageError("divergence_cursor_outside_range")
-        streams = []
-        if query.mode == "kpis":
-            for target, ref in zip(query.targets, refs):
-                rows = HistoryIndex(self.store, project, target.run_id).search(
-                    target.branch_id,
-                    HistoryQuery(kind="kpis", start=start, end=end, limit=100),
-                    ref.checkpoint_hash,
-                    ref.computed_until,
-                )["items"]
-                streams.append({row["minute_index"]: row for row in rows})
-        else:
-            # World samples are compared by digest(world.to_dict()). The history cache of
-            # Checkpoint saves (#44), seeded with the EventLog each replay starts from,
-            # gives the same bytes and converts only what each minute added.
-            histories = [CheckpointHistoryCache() for _ in query.targets]
-            streams = [
-                iter(
-                    TimelineStore(self.store, project, t.run_id).iter_worlds(
-                        t.branch_id,
-                        start,
-                        end,
-                        history_cache=history if query.mode == "world" else None,
-                    )
-                )
-                for t, history in zip(query.targets, histories, strict=True)
-            ]
-        found = None
-        missing = []
-        # Samples of a Run of another model version are its saved points (D2).
-        rounded: list[dict[str, Any]] = []
-        for minute in range(start, end + 1):
-            samples = []
-            world_hashes = []
-            for index, stream in enumerate(streams):
-                if query.mode == "kpis":
-                    row = stream.get(minute)
-                    if row is None:
-                        missing.append({"target_index": index, "minute": minute})
-                        samples.append(None)
-                        continue
-                    keys = query.metrics or tuple(
-                        key
-                        for key, value in row.items()
-                        if type(value) in (int, float) and key != "minute_index"
-                    )
-                    if any(key not in row for key in keys):
-                        raise StorageError("divergence_metric_not_recorded")
-                    samples.append({key: row[key] for key in keys})
-                else:
-                    world = next(stream)
-                    view = saved_point_view(world)
-                    if view is not None and view.rounded:
-                        rounded.append(
-                            {
-                                "target_index": index,
-                                "minute": minute,
-                                "saved_minute": view.saved_minute,
-                            }
-                        )
-                    if query.mode == "world":
-                        world.validate()
-                        document, _, encoder = histories[index].documents(world, None)
-                        world_hashes.append(encoder.digest(document))
-                        samples.append(True)
-                    else:
-                        from sheltersim.inspection.frames import person_projection
-
-                        samples.append(person_projection(world, query.agent_id))
-            if any(sample is None for sample in samples):
-                continue
-            hashes = world_hashes or [digest(sample) for sample in samples]
-            if len(set(hashes)) > 1:
-                found = {
-                    "minute": minute,
-                    "sample_hashes": hashes,
-                    "baseline_sample": samples[0] if query.mode != "world" else None,
-                    "candidate_samples": samples[1:] if query.mode != "world" else None,
-                }
-                break
-        if any(
-            self.store.branch_reference(project, t.run_id, t.branch_id).checkpoint_hash != key
-            for t, key in zip(query.targets, anchors)
-        ):
-            raise StorageError("history_changed_during_query")
-        complete = found is not None or end == query.end
-        return {
-            "schema_version": 1,
-            "mode": query.mode,
-            "first_divergence": found,
-            "earliest_in_requested_interval": found is not None and not missing and not prior_gap,
-            "scanned_range": [query.start, found["minute"] if found else end],
-            "page_scanned_range": [start, found["minute"] if found else end],
-            "missing_samples": missing,
-            "saved_point_rounding": rounded,
-            "earlier_pages_have_missing_samples": prior_gap,
-            "complete": complete,
-            "anchor_hash": anchor,
-            "next_cursor": None
-            if complete
-            else seal(
-                self.store,
-                cursor_encode(
-                    {
-                        "scope": scope,
-                        "anchor": anchor,
-                        "minute": end,
-                        "key": "gap" if missing or prior_gap else "",
-                    }
-                ),
-            ),
-            "time_semantics": "end_of_tick" if query.mode == "kpis" else "before_tick",
-            "limits": (
-                "Exact at recorded resolution and requested scope. Seed/model/input differences "
-                "are descriptive; this is not empirical causality."
-            ),
-        }

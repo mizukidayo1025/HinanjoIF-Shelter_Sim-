@@ -33,6 +33,10 @@ from sheltersim.experiments.timeline import TimelineStore
 from sheltersim.storage.projects import ProjectStore
 from sheltersim.web.projects import ProjectAPI
 
+# Run on every pull request on Windows and macOS too (pytest --os-subset, #380): the sample
+# Project is built by a script that writes, copies and deletes files.
+pytestmark = pytest.mark.os_dependent
+
 BUILDER = Path(__file__).parents[2] / "scripts" / "build_project_sample.py"
 LANDING = Path(__file__).parents[2] / "deploy" / "vm" / "render_landing.py"
 BROWSER = Path(__file__).parents[2] / "scripts" / "build_browser_sample.py"

@@ -1,4 +1,4 @@
-"""A synthetic shelter floor plan, drawn as an image and written as GeoJSON, and its upload.
+"""A synthetic shelter floor plan, drawn as an image, for the plan extraction's tests.
 
 The plan is 40 × 30 m, drawn at 10 px per metre on a 400 × 300 px page. The sleeping
 hall fills the west half; the east half is split into the water and meal area (food)
@@ -10,20 +10,14 @@ accessible toilet.
 
 from __future__ import annotations
 
-import base64
-import copy
-import hashlib
 import io
-from collections.abc import Callable
 from typing import Any
-
-import pytest
 
 PLAN_WIDTH_PX, PLAN_HEIGHT_PX = 400, 300
 PLAN_WIDTH_M, PLAN_HEIGHT_M = 40, 30
 
-# The operator's trace of the drawing in page pixels, as the Project screen's plan
-# editor posts it (operation "trace").
+# The operator's trace of the drawing in page pixels, from which the images are drawn (the
+# older Project screen's plan editor posted such traces; it went in #376).
 SHELTER_TRACE: dict[str, Any] = {
     "raster_pixel_width": PLAN_WIDTH_PX,
     "raster_pixel_height": PLAN_HEIGHT_PX,
@@ -159,96 +153,3 @@ def rooms_plan_png(partitions: int) -> bytes:
     stream = io.BytesIO()
     image.save(stream, format="PNG")
     return stream.getvalue()
-
-
-def shelter_plan_geojson() -> dict[str, Any]:
-    """SHELTER_TRACE as a metric GeoJSON FeatureCollection (operation "geojson").
-
-    GeoJSON states each zone's usable area instead of deriving it from the polygon.
-    """
-
-    def metres(point: list[float]) -> list[float]:
-        return [point[0] * PLAN_WIDTH_M / PLAN_WIDTH_PX, point[1] * PLAN_HEIGHT_M / PLAN_HEIGHT_PX]
-
-    def feature(kind: str, properties: dict[str, Any], shape: str, coordinates: Any) -> dict:
-        return {
-            "type": "Feature",
-            "properties": {"sheltersim_type": kind, **properties},
-            "geometry": {"type": shape, "coordinates": coordinates},
-        }
-
-    trace = SHELTER_TRACE
-    doors = {item["route_id"]: item["opening_id"] for item in trace["route_openings"]}
-    features = []
-    for zone in trace["zones"]:
-        ring = [metres(point) for point in zone["pixel_polygon"]]
-        properties = {"zone_id": zone["zone_id"], "name": zone["name"], "usable_area_m2": 100}
-        features.append(feature("zone", properties, "Polygon", [[*ring, ring[0]]]))
-    for facility in trace["facilities"]:
-        properties = {key: value for key, value in facility.items() if not key.startswith("pixel")}
-        point = metres([facility["pixel_x"], facility["pixel_y"]])
-        features.append(feature("facility", properties, "Point", point))
-    for route in trace["routes"]:
-        properties = {
-            key: route[key] for key in ("edge_id", "from_zone_id", "to_zone_id", "width_m")
-        }
-        properties |= {"accessible": True, "opening_id": doors[route["edge_id"]]}
-        line = [metres(point) for point in route["points_px"]]
-        features.append(feature("route", properties, "LineString", line))
-    for wall in trace["walls"]:
-        line = [metres(wall["start_px"]), metres(wall["end_px"])]
-        features.append(feature("wall", {"wall_id": wall["wall_id"]}, "LineString", line))
-    for opening in trace["openings"]:
-        properties = {key: opening[key] for key in ("opening_id", "wall_id", "width_m")}
-        line = [metres(opening["start_px"]), metres(opening["end_px"])]
-        features.append(feature("opening", properties, "LineString", line))
-    return {
-        "type": "FeatureCollection",
-        "units": "m",
-        "origin": "top_left",
-        "width_m": PLAN_WIDTH_M,
-        "height_m": PLAN_HEIGHT_M,
-        "features": features,
-    }
-
-
-@pytest.fixture
-def shelter_trace() -> dict[str, Any]:
-    """A fresh copy of SHELTER_TRACE, safe to change in one test."""
-    return copy.deepcopy(SHELTER_TRACE)
-
-
-@pytest.fixture
-def upload_plan() -> Callable[..., str]:
-    """Upload a plan file to a Project as the Project screen does, and return its asset ID.
-
-    upload_plan(api, content, media_type) posts the upload, its one chunk and its
-    finish to the ProjectAPI of project "project", with the operator's permission.
-    """
-    counter = iter(range(1_000_000))
-
-    def upload(api: Any, content: bytes, media_type: str = "image/png") -> str:
-        upload_id = f"upload-{next(counter)}"
-        vector = media_type in {"application/json", "application/geo+json"}
-        sha256 = hashlib.sha256(content).hexdigest()
-        root = ["project", "uploads", upload_id]
-        api.post(
-            root,
-            {
-                "media_type": media_type,
-                "byte_count": len(content),
-                "sha256": sha256,
-                "permission_confirmed": True,
-                "sensitive_building": False,
-                "file_name": "plan." + media_type.rsplit("/", 1)[-1].removeprefix("geo+"),
-                "coordinate_system": "local_metre" if vector else "raster_pixel",
-            },
-        )
-        api.post(
-            [*root, "chunks"],
-            {"index": 0, "data_base64": base64.b64encode(content).decode("ascii")},
-        )
-        api.post([*root, "finish"], {})
-        return sha256
-
-    return upload

@@ -36,7 +36,7 @@
 | H05 固定デモscenario | 100人×7日のS1物資遅延、S2断水、介入の施設容量・staff配置・stock量・時刻は `ASM-H05-OPERATIONAL-CAPACITY-V1` / `ASM-H05-OPERATIONAL-STOCK-V1` / `ASM-H05-OPERATIONAL-SCHEDULE-V1` / `ASM-H05-INTERVENTION-V1` に記録した合成条件です。ガイドラインは課題の検討文脈のみを与え、これらの値やKPI変化を校正しません。 |
 | Day 3 の設備停止 | minute 2880 にトイレ2基を止める合成ストレステストです。停止時刻と規模は実災害事例の再現値ではありません。 |
 | Zone、スタッフ、設備 | 人数・定員・辺ごとの移動時間は動作検証用 fixture 値です。 staffing ratio や標準定員の提案として解釈しません。 |
-| Inspector fallback地図 | 座標未設定時の4列gridは `ASM-SYNTHETIC-ZONE-DISPLAY-V1` に記録する表示用座標です。シミュレーションや経路計算には使いません。 |
+| Zoneの表示用fallback座標 | 座標未設定時の4列gridは `ASM-SYNTHETIC-ZONE-DISPLAY-V1` に記録する表示用座標です。シミュレーションや経路計算には使いません。 |
 
 根拠資料とモデル仮定の関係は「この種類の運営課題をシナリオで調べる理由」に限られます。例えばトイレガイドラインは、断水や下水設備の破損がトイレ利用を妨げる状況を説明していますが、fixture の停止時刻、何基が停止するか、Queue wait やAgent stress の変化量を予測するものではありません。
 

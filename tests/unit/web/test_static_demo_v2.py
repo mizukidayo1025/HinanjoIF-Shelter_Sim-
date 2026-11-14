@@ -334,3 +334,67 @@ assert.equal(run("?project=sample", {project: "mine"}).ownId(), "mine");
         capture_output=True,
         text=True,
     )
+
+
+def test_the_api_passphrase_is_sent_only_to_the_relay_and_forgotten_when_refused():
+    """「API を有効にする」 (#420): the passphrase goes to /llm/v1/session as a Bearer token; one
+    the relay no longer lets in is forgotten, one kept while the relay is out of reach."""
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("Node is required for the UI callback regression")
+    source = Path("src/sheltersim/web/static/demo-v2.js").resolve()
+    script = r"""
+import fs from "node:fs";
+import assert from "node:assert/strict";
+const source = fs.readFileSync(process.argv[1], "utf8");
+const body = source.split("  const LLM_KEY =")[1].split("  async function enableApi(")[0];
+const store = new Map();
+const localStorage = {
+  getItem: (k) => (store.has(k) ? store.get(k) : null),
+  setItem: (k, v) => store.set(k, v),
+  removeItem: (k) => store.delete(k),
+};
+const elements = new Map();
+const $ = (id) => {
+  if (!elements.has(id))
+    elements.set(id, { textContent: "", hidden: false, classList: { toggle() {} } });
+  return elements.get(id);
+};
+const num = (n) => String(n);
+let answer;
+const sent = [];
+const fetch = async (url, init) => {
+  sent.push([url, init.headers.Authorization]);
+  return answer();
+};
+const wrapped = "(() => { const LLM_KEY =" + body + "; return { refreshApi, keepPassphrase }; })";
+const make = eval(wrapped);
+const { refreshApi, keepPassphrase } = make();
+const json = (status, value) => async () => ({ ok: status < 400, status, json: async () => value });
+
+keepPassphrase("pass-1");
+answer = json(200, { recipient: "審査員A", remaining_usd: 4.5, available: true });
+await refreshApi();
+assert.deepEqual(sent.at(-1), ["/llm/v1/session", "Bearer pass-1"]);
+assert.match($("home-api-status").textContent, /審査員A/);
+assert.equal($("home-api-enable").hidden, true);
+
+answer = async () => { throw new TypeError("offline"); };
+await refreshApi();
+assert.equal(store.get("hinanjo-if-llm-passphrase"), "pass-1");
+assert.match($("home-api-status").textContent, /接続できません/);
+
+answer = json(401, { error: "合言葉が違います。", code: "llm_passphrase_invalid" });
+await refreshApi();
+assert.equal(store.has("hinanjo-if-llm-passphrase"), false);
+assert.equal($("home-api-status").textContent, "合言葉が違います。");
+assert.equal($("home-api-enable").hidden, false);
+"""
+    result = subprocess.run(
+        [node, "--input-type=module", "-e", script, str(source)],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr

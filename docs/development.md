@@ -85,6 +85,8 @@ Scenarioから0分の世界を作る処理も、中核にあります（`shelter
 
 ブラウザーでの時間とメモリは、試しの世界（Projectの画面の生成Scenario、1日、seed 2026、20人と100人）で計ります。`benchmarks/wasm_trial_worlds.py`が0分の世界を書き出し、ネイティブの経路のdigestと時間を記録します。`benchmarks/wasm_trial_measure.py`は、計測のページ（`benchmarks/wasm_trial/index.html`）をPlaywrightのChromiumとFirefoxで開き、WASMで同じ世界を進めます。Playwrightとそのbrowserはprojectの依存ではないので、計る環境に入れます。書き出しと結果は生成物なので、リポジトリーの外に置きます。
 
+この節と下の静的サイトの道具（`wasm_trial_measure.py`、`static_site_check.py`、`static_site_e2e.py`）は、`--browsers webkit`でWebKitでも動きます（`python -m playwright install webkit`と、`python -m playwright install-deps webkit`が入れるOSのライブラリが要ります）。PlaywrightのWebKitは、使い捨てのcontext（`browser.new_context()`）ではOPFSを開けず、`navigator.storage.getDirectory()`が`UnknownError`になります（#253）。そのため道具は、WebKitだけ、contextごとに新しい空のディレクトリーをprofileにして開き（persistent context、`benchmarks/browser_profiles.py`）、閉じるときに消します。ChromiumとFirefoxは、これまでの計測と比べられるように、使い捨てのcontextのままです。
+
 ~~~shell
 python benchmarks/wasm_trial_worlds.py --output wasm-trial
 wasm-bindgen --target web --out-dir wasm-web native/target/wasm32-unknown-unknown/release/sheltersim_wasm.wasm

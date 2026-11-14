@@ -1,4 +1,5 @@
-# Run with `cargo clippy --manifest-path native/Cargo.toml -- -D clippy::disallowed_methods`.
+# Run with `cargo clippy --manifest-path native/Cargo.toml --workspace --all-targets -- -A clippy::all
+# -D clippy::disallowed_methods` (the CI's 「書式・規則」 does; the tests are held to the bans too).
 # Float results must be the same bits on every OS, and dict order must never move.
 disallowed-methods = [
     { path = "f64::exp", reason = "use core::mathx::exp: the pinned libm crate, the same bits on every OS" },

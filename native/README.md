@@ -805,8 +805,9 @@ split PR by PR; its last section sums up what is where.
 Every float operation of a rule goes through `core::mathx`, and keeps the order of the Python
 expression. `tests/integration/test_native_parity.py` compares `mathx` with CPython, and pins the
 bits of exp, expm1, pow and fma as fixed vectors.
-`cargo clippy --manifest-path native/Cargo.toml -- -A clippy::all -D clippy::disallowed_methods`
-enforces the bans in `native/clippy.toml`.
+`cargo clippy --manifest-path native/Cargo.toml --workspace --all-targets -- -A clippy::all -D clippy::disallowed_methods`
+enforces the bans in `native/clippy.toml`, in the tests too: an expected value a test makes
+with `f64::max` would part from the rule's `py_max` at a tie or a NaN (#390).
 
 | Python | Rust | Note |
 |---|---|---|

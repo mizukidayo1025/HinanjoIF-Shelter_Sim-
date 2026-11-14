@@ -1184,7 +1184,11 @@ class Walk:
             if label == "text":
                 self.page.click("#example")
             else:
+                # With a Scenario open, the scenario page shows its conditions; a new one starts
+                # from 「新しいシナリオを作る」 (#372).
                 self.page.click("[data-page=scenario]")
+                self.page.click("#scenario-new")
+                self.view("scenario")
                 self.page.evaluate(
                     """(fields) => {
                       document.getElementById("scenario-text").value = "";

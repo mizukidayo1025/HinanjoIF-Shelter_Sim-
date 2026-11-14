@@ -7,10 +7,11 @@
 // The script's attributes: `data-worker` the Worker's URL (/browser/api_worker.mjs by default),
 // `data-sample` the sample's manifest (/sample/sample.json), `data-example-project` the sample's
 // Project and `data-compute-run` the Run the browser computes itself (compute.mjs's COMPUTE_RUN),
-// which the screen's home lists (#371). While the sample is fetched and imported on the first
+// which the screen's home lists (#371), and `data-scenarios="unavailable"` on a site that cannot
+// make Scenarios (built without the shelter index; the screen then says so, #372). While the sample is fetched and imported on the first
 // visit, the screen's notice (#notice) says how far it is.
 // `window.HinanjoBrowserApi` has `ready` (a Promise of { installed, ms }), `site` ({ exampleProject,
-// computeRun }), `resetCompute()` (the home's 「計算をやり直す」) and `stats()` for checks.
+// computeRun, scenarios }), `resetCompute()` (the home's 「計算をやり直す」) and `stats()` for checks.
 //
 // The first time the screen starts a computation (`POST …/runs/{run}/resume`, #267) the page asks
 // the browser to keep the store (`navigator.storage.persist()`, the decision on #265: once, when
@@ -25,6 +26,7 @@
   const site = {
     exampleProject: script?.dataset.exampleProject || "sample",
     computeRun: script?.dataset.computeRun || "run-browser-compute",
+    scenarios: script?.dataset.scenarios || "available",
   };
   const realFetch = window.fetch.bind(window);
   const pending = new Map();

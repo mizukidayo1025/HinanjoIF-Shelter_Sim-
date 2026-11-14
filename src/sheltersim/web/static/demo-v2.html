@@ -45,7 +45,10 @@
           <option value="120">120×</option>
           <option value="240">240×</option>
         </select></label
-      ><button id="play" class="primary" disabled>▶ シミュレーションを再生</button>
+      ><button id="play" class="primary play-button" disabled aria-label="シミュレーションを再生">
+        <span class="play-icon" aria-hidden="true">▶</span
+        ><span class="play-label">シミュレーションを再生</span>
+      </button>
     </header>
     <aside class="sidebar">
       <nav aria-label="メインナビゲーション">
@@ -62,52 +65,12 @@
         </button>
       </nav>
       <div class="sidebar-bottom">
-        <div class="shelter-picture" aria-hidden="true">
-          <svg viewBox="0 0 280 160" role="presentation">
-            <defs>
-              <linearGradient id="campus-sky" x2="0" y2="1">
-                <stop stop-color="#b6dcf3" />
-                <stop offset="1" stop-color="#eff8ff" />
-              </linearGradient>
-            </defs>
-            <path fill="url(#campus-sky)" d="M0 0h280v160H0z" />
-            <path fill="#8eaf7f" d="M0 124h280v36H0z" />
-            <path fill="#b7b7a4" d="M0 144l138-29 142 31v14H0z" />
-            <path fill="#98a5ab" d="M35 59l114-18 100 22v16L35 80z" />
-            <path fill="#e4e0cc" d="M38 70l109-15 98 21v65l-207-4z" />
-            <path
-              fill="#fffdf0"
-              d="M38 89l110-10 97 14v8L38 97zm0 27l110-3 97 7v8L38 125z"
-            />
-            <g fill="#83b2ca" stroke="#f2f1df" stroke-width="3">
-              <path
-                d="M52 80l19-2v14H52zm31-4l19-2v18H83zm31-4l19-2v22h-19zm47 1l18 4v17h-18zm31 6l18 4v15h-18zm31 7l13 3v13h-13zM52 104h19v14H52zm31-1h19v16H83zm31-1h19v18h-19zm47 1h18v18h-18zm31 3h18v17h-18zm31 4h13v16h-13z"
-              />
-            </g>
-            <path fill="#557789" d="M134 116h24v28h-24z" />
-            <g fill="#6e9f69">
-              <circle cx="17" cy="106" r="23" />
-              <circle cx="265" cy="110" r="29" />
-            </g>
-            <g fill="#98bb78">
-              <circle cx="9" cy="96" r="16" />
-              <circle cx="253" cy="98" r="20" />
-            </g>
-          </svg>
-          <small>合成施設イメージ</small>
-        </div>
         <div class="current-scenario">
-          <small>現在のシナリオ</small
-          ><strong id="scenario-name">避難所の「もしも」</strong>
-          <p id="scenario-summary">
-            条件を入力して<br />シミュレーションを始めましょう。
-          </p>
-          <hr />
-          <span id="mode-badge" class="badge">接続確認中</span>
-          <p class="fine">
-            合成人物によるモデル実験<br />実際の安全性・医療結果の予測ではありません。
-          </p>
+          <small>開いているシナリオ</small
+          ><strong id="scenario-name">まだ開いていません</strong>
+          <p id="scenario-summary"></p>
         </div>
+        <p class="fine sidebar-note">合成の人物によるモデル実験です。実際の結果の予測ではありません。</p>
       </div>
     </aside>
     <main>
@@ -145,6 +108,9 @@
             <p class="fine">条件を入力して、新しいシナリオを作れます。作ったシナリオはここから開けます。</p>
             <div id="home-own-list" class="home-list"></div>
             <button id="home-new" class="primary" type="button">＋ 新しいシナリオを作る</button>
+            <p id="home-new-note" class="fine" hidden>
+              このサイトは地域の避難所の一覧を入れずに作られているため、条件から新しいシナリオを作れません。
+            </p>
           </article>
         </div>
         <p class="fine home-notes">
@@ -166,6 +132,26 @@
         <h1 id="scenario-heading" class="sr-only">
           シナリオ設定・AIプレビュー
         </h1>
+        <article id="scenario-open" class="panel scenario-open" hidden>
+          <div class="panel-title">
+            <h2>開いているシナリオの条件</h2>
+            <button id="scenario-new" class="primary compact" type="button">
+              ＋ 新しいシナリオを作る
+            </button>
+          </div>
+          <div id="scenario-open-chips" class="chips"></div>
+          <p class="fine">
+            作ったシナリオの条件は変えられません。条件を変えて試すときは、新しいシナリオを作るか、シミュレーション画面のある時刻から分岐を作ります。
+          </p>
+          <details>
+            <summary>構造化された設定を確認</summary>
+            <pre id="scenario-open-json"></pre>
+          </details>
+        </article>
+        <article id="scenario-unavailable" class="panel scenario-unavailable" hidden>
+          <h2>このサイトでは新しいシナリオを作れません</h2>
+          <p id="scenario-unavailable-reason" class="fine"></p>
+        </article>
         <div class="steps">
           <div class="step current">
             <b>1</b>
@@ -555,7 +541,9 @@
             <span id="computed-label" class="badge">未計算</span>
           </div>
           <div class="playback">
-            <button id="timeline-play" disabled>▶ シミュレーションを再生</button
+            <button id="timeline-play" class="play-button" disabled aria-label="シミュレーションを再生">
+              <span class="play-icon" aria-hidden="true">▶</span
+              ><span class="play-label">シミュレーションを再生</span></button
             ><input
               id="seek"
               type="range"
@@ -776,7 +764,7 @@
                 <p>
                   「なぜトイレが混雑したのか」<br />「どの介入が有効だったか」
                 </p>
-                <span class="badge">Claude APIに接続して回答を生成します</span>
+                <span id="chat-mode" class="badge">回答の作り方は、シナリオを開くと表示します</span>
                 <p class="chat-guide">
                   グラフやマップの気づきを質問できます。回答に引用された記録・時刻と、AIの解釈を並べて確認しましょう。
                 </p>

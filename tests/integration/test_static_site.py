@@ -101,7 +101,8 @@ def test_the_site_holds_the_screen_the_browser_api_and_the_sample_in_parts(
     assert added == [
         '    <script src="/browser/api_fetch.js" data-worker="/browser/api_worker.mjs"'
         ' data-sample="/sample/sample.json" data-example-project="sample"'
-        ' data-compute-run="run-browser-compute"></script>',
+        # Built without the shelter index, the site cannot make Scenarios and says so (#372).
+        ' data-compute-run="run-browser-compute" data-scenarios="unavailable"></script>',
     ]
     assert (output / "LICENSE.txt").read_bytes() == (STATIC.parents[3] / "LICENSE").read_bytes()
     for name, data in NOTICES.items():
@@ -198,6 +199,9 @@ def test_the_site_holds_the_shelter_index_and_rows_the_browser_s_research_reads(
         "notices": NOTICES,
     }
     with_index = builder["build"](tmp_path / "with-index", shelters=files, **arguments)
+    page = (tmp_path / "with-index" / "demo-v2.html").read_text(encoding="utf-8")
+    assert 'data-compute-run="run-browser-compute"></script>' in page
+    assert "data-scenarios" not in page
     browser = tmp_path / "with-index" / "browser"
     assert json.loads((browser / "gsi-shelter-index.json").read_text(encoding="utf-8")) == made
     written = sorted(path.name for path in (browser / "gsi-shelters").iterdir())

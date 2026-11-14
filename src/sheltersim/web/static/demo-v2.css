@@ -3627,3 +3627,88 @@ h2 {
     grid-template-columns: 1fr;
   }
 }
+
+/* ヘッダーとサイドバー（#372）：時刻・再生速度・再生は、時刻のある画面（シミュレーション・分岐比較）だけに出す */
+body:not([data-view="simulation"]):not([data-view="comparison"]) .clock,
+body:not([data-view="simulation"]):not([data-view="comparison"]) .speed-label,
+body:not([data-view="simulation"]):not([data-view="comparison"]) #play {
+  display: none;
+}
+.play-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+.sidebar-note {
+  margin: 8px 4px 0;
+  font-size: 10px;
+  line-height: 1.5;
+}
+.current-scenario {
+  border-radius: 8px;
+}
+.current-scenario strong {
+  min-height: 0;
+}
+.current-scenario p:empty {
+  display: none;
+}
+.nav-item:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+/* シナリオ設定：開いているシナリオの条件、または作れない理由を出すときは、新しいシナリオの入力を隠す */
+body[data-scenario="open"] #page-scenario .steps,
+body[data-scenario="open"] #page-scenario .scenario-grid,
+body[data-scenario="unavailable"] #page-scenario .steps,
+body[data-scenario="unavailable"] #page-scenario .scenario-grid {
+  display: none;
+}
+.scenario-open .panel-title {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.scenario-open .chips {
+  margin: 8px 0;
+}
+@media (max-width: 540px) {
+  .app-header {
+    gap: 6px;
+  }
+  .brand-image {
+    width: 150px;
+    height: 36px;
+    background-size: 305px auto;
+    background-position: -75px -21px;
+  }
+  .clock {
+    min-width: 0;
+    padding: 3px 8px;
+  }
+  .clock small {
+    display: none;
+  }
+  .clock strong {
+    font-size: 12px;
+  }
+  .app-header #play {
+    margin-left: auto;
+    flex: none;
+    width: 40px;
+    height: 36px;
+    padding: 0;
+  }
+  .app-header #play .play-label {
+    display: none;
+  }
+}
+@media (max-width: 540px) {
+  .playback {
+    flex-wrap: wrap;
+  }
+  .playback input {
+    min-width: 0;
+  }
+}

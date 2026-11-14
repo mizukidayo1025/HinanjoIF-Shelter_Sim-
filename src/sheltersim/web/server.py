@@ -1,4 +1,4 @@
-"""Loopback-only HTTP server of the screen (/demo-v2) and the Project API."""
+"""Loopback-only HTTP server of the screen (/) and the Project API."""
 
 from __future__ import annotations
 
@@ -47,7 +47,7 @@ def serve_inspector(
     max_parallel_runs: int = 2,
     project_storage_bytes: int = DEFAULT_MAX_BYTES,
 ) -> None:
-    """Serve the screen (/demo-v2) and the Project API until interrupted.
+    """Serve the screen (/) and the Project API until interrupted.
 
     Projects are saved under runs_directory/.projects. Up to max_parallel_runs Runs
     compute or fork at once, each in its own process. The projects directory holds at
@@ -68,13 +68,13 @@ def serve_inspector(
         projects.close()
 
 
-# The paths of the older screens (removed in #376) and the page itself go to the
-# screen, with the query kept, as the VM's Caddy does (deploy/vm/setup.sh).
-_REDIRECTS = frozenset({"/", "/demo", "/admin", "/index.html"})
+# The screen is at / (#376). Its earlier address /demo-v2 and the older screens' paths (removed
+# in #376) go to it with the query kept, as the VM's Caddy does (deploy/vm/setup.sh).
+_REDIRECTS = frozenset({"/demo-v2", "/demo", "/admin", "/index.html"})
 
 # The files of the screen, by the path they are served at.
 _STATIC_FILES = {
-    "/demo-v2": "demo-v2.html",
+    "/": "demo-v2.html",
     "/demo-v2.css": "demo-v2.css",
     "/demo-v2-logo.jpg": "demo-v2-logo.jpg",
     "/demo-v2.js": "demo-v2.js",
@@ -114,7 +114,7 @@ def _handler_for(projects: ProjectAPI | None = None) -> type[BaseHTTPRequestHand
                         return
                     self._json_response(200, payload)
                 elif parsed.path in _REDIRECTS:
-                    target = "/demo-v2"
+                    target = "/"
                     if parsed.query:
                         target = f"{target}?{parsed.query}"
                     self.send_response(302)

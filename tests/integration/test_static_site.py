@@ -129,9 +129,9 @@ def test_the_site_holds_the_screen_the_browser_api_and_the_sample_in_parts(
     assert [hashlib.sha256(part).hexdigest() for part in parts] == [
         part["sha256"] for part in manifest["parts"]
     ]
-    assert summary["open"] == "/demo-v2?project=sample&run=run-x&branch=main#simulation"
+    assert summary["open"] == "/?project=sample&run=run-x&branch=main#simulation"
     assert summary["compute"] == (
-        "/demo-v2?project=sample&run=run-browser-compute&branch=main#simulation"
+        "/?project=sample&run=run-browser-compute&branch=main#simulation"
     )
     # `/` is the screen itself, which opens on its home: the sample's Runs, the Run the browser
     # computes with its reset (api_fetch.js), and the licenses the site holds.

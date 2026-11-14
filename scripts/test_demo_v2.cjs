@@ -81,7 +81,7 @@ async function main() {
         { timeout: 30000 },
       );
     }
-    await page.goto(`${base}/demo-v2?project=${project}#scenario`);
+    await page.goto(`${base}/?project=${project}#scenario`);
     await page.waitForLoadState("networkidle");
     await idle();
     assert(await page.locator("#approve").isDisabled());

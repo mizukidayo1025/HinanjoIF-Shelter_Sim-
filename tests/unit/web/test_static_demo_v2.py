@@ -194,7 +194,8 @@ assert.match(loadFailure(new Error("HTTP 500")), /URLのproject\/run指定/);
 
 
 def test_the_address_names_what_is_open_and_the_bare_screen_is_the_home():
-    """The home with nothing open is the bare /demo-v2, which opens the home again (#371); a Run
+    """The home with nothing open is the bare / (#376; /demo-v2 before), which opens the home
+    again (#371); a Run
     or another Project than one's own is in the query, and any other page in the hash."""
     node = shutil.which("node")
     if node is None:
@@ -212,13 +213,13 @@ const ownProject = "backup-1";
 let state;
 const remember = eval("(function remember() {" + body + ")");
 for (const [given, url] of [
-  [{project: "backup-1", run: null, branch: "main", page: "home"}, "/demo-v2"],
-  [{project: "backup-1", run: null, branch: "main", page: "scenario"}, "/demo-v2#scenario"],
-  [{project: "sample", run: null, branch: "main", page: "home"}, "/demo-v2?project=sample#home"],
+  [{project: "backup-1", run: null, branch: "main", page: "home"}, "/"],
+  [{project: "backup-1", run: null, branch: "main", page: "scenario"}, "/#scenario"],
+  [{project: "sample", run: null, branch: "main", page: "home"}, "/?project=sample#home"],
   [{project: "sample", run: "r1", branch: "b2", page: "simulation"},
-    "/demo-v2?project=sample&run=r1&branch=b2#simulation"],
+    "/?project=sample&run=r1&branch=b2#simulation"],
   [{project: "backup-1", run: "r2", branch: "main", page: "home"},
-    "/demo-v2?project=backup-1&run=r2&branch=main#home"],
+    "/?project=backup-1&run=r2&branch=main#home"],
 ]) {
   state = given;
   remember();

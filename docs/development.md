@@ -192,14 +192,14 @@ python scripts/build_static_site.py ../hinanjo-if-site --pkg wasm-web --bundle s
 python scripts/serve_static_site.py ../hinanjo-if-site --port 8000
 ~~~
 
-最後のcommandは、手元で確かめるためのserverです（127.0.0.1だけ）。`http://127.0.0.1:8000/`を開くと、画面のホームに、例のRun（`/demo-v2?project=sample&run=run-sample-toilet-outage&branch=main#simulation`）と、ブラウザーで計算するRun（`run=run-browser-compute`）が出ます。標準ライブラリーの`http.server`は`/demo-v2`を`demo-v2.html`で答えないので、このscriptを使います。
+最後のcommandは、手元で確かめるためのserverです（127.0.0.1だけ）。`http://127.0.0.1:8000/`を開くと、画面のホームに、例のRun（`/?project=sample&run=run-sample-toilet-outage&branch=main#simulation`）と、ブラウザーで計算するRun（`run=run-browser-compute`）が出ます。標準ライブラリーの`http.server`は`/demo-v2`を`demo-v2.html`で答えないので、このscriptを使います。
 
 サイトの中身：
 
 | 道 | ファイル |
 |---|---|
 | `/` | `index.html`。`demo-v2.html`と同じ頁で、ホームを開きます。例のRun、ブラウザーで計算するRunと計算をやり直すボタン、自分のシナリオ、ライセンスの表示へのリンク（#371） |
-| `/demo-v2` | `demo-v2.html` |
+| `/demo-v2` | `demo-v2.html`（前の道。同じ頁で、開くとアドレスを`/`に替えます、#376） |
 | `/demo-v2.css`、`/demo-v2*.js`、`/demo-v2-logo.jpg` | 画面のファイル（変えずに写す） |
 | `/LICENSE.txt` | リポジトリーの`LICENSE`（MIT） |
 | `/THIRD-PARTY-NOTICES.txt` | WASMに入る外部のcrateの一覧と、そのライセンス・表示のファイルの本文（#290）。`sheltersim_wasm`の通常の依存を`cargo tree`でたどり（wasm32のtarget、proc-macroとそれだけが使うものを除く）、各crateのpackageの`LICENSE*`・`COPYING*`・`NOTICE*`などを入れます。同じ本文は1回だけ書きます。そのようなファイルのないcrateがあると、サイトを作りません |
@@ -233,7 +233,7 @@ python benchmarks/static_site_check.py --site ../hinanjo-if-site --compute piece
 
 画面の操作を最初から最後まで通し、APIキーのないPythonのserverと比べるのは、`benchmarks/static_site_e2e.py`です（#311）。PlaywrightのChromiumとFirefoxで、それぞれ空のOPFSから、次の5つの段を人と同じように画面で行います。
 
-1. シナリオ（scenario）：`/demo-v2?project=e2e#scenario`で「例文を使う」→プレビュー→承認（Run）、条件の入力の1例→プレビュー→承認（2つ目のRun）。続けて、1つ目のScenarioを別のIDで`POST runs`し、そのIDへ別のScenarioを`POST runs`します（409 `run_id_conflict`）。
+1. シナリオ（scenario）：`/?project=e2e#scenario`で「例文を使う」→プレビュー→承認（Run）、条件の入力の1例→プレビュー→承認（2つ目のRun）。続けて、1つ目のScenarioを別のIDで`POST runs`し、そのIDへ別のScenarioを`POST runs`します（409 `run_id_conflict`）。
 2. 計算（compute）：1つ目のRunを画面で最後まで計算します。1つ目のbrowserは一度に、2つ目は1日で止め、続けて最後までです（`--modes`）。
 3. 介入（intervention）：4日目14:00（5160分）で、offlineの読み取りが作る作用（職員の追加と、画面のZoneの選択肢での選び直し、トイレの追加、断水、施設の停止）と読めない文をプレビューし、「Day 4 14:00 toilet_01 outage」を適用して、子の分岐を最後まで計算します。
 4. 比較（compare）：画面の比較と、いくつかの分の`compare`、2つの分岐の再生の窓です。
@@ -334,7 +334,7 @@ Project CLIでは、Project作成、確認済みScenario保存、Run作成、Bra
 
 ## ローカルWebアプリ
 
-画面（`/demo-v2`）の起動方法はdemo-guide.mdを参照してください。serverは既定で127.0.0.1にbindします。dataは`--runs-dir`の下の`.projects`にローカル保存します。認証がないため、hostedな複数利用者向けサービスではありません。
+画面（`/`）の起動方法はdemo-guide.mdを参照してください。serverは既定で127.0.0.1にbindします。dataは`--runs-dir`の下の`.projects`にローカル保存します。認証がないため、hostedな複数利用者向けサービスではありません。
 
 ## packageと任意依存
 

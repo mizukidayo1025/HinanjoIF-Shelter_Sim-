@@ -1,4 +1,4 @@
-"""Build the browser version of /demo-v2 as a static site (#266, stage A of #263).
+"""Build the browser version of the screen as a static site (#266, stage A of #263).
 
     python scripts/build_static_site.py OUTPUT_DIR --pkg PKG_DIR --bundle SAMPLE.shelterproj
 
@@ -10,13 +10,14 @@ screen's `/api/v1/...` in a Worker from the browser's store and WASM (native/was
 and names the sample's Project and the Run the browser computes for the screen's home.
 
 The site is served at the root of its domain, as the screen loads `/demo-v2.css` and the like and
-`history.replaceState`s to `/demo-v2?…`:
+`history.replaceState`s to `/?…` (the screen's address since #376):
 
-    /                       index.html: the same page as /demo-v2, which opens on its home (#371):
-                            the sample's Runs, the Run the browser computes itself
-                            (COMPUTE_RUN, #267) with its reset, and the licenses
+    /                       index.html: the screen, which opens on its home (#371): the sample's
+                            Runs, the Run the browser computes itself (COMPUTE_RUN, #267) with its
+                            reset, and the licenses
     (a missing path)        404.html, with status 404
-    /demo-v2                demo-v2.html (a host serving `/demo-v2` from `demo-v2.html`, as
+    /demo-v2                demo-v2.html, the same page at the screen's earlier address, which the
+                            page turns into / (a host serving `/demo-v2` from `demo-v2.html`, as
                             Cloudflare Workers' static assets (deploy/workers/wrangler.jsonc, #289),
                             Cloudflare Pages, GitHub Pages and Netlify do; for others see the docs)
     /demo-v2.css, /demo-v2*.js, /demo-v2-logo.jpg   the screen's files
@@ -406,9 +407,9 @@ def build(
     (output / "sample").mkdir()
     manifest = split_bundle(bundle, output / "sample", part_mib * 2**20)
     query = urlencode({"project": project_id, "run": run_id, "branch": branch_id})
-    target = f"/demo-v2?{query}#simulation"
+    target = f"/?{query}#simulation"
     compute_query = urlencode({"project": project_id, "run": COMPUTE_RUN, "branch": "main"})
-    compute = f"/demo-v2?{compute_query}#simulation"
+    compute = f"/?{compute_query}#simulation"
     # A missing file is a 404 (Workers' static assets answer with it under deploy/workers/'s
     # not_found_handling "404-page"; Cloudflare Pages without a 404.html answers every path with
     # the root's index.html, as for a single-page app).

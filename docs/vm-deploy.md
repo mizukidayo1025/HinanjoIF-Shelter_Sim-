@@ -5,7 +5,7 @@
 ## 構成
 
 - Webサーバーは認証を持たず、同じプロセスを開いた人どうしで状態を共有します。そのため、利用者ごとに分ける「環境」（slot）を用意します。slotごとに`sheltersim web`のプロセス（systemdの`sheltersim@<n>`）と、データ（`/var/lib/sheltersim/slot<n>`。Projectは`slot<n>/runs/.projects`）を分けます。既定は6つです。各slotには、計算済みの例（下の「計算済みの例」）のコピーも入れます。以前のslotは`slot<n>/demo_replay`に以前の画面の事前計算replayを写していました（#376でなくしました）。その形のslotがあるVMで`setup.sh`を実行し直すと、`slot<n>/runs`がないslotを`reset-slot.sh`で作り直すので、そのslotで作ったProjectは消えます。
-- Caddyが`https://s<n>.<IPのドットをハイフンにしたもの>.sslip.io`を各slotへ中継し、証明書を自動で取ります。画面は`/demo-v2`だけなので、slotの`/`と以前の画面の道（`/demo`、`/admin`、`/index.html`）は、Caddyが`/demo-v2`へ転送します（アプリも同じに転送します）。転送先には元のquery（`?project=...&run=...`）をそのまま付けます。APIと新しい画面のファイルはそのまま通します。入口のページ（`https://<IP>.sslip.io/`）とすべてのslotに、共通のBasic認証を1つかけます。
+- Caddyが`https://s<n>.<IPのドットをハイフンにしたもの>.sslip.io`を各slotへ中継し、証明書を自動で取ります。画面は`/`だけなので、前の道の`/demo-v2`と以前の画面の道（`/demo`、`/admin`、`/index.html`）は、Caddyが`/`へ転送します（アプリも同じに転送します、#376）。転送先には元のquery（`?project=...&run=...`）をそのまま付けます。APIと新しい画面のファイルはそのまま通します。入口のページ（`https://<IP>.sslip.io/`）とすべてのslotに、共通のBasic認証を1つかけます。
 - アプリは、`setup.sh`を取り出したcommitから`/opt/sheltersim/app`へcloneし、`/opt/sheltersim/venv`へ入れます。Rustのkernel（`native/`）もVM上で作って入れます。そのcommitはGitHubへpush済みである必要があります。別のcommitを入れるときは`sudo REF=<commit> bash deploy/vm/setup.sh`のように実行します。
 - slotごとの保存データの上限（`sheltersim web --project-storage-gb`）は、ディスクの容量から15 GBと計算済みの例の元（`/var/lib/sheltersim/sample`）の大きさを引き、slotの数で割った値です。すべてのslotが上限まで使ってもディスクがあふれません。slotに入れた計算済みの例のコピーは、そのslotの上限に含まれます。`STORAGE_GB=<GB>`で指定することもできます。ディスクを増やした後は、`setup.sh`を実行し直すと上限も増えます。
 - LLMの利用台帳（`XDG_STATE_HOME`）は全slotで1つを共有するため、既定50ドルの上限がVM全体にかかります。応答テープ（`SHELTERSIM_LLM_CACHE_PATH`）はslotごとです。
@@ -63,7 +63,7 @@ sudo systemctl restart 'sheltersim@*'
 - 新しい画面と同じProjectAPIの操作（Scenarioのプレビューと承認、終わりまでの計算、offline parserでの介入プレビュー、明示承認での適用、分岐の計算）で作ります。LLMはofflineに固定し、APIキーを渡さず、共有の利用台帳（`XDG_STATE_HOME`）にも触れません。同じアプリのcommitなら、何度作っても結果のhashは同じです。
 - `setup.sh`は、`sheltersim`利用者として`/var/lib/sheltersim/sample`に作ります（`sample-build.json`にRun ID・分岐・hash・大きさを残します）。作り直すのは、今作ると結果が変わるときだけです。`build_project_sample.py --check`が計算せずに、作り方（文章・ID・分岐の時刻・介入）、文章から作るシナリオのhash、導入済みのモデルの署名とCheckpointに記録した署名を比べ、履歴の索引が今の版かを確かめます。アプリを更新しても結果が変わらず、索引の版も同じなら、作り直しません（索引の版6より前に作った例は、索引が古いので作り直します。#130、#138）。介入の文章をオフラインで読む規則を変えたときは比べないので、`SAMPLE=rebuild`を付けて作り直します。その後、`sample`のないslotにだけコピーします。すでにあるslotの`sample`は、審査員が足した分岐を消さないよう置き換えません。作り直した例に替えるときは、そのslotを`reset-slot.sh`で戻します。作らないときは`sudo SAMPLE=0 bash sheltersim-kit/deploy/vm/setup.sh`のように実行します（元も消します。slotのコピーは残ります）。
 - 入口のページは、新しく計算するときの目安（1日分と7日分）を出します。値は、このVMで計算済みの例を作ったときの時間（`sample-build.json`の`build_seconds`）を、計算した分数（元の7日分と、分岐の時刻から後の分）で割って求め、切り上げます。例がないときは、決まった目安（1日分約25秒）を出します。
-- 入口のページは、各slotの「環境 n」の隣に「計算済みの例をすぐ見る」を置きます。リンク先は`/demo-v2?project=sample&run=<Run ID>&branch=main#simulation`（`sample-build.json`の`open_path`）で、元のシナリオの1日目00:00の画面が開きます。比較の画面で「比較を更新」を押すと、トイレが故障した分岐との比較が出ます。
+- 入口のページは、各slotの「環境 n」の隣に「計算済みの例をすぐ見る」を置きます。リンク先は`/?project=sample&run=<Run ID>&branch=main#simulation`（`sample-build.json`の`open_path`）で、元のシナリオの1日目00:00の画面が開きます。比較の画面で「比較を更新」を押すと、トイレが故障した分岐との比較が出ます。
 - 70783d6（履歴の索引の圧縮の後）で作ったときは、大きさ約3.6 GB（履歴の索引`history.sqlite`が約2.8 GB、Checkpointが約0.6 GB）、計算に約4分、メモリーは最大約3.5 GBでした。元と6つのslotのコピーで、ディスクを約25 GB使います。たとえば100 GBのディスクでは、slotの上限は(100−15−4)/6 = 13 GBになり、そのうち約3.6 GBを例のコピーが使います。上の手順どおり50 GBのディスクで作ると、slotの上限は5 GBで、例のほかに新しい7日分のRunを計算する余裕がありません。ディスクを増やすか、`SAMPLE=0`にします。slotごとにコピーするのは、計算や分岐で書き換わるファイル（履歴の索引、lock）をslotの間で共有しないためです。
 
 ## 運用

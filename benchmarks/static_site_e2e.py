@@ -1,4 +1,4 @@
-"""Walk the whole /demo-v2 flow in the browser version and compare it with the Python server (#311).
+"""Walk the whole flow of the screen (/) in the browser version and compare it with the Python server (#311).
 
     python benchmarks/static_site_e2e.py --site SITE_DIR --work DIR [--python-projects DIR]
         [--browsers chromium firefox] [--modes full pieces] [--stages ...] [--output result.json]
@@ -9,7 +9,7 @@ SITE_DIR is the output of scripts/build_static_site.py, served as a static host 
 (scripts/serve_static_site.py). Each browser walks the screen on a fresh profile (an empty OPFS),
 as a person would, in five stages:
 
-1. scenario: on `/demo-v2?project=e2e#scenario`, 「例文を使う」 → preview → approve (a Run), then
+1. scenario: on `/?project=e2e#scenario`, 「例文を使う」 → preview → approve (a Run), then
    one form-input variant → preview → approve (a second Run); then `POST runs` of the first
    Scenario under another id, and of another Scenario under that id (409 run_id_conflict).
 2. compute: the first Run computed on the screen to its end: at once in the first browser
@@ -1167,7 +1167,7 @@ class Walk:
         s = self.subject
         assert s is not None
         self.open(
-            f"/demo-v2?project={s.project}&run={s.run}&branch={quote(s.child)}#simulation",
+            f"/?project={s.project}&run={s.run}&branch={quote(s.child)}#simulation",
             "simulation",
         )
         self.page.click("[data-page=comparison]")
@@ -1178,7 +1178,7 @@ class Walk:
         s = e2e_subject()
         self.subject = s
         stage = "scenario"
-        self.open(f"/demo-v2?project={s.project}#scenario", "scenario")
+        self.open(f"/?project={s.project}#scenario", "scenario")
         base = f"/api/v1/projects/{s.project}"
         for label, run in (("text", s.run), ("form", s.form_run)):
             if label == "text":
@@ -1272,7 +1272,7 @@ class Walk:
         assert s is not None
         stage = "compute"
         run = s.browser(stage)
-        self.open(f"/demo-v2?project={s.project}&run={run}&branch=main#simulation", "simulation")
+        self.open(f"/?project={s.project}&run={run}&branch=main#simulation", "simulation")
         record = json.loads(self.fetch(_run_path(s.project, run))["text"])
         if record["branches"][0]["computed_until"] < 10080:
             if not self.compute(stage, s.project, run, "main", self.mode):
@@ -1361,7 +1361,7 @@ class Walk:
         s = self.subject
         assert s is not None
         stage = "intervention"
-        self.open(f"/demo-v2?project={s.project}&run={s.run}&branch=main#simulation", "simulation")
+        self.open(f"/?project={s.project}&run={s.run}&branch=main#simulation", "simulation")
         self.seek(FORK_MINUTE)
         # The branch is made on the comparison page, from the simulation page's minute (#374).
         self.page.click("#branch-here")
@@ -1457,7 +1457,7 @@ class Walk:
             self.wait_caught(since, "GET", r"/compare$", timeout_s=120)
         else:
             self.open(
-                f"/demo-v2?project={s.project}&run={s.run}&branch=main#simulation", "simulation"
+                f"/?project={s.project}&run={s.run}&branch=main#simulation", "simulation"
             )
         since = self.mark()
         self.page.click("[data-page=report]")

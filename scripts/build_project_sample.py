@@ -1,4 +1,4 @@
-"""Build the precomputed sample Project that the new UI (/demo-v2) opens at once.
+"""Build the precomputed sample Project that the screen (/) opens at once.
 
     SHELTERSIM_LLM_MODE=offline python scripts/build_project_sample.py OUTPUT_PROJECTS_DIR
 
@@ -24,7 +24,7 @@ results is, and the research record says so with a fixed date.
 The same text, seed and model give the same hashes on every build. A JSON summary
 (ids, Scenario, minutes, hashes, size) is printed and written to
 `<OUTPUT>/../sample-build.json` unless --summary names another file. Open the result
-with `/demo-v2?project=sample&run=<run_id>&branch=<branch_id>` (docs/demo-guide.md).
+with `/?project=sample&run=<run_id>&branch=<branch_id>` (docs/demo-guide.md).
 
     python scripts/build_project_sample.py OUTPUT_PROJECTS_DIR --check
 
@@ -89,7 +89,7 @@ def intervention_text(minute: int) -> str:
 def open_path(project_id: str, run_id: str, branch_id: str) -> str:
     """The new UI's address of a saved branch; the VM landing page links to it."""
     query = urlencode({"project": project_id, "run": run_id, "branch": branch_id})
-    return f"/demo-v2?{query}#simulation"
+    return f"/?{query}#simulation"
 
 
 def _no_research(query: Any, **_kwargs: Any) -> Any:

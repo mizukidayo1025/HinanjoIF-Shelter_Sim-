@@ -13,11 +13,13 @@ python -m pip install -e ".[dev]"
 SHELTERSIM_LLM_MODE=offline python -m pytest -n auto
 ruff check .
 ruff format --check .
+cargo fmt --manifest-path native/Cargo.toml --all -- --check
 ~~~
 
 - `ruff check .`と`ruff format --check .`は指摘なしで通る状態を保ちます。1行100桁を超える文字列は、文言を変えずに、隣り合う文字列リテラルの連結に分けます。分けると値が変わる複数行の文字列（SQLiteの表定義など）だけ、閉じる引用符の行に`# noqa: E501`を付けます。
 - テキストのファイルの読み書き（`Path.read_text`・`write_text`、`open`）と、`subprocess`の出力を文字列で受け取るとき（`text=True`）は、`encoding="utf-8"`を明示します。指定しないとOSの既定の文字コード（Windowsではcp1252やcp932）になり、日本語を読み書きできません。
 - テストに固定したハッシュやダイジェストは、Linux・Windows・macOSで同じ値と比べます。OSで条件を分けません（`sys.platform`）。テストの入力を作るときも、OSの数学ライブラリに頼る関数（`math.cos`、`math.sin`、`math.exp`、`math.log`、float の`**`など）を使いません。最後のビットがOSで変わり、入力が変わるためです。乱数の`uniform`・`random`と四則演算、`round`、`repr`はOSによりません。
+- Rust（`native/`）の書式は`native/rustfmt.toml`で決め（#367）、`cargo fmt --all -- --check`が差分なしで通る状態を保ちます。Rustを変えたら`cargo fmt --manifest-path native/Cargo.toml --all`で整形してからcommitします。
 - 一括整形のcommitは`.git-blame-ignore-revs`に登録してあります。手元の`git blame`で整形前の変更をたどるには、一度だけ`git config blame.ignoreRevsFile .git-blame-ignore-revs`を設定します。GitHubのblame表示はこのファイルを自動で使います。
 - 有料APIを呼ぶテスト（`live_api`の印）は、`SHELTERSIM_ALLOW_LIVE_API_TESTS`と`ANTHROPIC_API_KEY`の両方を明示した場合だけ実行されます。通常の実行とCIでは設定しません。
 - `tests/conftest.py`は、テストごとにProjectの保存先（`SHELTERSIM_PROJECTS_DIR`）、状態の保存先（`XDG_STATE_HOME`）、LLMのcache（`SHELTERSIM_LLM_CACHE_PATH`）を一時ディレクトリに向けます。並列のworkerがこれらを共有せず、開発者のRunやPC全体の利用記録にも書き込みません。テストの中で設定した値が優先されます。`live_api`のテストは、実費をPC全体の利用記録に残すため対象外です。
@@ -26,7 +28,7 @@ ruff format --check .
 
 - `-n auto`（pytest-xdist）で並列に実行します。`pyproject.toml`の`--dist worksteal`で、手の空いたworkerが残りのテストを引き取ります。
 - `long_simulation`の印は、7日間のsimulationを実行するテストと、1件で30秒以上（直列）かかるテストに付けます。`tests/conftest.py`の`pytest_collection_modifyitems`が、並列のときにこれらを各workerの塊の先頭に1本ずつ置くので、長いテストは最初から並んで走ります。
-- 開発中は`-m "not long_simulation"`で長いテストを除けます。印のない`pytest`は全件を実行します。`オフラインCI`（`.github/workflows/ci.yml`）は、mainへのPull Requestごとに自動で、または手動で、Linux・Windows・macOSの3つでRustのkernelを作って導入し、長いテストを除いた全件を`-n auto`で実行します。3つのOSで動くことを確かめるためです（#48）。テストはCPUの量で時間が決まるので、OSごとに2つのjobに分け、それぞれ半分ずつ実行します（`--shard 1/2`と`--shard 2/2`、#118）。テストのjobは、kernelを`native/Cargo.toml`のprofile`ci`で作ります。releaseと最適化の水準は同じで、LTOをthinに、codegen unitを16にして、作る時間を短くしたものです。Runのbytesは変わりません（#217）。全経路のハッシュ（`benchmarks/gate_all_paths.py --expect`）も3つのOSで同じ`fixtures/gate-all-paths.json`と比べます。Linuxでは待ち時間が延びないよう別のjobとして並べ、配布と同じ`--release`で作ったkernelで確かめます。WindowsとmacOSでは、1つ目のjobのテストの後の手順として、profile`ci`のkernelで動かします（テストが失敗しても動きます）。lint・format・clippyはLinuxだけの別のjobです。同じjobで、Rustの中核（`native/core`、#152）がpyo3に依存しないことを確かめ、その`cargo test`を実行します。続けて、中核を既定の機能`parallel`（rayon）なしで`wasm32-unknown-unknown`向けに作り、`parallel`なしの`cargo test`も実行します。lintのjobは`benchmarks/rust_port/glue_check.py`も実行し、Rustの窓口の規則のファイル（`native/src/rules/*.rs`）がglueだけであること（#152）を確かめます。手動実行の`長時間simulation回帰`（`.github/workflows/long-regression.yml`）の`long`は、長いテストだけを3つのOSで実行します。`オフラインCI`と同じく、Rustのkernelを作って導入してから実行します。
+- 開発中は`-m "not long_simulation"`で長いテストを除けます。印のない`pytest`は全件を実行します。`オフラインCI`（`.github/workflows/ci.yml`）は、mainへのPull Requestごとに自動で、または手動で、Linux・Windows・macOSの3つでRustのkernelを作って導入し、長いテストを除いた全件を`-n auto`で実行します。3つのOSで動くことを確かめるためです（#48）。テストはCPUの量で時間が決まるので、OSごとに2つのjobに分け、それぞれ半分ずつ実行します（`--shard 1/2`と`--shard 2/2`、#118）。テストのjobは、kernelを`native/Cargo.toml`のprofile`ci`で作ります。releaseと最適化の水準は同じで、LTOをthinに、codegen unitを16にして、作る時間を短くしたものです。Runのbytesは変わりません（#217）。全経路のハッシュ（`benchmarks/gate_all_paths.py --expect`）も3つのOSで同じ`fixtures/gate-all-paths.json`と比べます。Linuxでは待ち時間が延びないよう別のjobとして並べ、配布と同じ`--release`で作ったkernelで確かめます。WindowsとmacOSでは、1つ目のjobのテストの後の手順として、profile`ci`のkernelで動かします（テストが失敗しても動きます）。lint・format・clippyはLinuxだけの別のjobです。formatはPythonの`ruff format --check .`とRustの`cargo fmt --all -- --check`の両方を確かめます（#367）。同じjobで、Rustの中核（`native/core`、#152）がpyo3に依存しないことを確かめ、その`cargo test`を実行します。続けて、中核を既定の機能`parallel`（rayon）なしで`wasm32-unknown-unknown`向けに作り、`parallel`なしの`cargo test`も実行します。lintのjobは`benchmarks/rust_port/glue_check.py`も実行し、Rustの窓口の規則のファイル（`native/src/rules/*.rs`）がglueだけであること（#152）を確かめます。手動実行の`長時間simulation回帰`（`.github/workflows/long-regression.yml`）の`long`は、長いテストだけを3つのOSで実行します。`オフラインCI`と同じく、Rustのkernelを作って導入してから実行します。
 
 ### 結果の残り方と見方
 

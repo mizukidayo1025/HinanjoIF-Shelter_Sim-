@@ -27,6 +27,14 @@ cd .. && PYTHONPATH=src:native/pylib SHELTERSIM_LLM_MODE=offline .venv/bin/pytho
 (random and edge-case floats, strings, structures, and optionally a saved
 Checkpoint document) and times them.
 
+## Format
+
+`rustfmt.toml` sets the style of every crate in the workspace (#367): lines up to 160
+columns, each item filling the line (`use_small_heuristics = "Max"`). Run
+`cargo fmt --all` here before a commit; CI's lint job checks `cargo fmt --all -- --check`.
+The tables that `core/tools/*.py` write keep their generator's layout: the `mod` that reads
+each one carries `#[rustfmt::skip]`.
+
 ## The core's feature `parallel` and the wasm32 build
 
 `sheltersim_core` has one feature, `parallel`, on by default. It brings in rayon for the

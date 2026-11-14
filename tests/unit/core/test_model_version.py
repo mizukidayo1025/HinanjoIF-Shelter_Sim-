@@ -70,7 +70,7 @@ def test_a_save_without_the_engine_items_was_computed_by_engine_1(
     status = model_version_status(unrecorded, scenario.model_configs, {})
     assert (status.recorded_version, status.installed_version) == ("1", "2")
     assert status.differences == (ENGINE_VERSION_KEY,)
-    assert status.message().startswith("このRunは旧モデル（版 1）で計算されました。")
+    assert status.message().startswith("このシナリオは旧モデル（版 1）で計算されました。")
 
 
 def test_a_save_of_another_version_is_refused_for_ticks_and_restored_for_viewing(
@@ -185,6 +185,6 @@ def test_another_policy_signature_names_the_differing_items() -> None:
     )
     assert not status.current
     assert status.message().startswith(
-        "このRunは今と異なるモデルの版（model_suite、policy:behavior、policy:queue ほか）"
+        "このシナリオは今と異なるモデルの版（model_suite、policy:behavior、policy:queue ほか）"
     )
     assert status.to_dict()["view_only"] is True

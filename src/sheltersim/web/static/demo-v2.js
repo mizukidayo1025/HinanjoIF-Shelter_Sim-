@@ -228,6 +228,17 @@
       heavy_snow: "大雪",
       heatwave: "猛暑",
     })[value] || value;
+  // How the model can carry out an intervention (EffectProgram's support_mode), in words.
+  const supportModeName = (mode) =>
+    ({
+      native: "モデルでそのまま再現",
+      composed: "作用の組み合わせで再現",
+      approximate: "近似して再現",
+      clarification_required: "対象の確認が必要",
+      not_simulatable: "モデルでは再現できない",
+    })[mode] ||
+    mode ||
+    "再現の方法は未記録";
   const base = () => `/api/v1/projects/${enc(state.project)}`;
   // New Scenarios go to one's own Project, whichever Run is open.
   const ownBase = () => `/api/v1/projects/${enc(ownProject)}`;
@@ -475,6 +486,28 @@
       total: scenario?.duration_minutes,
     };
   }
+  // The screen calls every Run a シナリオ (#373). Runs of the same conditions (a rerun, another
+  // seed) are told apart by their seed, and then by the end of their id.
+  function runNames(runs, scenarios) {
+    const titled = runs.map((r) => {
+      const { name, size } = runTitle(r, scenarios);
+      return { run: r, name: [name, size].filter(Boolean).join(" · ") };
+    });
+    const many = (key, value) =>
+      titled.filter((t) => key(t) === value).length > 1;
+    const byName = (t) => t.name,
+      bySeed = (t) => `${t.name}/${t.run.seed}`;
+    return new Map(
+      titled.map((t) => {
+        let label = t.name;
+        if (many(byName, byName(t))) {
+          label += ` · seed ${t.run.seed ?? "—"}`;
+          if (many(bySeed, bySeed(t))) label += ` · ${t.run.run_id.slice(-4)}`;
+        }
+        return [t.run.run_id, label];
+      }),
+    );
+  }
   // How far a Run is computed, in words.
   function runProgress(run, total) {
     const main = run.branches?.find((b) => b.branch_id === "main"),
@@ -485,8 +518,9 @@
     if (!until) return "まだ計算していません";
     return `${time(until)}まで計算済み`;
   }
-  function runLink(projectId, run, scenarios, label) {
-    const { name, size, total } = runTitle(run, scenarios),
+  function runLink(projectId, run, scenarios, label, named) {
+    const { name: title, size, total } = runTitle(run, scenarios),
+      name = named || title,
       params = new URLSearchParams({
         project: projectId,
         run: run.run_id,
@@ -496,7 +530,7 @@
     link.href = `/demo-v2?${params}#simulation`;
     link.append(
       el("strong", label || name),
-      el("span", [label ? name : null, size].filter(Boolean).join(" · ")),
+      el("span", [label ? name : null, named ? null : size].filter(Boolean).join(" · ")),
       el("small", runProgress(run, total)),
     );
     link.addEventListener("click", (event) => {
@@ -551,7 +585,15 @@
     const mine = own?.runs || [];
     $("home-own-list").replaceChildren(
       ...(mine.length
-        ? mine.map((r) => runLink(ownProject, r, own.scenarios))
+        ? mine.map((r) =>
+            runLink(
+              ownProject,
+              r,
+              own.scenarios,
+              undefined,
+              runNames(mine, own.scenarios).get(r.run_id),
+            ),
+          )
         : [el("p", "まだシナリオはありません。", "quiet-message")]),
     );
   }
@@ -812,11 +854,12 @@
       await api("/api/v1/projects", { project_id: id });
   }
   async function refreshRuns() {
-    const result = await api(`${base()}/runs`);
+    const project = await api(base());
     $("saved-runs").replaceChildren(el("option", "新しいシナリオ"));
     $("saved-runs").firstChild.value = "";
-    for (const r of result.runs) {
-      const option = el("option", `${r.scenario_id} · ${r.run_id.slice(-6)}`);
+    const names = runNames(project.runs, project.scenarios);
+    for (const r of project.runs) {
+      const option = el("option", names.get(r.run_id));
       option.value = r.run_id;
       option.selected = r.run_id === state.run;
       $("saved-runs").append(option);
@@ -1139,15 +1182,6 @@
       state.displayName = req
         ? `${req.municipality} · ${disasterName(req.disaster)}`
         : data.scenario_id;
-      const selectedOption = [...$("saved-runs").options].find(
-        (o) => o.value === state.run,
-      );
-      if (selectedOption)
-        selectedOption.textContent =
-          state.displayName +
-          " · " +
-          (state.scenario?.profiles?.length ?? "—") +
-          "人";
       $("target").max = state.total;
       $("compare-target").max = state.total;
       $("target").value = Math.min(state.total, 60);
@@ -1274,7 +1308,7 @@
     const issues = [];
     // Shown first and kept while the frame is shown, unlike a notice.
     const viewNote = savedPointNote(frame);
-    if (viewNote) issues.push(["閲覧のみのRun", viewNote]);
+    if (viewNote) issues.push(["閲覧のみのシナリオ", viewNote]);
     if (frame.kpis.toilet_queue_length > 0)
       issues.push([
         "トイレの待機列",
@@ -1704,7 +1738,7 @@
       const scope = state.scope,
         data = await api(runBase());
       if (scope !== state.scope)
-        throw new Error("表示するRunが変更されました。");
+        throw new Error("表示するシナリオが変更されました。");
       state.data = data;
       controls();
       if (data.status !== "running") {
@@ -1723,7 +1757,7 @@
       const scope = state.scope,
         data = await api(runBase());
       if (scope !== state.scope)
-        throw new Error("表示するRunが変更されました。");
+        throw new Error("表示するシナリオが変更されました。");
       state.data = data;
       const created = data.branches.find((b) => b.branch_id === child),
         computing = created?.status
@@ -1781,7 +1815,7 @@
     box.append(
       el(
         "span",
-        `${result.support_mode || "未記録"} / fallback ${result.fallback_used === true ? "使用" : result.fallback_used === false ? "なし" : "未記録"} / 計算済み${state.minute}分`,
+        `${supportModeName(result.support_mode)} / 代替処理 ${result.fallback_used === true ? "あり" : result.fallback_used === false ? "なし" : "未記録"} / 計算済み${state.minute}分`,
         "badge",
       ),
     );
@@ -2018,7 +2052,7 @@
           el(
             "span",
             result.shared_origin
-              ? "同一起点のCheckpointを確認"
+              ? "同じ起点（保存した時点）を確認"
               : "分岐の根拠を要確認",
             "badge teal-badge",
           ),
@@ -2082,10 +2116,10 @@
     } while (cursor && rows.length < 1000);
     state.history = rows;
     $("history-note").title =
-      "グラフはtick終了時、マップはtick直前境界の記録です。避難者数の時系列は現在のKPI履歴に含まれていません。";
+      "グラフは各分の計算の後、マップは各分の計算の前の記録です。避難者数の時系列は、今の指標の記録に含まれていません。";
     $("history-note").textContent = rows.length
       ? `記録 ${rows.length}点 · ${step}分間隔 · 経過 ${lo}–${hi}分（記録時点の詳細はここにマウスを重ねて確認）`
-      : "KPI履歴はまだありません。少なくとも1分計算して更新してください。";
+      : "指標の記録はまだありません。少なくとも1分計算して更新してください。";
     drawHistory();
   }
   async function loadReport() {
@@ -2168,7 +2202,7 @@
       $("report-summary").append(
         el(
           "p",
-          "Branch reportの生成状態・観測・仮定・提案は、以下の原文から確認できます。",
+          "分岐のレポートの生成状態・観測・仮定・提案は、以下の原文から確認できます。",
           "fine",
         ),
       );
@@ -2177,7 +2211,7 @@
         el(
           "p",
           report.status === "not_generated"
-            ? "終了まで計算するとBranch reportを取得できます。途中の記録とKPIは参照できます。"
+            ? "終了まで計算すると分岐のレポートを取得できます。途中の記録と指標は参照できます。"
             : report.limitation ||
                 report.limits ||
                 "AIレポートは生成されていません。記録済みの数値を確認してください。",
@@ -2770,7 +2804,7 @@
         ? "ストレス 低 → 高（0–100）"
         : layer === "health"
           ? "記録ニーズ 低 → 高（診断ではありません）"
-          : "Zone内の人数 / 面積（高密度ほど赤）";
+          : "区画内の人数 / 面積（高密度ほど赤）";
   }
   for (const id of ["layer", "compare-layer", "chart-metric"])
     $(id).addEventListener("change", () => {
@@ -2961,7 +2995,7 @@
     }),
   );
   $("saved-runs").addEventListener("change", () =>
-    action("保存したRunを取得しています…", async () => {
+    action("保存したシナリオを開いています…", async () => {
       clearTimeout(state.poll);
       state.scope++;
       state.run = $("saved-runs").value || null;
@@ -3080,7 +3114,7 @@
     } else if (state.run) {
       state.run = null;
       note(
-        "保存先に指定Runがありません。新しいシナリオを作成してください。",
+        "指定したシナリオが保存先にありません。ホームから開き直すか、新しいシナリオを作成してください。",
         "error",
       );
     }

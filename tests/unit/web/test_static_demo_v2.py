@@ -110,7 +110,7 @@ await assert.rejects(waitForked("c"), /理由を取得できませんでした/)
 // Another Run was opened meanwhile.
 state = {scope:1}; reads = 0;
 answers = [{...run("running",[main]),scope:true}];
-await assert.rejects(waitForked("c"), /表示するRunが変更されました/);
+await assert.rejects(waitForked("c"), /表示するシナリオが変更されました/);
 """
     subprocess.run(
         [node, "--input-type=module", "-e", script, str(source)],
@@ -233,3 +233,65 @@ for (const [given, url] of [
         capture_output=True,
         text=True,
     )
+
+
+def test_runs_are_named_as_scenarios_and_runs_of_the_same_conditions_apart():
+    """The screen calls a Run a シナリオ by its conditions (#373); Runs of the same conditions
+    are told apart by their seed, then by the end of their id."""
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("Node is required for the UI callback regression")
+    source = Path("src/sheltersim/web/static/demo-v2.js").resolve()
+    script = r"""
+import fs from "node:fs";
+import assert from "node:assert/strict";
+const source = fs.readFileSync(process.argv[1], "utf8");
+const take = (name, next) => source.split(`  function ${name}(`)[1].split(`  ${next}`)[0];
+const num = (n) => String(n);
+const disasterName = (d) => ({earthquake: "地震"})[d] || d;
+const runTitle = eval("(function runTitle(" + take("runTitle", "// The screen calls") + ")");
+const runNames = eval("(function runNames(" + take("runNames", "// How far") + ")");
+const scenario = (id, people) => ({scenario_id: id, scenario_version: 1, scenario: {
+  duration_minutes: 10080, profiles: Array(people).fill({}),
+  provenance: {natural_language_input: {municipality: "墨田区", disaster: "earthquake"}}}});
+const scenarios = [scenario("s1", 100), scenario("s2", 20)];
+const run = (id, sid, seed) => ({run_id: id, scenario_id: sid, scenario_version: 1, seed});
+const names = runNames([run("run-aaaa1", "s1", 1), run("run-bbbb2", "s1", 1),
+  run("run-cccc3", "s1", 2), run("run-dddd4", "s2", 1)], scenarios);
+assert.deepEqual([...names.values()], [
+  "墨田区 · 地震 · 100人 · 7日間 · seed 1 · aaa1",
+  "墨田区 · 地震 · 100人 · 7日間 · seed 1 · bbb2",
+  "墨田区 · 地震 · 100人 · 7日間 · seed 2",
+  "墨田区 · 地震 · 20人 · 7日間",
+]);
+for (const name of names.values()) assert.doesNotMatch(name, /Run|Branch/);
+"""
+    subprocess.run(
+        [node, "--input-type=module", "-e", script, str(source)],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+
+def test_the_screen_s_text_says_scenario_and_branch_not_run_or_branch():
+    """The screen's words are シナリオ and 分岐 (#373): no Run, Branch, 世界線 or Checkpoint in
+    the text the page shows (its HTML text and attributes, and the strings its scripts show)."""
+    import re
+
+    static = Path("src/sheltersim/web/static")
+    html = (static / "demo-v2.html").read_text(encoding="utf-8")
+    shown = re.sub(r"<(script|style)[^>]*>.*?</\1>", "", html, flags=re.S)
+    texts = re.findall(r">([^<]+)<", shown) + re.findall(
+        r'(?:title|aria-label|placeholder|aria-description)="([^"]*)"', shown
+    )
+    for script in sorted(static.glob("demo-v2*.js")):
+        source = script.read_text(encoding="utf-8")
+        source = re.sub(r"^\s*//.*$|/\*.*?\*/", "", source, flags=re.S | re.M)
+        # The strings a script writes: those holding Japanese are shown to the person.
+        for literal in re.findall(r'"([^"\n]*)"|`([^`]*)`', source):
+            text = "".join(literal)
+            if re.search(r"[ぁ-んァ-ヶ一-龥]", text):
+                texts.append(text)
+    bad = [t for t in texts if re.search(r"\bRun\b|\bBranch\b|世界線|Checkpoint", t)]
+    assert bad == []

@@ -26,6 +26,7 @@ use sheltersim_core::entities::{Activity, TaskRow};
 use sheltersim_core::error::Error;
 use sheltersim_core::events::EventRow;
 use sheltersim_core::json::Encoder;
+use sheltersim_core::mathx::py_min;
 use sheltersim_core::row::{Field, StrEnum, ValueRow};
 use sheltersim_core::rules::tick::Tick;
 use sheltersim_core::run::Run;
@@ -387,7 +388,7 @@ fn near_tie(waited: i64, gap: f64) -> Vec<&'static str> {
     let people = case.people(2);
     case.line_up(&toilet, &people, false, Some(&[0, waited]));
     let base = 0.25;
-    let aging = 0.1 * f64::min(1.0, waited as f64 / 1440.0);
+    let aging = 0.1 * py_min(1.0, waited as f64 / 1440.0);
     case.set_need(&people[0], "toilet_urgency", base);
     case.set_need(&people[1], "toilet_urgency", base + aging + gap);
     case.prepare(&toilet, false, waited).unwrap();

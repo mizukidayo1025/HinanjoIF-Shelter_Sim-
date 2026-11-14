@@ -5,7 +5,8 @@
 # every test in two jobs, half each (pytest --shard, #118); Windows and macOS run, in one
 # job each, the tests whose behaviour can depend on the OS (pytest --os-subset, #380), and
 # the long regression's `full` runs the whole suite on each OS by hand. The test jobs build
-# with the profile ci, the Linux gate job with release (#217). Lint runs on Linux only.
+# with the profile ci, the Linux gate job with release (#217). Lint runs on Linux only, and beside it the core's
+# checks without rayon and in WASM (#380).
 name: オフラインCI
 
 on:
@@ -160,6 +161,20 @@ jobs:
             exit 1
           fi
           cargo test --manifest-path native/Cargo.toml -p sheltersim_core --profile ci-test
+
+  # The core without rayon, for the browser: a job of its own beside lint, as each builds the core's
+  # tests with other features (#380).
+  core_single_thread:
+    name: core without parallel, WASM (ubuntu-latest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: native
+          key: single-thread
+      - name: Rustのtoolchainを導入
+        run: rustup toolchain install stable --profile minimal
       # Without the feature `parallel` (rayon) the core runs on the calling thread with the same
       # bytes and builds for the browser (#152, P10-1a). tests/no_platform.rs, run in both, finds
       # any std::time, fs, env or thread in its source.

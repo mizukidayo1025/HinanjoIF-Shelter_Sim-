@@ -108,8 +108,9 @@ class ModelVersionStatus:
                 and int(self.recorded_version) < int(self.installed_version)
             )
             return (
-                f"このシナリオは{'旧' if older else '別の版の'}モデル（版 {self.recorded_version}）で"
-                f"計算されました。今のモデルは版 {self.installed_version} です。{tail}"
+                f"このシナリオは{'旧' if older else '別の版の'}モデル"
+                f"（版 {self.recorded_version}）で計算されました。"
+                f"今のモデルは版 {self.installed_version} です。{tail}"
             )
 
         def named(keys: list[str]) -> str:

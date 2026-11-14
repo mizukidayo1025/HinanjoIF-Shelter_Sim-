@@ -118,3 +118,47 @@ await assert.rejects(waitForked("c"), /表示するRunが変更されました/)
         capture_output=True,
         text=True,
     )
+
+
+def test_timeline_events_scroll_to_the_newest_record():
+    """The timeline's event box has a fixed height (#377), and records are listed oldest
+    first, so each render scrolls the box to its end to keep the newest ones in view."""
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("Node is required for the UI callback regression")
+    source = Path("src/sheltersim/web/static/demo-v2.js").resolve()
+    script = r"""
+import fs from "node:fs";
+import assert from "node:assert/strict";
+const source = fs.readFileSync(process.argv[1], "utf8");
+const body = source
+  .split("  function renderEvents(box, events, clickable = false) {")[1]
+  .split("  function personSummary(")[0];
+const el = (tag, text, cls) => ({tag, text, cls, append() {}, addEventListener() {}});
+const eventNames = {}, eventTone = () => "record", time = (m) => String(m);
+const lower = () => 0, upper = () => 100, action = () => {}, seek = () => {};
+const renderEvents = eval(
+  "(function renderEvents(box, events, clickable = false) {" + body + ")"
+);
+const box = () => ({
+  children: [], scrollTop: 0,
+  replaceChildren() {this.children = [];},
+  append(n) {this.children.push(n);},
+  get scrollHeight() {return 40 * this.children.length;},
+});
+const events = Array.from({length: 20}, (_, i) => ({
+  minute: i, event_type: `t${i}`, status: "applied", event_id: `e${i}`,
+}));
+for (const clickable of [true, false]) {
+  const b = box();
+  renderEvents(b, events, clickable);
+  assert.equal(b.children.length, 12);
+  assert.equal(b.scrollTop, b.scrollHeight, `clickable=${clickable}`);
+}
+"""
+    subprocess.run(
+        [node, "--input-type=module", "-e", script, str(source)],
+        check=True,
+        capture_output=True,
+        text=True,
+    )

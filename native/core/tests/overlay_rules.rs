@@ -45,6 +45,7 @@ use sheltersim_core::error::Error;
 use sheltersim_core::events::{EventKind, EventRow};
 use sheltersim_core::geometry::{Geo, Pt};
 use sheltersim_core::host::{Contract, Holding};
+use sheltersim_core::mathx::{py_max, py_min};
 use sheltersim_core::row::{StrEnum, ValueRow};
 use sheltersim_core::rules::facility_queues as fifo;
 use sheltersim_core::rules::kit::{self, Held, Kept};
@@ -715,8 +716,8 @@ fn room_record(case: &Case, room_id: &str, people: i64, beds: i64) -> Value {
     let zones = case.entry["world"]["model_configs"]["facility_geometry"]["zones"].as_array().unwrap();
     let sleeping = zones.iter().find(|zone| zone["zone_id"] == ROOM_ZONE).unwrap();
     let corners = sleeping["polygon"].as_array().unwrap();
-    let left = corners.iter().map(|point| point["x"].as_f64().unwrap()).fold(f64::INFINITY, f64::min);
-    let bottom = corners.iter().map(|point| point["y"].as_f64().unwrap()).fold(f64::NEG_INFINITY, f64::max);
+    let left = corners.iter().map(|point| point["x"].as_f64().unwrap()).fold(f64::INFINITY, py_min);
+    let bottom = corners.iter().map(|point| point["y"].as_f64().unwrap()).fold(f64::NEG_INFINITY, py_max);
     json!({
         "schema_version": 1,
         "room_id": room_id,
@@ -976,8 +977,8 @@ fn a_room_takes_people_at_free_points_up_to_its_capacity() {
     // Someone standing there takes the point within half a metre, and not beyond it. Then the
     // nearest point of the 0.75 m grid that is clear of them: its first column and third row.
     let V::List(corners) = at(&record, &["polygon_m"]) else { panic!("a list") };
-    let min_x = corners.iter().map(|corner| pt(corner).x).fold(f64::INFINITY, f64::min);
-    let min_y = corners.iter().map(|corner| pt(corner).y).fold(f64::INFINITY, f64::min);
+    let min_x = corners.iter().map(|corner| pt(corner).x).fold(f64::INFINITY, py_min);
+    let min_y = corners.iter().map(|corner| pt(corner).y).fold(f64::INFINITY, py_min);
     let beside = Pt { x: min_x + 0.375, y: min_y + 0.375 + 0.75 + 0.75 };
     for (offset, expected) in [(0.0, beside), (0.4999, beside), (0.5, bed_point), (0.6, bed_point)] {
         case.put_point(first, Some(Pt { x: bed_point.x + offset, y: bed_point.y }));
@@ -1176,8 +1177,8 @@ fn corner(case: &Case, zone_id: &str) -> Value {
     let zones = case.entry["world"]["model_configs"]["facility_geometry"]["zones"].as_array().unwrap();
     let zone = zones.iter().find(|zone| zone["zone_id"] == zone_id).unwrap();
     let corners = zone["polygon"].as_array().unwrap();
-    let left = corners.iter().map(|point| point["x"].as_f64().unwrap()).fold(f64::INFINITY, f64::min) + 1.0;
-    let top = corners.iter().map(|point| point["y"].as_f64().unwrap()).fold(f64::INFINITY, f64::min) + 1.0;
+    let left = corners.iter().map(|point| point["x"].as_f64().unwrap()).fold(f64::INFINITY, py_min) + 1.0;
+    let top = corners.iter().map(|point| point["y"].as_f64().unwrap()).fold(f64::INFINITY, py_min) + 1.0;
     json!([{"x": left, "y": top}, {"x": left + 0.4, "y": top}, {"x": left + 0.4, "y": top + 0.4}, {"x": left, "y": top + 0.4}])
 }
 
@@ -1468,8 +1469,8 @@ fn the_search_of_a_grid_ends_after_sixteen_grids() {
     let corners = zone["polygon"].as_array().unwrap();
     let xs: Vec<f64> = corners.iter().map(|point| point["x"].as_f64().unwrap()).collect();
     let ys: Vec<f64> = corners.iter().map(|point| point["y"].as_f64().unwrap()).collect();
-    let low = |values: &[f64]| values.iter().copied().fold(f64::INFINITY, f64::min);
-    let high = |values: &[f64]| values.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+    let low = |values: &[f64]| values.iter().copied().fold(f64::INFINITY, py_min);
+    let high = |values: &[f64]| values.iter().copied().fold(f64::NEG_INFINITY, py_max);
     for grid in case.entry["sixteen_grids"].as_array().unwrap().clone() {
         let slot = Pt { x: grid["slot"][0].as_f64().unwrap(), y: grid["slot"][1].as_f64().unwrap() };
         let gap = 0.001;
@@ -1576,7 +1577,7 @@ fn a_room_inspects_256_points_of_its_grid() {
         // A hall wider than a generated zone, whose grid has more points than the rule looks at.
         let geometry = &case.entry["world"]["model_configs"]["facility_geometry"];
         let (x0, side) = (geometry["width_m"].as_f64().unwrap(), 20.0);
-        let height = geometry["height_m"].as_f64().unwrap().max(side);
+        let height = py_max(geometry["height_m"].as_f64().unwrap(), side);
         let y0 = 0.0;
         let polygon = json!([{"x": x0, "y": y0}, {"x": x0 + side, "y": y0}, {"x": x0 + side, "y": y0 + side}, {"x": x0, "y": y0 + side}]);
         case.edit_geometry(|geometry| {

@@ -27,6 +27,7 @@ use sheltersim_core::config::SectionId;
 use sheltersim_core::error::{Error, Outcome};
 use sheltersim_core::events::writer::WriteError;
 use sheltersim_core::host::Host;
+use sheltersim_core::mathx::py_max;
 use sheltersim_core::routes::Route;
 use sheltersim_core::rules::proposals::Action;
 use sheltersim_core::rules::service::{self, Minute, Request, Requested, Serve, Served};
@@ -550,7 +551,7 @@ fn a_completion_relieves_the_need() {
         assert_eq!(case.hex(), completed);
         let doc = case.doc();
         let person = row(&doc, "agents", agent);
-        assert_eq!(person["needs"][need].as_f64().unwrap(), f64::max(0.0, 0.812345 - config(&case, relief)));
+        assert_eq!(person["needs"][need].as_f64().unwrap(), py_max(0.0, 0.812345 - config(&case, relief)));
         assert_eq!(person["activity"], json!("idle"));
         assert!(!row(&doc, "facilities", facility)["resource_active_agent_ids"].as_array().unwrap().contains(&json!(agent)));
         assert!(!doc["active_tasks"].as_array().unwrap().iter().any(|task| task["id"] == event["payload"]["task_id"]));
@@ -567,7 +568,7 @@ fn the_relief_is_read_at_its_value() {
     case.edit(|doc| row_mut(doc, "agents", agent)["needs"]["hydration_need"] = json!(0.5));
     complete(&mut case, &event_id).unwrap();
     let relief = config(&case, "hydration_relief");
-    assert_eq!(row(&case.doc(), "agents", agent)["needs"]["hydration_need"].as_f64().unwrap(), f64::max(0.0, 0.5 - relief));
+    assert_eq!(row(&case.doc(), "agents", agent)["needs"]["hydration_need"].as_f64().unwrap(), py_max(0.0, 0.5 - relief));
     assert_ne!(relief, config(&Case::of(FILE, "minute_5"), "hydration_relief"));
 }
 

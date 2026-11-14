@@ -146,10 +146,12 @@ jobs:
         with:
           workspaces: native
           key: clippy
+      # The bans of native/clippy.toml hold in the tests too (--all-targets, #390): a test's expected
+      # value made with f64::max would part from the rule's py_max at a tie or a NaN.
       - name: Rustの禁止メソッドを確認
         run: |
           rustup toolchain install stable --profile minimal --component clippy --component rustfmt
-          cargo clippy --manifest-path native/Cargo.toml --workspace -- -A clippy::all -D clippy::disallowed_methods
+          cargo clippy --manifest-path native/Cargo.toml --workspace --all-targets -- -A clippy::all -D clippy::disallowed_methods
       # native/rustfmt.toml sets the style of every crate in the workspace (#367).
       - name: Rustのformatを確認
         run: cargo fmt --manifest-path native/Cargo.toml --all -- --check

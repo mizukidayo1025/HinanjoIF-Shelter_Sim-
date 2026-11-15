@@ -13,8 +13,10 @@ import json
 from copy import deepcopy
 from typing import Any
 
-from sheltersim.domain.psychological_state import INTEGRATED_PSYCHOLOGY_POLICY_VERSION
 from sheltersim.native import _native
+from sheltersim.scenario_authoring.configs.psychological_state import (
+    INTEGRATED_PSYCHOLOGY_POLICY_VERSION,
+)
 
 _CATALOG: dict[str, Any] = json.loads(_native.model_catalog())
 

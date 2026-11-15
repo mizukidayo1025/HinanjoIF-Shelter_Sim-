@@ -16,8 +16,6 @@ from pydantic import Field, model_validator
 from sheltersim import native
 from sheltersim.contracts.extensions import ExtensionModel, Identifier
 from sheltersim.contracts.policies import model_catalog, selected_models
-from sheltersim.domain.models import InformationSpreadConfig
-from sheltersim.domain.staff import default_support_fairness_minutes
 from sheltersim.experiments.scenario import (
     RESOURCE_SERVICE_POLICY_ID,
     PsychologyModelConfig,
@@ -25,7 +23,9 @@ from sheltersim.experiments.scenario import (
     ScenarioSpec,
     ToiletServiceConfig,
 )
-from sheltersim.policies.social import SocialPropagationParameters
+from sheltersim.scenario_authoring.configs.models import InformationSpreadConfig
+from sheltersim.scenario_authoring.configs.social import SocialPropagationParameters
+from sheltersim.scenario_authoring.configs.staff import default_support_fairness_minutes
 from sheltersim.storage.projects import digest, safe_document
 
 LEGEND = {
@@ -47,7 +47,9 @@ class EvaluationVariant(ExtensionModel):
         shift_path = "staff_dynamics.shift_windows_by_staff.*"
         for path, value in self.parameters.items():
             if path == shift_path:
-                from sheltersim.domain.staff_dynamics import validate_staff_shift_windows_override
+                from sheltersim.scenario_authoring.configs.staff_dynamics import (
+                    validate_staff_shift_windows_override,
+                )
 
                 validate_staff_shift_windows_override(value)
                 continue
@@ -193,25 +195,27 @@ def parameter_catalog(scenario: ScenarioSpec) -> list[dict[str, Any]]:
             )
     by_path = {row["path"]: row for row in result}
     from sheltersim.contracts.evidence import operator_evidence_catalog
-    from sheltersim.domain.simulator_state import simulator_signatures
-    from sheltersim.domain.staff_operations import STAFF_OPERATIONS_POLICY_VERSION
+    from sheltersim.scenario_authoring.configs.simulator_state import simulator_signatures
+    from sheltersim.scenario_authoring.configs.staff_operations import (
+        STAFF_OPERATIONS_POLICY_VERSION,
+    )
 
     catalog = operator_evidence_catalog()
     active_model_ids = list(models.values())
     if "simulator:staff_operations_v1" in simulator_signatures(scenario.model_configs):
         active_model_ids.append(STAFF_OPERATIONS_POLICY_VERSION)
     if "simulator:movement_v1" in simulator_signatures(scenario.model_configs):
-        from sheltersim.domain.movement import MOVEMENT_POLICY_VERSION
+        from sheltersim.scenario_authoring.configs.movement import MOVEMENT_POLICY_VERSION
 
         active_model_ids.append(MOVEMENT_POLICY_VERSION)
     if "resource_service" in scenario.model_configs:
         active_model_ids.append(RESOURCE_SERVICE_POLICY_ID)
-    from sheltersim.domain.facilities import TOILET_SERVICE_POLICY_VERSION
+    from sheltersim.scenario_authoring.configs.facilities import TOILET_SERVICE_POLICY_VERSION
 
     if "toilet_service" in scenario.model_configs:
         active_model_ids.append(TOILET_SERVICE_POLICY_VERSION)
-    from sheltersim.domain.staff import STAFF_SUPPORT_POLICY_VERSION
-    from sheltersim.domain.staff_dynamics import (
+    from sheltersim.scenario_authoring.configs.staff import STAFF_SUPPORT_POLICY_VERSION
+    from sheltersim.scenario_authoring.configs.staff_dynamics import (
         SHIFT_STAFF_DYNAMICS_POLICY_VERSION,
         STAFF_DYNAMICS_POLICY_VERSION,
     )

@@ -155,6 +155,6 @@ state_row! {
         staff_positions: IdMap<Position>,
         journeys: IdMap<Journey>,
         edge_usage_minutes: IdMap<i64>,
-        last_updated_minute: i64 => set_last_updated_minute,
+        last_updated_minute: i64,
     }
 }

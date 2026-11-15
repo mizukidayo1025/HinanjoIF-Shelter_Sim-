@@ -5,8 +5,8 @@
 //! sheltersim_core::state_row! {
 //!     #[derive(Clone, Copy)]
 //!     pub struct AgentRecord {
-//!         level: f64 => set_level,   // a scalar field with a mirrored setter
-//!         visits: i64,               // a scalar field Rust does not write
+//!         level: f64,
+//!         visits: i64,
 //!     }
 //! }
 //! ```
@@ -17,10 +17,6 @@
 //! - `write_json`: the bytes of `canonical_json` of the tree, keys sorted by bytes.
 //! - `from_value`: the record read from the `V` of that JSON, with its checks
 //!   (`Field::from_value`). `str_enum!` writes it for its set too, so no row lacks one.
-//! - `set_level(&mut self, tree, value)`: the mirrored setter a rule uses: the row and the tree, or
-//!   neither when the value has the same bits. Only a `Scalar` field can have one, because storing
-//!   a scalar over a scalar leaves the tree's table of nodes as it is. The tree is a `TreeSink`;
-//!   since #430 removed the Python trees, the rules give `kit::NoTree`, which keeps nothing.
 //!
 //! Also here, for what most namespaces need beside the fields: `Maybe<T>` for a key the tree may
 //! not have (not the same as `Option<T>`, a key holding None), and `str_enum!` for a closed set of
@@ -172,49 +168,6 @@ impl Row for ValueRow {
     }
 }
 
-/// A scalar as the tree stores it. `Name` is a text of a closed set, which the tree keeps as an
-/// interned str; `Str` is any other text.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum Atom<'a> {
-    Null,
-    Bool(bool),
-    Int(i64),
-    Float(f64),
-    Str(&'a str),
-    Name(&'static str),
-}
-
-/// A field a mirrored setter can store in the tree as it is: never a container.
-pub trait Scalar: Field {
-    /// Whether writing other would change nothing in the canonical JSON.
-    fn same(&self, other: &Self) -> bool;
-    /// The value the tree stores.
-    fn atom(&self) -> Atom<'_>;
-}
-
-/// The dict of a namespace's tree that a mirrored setter writes, if the namespace has a tree. A
-/// detached namespace has none, and its sink does nothing (`kit::NoTree`, which the rules give
-/// since #430 removed the Python trees).
-pub trait TreeSink {
-    type Error;
-    /// d[key] = value, where key is a field of a record.
-    fn set_field(&self, key: &'static str, value: Atom<'_>) -> std::result::Result<(), Self::Error>;
-    /// d[key] = value, where key is an entry of a map.
-    fn set_entry(&self, key: &str, value: Atom<'_>) -> std::result::Result<(), Self::Error>;
-}
-
-impl<S: TreeSink + ?Sized> TreeSink for &S {
-    type Error = S::Error;
-
-    fn set_field(&self, key: &'static str, value: Atom<'_>) -> std::result::Result<(), Self::Error> {
-        (**self).set_field(key, value)
-    }
-
-    fn set_entry(&self, key: &str, value: Atom<'_>) -> std::result::Result<(), Self::Error> {
-        (**self).set_entry(key, value)
-    }
-}
-
 impl Field for f64 {
     fn write_json(&self, encoder: &mut Encoder) -> Result<()> {
         encoder.try_float(*self)
@@ -228,16 +181,6 @@ impl Field for f64 {
     }
 
     fn canonicalize(&mut self) {}
-}
-
-impl Scalar for f64 {
-    fn same(&self, other: &Self) -> bool {
-        self.to_bits() == other.to_bits()
-    }
-
-    fn atom(&self) -> Atom<'_> {
-        Atom::Float(*self)
-    }
 }
 
 impl Field for i64 {
@@ -257,16 +200,6 @@ impl Field for i64 {
     fn canonicalize(&mut self) {}
 }
 
-impl Scalar for i64 {
-    fn same(&self, other: &Self) -> bool {
-        self == other
-    }
-
-    fn atom(&self) -> Atom<'_> {
-        Atom::Int(*self)
-    }
-}
-
 impl Field for bool {
     fn write_json(&self, encoder: &mut Encoder) -> Result<()> {
         encoder.bool(*self);
@@ -283,16 +216,6 @@ impl Field for bool {
     fn canonicalize(&mut self) {}
 }
 
-impl Scalar for bool {
-    fn same(&self, other: &Self) -> bool {
-        self == other
-    }
-
-    fn atom(&self) -> Atom<'_> {
-        Atom::Bool(*self)
-    }
-}
-
 impl Field for Arc<str> {
     fn write_json(&self, encoder: &mut Encoder) -> Result<()> {
         write_json_string(&mut encoder.out, self);
@@ -307,16 +230,6 @@ impl Field for Arc<str> {
     }
 
     fn canonicalize(&mut self) {}
-}
-
-impl Scalar for Arc<str> {
-    fn same(&self, other: &Self) -> bool {
-        self == other
-    }
-
-    fn atom(&self) -> Atom<'_> {
-        Atom::Str(self)
-    }
 }
 
 impl<T: Field> Field for Option<T> {
@@ -344,23 +257,6 @@ impl<T: Field> Field for Option<T> {
     fn canonicalize(&mut self) {
         if let Some(value) = self {
             value.canonicalize();
-        }
-    }
-}
-
-impl<T: Scalar> Scalar for Option<T> {
-    fn same(&self, other: &Self) -> bool {
-        match (self, other) {
-            (Some(first), Some(second)) => first.same(second),
-            (None, None) => true,
-            _ => false,
-        }
-    }
-
-    fn atom(&self) -> Atom<'_> {
-        match self {
-            Some(value) => value.atom(),
-            None => Atom::Null,
         }
     }
 }
@@ -541,24 +437,18 @@ impl<T: Field> Field for Vec<T> {
     }
 }
 
-/// A mirrored write into a map of scalars: the row and the tree, or neither for the same bits.
-pub fn map_set<T: Scalar, S: TreeSink + ?Sized>(map: &mut IdMap<T>, tree: &S, key: &str, value: T) -> std::result::Result<(), S::Error> {
+/// A write into a map: the key keeps its place, or a new key goes to the end.
+pub fn map_set<T>(map: &mut IdMap<T>, key: &str, value: T) {
     match map.get_mut(key) {
-        Some(slot) if slot.same(&value) => {}
-        Some(slot) => {
-            tree.set_entry(key, value.atom())?;
-            *slot = value;
-        }
+        Some(slot) => *slot = value,
         None => {
-            tree.set_entry(key, value.atom())?;
             map.insert(Arc::from(key), value);
         }
     }
-    Ok(())
 }
 
 /// A closed set of strings, as `str_enum!` writes it.
-pub trait StrEnum: Scalar + Copy {
+pub trait StrEnum: Field + Copy {
     /// `"not a {Name}"`: why another str does not fit.
     const MISFIT: &'static str;
     fn as_text(self) -> &'static str;
@@ -623,13 +513,13 @@ pub const fn same_names(first: &[&str], second: &[&str]) -> bool {
     true
 }
 
-/// A record of a row: the struct, its `NAMES`, its `Field` and its mirrored setters.
+/// A record of a row: the struct, its `NAMES` and its `Field`.
 #[macro_export]
 macro_rules! state_row {
     (
         $(#[$meta:meta])*
         $vis:vis struct $name:ident {
-            $( $field:ident : $kind:ty $(=> $setter:ident)? ),* $(,)?
+            $( $field:ident : $kind:ty ),* $(,)?
         }
     ) => {
         $(#[$meta])*
@@ -646,21 +536,6 @@ macro_rules! state_row {
                 &[$(|row, encoder| $crate::row::Field::write_json(&row.$field, encoder)),*];
             const JSON_ABSENT: &'static [fn(&Self) -> bool] =
                 &[$(|row| $crate::row::Field::is_absent(&row.$field)),*];
-
-            $($(
-                /// The row and the tree, or neither when the value has the same bits.
-                pub fn $setter<S: $crate::row::TreeSink + ?Sized>(
-                    &mut self,
-                    tree: &S,
-                    value: $kind,
-                ) -> ::core::result::Result<(), S::Error> {
-                    if !$crate::row::Scalar::same(&self.$field, &value) {
-                        tree.set_field(stringify!($field), $crate::row::Scalar::atom(&value))?;
-                        self.$field = value;
-                    }
-                    Ok(())
-                }
-            )?)*
         }
 
         impl $crate::row::Field for $name {
@@ -784,16 +659,6 @@ macro_rules! str_enum {
             }
 
             fn canonicalize(&mut self) {}
-        }
-
-        impl $crate::row::Scalar for $name {
-            fn same(&self, other: &Self) -> bool {
-                self == other
-            }
-
-            fn atom(&self) -> $crate::row::Atom<'_> {
-                $crate::row::Atom::Name(self.text())
-            }
         }
     };
 }

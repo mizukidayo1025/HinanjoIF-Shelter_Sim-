@@ -13,18 +13,18 @@ state_row! {
     #[derive(Copy)]
     pub struct AgentRecord {
         baseline_distress: f64,
-        long_term_distress: f64 => set_long_term_distress,
-        daily_acute_sum: f64 => set_daily_acute_sum,
-        daily_high_distress_minutes: i64 => set_daily_high_distress_minutes,
-        daily_observed_minutes: i64 => set_daily_observed_minutes,
-        completed_days: i64 => set_completed_days,
+        long_term_distress: f64,
+        daily_acute_sum: f64,
+        daily_high_distress_minutes: i64,
+        daily_observed_minutes: i64,
+        completed_days: i64,
     }
 }
 
 state_row! {
     pub struct DistressRow {
         schema_version: i64,
-        last_updated_minute: i64 => set_last_updated_minute,
+        last_updated_minute: i64,
         agents: IdMap<AgentRecord>,
     }
 }

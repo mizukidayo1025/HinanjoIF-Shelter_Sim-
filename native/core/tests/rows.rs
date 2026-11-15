@@ -5,13 +5,11 @@
 // Field names as a tree may have them: capitals and non-ASCII sort before and after the rest.
 #![allow(non_snake_case)]
 
-use std::cell::RefCell;
-use std::convert::Infallible;
 use std::sync::Arc;
 
 use sheltersim_core::error::Error;
 use sheltersim_core::json::Encoder;
-use sheltersim_core::row::{same_names, sorted_order, Atom, Field, IdMap, Maybe, Row, StrEnum, TreeSink, ValueRow};
+use sheltersim_core::row::{same_names, sorted_order, Field, IdMap, Maybe, Row, StrEnum, ValueRow};
 use sheltersim_core::state::psychological_distress::{AgentRecord, DistressRow};
 use sheltersim_core::value::V;
 use sheltersim_core::{state_row, str_enum};
@@ -22,32 +20,14 @@ str_enum! {
 
 state_row! {
     pub struct Sample {
-        zeta: f64 => set_zeta,
+        zeta: f64,
         alpha: f64,
         Beta: bool,
-        é: Arc<str> => set_text,
-        ab: Option<i64> => set_ab,
+        é: Arc<str>,
+        ab: Option<i64>,
         a: Vec<i64>,
         gone: Maybe<i64>,
-        phase: Phase => set_phase,
-    }
-}
-
-/// The writes a setter made, as a tree would store them.
-#[derive(Default)]
-struct Writes(RefCell<Vec<(String, String)>>);
-
-impl TreeSink for Writes {
-    type Error = Infallible;
-
-    fn set_field(&self, key: &'static str, value: Atom<'_>) -> Result<(), Infallible> {
-        self.0.borrow_mut().push((key.to_owned(), format!("{value:?}")));
-        Ok(())
-    }
-
-    fn set_entry(&self, key: &str, value: Atom<'_>) -> Result<(), Infallible> {
-        self.0.borrow_mut().push((format!("[{key}]"), format!("{value:?}")));
-        Ok(())
+        phase: Phase,
     }
 }
 
@@ -71,40 +51,6 @@ fn a_record_writes_its_keys_in_byte_order_and_leaves_out_an_absent_one() {
     assert_eq!(sorted_order::<4>(&["b", "a", "B", "ab"]), [2, 1, 3, 0]);
     assert!(same_names(Sample::NAMES, &["zeta", "alpha", "Beta", "é", "ab", "a", "gone", "phase"]));
     assert!(!same_names(Sample::NAMES, &["alpha", "zeta", "Beta", "é", "ab", "a", "gone", "phase"]));
-}
-
-#[test]
-fn a_setter_writes_the_tree_only_for_a_change() {
-    let mut row = sample();
-    let tree = Writes::default();
-    row.set_zeta(&tree, 1.5).unwrap();
-    row.set_ab(&tree, None).unwrap();
-    assert!(tree.0.borrow().is_empty());
-    row.set_zeta(&tree, 2.0).unwrap();
-    row.set_ab(&tree, Some(3)).unwrap();
-    row.set_text(&tree, Arc::from("z")).unwrap();
-    row.set_phase(&tree, Phase::Idle).unwrap();
-    // -0.0 and 0.0 have other bits: a change.
-    row.set_zeta(&tree, -0.0).unwrap();
-    row.set_zeta(&tree, 0.0).unwrap();
-    assert_eq!(
-        *tree.0.borrow(),
-        [
-            ("zeta".to_owned(), "Float(2.0)".to_owned()),
-            ("ab".to_owned(), "Int(3)".to_owned()),
-            ("é".to_owned(), "Str(\"z\")".to_owned()),
-            ("phase".to_owned(), "Name(\"idle\")".to_owned()),
-            ("zeta".to_owned(), "Float(-0.0)".to_owned()),
-            ("zeta".to_owned(), "Float(0.0)".to_owned()),
-        ],
-    );
-    assert_eq!((row.zeta, row.ab, &*row.é, row.phase), (0.0, Some(3), "z", Phase::Idle));
-
-    let mut map: IdMap<f64> = IdMap::default();
-    let tree = Writes::default();
-    sheltersim_core::row::map_set(&mut map, &tree, "k", 1.0).unwrap();
-    sheltersim_core::row::map_set(&mut map, &tree, "k", 1.0).unwrap();
-    assert_eq!(*tree.0.borrow(), [("[k]".to_owned(), "Float(1.0)".to_owned())]);
 }
 
 #[test]
@@ -167,7 +113,4 @@ fn the_distress_row_writes_the_bytes_of_its_tree() {
     // An acute sum past the minutes observed fails validate_psychological_state.
     row.agents.get_mut("b").unwrap().daily_acute_sum = 3.5;
     assert!(!row.is_valid());
-    let tree = Writes::default();
-    row.set_last_updated_minute(&tree, 5).unwrap();
-    assert_eq!(*tree.0.borrow(), [("last_updated_minute".to_owned(), "Int(5)".to_owned())]);
 }

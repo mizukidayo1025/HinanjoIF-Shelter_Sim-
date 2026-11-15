@@ -30,18 +30,18 @@ state_row! {
         reservation_id: Arc<str>,
         resource_id: Arc<str>,
         agent_id: Arc<str>,
-        quantity: i64 => set_quantity,
+        quantity: i64,
     }
 }
 
 state_row! {
     pub struct Account {
         initial: i64,
-        delivered: i64 => set_delivered,
-        served: i64 => set_served,
-        losses: i64 => set_losses,
-        remaining: i64 => set_remaining,
-        reserved: i64 => set_reserved,
+        delivered: i64,
+        served: i64,
+        losses: i64,
+        remaining: i64,
+        reserved: i64,
         source_ids: Vec<Arc<str>>,
         reservations: IdMap<Reservation>,
     }

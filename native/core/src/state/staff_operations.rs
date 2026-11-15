@@ -38,8 +38,8 @@ str_enum! {
 state_row! {
     #[derive(Copy)]
     pub struct ZoneRecord {
-        sanitation: f64 => set_sanitation,
-        updated_minute: i64 => set_updated_minute,
+        sanitation: f64,
+        updated_minute: i64,
     }
 }
 

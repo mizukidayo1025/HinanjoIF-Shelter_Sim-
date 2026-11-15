@@ -3,15 +3,12 @@
 //! person's activity, the readers of payloads and of a few namespaces, and the checks a write stage
 //! asks first.
 //!
-//! The helpers that read a namespace take its value or its row. The helpers that write a slot's row
-//! take a `TreeSink`; a kernel of the core passes `NoTree`. `Events` and `add_metric` write the
-//! rows of the world's slots alone: their trees follow the rows, as the slots a kernel wrote are
-//! marked (P8-0c).
+//! The helpers that read a namespace take its value or its row. `Events` and `add_metric` write the
+//! rows of the world's slots alone.
 //!
 //! Errors are the core's.
 
 use std::collections::BTreeMap;
-use std::convert::Infallible;
 use std::sync::{Arc, Mutex};
 
 use indexmap::IndexMap;
@@ -26,7 +23,7 @@ use crate::events::writer::{self, Reserved, WriteError, WriteResult, MAX_RULE_CO
 use crate::events::{is_stable_id, EventKind, EventRow, EventStatus};
 use crate::geometry::Pt;
 use crate::host::{Holding, Host};
-use crate::row::{map_set, Atom, TreeSink, ValueRow};
+use crate::row::{map_set, ValueRow};
 use crate::state::effect_program::EffectProgramRow;
 use crate::state::metric_state::MetricRow;
 use crate::state::movement::{MovementRow, Point, Position};
@@ -724,25 +721,10 @@ pub struct Settled {
 
 // ---- Metrics --------------------------------------------------------------------------------------
 
-/// The tree of a detached slot, or of a kernel of the core: nothing to keep in step.
-pub struct NoTree;
-
-impl TreeSink for NoTree {
-    type Error = Infallible;
-
-    fn set_field(&self, _key: &'static str, _value: Atom<'_>) -> std::result::Result<(), Infallible> {
-        Ok(())
-    }
-
-    fn set_entry(&self, _key: &str, _value: Atom<'_>) -> std::result::Result<(), Infallible> {
-        Ok(())
-    }
-}
-
-/// `metric_state[name] = metric_state.get(name, 0.0) + 1.0`, on the row and the tree.
-pub fn add_one<S: TreeSink + ?Sized>(metrics: &mut MetricRow, tree: &S, name: &str) -> std::result::Result<(), S::Error> {
+/// `metric_state[name] = metric_state.get(name, 0.0) + 1.0`, on the row.
+pub fn add_one(metrics: &mut MetricRow, name: &str) {
     let count = metrics.get(name).copied().unwrap_or(0.0) + 1.0;
-    map_set(metrics, tree, name, count)
+    map_set(metrics, name, count);
 }
 
 /// `world.metric_state` as its row, to write: Unsupported while the field holds no row.
@@ -764,7 +746,7 @@ pub fn check_metric_state(world: &World, metric_state_held: bool) -> Result<()> 
 
 /// Adds 1 to an event metric of the world's metric state, on its row.
 pub fn add_metric(world: &World, name: &str) -> Result<()> {
-    let Ok(()) = add_one(&mut *metrics_of(world)?, &NoTree, name);
+    add_one(&mut *metrics_of(world)?, name);
     Ok(())
 }
 

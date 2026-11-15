@@ -1,4 +1,4 @@
-"""Install bundled code-owned contracts before validating saved or new inputs."""
+"""Install the bundled state contracts before validating saved or new inputs."""
 
 from __future__ import annotations
 
@@ -17,10 +17,8 @@ def ensure_builtin_contracts() -> None:
         _installing = True
         try:
             from sheltersim.contracts.presence import register_presence_contract
-            from sheltersim.policies.registry import register_agents_social_policies
 
             register_presence_contract()
-            register_agents_social_policies()
             _ready = True
         finally:
             _installing = False

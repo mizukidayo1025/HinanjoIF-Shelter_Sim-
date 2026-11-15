@@ -6,8 +6,6 @@ import math
 import re
 from typing import Any
 
-from sheltersim.policies.affect import create_affect_policy
-
 BODY_STATE_KEY = "body_state_v1"
 BODY_POLICY_VERSION = "life-state-feedback-v1"
 BODY_SOURCE_ID = "ASM-LIFE-STATE-FEEDBACK-V1"
@@ -117,7 +115,11 @@ def canonical_body_config(raw: Any) -> dict[str, Any]:
         raise ValueError("body_dynamics social_interaction_minutes must be within 1..1440")
     if not isinstance(config["affect_policy"], str):
         raise ValueError("body_dynamics affect_policy must be an installed model ID")
-    create_affect_policy(config["affect_policy"])
+    from sheltersim.contracts.policies import model_catalog
+
+    affect = model_catalog().get(config["affect_policy"])
+    if affect is None or affect["domain"] != "affect":
+        raise ValueError("body affect policy has no installed implementation")
     distance_scale = config["relationship_distance_scale_m"]
     if (
         not isinstance(distance_scale, (int, float))

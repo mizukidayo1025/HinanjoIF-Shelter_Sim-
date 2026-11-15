@@ -10,61 +10,61 @@ from sheltersim.contracts.operations import (
     validate_shared_operations_config,
 )
 from sheltersim.contracts.policies import selected_models
-from sheltersim.domain.action_lifecycle import ACTION_LIFECYCLE_POLICY_VERSION
-from sheltersim.domain.agent_dynamics import (
+from sheltersim.scenario_authoring.configs.action_lifecycle import ACTION_LIFECYCLE_POLICY_VERSION
+from sheltersim.scenario_authoring.configs.agent_dynamics import (
     AGENT_DYNAMICS_STATE_KEY,
     canonical_agent_dynamics_config,
 )
-from sheltersim.domain.body_state import (
+from sheltersim.scenario_authoring.configs.body_state import (
     BODY_POLICY_VERSION,
     BODY_STATE_KEY,
 )
-from sheltersim.domain.facility_awareness import (
+from sheltersim.scenario_authoring.configs.facility_awareness import (
     FACILITY_AWARENESS_POLICY_VERSION,
     canonical_facility_awareness_config,
 )
-from sheltersim.domain.facility_queues import (
+from sheltersim.scenario_authoring.configs.facility_queues import (
     FACILITY_QUEUES_POLICY_VERSION,
     FACILITY_QUEUES_STATE_KEY,
     independent_queues_required,
 )
-from sheltersim.domain.geometry_overlay import (
+from sheltersim.scenario_authoring.configs.geometry_overlay import (
     GEOMETRY_OVERLAY_KEY,
     GEOMETRY_OVERLAY_POLICY,
     INSTALLED_FACILITY_PLACEMENT_POLICY_VERSION,
     TEMPORARY_ROOM_BED_POLICY_VERSION,
     TEMPORARY_ROOM_INTAKE_POLICY_VERSION,
 )
-from sheltersim.domain.movement import (
+from sheltersim.scenario_authoring.configs.movement import (
     MOVEMENT_POLICY_VERSION,
     MOVEMENT_STATE_KEY,
 )
-from sheltersim.domain.population import (
+from sheltersim.scenario_authoring.configs.population import (
     POPULATION_DYNAMICS_POLICY_VERSION,
     POPULATION_DYNAMICS_STATE_KEY,
 )
-from sheltersim.domain.population_lifecycle import (
+from sheltersim.scenario_authoring.configs.population_lifecycle import (
     POPULATION_LIFECYCLE_POLICY_VERSION,
     POPULATION_LIFECYCLE_STATE_KEY,
 )
-from sheltersim.domain.psychological_state import LIFE_STATE_PSYCHOLOGY_POLICIES
-from sheltersim.domain.social_network import (
+from sheltersim.scenario_authoring.configs.psychological_state import LIFE_STATE_PSYCHOLOGY_POLICIES
+from sheltersim.scenario_authoring.configs.social_network import (
     PROXIMITY_CONTACT_POLICY_VERSION,
     SOCIAL_NETWORK_POLICY_VERSION,
     SOCIAL_NETWORK_STATE_KEY,
     canonical_proximity_contact_config,
 )
-from sheltersim.domain.staff_dynamics import (
+from sheltersim.scenario_authoring.configs.staff_dynamics import (
     STAFF_DYNAMICS_POLICY_VERSION,
     STAFF_DYNAMICS_SOURCE_ID,
     STAFF_DYNAMICS_STATE_KEY,
     canonical_staff_dynamics_config,
 )
-from sheltersim.domain.staff_operations import (
+from sheltersim.scenario_authoring.configs.staff_operations import (
     STAFF_OPERATIONS_POLICY_VERSION,
     STAFF_OPERATIONS_STATE_KEY,
 )
-from sheltersim.domain.temporary_spaces import (
+from sheltersim.scenario_authoring.configs.temporary_spaces import (
     TEMPORARY_SPACES_POLICY_VERSION,
     TEMPORARY_SPACES_SOURCE_ID,
     TEMPORARY_SPACES_STATE_KEY,
@@ -97,7 +97,9 @@ def simulator_signatures(configs: dict[str, Any]) -> dict[str, str]:
         if "population_context" in configs:
             standalone["operator:autonomy_behavior"] = "contextual-autonomy@2:stateless"
         if "zone_environment" in configs:
-            from sheltersim.domain.environment import ScenarioZoneEnvironmentConfig
+            from sheltersim.scenario_authoring.configs.environment import (
+                ScenarioZoneEnvironmentConfig,
+            )
 
             environment = ScenarioZoneEnvironmentConfig.model_validate(configs["zone_environment"])
             standalone["operator:zone_environment"] = f"{environment.policy_version}@1:state1"
@@ -163,7 +165,7 @@ def simulator_signatures(configs: dict[str, Any]) -> dict[str, str]:
     ):
         signatures["operator:autonomy_behavior"] = "contextual-autonomy@2:stateless"
     if "zone_environment" in configs:
-        from sheltersim.domain.environment import ScenarioZoneEnvironmentConfig
+        from sheltersim.scenario_authoring.configs.environment import ScenarioZoneEnvironmentConfig
 
         environment = ScenarioZoneEnvironmentConfig.model_validate(configs["zone_environment"])
         signatures["operator:zone_environment"] = f"{environment.policy_version}@1:state1"

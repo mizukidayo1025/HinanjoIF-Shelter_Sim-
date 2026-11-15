@@ -2,7 +2,7 @@
 
 ## 管理場所
 
-- `src/sheltersim/contracts/model-catalog.json`: model ID/version、理論式、参照、係数ID、値、単位、上下限、source ID、適用注意
+- `native/core/src/validate/model-catalog.json`（Model Catalog）: model ID/version、理論式、参照、係数ID、値、単位、上下限、source ID、適用注意
 - `fixtures/source-manifest.json`: source type、理論根拠、モデル版、校正status
 - `ScenarioSpec.model_configs.policy_registry`: 実際に選んだ演算子
 - Run manifest / trace: 適用したモデル、設定、seed、入力・出力hash

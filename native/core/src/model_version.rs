@@ -27,7 +27,7 @@ pub const ENGINE_VERSION_KEY: &str = "engine:model";
 pub const RNG_ALGORITHM_KEY: &str = "engine:rng_algorithm";
 /// `ENGINE_VERSION` of model_version.py: the version of the simulation as a whole. A test keeps it
 /// equal to Python's.
-pub const ENGINE_VERSION: &str = "3";
+pub const ENGINE_VERSION: &str = "4";
 /// `CounterRNG.algorithm_id`.
 pub const RNG_ALGORITHM: &str = crate::scenario::profiles::RNG_ALGORITHM;
 /// The code of a refusal to go on with a Run of other versions.

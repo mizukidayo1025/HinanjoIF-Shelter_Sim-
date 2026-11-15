@@ -1,26 +1,26 @@
 {
   "from_zero": {
-    "journal_sha256": "2190a7f0c45fb75965c0ab952d7f997ffe7c6cc1d816919e7bc202a147c03882",
+    "journal_sha256": "b25e297b647eca89ad9852e64931cb1a6758714e745e5ce6f190a2a0349688e3",
     "data_bytes": 848177,
     "data_sha256": "c9704e1d3f5021c6faf47f6e0753c1533bb08b91fdaab17431be7de57598253f"
   },
   "no_points": {
-    "journal_sha256": "36313d651ad5a71533557608421159f92c34ccdcb80318596324af1a1bf1dc65",
+    "journal_sha256": "bdfed5600f87c64e3ce4a63794824ef6cc016adb2dd41abb7cf7c0416c814fc5",
     "data_bytes": 783347,
     "data_sha256": "023e3887a341f641992078200056c99f2af2b992e81a7a5522294ea369f88572"
   },
   "computed": {
-    "journal_sha256": "b2222342c18fbef0c49101ed50a698809cc79109313c0495df68f8ea5125725d",
+    "journal_sha256": "214aa2be85d1b0ccfa62deaef5e993f169d83f5a2110001e99d3eb11a82fae5a",
     "data_bytes": 861528,
     "data_sha256": "02b8fd0960feaed0918525927a95c4ca88149d927b49e658157562e67a383f77"
   },
   "fork_parent": {
-    "journal_sha256": "70714e96de920d0f4c4fd88f10a74e03f33619b89b35e0c1686e6fa0da7325fd",
+    "journal_sha256": "64fb3af1cd67f151187747bee269a78c3a53b5a9e67a22c3f575a3ae33e3c32d",
     "data_bytes": 2307850,
-    "data_sha256": "2033858b9d058f1c880668a9af39ff446e2968311d81baf0a4050d8712356d87"
+    "data_sha256": "f3be14f97e2b7678375bfa4c971c1f7e0515ca6a27e0d46e9ca36350018e1acb"
   },
   "fork": {
-    "journal_sha256": "2b7ca7242deb60ac6027a5811804d4296a0a17d70212b0bca4c70e714b88f45d",
+    "journal_sha256": "b2a8b7463ec62709a5eaf09c6ef45efc5375a3d57e17519506fecbd3e40a2cc1",
     "data_bytes": 1468534,
     "data_sha256": "d2eb7cc4ce28755b6635bfca27e41755fb72257ade8ded170b3d2009bdce4fae"
   }

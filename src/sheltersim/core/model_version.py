@@ -45,7 +45,10 @@ RNG_ALGORITHM_KEY = "engine:rng_algorithm"
 # 2 (step 4, L11): exp, expm1, pow and fma of the pinned libm crate, the information events'
 # draw keys without event IDs, and Python's remaining float math without libm.
 # 3 (#255): the action lifecycle receipts of schema 2 write each needs snapshot once.
-ENGINE_VERSION = "3"
+# 4 (#427): the local and VM versions compute in the core (PlainRun) into format v5, and the
+# tick's LLM rules are the core's (#428): their prompts' state hash is the core world's digest, so
+# a tape recorded before does not answer the same calls.
+ENGINE_VERSION = "4"
 # Saves from before engine:* was recorded: engine 1 and the only RNG there was.
 UNRECORDED_ENGINE = {ENGINE_VERSION_KEY: "1", RNG_ALGORITHM_KEY: "sha256-keyed-v1"}
 VIEW_ONLY_CODE = "run_model_view_only"

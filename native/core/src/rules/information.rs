@@ -687,8 +687,8 @@ fn optional(text: &Option<Arc<str>>) -> V {
 }
 
 /// `InformationSpreadResult.trace_document`: every contact with a full trace, 20 with a summary,
-/// sorted by recipient, sender and message. `minute` is the value the document holds.
-pub fn information_document(plan: &Plan, model: Model, minute: &V, level: TraceLevel) -> V {
+/// sorted by recipient, sender and message.
+pub fn information_document(plan: &Plan, model: Model, minute: i64, level: TraceLevel) -> V {
     let kept = if level == TraceLevel::Full { plan.traces.len() } else { plan.traces.len().min(SUMMARY_ITEMS) };
     // The sort of `InformationSpreadPolicy.update`, which is stable.
     let mut traces: Vec<&ContactTrace> = plan.traces.iter().collect();
@@ -715,7 +715,7 @@ pub fn information_document(plan: &Plan, model: Model, minute: &V, level: TraceL
         contacts.push(V::Map(item));
     }
     let mut document = IndexMap::with_capacity(6);
-    document.insert(Arc::from("minute_index"), minute.clone());
+    document.insert(Arc::from("minute_index"), V::Int(minute));
     document.insert(Arc::from("policy_version"), text(version(model)));
     document.insert(Arc::from("selected_contact_count"), V::Int(plan.traces.len() as i64));
     document.insert(Arc::from("truncated_contact_count"), V::Int((plan.traces.len() - kept) as i64));
@@ -725,7 +725,7 @@ pub fn information_document(plan: &Plan, model: Model, minute: &V, level: TraceL
 }
 
 /// The trace's document of a minute to the host's sink, when the Run keeps a trace.
-pub fn record_information<H: Host>(host: &mut H, plan: &Plan, model: Model, minute: &V) -> std::result::Result<(), H::Error> {
+pub fn record_information<H: Host>(host: &mut H, plan: &Plan, model: Model, minute: i64) -> std::result::Result<(), H::Error> {
     let level = host.trace_level()?;
     if level == TraceLevel::Off {
         return Ok(());

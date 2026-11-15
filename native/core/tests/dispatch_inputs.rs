@@ -12,7 +12,7 @@ use sheltersim_core::cell::Shard;
 use sheltersim_core::config::{Configs, Fault, FaultClass, Lazy, Section, SectionId, Selection};
 use sheltersim_core::error::Error;
 use sheltersim_core::events::{EventKind, EventRow, EventStatus};
-use sheltersim_core::geometry::Geo;
+use sheltersim_core::geometry::{Geo, Pt};
 use sheltersim_core::host::{Hold, Holding, Key, NOT_OWNED, NO_PLAN, TABLE_MAPPING, TABLE_NOT_PLAIN};
 use sheltersim_core::row::ValueRow;
 use sheltersim_core::rules::common_operations::{self, Logged, NOT_SELECTED};
@@ -318,7 +318,7 @@ fn finishing_a_walk_reads_whether_there_is_a_movement_state() {
 fn a_bed_is_placed_on_the_row_of_a_detached_namespace_only() {
     let world = World::default();
     let held = holding(&[("movement_v1", Hold::Held, false, true)]);
-    let bed = map(vec![("x", V::Float(1.0)), ("y", V::Float(2.0))]);
+    let bed = movement::ReservedBed::Point(Pt { x: 1.0, y: 2.0 });
     let zone = text("Z1");
     // Not detached: the caller writes through the tree.
     assert_eq!(movement::place_at_bed(&world, &held, "A1", &zone, &bed), Ok(false));
@@ -328,10 +328,21 @@ fn a_bed_is_placed_on_the_row_of_a_detached_namespace_only() {
 #[test]
 fn the_reserved_bed_is_read_as_python_reads_the_overlay() {
     let overlay = map(vec![
-        ("bed_reservations", map(vec![("A1", map(vec![("room_id", str_v("R1")), ("bed_index", V::Int(1))]))])),
-        ("temporary_rooms", map(vec![("R1", map(vec![("bed_points_m", V::List(vec![str_v("first"), str_v("second")]))]))])),
+        (
+            "bed_reservations",
+            map(vec![
+                ("A1", map(vec![("room_id", str_v("R1")), ("bed_index", V::Int(1))])),
+                ("A3", map(vec![("room_id", str_v("R1")), ("bed_index", V::Int(0))])),
+            ]),
+        ),
+        (
+            "temporary_rooms",
+            map(vec![("R1", map(vec![("bed_points_m", V::List(vec![str_v("first"), map(vec![("x", V::Float(1.0)), ("y", V::Float(2.0))])]))]))]),
+        ),
     ]);
-    assert_eq!(movement::reserved_bed_of(Some(&overlay), "A1"), Ok(Some(str_v("second"))));
+    assert_eq!(movement::reserved_bed_of(Some(&overlay), "A1"), Ok(Some(movement::ReservedBed::Point(Pt { x: 1.0, y: 2.0 }))));
+    // A bed's value that is no plain point is read, for the placement to turn down.
+    assert_eq!(movement::reserved_bed_of(Some(&overlay), "A3"), Ok(Some(movement::ReservedBed::NotAPoint)));
     assert_eq!(movement::reserved_bed_of(Some(&overlay), "A2"), Ok(None));
     assert_eq!(movement::reserved_bed_of(None, "A1"), Ok(None));
     assert_eq!(movement::reserved_bed_of(Some(&V::Int(1)), "A1").err(), Some(unsupported(movement::OVERLAY_NOT_A_DICT)));

@@ -683,9 +683,9 @@ export async function runsResponse(wasm, tree, projectId) {
 }
 
 /// `GET /api/v1/projects/{project}/runs/{run}`; `lastFork` the outcome of the Run's last fork
-/// (an object), where one is kept.
+/// (its JSON text, the core's), where one is kept.
 export async function runResponse(wasm, tree, projectId, runId, lastFork = null) {
-  const outcome = lastFork === null ? undefined : JSON.stringify(lastFork);
+  const outcome = lastFork ?? undefined;
   return using(await runFiles(wasm, tree, projectId, runId), (files) => answered(() => wasm.runAnswer(projectId, runId, files, outcome)));
 }
 

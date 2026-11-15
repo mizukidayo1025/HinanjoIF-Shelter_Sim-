@@ -17,8 +17,11 @@
 //! read 400. Anything else is the core's `Error`: the server's 500, but a stored Run of an older
 //! format, 409 `stored_run_outdated` (`Failure::from`).
 
+pub mod frames;
 pub mod history;
+pub mod interventions;
 pub mod query;
+pub mod questions;
 pub mod records;
 pub mod report;
 pub mod routes;

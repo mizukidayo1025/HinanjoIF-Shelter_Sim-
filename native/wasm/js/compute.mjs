@@ -42,7 +42,7 @@
 
 import { ApiError } from "./api_answers.mjs";
 import * as store from "./project_store.mjs";
-import { OUTDATED_CODE, RunReader, RunWriter } from "./run_store.mjs";
+import { RunReader, RunWriter } from "./run_store.mjs";
 
 /// Ticks per chunk by default: about a tenth of a second for 100 people.
 export const CHUNK_TICKS = 60;
@@ -183,38 +183,19 @@ export async function recoverInterrupted({ tree, branchLock }) {
 /// The name of a branch's lock (a Web Lock in the page).
 export const lockName = (projectId, runId, branchId) => `sheltersim-compute/${projectId}/${runId}/${branchId}`;
 
-/// The model versions the core records now for the Run's Scenario (`modelVersions`), or, for a
-/// Scenario it cannot sign, the stored Run's own with the core's engine items: only the engine's
-/// are compared then.
-function installedVersions(wasm, scenarioBytes, recorded) {
-  try {
-    return JSON.parse(wasm.modelVersions(scenarioBytes));
-  } catch {
-    return { ...recorded, ...JSON.parse(wasm.engineSignatures()) };
-  }
-}
-
 /// How the model versions a branch's stored Run was computed with compare with the ones the core
-/// records now (the core's `ModelStatus`): `{ recorded, installed, status }`, the two as JSON text
-/// and the status as `modelStatus` answers it; null for a branch without a stored Run or one whose
-/// journal cannot be read (a stored Run of an older format is its error, `stored_run_outdated`).
+/// records now for its Scenario (the core's `answers::frames::model_view`): `{ recorded,
+/// installed, status }`, the two as JSON text and the status as `modelStatus` answers it; null for
+/// a branch without a stored Run or one whose journal cannot be read (a stored Run of an older
+/// format is its error, `stored_run_outdated`).
 export async function branchModelStatus(wasm, tree, projectId, runId, branchId) {
   const bytes = await tree.read([projectId, "runs", runId, "branches", branchId, JOURNAL]);
   if (bytes === null || bytes.length === 0) return null;
-  let recorded;
-  try {
-    const journal = new wasm.Journal(bytes);
-    try {
-      recorded = journal.modelVersionsJson();
-    } finally {
-      journal.free();
-    }
-  } catch (error) {
-    if (String(error?.message ?? "").startsWith(`${OUTDATED_CODE}: `)) throw error;
-    return null;
-  }
-  const installed = JSON.stringify(installedVersions(wasm, await store.runScenarioBytes(tree, projectId, runId), JSON.parse(recorded)));
-  return { recorded, installed, status: JSON.parse(wasm.modelStatus(recorded, installed)) };
+  const scenario = await store.runScenarioBytes(tree, projectId, runId);
+  const view = store.answered(() => wasm.branchModelView(bytes, scenario));
+  if (view === undefined) return null;
+  const { recorded, installed, status } = JSON.parse(view);
+  return { recorded: JSON.stringify(recorded), installed: JSON.stringify(installed), status };
 }
 
 /// Python's `_require_current_model`: a refusal (409 `run_model_view_only`, Python's text) where

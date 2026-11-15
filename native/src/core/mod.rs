@@ -7,6 +7,7 @@ pub(crate) mod configs;
 pub(crate) mod errors;
 pub(crate) mod geometry;
 pub(crate) mod interner;
+pub(crate) mod llm_link;
 pub(crate) mod mathx;
 pub(crate) mod parallel;
 pub(crate) mod rng;

@@ -1763,32 +1763,7 @@ fn plan_arrivals_in(world: &World, inputs: &Inputs, row: &EventRow, new_state: O
     let held = value_of(world, DYNAMICS, &inputs.namespaces.dynamics)?;
     let (reserved, fails) = {
         let state = state_in(&new_state, &held)?;
-        let pending = list_of(field(state, "pending_arrivals")?)?;
-        let pending_count = pending.len() as i64;
-        let agents = world.rows()?.agents.len() as i64;
-        let mut known: HashSet<Arc<str>> = HashSet::new();
-        for id in list_of(field(state, "initial_agent_ids")?)? {
-            known.insert(text(id)?);
-        }
-        let traits_map = map_of(field(state, "profile_traits")?)?;
-        known.extend(traits_map.keys().cloned());
-        let fails = if pending_count + count > MAX_PENDING_ARRIVALS {
-            Some("population arrival exceeds the pending capacity bound")
-        } else if agents + pending_count + count > 10_000 {
-            Some("population arrival exceeds the 10000-resident runtime bound")
-        } else if known.len() as i64 + count > 10_000 {
-            Some("population arrival exceeds the 10000-profile history bound")
-        } else {
-            None
-        };
-        let mut reserved: HashSet<Arc<str>> = world.rows()?.agents.iter().map(|(id, _)| id.clone()).collect();
-        if fails.is_none() {
-            for item in pending {
-                reserved.insert(text(field(field(item, "profile")?, "id")?)?);
-            }
-            reserved.extend(traits_map.keys().cloned());
-        }
-        (reserved, fails)
+        reserved_ids(world, state, count)?
     };
     drop(held);
     if let Some(text) = fails {
@@ -1805,75 +1780,27 @@ fn plan_arrivals_in(world: &World, inputs: &Inputs, row: &EventRow, new_state: O
     let event_digest = &event_digest[..20];
     let context_source = row.source_id.clone().unwrap_or_else(|| Arc::from(SOURCE_ID));
     let mut prepared = Vec::with_capacity(count as usize);
+    let base = ArrivalBase {
+        row,
+        zone: &zone,
+        alternates: &alternates,
+        route: &route,
+        household_size,
+        mobility,
+        language: &language,
+        care_by_index: &care_by_index,
+        hydrated,
+        event_digest,
+        seed_value: &seed_value,
+        context_source: &context_source,
+    };
     for index in 0..count {
         let digest = sha_hex(&format!("{}\0{}\0{index}", seed.text, row.event_id));
-        let byte = |start: usize| -> i64 { i64::from_str_radix(&digest[start..start + 2], 16).unwrap_or(0) };
         let agent_id: Arc<str> = Arc::from(format!("arrival-{}", &digest[..28]));
         if !reserved.insert(agent_id.clone()) {
             return Ok(fails_after_state(new_state, "population arrival generated a duplicate stable ID"));
         }
-        let group_id: Arc<str> = Arc::from(format!("household-{event_digest}-{:03}", index / household_size));
-        let age_years = 5 + byte(0) % 79;
-        let role = if age_years < 18 {
-            "child"
-        } else if age_years >= 75 {
-            "dependent"
-        } else if household_size == 1 {
-            "alone"
-        } else {
-            "adult"
-        };
-        let traits = V::Map(doc([
-            ("age_years", V::Int(age_years)),
-            ("household_id", V::Str(group_id.clone())),
-            ("household_role", v_str(role)),
-            ("languages", V::List(vec![V::Str(language.clone())])),
-            ("accessibility_needs", V::List(Vec::new())),
-            ("medical_support", V::Bool(false)),
-            ("source_ids", V::List(Vec::new())),
-        ]));
-        let level = |start: usize| -> f64 { byte(start) as f64 / 255.0 * 0.35 };
-        let mut initial = doc([("toilet_urgency", V::Float(level(2))), ("hunger", V::Float(level(4))), ("fatigue", V::Float(level(6)))]);
-        if hydrated {
-            initial.insert(Arc::from("hydration_need"), V::Float(level(8)));
-        }
-        let profile = V::Map(doc([
-            ("id", V::Str(agent_id.clone())),
-            ("group_id", V::Str(group_id.clone())),
-            ("initial_zone_id", V::Str(zone.clone())),
-            ("mobility", v_str(mobility)),
-            ("support_need", V::Float(byte(10) as f64 / 255.0 * 0.5)),
-            ("stress_sensitivity", V::Float(byte(12) as f64 / 255.0)),
-            ("rng_key", V::Str(Arc::from(format!("arrival:{}", &digest[..24])))),
-            ("initial_needs", V::Map(initial)),
-            (
-                "provenance",
-                V::Map(doc([
-                    ("source_type", v_str("assumption")),
-                    ("source_id", v_str(SOURCE_ID)),
-                    ("event_id", V::Str(row.event_id.clone())),
-                    ("seed", seed_value.clone()),
-                ])),
-            ),
-        ]));
-        let care_needs = care_by_index.get(&index).cloned().unwrap_or_default();
-        let mut item = doc([
-            ("profile", profile),
-            ("traits", traits),
-            ("member_index", V::Int(index)),
-            ("care_support_needs", strings(&care_needs)),
-            ("context_source_id", V::Str(context_source.clone())),
-            ("zone_id", V::Str(zone.clone())),
-            ("admission_zone_ids", strings(&alternates)),
-            ("created_minute", V::Int(row.due_minute)),
-            ("event_id", V::Str(row.event_id.clone())),
-        ]);
-        if let Some(route) = &route {
-            item.insert(Arc::from("approach_route_id"), V::Str(route.route_id.clone()));
-            item.insert(Arc::from("approach_started_minute"), V::Int(row.due_minute));
-            item.insert(Arc::from("approach_due_minute"), V::Int(row.due_minute + route.travel_minutes));
-        }
-        prepared.push(Prepared { item, agent_id, household: group_id, role, care_needs, source: context_source.clone(), completion: None, admission: None });
+        prepared.push(arrival(&base, index, &digest, agent_id));
     }
     let contexts = generated_context(&prepared)?;
     let presence = presence_state(world, &inputs.namespaces.presence)?;
@@ -1928,18 +1855,7 @@ fn plan_arrivals_in(world: &World, inputs: &Inputs, row: &EventRow, new_state: O
             check_waiting_ids(item)?;
             continue;
         }
-        let mut decision = None;
-        for candidate in &zone_list {
-            if places.has_room(world, inputs, candidate)? {
-                decision = Some((candidate.clone(), None));
-                break;
-            }
-            if let Some(found) = places.available_room(world, inputs, candidate)? {
-                decision = Some((candidate.clone(), Some(found)));
-                break;
-            }
-        }
-        match decision {
+        match first_place(&mut places, world, inputs, &zone_list)? {
             Some((target, room)) => {
                 check_presence_ids(&row.event_id, &item.agent_id, Some(&target), Some(&item.household), SOURCE_ID)?;
                 places.add(&target);
@@ -1968,14 +1884,7 @@ fn plan_arrivals_in(world: &World, inputs: &Inputs, row: &EventRow, new_state: O
         let zones: Vec<&str> = zone_list.iter().map(|zone| &**zone).collect();
         check_admission_paths(world, inputs, &zones)?;
     }
-    let summary = V::Map(doc([
-        ("event_id", V::Str(row.event_id.clone())),
-        ("zone_id", V::Str(zone.clone())),
-        ("requested_count", V::Int(count)),
-        ("admitted_count", V::Int(admitted)),
-        ("waiting_count", V::Int(count - admitted)),
-        ("minute", V::Int(row.due_minute)),
-    ]));
+    let summary = arrivals_summary(row, &zone, count, admitted);
     Ok(ArrivalsPlan {
         new_state,
         fails: None,
@@ -1990,6 +1899,156 @@ fn plan_arrivals_in(world: &World, inputs: &Inputs, row: &EventRow, new_state: O
         admitted,
         failure,
     })
+}
+
+/// The IDs an arrival may not take (the people's, the pending arrivals' and the profiles') and the
+/// bound the arrivals would pass, if any; the pending and profile IDs only within the bounds.
+fn reserved_ids(world: &World, state: &V, count: i64) -> Result<(HashSet<Arc<str>>, Option<&'static str>)> {
+    let pending = list_of(field(state, "pending_arrivals")?)?;
+    let pending_count = pending.len() as i64;
+    let agents = world.rows()?.agents.len() as i64;
+    let mut known: HashSet<Arc<str>> = HashSet::new();
+    for id in list_of(field(state, "initial_agent_ids")?)? {
+        known.insert(text(id)?);
+    }
+    let traits_map = map_of(field(state, "profile_traits")?)?;
+    known.extend(traits_map.keys().cloned());
+    let fails = if pending_count + count > MAX_PENDING_ARRIVALS {
+        Some("population arrival exceeds the pending capacity bound")
+    } else if agents + pending_count + count > 10_000 {
+        Some("population arrival exceeds the 10000-resident runtime bound")
+    } else if known.len() as i64 + count > 10_000 {
+        Some("population arrival exceeds the 10000-profile history bound")
+    } else {
+        None
+    };
+    let mut reserved: HashSet<Arc<str>> = world.rows()?.agents.iter().map(|(id, _)| id.clone()).collect();
+    if fails.is_none() {
+        for item in pending {
+            reserved.insert(text(field(field(item, "profile")?, "id")?)?);
+        }
+        reserved.extend(traits_map.keys().cloned());
+    }
+    Ok((reserved, fails))
+}
+
+/// Where an arrival is admitted: the zone, and the ID and point of a temporary room it takes.
+type AdmittedAt = (Arc<str>, Option<(Arc<str>, Pt)>);
+
+/// The first of the zones with room for one more, or with a free room of a temporary room (its ID and
+/// point), in the zones' order: None for none.
+fn first_place(places: &mut Places, world: &World, inputs: &Inputs, zone_list: &[Arc<str>]) -> Result<Option<AdmittedAt>> {
+    let mut decision = None;
+    for candidate in zone_list {
+        if places.has_room(world, inputs, candidate)? {
+            decision = Some((candidate.clone(), None));
+            break;
+        }
+        if let Some(found) = places.available_room(world, inputs, candidate)? {
+            decision = Some((candidate.clone(), Some(found)));
+            break;
+        }
+    }
+    Ok(decision)
+}
+
+/// The summary of an event's arrivals.
+fn arrivals_summary(row: &EventRow, zone: &Arc<str>, count: i64, admitted: i64) -> V {
+    V::Map(doc([
+        ("event_id", V::Str(row.event_id.clone())),
+        ("zone_id", V::Str(zone.clone())),
+        ("requested_count", V::Int(count)),
+        ("admitted_count", V::Int(admitted)),
+        ("waiting_count", V::Int(count - admitted)),
+        ("minute", V::Int(row.due_minute)),
+    ]))
+}
+
+/// What every arrival of an event shares: the event, what its checks found, whether the needs are
+/// hydrated (schema 6), the event's digest, the seed, and the source of the care context.
+#[derive(Clone, Copy)]
+struct ArrivalBase<'a> {
+    row: &'a EventRow,
+    zone: &'a Arc<str>,
+    alternates: &'a [Arc<str>],
+    route: &'a Option<Approach>,
+    household_size: i64,
+    mobility: &'static str,
+    language: &'a Arc<str>,
+    care_by_index: &'a HashMap<i64, Vec<Arc<str>>>,
+    hydrated: bool,
+    event_digest: &'a str,
+    seed_value: &'a V,
+    context_source: &'a Arc<str>,
+}
+
+/// The arrival of this index, of this digest and ID: its profile, traits and pending item.
+fn arrival(base: &ArrivalBase<'_>, index: i64, digest: &str, agent_id: Arc<str>) -> Prepared {
+    let ArrivalBase { row, zone, alternates, route, household_size, mobility, language, care_by_index, hydrated, event_digest, seed_value, context_source } =
+        *base;
+    let byte = |start: usize| -> i64 { i64::from_str_radix(&digest[start..start + 2], 16).unwrap_or(0) };
+    let group_id: Arc<str> = Arc::from(format!("household-{event_digest}-{:03}", index / household_size));
+    let age_years = 5 + byte(0) % 79;
+    let role = if age_years < 18 {
+        "child"
+    } else if age_years >= 75 {
+        "dependent"
+    } else if household_size == 1 {
+        "alone"
+    } else {
+        "adult"
+    };
+    let traits = V::Map(doc([
+        ("age_years", V::Int(age_years)),
+        ("household_id", V::Str(group_id.clone())),
+        ("household_role", v_str(role)),
+        ("languages", V::List(vec![V::Str(language.clone())])),
+        ("accessibility_needs", V::List(Vec::new())),
+        ("medical_support", V::Bool(false)),
+        ("source_ids", V::List(Vec::new())),
+    ]));
+    let level = |start: usize| -> f64 { byte(start) as f64 / 255.0 * 0.35 };
+    let mut initial = doc([("toilet_urgency", V::Float(level(2))), ("hunger", V::Float(level(4))), ("fatigue", V::Float(level(6)))]);
+    if hydrated {
+        initial.insert(Arc::from("hydration_need"), V::Float(level(8)));
+    }
+    let profile = V::Map(doc([
+        ("id", V::Str(agent_id.clone())),
+        ("group_id", V::Str(group_id.clone())),
+        ("initial_zone_id", V::Str(zone.clone())),
+        ("mobility", v_str(mobility)),
+        ("support_need", V::Float(byte(10) as f64 / 255.0 * 0.5)),
+        ("stress_sensitivity", V::Float(byte(12) as f64 / 255.0)),
+        ("rng_key", V::Str(Arc::from(format!("arrival:{}", &digest[..24])))),
+        ("initial_needs", V::Map(initial)),
+        (
+            "provenance",
+            V::Map(doc([
+                ("source_type", v_str("assumption")),
+                ("source_id", v_str(SOURCE_ID)),
+                ("event_id", V::Str(row.event_id.clone())),
+                ("seed", seed_value.clone()),
+            ])),
+        ),
+    ]));
+    let care_needs = care_by_index.get(&index).cloned().unwrap_or_default();
+    let mut item = doc([
+        ("profile", profile),
+        ("traits", traits),
+        ("member_index", V::Int(index)),
+        ("care_support_needs", strings(&care_needs)),
+        ("context_source_id", V::Str(context_source.clone())),
+        ("zone_id", V::Str(zone.clone())),
+        ("admission_zone_ids", strings(&alternates)),
+        ("created_minute", V::Int(row.due_minute)),
+        ("event_id", V::Str(row.event_id.clone())),
+    ]);
+    if let Some(route) = &route {
+        item.insert(Arc::from("approach_route_id"), V::Str(route.route_id.clone()));
+        item.insert(Arc::from("approach_started_minute"), V::Int(row.due_minute));
+        item.insert(Arc::from("approach_due_minute"), V::Int(row.due_minute + route.travel_minutes));
+    }
+    Prepared { item, agent_id, household: group_id, role, care_needs, source: context_source.clone(), completion: None, admission: None }
 }
 
 /// A completion event, or the text the rule stops with and where.

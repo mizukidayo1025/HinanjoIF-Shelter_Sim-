@@ -44,19 +44,13 @@ pub struct PlainRun {
 }
 
 impl PlainRun {
-    fn of(run: plain::PlainRun) -> Self {
+    /// The Python object of a Run: one made here, or one the store restored (`rules::run_files`).
+    pub(crate) fn of_run(run: plain::PlainRun) -> Self {
         Self { run, raised: Raised::default() }
     }
 
     fn limits(limits: Option<&[u8]>) -> PyResult<Limits> {
         limits.map_or(Ok(Limits::default()), |raw| Limits::from_json(raw).or_py())
-    }
-}
-
-impl PlainRun {
-    /// The Python object of a Run the store restored (`rules::run_files`).
-    pub(crate) fn of_run(run: plain::PlainRun) -> Self {
-        Self { run }
     }
 }
 
@@ -66,14 +60,14 @@ impl PlainRun {
     /// exported world.
     #[new]
     fn new(entry: &[u8]) -> PyResult<Self> {
-        Ok(Self::of(plain::PlainRun::of_json(entry).or_py()?))
+        Ok(Self::of_run(plain::PlainRun::of_json(entry).or_py()?))
     }
 
     /// The Run of the world `name` of a file of named worlds (`{"worlds": {name: entry}}`, as the
     /// fixtures of `native/core/tests/data/` hold them), from the file's JSON bytes.
     #[staticmethod]
     fn from_worlds(file: &[u8], name: &str) -> PyResult<Self> {
-        Ok(Self::of(plain::PlainRun::of_worlds_json(file, name).or_py()?))
+        Ok(Self::of_run(plain::PlainRun::of_worlds_json(file, name).or_py()?))
     }
 
     /// The Run at the saved point `restore` was made of, which has read the stored log and samples
@@ -82,14 +76,14 @@ impl PlainRun {
     #[staticmethod]
     fn restore(entry: &[u8], restore: &mut Restore) -> PyResult<Self> {
         let entry = plain::PlainRun::entry_of_json(entry).or_py()?;
-        Ok(Self::of(plain::PlainRun::restore(entry, restore.inner.take().or_py()?).or_py()?))
+        Ok(Self::of_run(plain::PlainRun::restore(entry, restore.inner.take().or_py()?).or_py()?))
     }
 
     /// `restore` with the world `name` of a file of named worlds as the exported entry.
     #[staticmethod]
     fn restore_from_worlds(file: &[u8], name: &str, restore: &mut Restore) -> PyResult<Self> {
         let entry = plain::PlainRun::entry_of_worlds_json(file, name).or_py()?;
-        Ok(Self::of(plain::PlainRun::restore(entry, restore.inner.take().or_py()?).or_py()?))
+        Ok(Self::of_run(plain::PlainRun::restore(entry, restore.inner.take().or_py()?).or_py()?))
     }
 
     /// The world's minute: the next tick's.

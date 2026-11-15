@@ -1413,18 +1413,6 @@ pub fn advance_through<C: WorldCell, H: Host>(cell: &C, host: &mut H, minute: i6
     }
 }
 
-/// Whether `model_state` holds the namespace detached: its key holds the placeholder of the slot's
-/// row, so that a rule writes the row (`place_at_bed`).
-pub fn held_detached(world: &World, holding: &Holding) -> Result<bool> {
-    if !holding.table || holding.keys.get(KEY).map(|key| key.hold) != Some(Hold::Held) {
-        return Ok(false);
-    }
-    Ok(match world.slots.get(KEY) {
-        Some(slot) => slot.try_borrow()?.detached,
-        None => false,
-    })
-}
-
 /// A reserved bed's point as `reserved_bed_of` read it from the overlay.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ReservedBed {
@@ -1446,21 +1434,6 @@ fn plain_point(value: &V) -> Option<Pt> {
         return None;
     };
     usable(*x, *y).then_some(Pt { x: *x, y: *y })
-}
-
-/// `state["positions"][agent_id].update(zone_id=..., point=bed, edge_id=None, progress=1.0,
-/// position_kind="physical")` of a bed's point (as `reserved_bed_of` gives it) on the row of a
-/// detached namespace: false, having written nothing, unless the namespace is held detached, the
-/// row has the record and the point is two usable floats. The caller then writes through the tree.
-pub fn place_at_bed(world: &World, holding: &Holding, agent_id: &str, zone_id: &Arc<str>, bed: &ReservedBed) -> Result<bool> {
-    if !held_detached(world, holding)? {
-        return Ok(false);
-    }
-    let ReservedBed::Point(point) = *bed else {
-        return Ok(false);
-    };
-    check_held(holding)?;
-    place_at_point(world, agent_id, zone_id, point)
 }
 
 /// `positions[agent_id].update({... "point": bed ...})` of `_finish_stopped_journey` as a write of

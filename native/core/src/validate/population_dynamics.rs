@@ -1,9 +1,9 @@
-//! `validate_population_dynamics_state(world)` of `domain/population.py`, with Python's errors and
-//! texts (lane D of #250, #349). Raw errors.
+//! The check of `population_dynamics_v1`, with its errors and texts (lane D of #250, #349). Raw
+//! errors.
 //!
-//! Python's rule is the core's kernel (`kernel_only("population",
-//! "validate_population_dynamics_state")`, `rules::population::validate_facts`), so this reads the
-//! same facts of the world and gives its refusal as the `KernelRefusal` Python raises.
+//! The rule is the tick's (`rules::population::validate_facts`), so this reads the same facts of
+//! the world and gives its refusal (`Error::Refused`, labelled
+//! `population.validate_population_dynamics_state`).
 
 use std::sync::Arc;
 
@@ -89,7 +89,7 @@ fn approach_routes(view: &View<'_>) -> Result<Routes> {
     Ok(Ok(Arc::from(out)))
 }
 
-/// The check, as `validate` (`validate/mod.rs`) calls it in Python's order.
+/// The check, as `validate` (`validate/mod.rs`) calls it in its order.
 pub fn validate(view: &View<'_>) -> Result<()> {
     let Some(state) = view.state(DYNAMICS)? else {
         return Ok(());

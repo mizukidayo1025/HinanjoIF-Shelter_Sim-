@@ -1,7 +1,7 @@
 //! What Python does with a JSON value where the validators of lane E (#350) read one: `isinstance`,
 //! `type(x) is int`, `==`, `in`, `x[key]`, `math.isfinite`, and the `TypeError`s and `KeyError`s
 //! CPython 3.12 raises on the way (`unhashable type: 'list'`, `'int' object is not subscriptable`,
-//! ...), so that a broken value meets the error Python meets.
+//! ...), so that a broken value meets the error CPython gives.
 
 use std::cmp::Ordering;
 
@@ -21,9 +21,9 @@ pub fn type_name(value: &V) -> &'static str {
     }
 }
 
-/// How Python holds the value a rule reads: as the plain document (`read_only_state`), or as the
-/// tree of the world's `model_state` (`world.model_state.get(...)`), whose lists and dicts are
-/// `TrackedList` and `TrackedDict`, as an error's text names them.
+/// How an error's text names the lists and dicts of the value a rule reads: as those of the plain
+/// document (`read_only_state`), or as those of the tree of the world's `model_state`
+/// (`world.model_state.get(...)`), `TrackedList` and `TrackedDict`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Held {
     Plain,

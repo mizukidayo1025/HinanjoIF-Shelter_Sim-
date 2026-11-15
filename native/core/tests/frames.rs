@@ -50,7 +50,7 @@ fn run_to(run: &mut PlainRun, minute: i64) {
 }
 
 #[test]
-fn the_core_s_frame_is_the_native_path_s_at_each_minute() {
+fn the_core_s_frame_is_the_recorded_one_at_each_minute() {
     for (name, file, frames) in expected() {
         let mut run = PlainRun::of_worlds_json(&read(&file), &name).unwrap();
         for (minute, frame, state_hash) in frames {

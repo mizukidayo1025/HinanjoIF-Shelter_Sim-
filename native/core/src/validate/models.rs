@@ -1,7 +1,7 @@
 //! The pydantic models `WorldState.validate` reads, built with the contracts' pydantic
 //! (`contracts::pydantic`, #346): `ResourceServiceConfig` (`experiments/scenario.py`), whose
-//! `ValidationError` text a refusal shows, and `PresenceState` (`contracts/presence.py`), of which
-//! only whether it passes counts.
+//! `ValidationError` text a refusal shows, and `PresenceState` (the contract of
+//! `population_presence_v1`), of which only whether it passes counts.
 
 use std::sync::Arc;
 
@@ -236,8 +236,8 @@ pub fn resource_service_config(config: &V) -> Result<V> {
     validate_model(&RESOURCE_SERVICE_CONFIG, config)
 }
 
-/// `PresenceState.model_validate(raw).model_dump(mode="json")`, or a `ValueError` (its text is not
-/// Python's: only the refusal counts).
+/// `PresenceState.model_validate(raw).model_dump(mode="json")`, or a `ValueError` (its text does
+/// not count: only the refusal does).
 pub fn presence_state(raw: &V) -> Result<V> {
     let dumped = validate_model(&PRESENCE_STATE, raw)?;
     let hash_fits = |hash: &V| match hash {

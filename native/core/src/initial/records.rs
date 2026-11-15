@@ -1,5 +1,5 @@
 //! What a new Run of a Scenario records besides its world (#301, #429): its `model_versions`
-//! (`model_signatures(scenario.model_configs)` of `contracts/policies.py`) and the evidence route's
+//! (`model_signatures(scenario.model_configs)`) and the evidence route's
 //! answer (`evidence_context(scenario)` of `experiments/validation.py` with the catalogs
 //! `web/project_services.py` adds, in a Project without datasets), made in the core for any
 //! Scenario. What they read of the installed code is the Model Catalog (`validate/catalog.rs`) and
@@ -7,7 +7,7 @@
 //!
 //! `safe_document` redacts what looks like a secret, an e-mail address or a phone number in a
 //! string and refuses a key that names private data. The core does not redact: a string where
-//! Python's patterns could match, or such a key, is `Unsupported` (the Scenario screen's builder
+//! its patterns could match, or such a key, is `Unsupported` (the Scenario screen's builder
 //! writes neither).
 
 use std::sync::Arc;
@@ -442,8 +442,8 @@ fn may_redact(value: &str) -> bool {
     false
 }
 
-/// `safe_document` of a value the Scenario holds: the value itself, or `Unsupported` where Python
-/// would redact or refuse something.
+/// `safe_document` of a value the Scenario holds: the value itself, or `Unsupported` where
+/// `safe_document` (`storage/projects.py`) would redact or refuse something.
 fn safe(value: &V) -> Result<V> {
     match value {
         V::Str(text) if may_redact(text) => Err(Error::unsupported("a text that safe_document may redact")),

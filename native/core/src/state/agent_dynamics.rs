@@ -1,9 +1,6 @@
 //! `agent_dynamics_v1`: each agent's decision memory and known facilities. The rules that write and
-//! read it are `rules/agent_dynamics.rs`; `domain/agent_dynamics.py` keeps the validation of a saved
-//! namespace (docs/rust-port/lanes/f-action-lifecycle.md).
-//!
-//! The PyO3 crate's `state/agent_dynamics.rs` reads it from Python, reads its config and holds its
-//! validator.
+//! read it are `rules/agent_dynamics.rs`; `validate/agent_dynamics.rs` checks a saved namespace
+//! (docs/rust-port/lanes/f-action-lifecycle.md).
 
 use std::sync::Arc;
 
@@ -48,7 +45,7 @@ impl AgentMemory {
 
 impl AgentDynamicsRow {
     /// `validate_agent_dynamics_state` of a world whose configs select this policy, for a row of its
-    /// types (#152; in the core since #250): true only if the Python rule passes. A record for each
+    /// types (#152; in the core since #250): true only if the whole check passes. A record for each
     /// Agent and none else, each valid and knowing only facilities of the world.
     pub fn accepts(&self, policy: &str, rows: &Entities) -> bool {
         if self.schema_version != 1 || &*self.policy_version != policy {

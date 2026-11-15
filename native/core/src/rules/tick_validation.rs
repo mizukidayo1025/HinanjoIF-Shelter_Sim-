@@ -5,18 +5,15 @@
 //! pending, and `population_presence_v1`.
 //!
 //! This holds no error text. It returns only if every rule passes, and anything else, including
-//! what the rules would accept but is not plain, is a refusal (`Error::Unsupported`):
-//! `_validate_entity_rules` and `_validate_event_rules` in `core/world.py` then run as if this
-//! weren't here, and pass or raise their own text (policy E6 of docs/rust-port/step5-plan.md). So a
-//! refusal never changes a result, and the one thing that must hold is that a return means the
-//! Python rules pass (`tests/integration/test_entity_rules_kernel.py`).
+//! what the rules would accept but is not plain, is a refusal (`Error::Unsupported`): the
+//! end-of-tick check (`rules::after_tick`) then refuses, and `engine::validate_after_tick` runs the
+//! whole validation (`validate::world`), which passes or says its own text. So a refusal never
+//! changes a result, and the one thing that must hold is that a return means the whole validation
+//! passes.
 //!
 //! **It reads the rows** (Issue #152, lane P8 d4): the entity rows, the rows of the namespaces and
-//! the fields, and the rows of the queue's events. The rows are the truth and the Python objects
-//! follow them (policy E12); a write to an object's `__dict__` past `__setattr__` reaches no row,
-//! and so no rule here, and a value that does not fit a row taints the store, which these refuse.
-//! The PyO3 crate reads the rows of the pending events held only as Python objects before it calls
-//! (`read_queue_rows`); an object that is no row is refused with `NO_ROW`.
+//! the fields, and the rows of the queue's events. A value that does not fit a row taints the store,
+//! which these refuse. A pending event without its row is refused with `NO_ROW`.
 
 use std::sync::Arc;
 
@@ -48,7 +45,7 @@ pub const OVERLAY: &str = "geometry_overlay_v1";
 pub const LEDGER: &str = "resource_ledger_v1";
 pub const SERVICE: &str = "resource_service_v1";
 
-/// The refusal for a pending event that is only a Python object, which no row can hold.
+/// The refusal for a pending event without its row.
 pub const NO_ROW: &str = "a pending event has no row";
 
 #[track_caller]
@@ -64,7 +61,7 @@ pub struct EntityInputs<'a> {
     pub resource_config: Option<&'a ResourceNumbers>,
     /// `layout_routing`, as the end-of-tick check reads it.
     pub route_capacities: &'a Kept<Option<RouteCapacities>>,
-    /// Whether the Python world holds these namespaces.
+    /// Whether the world holds these namespaces.
     pub ledger: &'a Held,
     pub service: &'a Held,
     pub spaces: &'a Held,
@@ -179,7 +176,7 @@ enum Field<'a> {
 }
 
 impl<'f> Field<'f> {
-    /// `payload.get(key) == text`: a value of another type differs, as it does in Python.
+    /// `payload.get(key) == text`: a value of another type differs, as Python's `==` says.
     fn is(self, text: &str) -> bool {
         matches!(self, Field::Text(value) if value == text)
     }
@@ -339,8 +336,9 @@ pub fn entity_rules(world: &World, inputs: &EntityInputs<'_>, watch: &mut dyn Fn
     }
     let rows = tables(world)?;
 
-    // A ledger the Python rules would stumble over is theirs, even with no reservation to read. The
-    // rules of a v5 world read no reservation, and its ledger, if any, is checked by its own kernel.
+    // A ledger the whole validation would stumble over is refused, even with no reservation to
+    // read. The rules of a v5 world read no reservation, and its ledger, if any, is checked by its
+    // own kernel.
     let ledger = if v6 {
         match kit::held_row::<LedgerRow>(world, LEDGER, inputs.ledger)? {
             Some(ledger) => Some(ledger),
@@ -388,7 +386,7 @@ pub fn entity_rules(world: &World, inputs: &EntityInputs<'_>, watch: &mut dyn Fn
     // ---- The inventory, the counters and the event identities.
     identities_pass(world, &pending.events, duration)?;
 
-    // ---- Zone capacity, last so a Python rule reads it after everything else passed.
+    // ---- Zone capacity, last, so that it is read after everything else passed.
     capacity_left(world, inputs, &rows, &occupancy)
 }
 
@@ -578,9 +576,9 @@ fn read_events<'a>(queue: &'a Queue, v6: bool, watch: &mut dyn FnMut(&str)) -> R
             }
             _ => continue,
         };
-        // A task ID that is no str names no task here, as it fills no list in Python.
+        // A task ID that is no str names no task here, and fills no list.
         if kind == "resource_service_complete" && !v6 {
-            // Python reads the v6 service state for it, which a v5 world has not.
+            // Its rules read the v6 service state, which a v5 world has not.
             return refuse("a resource completion in a WorldState v5");
         }
         if let Some(task_id) = field(event, "task_id")?.text() {
@@ -737,13 +735,13 @@ fn facility_tasks_pass(found: Found<'_>) -> Result<()> {
         }
     }
     let place_of = |id: &str| place_at.get(id).map(|index| &places[*index]);
-    #[allow(clippy::iter_over_hash_type, reason = "read-only checks; a refusal here hands the world to the Python check, which says its own text")]
+    #[allow(clippy::iter_over_hash_type, reason = "read-only checks; a refusal here hands the world to the whole validation, which says its own text")]
     for (facility, agent) in toilet_queue {
         if !place_of(facility).is_some_and(|place| contains(place.queue, agent)) || person(agent).is_none_or(|who| who.activity != Activity::Queued) {
             return refuse("a toilet queue task has no entry");
         }
     }
-    #[allow(clippy::iter_over_hash_type, reason = "read-only checks; a refusal here hands the world to the Python check, which says its own text")]
+    #[allow(clippy::iter_over_hash_type, reason = "read-only checks; a refusal here hands the world to the whole validation, which says its own text")]
     for ((facility, agent), index) in toilet_service {
         let work = &works[*index];
         if !place_of(facility).is_some_and(|place| contains(place.active, agent)) || person(agent).is_none_or(|who| who.activity != Activity::InService) {
@@ -762,7 +760,7 @@ fn facility_tasks_pass(found: Found<'_>) -> Result<()> {
             return refuse("a toilet service task's completion is the Python rule's");
         }
     }
-    #[allow(clippy::iter_over_hash_type, reason = "read-only checks; a refusal here hands the world to the Python check, which says its own text")]
+    #[allow(clippy::iter_over_hash_type, reason = "read-only checks; a refusal here hands the world to the whole validation, which says its own text")]
     for (facility, agent) in resource_queue {
         if !place_of(facility).is_some_and(|place| contains(place.resource_queue, agent)) || person(agent).is_none_or(|who| who.activity != Activity::Queued) {
             return refuse("a resource queue task has no entry");
@@ -786,7 +784,7 @@ fn resource_services_pass<'a>(found: Found<'a>, inputs: &EntityInputs<'_>, ledge
         let Some(config) = inputs.resource_config else {
             return refuse("no resource service config");
         };
-        #[allow(clippy::iter_over_hash_type, reason = "read-only checks and a set of ids; a refusal hands the world to the Python check")]
+        #[allow(clippy::iter_over_hash_type, reason = "read-only checks and a set of ids; a refusal hands the world to the whole validation")]
         for ((facility, agent), index) in resource_service {
             let work = &works[*index];
             let Some(place) = place_of(facility) else {
@@ -852,7 +850,7 @@ fn service_state_pass(world: &World, inputs: &EntityInputs<'_>, v6: bool, found:
         let Some(service) = kit::held_row::<ServiceRow>(world, SERVICE, inputs.service)? else {
             return refuse("no resource service state");
         };
-        #[allow(clippy::iter_over_hash_type, reason = "read-only checks; a refusal here hands the world to the Python check, which says its own text")]
+        #[allow(clippy::iter_over_hash_type, reason = "read-only checks; a refusal here hands the world to the whole validation, which says its own text")]
         for (task_id, _) in resource_events.iter() {
             if !work_at.contains_key(task_id) && !contains(&service.cancelled_task_ids, task_id) {
                 return refuse("a resource completion names an inactive task");
@@ -874,7 +872,7 @@ fn travel_pass(found: Found<'_>) -> Result<()> {
     let Tasks { works, travel_by_agent, .. } = tasks;
     let Pending { events, travel_events, .. } = pending;
     let person = |id: &str| person_at.get(id).map(|index| &people[*index]);
-    #[allow(clippy::iter_over_hash_type, reason = "read-only checks; a refusal here hands the world to the Python check, which says its own text")]
+    #[allow(clippy::iter_over_hash_type, reason = "read-only checks; a refusal here hands the world to the whole validation, which says its own text")]
     for (agent_id, index) in travel_by_agent {
         let work = &works[*index];
         let Some(who) = person(agent_id).filter(|who| who.activity == Activity::Moving) else {
@@ -1224,12 +1222,12 @@ fn value_path_exists(mut value: &V, path: &[V]) -> bool {
     true
 }
 
-/// `validate_presence_state` (`contracts/presence.py`), the validator of the declared namespace
-/// `population_presence_v1`: Ok, or a refusal for the contract and the rule to say. The parse of the
-/// contract is `rules/population.rs`' `presence_is_plain`, which refuses what it isn't sure of. An
-/// archive path is read through the namespace its first part names: the lifecycle state, the only
-/// one the population's rules archive to (`lifecycle` says whether the world holds it), or the
-/// presence state itself; any other is refused.
+/// The validator of the declared namespace `population_presence_v1` (asked by
+/// `tick_checks::CoreChecks`): Ok, or a refusal, after which the whole validation says what is
+/// wrong. The parse of the contract is `rules/population.rs`' `presence_is_plain`, which refuses
+/// what it isn't sure of. An archive path is read through the namespace its first part names: the
+/// lifecycle state, the only one the population's rules archive to (`lifecycle` says whether the
+/// world holds it), or the presence state itself; any other is refused.
 pub fn validate_presence(world: &World, presence: &Held, lifecycle: &Held) -> Result<()> {
     let Some(raw) = held_value(world, PRESENCE, presence)? else {
         // The declared check said what a missing namespace is; here there is nothing to read.

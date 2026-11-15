@@ -88,8 +88,7 @@ fn a_sample_keeps_the_ledger_columns_and_its_line() {
     assert_eq!(first(&without) % 2, 0);
 }
 
-/// A Run's samples all hold the ledger's columns or none do, as the native path's recorder
-/// requires; a minute is never negative.
+/// A Run's samples all hold the ledger's columns or none do; a minute is never negative.
 #[test]
 fn the_ledger_does_not_come_or_go_between_samples() {
     let balances = [[1; 6]; 2];

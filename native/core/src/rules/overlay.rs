@@ -1,23 +1,21 @@
-//! `domain/temporary_spaces.py` and `domain/geometry_overlay.py`: capacity added during a Run, beds
-//! and intake in a physical temporary room, the floor-plan point of a facility installed during a
-//! Run, and the approved changes of the floor plan (lane c4 of Issue #152).
+//! The temporary spaces and the geometry overlay: capacity added during a Run, beds and intake in a
+//! physical temporary room, the floor-plan point of a facility installed during a Run, and the
+//! approved changes of the floor plan (lane c4 of Issue #152).
 //!
 //! The rules are functions on the `World`. `temporary_spaces_v1` and `geometry_overlay_v1` are
-//! `ValueRow` namespaces: a rule reads and writes their rows alone, and an attached tree follows the
-//! row when the PyO3 crate gives the world back (lane P8-0c). A transfer writes the facility's
-//! `zone_id` and a route-access change the edge's `closed` on the entity rows, which the Python
-//! objects follow (lane 6-1).
+//! `ValueRow` namespaces: a rule reads and writes their rows alone, and an attached tree follows
+//! the row (lane P8-0c). A transfer writes the facility's `zone_id` and a route-access change the
+//! edge's `closed` on the entity rows (lane 6-1).
 //!
-//! What only Python has comes as an input, read by the PyO3 crate before the world is borrowed:
-//! whether `model_state` holds each namespace (`kit::Held`), the sections of the configs
-//! (`kit::Kept`), and the floor plan (`Geo`). A plan the PyO3 crate could not read is None here, and
-//! a rule that reads it says `PLAN_UNREAD`, for the PyO3 crate to raise what the read raised, at the
-//! point the rule read the plan before. The pydantic contracts of a change's parameters (policy E15)
-//! go through `Host::contract`, which gives back `model_dump(mode="json")`: a check reads that, and
-//! the change writes it.
+//! What the world's outside holds comes as an input, read through the host before the world is
+//! borrowed: whether `model_state` holds each namespace (`kit::Held`), the sections of the configs
+//! (`kit::Kept`), and the floor plan (`Geo`). A plan that could not be read is None here, and a
+//! rule that reads it says `PLAN_UNREAD`; the caller then raises what the read raised, at the point
+//! the rule reads the plan. The contracts of a change's parameters go through `Host::contract`,
+//! which gives back `model_dump(mode="json")`: a check reads that, and the change writes it.
 //!
-//! A rule raises the texts its callers save or show (a `ValueError`), and says Unsupported, a
-//! `KernelRefusal` in Python, only for an input outside its contract (a state of another shape).
+//! A rule raises the texts its callers save or show (a `ValueError`), and says Unsupported (a
+//! `KernelRefusal`) only for an input outside its contract (a state of another shape).
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -69,8 +67,8 @@ const ADMISSION_RADIUS: f64 = 0.5;
 /// How near a moved facility may stand to a wall.
 const WALL_CLEARANCE: f64 = 0.5;
 
-/// What a rule says where it reads a floor plan the PyO3 crate could not read (`Geo::of` raised):
-/// the PyO3 crate raises that error instead.
+/// What a rule says where it reads a floor plan that could not be read (`Geo::of` raised): the
+/// caller raises that error instead.
 pub const PLAN_UNREAD: &str = "the floor plan could not be read";
 
 /// The text of a room admission that no longer lets a person in.
@@ -91,7 +89,7 @@ fn invalid<T>(text: &str) -> Result<T> {
     Err(Error::value_error(text))
 }
 
-/// The plan the PyO3 crate read, or `PLAN_UNREAD`.
+/// The plan the caller read, or `PLAN_UNREAD`.
 #[track_caller]
 fn plan(geo: Option<&Geo>) -> Result<&Geo> {
     geo.ok_or_else(|| Error::unsupported(PLAN_UNREAD))
@@ -284,7 +282,7 @@ fn schema_of(schema: &Kept<Option<i64>>) -> Result<Option<i64>> {
     Ok(*kit::kept(schema)?)
 }
 
-// ---- domain/temporary_spaces.py -----------------------------------------------------------------
+// ---- Temporary spaces ----------------------------------------------------------------------------
 
 /// A new active space of `temporary_spaces_v1.spaces`, as `register_temporary_space` takes it.
 #[derive(Debug, Clone, PartialEq)]
@@ -302,8 +300,8 @@ pub struct SpaceRecord {
 }
 
 impl SpaceRecord {
-    /// The record as the namespace holds it, its keys in the Python rule's order: active, not
-    /// ended, and of the zone's capacity only.
+    /// The record as the namespace holds it, its keys in the namespace's order: active, not ended,
+    /// and of the zone's capacity only.
     pub fn into_value(self) -> V {
         doc([
             ("space_id", V::Str(self.space_id)),
@@ -400,7 +398,7 @@ pub fn expire_space(world: &World, held: &Held, space_id: &str, event_id: &str, 
     Ok(true)
 }
 
-/// `validate_temporary_spaces_state`: true only for what the Python rule passes.
+/// `validate_temporary_spaces_state`: true only for what the whole validation passes.
 pub fn validate_spaces(world: &World, held: &Held) -> Result<bool> {
     let Some(state) = state_of(world, SPACES_KEY, held)? else {
         return Ok(true);
@@ -629,8 +627,7 @@ fn capacity_in<'w>(
     })
 }
 
-/// `nominal_capacity` of the zones' rows, or None where the zones are tainted: the Python objects are
-/// the truth then (lane P10-1c: `zone.capacity` of the PyO3 crate's `nominal_of`).
+/// `nominal_capacity` of the zones' rows, or None where the zones are tainted (lane P10-1c).
 pub fn nominal_of_rows(world: &World, zone_id: &str) -> Result<Option<Option<i64>>> {
     if world.entities.try_borrow()?.zones_tainted().is_some() {
         return Ok(None);
@@ -1186,8 +1183,7 @@ pub fn write_bed(world: &World, overlay: &Held, agent_id: &str, bed: &Bed) -> Re
 // ---- Facilities installed during a Run ----------------------------------------------------------
 
 /// `installed_facility_placement_enabled`: schema 4, and an overlay state that is a dict: the
-/// namespace the world holds (a detached overlay is one). Another value is refused (lane P8 d3; the
-/// PyO3 crate said whether that value was a dict before).
+/// namespace the world holds (a detached overlay is one). Another value is refused (lane P8 d3).
 pub fn placement_enabled(schema: &Kept<Option<i64>>, overlay: &Held) -> Result<bool> {
     if schema_of(schema)? != Some(4) {
         return Ok(false);
@@ -1300,7 +1296,7 @@ pub fn place_facility(world: &World, overlay: &Held, geo: Option<&Geo>, facility
     Ok(point)
 }
 
-// ---- The geometry the checks of a change read: region/facility.py --------------------------------
+// ---- The geometry the checks of a change read (as `region/facility.py` does) --------------------
 
 fn sides(polygon: &[Pt]) -> impl Iterator<Item = (Pt, Pt)> + '_ {
     polygon.iter().copied().zip(polygon.iter().copied().skip(1).chain(polygon.first().copied()))
@@ -1336,7 +1332,7 @@ fn segments_meet(first_start: Pt, first_end: Pt, second_start: Pt, second_end: P
     (-1e-9..=1.0 + 1e-9).contains(&t) && (-1e-9..=1.0 + 1e-9).contains(&u)
 }
 
-/// `_point_segment_distance` of region/facility.py: its clamp is the other way round.
+/// `_point_segment_distance` of `region/facility.py`: its clamp is the other way round.
 fn region_point_distance(point: Pt, start: Pt, end: Pt) -> f64 {
     let (dx, dy) = (end.x - start.x, end.y - start.y);
     let length_squared = dx * dx + dy * dy;
@@ -1401,17 +1397,17 @@ fn polygons_overlap(left: &[Pt], right: &[Pt]) -> bool {
     sides(left).any(|(a, b)| sides(right).any(|(c, d)| segments_meet(a, b, c, d)))
 }
 
-/// `_validate_partition_polygon`, `_validate_room_polygon`: whether the Python rule passes.
+/// `_validate_partition_polygon`, `_validate_room_polygon`: whether the polygon passes.
 fn inside_zone(zone: &[Pt], polygon: &[Pt]) -> bool {
     valid_simple(polygon) && polygon.iter().all(|point| point_in_polygon(*point, zone)) && sides(polygon).all(|(a, b)| segment_inside_polygon(a, b, zone))
 }
 
 // ---- validate_geometry_change -------------------------------------------------------------------
 //
-// Each check raises the Python rule's ValueError with its text, in its order
-// (docs/rust-port/lanes/l8-texts-rest.md). What the rows cannot judge as Python does (a value that is
-// not a plain point, a flag that is not a bool) says Unsupported. The parameters are read from the
-// contract's `model_dump(mode="json")`.
+// Each check raises its ValueError with its text, in a fixed order
+// (docs/rust-port/lanes/l8-texts-rest.md). What the rows cannot judge (a value that is not a plain
+// point, a flag that is not a bool) says Unsupported. The parameters are read from the contract's
+// `model_dump(mode="json")`.
 
 /// What a geometry change reads beside the world's rows.
 pub struct Change<'a> {
@@ -1647,7 +1643,7 @@ fn transferred_footprint_fits(constraints: &Constraints, facility_id: &str, zone
     if sides(&shifted).any(|(a, b)| constraints.walls.iter().any(|wall| segments_meet(a, b, wall.start, wall.end))) {
         return invalid("clear_width_insufficient: transferred equipment footprint crosses a wall");
     }
-    // `item.facility_id` of an obstacle raises AttributeError in the transfer's Python rule.
+    // `item.facility_id` of an obstacle raises AttributeError in the transfer's rule: refused.
     if constraints.obstacle_count > 0 {
         return refuse("the Python rule raises on an obstacle");
     }
@@ -1663,7 +1659,7 @@ fn transferred_footprint_fits(constraints: &Constraints, facility_id: &str, zone
     Ok(())
 }
 
-/// The footprint a same-zone move gives, in the checks' order of the Python rule.
+/// The footprint a same-zone move gives, in the checks' order.
 fn moved_footprint_fits(constraints: &Constraints, facility_id: &str, zone: &[Pt], from: Pt, to: Pt) -> Result<()> {
     let Some((_, footprint)) = constraints.footprints.iter().find(|(id, _)| &**id == facility_id) else {
         return Ok(());
@@ -2472,7 +2468,7 @@ fn stamped_is_good(row: &Doc) -> Result<i64> {
 }
 
 /// `validate_geometry_overlay_state`: `_GeometryOverlayState` for what it takes as it is, and the
-/// rule's checks after it. Ok only for what the Python rule passes.
+/// rule's checks after it. Ok only for what the whole validation passes.
 pub fn check_overlay(world: &World, overlay: &Held, geo: Option<&Geo>) -> Result<()> {
     let Some(value) = state_of(world, OVERLAY_KEY, overlay)? else {
         return Ok(());

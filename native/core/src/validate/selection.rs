@@ -1,9 +1,9 @@
-//! `selected_models(world.model_configs)` of `contracts/policies.py`, with Python's errors and texts:
-//! the models the configs select, which `validate` reads (the psychology model) and the extensions'
-//! signatures read. What it reads of the installed code is the catalog (`catalog.rs`).
+//! `selected_models(world.model_configs)` (as in `contracts/policies.py`), with its errors and
+//! texts: the models the configs select, which `validate` reads (the psychology model) and the
+//! extensions' signatures read. What it reads of the installed code is the catalog (`catalog.rs`).
 //!
-//! `proximity_config` is `canonical_proximity_contact_config` of `domain/social_network.py`, which
-//! the selection and the signatures read.
+//! `proximity_config` is `canonical_proximity_contact_config` (as in
+//! `scenario_authoring/configs/social_network.py`), which the selection and the signatures read.
 
 use std::sync::Arc;
 
@@ -57,7 +57,7 @@ fn outside(value: f64, bounds: &Bounds, exclusive: bool) -> Result<bool> {
 }
 
 /// `canonical_proximity_contact_config(raw)`: whether the config enables the contact sampler
-/// (false for no config or a disabled one), or Python's `ValueError`.
+/// (false for no config or a disabled one), or its `ValueError`.
 pub fn proximity_config(raw: Option<&V>) -> Result<bool> {
     let raw = match raw {
         None | Some(V::Null) => return Ok(false),
@@ -83,7 +83,7 @@ pub fn proximity_config(raw: Option<&V>) -> Result<bool> {
     Ok(matches!(raw["enabled"], V::Bool(true)))
 }
 
-/// `selected_models(world.model_configs)`: the selection, or Python's error for the configs.
+/// `selected_models(world.model_configs)`: the selection, or the configs' error.
 pub fn selected_models(view: &View<'_>) -> Result<Selection> {
     select(&*view.configs()?)
 }

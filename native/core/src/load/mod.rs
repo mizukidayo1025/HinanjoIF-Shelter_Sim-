@@ -1,14 +1,13 @@
-//! A World and a Run from JSON, without Python (Issue #244, stage 4 of #132; first written for the
-//! core's tests in #152 lane P10-1b and #225).
+//! A World and a Run from JSON (Issue #244, stage 4 of #132; first written for the core's tests in
+//! #152 lane P10-1b and #225).
 //!
-//! The Python side writes one world as JSON (`sheltersim.core.world_export.export_world`): the
-//! world's canonical document at its minute, the slots its core owns (`[name, is_field]`), what the
-//! Run read of the controller (`RunCore.policies_document`, the route capacities, the zone
-//! neighbors) and the Python-parsed sections of its configs. This module builds the core's values
-//! from such an entry, so that a host without Python (the tests' `TestHost`, the browser's) runs
-//! ticks on it:
+//! An entry is one world as JSON (`initial::entry` writes the one a Run starts from): the world's
+//! canonical document at its minute, the slots its core owns (`[name, is_field]`), what the Run
+//! read of the controller (its policies, the route capacities, the zone neighbors) and the parsed
+//! sections of its configs. This module builds the core's values from such an entry, so that a
+//! host (the tests' `TestHost`, `plain::PlainHost`, the browser's) runs ticks on it:
 //!
-//! - `world` builds the World the PyO3 crate's core holds for a document: the scalars, the entity
+//! - `world` builds the World for a document: the scalars, the entity
 //!   rows, one slot per owned name (the four fields with their rows, each namespace with the row its
 //!   document has), the queue's events and the log's records. A namespace of `model_state` becomes
 //!   its typed row where it has one (`typed`, each read with `Field::from_value`), and a `ValueRow`
@@ -16,7 +15,7 @@
 //! - `run` (`policies`, `route_capacities`, `neighbors`) makes the Run's `Policies` again from the
 //!   document of what was read; `loaded` builds the World and the Run of an entry together
 //!   (`Loaded`).
-//! - `sections` reads the Python-parsed sections (`Sections`), which a host fills the configs with
+//! - `sections` reads the parsed sections (`Sections`), which a host fills the configs with
 //!   (`Host::fill_section`), and builds the floor plan of the world's overlay from them
 //!   (`Sections::floor_plan`, `FloorPlans`).
 //! - `find_record` is `event_log.find` on the world's log, read back from the bytes it wrote.
@@ -285,7 +284,7 @@ fn put_row<T: Row>(world: &mut World, name: &str, row: T) -> Result<()> {
     Ok(())
 }
 
-/// `model_state[name] = value` in the World the PyO3 crate's core holds: the namespace's typed row
+/// `model_state[name] = value` in the World: the namespace's typed row
 /// where it has one (`typed_row`; an owned namespace, whose slot the world has), and a `ValueRow`
 /// otherwise, in a slot of its own where the world has none. A value that does not fit its typed
 /// row is an error.
@@ -308,8 +307,8 @@ pub enum Namespaces {
     /// It is an error (`put_namespace`): what a Run loads.
     Strict,
     /// The slot holds the value as a `ValueRow` (`put_namespace_as_found`): for a test of the
-    /// whole world's validation (`validate`), which reads any row as a value and gives Python's
-    /// error for a broken one. A kernel that reads the typed row refuses such a world.
+    /// whole world's validation (`validate`), which reads any row as a value and gives its error
+    /// for a broken one. A kernel that reads the typed row refuses such a world.
     Lenient,
 }
 
@@ -435,9 +434,8 @@ pub fn loaded(entry: &Value) -> Result<Loaded> {
 // ---- The log ---------------------------------------------------------------------------------------
 
 /// `event_log.find`: the record of an event in the world's log now, read back from the bytes the
-/// log wrote of it or from its packed form (`EventLog::record`, #252), as the native host finds a
-/// record the Python world's log holds (the ones a rule wrote in the same call too). An error for
-/// a record the log holds neither of (only Python takes its bytes) or cannot read back.
+/// log wrote of it or from its packed form (`EventLog::record`, #252), the ones a rule wrote in the
+/// same call too. An error for a record the log holds neither of or cannot read back.
 pub fn find_record(world: &World, event_id: &str) -> Result<Option<Logged>> {
     let log = world.log()?;
     let Some(index) = log.index_of(event_id) else {

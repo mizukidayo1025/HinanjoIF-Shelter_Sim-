@@ -1,8 +1,8 @@
-//! The resource service block of `WorldState.validate` (`core/world.py`), with Python's errors and
-//! texts: the config (`ResourceServiceConfig`, a pydantic model of `experiments/scenario.py`) and
-//! WorldState v6, the ledger it needs, and `resource_service_v1`: its state, its request and stall
-//! histories, and the stalls at the queues' heads. It raises the `StateInvariantError`s of
-//! `WorldState.validate` itself.
+//! The resource service block of `WorldState.validate`, with its errors and texts: the config
+//! (`ResourceServiceConfig`, a pydantic model of `experiments/scenario.py`) and WorldState v6, the
+//! ledger it needs, and `resource_service_v1`: its state, its request and stall histories, and the
+//! stalls at the queues' heads. It raises the `StateInvariantError`s of `WorldState.validate`
+//! itself.
 
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -86,7 +86,7 @@ fn invariant(text: &str) -> Error {
     Error::Invariant(text.to_owned())
 }
 
-/// The `TypeError` Python raises for `value in a_set` where it cannot hash the value; else whether
+/// The `TypeError` CPython raises for `value in a_set` where it cannot hash the value; else whether
 /// it is one of the texts.
 pub fn is_in(value: &V, known: impl Fn(&str) -> bool) -> Result<bool> {
     if let Some(error) = unhashable(value) {
@@ -95,8 +95,8 @@ pub fn is_in(value: &V, known: impl Fn(&str) -> bool) -> Result<bool> {
     Ok(matches!(value, V::Str(text) if known(text)))
 }
 
-/// `records_since_previous_tick(history, minute_index)` of `core/history.py`: the records of the
-/// tick that just ended, with the last earlier one.
+/// `records_since_previous_tick(history, minute_index)`: the records of the tick that just ended,
+/// with the last earlier one.
 pub fn since_previous_tick(history: &[V], minute_index: i64) -> &[V] {
     let mut start = history.len();
     while start > 0 {
@@ -130,7 +130,7 @@ fn config_model(config: &V) -> Result<V> {
     models::resource_service_config(config)
 }
 
-/// The check, as `validate` (`validate/mod.rs`) calls it in Python's order: the config where the
+/// The check, as `validate` (`validate/mod.rs`) calls it in its order: the config where the
 /// configs have one (`resource_config`), or None.
 pub fn validate(view: &View<'_>) -> Result<Option<ServiceConfig>> {
     let raw = view.config("resource_service")?;

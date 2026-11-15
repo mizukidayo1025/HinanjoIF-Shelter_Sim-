@@ -150,20 +150,20 @@ fn stable_id(value: &V) -> Option<&Arc<str>> {
 
 /// An ID `ScheduledEvent` takes: a stable one.
 #[track_caller]
-fn valid_id(id: &V) -> Result<&Arc<str>> {
-    match id {
-        V::Str(id) if is_valid_id(id) => Ok(id),
-        V::Str(_) => Err(Error::unsupported("not a stable ID")),
-        _ => Err(Error::unsupported("a value is not a str")),
+fn valid_id(id: &str) -> Result<&str> {
+    if is_valid_id(id) {
+        Ok(id)
+    } else {
+        Err(Error::unsupported("not a stable ID"))
     }
 }
 
-/// What `apply_resource_operation` reads of its event: the payload, `source_id` (None as
-/// `V::Null`) and `event_id`, as the event holds them.
+/// What `apply_resource_operation` reads of its event: the payload as the event holds it, its
+/// `source_id` (None for none) and its `event_id`.
 pub struct OperationEvent<'a> {
     pub payload: &'a V,
-    pub source_id: &'a V,
-    pub event_id: &'a V,
+    pub source_id: Option<&'a str>,
+    pub event_id: &'a str,
 }
 
 /// One operation's values, read from its event or given by a rule that hasn't made the event.
@@ -248,9 +248,9 @@ pub fn apply_operation(world: &mut World, event: &OperationEvent<'_>, operation:
     let Some((resource_id, index)) = found else {
         return Err(Fail::Ledger(LedgerFault::Repr("unknown resource ID", resource.clone())));
     };
-    if *event.source_id == V::Null {
+    let Some(source_id) = event.source_id else {
         return ledger("resource events require a source_id");
-    }
+    };
     let (quantity, beyond) = if has_quantity {
         match fields[2] {
             V::Int(quantity) if *quantity > 0 => (*quantity, false),
@@ -282,8 +282,8 @@ pub fn apply_operation(world: &mut World, event: &OperationEvent<'_>, operation:
     };
 
     // `ScheduledEvent` takes only stable IDs for these.
-    let source_id = valid_id(event.source_id)?.clone();
-    let event_id = valid_id(event.event_id)?.clone();
+    let source_id = valid_id(source_id)?;
+    let event_id = valid_id(event.event_id)?;
     let (warehouse_id, resource_id) = (warehouse_id.clone(), resource_id.clone());
     apply_planned(
         world,
@@ -296,8 +296,8 @@ pub fn apply_operation(world: &mut World, event: &OperationEvent<'_>, operation:
             beyond,
             reservation_id: reservation_id.as_deref(),
             agent_id: agent_id.as_deref(),
-            source_id: &source_id,
-            event_id: &event_id,
+            source_id,
+            event_id,
         },
     )
 }

@@ -311,8 +311,7 @@ fn ledger_world() -> World {
 }
 
 fn apply(world: &mut World, operation: &str, payload: V, event_id: &str) -> Result<Applied, Fail> {
-    let (source, event) = (string("SRC-OP"), string(event_id));
-    let event = OperationEvent { payload: &payload, source_id: &source, event_id: &event };
+    let event = OperationEvent { payload: &payload, source_id: Some("SRC-OP"), event_id };
     resources::apply_operation(world, &event, OperationArg::Text(operation))
 }
 
@@ -394,15 +393,15 @@ fn what_the_python_rule_turned_down_is_its_text_with_nothing_changed() {
     assert_eq!(
         resources::apply_operation(
             &mut world,
-            &OperationEvent { payload: &water(1), source_id: &string("SRC-OP"), event_id: &string("op-11") },
+            &OperationEvent { payload: &water(1), source_id: Some("SRC-OP"), event_id: "op-11" },
             OperationArg::Other("'spill'".to_owned())
         ),
         Err(Fail::Ledger(LedgerFault::Text("unknown resource operation 'spill'".to_owned())))
     );
     // IDs `ScheduledEvent` turns down, and a source of None.
-    let bad = OperationEvent { payload: &water(1), source_id: &string("not stable"), event_id: &string("op-12") };
+    let bad = OperationEvent { payload: &water(1), source_id: Some("not stable"), event_id: "op-12" };
     assert_eq!(resources::apply_operation(&mut world, &bad, OperationArg::Text("delivery")), Err(Fail::Error(unsupported("not a stable ID"))));
-    let none = OperationEvent { payload: &water(1), source_id: &V::Null, event_id: &string("op-13") };
+    let none = OperationEvent { payload: &water(1), source_id: None, event_id: "op-13" };
     assert_eq!(ledger_text(resources::apply_operation(&mut world, &none, OperationArg::Text("delivery"))), "resource events require a source_id");
     assert_eq!(world.row::<LedgerRow>(LEDGER).unwrap().audit.item_bytes().len(), before);
 }

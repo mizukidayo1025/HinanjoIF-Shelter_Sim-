@@ -32,6 +32,13 @@ pub struct PlainRun {
     run: plain::PlainRun,
 }
 
+impl PlainRun {
+    /// The core's Run, for the other modules' functions of a Run (`answers`).
+    pub(crate) fn core(&self) -> &plain::PlainRun {
+        &self.run
+    }
+}
+
 #[pymethods]
 impl PlainRun {
     /// The Run of an exported entry, from its JSON bytes. ValueError for bytes that are not an

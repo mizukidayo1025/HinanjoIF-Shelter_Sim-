@@ -104,7 +104,7 @@ python benchmarks/wasm_trial_measure.py --worlds wasm-trial --pkg wasm-web --sto
 node native/wasm/tests/node_project_store.mjs wasm-pkg
 ~~~
 
-Branchの指標の時系列（`GET …/history?kind=kpis`）、レポート（`GET …/report`）、LLMの状態（`GET …/llm-status`）には、`native/wasm/js/api_answers.mjs`が、同じRunにPythonのserverが返すJSONと同じbytesで答えます（#266）。時系列は保存した指標の標本から作り（中核の`sheltersim_core::history`、WASMの`KpiHistory`）、Pythonの履歴の索引と同じ行、同じページ送り、同じ誤りにします。小数は中核が書くので、JSで読み直しません。レポートは、画面のofflineのRunが終わったときにserverが書くもの（評価の規則のfallback）を、保存したRunの最後の分から作ります。Pythonと違う所は[project-persistence.md](project-persistence.md#ブラウザーの時系列レポートllmの状態266)にあります。`native/wasm/tests/node_api_answers.mjs`は、`native/core/tests/data/api_answers.json`（`tests/support/core_api_answers.py`が、Projectの画面の経路で計算したRunとserverの答えから作ります）と同じRunをWASMで計算し、いくつもの`start`・`end`・`step`・`limit`とcursorのページ送り、別の問い合わせのcursor（#278）、誤りの答えが、serverの答えと同じsha256になることを確かめます。CIの`ブラウザー版の計算`のjobも動かします。2番目の引数に、同じ作り方の大きいRunのファイルを渡せます。
+Branchの指標の時系列（`GET …/history?kind=kpis`）、レポート（`GET …/report`）、LLMの状態（`GET …/llm-status`）には、同じRunにPythonのserverが返すJSONと同じbytesで答えます（#266）。答えは中核の`sheltersim_core::answers`（`history`、`report`、`routes`）が書き、`native/wasm/js/api_answers.mjs`は要るファイルと保存した標本を読み、作ったレポートを残します（#449）。時系列は保存した指標の標本から作り（中核の`sheltersim_core::history`、WASMの`KpiHistory`）、Pythonの履歴の索引と同じ行、同じページ送り、同じ誤りにします。小数は中核が書くので、JSで読み直しません。レポートは、画面のofflineのRunが終わったときにserverが書くもの（評価の規則のfallback）を、保存したRunの最後の分から作ります。Pythonと違う所は[project-persistence.md](project-persistence.md#ブラウザーの時系列レポートllmの状態266)にあります。`native/wasm/tests/node_api_answers.mjs`は、`native/core/tests/data/api_answers.json`（`tests/support/core_api_answers.py`が、Projectの画面の経路で計算したRunとserverの答えから作ります）と同じRunをWASMで計算し、いくつもの`start`・`end`・`step`・`limit`とcursorのページ送り、別の問い合わせのcursor（#278）、誤りの答えが、serverの答えと同じsha256になることを確かめます。CIの`ブラウザー版の計算`のjobも動かします。2番目の引数に、同じ作り方の大きいRunのファイルを渡せます。
 
 ~~~shell
 node native/wasm/tests/node_api_answers.mjs wasm-pkg
@@ -139,7 +139,7 @@ python benchmarks/wasm_trial_measure.py --bundle sample.shelterproj --pkg wasm-w
 | `GET`（一覧）、`POST`（作る）、`GET {project}`、`GET runs`、`GET runs/{run}`、`GET runs/{run}/evidence` | OPFSの記録（#265）。`project_store.mjs`が記録のファイルを読み、中核の`sheltersim_core::answers`が答えを書きます（#449） |
 | `GET …/branches/{branch}/timeline?minute=` | その分のframe（中核、#264）。`state_hash`は世界のdigest |
 | `GET runs/{run}/replay-frames`（1つの分岐） | 1〜8分のframe |
-| `GET …/history?kind=kpis`、`report`、`llm-status` | `native/wasm/js/api_answers.mjs`（上の段落）。`history`の`kpis`以外の`kind`は「未対応」 |
+| `GET …/history?kind=kpis`、`report`、`llm-status` | 中核の答え（#449）。読むのは`native/wasm/js/api_answers.mjs`（上の段落）。`history`の`kpis`以外の`kind`は「未対応」 |
 | `POST runs/{run}/resume`、`POST runs/{run}/cancel` | Workerで計算する・止める（`native/wasm/js/compute.mjs`、#267、下） |
 | `POST …/branches/{branch}/intervention-preview`、`intervention-apply` | APIキーのないVMと同じ介入のプレビューと、子の分岐を作る適用（`native/wasm/js/interventions.mjs`、#306）。`GET runs/{run}`は`last_fork`も返します |
 | `GET runs/{run}/compare`、2つの分岐の`GET runs/{run}/replay-frames` | 比較（`native/wasm/js/comparison.mjs`、#307）。差は中核が求めます（`kpiDifferences`） |

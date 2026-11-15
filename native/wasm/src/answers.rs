@@ -10,6 +10,8 @@
 use sheltersim_core::answers::{self, records, routes, Failure};
 use wasm_bindgen::prelude::*;
 
+use crate::{KpiHistory, Simulation};
+
 /// What the message of a refusal starts with.
 pub const REFUSED: &str = "answer_refused ";
 
@@ -179,4 +181,55 @@ pub fn pdf_report(project_id: &str, run_id: &str, body: Option<String>, files: &
 #[wasm_bindgen(js_name = deleteAnswer)]
 pub fn delete_answer(project_id: &str, run_id: &str, body: Option<String>, active: bool, files: &RunFiles) -> Result<String, JsError> {
     answer(routes::delete_answer(project_id, run_id, body.as_deref().map(str::as_bytes), active, &files.inner))
+}
+
+/// A history request the server takes (`answers::history::HistoryPlan`): the samples to read, then
+/// the page.
+#[wasm_bindgen]
+pub struct HistoryPlan {
+    plan: answers::history::HistoryPlan,
+}
+
+/// `GET …/branches/{branch}/history`, its checks: `query` the text after "?", `branch` the bytes
+/// of the branch's `branch.json`.
+#[wasm_bindgen(js_name = historyPlan)]
+pub fn history_plan(query: &str, project_id: &str, run_id: &str, branch_id: &str, branch: Option<Vec<u8>>) -> Result<HistoryPlan, JsError> {
+    let plan = answers::history::HistoryPlan::new(query, project_id, run_id, branch_id, branch.as_deref()).map_err(failed)?;
+    Ok(HistoryPlan { plan })
+}
+
+#[wasm_bindgen]
+impl HistoryPlan {
+    /// The branch's head, or undefined for a branch without one (whose answer reads no samples).
+    pub fn anchor(&self) -> Option<String> {
+        self.plan.anchor().map(str::to_owned)
+    }
+
+    /// The answer, from the branch's samples read back (an empty table without a head).
+    pub fn answer(&self, table: &KpiHistory) -> Result<String, JsError> {
+        answer(self.plan.answer(&table.table))
+    }
+}
+
+/// `GET …/branches/{branch}/report`, from what is kept: the kept report as it is,
+/// `{"status":"not_generated"}`, or undefined: make it (`Simulation.report`).
+#[wasm_bindgen(js_name = reportAnswer)]
+pub fn report_answer(
+    query: &str,
+    project_id: &str,
+    run_id: &str,
+    branch_id: &str,
+    branch: Option<Vec<u8>>,
+    kept: Option<Vec<u8>>,
+) -> Result<Option<String>, JsError> {
+    answers::report::report_answer(query, project_id, run_id, branch_id, branch.as_deref(), kept.as_deref()).map_err(failed)?.map(text).transpose()
+}
+
+#[wasm_bindgen]
+impl Simulation {
+    /// The report of the Run at its last minute (`answers::report::build_report`), for the
+    /// Scenario's JSON bytes and the branch `branch_id`: its JSON text.
+    pub fn report(&self, scenario: &[u8], branch_id: &str) -> Result<String, JsError> {
+        answer(answers::report::build_report(&self.run, scenario, branch_id))
+    }
 }

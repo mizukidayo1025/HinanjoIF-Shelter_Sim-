@@ -355,7 +355,10 @@ the split of the first two PR by PR; its last section sums up what is where.
   recovery of interrupted branches, as `compute.mjs` and `interventions.mjs` do.
   `cargo test -p sheltersim_store` makes the five stored Runs of `node_stored_runs.mjs` again: with
   the fixtures' stored blocks their journals, data.pack and records are the browser's byte for
-  byte; with flate2 each line has the browser's head hash and pieces (before compression).
+  byte; with flate2 each line has the browser's head hash and pieces (before compression). Python
+  reaches it through `src/rules/run_files.rs` (`sheltersim_native.rules.run_files`: `ProjectFiles`,
+  `Lease`, `StoredRun`, `Computation`); `tests/integration/test_run_files.py` holds Python's and
+  the store's locks against each other and kills a writer process while it holds its branch.
 - **A Project in the browser** (#265): `wasm/js/project_store.mjs` keeps the Project, Run and
   Branch records beside each branch's stored Run (`run_store`, #252), answers the
   Project routes of the screen with the Python server's JSON, and writes and reads one versioned

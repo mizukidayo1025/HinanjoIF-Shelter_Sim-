@@ -53,6 +53,13 @@ impl PlainRun {
     }
 }
 
+impl PlainRun {
+    /// The Python object of a Run the store restored (`rules::run_files`).
+    pub(crate) fn of_run(run: plain::PlainRun) -> Self {
+        Self { run }
+    }
+}
+
 #[pymethods]
 impl PlainRun {
     /// The Run of an exported entry, from its JSON bytes. ValueError for bytes that are not an

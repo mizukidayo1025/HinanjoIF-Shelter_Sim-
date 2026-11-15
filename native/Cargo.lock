@@ -471,6 +471,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "sheltersim_core",
+ "sheltersim_store",
  "smallvec",
 ]
 

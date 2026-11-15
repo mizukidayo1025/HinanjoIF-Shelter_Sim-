@@ -469,7 +469,7 @@ fn proposal_view(loaded: &Loaded, entry: &Value) -> (ViewData, Arc<str>) {
     let minute = loaded.cell.with(|world| world.minute_index().unwrap()).unwrap();
     let prior = match loaded.run.borrow().scratch.get::<Prior>() {
         Some(Prior::View(data)) if data.minute_index == minute => Some(data.clone()),
-        Some(Prior::Python { .. }) => panic!("a view of Python's"),
+        Some(Prior::Other { .. }) => panic!("a view the core did not make"),
         _ => None,
     };
     let Some(prior) = prior else {

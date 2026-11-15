@@ -54,7 +54,7 @@ pub fn hand_on(loaded: &Loaded, data: ViewData) {
 pub fn handed_on(loaded: &Loaded) -> Option<Arc<ViewData>> {
     match loaded.run.borrow().scratch.get::<Prior>() {
         Some(Prior::View(data)) => Some(data.clone()),
-        Some(Prior::Python { .. }) => panic!("a view of Python's"),
+        Some(Prior::Other { .. }) => panic!("a view the core did not make"),
         None => None,
     }
 }

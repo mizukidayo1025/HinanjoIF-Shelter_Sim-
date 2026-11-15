@@ -97,7 +97,7 @@ pub enum Prior {
     View(Arc<ViewData>),
     /// A view the core did not make, with its `minute_index` where it is an int; the propose phase
     /// refuses it at that minute.
-    Python {
+    Other {
         minute: Option<i64>,
     },
 }

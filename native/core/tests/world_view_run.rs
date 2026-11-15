@@ -20,7 +20,7 @@ use sheltersim_core::world::{Fit, WorldCell};
 
 use support::load::{self, Loaded};
 use support::texts::sha;
-use support::ticks::{check_after_tick, tick_at, NoPython};
+use support::ticks::{check_after_tick, tick_at, AllValid};
 use support::views::{self, exact};
 use support::{cases, TestHost};
 
@@ -63,7 +63,7 @@ fn views_of_a_run(name: &str) -> (String, usize) {
     let loaded = Rc::new(load::loaded(&entry));
     let mut host = load::following_host(&entry, &loaded);
     let duration = loaded.cell.with(|world| world.duration_minutes().unwrap()).unwrap();
-    let (mut memo, mut checks) = (Memo::default(), NoPython::default());
+    let (mut memo, mut checks) = (Memo::default(), AllValid::default());
     let mut texts = Vec::new();
     for minute in 0..duration {
         if let Err(failed) = tick_watched(&loaded, &mut host, &mut texts) {

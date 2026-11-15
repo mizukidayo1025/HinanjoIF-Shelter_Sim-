@@ -14,7 +14,7 @@ use sheltersim_core::value::V;
 use sheltersim_core::world::{Fit, World, WorldCell};
 
 use support::load::{self, Loaded};
-use support::ticks::{self, check_after_tick, NoPython};
+use support::ticks::{self, check_after_tick, AllValid};
 use support::{cases, TestHost};
 
 fn generated() -> (Rc<Loaded>, TestHost) {
@@ -26,7 +26,7 @@ fn generated() -> (Rc<Loaded>, TestHost) {
 
 /// The check of the world as it is now, with this memo.
 fn check(loaded: &Loaded, host: &mut TestHost, memo: &mut Memo) -> Result<(), sheltersim_core::error::Error> {
-    check_after_tick(loaded, host, memo, &mut NoPython::default())
+    check_after_tick(loaded, host, memo, &mut AllValid::default())
 }
 
 /// A new memo the check passed once on the world as it is now.

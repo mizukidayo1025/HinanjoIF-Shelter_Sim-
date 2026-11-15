@@ -8,7 +8,7 @@
 //!   check never says yes.
 //! - A namespace that only the validators guard, broken between ticks, stops the check with the
 //!   error the whole validation gives, where the kernel's check with every namespace taken as valid
-//!   (`NoPython`) passes.
+//!   (`AllValid`) passes.
 //! - On valid worlds the check says yes at every tick (`tick_core.rs`).
 
 use crate::support;
@@ -17,7 +17,7 @@ use std::sync::Arc;
 
 use serde_json::Value;
 use sheltersim_core::cell::Shard;
-use sheltersim_core::engine::{self, NoPython, Stepping};
+use sheltersim_core::engine::{self, AllValid, Stepping};
 use sheltersim_core::error::Error;
 use sheltersim_core::plain::PlainRun;
 use sheltersim_core::row::{Row, ValueRow};
@@ -121,7 +121,7 @@ fn end_of_a_broken_tick(edit: impl FnOnce(&mut World)) -> (Error, String) {
     let mut run = generated_after_a_tick();
     run.loaded.cell.with(edit).unwrap();
     let mut memo = run.stepping.memo.clone();
-    engine::check_after_tick(&run.loaded.cell, &mut run.host, &mut memo, &mut NoPython::default()).expect("the kernel's own rules pass");
+    engine::check_after_tick(&run.loaded.cell, &mut run.host, &mut memo, &mut AllValid::default()).expect("the kernel's own rules pass");
     let whole = run.loaded.cell.with(|world| validate::world(world, &Options { history: false, in_flight: None })).unwrap();
     let wanted = whole.expect_err("the whole validation refuses the world");
     let got = engine::validate_after_tick(&run.loaded.cell, &mut run.host, &mut run.stepping).expect_err("the end of the tick refuses the world");

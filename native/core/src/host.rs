@@ -197,7 +197,7 @@ pub enum Trace {
 }
 
 /// A decision's record, as the sink of `DecisionSink` takes it. A decision the core writes no
-/// record of (`DecisionSink::Python`) goes to `Host::record_decision_python` instead.
+/// record of (`DecisionSink::Host`) goes to `Host::record_host_decision` instead.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Decision {
     /// `artifacts.record_decision_document(document, observed_state)` of a writer whose trace is on.
@@ -415,8 +415,8 @@ pub const NO_FOREIGN: &str = "the host runs no foreign handler";
 /// The text of a host that fills no section of the configs (`Host::fill_section`).
 pub const NO_SECTIONS: &str = "the host fills no section of the configs";
 /// The text of a host that takes no decision the core writes no record of
-/// (`Host::record_decision_python`).
-pub const NO_PYTHON_SINK: &str = "the host has no sink that records in Python";
+/// (`Host::record_host_decision`).
+pub const NO_HOST_SINK: &str = "the host has no sink that records in Python";
 
 /// The text of a host that cannot draw (`Host::draw` of any host but a test's).
 pub const NO_DRAW: &str = "not a CounterRNG";
@@ -613,10 +613,10 @@ pub trait Host {
     // ---- A decision the core writes no record of (lane P9-0, H5) --------------------------------
 
     /// `artifacts.record_decision(proposal.with_outcome(target_id, next_decision_at),
-    /// observed_state=observed)`, for `DecisionSink::Python` and what `decisions::record` gives
-    /// `Sunk::Python`. The core commits and remembers the decision itself after it. `PlainHost`
+    /// observed_state=observed)`, for `DecisionSink::Host` and what `decisions::record` gives
+    /// `Sunk::Host`. The core commits and remembers the decision itself after it. `PlainHost`
     /// counts it where the Run collects its decisions, and refuses it otherwise.
-    fn record_decision_python(
+    fn record_host_decision(
         &mut self,
         _data: &ViewData,
         _proposal: &Proposal,
@@ -624,7 +624,7 @@ pub trait Host {
         _next_decision_at: i64,
         _observed: &Observed<'_>,
     ) -> Result<(), Self::Error> {
-        Err(Error::unsupported(NO_PYTHON_SINK).into())
+        Err(Error::unsupported(NO_HOST_SINK).into())
     }
 
     // ---- An older state (policy E11) ---------------------------------------------------------------

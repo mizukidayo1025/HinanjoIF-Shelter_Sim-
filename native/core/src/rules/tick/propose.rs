@@ -69,7 +69,7 @@ pub fn view_for_proposals<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_,
     let minute = tick.minute;
     let data = match prior {
         Some(Prior::View(prior)) if prior.minute_index == minute => tick.world(|world| view::refresh(&prior, world))?,
-        Some(Prior::Python { minute: Some(at) }) if at == minute => return Err(Error::unsupported("the prior view is Python's").into()),
+        Some(Prior::Other { minute: Some(at) }) if at == minute => return Err(Error::unsupported("the prior view is Python's").into()),
         _ => tick.build_view(&holding, &gathered)?,
     };
     let data = finish(tick, data, &gathered)?;
@@ -108,7 +108,7 @@ fn due<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R>, data: &V
     behavior::due(data, &scoring, &seed, hash).map_err(|bad| tick.bad(bad))
 }
 
-/// `_observed_state`: the host's own sink (`DecisionSink::Python`), or a writer's, reads the
+/// `_observed_state`: the host's own sink (`DecisionSink::Host`), or a writer's, reads the
 /// document as a dict.
 fn observed<C: WorldCell, H: Host, R: RunCell>(
     tick: &mut Tick<'_, C, H, R>,
@@ -116,7 +116,7 @@ fn observed<C: WorldCell, H: Host, R: RunCell>(
     proposal: &Proposed,
 ) -> std::result::Result<Observed<'static>, H::Error> {
     let sink = tick.host.decision_sink()?;
-    if matches!(sink, DecisionSink::Python | DecisionSink::Artifacts) {
+    if matches!(sink, DecisionSink::Host | DecisionSink::Artifacts) {
         return Ok(Observed::Value(behavior::observed_value(data, proposal.index)));
     }
     Ok(Observed::Other)
@@ -444,7 +444,7 @@ pub fn apply_alone<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, 
 }
 
 /// `_record_outcome`: the record, then the lifecycle and the memory. The host's own sink
-/// (`DecisionSink::Python`) records it (`Host::record_decision_python`, H5), after which the core
+/// (`DecisionSink::Host`) records it (`Host::record_host_decision`, H5), after which the core
 /// runs the same rules.
 fn record_outcome<C: WorldCell, H: Host, R: RunCell>(
     tick: &mut Tick<'_, C, H, R>,
@@ -468,9 +468,9 @@ fn record_outcome<C: WorldCell, H: Host, R: RunCell>(
         observed: &observed,
         remembers,
     };
-    let python = applied.next_decision_at <= data.minute_index || decisions::record(tick.cell, tick.host, &recording)? == Sunk::Python;
-    if python {
-        tick.host.record_decision_python(data, proposal, recording.target_id, recording.next_decision_at, &observed)?;
+    let to_host = applied.next_decision_at <= data.minute_index || decisions::record(tick.cell, tick.host, &recording)? == Sunk::Host;
+    if to_host {
+        tick.host.record_host_decision(data, proposal, recording.target_id, recording.next_decision_at, &observed)?;
     }
     if recording.committed {
         let committed = tick.run.with(|run| tick.cell.with(|world| decisions::commit(world, &mut run.actions, &recording)));

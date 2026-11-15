@@ -2,7 +2,7 @@
 //! host, the minute moved on, then the end-of-tick check (`EndCheck`, #250): the kernel's check
 //! (`after_tick::check`) with its questions answered by the core (`tick_checks::CoreChecks`) and,
 //! where it refuses, the core's whole validation without the event history (`validate::world`); or
-//! for a test the kernel's check alone, with no validator to ask (`NoPython`).
+//! for a test the kernel's check alone, with no validator to ask (`AllValid`).
 //!
 //! `metric_line` writes a metric sample as the JSON list of the snapshot's fields, as `json.dumps`
 //! of `_snapshot_fields` with `separators=(",", ":")` writes it: the lines a host keeps for the
@@ -30,11 +30,11 @@ use crate::world::{Fit, World, WorldCell, MODEL_CONFIGS};
 /// The end-of-tick check's questions answered yes, every namespace taken as valid: for the tests of
 /// the kernel's check alone (`EndCheck::Kernel`). It keeps what was asked.
 #[derive(Default)]
-pub struct NoPython {
+pub struct AllValid {
     pub asked: Vec<String>,
 }
 
-impl Checks for NoPython {
+impl Checks for AllValid {
     fn namespace(&mut self, name: &str) -> Result<Option<bool>> {
         self.asked.push(format!("namespace {name}"));
         Ok(Some(true))
@@ -115,7 +115,7 @@ fn check_with<H: Host>(
 /// Which check ends a tick.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum EndCheck {
-    /// The kernel's check alone, its questions asked of `NoPython`, which takes every namespace as
+    /// The kernel's check alone, its questions asked of `AllValid`, which takes every namespace as
     /// valid: no texts, and no answer for a world the kernel's own rules pass but a namespace
     /// breaks. For tests of the kernel's check.
     #[default]
@@ -131,7 +131,7 @@ pub enum EndCheck {
 #[derive(Default)]
 pub struct Stepping {
     pub memo: Memo,
-    pub checks: NoPython,
+    pub checks: AllValid,
     pub end: EndCheck,
     /// With `EndCheck::Whole`: the questions the core answered (`CoreChecks`), and each refusal of
     /// the kernel's check as `(minute, reason)`, after which the whole validation decided.

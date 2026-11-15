@@ -549,7 +549,7 @@ fn validation_issue(review: &Value, evidence: &Value) -> Option<String> {
 }
 
 /// Python's `format(value, "g")`.
-pub fn python_g(value: f64) -> String {
+pub fn format_g(value: f64) -> String {
     if value.is_nan() {
         return "nan".to_owned();
     }
@@ -595,7 +595,7 @@ fn render_markdown(status: &str, issue: Option<&str>, review: &Value, evidence: 
     for item in observed {
         let metric = item["metric_id"].as_str().unwrap_or_default();
         let value = evidence["metrics"].get(metric).and_then(super::js_number).unwrap_or(f64::NAN);
-        lines.push(format!("- `{metric}` is {} in the final snapshot ({}).", item["direction"].as_str().unwrap_or_default(), python_g(value)));
+        lines.push(format!("- `{metric}` is {} in the final snapshot ({}).", item["direction"].as_str().unwrap_or_default(), format_g(value)));
     }
     for item in events {
         let reference = item["event_ref"].as_str().unwrap_or_default();

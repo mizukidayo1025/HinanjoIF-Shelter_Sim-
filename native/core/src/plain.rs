@@ -52,7 +52,7 @@ use crate::error::{Error, Result};
 use crate::events::packed::{put_varint, put_zigzag, Blocks, Cursor, Packer};
 use crate::events::EventRow;
 use crate::geometry::Geo;
-use crate::host::{Contract, Decision, DecisionSink, Foreign, Holding, Host, Llm, Phase, Stage, Trace, TraceLevel, TxnKind, NO_FOREIGN, NO_PYTHON_SINK};
+use crate::host::{Contract, Decision, DecisionSink, Foreign, Holding, Host, Llm, Phase, Stage, Trace, TraceLevel, TxnKind, NO_FOREIGN, NO_HOST_SINK};
 use crate::json::Encoder;
 use crate::llm::{Limits, LlmLink, SocialLimits};
 use crate::load::{self, FloorPlans, Loaded, Sections};
@@ -83,7 +83,7 @@ pub struct PlainHost {
 
 /// The decision records a Run collects (#368, off unless asked for): the JSON bytes the core
 /// writes of each decision for an indexed sink (`Decision::Indexed`, `rules::decisions::decision_bytes`),
-/// in order; and how many decisions the core wrote no record of (`Sunk::Python`: an observed state
+/// in order; and how many decisions the core wrote no record of (`Sunk::Host`: an observed state
 /// longer than the core writes, a household no row reads, ...).
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Decisions {
@@ -520,7 +520,7 @@ impl Host for PlainHost {
     /// A decision the core writes no record of. A collecting Run counts it (`Decisions`) and
     /// goes on, as a silent sink would, so that collecting changes nothing; a decision due no later
     /// than its own minute is refused whether or not the Run collects, as the silent sink refuses it.
-    fn record_decision_python(
+    fn record_host_decision(
         &mut self,
         data: &ViewData,
         _proposal: &Proposal,
@@ -533,7 +533,7 @@ impl Host for PlainHost {
                 decisions.missed += 1;
                 Ok(())
             }
-            _ => Err(Error::unsupported(NO_PYTHON_SINK)),
+            _ => Err(Error::unsupported(NO_HOST_SINK)),
         }
     }
 

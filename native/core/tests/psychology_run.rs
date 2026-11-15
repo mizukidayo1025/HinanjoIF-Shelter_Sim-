@@ -33,7 +33,7 @@ use sheltersim_core::world::{Fit, World, WorldCell, METRIC_STATE};
 use support::canonical::canonical_json;
 use support::dumps::dumps;
 use support::load::{self, Loaded};
-use support::ticks::{self, check_after_tick, tick_at, NoPython};
+use support::ticks::{self, check_after_tick, tick_at, AllValid};
 use support::{cases, TestHost};
 
 /// The recorded digest of the deltas.
@@ -77,7 +77,7 @@ fn delta_fields(delta: &Delta) -> V {
 #[test]
 fn the_psychology_step_gives_the_recorded_deltas() {
     let (_, loaded, mut host) = generated();
-    let (mut memo, mut checks) = (Memo::default(), NoPython::default());
+    let (mut memo, mut checks) = (Memo::default(), AllValid::default());
     let before: Vec<Phase> = Phase::ORDER.into_iter().filter(|phase| matches!(phase, Phase::DispatchDueEvents | Phase::CompleteScheduledTasks)).collect();
     let rest: Vec<Phase> = Phase::ORDER.into_iter().filter(|phase| !before.contains(phase)).collect();
     let mut digest = Sha256::new();

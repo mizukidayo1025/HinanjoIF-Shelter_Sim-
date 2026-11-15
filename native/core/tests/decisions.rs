@@ -605,10 +605,10 @@ fn the_record_goes_where_the_sink_takes_it() {
         (sunk, host.calls)
     };
     assert_eq!(run(DecisionSink::Silent, TraceLevel::Off, Some(None), &row), (Sunk::Recorded, vec![]));
-    assert_eq!(run(DecisionSink::Python, TraceLevel::Off, Some(None), &row), (Sunk::Python, vec![]));
+    assert_eq!(run(DecisionSink::Host, TraceLevel::Off, Some(None), &row), (Sunk::Host, vec![]));
     // The indexed record needs the view's person, and a source the bytes can write.
-    assert_eq!(run(DecisionSink::Indexed, TraceLevel::Off, Some(None), &plain), (Sunk::Python, vec![]));
-    assert_eq!(run(DecisionSink::Indexed, TraceLevel::Off, None, &row), (Sunk::Python, vec![]));
+    assert_eq!(run(DecisionSink::Indexed, TraceLevel::Off, Some(None), &plain), (Sunk::Host, vec![]));
+    assert_eq!(run(DecisionSink::Indexed, TraceLevel::Off, None, &row), (Sunk::Host, vec![]));
     let (sunk, calls) = run(DecisionSink::Indexed, TraceLevel::Off, Some(None), &row);
     assert_eq!(sunk, Sunk::Recorded);
     let [Call::Decision(Decision::Indexed(raw))] = &calls[..] else { panic!() };
@@ -617,7 +617,7 @@ fn the_record_goes_where_the_sink_takes_it() {
     assert_eq!(record["observed_state"], serde_json::from_slice::<Value>(&behavior::observed_value(&data, proposal.index).to_json().unwrap()).unwrap());
 
     // A trace's writer takes the document and the observed state; candidates only in full.
-    assert_eq!(run(DecisionSink::Artifacts, TraceLevel::Full, Some(None), &other), (Sunk::Python, vec![]));
+    assert_eq!(run(DecisionSink::Artifacts, TraceLevel::Full, Some(None), &other), (Sunk::Host, vec![]));
     for (level, observed) in [(TraceLevel::Summary, &plain), (TraceLevel::Full, &row)] {
         let (sunk, calls) = run(DecisionSink::Artifacts, level, Some(None), observed);
         assert_eq!(sunk, Sunk::Recorded);
@@ -661,14 +661,14 @@ fn the_record_goes_where_the_sink_takes_it() {
         long
     };
     let long_row = Observed::Row { data: &long, index: proposal.index };
-    assert_eq!(run(DecisionSink::Indexed, TraceLevel::Off, Some(None), &long_row), (Sunk::Python, vec![]));
+    assert_eq!(run(DecisionSink::Indexed, TraceLevel::Off, Some(None), &long_row), (Sunk::Host, vec![]));
     let nan = {
         let mut nan = data.clone();
         nan.agents[proposal.index].stress = f64::NAN;
         nan
     };
     let nan_row = Observed::Row { data: &nan, index: proposal.index };
-    assert_eq!(run(DecisionSink::Indexed, TraceLevel::Off, Some(None), &nan_row), (Sunk::Python, vec![]));
+    assert_eq!(run(DecisionSink::Indexed, TraceLevel::Off, Some(None), &nan_row), (Sunk::Host, vec![]));
 }
 
 #[test]
@@ -685,7 +685,7 @@ fn the_household_is_read_as_the_sink_reads_it() {
         .unwrap();
         let mut host = TestHost { sink: DecisionSink::Indexed, ..TestHost::default() };
         match decisions::record(&cell, &mut host, &recording(&data, &proposal, &observed)).unwrap() {
-            Sunk::Python => None,
+            Sunk::Host => None,
             Sunk::Recorded => {
                 let [Call::Decision(Decision::Indexed(raw))] = &host.calls[..] else { panic!() };
                 Some(serde_json::from_slice::<Value>(raw).unwrap()["household_id"].clone())
@@ -727,10 +727,10 @@ fn the_lifecycle_and_the_memory_are_called_after_the_record() {
         Err(Error::Refused { label, .. }) => assert_eq!(label, MEMORY),
         other => panic!("{other:?}"),
     }
-    // A `DecisionSink::Python` sink: nothing is done here.
-    let mut python = TestHost { sink: DecisionSink::Python, ..TestHost::default() };
-    assert_eq!(decisions::record_outcome(&cell, &mut python, &mut active, &committing), Ok(Sunk::Python));
-    assert!(python.calls.is_empty() && active.is_empty());
+    // A `DecisionSink::Host` sink: nothing is done here.
+    let mut host_sink = TestHost { sink: DecisionSink::Host, ..TestHost::default() };
+    assert_eq!(decisions::record_outcome(&cell, &mut host_sink, &mut active, &committing), Ok(Sunk::Host));
+    assert!(host_sink.calls.is_empty() && active.is_empty());
 
     // With the queue, the log and the event counter, the action starts with its receipt.
     let mut world = world();

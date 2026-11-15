@@ -1,5 +1,5 @@
 //! The answers made with an LLM (#463; `sheltersim_core::answers::asking`, `questions::Asking`,
-//! `report::python_g`) and the schema check every answer passes (`llm::check_answer`).
+//! `report::format_g`) and the schema check every answer passes (`llm::check_answer`).
 //!
 //! - The check reads the schema subset Python's `validate_task_output` reads: arrays and their
 //!   items, `$ref`, `anyOf`, `oneOf`, `const`, numbers' bounds, typed `additionalProperties`, a
@@ -17,7 +17,7 @@
 use serde_json::{json, Value};
 use sheltersim_core::answers::questions::QuestionPlan;
 use sheltersim_core::answers::records::RunFiles;
-use sheltersim_core::answers::report::python_g;
+use sheltersim_core::answers::report::format_g;
 use sheltersim_core::llm::{check_answer, Reply};
 use sheltersim_core::value::V;
 
@@ -85,7 +85,7 @@ fn a_float_is_written_as_python_s_g_format_writes_it() {
         (2.0 / 3.0, "0.666667"),
         (f64::INFINITY, "inf"),
     ] {
-        assert_eq!(python_g(value), text, "{value}");
+        assert_eq!(format_g(value), text, "{value}");
     }
 }
 

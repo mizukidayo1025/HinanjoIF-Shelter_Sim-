@@ -6,9 +6,9 @@
 //! the order of its dict) for an indexed one; the document of `_decision_document` and the observed
 //! state for `RunArtifactWriter` while its trace is on. Everything that can turn the record down is
 //! read before the host takes it, and what this rule does not write itself (the host's own sink,
-//! `DecisionSink::Python`, an observed state that is not the view's person, a NaN, a large observed
-//! state the sink measures, a tainted store, a household no row reads) is `Sunk::Python`: the host
-//! then records it (`Host::record_decision_python`), and the rules after it run as here.
+//! `DecisionSink::Host`, an observed state that is not the view's person, a NaN, a large observed
+//! state the sink measures, a tainted store, a household no row reads) is `Sunk::Host`: the host
+//! then records it (`Host::record_host_decision`), and the rules after it run as here.
 //!
 //! The lifecycle and the memory are `action_lifecycle::commit_action` and
 //! `agent_dynamics::remember_decision`, called directly. What they refuse has changed nothing and
@@ -31,7 +31,7 @@ use crate::world::{World, WorldCell};
 pub const TRIGGER: &str = "scheduled_decision";
 /// `len(json.dumps(observed))` is at most twice the length without its spaces, so a shorter one is
 /// within the 16,384 of `record_decision`. A longer one is left to the host
-/// (`Host::record_decision_python`).
+/// (`Host::record_host_decision`).
 pub const MAX_OBSERVED_BYTES: usize = 8192;
 /// The label of the KernelRefusal of the lifecycle's rule.
 pub const LIFECYCLE: &str = "action_lifecycle.record_action_proposal";
@@ -78,8 +78,8 @@ impl Recording<'_> {
 pub enum Sunk {
     /// The sink took it (or a silent sink, nothing).
     Recorded,
-    /// Nothing was done: the host takes it (`Host::record_decision_python`).
-    Python,
+    /// Nothing was done: the host takes it (`Host::record_host_decision`).
+    Host,
 }
 
 // ---- The record as JSON ------------------------------------------------------------------------
@@ -387,13 +387,13 @@ pub fn decision_document(recording: &Recording<'_>, full: bool) -> Result<V> {
 /// runs (rule R6).
 pub fn record<C: WorldCell, H: Host>(cell: &C, host: &mut H, recording: &Recording<'_>) -> std::result::Result<Sunk, H::Error> {
     match host.decision_sink()? {
-        DecisionSink::Python => Ok(Sunk::Python),
+        DecisionSink::Host => Ok(Sunk::Host),
         DecisionSink::Silent => Ok(Sunk::Recorded),
         DecisionSink::Artifacts => {
             let observed = match recording.observed {
                 Observed::Row { data, index } => observed_value(data, *index),
                 Observed::Value(value) => value.clone(),
-                Observed::Other => return Ok(Sunk::Python),
+                Observed::Other => return Ok(Sunk::Host),
             };
             let full = host.trace_level()? == TraceLevel::Full;
             let document = decision_document(recording, full)?;
@@ -402,17 +402,17 @@ pub fn record<C: WorldCell, H: Host>(cell: &C, host: &mut H, recording: &Recordi
         }
         DecisionSink::Indexed => {
             let Observed::Row { data, index } = recording.observed else {
-                return Ok(Sunk::Python);
+                return Ok(Sunk::Host);
             };
             let Some(source) = host.decision_source(&recording.proposal.common.policy_version)? else {
-                return Ok(Sunk::Python);
+                return Ok(Sunk::Host);
             };
             let written = cell
                 .with(|world| decision_record(world, recording, source).and_then(|record| decision_bytes(&record, data, *index)))
                 .and_then(|written| written);
             let raw = match written {
                 Ok(raw) => raw,
-                Err(Error::Unsupported(_)) => return Ok(Sunk::Python),
+                Err(Error::Unsupported(_)) => return Ok(Sunk::Host),
                 Err(error) => return Err(error.into()),
             };
             host.decision(Decision::Indexed(raw))?;
@@ -452,15 +452,15 @@ pub fn remember(world: &World, recording: &Recording<'_>) -> Result<()> {
     agent_dynamics::remember_decision(world, &decision)
 }
 
-/// `_record_outcome`: the record, the lifecycle and the memory. `Sunk::Python` has done nothing.
+/// `_record_outcome`: the record, the lifecycle and the memory. `Sunk::Host` has done nothing.
 pub fn record_outcome<C: WorldCell, H: Host>(
     cell: &C,
     host: &mut H,
     active: &mut ActiveActions,
     recording: &Recording<'_>,
 ) -> std::result::Result<Sunk, H::Error> {
-    if record(cell, host, recording)? == Sunk::Python {
-        return Ok(Sunk::Python);
+    if record(cell, host, recording)? == Sunk::Host {
+        return Ok(Sunk::Host);
     }
     cell.with(|world| commit(world, active, recording)).and_then(|done| done).map_err(|error| Error::refused(LIFECYCLE, error))?;
     cell.with(|world| remember(world, recording)).and_then(|done| done).map_err(|error| Error::refused(MEMORY, error))?;

@@ -13,7 +13,7 @@ use sheltersim_core::config::{self, Configs, Parser, Section, SectionId};
 use sheltersim_core::error::{Error, CLOCK};
 use sheltersim_core::events::{EventKind, EventRow};
 use sheltersim_core::host::{
-    ErrorClass, Hold, Holding, Host, HostFailure, Key, NOT_OWNED, NO_FOREIGN, NO_PYTHON_SINK, NO_SECTIONS, TABLE_MAPPING, TABLE_NOT_PLAIN,
+    ErrorClass, Hold, Holding, Host, HostFailure, Key, NOT_OWNED, NO_FOREIGN, NO_HOST_SINK, NO_SECTIONS, TABLE_MAPPING, TABLE_NOT_PLAIN,
 };
 use sheltersim_core::row::{Row, ValueRow};
 use sheltersim_core::rules::kit::{self, Held as Kept};
@@ -338,7 +338,7 @@ fn a_test_host_runs_no_foreign_handler() {
     assert_eq!(host.calls, [Call::Foreign(text("probe"))]);
     let mut bare = support::Refusing;
     assert_eq!(bare.apply_foreign(&event), Err(Error::Unsupported(NO_FOREIGN.into())));
-    assert!(NO_PYTHON_SINK.contains("Python"));
+    assert!(NO_HOST_SINK.contains("Python"));
 }
 
 #[test]

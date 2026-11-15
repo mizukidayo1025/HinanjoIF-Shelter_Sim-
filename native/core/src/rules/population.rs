@@ -3113,140 +3113,164 @@ fn check_pending_items(facts: &Facts<'_>, pending: &[V], contexts: &Doc) -> Resu
             return invalid(PENDING_INVALID);
         }
         if let Some(value) = fields.get("admission_zone_ids") {
-            let V::List(ids) = value else {
-                return invalid(PENDING_INVALID);
-            };
-            let mut unique = HashSet::new();
-            for id in ids {
-                let V::Str(id) = id else {
-                    return invalid(PENDING_INVALID);
-                };
-                unique.insert(id);
-            }
-            if unique.len() != ids.len() {
-                return invalid(PENDING_INVALID);
-            }
-            #[allow(clippy::iter_over_hash_type, reason = "only checks membership, with one text for any id")]
-            for id in unique {
-                if !(facts.zone_known)(id)? {
-                    return invalid(PENDING_INVALID);
-                }
-            }
+            check_admission_zones(facts, value)?;
         }
         if has_context > 0 {
-            let good = matches!(fields.get("member_index"), Some(V::Int(index)) if (0..MAX_ARRIVALS_PER_EVENT).contains(index))
-                && matches!(fields.get("context_source_id"), Some(V::Str(_)));
-            let Some(V::List(needs)) = fields.get("care_support_needs") else {
-                return invalid("population_dynamics_v1 pending context is invalid");
-            };
-            let mut unique = HashSet::new();
-            if !good || needs.iter().any(|need| !matches!(need, V::Str(_)) || !unique.insert(format!("{need:?}"))) {
-                return invalid("population_dynamics_v1 pending context is invalid");
-            }
-            let saved = contexts.get(agent_id).and_then(|context| match context {
-                V::Map(context) => context.get("care_support_needs"),
-                _ => None,
-            });
-            let same = match saved {
-                None => needs.is_empty(),
-                Some(V::List(saved)) => saved == needs,
-                Some(_) => return refuse("saved care needs are not a list"),
-            };
-            if !same {
-                return invalid("pending care context disagrees with its persisted profile context");
-            }
+            check_pending_context(fields, agent_id, contexts)?;
         }
         if has_approach > 0 {
-            const TIMING: &str = "pending arrival approach route/timing is invalid";
-            let routes = match facts.routes {
-                Some(Ok(routes)) => routes,
-                Some(Err(fault)) => return Err(fault.refusal.clone()),
-                None => return refuse("the approach routes were not read"),
-            };
-            let route_value = fields.get("approach_route_id").ok_or_else(|| Error::unsupported("no route"))?;
-            let mut found = None;
-            if let V::Str(route_id) = route_value {
-                for route in routes.iter() {
-                    if route.route_id == *route_id {
-                        found = Some(route);
-                    }
-                }
-            } else if !is_scalar(route_value) {
-                return refuse("a route ID is not hashable");
-            }
-            let (Some(route), Some(V::Int(started)), Some(V::Int(due))) = (found, fields.get("approach_started_minute"), fields.get("approach_due_minute"))
-            else {
-                return invalid(TIMING);
-            };
-            match fields.get("created_minute") {
-                Some(V::Int(created)) if created == started => {}
-                Some(V::Int(_) | V::Null | V::Str(_) | V::List(_) | V::Map(_)) => return invalid(TIMING),
-                _ => return refuse("a created minute is not an int"),
-            }
-            if due <= started {
-                return invalid(TIMING);
-            }
-            let zone = match zone_value {
-                V::Str(zone) => zone,
-                _ => return refuse("a zone ID is not a str"),
-            };
-            let travel = route.travel_minutes.clone().map_err(|fault| Error::unsupported(fault.text.to_string()))?;
-            if route.destination_zone_id != *zone || *due != started + travel {
-                return invalid("pending arrival approach disagrees with its route contract");
-            }
-            let finished = match fields.get("approach_completed_minute") {
-                None | Some(V::Null) => None,
-                Some(V::Int(minute)) if minute >= due && *minute <= minute_index => Some(*minute),
-                Some(_) => return invalid("pending arrival approach completion minute is invalid"),
-            };
-            let completion_id = match fields.get("approach_completion_event_id") {
-                None | Some(V::Null) => None,
-                Some(value) => Some(value),
-            };
-            if finished.is_none() && *due < duration {
-                const MISSING: &str = "pending arrival approach completion event is missing";
-                let Some(completion_id) = completion_id else {
-                    return invalid(MISSING);
-                };
-                // `event.event_id == completion_event_id` of a value of another type is false.
-                let V::Str(completion_id) = completion_id else {
-                    return invalid(MISSING);
-                };
-                let Some(event) = (facts.event)(completion_id)? else {
-                    return invalid(MISSING);
-                };
-                if &*event.event_type != "population_approach_complete" {
-                    return invalid(MISSING);
-                }
-                if event.due_minute != *due
-                    || !matches!(kit::payload(&event, "agent_id"), Some(V::Str(id)) if id == agent_id)
-                    || kit::payload(&event, "route_id") != Some(route_value)
-                {
-                    return invalid("pending arrival approach completion event disagrees");
-                }
-            } else if finished.is_none() && completion_id.is_some() {
-                return invalid("out-of-horizon arrival approach has a completion event");
-            } else if finished.is_some() && completion_id.is_some() {
-                return invalid("completed arrival approach retains a pending event");
-            }
-            if let Some(people) = people {
-                let V::Map(people) = people else {
-                    return refuse("the presence's people are not a dict");
-                };
-                let expected = if finished.is_none() { "approaching" } else { "awaiting_admission" };
-                match people.get(&**agent_id).filter(|person| person.is_truthy()) {
-                    None => {}
-                    Some(V::Map(person)) => {
-                        if !matches!(person.get("status"), Some(V::Str(status)) if &**status == expected) {
-                            return invalid("arrival approach disagrees with population presence");
-                        }
-                    }
-                    Some(_) => return refuse("a presence record is not a dict"),
-                }
-            }
+            check_pending_approach(facts, fields, (zone_value, agent_id), people, (minute_index, duration))?;
         }
         seen.insert(agent_id);
         traits_are_plain(fields.get("traits").ok_or_else(|| Error::unsupported("no traits"))?)?;
+    }
+    Ok(())
+}
+
+/// The alternate admission zones of a pending arrival: a list of unique known zone IDs.
+fn check_admission_zones(facts: &Facts<'_>, value: &V) -> Result<()> {
+    let V::List(ids) = value else {
+        return invalid(PENDING_INVALID);
+    };
+    let mut unique = HashSet::new();
+    for id in ids {
+        let V::Str(id) = id else {
+            return invalid(PENDING_INVALID);
+        };
+        unique.insert(id);
+    }
+    if unique.len() != ids.len() {
+        return invalid(PENDING_INVALID);
+    }
+    #[allow(clippy::iter_over_hash_type, reason = "only checks membership, with one text for any id")]
+    for id in unique {
+        if !(facts.zone_known)(id)? {
+            return invalid(PENDING_INVALID);
+        }
+    }
+    Ok(())
+}
+
+/// The care context of a pending arrival: its fields, and its care needs those of the saved context.
+fn check_pending_context(fields: &Doc, agent_id: &Arc<str>, contexts: &Doc) -> Result<()> {
+    let good = matches!(fields.get("member_index"), Some(V::Int(index)) if (0..MAX_ARRIVALS_PER_EVENT).contains(index))
+        && matches!(fields.get("context_source_id"), Some(V::Str(_)));
+    let Some(V::List(needs)) = fields.get("care_support_needs") else {
+        return invalid("population_dynamics_v1 pending context is invalid");
+    };
+    let mut unique = HashSet::new();
+    if !good || needs.iter().any(|need| !matches!(need, V::Str(_)) || !unique.insert(format!("{need:?}"))) {
+        return invalid("population_dynamics_v1 pending context is invalid");
+    }
+    let saved = contexts.get(agent_id).and_then(|context| match context {
+        V::Map(context) => context.get("care_support_needs"),
+        _ => None,
+    });
+    let same = match saved {
+        None => needs.is_empty(),
+        Some(V::List(saved)) => saved == needs,
+        Some(_) => return refuse("saved care needs are not a list"),
+    };
+    if !same {
+        return invalid("pending care context disagrees with its persisted profile context");
+    }
+    Ok(())
+}
+
+/// The approach of a pending arrival (of `(zone_value, agent_id)`): its route and timing, its
+/// completion event, and the person's presence; `(minute_index, duration)` are the Run's.
+fn check_pending_approach(
+    facts: &Facts<'_>,
+    fields: &Doc,
+    (zone_value, agent_id): (&V, &Arc<str>),
+    people: Option<&V>,
+    (minute_index, duration): (i64, i64),
+) -> Result<()> {
+    const TIMING: &str = "pending arrival approach route/timing is invalid";
+    let routes = match facts.routes {
+        Some(Ok(routes)) => routes,
+        Some(Err(fault)) => return Err(fault.refusal.clone()),
+        None => return refuse("the approach routes were not read"),
+    };
+    let route_value = fields.get("approach_route_id").ok_or_else(|| Error::unsupported("no route"))?;
+    let mut found = None;
+    if let V::Str(route_id) = route_value {
+        for route in routes.iter() {
+            if route.route_id == *route_id {
+                found = Some(route);
+            }
+        }
+    } else if !is_scalar(route_value) {
+        return refuse("a route ID is not hashable");
+    }
+    let (Some(route), Some(V::Int(started)), Some(V::Int(due))) = (found, fields.get("approach_started_minute"), fields.get("approach_due_minute")) else {
+        return invalid(TIMING);
+    };
+    match fields.get("created_minute") {
+        Some(V::Int(created)) if created == started => {}
+        Some(V::Int(_) | V::Null | V::Str(_) | V::List(_) | V::Map(_)) => return invalid(TIMING),
+        _ => return refuse("a created minute is not an int"),
+    }
+    if due <= started {
+        return invalid(TIMING);
+    }
+    let zone = match zone_value {
+        V::Str(zone) => zone,
+        _ => return refuse("a zone ID is not a str"),
+    };
+    let travel = route.travel_minutes.clone().map_err(|fault| Error::unsupported(fault.text.to_string()))?;
+    if route.destination_zone_id != *zone || *due != started + travel {
+        return invalid("pending arrival approach disagrees with its route contract");
+    }
+    let finished = match fields.get("approach_completed_minute") {
+        None | Some(V::Null) => None,
+        Some(V::Int(minute)) if minute >= due && *minute <= minute_index => Some(*minute),
+        Some(_) => return invalid("pending arrival approach completion minute is invalid"),
+    };
+    let completion_id = match fields.get("approach_completion_event_id") {
+        None | Some(V::Null) => None,
+        Some(value) => Some(value),
+    };
+    if finished.is_none() && *due < duration {
+        const MISSING: &str = "pending arrival approach completion event is missing";
+        let Some(completion_id) = completion_id else {
+            return invalid(MISSING);
+        };
+        // `event.event_id == completion_event_id` of a value of another type is false.
+        let V::Str(completion_id) = completion_id else {
+            return invalid(MISSING);
+        };
+        let Some(event) = (facts.event)(completion_id)? else {
+            return invalid(MISSING);
+        };
+        if &*event.event_type != "population_approach_complete" {
+            return invalid(MISSING);
+        }
+        if event.due_minute != *due
+            || !matches!(kit::payload(&event, "agent_id"), Some(V::Str(id)) if id == agent_id)
+            || kit::payload(&event, "route_id") != Some(route_value)
+        {
+            return invalid("pending arrival approach completion event disagrees");
+        }
+    } else if finished.is_none() && completion_id.is_some() {
+        return invalid("out-of-horizon arrival approach has a completion event");
+    } else if finished.is_some() && completion_id.is_some() {
+        return invalid("completed arrival approach retains a pending event");
+    }
+    if let Some(people) = people {
+        let V::Map(people) = people else {
+            return refuse("the presence's people are not a dict");
+        };
+        let expected = if finished.is_none() { "approaching" } else { "awaiting_admission" };
+        match people.get(&**agent_id).filter(|person| person.is_truthy()) {
+            None => {}
+            Some(V::Map(person)) => {
+                if !matches!(person.get("status"), Some(V::Str(status)) if &**status == expected) {
+                    return invalid("arrival approach disagrees with population presence");
+                }
+            }
+            Some(_) => return refuse("a presence record is not a dict"),
+        }
     }
     Ok(())
 }

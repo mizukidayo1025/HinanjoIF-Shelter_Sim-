@@ -259,7 +259,7 @@ impl ProjectFiles {
     }
 
     /// Writes `bytes` to `path` whole: refused past the store's limit.
-    fn write_file(&self, path: &Path, bytes: &[u8]) -> Result<()> {
+    pub(crate) fn write_file(&self, path: &Path, bytes: &[u8]) -> Result<()> {
         let previous = match fs::metadata(path) {
             Ok(metadata) => metadata.len(),
             Err(error) if error.kind() == io::ErrorKind::NotFound => 0,
@@ -466,6 +466,27 @@ impl ProjectFiles {
         record.insert("status".to_owned(), status.into());
         self.write_file(&path, &record_bytes(&record))?;
         Ok(record)
+    }
+
+    /// Sets a branch's status and keeps the Run's status their summary (Python's
+    /// `set_branch_status`, #48): the Run is `running` while any of its branches is queued or
+    /// running, else `run_status`, or this branch's status. The branch's record.
+    pub fn set_branch_status(&self, project: &str, run: &str, branch: &str, status: &str, run_status: Option<&str>) -> Result<Record> {
+        if !STATUSES.contains(&status) {
+            return Err(Error::refused("unsupported run status"));
+        }
+        let mut record = Branch::of_record(&self.branch_record(project, run, branch)?)?;
+        record.status = Some(status.to_owned());
+        let record = self.write_branch(project, run, &record)?;
+        self.settle_run_status(project, run, run_status.unwrap_or(status))?;
+        Ok(record)
+    }
+
+    /// Sets a Run's status to `running` while any of its branches is queued or running, else to
+    /// `idle` (Python's `settle_run_status`). The Run's record.
+    pub fn settle_run_status(&self, project: &str, run: &str, idle: &str) -> Result<Record> {
+        let busy = self.branches(project, run)?.iter().any(|record| matches!(record.get("status").and_then(Value::as_str), Some("queued" | "running")));
+        self.set_run_status(project, run, if busy { "running" } else { idle })
     }
 
     /// The Scenario of a Run, as the bytes Python wrote.

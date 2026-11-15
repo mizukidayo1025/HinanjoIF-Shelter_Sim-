@@ -10,6 +10,7 @@ mod support;
 
 mod action_lifecycle_rows;
 mod after_tick_memo;
+mod answers;
 mod archive_store;
 mod basics;
 mod behavior_rows;
@@ -48,6 +49,7 @@ mod information_steps;
 mod initial;
 mod interpret;
 mod kit;
+mod llm_link;
 mod load_input;
 mod metric_samples;
 mod metrics;

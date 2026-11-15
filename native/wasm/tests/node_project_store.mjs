@@ -62,11 +62,11 @@ async function makeProject(tree) {
 
 async function responses(tree) {
   return {
-    projects: await store.projectsResponse(tree, { limitBytes: 1000 }),
-    project: await store.projectResponse(tree, "p1"),
-    runs: await store.runsResponse(tree, "p1"),
-    run: await store.runResponse(tree, "p1", "r1"),
-    evidence: await store.evidenceResponse(tree, "p1", "r1"),
+    projects: await store.projectsResponse(wasm, tree, { limitBytes: 1000 }),
+    project: await store.projectResponse(wasm, tree, "p1"),
+    runs: await store.runsResponse(wasm, tree, "p1"),
+    run: await store.runResponse(wasm, tree, "p1", "r1"),
+    evidence: await store.evidenceResponse(wasm, tree, "p1", "r1"),
   };
 }
 
@@ -86,7 +86,7 @@ assert.equal(before.evidence, new TextDecoder().decode(evidenceBytes));
 assert.deepEqual(JSON.parse(before.runs).runs, [run]);
 assert.deepEqual(JSON.parse(before.projects).projects, [{ schema_version: 1, project_id: "p1", archived: false }]);
 assert.equal(JSON.parse(before.projects).storage.limit_bytes, 1000);
-await assert.rejects(store.runResponse(tree, "p1", "nope"), /missing or corrupt/);
+await assert.rejects(store.runResponse(wasm, tree, "p1", "nope"), /missing or corrupt/);
 
 // Exported and imported into an empty store: the same answers and the same digests.
 const bundle = await store.exportProject({ tree, projectId: "p1", source: { test: "node_project_store" } });

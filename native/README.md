@@ -145,8 +145,8 @@ the split of the first two PR by PR; its last section sums up what is where.
   plan of the export (`load::Sections`, `load::FloorPlans`), the records of the world's log, the
   contracts (E15) answered as the native host's pydantic (`contracts::validate`, #346), the whole-world
   validation (E6) answered by the core's `validate` (#250: all of `WorldState.validate`,
-  `validate_simulator_extensions` and the candidate's wrapping, with Python's classes and texts), no
-  LLM, and the metric samples kept as lines for their digest. Its decision sink is silent unless the
+  `validate_simulator_extensions` and the candidate's wrapping, with Python's classes and texts), the
+  LLM a link it is given or none (below), and the metric samples kept as lines for their digest. Its decision sink is silent unless the
   Run collects its decisions (`PlainRun::collect_decisions`, #368): then it is an indexed sink that
   keeps the JSON bytes the core writes of each decision (`Decision::Indexed`, the rows the native
   path's `_IndexedMetricSink.observations` holds as bytes, with `policy_sources` answered from the
@@ -168,6 +168,27 @@ the split of the first two PR by PR; its last section sums up what is where.
   core's too: the digests as JSON (`canonical::digests_json`), the EffectProgram's check and
   receipt as JSON, the stored pieces (`log_tables`, `log_block`, `MetricSamples::tables`, ...) and
   a restore taken once (`archive::RestoreOnce`).
+- **The LLM of a tick** (#428): the core asks an LLM through one port, `llm::LlmLink::complete(task)
+  -> reply` (`core/src/llm.rs`), and `PlainRun::set_llm(link, limits)` gives a Run one. The rules
+  that ask are Python's `_prioritize_support_request` and `EventTriggeredSocialPolicy` moved
+  (`core/src/rules/llm_runtime.rs`, called from `PlainHost`'s hooks): they build the prompt (the
+  same canonical JSON as Python's, byte for byte), read the answer against the task's schema (an
+  answer that does not fit is the fallback, `invalid_output`), and write the world: the priorities
+  (`model_state["llm"]`), their own state (`social_runtime_v1`, `support_priority_runtime_v1`) and
+  the `social_interaction` events of the actions chosen. The limits are Python's
+  `SocialRuntimeLimits` and `SupportPriorityLimits` (`llm::Limits`; the tick reads them through
+  `Host::social_limits` instead of the controller's). A link that is `offline` is asked nothing:
+  the world is the Run's without a link, and the social policy records why it did not ask. Each
+  social decision is a decision record (`record_kind` `dialogue`, Python's `SocialDecision.to_dict`)
+  where the Run collects them, and each call an entry of the Run's LLM tape (`llm::tape_entry`, taken
+  with `PlainRun::take_tape`, stored by `RunWriter::take` in `llm_tape` pieces): the call's identity
+  (the task, the versions, the input's hash, the state's hash: the core's digest of the world at the
+  call) and the reply, without the prompt or the model's free text. `llm::Replay` answers from a tape
+  in its order and refuses a call that is not the next or past the end (Python's `RecordedRouter`),
+  or goes on with another link (`ContinuingRouter`): a seek between two saved points computes the
+  ticks after the point from the tape's entries after the point's count, and asks no one. A task and
+  a reply cross the port as JSON (`Task::to_json`, `Reply::from_json`), so that each host links the
+  same way. `core/tests/llm_link.rs` runs them with a fake link.
 - **`PlainRun` for Python** (#368, step 2): `src/rules/plain.rs` is the WASM `Simulation`'s surface
   for Python, `sheltersim_native.rules.plain` (read it with `sheltersim.native.rules("plain")`):
   `PlainRun(entry_json)` and `PlainRun.from_worlds`, `minute`, `duration`, `advance` (a failure is
@@ -175,7 +196,13 @@ the split of the first two PR by PR; its last section sums up what is where.
   `part_digests_json`, `metrics_digest`, `metric_count`, `metric_line`, `frame`, `state_digest`,
   `scenario_summary`, `validate_effect_program`, `apply_effect_program`, `collect_decisions`,
   `take_decisions`, `decisions_missed`, the stored pieces, `world_parts`, `saved_point`,
-  `seal_blocks`, and `Restore` with `PlainRun.restore` / `restore_from_worlds`. A `PlainRun` holds
+  `seal_blocks`, and `Restore` with `PlainRun.restore` / `restore_from_worlds`. Its LLM (#428):
+  `set_llm(link, limits=None)` takes a Python object with `offline` and `complete(task: bytes) ->
+  bytes` (`src/core/llm_link.rs`; `sheltersim.llm.link.RouterLink` puts an `LLMRouter` behind it),
+  `set_llm_replay(entries, offline, then=None, limits=None)` answers from a stored tape, and
+  `take_tape` and `llm_calls`; what the link raises stops the tick and is the cause of `advance`'s
+  `RuntimeError`. `tests/integration/test_plain_run_llm.py` checks that the core asks what the Python
+  rules of the native path ask, byte for byte, and reaches the same world. A `PlainRun` holds
   `Rc`s, so it is `unsendable` and runs its ticks holding the GIL; the core keeps its feature
   `parallel`. `tests/integration/test_plain_run.py` runs the worlds of `core_tick.py` through it and
   through `TickEngine` to the same digests, compares its decision records with a Project route's
@@ -293,9 +320,10 @@ the split of the first two PR by PR; its last section sums up what is where.
   `sample_pieces`, `records`, `check_stored`/`check_raw` and `Verify` (the pieces read back to the
   "end" line's digests). `RunWriter` decides what to store and when (`start`, `same_start`,
   `fork_start`, `take`, `save`, `finish`, `tape`, `after_end` and `turns`; `Schedule` for when a
-  saved point is due), takes the decision records a Run collects (`PlainRun::collect_decisions`;
-  `run_store::records` keeps each piece of them as tokens: its strings in a table, its floats as
-  their bits, read back byte for byte), checks what it stores for private data first
+  saved point is due), takes the decision records a Run collects (`PlainRun::collect_decisions`)
+  and the LLM tape's entries of a Run with a link (`PlainRun::take_tape`, #428), each stored at the
+  next saved point or the end (`run_store::records` keeps each piece of the decision records as
+  tokens: its strings in a table, its floats as their bits, read back byte for byte), checks what it stores for private data first
   (`sensitive::Guard`: Python's `_reject_sensitive_checkpoint_content`, its rule and texts) and
   encodes each line as the browser's `JSON.stringify` wrote it; the host writes each queued item
   (`next`, then `commit_piece` with where it put the compressed bytes, or `commit_line`).
@@ -332,11 +360,26 @@ the split of the first two PR by PR; its last section sums up what is where.
   `Lease`, `StoredRun`, `Computation`); `tests/integration/test_run_files.py` holds Python's and
   the store's locks against each other and kills a writer process while it holds its branch.
 - **A Project in the browser** (#265): `wasm/js/project_store.mjs` keeps the Project, Run and
-  Branch records beside each branch's stored Run (`run_store`, #252), answers the
-  Project routes of the screen with the Python server's JSON, and writes and reads one versioned
+  Branch records beside each branch's stored Run (`run_store`, #252), reads the files the
+  Project routes of the screen answer from (the answers are the core's, below), and writes and reads one versioned
   bundle file of a Project (`sheltersim-project-bundle`, version 2: its stored Runs of format v5). `wasm/tools/build_project_bundle.mjs`
   is the Node half of `scripts/build_browser_sample.py`; `wasm/tests/node_project_store.mjs`
   checks a bundle's round trip and its refusals in CI.
+- **The Project routes' answers** (#449, decision 1 of #368): `answers` writes what the API's
+  `/api/v1/projects/...` routes answer, as pure functions of the files a store holds (a record's
+  bytes, None where it is missing; a stored Run's pieces decompressed): the records' answers
+  (`answers::records`: the Project list, a Project, its Runs, a Run, its evidence, a branch with
+  computed minutes), and `llm-status`, `conversations`, `pdf-report` and `delete`
+  (`answers::routes`), with the server's checks in its order and its refusals (`Refusal`: the
+  HTTP status, the text, the code; `Failure` adds the core's errors, a stored Run of an older
+  format being 409 `stored_run_outdated`). Reading the files, decompressing, locks, routing and
+  computing stay with the caller. The browser calls them through `wasm/src/answers.rs` (a
+  refusal is an Error whose message is `answer_refused ` and its JSON; `wasm/js/api_answers.mjs`'s
+  `core` makes it the browser's `ApiError` again), the local and VM versions through
+  `sheltersim_native.rules.answers` (a refusal raises `Refused(status, error, code, body)`).
+  `wasm/tests/node_browser_api.mjs`, `node_api_answers.mjs` and `node_project_store.mjs` check the
+  browser's answers; `tests/integration/test_project_answers.py` asks the same of PyO3 against
+  the Python server's answers in `core/tests/data/api_answers.json`.
 - **The KPI history, report and LLM status in the browser** (#266): `history::KpiTable` reads a
   stored Run's metric samples back and pages them as the Python history index pages
   `kind=kpis` (`history::kpi_row` writes a row as canonical JSON); a sample of a world with a

@@ -65,6 +65,7 @@ pub mod handlers;
 pub mod effects;
 
 // ---- P8e: proposals ----------------------------------------------------------------------------
+pub mod llm_runtime;
 pub mod proposals;
 
 // ---- P9-2a: the tick's phases 2-6 ----------------------------------------------------------------

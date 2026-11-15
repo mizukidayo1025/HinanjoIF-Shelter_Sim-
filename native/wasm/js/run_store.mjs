@@ -446,8 +446,15 @@ export class RunReader {
   /// the decision records and the tape's from the Run's start, the turns of the branch itself.
   async records(kind) {
     const records = [];
-    for (const position of this.chain.records(kind)) records.push(...JSON.parse(this.wasm.recordsJson(await this.rawAt(position))));
+    for (const raw of await this.rawRecords(kind)) records.push(...JSON.parse(this.wasm.recordsJson(raw)));
     return records;
+  }
+
+  /// The pieces of the records of `kind`, decompressed, in the order `records` reads them.
+  async rawRecords(kind) {
+    const pieces = [];
+    for (const position of this.chain.records(kind)) pieces.push(await this.rawAt(position));
+    return pieces;
   }
 
   /// The exported world the Run started from, read once.

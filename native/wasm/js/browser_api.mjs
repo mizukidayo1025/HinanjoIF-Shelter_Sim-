@@ -45,8 +45,8 @@
 // example's sha256 beside the Projects (SAMPLE_MARKER), so a site with another example offers it
 // again.
 
-import { ApiError, errorAnswer, historyCache, historyResponse, llmStatusResponse, reportResponse } from "./api_answers.mjs";
-import { CHUNK_TICKS, Computing, branchModelStatus, checkFields, postDocument } from "./compute.mjs";
+import { ApiError, core, errorAnswer, historyCache, historyResponse, llmStatusResponse, reportResponse } from "./api_answers.mjs";
+import { CHUNK_TICKS, Computing, branchModelStatus, postDocument } from "./compute.mjs";
 import * as store from "./project_store.mjs";
 import { compareResponse, replayPair } from "./comparison.mjs";
 import { interventionApply, interventionPreview } from "./interventions.mjs";
@@ -220,8 +220,8 @@ export class BrowserApi {
       return answer(this, parts[0], parts[2], parts[4], postDocument(body));
     }
     if (parts.length === 6 && parts[1] === "runs" && parts[3] === "branches" && parts[5] === "questions") return questionResponse(this, parts[0], parts[2], parts[4], postDocument(body));
-    if (parts.length === 4 && parts[1] === "runs" && parts[3] === "pdf-report") return this.pdfReport(parts[0], parts[2], postDocument(body));
-    if (parts.length === 4 && parts[1] === "runs" && parts[3] === "delete") return this.deleteRun(parts[0], parts[2], postDocument(body));
+    if (parts.length === 4 && parts[1] === "runs" && parts[3] === "pdf-report") return this.pdfReport(parts[0], parts[2], body);
+    if (parts.length === 4 && parts[1] === "runs" && parts[3] === "delete") return this.deleteRun(parts[0], parts[2], body);
     const route = parts.length >= 6 && parts[1] === "runs" ? parts.slice(3).join("/") : parts.slice(1).join("/");
     throw unsupported(route || "POST");
   }
@@ -231,17 +231,13 @@ export class BrowserApi {
     const noQuery = query.size === 0;
     if (parts.length === 0) {
       if (!noQuery) throw refused("projects list takes no query parameters");
-      return store.projectsResponse(tree, { limitBytes: await this.quota() });
+      return store.projectsResponse(this.wasm, tree, { limitBytes: await this.quota() });
     }
     const [projectId, section, runId, action, branchId, branchAction] = parts;
-    if (parts.length === 1 && noQuery) return store.projectResponse(tree, projectId);
-    if (parts.length === 2 && section === "runs" && noQuery) return store.runsResponse(tree, projectId);
-    if (parts.length === 3 && section === "runs" && noQuery) {
-      const text = await store.runResponse(tree, projectId, runId);
-      const outcome = this.forkOutcomes.get(`${projectId}/${runId}`);
-      return outcome === undefined ? text : this.wasm.mergeJson(encoder.encode(text), encoder.encode(JSON.stringify({ last_fork: outcome })));
-    }
-    if (parts.length === 4 && section === "runs" && action === "evidence" && noQuery) return store.evidenceResponse(tree, projectId, runId);
+    if (parts.length === 1 && noQuery) return store.projectResponse(this.wasm, tree, projectId);
+    if (parts.length === 2 && section === "runs" && noQuery) return store.runsResponse(this.wasm, tree, projectId);
+    if (parts.length === 3 && section === "runs" && noQuery) return store.runResponse(this.wasm, tree, projectId, runId, this.forkOutcomes.get(`${projectId}/${runId}`) ?? null);
+    if (parts.length === 4 && section === "runs" && action === "evidence" && noQuery) return store.evidenceResponse(this.wasm, tree, projectId, runId);
     if (parts.length === 4 && section === "runs" && action === "replay-frames") return this.replay(projectId, runId, query);
     if (parts.length === 4 && section === "runs" && action === "compare" && query.size === 2 && query.has("branch_ids") && query.has("minute")) {
       return compareResponse(this, projectId, runId, query, integer);
@@ -256,9 +252,13 @@ export class BrowserApi {
       }
       if (branchAction === "conversations" && noQuery) {
         await this.branch(projectId, runId, branchId);
-        // The server's answer (web/projects.py), each turn with the schema version its store adds.
-        const turns = (await store.conversations(this.wasm, tree, projectId, runId, branchId)).map((turn) => ({ schema_version: "claims" in turn ? 2 : 1, ...turn }));
-        return JSON.stringify({ turns, coverage: "latest_100_turns", history_route: "history?kind=conversations" });
+        // The server's answer (web/projects.py): the core's of the turns kept.
+        const pieces = await store.conversationPieces(this.wasm, tree, projectId, runId, branchId);
+        try {
+          return core(() => this.wasm.conversationsAnswer(pieces));
+        } finally {
+          pieces.free();
+        }
       }
       const named = { history: "history", report: "report", "llm-status": "llmStatus" }[branchAction];
       if (named) {
@@ -272,41 +272,30 @@ export class BrowserApi {
     throw refused("unknown project route or query");
   }
 
-  /// `POST runs/{run}/pdf-report` (src/sheltersim/web/pdf_report.py `export`): the server's checks in
-  /// its order (the fields, the scope, the Run, each branch, the computed range), then what the
-  /// server answers without an API key: the analysis needs Opus, so no PDF is made. The server
-  /// takes `minute` only as an int; JSON gives JS no way to tell 5.0 from 5, so 5.0 is taken as 5.
-  async pdfReport(projectId, runId, document) {
-    checkFields(document, ["branch_ids", "minute"]);
-    const { branch_ids: ids, minute } = document;
-    if (
-      !Array.isArray(ids) ||
-      ids.length < 1 ||
-      ids.length > 2 ||
-      ids.some((id) => typeof id !== "string") ||
-      new Set(ids).size !== ids.length ||
-      !Number.isInteger(minute) ||
-      minute < 0
-    ) {
-      throw refused("pdf_invalid_scope: 単一BranchまたはA/Bの2分岐と整数分を指定してください。");
+  /// `POST runs/{run}/pdf-report` (src/sheltersim/web/pdf_report.py `export`): the core's checks
+  /// in the server's order, then what the server answers without an API key: the analysis needs
+  /// Opus, so no PDF is made (`sheltersim_core::answers::routes::pdf_report_answer`).
+  async pdfReport(projectId, runId, body) {
+    const files = await store.runFiles(this.wasm, this.tree, projectId, runId);
+    try {
+      return core(() => this.wasm.pdfReport(projectId, runId, body ?? undefined, files));
+    } finally {
+      files.free();
     }
-    await store.runResponse(this.tree, projectId, runId);
-    const records = [];
-    for (const id of ids) records.push(await store.branchRecord(this.tree, projectId, runId, id));
-    if (records.some((record) => !(record.fork_minute <= minute && minute <= record.computed_until))) {
-      throw refused("pdf_uncomputed_range: 指定時刻は共通の計算済み範囲外です。");
-    }
-    throw refused("pdf_analysis_offline: Opusの記録応答またはAPI接続が必要です。");
   }
 
-  /// `POST runs/{run}/delete` (Python's ProjectAPI and `ProjectStore.delete_run`): the Run's id as
-  /// the confirmation, no computation of it running, and a status that is not running; then its
-  /// folder is removed and what this API keeps of it is let go.
-  async deleteRun(projectId, runId, document) {
-    checkFields(document, ["confirmation"]);
-    if ([...this.computing.jobs.values()].some((job) => job.projectId === projectId && job.runId === runId)) throw refused("cannot delete an active run");
-    const run = JSON.parse(await store.runResponse(this.tree, projectId, runId));
-    if (document.confirmation !== runId || run.status === "running") throw refused("deletion needs run ID confirmation and an inactive run");
+  /// `POST runs/{run}/delete` (Python's ProjectAPI and `ProjectStore.delete_run`): the core's
+  /// checks (the Run's id as the confirmation, no computation of it running, a status that is not
+  /// running); then its folder is removed and what this API keeps of it is let go.
+  async deleteRun(projectId, runId, body) {
+    const active = [...this.computing.jobs.values()].some((job) => job.projectId === projectId && job.runId === runId);
+    const files = await store.runFiles(this.wasm, this.tree, projectId, runId);
+    let answer;
+    try {
+      answer = core(() => this.wasm.deleteAnswer(projectId, runId, body ?? undefined, active, files));
+    } finally {
+      files.free();
+    }
     for (const [key, { simulation }] of this.live) {
       if (key.startsWith(`${projectId}/${runId}/`)) {
         simulation.free();
@@ -317,16 +306,18 @@ export class BrowserApi {
     this.history.clear();
     this.forkOutcomes.delete(`${projectId}/${runId}`);
     await store.removeRun(this.tree, projectId, runId);
-    return JSON.stringify({ deleted: runId });
+    return answer;
   }
 
-  /// The record of a branch; an error, as Python's, for one there is not.
+  /// The record of a branch with computed minutes (the core's `branch_of`); an error, as
+  /// Python's, for one there is not.
   async branch(projectId, runId, branchId) {
-    await store.runResponse(this.tree, projectId, runId);
-    const record = (await store.branches(this.tree, projectId, runId)).find((each) => each.branch_id === branchId);
-    if (!record) throw refused("saved artifact is missing or corrupt");
-    if (record.checkpoint_hash === null) throw refused("branch has no computed minutes");
-    return record;
+    const files = await store.runFiles(this.wasm, this.tree, projectId, runId);
+    try {
+      return JSON.parse(core(() => this.wasm.branchOf(projectId, runId, files, branchId)));
+    } finally {
+      files.free();
+    }
   }
 
   /// `replay-frames` of one branch (Python's checks, in its order); two branches are a comparison
@@ -518,8 +509,7 @@ export function markerExamples(marker) {
 export async function exampleHeld(tree, example, held) {
   if (held[example.project_id] !== example.sha256) return false;
   if ((await tree.read([example.project_id, "project.json"])) === null) return false;
-  const runs = JSON.parse(await store.runsResponse(tree, example.project_id)).runs;
-  return runs.length > 0;
+  return (await store.runIds(tree, example.project_id)).length > 0;
 }
 
 /// Makes sure the store holds the site's sample: when the store's marker does not name the

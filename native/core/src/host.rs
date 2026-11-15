@@ -536,6 +536,12 @@ pub trait Host {
 
     /// Whether the Run has an LLM router and a social policy (read once per Run).
     fn llm(&self) -> Result<Llm, Self::Error>;
+    /// The limits of the social policy where the core runs the policy itself (#428: a host with an
+    /// `LlmLink`, `rules::llm_runtime`), which the tick reads instead of the controller's
+    /// `social_policy.limits`. None: the controller's policy decides (the native host's, in Python).
+    fn social_limits(&self) -> Option<crate::llm::SocialLimits> {
+        None
+    }
     /// `controller._prioritize_support_request(request_id, agent_id, observed_state_hash)`.
     fn prioritize_support_request(&mut self, request_id: &str, agent_id: &str, observed_state_hash: &str) -> Result<(), Self::Error>;
     /// `social_policy.consider_support_request(world, agent_id=, request_id=)`.

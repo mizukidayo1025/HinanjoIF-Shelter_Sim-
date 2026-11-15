@@ -884,6 +884,9 @@ fn temporary_capacity(world: &World, events: &[Arc<EventRow>]) -> Result<IndexMa
     Ok(temporary)
 }
 
+/// The facility modifiers' intervals by facility: (start, end, units, effect ID).
+type Intervals = IndexMap<Arc<str>, Vec<(i64, i64, i64, Arc<str>)>>;
+
 /// What the checks of each effect read.
 #[derive(Clone, Copy)]
 struct Checks<'a> {
@@ -900,7 +903,7 @@ struct Checks<'a> {
 /// facility, the staff, facilities and evacuees added, and the toilets to place.
 #[derive(Default)]
 struct Added {
-    facility_intervals: IndexMap<Arc<str>, Vec<(i64, i64, i64, Arc<str>)>>,
+    facility_intervals: Intervals,
     added_staff: i64,
     added_facilities: i64,
     added_evacuees: i64,
@@ -1060,13 +1063,7 @@ fn admission_issues(cx: Checks<'_>, parameters: &Parameters, target: &Arc<str>, 
 
 /// The facility modifiers of the program, by facility: their stacking against the facility's
 /// occupancy, and the pending facility events they overlap.
-fn interval_issues(
-    rows: &Entities,
-    events: &[Arc<EventRow>],
-    mut facility_intervals: IndexMap<Arc<str>, Vec<(i64, i64, i64, Arc<str>)>>,
-    schema_version: i64,
-    issues: &mut Vec<String>,
-) -> Result<()> {
+fn interval_issues(rows: &Entities, events: &[Arc<EventRow>], mut facility_intervals: Intervals, schema_version: i64, issues: &mut Vec<String>) -> Result<()> {
     for (facility_id, intervals) in &mut facility_intervals {
         intervals.sort_by(|first, second| first.0.cmp(&second.0).then_with(|| first.3.as_bytes().cmp(second.3.as_bytes())));
         let facility = rows.facilities.get(facility_id).ok_or_else(|| Error::Runtime("a facility left the table".to_owned()))?;
@@ -1482,6 +1479,10 @@ fn schedule_on(world: &World, program: &EffectProgram) -> Result<Receipt> {
 /// event type, the payload, the phase, the priority and the causation; the event's ID.
 type Make<'a> = dyn FnMut(&Effect, i64, &str, Map, &str, i64, Option<Arc<str>>) -> Result<Arc<str>> + 'a;
 
+/// The payload head of an effect's event (`head` of `schedule_on`): the program's and the
+/// effect's IDs, then the extra fields.
+type Head<'a> = dyn Fn(&[(&str, V)]) -> Map + 'a;
+
 /// The program's record in `effect_program_v1`, the namespace started where the world has none.
 fn start_record(world: &World, program: &EffectProgram, program_hash: &str, source_text_hash: &str, provenance: &V) -> Result<()> {
     use crate::state::effect_program::Program;
@@ -1513,14 +1514,7 @@ fn start_record(world: &World, program: &EffectProgram, program_hash: &str, sour
 }
 
 /// A `facility_outage` effect: its start event, and its expiry event where it ends.
-fn schedule_facility_outage(
-    world: &World,
-    program: &EffectProgram,
-    effect: &Effect,
-    target: &Arc<str>,
-    make: &mut Make<'_>,
-    head: &dyn Fn(&[(&str, V)]) -> Map,
-) -> Result<()> {
+fn schedule_facility_outage(world: &World, program: &EffectProgram, effect: &Effect, target: &Arc<str>, make: &mut Make<'_>, head: &Head<'_>) -> Result<()> {
     let units = projected_units(world, program, effect)?;
     let modifier = V::Str(modifier_id(&program.program_id, &effect.effect_id));
     let start = make(

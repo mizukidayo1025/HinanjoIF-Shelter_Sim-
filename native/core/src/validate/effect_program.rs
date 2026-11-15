@@ -36,6 +36,8 @@ const ENTRY_FIELDS: [&str; 6] = ["modifier_id", "program_id", "effect_id", "work
 
 /// `known_effects`: (program, effect) -> the program's record.
 type Known<'a> = IndexMap<(Arc<str>, Arc<str>), &'a Map>;
+/// `scheduled_events`: event -> program.
+type Scheduled = IndexMap<Arc<str>, Arc<str>>;
 type Map = IndexMap<Arc<str>, V>;
 
 fn value_error(text: &str) -> Error {
@@ -170,7 +172,7 @@ pub fn validate(view: &View<'_>) -> Result<()> {
 }
 
 /// Each program's record, with the effects it registers and the events it schedules.
-fn check_programs(programs: &Map) -> Result<(Known<'_>, IndexMap<Arc<str>, Arc<str>>)> {
+fn check_programs(programs: &Map) -> Result<(Known<'_>, Scheduled)> {
     // known_effects: (program, effect) -> the program's record; scheduled_events: event -> program.
     let mut known: Known = IndexMap::new();
     let mut scheduled: IndexMap<Arc<str>, Arc<str>> = IndexMap::new();
@@ -245,7 +247,7 @@ fn check_programs(programs: &Map) -> Result<(Known<'_>, IndexMap<Arc<str>, Arc<s
 
 /// The scheduled events against their programs, and each event with a marker against its
 /// program's effect.
-fn check_events(view: &View<'_>, by_id: &EventsById<'_>, known: &Known<'_>, scheduled: &IndexMap<Arc<str>, Arc<str>>) -> Result<()> {
+fn check_events(view: &View<'_>, by_id: &EventsById<'_>, known: &Known<'_>, scheduled: &Scheduled) -> Result<()> {
     // Events without a marker pass the loop below unread.
     let mut events: Vec<Arc<EventRow>> = by_id.pending()?;
     events.extend(logged_with_marker(view)?.into_iter().map(Arc::new));

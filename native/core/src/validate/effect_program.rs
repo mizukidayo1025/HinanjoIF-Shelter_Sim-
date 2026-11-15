@@ -1,10 +1,10 @@
-//! `validate_effect_program_state(world, validate_event_history=...)` of `events/effects.py`, its
-//! history included, with Python's errors and texts. `validate::world` makes a `ValueError` (a
-//! pydantic `ValidationError` too) `invalid EffectProgram state: {exc}`.
+//! The check of `effect_program_v1`, its history included, with its errors and texts.
+//! `validate::world` makes a `ValueError` (a pydantic `ValidationError` too) `invalid EffectProgram
+//! state: {exc}`.
 //!
-//! The programs' records go through their pydantic contracts (`contracts::checked`) as Python holds
-//! them: the state as its tracked tree (`TrackedDict`), an event's marker frozen (mapping proxies
-//! and tuples), whose class names the texts show. The events are the queue's and the log's records
+//! The programs' records go through their pydantic contracts (`contracts::checked`), the state as a
+//! tracked tree (`TrackedDict`) and an event's marker frozen (mapping proxies and tuples), whose
+//! class names the texts show. The events are the queue's and the log's records
 //! that carry a marker (`EventLog::with_provenance_object`), each read once, and the lookups by ID
 //! go through the log's index (`EventsById`).
 
@@ -48,8 +48,8 @@ fn has_fields(map: &Map, fields: &[&str]) -> bool {
     map.len() == fields.len() && fields.iter().all(|field| map.contains_key(*field))
 }
 
-/// The `TypeError` of hashing a list or a dict of the state, which Python holds as its tracked tree
-/// (`core/state_mirror.py`), whose classes the text names.
+/// The `TypeError` of hashing a list or a dict of the state, named as a tracked tree
+/// (`TrackedList`, `TrackedDict`) as the recorded texts have it.
 pub(super) fn unhashable(value: &V) -> Result<()> {
     match value {
         V::List(_) => Err(Error::Type("unhashable type: 'TrackedList'".to_owned())),
@@ -134,7 +134,7 @@ fn logged_with_marker(view: &View<'_>) -> Result<Vec<EventRow>> {
     Ok(events)
 }
 
-/// The check, as `validate` (`validate/mod.rs`) calls it in Python's order.
+/// The check, as `validate` (`validate/mod.rs`) calls it in its order.
 pub fn validate(view: &View<'_>) -> Result<()> {
     let by_id = EventsById::new(view)?;
     let state = view.state(MARKER)?;

@@ -1,11 +1,11 @@
 //! The typed row of each namespace of `model_state` (#225, F1), for a world read from JSON.
 //!
-//! The PyO3 crate has no such table: Python's `OWNED_NAMESPACES` (`core/state_mirror.py`) names
-//! each namespace's module, and the module's `ROW` (`native/src/state/<module>.rs`) is the core's
-//! row that the slot then holds, in `Place::Namespace`. This is the same table for the namespaces
-//! whose row is typed; the others (the population's, the temporary spaces', the overlay's) and the
-//! keys no lane owns are `ValueRow`s. `tests/data/typed_rows.json` lists the typed names Python has
-//! (`tests/support/core_typed_rows.py`), and `tests/typed_rows.rs` checks this table is that list.
+//! Each owned namespace (`OWNED_NAMESPACES` of `initial/mod.rs`) is held in its slot, in
+//! `Place::Namespace`; this table names the row of those whose row is typed. The others (the
+//! population's, the temporary spaces', the overlay's) and the keys no lane owns are `ValueRow`s.
+//! `tests/data/typed_rows.json` lists the typed names, and `tests/typed_rows.rs` checks this table
+//! is that list. The fixture was recorded before #430, and the tool that wrote it is gone: a new
+//! typed row needs its names and worlds added to the fixture another way.
 
 use crate::error::Misfit;
 use crate::row::{Field, Row};
@@ -51,8 +51,8 @@ pub const TYPED: [(&str, ReadRow); 14] = [
 ];
 
 /// The typed row of a namespace read from its value, or None for a namespace whose row is a
-/// `ValueRow`. A value that does not fit is the misfit that would taint the namespace in the
-/// PyO3 crate.
+/// `ValueRow`. A value that does not fit is a misfit, which the loader refuses
+/// (`put_namespace`) or holds as a `ValueRow` (`put_namespace_as_found`).
 pub fn typed_row(name: &str, value: &V) -> Option<Result<Box<dyn Row>, Misfit>> {
     TYPED.iter().find(|(typed, _)| *typed == name).map(|(_, read)| read(value))
 }

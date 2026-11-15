@@ -1,15 +1,12 @@
 //! `shared_operations_v1`: the receipts of care, staff and facility transitions, and the head of
-//! each open care request (`domain/common_operations.py`). `rules/common_operations.rs` appends a
-//! care receipt; the other receipts come through the forwarded writes of the Python rule
-//! (docs/rust-port/lanes/m4-staff.md).
+//! each open care request. `rules/common_operations.rs` appends a care receipt; the other rules
+//! append theirs (docs/rust-port/lanes/m4-staff.md).
 //!
 //! A receipt is its canonical JSON, with what the rules read of it. `verified` says it was checked
-//! against its contract and its event: by the kernel that appended it, or by the Python rules of a
-//! check that passed. A tick's check then needs nothing more of it, but the retained staff
-//! completions for a staff operation receipt. A receipt restored or written past the kernels isn't,
-//! until the Python rules pass it.
-//!
-//! The PyO3 crate's `state/shared_operations.rs` reads it from Python and holds the check of a tick.
+//! against its contract and its event: by the rule that appended it (`Receipts::appended_passed`),
+//! or by a check that passed (`recent_passed`, `all_passed`). A tick's check then needs nothing
+//! more of it, but the retained staff completions for a staff operation receipt. A receipt
+//! restored or written past those rules isn't, until a check passes it.
 
 use std::collections::VecDeque;
 use std::sync::Arc;
@@ -227,8 +224,8 @@ impl Receipts {
 
 impl Receipt {
     /// A receipt read from its value: its bytes, and what a tick's checks read of it if it is a
-    /// record that has them (an int minute, a str event ID, a str event type), as the PyO3 crate
-    /// reads one from Python. A new receipt is not verified.
+    /// record that has them (an int minute, a str event ID, a str event type). A new receipt is not
+    /// verified.
     pub fn from_value(value: &V) -> std::result::Result<Self, Misfit> {
         let mut receipt = Receipt { minute: None, event_id: None, verified: false, reads_staff_history: true, bytes: value_bytes(value)? };
         if let V::Map(record) = value {

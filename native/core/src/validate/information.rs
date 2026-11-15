@@ -1,8 +1,8 @@
-//! The information_spread block of `WorldState.validate`, with Python's errors and texts:
-//! `InformationSpreadConfig.from_mapping` and its canonical form (`domain/models.py`), and
-//! `validate_information_runtime_state` (`domain/information.py`) with `TypedMessage.from_dict` and
-//! `AgentInformationState.from_dict`. It raises the `StateInvariantError`s of `WorldState.validate`
-//! itself, its own wrapping included.
+//! The information_spread block of `WorldState.validate`, with its errors and texts:
+//! `InformationSpreadConfig.from_mapping` and its canonical form (as in
+//! `scenario_authoring/configs/models.py`), and the check of `information_spread_v1` with its
+//! messages (`TypedMessage.from_dict`) and each person's state (`AgentInformationState.from_dict`).
+//! It raises the `StateInvariantError`s of `WorldState.validate` itself, its own wrapping included.
 
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -52,7 +52,7 @@ const FIELDS: [&str; 29] = [
 /// The int fields and their bounds.
 const INTS: [(&str, i64, i64); 3] = [("max_contacts_per_agent", 0, 16), ("minimum_contact_minutes", 1, 10_080), ("contact_duration_scale_minutes", 1, 10_080)];
 
-/// The float fields and their upper bounds (as Python writes them).
+/// The float fields and their upper bounds (as `repr` writes them in an error).
 const FLOATS: [(&str, f64, &str); 20] = [
     ("base_transmission_probability", 1.0, "1.0"),
     ("correction_transmission_multiplier", 2.0, "2.0"),
@@ -83,7 +83,7 @@ fn value_error(text: impl Into<String>) -> Error {
     Error::Value(text.into())
 }
 
-/// The check, as `validate` (`validate/mod.rs`) calls it in Python's order.
+/// The check, as `validate` (`validate/mod.rs`) calls it in its order.
 pub fn validate(view: &View<'_>) -> Result<()> {
     let config = view.config("information_spread")?;
     let enabled = from_mapping(config.as_ref()).map_err(wrap_value("invalid information_spread config: "))?;
@@ -103,7 +103,7 @@ pub fn validate(view: &View<'_>) -> Result<()> {
     Ok(())
 }
 
-/// `InformationSpreadConfig.from_mapping(document)`: whether it is enabled, or Python's error.
+/// `InformationSpreadConfig.from_mapping(document)`: whether it is enabled, or its error.
 pub fn from_mapping(document: Option<&V>) -> Result<bool> {
     let document = match document {
         None | Some(V::Null) => return Ok(false),
@@ -155,7 +155,7 @@ pub fn from_mapping(document: Option<&V>) -> Result<bool> {
         }
         Some(V::Str(text)) if text.chars().count() > 100 => return Err(reliability_error()),
         Some(V::List(items)) if items.len() > 100 => return Err(reliability_error()),
-        // Python raises an AttributeError (`.items()`), which no rule catches.
+        // CPython raises an AttributeError (`.items()`), which no rule catches.
         Some(V::Str(_) | V::List(_)) => return Err(Error::unsupported("AttributeError: the reliabilities have no items()")),
         Some(other) => return Err(value_error(format!("invalid information_spread settings: object of type '{}' has no len()", type_name(other)))),
     }
@@ -310,8 +310,8 @@ fn agent_information(document: &V) -> Result<(Arc<str>, V)> {
     Ok((message_id.clone(), values["last_contact"].clone()))
 }
 
-/// `json.loads(pair_key)` as two str, or None where it is something else; Python's error where it
-/// cannot read the key.
+/// `json.loads(pair_key)` as two str, or None where it is something else; `json.loads`' error where
+/// it cannot read the key.
 fn pair_of(key: &str) -> Result<Option<(String, String)>> {
     let parsed: serde_json::Value = match serde_json::from_str(key) {
         Ok(parsed) => parsed,

@@ -3,9 +3,10 @@
 //! `tests/data/typed_rows.json` holds worlds that together have every typed namespace: queues and
 //! their stalls, queue and staff support trips, a working and a finished staff task, a shift config
 //! with and without its optional keys, histories, receipts and audit records, with the digest of
-//! each namespace's canonical JSON. They were recorded before #430. Each namespace read into its
-//! row with `Field::from_value` writes the bytes of its canonical JSON again, and the loader puts
-//! it in its slot as that row.
+//! each namespace's canonical JSON. They were recorded before #430, and the tool that wrote them is
+//! gone: a new typed row needs its worlds made and added to the fixture another way. Each namespace
+//! read into its row with `Field::from_value` writes the bytes of its canonical JSON again, and the
+//! loader puts it in its slot as that row.
 //!
 //! A row refuses the other number type, a missing or an extra key, a text outside an enum's set, a
 //! null where no `Option` is, and what the hand-written readers check (a journey's optional keys,

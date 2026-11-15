@@ -1,10 +1,10 @@
-//! `validate_zone_environment_runtime_state(world, validate_event_history=...)` of
-//! `domain/environment.py`, with Python's errors and texts. `validate::world` makes a `ValueError`
+//! The check of `zone_environment_v1`, with and without the event history, with its errors and
+//! texts. `validate::world` makes a `ValueError`
 //! (a pydantic `ValidationError` too) `invalid zone environment state: {exc}`.
 //!
 //! The config and each modifier's parameters go through their pydantic contracts
-//! (`contracts::checked`) as Python holds them: the config and the state as its tracked tree
-//! (`TrackedDict`), whose class names the texts show.
+//! (`contracts::checked`), the config and the state as a tracked tree (`TrackedDict`), whose class
+//! names the texts show.
 
 use std::sync::Arc;
 
@@ -96,7 +96,7 @@ fn float_of(value: &V) -> f64 {
     }
 }
 
-/// The check, as `validate` (`validate/mod.rs`) calls it in Python's order.
+/// The check, as `validate` (`validate/mod.rs`) calls it in its order.
 pub fn validate(view: &View<'_>) -> Result<()> {
     let config = view.config(CONFIG)?.filter(|config| !matches!(config, V::Null));
     let state = view.state(STATE)?;

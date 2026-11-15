@@ -1,10 +1,7 @@
-//! `validate_movement_runtime_state(world)` of `domain/movement.py`, with Python's errors and
-//! texts (lane E of #250, #350). Raw errors: `validate_simulator_extensions` passes them on.
+//! The check of `movement_v1`, with its errors and texts (lane E of #250, #350). Raw errors:
+//! `validate_simulator_extensions` passes them on.
 //!
-//! `py` holds what Python does with a JSON value where the validators of this lane read one.
-//!
-//! The check `native.movement_positions_valid` stands for where it passes is the Python loop
-//! itself here.
+//! `py` holds Python's semantics of a JSON value where the validators of this lane read one.
 
 pub(super) mod py;
 
@@ -44,7 +41,7 @@ const JOURNEY_FIELDS: [&str; 10] = [
 const SUPPORT_FIELDS: [&str; 2] = ["support_request_id", "support_staff_id"];
 const STAFF_SUPPORT: &str = "staff_support_travel";
 
-/// The check, as `validate` (`validate/mod.rs`) calls it in Python's order.
+/// The check, as `validate` (`validate/mod.rs`) calls it in its order.
 pub fn validate(view: &View<'_>) -> Result<()> {
     let Some(state) = view.state(KEY)? else {
         return Ok(());
@@ -159,7 +156,7 @@ fn journey_shape(journey: &indexmap::IndexMap<std::sync::Arc<str>, V>) -> bool {
         && journey.len() == JOURNEY_FIELDS.len() + has_support + has_queue
 }
 
-/// The long condition of a journey, in Python's order: false where it is invalid, or the error a
+/// The long condition of a journey, its parts in order: false where it is invalid, or the error a
 /// part of it raises.
 fn journey_valid(view: &View<'_>, rows: &Entities, agent_id: &str, journey: &V) -> Result<bool> {
     if !rows.agents.contains_key(agent_id) {

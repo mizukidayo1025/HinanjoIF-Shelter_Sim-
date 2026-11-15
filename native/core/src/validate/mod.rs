@@ -1,24 +1,20 @@
-//! The whole world's validation without Python (policy E6 of docs/rust-port/step5-plan.md; Issue
-//! #250, #347): `WorldState.validate` of `core/world.py`, `validate_simulator_extensions` of
-//! `domain/simulator_state.py` and the candidate's wrapping of `_txn_validate`
-//! (`core/state_mirror.py`), each with the class and the text of Python's first error.
+//! The whole world's validation (Issue #250, #347): the checks of the world's document, of its
+//! simulator extensions and of a transaction's candidate, each giving the class and the text of the
+//! first error it finds.
 //!
-//! The entry points are what a host without Python answers its validation hooks with
-//! (`plain::PlainHost`): `world` (`world.validate()`, with or without the event history, with an
-//! event in flight), `extensions` (`validate_simulator_extensions(world)`, its errors as they are)
-//! and `candidate` (`world.validate()` of a transaction's candidate). The native host keeps
-//! calling Python.
+//! The entry points are what a host answers its validation hooks with (`plain::PlainHost`):
+//! `world` (with or without the event history, with an event in flight), `extensions` (the
+//! extensions' checks, their errors as they are) and `candidate` (the world's check of a
+//! transaction's candidate).
 //!
-//! This file holds the order of the rules, which is Python's: each part is a function of its own
-//! file, named after what Python calls, and an error passes on as Python's does (wrapped where
-//! Python wraps it). Each part reads the world through a `View` (`view.rs`) and gives Python's
-//! errors as the core's (`Error::Invariant` is `StateInvariantError`, `Error::Value` a
-//! `ValueError`, ...). A part not ported yet passes (each is marked `STUB(lane ...)`); the lanes of
-//! #250 fill them in their own files. See /home/water7/i263-notes/i250/framework.md (and the PR of
-//! #347) for who owns what.
+//! This file holds the order of the checks, which is part of the contract: the first error found
+//! is the one given. Each part is a function of its own file, and an error passes on as it is or
+//! wrapped where this file wraps it. Each part reads the world through a `View` (`view.rs`) and
+//! gives its error as the core's (`Error::Invariant` is `StateInvariantError`, `Error::Value` a
+//! `ValueError`, ...).
 //!
-//! The history memo of a save (`_history_memo`, `core/save_validation.py`), which skips the entries
-//! of append-only histories that passed before, is not here: a later Issue may give `View` one.
+//! No history memo skips the entries of append-only histories that passed before: a later Issue
+//! may give `View` one.
 
 mod agent_dynamics;
 pub(crate) mod body_state;
@@ -74,9 +70,9 @@ impl Default for Options<'_> {
     }
 }
 
-// ---- Python's errors ------------------------------------------------------------------------------
+// ---- The errors' classes --------------------------------------------------------------------------
 
-/// Whether Python's `except ValueError` catches the error: a `ValueError` or one of its subclasses
+/// Whether `except ValueError` catches the error: a `ValueError` or one of its subclasses
 /// (`StateInvariantError`, `ResourceLedgerError`, the outcomes, a refusal), as
 /// `HostFailure::class` says.
 pub fn is_value_error(error: &Error) -> bool {
@@ -143,7 +139,7 @@ const EXTENSION_KEYS: [&str; 9] = [
 const SHARED_OPERATIONS: &str = "shared_operations_v1";
 const LEDGER: &str = "resource_ledger_v1";
 
-/// `WorldState.validate`, its parts in Python's order.
+/// `WorldState.validate`, its parts in their order.
 fn validate(view: &View<'_>) -> Result<()> {
     let version = view.schema_version()?;
     if version != 5 && version != 6 {
@@ -186,7 +182,7 @@ fn has_extensions(view: &View<'_>) -> Result<bool> {
 
 // ---- validate_simulator_extensions ----------------------------------------------------------------
 
-/// `validate_simulator_extensions`, its parts in Python's order.
+/// `validate_simulator_extensions`, its parts in their order.
 fn simulator_extensions(view: &View<'_>) -> Result<()> {
     extension_head::validate(view)?;
     agent_dynamics::validate(view)?;

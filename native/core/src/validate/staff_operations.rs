@@ -1,5 +1,5 @@
-//! `validate_staff_operations_state(world)` of `domain/staff_operations.py`, and the
-//! `canonical_staff_operations_config` it calls, with Python's errors and texts (lane D of #250,
+//! The check of `staff_operations_v1`, and the `canonical_staff_operations_config` it calls (as in
+//! `scenario_authoring/configs/staff_operations.py`), with their errors and texts (lane D of #250,
 //! #349). Raw errors.
 
 use std::sync::Arc;
@@ -182,7 +182,7 @@ fn pending(view: &View<'_>) -> Result<Vec<Arc<EventRow>>> {
     queue.ordered().iter().map(|(_, serial)| queue.slot(*serial).row.clone().ok_or_else(|| Error::unsupported("a pending event is not in the core"))).collect()
 }
 
-/// The check, as `validate` (`validate/mod.rs`) calls it in Python's order.
+/// The check, as `validate` (`validate/mod.rs`) calls it in its order.
 pub fn validate(view: &View<'_>) -> Result<()> {
     let Some(state) = view.state(NAME)? else {
         return Ok(());

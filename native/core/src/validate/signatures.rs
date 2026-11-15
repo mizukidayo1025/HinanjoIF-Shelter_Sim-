@@ -1,6 +1,7 @@
-//! `simulator_signatures(world.model_configs)` of `domain/simulator_state.py`, with Python's errors
-//! and texts: the signed extension implementations the configs enable, by key, in the order of
-//! the Python dict (lane D of #250, #349).
+//! `simulator_signatures(world.model_configs)` (as in
+//! `scenario_authoring/configs/simulator_state.py`), with its errors and texts: the signed
+//! extension implementations the configs enable, by key, in the order they are inserted (lane D of
+//! #250, #349).
 //!
 //! `validate::world` asks it whether to validate the extensions at all (a world without any
 //! extension key), and raises its error as it is; the head of the extensions
@@ -8,8 +9,8 @@
 //!
 //! The pydantic models it validates are the core's contracts (`crate::contracts::checked`):
 //! `ScenarioZoneEnvironmentConfig`, `FacilityGeometry` and `FacilityAwarenessConfig`, whose errors
-//! it raises as pydantic's `ValidationError` (#360). `SharedOperationsConfig` is read here: Python
-//! replaces its error with its own text.
+//! it raises as pydantic's `ValidationError` (#360). `SharedOperationsConfig` is read here, and its
+//! error is replaced with the signatures' own text.
 
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -77,7 +78,7 @@ fn extensions_enabled(configs: &Map) -> Result<bool> {
     match configs.get("simulator_extensions") {
         None => Ok(false),
         Some(V::Map(extensions)) => Ok(extensions.get("enabled").is_some_and(V::is_truthy)),
-        // `.get` of another value is Python's AttributeError. `selected_models` (read before)
+        // `.get` of another value is CPython's AttributeError. `selected_models` (read before)
         // refuses a config that is no dict, so a world never gets here with one.
         Some(other) => Err(Error::Attribute(format!("'{}' object has no attribute 'get'", py::held_type_name(other, Held::Tracked)))),
     }
@@ -85,7 +86,7 @@ fn extensions_enabled(configs: &Map) -> Result<bool> {
 
 /// `validate_shared_operations_config(raw)`: `SharedOperationsConfig` (`schema_version:
 /// Literal[1]`, `policy_version: Literal["shared-operations-v1"]`, no other field) accepts it, or
-/// Python's ValueError.
+/// its ValueError.
 fn shared_operations_config(raw: &V) -> Result<()> {
     let accepted = match raw {
         V::Map(raw) => raw.iter().all(|(key, value)| match &**key {
@@ -146,7 +147,7 @@ fn zone_environment_policy(raw: &V) -> Result<Arc<str>> {
     }
 }
 
-/// `independent_queues_required(configs)`, a kernel of Python's: false without a config dict;
+/// `independent_queues_required(configs)`: false without a config dict;
 /// true for a service point whose queue is not its facility's ID, or a facility with two points
 /// of the parsed `FacilityGeometry`; the parse's error raised as it is.
 pub fn independent_queues_required(configs: &Map) -> Result<bool> {
@@ -201,7 +202,7 @@ fn simulator_signature(key: &str, version: &str) -> String {
     format!("{version}@{implementation}:state{state}")
 }
 
-/// The signatures, or the error Python raises for the configs.
+/// The signatures, or the configs' error.
 pub fn simulator_signatures(view: &View<'_>) -> Result<Signatures> {
     let configs = view.configs()?;
     let V::Map(configs) = &*configs else {

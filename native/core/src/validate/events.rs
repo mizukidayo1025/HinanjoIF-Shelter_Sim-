@@ -1,11 +1,11 @@
-//! `WorldState._validate_event_rules` (`core/world.py`), with Python's errors and texts: the ID
+//! The event rules of `WorldState.validate`, with their errors and texts: the ID
 //! counters, `EventQueue.validate`, `EventLog.validate` (the audit of the realization times, with
 //! the history), and the pending events against the log and the clock. It raises the
 //! `StateInvariantError`s of `WorldState.validate` itself.
 //!
 //! The queue and the log of the core cannot hold an ID or a sequence twice (the loader refuses
 //! such a document), so `EventQueue.validate`'s refusals and the typed containers' check are
-//! unreachable here; they are kept as Python has them.
+//! unreachable here; they are kept with their texts.
 
 use super::py::type_name;
 use super::View;
@@ -18,7 +18,7 @@ fn invariant(text: impl Into<String>) -> Error {
     Error::Invariant(text.into())
 }
 
-/// `value < 0` (or `<=` with `operator`) of an ID counter: its sign, or Python's `TypeError` for a
+/// `value < 0` (or `<=` with `operator`) of an ID counter: its sign, or CPython's `TypeError` for a
 /// value that does not compare with an int.
 fn compare_error(operator: &str, value: &V) -> Error {
     Error::Type(format!("'{operator}' not supported between instances of '{}' and 'int'", type_name(value)))
@@ -34,7 +34,7 @@ fn below_zero(value: &V) -> Result<bool> {
     }
 }
 
-/// The check, as `validate` (`validate/mod.rs`) calls it in Python's order.
+/// The check, as `validate` (`validate/mod.rs`) calls it in its order.
 pub fn validate(view: &View<'_>) -> Result<()> {
     let counters = view.world.slots.try_row::<ValueRow>(ID_COUNTERS)?;
     let V::Map(counters) = &counters.0 else {

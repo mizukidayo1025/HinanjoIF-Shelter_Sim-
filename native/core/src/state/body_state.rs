@@ -1,12 +1,11 @@
 //! `body_state_v1`: the long-term body and affect records, the relationships and the social
-//! history (`domain/body_state.py`). `rules/body_state.rs` and `rules/psychology.rs` write it; the
-//! handlers and the population rules that still run in Python write one value or one record at a
-//! time through the forwarded writes (docs/rust-port/lanes/m3-body-state.md).
+//! history. `rules/body_state.rs` and `rules/psychology.rs` write it; the handlers and the
+//! population rules write one value or one record at a time
+//! (docs/rust-port/lanes/m3-body-state.md).
 //!
-//! A value of another type than the rules write taints the namespace, and the Python rules and
-//! their errors run on the tree: an int in a record, which validation accepts, only costs the row.
-//!
-//! The PyO3 crate's `state/body_state.rs` reads it from Python and holds its validator.
+//! A value of another type than the rules write (an int in a record, which validation accepts)
+//! does not fit the row: a Run refuses to load such a world (`load::put_namespace`), and the
+//! whole validation reads it as a value (`load::Namespaces::Lenient`).
 
 use std::collections::VecDeque;
 use std::sync::Arc;
@@ -160,8 +159,9 @@ pub fn record_is_valid(record: &BodyRecord) -> bool {
         && in_range(record.hygiene_need, 1.0)
 }
 
-/// The two IDs of a key the Python rule certainly accepts: `["a","b"]`, of IDs that JSON writes as
-/// they are. None says nothing about the key, and the Python rule then reads it.
+/// The two IDs of a key the validation certainly accepts: `["a","b"]`, of IDs that JSON writes as
+/// they are. None says nothing about the key, and the validation (`validate/body_state.rs`) then
+/// reads it.
 pub fn pair_of(key: &str) -> Option<(&str, &str)> {
     fn plain(id: &str) -> bool {
         !id.is_empty() && id.bytes().all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b':' | b'-'))
@@ -185,7 +185,7 @@ pub fn key_is_valid<T>(key: &str, people: &IdMap<T>) -> bool {
 
 impl BodyRow {
     /// `_ROWS_VALID`, the validator of the rows (#152; in the core since #250, for the end-of-tick
-    /// check of a world without Python too): true only if the header, the Agent records and the
+    /// check too): true only if the header, the Agent records and the
     /// relationships pass every rule `validate_body_state` has for them, for a world of these
     /// people. Its checks of the config and the history read what the row doesn't hold. False
     /// decides nothing: the rules then run, with their texts. What is accepted is not read again

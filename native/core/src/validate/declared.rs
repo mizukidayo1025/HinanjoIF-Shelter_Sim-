@@ -1,6 +1,6 @@
-//! `validate_declared_states(world)` of `contracts/runtime.py`, with Python's errors and texts: the
-//! declaration of `model_configs["state_contracts"]` (`declared_states`), and each declared
-//! namespace by its installed validator. `validate` (`validate/mod.rs`) makes a `ValueError` a
+//! The check of the declared states, with its errors and texts: the declaration of
+//! `model_configs["state_contracts"]` (`declared_states`), and each declared namespace by its
+//! installed validator. `validate` (`validate/mod.rs`) makes a `ValueError` a
 //! `StateInvariantError(str(exc))`.
 //!
 //! The one installed contract is `population_presence_v1` (`contracts/presence.py`): its validator's
@@ -68,7 +68,7 @@ pub fn declared_states(configs: &V) -> Result<Vec<&'static StateContract>> {
     Ok(out)
 }
 
-/// The check, as `validate` (`validate/mod.rs`) calls it in Python's order.
+/// The check, as `validate` (`validate/mod.rs`) calls it in its order.
 pub fn validate(view: &View<'_>) -> Result<()> {
     let declared = declared_states(&*view.configs()?)?;
     for contract in declared {

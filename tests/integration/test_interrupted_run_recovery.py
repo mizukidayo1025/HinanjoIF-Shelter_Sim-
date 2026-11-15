@@ -1,5 +1,5 @@
-"""A Run that was computing when the server stopped is marked interrupted at the next
-start, and computing it again reaches the same world as an uninterrupted Run.
+"""A Run that was computing when the server stopped is marked interrupted at the next start, and
+computing it again reaches the same world as an uninterrupted Run (format v5, #427).
 """
 
 from __future__ import annotations
@@ -20,31 +20,45 @@ END = 60
 STOPPED_AT = 20
 
 
-@pytest.mark.parametrize("status", ["running", "queued"])
+def _end_digests(api: ProjectAPI) -> str:
+    run, _, _ = api.files.reader("p", "r", "main").seek(END)
+    return run.digests_json()
+
+
 def test_an_interrupted_run_resumes_to_the_uninterrupted_world(
-    tmp_path, monkeypatch, generated_previews, saved_timeline, status
+    tmp_path, monkeypatch, generated_previews, saved_project
 ):
     monkeypatch.setenv("SHELTERSIM_LLM_MODE", "offline")
     preview = generated_previews(duration_days=END / 1440)
     scenario = ScenarioSpec.model_validate(copy.deepcopy(preview["scenario"]))
-    store, timeline = saved_timeline(tmp_path / "stopped", scenario)
-    timeline.advance("main", STOPPED_AT, checkpoint_interval=10)
-    # The server stopped while this Run was computing or waiting for the worker.
-    store.set_status("p", "r", status)
+    store = saved_project(tmp_path / "stopped", scenario)
+    api = ProjectAPI(store, recover=False)
+    try:
+        api.submit("p", "r", "main", STOPPED_AT)
+        api.wait_idle(timeout=120)
+        # The server stopped while this Run was computing.
+        with api.files.transaction():
+            api.files.set_branch_status("p", "r", "main", "running")
+    finally:
+        api.close()
 
     api = ProjectAPI(store)
     try:
-        restarted = api.get(["p", "runs", "r"], {})["status"]
+        restarted = api.get(["p", "runs", "r"])["status"]
         api.post(["p", "runs", "r", "resume"], {"branch_id": "main", "target_minute": END})
-        # The worker is single; this waits for the resume queued above (#143).
         api.wait_idle(timeout=120)
-        finished = api.get(["p", "runs", "r"], {})["status"]
+        finished = api.get(["p", "runs", "r"])["status"]
+        stopped = _end_digests(api)
     finally:
         api.close()
-    _, uninterrupted = saved_timeline(tmp_path / "uninterrupted", scenario)
+    straight = ProjectAPI(saved_project(tmp_path / "uninterrupted", scenario), recover=False)
+    try:
+        straight.submit("p", "r", "main", END)
+        straight.wait_idle(timeout=120)
+        uninterrupted = _end_digests(straight)
+    finally:
+        straight.close()
 
     assert restarted == "interrupted"
     assert finished == "completed"
-    assert json.dumps(timeline.seek("main", END).world.to_dict(), sort_keys=True) == json.dumps(
-        uninterrupted.advance("main", END).world.to_dict(), sort_keys=True
-    )
+    assert json.loads(stopped) == json.loads(uninterrupted)

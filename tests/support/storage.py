@@ -58,6 +58,31 @@ def saved_timeline() -> Callable[..., tuple[Any, Any]]:
     return _saved_timeline
 
 
+def _saved_project(tmp_path: Path, scenario: Any = None) -> Any:
+    from sheltersim.experiments.scenario import ScenarioSpec
+    from sheltersim.storage.projects import ProjectStore, digest
+    from sheltersim.web.stored_runs import project_files, save_scenario, start_run
+
+    store = ProjectStore(tmp_path)
+    files = project_files(store)
+    with files.transaction():
+        files.create_project("p")
+    if scenario is None:
+        scenario = ScenarioSpec.load(SCENARIO_100_AGENTS)
+    saved = save_scenario(files, "p", scenario, digest(json.loads(scenario.canonical_json())))
+    start_run(store, files, "p", "r", saved["scenario_id"], saved["scenario_version"])
+    return store
+
+
+@pytest.fixture(scope="session")
+def saved_project() -> Callable[..., Any]:
+    """Open a store at a folder with project p and Run r, its branch `main` stored at minute 0
+    in format v5 (the server's Run since #427); return the ProjectStore.
+
+    The Run is of scenario_100_agents unless a ScenarioSpec is passed."""
+    return _saved_project
+
+
 @pytest.fixture
 def engine_v1_run(tmp_path: Path) -> tuple[Any, Any]:
     """A copy of fixtures/saved_runs/engine-v1-small: project p, Run r of h00_small_replay

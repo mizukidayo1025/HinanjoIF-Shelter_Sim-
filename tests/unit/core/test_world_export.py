@@ -183,25 +183,14 @@ def test_the_core_records_a_new_run_s_model_versions_and_evidence_as_python(name
 
 
 def test_the_evidence_template_is_the_server_s_answer(tmp_path: Any) -> None:
-    """`core_initial.evidence_answer` is what the server's evidence route answers for a Run of
-    the Scenario (#301)."""
+    """`core_initial.evidence_answer` is what the server records as a Run's evidence and answers
+    on its evidence route (web/stored_runs.py, #301, #427)."""
     from sheltersim.storage.projects import ProjectStore
-    from sheltersim.web.projects import ProjectAPI
+    from sheltersim.web.stored_runs import run_evidence
 
     scenario = scenario_of({"evacuees": 3})
     store = ProjectStore(tmp_path / "projects")
-    store.create_project("evidence")
-    saved = store.save_scenario(
-        "evidence",
-        scenario,
-        approved_hash=hashlib.sha256(scenario.canonical_json().encode()).hexdigest(),
-    )
-    store.create_run("evidence", "run-evidence", saved["scenario_id"], saved["scenario_version"])
-    api = ProjectAPI(store, recover=False)
-    try:
-        answer = api.get(["evidence", "runs", "run-evidence", "evidence"], {})
-    finally:
-        api.close()
+    answer = run_evidence(store, "evidence", scenario)
     assert json.loads(json.dumps(answer)) == evidence_answer(scenario)
 
 

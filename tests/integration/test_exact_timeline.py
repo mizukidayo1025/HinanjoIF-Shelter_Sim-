@@ -5,20 +5,14 @@ people on the floor plan, as the Project screen's seek does. Until #137 this ran
 on scenario_100_agents, which has neither a floor plan nor facility awareness.
 """
 
-import copy
-import json
-
 import pytest
 
 from sheltersim.core.engine import TickEngine
 from sheltersim.core.world import WorldState
 from sheltersim.domain.movement import MOVEMENT_STATE_KEY
-from sheltersim.experiments.branch import BranchRuntime
 from sheltersim.experiments.metrics import MetricsRecorder
 from sheltersim.experiments.runner import OfflineSimulationController
 from sheltersim.experiments.timeline import TimelineError, TimelineStore, _MetricSink
-from sheltersim.storage.projects import ProjectStore, digest
-from sheltersim.web.projects import ProjectAPI
 
 CHECKPOINT_INTERVAL = 20
 # Between the Checkpoints at 20 and 40, while people walk on the floor plan.
@@ -46,72 +40,6 @@ def test_non_checkpoint_seek_and_noop_fork_are_exact(tmp_path, generated_scenari
     assert store.load_branch("p", "r", "main")[1].to_json() == parent_before
     with pytest.raises(TimelineError, match="computed range"):
         timeline.seek("main", COMPUTED_UNTIL + 1)
-
-
-@pytest.mark.parametrize(("minute", "with_program"), [(30, False), (40, False), (40, True)])
-def test_fork_saves_the_child_of_the_source_checkpoint(
-    tmp_path, generated_scenario, add_toilets_program, minute, with_program
-):
-    """A fork records the source's hashes and saves the child of its Checkpoint (#46).
-
-    The expected child is built step by step from a separate seek, as forks were
-    before #46 reused one Checkpoint for all of it.
-    """
-    store = ProjectStore(tmp_path)
-    store.create_project("p")
-    scenario = generated_scenario
-    store.save_scenario("p", scenario, approved_hash=digest(json.loads(scenario.canonical_json())))
-    api = ProjectAPI(store, recover=False)
-    try:
-        api.post(
-            ["p", "runs"],
-            {
-                "run_id": "r",
-                "scenario_id": scenario.id,
-                "scenario_version": 1,
-                "execution_mode": "offline",
-            },
-        )
-        api.submit("p", "r", "main", COMPUTED_UNTIL)
-        api.wait_idle(timeout=120)
-        timeline = TimelineStore(store, "p", "r")
-        parent_before = store.load_branch("p", "r", "main")[1].to_json()
-        source = timeline.seek("main", minute)
-        source_checkpoint = source.checkpoint()
-        expected = BranchRuntime.from_checkpoint(
-            source_checkpoint, branch_id="child", parent_branch_id="main"
-        )
-        expected.runtime_state["fork_origin"] = {
-            "branch_id": "main",
-            "minute": minute,
-            "state_hash": source_checkpoint.state_hash,
-            "checkpoint_hash": source_checkpoint.checkpoint_hash,
-        }
-        request = {"minute": minute, "child_id": "child", "approved": True}
-        if with_program:
-            program = add_toilets_program(start_minute=minute)
-            expected.runtime_state.pop("replay_source", None)
-            expected.apply_effect_program(program)
-            request["program"] = program.model_dump(mode="json")
-            request["approved_program_hash"] = digest(program.model_dump(mode="json"))
-        else:
-            head = store.load_branch("p", "r", "main")[1]
-            expected.runtime_state["replay_source"] = copy.deepcopy(head.runtime_state["llm"])
-
-        # ProjectAPI.fork, which intervention-apply calls (the bare fork route went in #376).
-        result = api.fork("p", "r", "main", request)
-    finally:
-        api.close()
-
-    _, saved = store.load_branch("p", "r", "child")
-    assert saved.to_json() == expected.checkpoint().to_json()
-    assert ("replay_source" in saved.runtime_state) is not with_program
-    assert result == {
-        "branch_id": "child",
-        "minute": minute,
-        "state_hash": expected.world.state_digest(),
-    }
-    assert store.load_branch("p", "r", "main")[1].to_json() == parent_before
 
 
 def test_a_forked_branch_reads_the_rows_a_fresh_ingest_derives(
@@ -256,62 +184,3 @@ def test_frames_read_while_a_save_is_indexed_match_the_frames_after(
     assert set(during) == set(minutes)
     for minute in minutes:
         assert during[minute] == TimelineStore(store, "p", "r").frame("main", minute)
-
-
-def test_history_read_while_a_save_is_indexed_answers_as_of_the_indexed_head(
-    tmp_path, monkeypatch, saved_timeline
-):
-    """#262: between a save and its indexing, history, its next page, the checkpoint
-    list and conversations answer as of the previous head, and say so."""
-    from sheltersim.storage.history_index import HistoryIndex
-
-    monkeypatch.setenv("SHELTERSIM_LLM_MODE", "offline")
-    store, timeline = saved_timeline(tmp_path)
-    timeline.advance("main", 30)
-    previous = store.branch_reference("p", "r", "main").checkpoint_hash
-    api = ProjectAPI(store, recover=False)
-    branch = ["p", "runs", "r", "branches", "main"]
-    # The route answers the KPIs and the conversations only (#376); the KPIs page as events did.
-    first = {"kind": ["kpis"], "start": ["0"], "end": ["30"], "limit": ["5"]}
-
-    def history(page=None):
-        return api.get([*branch, "history"], {**first, **({"cursor": [page]} if page else {})})
-
-    def checkpoints():
-        query = {"branch_id": ["main"], "start": ["0"], "end": ["60"], "limit": ["10"]}
-        return api.get(["p", "runs", "r", "checkpoints"], query)
-
-    before = history()
-    before_next = history(before["next_cursor"])
-    during = {}
-    original = HistoryIndex.ingest
-
-    def ingest(self, branch_id, checkpoint, **options):
-        if checkpoint.simulation_minute == 60:
-            page = history()
-            during.update(
-                page=page,
-                next=history(page["next_cursor"]),
-                checkpoints=checkpoints(),
-                conversations=api.get([*branch, "conversations"], {}),
-            )
-        return original(self, branch_id, checkpoint, **options)
-
-    monkeypatch.setattr(HistoryIndex, "ingest", ingest)
-    try:
-        timeline.advance("main", 60)
-    finally:
-        monkeypatch.setattr(HistoryIndex, "ingest", original)
-        after = history()
-        api.close()
-    page = during["page"]
-    assert (page["anchor_hash"], page["indexed_through_minute"]) == (previous, 30)
-    assert page["computed_until"] == 60
-    assert page["items"] == before["items"] == after["items"]
-    # A page cursor names the head it was made at, as before.
-    assert during["next"]["items"] == before_next["items"]
-    assert [row["minute"] for row in during["checkpoints"]["items"]] == [0, 30]
-    assert during["checkpoints"]["indexed_through_minute"] == 30
-    assert during["conversations"]["turns"] == []
-    assert (after["anchor_hash"], after["indexed_through_minute"]) != (previous, 30)
-    assert after["indexed_through_minute"] == 60

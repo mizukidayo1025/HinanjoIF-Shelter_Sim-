@@ -30,7 +30,6 @@ import tempfile
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
-from urllib.parse import parse_qs
 
 from support.paths import FIXTURES
 
@@ -132,45 +131,17 @@ def normalize(body: str, anchor: str | None) -> str:
 
 
 def _answer(api: Any, branch: str, route: str, query: str) -> tuple[int, str]:
-    """The server's status and body (web/server.py's do_GET and _json_response)."""
-    from sheltersim.storage.projects import StorageError
+    """The server's status and body (web/server.py's do_GET)."""
+    from support.web import server_answer
 
-    parts = ["sample", "runs", RUN_ID, "branches", branch, route]
-    try:
-        status, payload = 200, api.get(parts, parse_qs(query))
-    except StorageError as exc:
-        status, payload = 409, {"error": str(exc), "code": exc.code}
-    except ValueError:
-        status, payload = 400, {"error": "invalid query or saved contract", "code": "invalid_input"}
-    body = json.dumps(
-        payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False
-    )
-    return status, body
+    return server_answer(api, "GET", ["sample", "runs", RUN_ID, "branches", branch, route], query)
 
 
 def _post(api: Any, run_id: str, action: str, body: str) -> tuple[int, str]:
     """The server's status and body of a project POST (web/server.py's do_POST)."""
-    from sheltersim.storage.projects import StorageError
+    from support.web import server_answer
 
-    try:
-        raw = body.encode()
-        if not 0 < len(raw) <= 2_097_152:
-            raise StorageError("project request exceeds the body limit")
-        document = json.loads(raw.decode("utf-8"))
-        if not isinstance(document, dict):
-            raise StorageError("project request must be an object")
-        if action == "pdf-report":
-            api.pdf_reports.export("sample", run_id, document)
-            raise AssertionError("an offline PDF report was made")
-        status, payload = 200, api.post(["sample", "runs", run_id, action], document)
-    except StorageError as exc:
-        status, payload = 409, {"error": str(exc), "code": exc.code}
-    except (ValueError, UnicodeDecodeError):
-        status, payload = 400, {"error": "invalid project request"}
-    text = json.dumps(
-        payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False
-    )
-    return status, text
+    return server_answer(api, "POST", ["sample", "runs", run_id, action], body=body)
 
 
 def _page(status: int, body: str, anchor: str) -> dict[str, Any]:
@@ -212,6 +183,7 @@ def _isolated(directory: Path) -> Iterator[None]:
 
 def api_answers_fixture() -> dict[str, Any]:
     from sheltersim.core.world_export import export_world
+    from sheltersim.experiments.scenario import ScenarioSpec
     from sheltersim.storage.projects import ProjectStore, canonical, digest
     from sheltersim.web.projects import ProjectAPI
     from support.core_fixtures import run_world
@@ -239,11 +211,11 @@ def api_answers_fixture() -> dict[str, Any]:
                 {"branch_id": BRANCH_ID, "target_minute": MINUTES},
             )
             api.wait_idle(timeout=600)
-            reference = store.branch_reference("sample", RUN_ID, BRANCH_ID)
-            status = store.branch_status("sample", RUN_ID, BRANCH_ID)
-            if status != "completed" or reference.computed_until != MINUTES:
-                raise RuntimeError(f"the Run ended {status} at minute {reference.computed_until}")
-            anchor = reference.checkpoint_hash
+            record = json.loads(api.files.branch_record("sample", RUN_ID, BRANCH_ID))
+            status, reached = record.get("status"), record["computed_until"]
+            if status != "completed" or reached != MINUTES:
+                raise RuntimeError(f"the Run ended {status} at minute {reached}")
+            anchor = record["checkpoint_hash"]
             cases = []
             for route, branch, query, paged in CASES:
                 pages = []
@@ -272,8 +244,10 @@ def api_answers_fixture() -> dict[str, Any]:
             for run_id, body in PDF_CASES:
                 status, text = _post(api, run_id, "pdf-report", body)
                 pdf.append({"run_id": run_id, "body": body, "status": status, "answer": text})
-            run = store.run("sample", RUN_ID)
-            scenario = store.scenario("sample", run["scenario_id"], run["scenario_version"])
+            run = json.loads(api.files.run_record("sample", RUN_ID))
+            scenario = ScenarioSpec.from_json(
+                api.files.run_scenario_bytes("sample", RUN_ID).decode()
+            )
         finally:
             api.close()
         scenario_text = canonical(json.loads(scenario.canonical_json()))

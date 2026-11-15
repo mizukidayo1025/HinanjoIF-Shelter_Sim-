@@ -97,7 +97,7 @@ fallbackの理由はoutcome別（max_api_calls、shared_allowance_unavailable、
 
 ## tickの中の問い合わせを中核で行う（#428）
 
-tickの中でLLMに問い合わせる規則（支援要請の優先度`_prioritize_support_request`と、社会の方針`EventTriggeredSocialPolicy`）は、Rustの中核（`native/core/src/rules/llm_runtime.rs`）にもあります。中核は、Pythonのない計算（`PlainRun`）で、この規則を自分で動かします。外とは`LlmLink::complete(task) -> reply`という1つの口（`native/core/src/llm.rs`）だけでつながります。ローカル版・VM版の計算はまだPythonの経路のままで、`PlainRun`への切り替えは#427で行います。
+tickの中でLLMに問い合わせる規則（支援要請の優先度`_prioritize_support_request`と、社会の方針`EventTriggeredSocialPolicy`）は、Rustの中核（`native/core/src/rules/llm_runtime.rs`）にもあります。中核は、Pythonのない計算（`PlainRun`）で、この規則を自分で動かします。外とは`LlmLink::complete(task) -> reply`という1つの口（`native/core/src/llm.rs`）だけでつながります。ローカル版・VM版の計算は#427から`PlainRun`で行い、APIキーのあるサーバーでは、Runを作ったときのLLMのmode（`runs/{run}/llm.json`）で`RouterLink`を口にします（`web/worker_process.py`の`runtime_link`。modeが今の設定と違えば計算を断ります）。
 
 - 口を通るのは、作業（`task`の名前、stage、プロンプトの版、schemaの版、入力の文、状態のhash、出力のschema、代替の文、出力の上限）と答え（文と、PythonのLLMCallRecordの結果・費用・token）のJSONだけです。プロンプトを作り、答えをschemaで確かめ、世界を書き換えるのは中核です。schemaに合わない答えは、口が何を返しても代替（`invalid_output`）になります。
 - プロンプトは、Pythonと同じ正規のJSONで、bytesもPythonと同じです。状態のhashだけは中核の世界のdigestで、Pythonの`world.canonical_json()`のhashとは違います。そのため、Pythonの経路で記録したresponse tape（Checkpointの中のもの）は中核では再生できません。結果の世界は、同じ答えならPythonの経路と同じです（`tests/integration/test_plain_run_llm.py`がゲートの台本のProviderで確かめます）。

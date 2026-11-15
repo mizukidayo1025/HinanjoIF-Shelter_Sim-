@@ -1,4 +1,5 @@
-"""Offline differential timing of the library and the actual ProjectAPI worker.
+"""Offline differential timing of the library and the actual ProjectAPI worker (since #427 the
+core's `PlainRun` into a stored Run of format v5; its digests are compared with --expect).
 
 Run in a fresh process per case. Output belongs outside the repository.
 """
@@ -35,7 +36,10 @@ from sheltersim.storage.history_index import HistoryIndex
 from sheltersim.storage.index_writer import BackgroundIndexer
 from sheltersim.storage.projects import ProjectStore, digest
 from sheltersim.web.projects import ProjectAPI
-from sheltersim.web.workspace import ProjectWorkspace
+from sheltersim.web.stored_runs import save_scenario
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tests"))
+from support.core_tick import metrics_digest, world_digests  # noqa: E402
 
 
 def peak_rss_mib(children: bool = False) -> float | None:
@@ -53,6 +57,15 @@ def peak_rss_mib(children: bool = False) -> float | None:
     return round(usage.ru_maxrss / (2**20 if sys.platform == "darwin" else 2**10), 1)
 
 
+def _stored_sizes(root: Path) -> dict[str, int]:
+    """The bytes of the stored Runs' files by name (journal.jsonl, data.pack, the records)."""
+    sizes: dict[str, int] = {}
+    for path in root.rglob("*"):
+        if path.is_file():
+            sizes[path.name] = sizes.get(path.name, 0) + path.stat().st_size
+    return sizes
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(__doc__)
     parser.add_argument("--duration", type=int, required=True)
@@ -66,20 +79,9 @@ def main() -> None:
         type=Path,
         help="an earlier result.json whose world, events and KPI hashes must match",
     )
-    parser.add_argument(
-        "--from-project",
-        type=Path,
-        help="a projects directory an earlier --route project run saved; fork its main "
-        "branch at --fork-minute and compute --duration more minutes",
-    )
-    parser.add_argument("--fork-minute", type=int)
     args = parser.parse_args()
     if args.duration <= 0:
         parser.error("duration must be positive")
-    if (args.from_project is None) != (args.fork_minute is None):
-        parser.error("--from-project and --fork-minute go together")
-    if args.from_project is not None and (args.route != "project" or args.fork_minute < 0):
-        parser.error("--from-project needs --route project and a non-negative --fork-minute")
     environment = environment_manifest()
     args.output.mkdir(parents=True, exist_ok=False)
     # Fail closed even if a future regression constructs a network provider.
@@ -90,7 +92,6 @@ def main() -> None:
         raise AssertionError("network forbidden by offline benchmark")
 
     socket.socket.connect = denied
-    late_store = ProjectStore(args.from_project) if args.from_project else None
     scenario = build_benchmark_scenario(
         ScenarioSpec.load("fixtures/scenarios/baseline_100_7d.json"),
         agent_count=100,
@@ -124,10 +125,6 @@ def main() -> None:
             event for event in document["scheduled_events"] if event["due_minute"] < args.duration
         ]
         scenario = ScenarioSpec.model_validate(document)
-    if late_store is not None:
-        # The saved Run's own Scenario; the options above only name a new one.
-        saved_run = late_store.run("p", "r")
-        scenario = late_store.scenario("p", saved_run["scenario_id"], saved_run["scenario_version"])
     environment["model_versions"] = model_signatures(scenario.model_configs)
     (args.output / "scenario.json").write_text(scenario.canonical_json() + "\n")
     totals = {}
@@ -220,7 +217,6 @@ def main() -> None:
             else "encode",
         ),
         (HistoryIndex, "ingest"),
-        (ProjectWorkspace, "finish_review"),
         # The parts of a save outside capture and the store's write.
         (TimelineStore, "_cache_frame"),
         (FrameCache, "put"),
@@ -271,68 +267,54 @@ def main() -> None:
         computation_peak = peak_rss_mib()
         metrics = recorded_metrics[0].to_dict()
         api_requests = 0
+        # The digests the core gives of the same world and samples (the project route's).
+        core_digests = {
+            "world": world_digests(world),
+            "metrics": metrics_digest(recorded_metrics[0].snapshots),
+        }
     else:
-        fork_seconds = None
-        if late_store is not None:
-            # A late window: the saves and ticks of a long Run without computing it again.
-            store = late_store
-            api = ProjectAPI(store, recover=False)
-            branch, target = f"late-{args.fork_minute}", args.fork_minute + args.duration
-            fork_started = time.perf_counter()
-            api.fork(
-                "p", "r", "main", {"minute": args.fork_minute, "child_id": branch, "approved": True}
-            )
-            fork_seconds = time.perf_counter() - fork_started
-        else:
-            store = ProjectStore(args.output / "projects")
-            api = ProjectAPI(store, recover=False)
-            branch, target = "main", args.duration
-            store.create_project("p")
-            store.save_scenario(
-                "p", scenario, approved_hash=digest(json.loads(scenario.canonical_json()))
-            )
-            api.post(
-                ["p", "runs"],
-                {
-                    "run_id": "r",
-                    "scenario_id": scenario.id,
-                    "scenario_version": 1,
-                    "execution_mode": "offline",
-                },
-            )
+        # The screen's route (#427): the Run's branch computed in the core (`PlainRun`) into its
+        # stored Run of format v5, a saved point every 360 minutes, on the API's thread.
+        store = ProjectStore(args.output / "projects")
+        api = ProjectAPI(store, recover=False)
+        branch, target = "main", args.duration
+        api.post([], {"project_id": "p"})
+        save_scenario(api.files, "p", scenario, digest(json.loads(scenario.canonical_json())))
+        api.post(
+            ["p", "runs"],
+            {
+                "run_id": "r",
+                "scenario_id": scenario.id,
+                "scenario_version": 1,
+            },
+        )
         setup_seconds = time.perf_counter() - started
         setup_timings = dict(totals)
         totals.clear()
         progress.clear()
-        original_advance = api._advance
-        worker_cpu = []
-
-        def advance(*values, **kwargs):
-            before = time.thread_time()
-            if profiler:
-                profiler.enable()
-            try:
-                return original_advance(*values, **kwargs)
-            finally:
-                if profiler:
-                    profiler.disable()
-                worker_cpu.append(time.thread_time() - before)
-
-        api._advance = advance
-        started = last = time.perf_counter()
-        api.submit("p", "r", branch, target)
-        api._pool.submit(lambda: None).result()
+        if profiler:
+            profiler.enable()
+        started = time.perf_counter()
+        cpu_before = time.process_time()
+        api.post(["p", "runs", "r", "resume"], {"branch_id": branch, "target_minute": target})
+        api.wait_idle()
         wall_seconds = time.perf_counter() - started
-        # Before the Run is read back and hashed below: that builds whole-world documents
-        # (WorldState.to_dict) and would set the high-water mark itself (#138).
+        cpu_seconds = time.process_time() - cpu_before
+        if profiler:
+            profiler.disable()
         computation_peak = peak_rss_mib()
-        cpu_seconds = worker_cpu[0]
+        record = json.loads(api.files.branch_record("p", "r", branch))
+        assert record["computed_until"] == target, "the computation stopped early"
+        reader = api.files.reader("p", "r", branch)
+        run, _, _ = reader.seek(target)
+        core_digests = {
+            "world": json.loads(run.digests_json()),
+            "metrics": run.metrics_digest(),
+        }
         api.close()
-        reference, checkpoint = store.load_branch("p", "r", branch)
-        assert reference.computed_until == target, "the computation stopped early"
-        world = checkpoint.restore_world()
-        metrics = checkpoint.metrics_state
-        api_requests = checkpoint.runtime_state["llm"]["api_request_count"]
+        world = None
+        metrics = None
+        api_requests = 0
     peak_rss = {
         "computation_mib": computation_peak,
         # The background index process ends with its computation; a short computation
@@ -355,16 +337,15 @@ def main() -> None:
         "wall_seconds": wall_seconds,
         "thread_seconds": cpu_seconds,
         "setup_seconds": locals().get("setup_seconds"),
-        "late_window": (
-            {"fork_minute": args.fork_minute, "fork_seconds": fork_seconds}
-            if args.from_project
-            else None
-        ),
         "setup_timings": locals().get("setup_timings"),
         "scenario_kind": args.scenario,
-        "world_hash": digest(world.to_dict()),
-        "events_hash": digest(world.to_dict()["event_log"]),
-        "metrics_hash": digest(metrics),
+        # Python's hashes of the world it ended with (the library route only), and the core's
+        # digests of the world and the samples (both routes): the project route computes in the
+        # core since #427, so --expect compares the hashes both results hold.
+        "world_hash": digest(world.to_dict()) if world is not None else None,
+        "events_hash": digest(world.to_dict()["event_log"]) if world is not None else None,
+        "metrics_hash": digest(metrics) if metrics is not None else None,
+        "core_digests": core_digests,
         "api_requests": api_requests,
         "network_attempts": len(network_attempts),
         "peak_rss": peak_rss,
@@ -373,15 +354,17 @@ def main() -> None:
     }
     if store:
         result["storage"] = store.usage()
+        result["storage"]["by_kind"] = _stored_sizes(store.root)
     if profiler:
         profiler.dump_stats(str(args.output / "profile.pstats"))
         with (args.output / "profile.txt").open("w") as stream:
             pstats.Stats(profiler, stream=stream).sort_stats("cumulative").print_stats(100)
     import gzip
 
-    (args.output / "final-world.json.gz").write_bytes(
-        gzip.compress(world.canonical_json().encode())
-    )
+    if world is not None:
+        (args.output / "final-world.json.gz").write_bytes(
+            gzip.compress(world.canonical_json().encode())
+        )
     # The process's high-water mark including the read-back and hashes above.
     peak_rss["with_hashing_mib"] = peak_rss_mib()
     mismatched = []
@@ -389,9 +372,16 @@ def main() -> None:
         expected = json.loads(args.expect.read_text(encoding="utf-8"))
         mismatched = [
             key
-            for key in ("world_hash", "events_hash", "metrics_hash")
-            if expected.get(key) != result[key]
+            for key in ("world_hash", "events_hash", "metrics_hash", "core_digests")
+            if result[key] is not None
+            and expected.get(key) is not None
+            and expected[key] != result[key]
         ]
+        if not any(
+            result[key] is not None and expected.get(key) is not None
+            for key in ("world_hash", "core_digests")
+        ):
+            mismatched.append("nothing to compare")
         result["expected_hashes"] = {"source": str(args.expect), "mismatched": mismatched}
     (args.output / "result.json").write_text(
         json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"

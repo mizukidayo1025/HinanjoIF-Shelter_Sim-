@@ -208,9 +208,10 @@ def parameter_catalog(scenario: ScenarioSpec) -> list[dict[str, Any]]:
         active_model_ids.append(MOVEMENT_POLICY_VERSION)
     if "resource_service" in scenario.model_configs:
         active_model_ids.append(RESOURCE_SERVICE_POLICY_ID)
-    if "toilet_service" in scenario.model_configs:
-        from sheltersim.domain.facilities import TOILET_SERVICE_POLICY_VERSION
+    # Named below for every Scenario, whether or not it configures the toilets' service.
+    from sheltersim.domain.facilities import TOILET_SERVICE_POLICY_VERSION
 
+    if "toilet_service" in scenario.model_configs:
         active_model_ids.append(TOILET_SERVICE_POLICY_VERSION)
     from sheltersim.domain.staff import STAFF_SUPPORT_POLICY_VERSION
     from sheltersim.domain.staff_dynamics import (

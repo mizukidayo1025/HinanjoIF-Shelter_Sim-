@@ -405,7 +405,8 @@ class UsageLedger:
         limits: UsageLimits,
         account_id: str | None = None,
     ) -> UsageLedger:
-        store.run(project_id, run_id)
+        # The Run's record; its stored Runs hold no router records before #427's ledger.
+        store._read(store._path(project_id, "runs", run_id, "run.json"))
         binding = store._path(project_id, "runs", run_id, "usage.json")
         if binding.exists():
             recorded = store._read(binding)["account_id"]
@@ -415,17 +416,8 @@ class UsageLedger:
         ledger = cls(store, project_id, account_id or "run-" + digest(run_id)[:32])
         if account_id is None:
             ledger.create(limits)
-            # One-time conservative import for runs created before this service existed.
+            # One-time conservative import of the analysis made before this service existed.
             known: dict[str, dict[str, Any]] = {}
-            for branch in store.branches(project_id, run_id):
-                # Only the saved tape is read, also of a view-only Run of another model.
-                reference = store.branch_reference(project_id, run_id, branch["branch_id"])
-                runtime_state = store.checkpoint_fields(
-                    project_id, run_id, reference.checkpoint_hash, ("runtime_state",)
-                )["runtime_state"]
-                for record in runtime_state.get("llm", {}).get("records", []):
-                    if record["api_request_count"]:
-                        known[digest(record)] = record
             analysis = store._path(project_id, "runs", run_id, "analysis.json")
             if analysis.exists():
                 for record in store._read(analysis)["router"]["records"]:

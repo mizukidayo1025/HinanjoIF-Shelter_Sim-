@@ -18,6 +18,7 @@ use std::fs::{self, File};
 use std::path::{Path, PathBuf};
 
 use sheltersim_core::archive::Restore;
+use sheltersim_core::llm::{Limits, Replay};
 use sheltersim_core::model_version::Versions;
 use sheltersim_core::plain::PlainRun;
 use sheltersim_core::run_store::{self, Chain, Journal, Next, RecordKind, RunWriter, Schedule, Storing, Verified, Verify};
@@ -256,6 +257,14 @@ pub struct StoredRun {
     export: Option<Vec<u8>>,
 }
 
+/// How a seek answers the LLM's calls of a Run that kept a tape: whether the Run was offline, and
+/// the limits its rules asked within.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Replaying {
+    pub offline: bool,
+    pub limits: Limits,
+}
+
 /// Where a seek put the Run: `run` at the minute asked for, computed from `from` (a minute), the
 /// branch's line `base` it was restored from.
 pub struct Sought {
@@ -346,6 +355,12 @@ impl StoredRun {
         Ok(bytes)
     }
 
+    /// The pieces of the records of `kind`, each one's bytes before compression (what the core's
+    /// answers read, `answers::routes::conversations_answer`).
+    pub fn raw_records(&self, kind: RecordKind) -> Result<Vec<Vec<u8>>> {
+        self.chain.records(kind)?.into_iter().map(|position| self.raw_at(position)).collect()
+    }
+
     /// The JSON texts of the records of `kind`: the decision records and the tape's from the Run's
     /// start, the turns of the branch itself.
     pub fn records(&self, kind: RecordKind) -> Result<Vec<Vec<u8>>> {
@@ -385,6 +400,14 @@ impl StoredRun {
     /// point at or before it, or built from the exported world where there is none, then computed to
     /// it; collecting its decision records from where it was restored with `decisions`.
     pub fn seek(&mut self, minute: i64, decisions: bool) -> Result<Sought> {
+        self.seek_with(minute, decisions, &Replaying::default())
+    }
+
+    /// `seek`, and for a Run that kept an LLM tape (`llm_tape` pieces, #428) the ticks after the
+    /// restored point answered from the tape's entries after that point's count (`llm::Replay`,
+    /// within `replaying`'s limits): a seek never asks a provider, and reaches the world the Run
+    /// reached with its link.
+    pub fn seek_with(&mut self, minute: i64, decisions: bool, replaying: &Replaying) -> Result<Sought> {
         let seek = self.chain.seek(minute)?;
         let export = self.export_bytes()?;
         let world = self.journal.run()?.world.clone();
@@ -414,6 +437,15 @@ impl StoredRun {
         };
         if decisions {
             run.collect_decisions(true);
+        }
+        let tape = self.records(RecordKind::Tape)?;
+        if !tape.is_empty() {
+            let from = match seek.from {
+                Some(point) => self.journal.saved(point)?.counts.tape as usize,
+                None => 0,
+            };
+            let entries = tape.get(from..).ok_or_else(|| Error::refused("the stored Run's LLM tape is shorter than its saved point counts"))?;
+            run.set_llm(Box::new(Replay::new(entries, replaying.offline)?), replaying.limits)?;
         }
         let ticks = minute - run.minute()?;
         let ran = if ticks < 0 { None } else { run.advance(ticks as u64).ok() };

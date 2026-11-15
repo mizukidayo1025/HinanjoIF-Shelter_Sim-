@@ -357,7 +357,10 @@ the split of the first two PR by PR; its last section sums up what is where.
   Project in one file as the browser's `exportProject` writes it (leaving out what only the Python
   server keeps: its locks, drafts and LLM usage). A branch's status keeps its Run's the summary of
   its branches' (running while any of them computes), and a Run the Python server stored before
-  #427 (Checkpoints, no journal) is refused as an older format (`stored_run_outdated`).
+  #427 (Checkpoints, no journal) is refused as an older format (`stored_run_outdated`). A store's refusal is
+  `run_files.Refused` (a ValueError with Python's StorageError text). A computation takes an LLM
+  link (`Computation.set_llm`, #428) and keeps its calls in the stored Run's LLM tape; a seek of a
+  Run with a tape answers the ticks after the restored point from the tape (`llm::Replay`).
   `cargo test -p sheltersim_store` makes the five stored Runs of `node_stored_runs.mjs` again: with
   the fixtures' stored blocks their journals, data.pack and records are the browser's byte for
   byte; with flate2 each line has the browser's head hash and pieces (before compression). Python
@@ -367,8 +370,8 @@ the split of the first two PR by PR; its last section sums up what is where.
 - **A Project in the browser** (#265): `wasm/js/project_store.mjs` keeps the Project, Run and
   Branch records beside each branch's stored Run (`run_store`, #252), reads the files the
   Project routes of the screen answer from (the answers are the core's, below), and writes and reads one versioned
-  bundle file of a Project (`sheltersim-project-bundle`, version 2: its stored Runs of format v5). `wasm/tools/build_project_bundle.mjs`
-  is the Node half of `scripts/build_browser_sample.py`; `wasm/tests/node_project_store.mjs`
+  bundle file of a Project (`sheltersim-project-bundle`, version 2: its stored Runs of format v5). The site's sample is written by
+  `scripts/build_project_sample.py --bundle` (Rust's `ProjectFiles.export_project`, #427); `wasm/tests/node_project_store.mjs`
   checks a bundle's round trip and its refusals in CI.
 - **The Project routes' answers** (#449, decision 1 of #368): `answers` writes what the API's
   `/api/v1/projects/...` routes answer, as pure functions of the files a store holds (a record's

@@ -1,7 +1,6 @@
 """Working on a durable Project from the CLI (sheltersim project ...): prepare and approve
-a Scenario, compute and fork it, read its frame, history and usage, rerun and delete, as an
-operator without the browser would. Archiving went with the older screens (#376); deleting
-replaces it.
+a Scenario, compute it, read its frame, history and usage, and delete a Run, as an operator
+without the browser would, through the routes the screen calls (#427).
 
 The regional research that prepare runs answers from the fake public services of
 tests/support/public_data.py.
@@ -34,7 +33,7 @@ class ProjectCli:
         return self.capsys.readouterr().err
 
 
-def test_a_project_is_prepared_computed_forked_and_cleaned_up_from_the_cli(
+def test_a_project_is_prepared_computed_read_and_cleaned_up_from_the_cli(
     tmp_path, capsys, monkeypatch, public_data, generated_request
 ):
     monkeypatch.setenv("SHELTERSIM_LLM_MODE", "offline")
@@ -66,25 +65,31 @@ def test_a_project_is_prepared_computed_forked_and_cleaned_up_from_the_cli(
 
     computed = project("resume", *p, "--run-id", "r", "--minute", "30")
     frame = project("frame", *p, "--run-id", "r", "--minute", "20")
-    forked = project("fork", *p, "--run-id", "r", "--minute", "20", "--child-id", "later")
-    child = project("resume", *p, "--run-id", "r", "--branch-id", "later", "--minute", "40")
     history = project("history", *p, "--run-id", "r", "--input-json", str(history_query))
     usage = project("usage", *p, "--run-id", "r")
 
     assert (computed["minute"], computed["branch_id"]) == (30, "main")
-    assert len(frame["agents"]) == len(draft["scenario"]["profiles"])
-    assert (forked["branch_id"], forked["minute"]) == ("later", 20)
-    assert child["minute"] == 40
+    assert len(frame["people"]) == len(draft["scenario"]["profiles"])
     assert [row["minute_index"] for row in history["items"]] == list(range(30))
-    assert usage["estimated_cost_usd"] == 0
+    # An offline Run has no LLM usage account.
+    assert usage == {"schema_version": 1, "status": "legacy_account_not_initialized"}
     branches = {
         branch["branch_id"]: (branch["fork_minute"], branch["computed_until"])
         for branch in project("show", *p)["runs"][0]["branches"]
     }
-    assert branches == {"main": (0, 30), "later": (20, 40)}
+    assert branches == {"main": (0, 30)}
 
-    rerun = project("rerun", *p, "--run-id", "r", "--new-run-id", "again")
-    assert rerun["scenario_hash"] == approved["scenario_hash"]
+    again = project(
+        "new-run",
+        *p,
+        "--run-id",
+        "again",
+        "--scenario-id",
+        approved["scenario_id"],
+        "--scenario-version",
+        str(approved["scenario_version"]),
+    )
+    assert again["scenario_hash"] == approved["scenario_hash"]
     runs = {run["run_id"]: run["archived"] for run in project("show", *p)["runs"]}
     assert runs == {"r": False, "again": False}
     error = project.refused("delete", *p, "--run-id", "again", "--confirmation", "r")

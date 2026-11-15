@@ -700,32 +700,25 @@ class PythonSide:
     def request(self, method: str, route: str, body: Any = None) -> tuple[int, str]:
         """Python's answer, as server.py makes it, to the request at the store's state now."""
         from sheltersim.storage.projects import StorageError
-        from sheltersim.web.results_chat import WebQueryError
+        from sheltersim.web.projects import answers
 
         api = self._open()
         path, _, query = route.partition("?")
         parts = [unquote(part) for part in path.split("/") if part][3:]
         try:
             if method == "GET":
-                payload = api.get(parts, parse_qs(query))
-            elif len(parts) == 4 and parts[1] == "runs" and parts[3] == "pdf-report":
-                pdf = api.pdf_reports.export(parts[0], parts[2], body)
-                return 200, f"<application/pdf, {len(pdf)} bytes>"
-            else:
-                payload = api.post(parts, body)
+                return 200, api.answer_get(parts, query).decode()
+            return 200, api.answer_post(parts, _answer_text(body).encode()).decode()
+        except answers().Refused as refusal:
+            return refusal.args[0], refusal.args[3].decode()
         except StorageError as error:
             return 409, _answer_text({"error": str(error), "code": error.code})
-        except WebQueryError as error:
-            if method == "GET":
-                return 400, _answer_text({"error": str(error)})
-            return 400, _answer_text({"error": "invalid project request"})
         except (ValueError, UnicodeDecodeError):
             if method == "GET":
                 return 400, _answer_text(
                     {"error": "invalid query or saved contract", "code": "invalid_input"}
                 )
             return 400, _answer_text({"error": "invalid project request"})
-        return 200, _answer_text(payload)
 
     def _keep(self, key: str, status: int, text: str) -> None:
         """Keeps an answer: its text in a file named by its sha256, its status in the index."""

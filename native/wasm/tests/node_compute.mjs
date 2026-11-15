@@ -2,7 +2,7 @@
 //
 // Usage: node native/wasm/tests/node_compute.mjs PKG_DIR [BUNDLE]
 //   PKG_DIR: the output of `wasm-bindgen --target nodejs` for sheltersim_wasm.wasm.
-//   BUNDLE:  a sample bundle (scripts/build_browser_sample.py); then its Run is computed again in
+//   BUNDLE:  a sample bundle (scripts/build_project_sample.py --bundle); then its Run is computed again in
 //            the browser's way instead of the fixture's (100 people, 7 days: about a minute).
 //
 // Without BUNDLE, a Project is made in a store in memory with one Run computed from the world

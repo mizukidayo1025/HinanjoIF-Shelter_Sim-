@@ -49,7 +49,7 @@ jobs:
             exit 1
           fi
 
-  # The sample's Scenario and minute 0 come from Python (scripts/build_browser_sample.py), which
+  # The sample comes from Python (scripts/build_project_sample.py --bundle, #427), which
   # needs the native kernel; the profile ci gives the same bytes as release (#217).
   kernel:
     name: Rustのkernelを作る
@@ -136,7 +136,7 @@ jobs:
           python -m pip install --no-index --find-links native-dist sheltersim-native
           python -c "import sheltersim.native"
       - name: 例のRunを作る
-        run: python scripts/build_browser_sample.py "$RUNNER_TEMP/sample.shelterproj" --pkg "$RUNNER_TEMP/wasm/pkg"
+        run: python scripts/build_project_sample.py "$RUNNER_TEMP/sample-projects" --bundle "$RUNNER_TEMP/sample.shelterproj"
       # The site is generated outside the repository (scripts/build_static_site.py refuses inside).
       - name: サイトを組み立てる
         run: |

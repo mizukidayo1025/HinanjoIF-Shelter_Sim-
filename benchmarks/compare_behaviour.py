@@ -118,10 +118,45 @@ KPIS = (
 HOW_LABELS = {"mean": "期間平均", "last": "終了時", "max": "期間最大"}
 
 
-def _labels() -> dict[str, str]:
-    from sheltersim.web.results_chat import _FIELD_LABELS
+# The Japanese names of the KPI columns, as the questions about results named them before #427.
+FIELD_LABELS = {
+    "stress_mean": "平均ストレス",
+    "stress_high_count": "高ストレス人数",
+    "toilet_queue_length": "トイレ待ち人数",
+    "toilet_active_users": "トイレ利用人数",
+    "toilet_working_units": "稼働トイレ数",
+    "toilet_wait_mean_minutes": "平均トイレ待ち時間",
+    "staff_assigned_task_count": "スタッフ担当数",
+    "staff_busy_count": "対応中スタッフ数",
+    "staff_load_ratio": "スタッフ負荷率",
+    "unresolved_support_request_count": "未対応支援依頼数",
+    "support_no_qualified_worker_count": "資格を満たすスタッフがいない支援依頼数",
+    "support_no_qualified_worker_request_minutes": "資格を満たすスタッフがいない依頼分数",
+    "support_fairness_promoted_assignment_count": "公平性ルールで優先された支援依頼数",
+    "support_wait_staff_busy_request_minutes": "対応中の資格者がいる支援待ち依頼分数",
+    "support_wait_staff_off_shift_request_minutes": (
+        "勤務していない資格者がいる支援待ち依頼分数（時間外・不在）"
+    ),
+    "hunger_need_mean": "平均空腹ニーズ",
+    "hydration_need_mean": "平均水分ニーズ",
+    "water_queue_length": "給水待ち人数",
+    "meal_queue_length": "食事待ち人数",
+    "water_ml_remaining": "残り水量 (ml)",
+    "food_meal_units_remaining": "残り食数",
+    "activity": "現在の行動",
+    "trust": "信頼値",
+    "fatigue": "疲労値",
+    "hydration": "水分ニーズ",
+    "hunger": "空腹ニーズ",
+    "mobility": "移動特性",
+    "minute": "記録minute",
+    "event_type": "イベント種別",
+    "status": "記録状態",
+}
 
-    return {kpi.name: kpi.label or _FIELD_LABELS.get(kpi.column) or kpi.name for kpi in KPIS}
+
+def _labels() -> dict[str, str]:
+    return {kpi.name: kpi.label or FIELD_LABELS.get(kpi.column) or kpi.name for kpi in KPIS}
 
 
 def _kpis_of_run(directory: Path) -> dict[str, float]:

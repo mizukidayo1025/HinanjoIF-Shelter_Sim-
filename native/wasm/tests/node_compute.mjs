@@ -113,7 +113,7 @@ if (bundlePath === null) {
 } else {
   const imported = await store.importProject({ wasm, tree, bundle: new Uint8Array(readFileSync(bundlePath)) });
   PROJECT = imported.projectId;
-  SAMPLE = JSON.parse(await store.runsResponse(tree, PROJECT)).runs[0].run_id;
+  SAMPLE = JSON.parse(await store.runsResponse(wasm, tree, PROJECT)).runs[0].run_id;
 }
 const sampleRecord = await store.branchRecord(tree, PROJECT, SAMPLE, "main");
 const DURATION = sampleRecord.computed_until;
@@ -133,8 +133,8 @@ const SAVE = sampleEnd.run.save_every;
 const made = await makeComputeRun({ wasm, tree, projectId: PROJECT });
 check(made?.runId === RUN, `the Run to compute was not made: ${JSON.stringify(made)}`);
 {
-  const sampleRun = JSON.parse(await store.runResponse(tree, PROJECT, SAMPLE));
-  const run = JSON.parse(await store.runResponse(tree, PROJECT, RUN));
+  const sampleRun = JSON.parse(await store.runResponse(wasm, tree, PROJECT, SAMPLE));
+  const run = JSON.parse(await store.runResponse(wasm, tree, PROJECT, RUN));
   const { branches, ...rest } = run;
   const { branches: _, ...sampleRest } = sampleRun;
   check(JSON.stringify({ ...rest, run_id: SAMPLE, status: sampleRest.status }) === JSON.stringify(sampleRest), `the Run's record is not the sample's with its id: ${JSON.stringify(rest)}`);
@@ -205,7 +205,7 @@ await refusal("/resume", { branch_id: "nope", target_minute: 10 }, 409, "saved a
 await refusal("/cancel", { branch_id: "main", extra: 1 }, 409, "request fields do not match this operation");
 {
   const answer = await post("/cancel", {});
-  check(answer.status === 200 && answer.body === (await store.runResponse(tree, PROJECT, RUN)), `cancel with nothing computing: ${answer.status} ${answer.body}`);
+  check(answer.status === 200 && answer.body === (await store.runResponse(wasm, tree, PROJECT, RUN)), `cancel with nothing computing: ${answer.status} ${answer.body}`);
 }
 // Another tab computes the branch: it holds the branch's lock and the records say running.
 {

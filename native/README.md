@@ -337,11 +337,26 @@ the split of the first two PR by PR; its last section sums up what is where.
   `Lease`, `StoredRun`, `Computation`); `tests/integration/test_run_files.py` holds Python's and
   the store's locks against each other and kills a writer process while it holds its branch.
 - **A Project in the browser** (#265): `wasm/js/project_store.mjs` keeps the Project, Run and
-  Branch records beside each branch's stored Run (`run_store`, #252), answers the
-  Project routes of the screen with the Python server's JSON, and writes and reads one versioned
+  Branch records beside each branch's stored Run (`run_store`, #252), reads the files the
+  Project routes of the screen answer from (the answers are the core's, below), and writes and reads one versioned
   bundle file of a Project (`sheltersim-project-bundle`, version 2: its stored Runs of format v5). `wasm/tools/build_project_bundle.mjs`
   is the Node half of `scripts/build_browser_sample.py`; `wasm/tests/node_project_store.mjs`
   checks a bundle's round trip and its refusals in CI.
+- **The Project routes' answers** (#449, decision 1 of #368): `answers` writes what the API's
+  `/api/v1/projects/...` routes answer, as pure functions of the files a store holds (a record's
+  bytes, None where it is missing; a stored Run's pieces decompressed): the records' answers
+  (`answers::records`: the Project list, a Project, its Runs, a Run, its evidence, a branch with
+  computed minutes), and `llm-status`, `conversations`, `pdf-report` and `delete`
+  (`answers::routes`), with the server's checks in its order and its refusals (`Refusal`: the
+  HTTP status, the text, the code; `Failure` adds the core's errors, a stored Run of an older
+  format being 409 `stored_run_outdated`). Reading the files, decompressing, locks, routing and
+  computing stay with the caller. The browser calls them through `wasm/src/answers.rs` (a
+  refusal is an Error whose message is `answer_refused ` and its JSON; `wasm/js/api_answers.mjs`'s
+  `core` makes it the browser's `ApiError` again), the local and VM versions through
+  `sheltersim_native.rules.answers` (a refusal raises `Refused(status, error, code, body)`).
+  `wasm/tests/node_browser_api.mjs`, `node_api_answers.mjs` and `node_project_store.mjs` check the
+  browser's answers; `tests/integration/test_project_answers.py` asks the same of PyO3 against
+  the Python server's answers in `core/tests/data/api_answers.json`.
 - **The KPI history, report and LLM status in the browser** (#266): `history::KpiTable` reads a
   stored Run's metric samples back and pages them as the Python history index pages
   `kind=kpis` (`history::kpi_row` writes a row as canonical JSON); a sample of a world with a

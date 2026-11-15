@@ -19,6 +19,7 @@ pytest_plugins = [
     "support.storage",
     "support.web",
     "support.llm",
+    "support.reports",
     "support.public_data",
 ]
 

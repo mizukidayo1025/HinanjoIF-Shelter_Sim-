@@ -1,6 +1,12 @@
 # 日本語PDF分析レポート
 
-> #427から、ローカル版・VM版のPDFレポートの道（`POST …/runs/{run}/pdf-report`）はブラウザー版と同じ答えです。APIキーがあっても、分析には中核のLLMの口が要るので、409 `pdf_analysis_offline`で断ります（#368）。以下は#427より前の仕組みの記録です。
+> #463から、レポートのデータ・根拠（facts）・Opusへの作業・分析の確かめは、計算の中核（`native/core/src/answers/pdf.rs`）が、各Branchの保存したRunから作ります。Python（`web/pdf_report.py`）は、中核に各Branchのその分のRun・frame・KPIの表・journalを渡し、作業をRunのrouterに問い合わせ、確かめた分析で組版（`web/pdf_render.py`）して保存するだけです。APIキーのないサーバーとブラウザー版は、今までどおり409 `pdf_analysis_offline`で断ります。以下の「データと責務」の`TimelineStore`・`llm/pdf_analysis.py`（#463で消しました）の記述は、#427より前の仕組みのものです。#463の違いは次のとおりです。
+>
+> - 時系列は保存したRunのKPIの表（毎分の行）から、最後の値はその分のframeから読みます。避難者数はその分のframeの人数です。
+> - 介入は、記録したinterventionのイベントと、まだ予定のままのイベント（待ち行列）から作ります。根拠の「介入コマンド」の数（`recorded_commands`）は、そのイベントの元になった承認済みのEffectProgramの数です（v5のRunにはPythonのcommand logがないため）。
+> - 別のモデルの版で計算したRun（閲覧のみ）は、保存した時点のほかは409 `pdf_saved_point_required`で断ります。
+> - 分析の記録（`analysis.record`）は、口の答えにある項目（結果、費用、token、model、prompt版、入力と状態のhash）だけです。
+> - 分析の確かめ（schema、根拠ID、数値・引用・因果断定の表現、仮説と提案の文末）の文と断るときの文は、#427より前と同じです。
 
 レポート画面の既存の「↓ レポート保存」からA4縦のPDFをダウンロードします。
 ボタンの名称・位置・デザインは変更しません。生成中は既存の処理中表示と操作ガードを使い、
@@ -80,9 +86,10 @@ API・意味検証の失敗後に利用者が再試行した場合は、独立�
 
 ```bash
 pip install -e '.[dev,llm]'
-SHELTERSIM_LLM_MODE=offline pytest tests/integration/test_pdf_report.py \
-  tests/unit/web/test_pdf_report.py tests/e2e/test_pdf_download.py
+SHELTERSIM_LLM_MODE=offline pytest tests/integration/test_pdf_report.py
 ```
+
+#463の`tests/integration/test_pdf_report.py`は、2つのBranch（介入あり）のレポートを偽のOpusで作って保存し、同じレポートを問い合わせずに返すことと、確かめに通らない分析ではPDFを作らず、次の試行が別の依頼になることを確かめます。以下は#427より前の確認の記録です。
 
 テストは有料APIを使わず、実際に計算した合成Scenarioとテスト用Providerを使用します。
 単一Branch、複数候補の選択、無介入・介入あり、差分ゼロ、途中結果、欠測、未計算範囲、

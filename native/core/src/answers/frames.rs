@@ -85,7 +85,7 @@ pub struct Receipt {
 }
 
 impl Receipt {
-    fn json(&self) -> Vec<u8> {
+    pub fn json(&self) -> Vec<u8> {
         let mut receipt = Obj::new();
         receipt.str("branch_id", &self.branch_id).int("minute", self.minute).str("state_hash", &self.state_hash);
         receipt.opt_str("checkpoint_hash", self.checkpoint_hash.as_deref());

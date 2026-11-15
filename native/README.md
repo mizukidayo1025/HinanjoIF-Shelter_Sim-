@@ -56,7 +56,8 @@ each one carries `#[rustfmt::skip]`.
   - `rules.answers`: the answers of the Project routes, as the browser's, and the answers made
     with an LLM (#463): a question about a branch's results (`questions::QuestionPlan::ask`,
     `Asking::answer`), the review of a completed branch (`report::review`), the reading of an
-    intervention's text (`interpret::Compiling`) and the llm-status of a Run computed with an LLM.
+    intervention's text (`interpret::Compiling`), the PDF report's data, facts and analysis
+    (`pdf::PdfPlan`, `PdfAnalysis::read`) and the llm-status of a Run computed with an LLM.
     Each is steps around the port of `llm.rs` (`answers::asking`): the core gives the task's JSON,
     the caller hands it to its link and gives the reply's JSON back. `core/tests/llm_answers.rs`
     checks the reading; `tests/integration/test_llm_answers.py` asks through the Project API with

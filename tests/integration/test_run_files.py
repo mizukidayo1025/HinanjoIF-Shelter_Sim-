@@ -1,7 +1,7 @@
 """The files of a stored Run on a disk, from Python (`sheltersim_native.rules.run_files`, #426).
 
 The store (`native/store`) writes and reads the browser's folders: the records, a branch's
-`journal.jsonl` and `data.pack` of format v5, computed from its head in chunks. A holder of a
+`journal.jsonl` and `data.pack` of format v6, computed from its head in chunks. A holder of a
 branch's lock keeps others out, in this process and in another. A writer process killed while it
 holds its branch leaves the lock free and its record at its last head; a line it left cut short
 is not read, and going on from the head cuts it off and reaches the Run computed straight through.
@@ -80,7 +80,6 @@ def test_a_branch_is_computed_from_its_head_and_read_back(tmp_path):
     assert not reader.torn() and reader.save_every() == FILES.SAVE_EVERY
     assert json.loads(reader.model_versions_json()) == json.loads(VERSIONS)
     assert reader.export_bytes() == TICK
-    assert reader.records("decisions")
     verified = json.loads(reader.verify_json())
     assert verified["mismatches"] == [] and not verified["complete"]
     # A seek restores the saved point at 360 and computes on: the world of the Run straight through.

@@ -10,7 +10,7 @@
 //! forked from it reads them (the core refuses that cut).
 //!
 //! Going on (`ProjectFiles::go_on`, compute.mjs's `start`): the branch cut back to its head and
-//! restored there, collecting its decision records. Then `Computation::chunk` computes at most a
+//! restored there. Then `Computation::chunk` computes at most a
 //! chunk of ticks, not past the next saved point or the target, stores the blocks sealed since, and
 //! at every `save_every` minutes, at the target and at the clock's end stores a saved point and
 //! moves the branch's record to it (`running` until the computation ends; at the end the "world"
@@ -109,7 +109,7 @@ impl ProjectFiles {
             return Err(Error::refused("target minute must be in the uncomputed remaining range"));
         }
         let save_every = reader.journal().run()?.save_every;
-        let sought = reader.seek(head.minute, true)?;
+        let sought = reader.seek(head.minute)?;
         drop(reader);
         if head.kind == HeadKind::Saved && !(sought.run.minute()? == head.minute && sought.from == head.minute && core.fits(&sought.run)?) {
             return Err(Error::refused("the Run restored at the branch's head does not hold what its stored Run holds there"));
@@ -180,7 +180,7 @@ impl ProjectFiles {
         }
         let parent = self.branch_record(project, run, fork.parent)?;
         let mut reader = self.reader(project, run, fork.parent)?;
-        let mut sought = reader.seek(fork.minute, true)?;
+        let mut sought = reader.seek(fork.minute)?;
         let origin = sought.run.state_digest()?;
         if fork.state_hash.is_some_and(|wanted| wanted != origin) {
             return Err(Error::refused("source state changed; preview the intervention again"));

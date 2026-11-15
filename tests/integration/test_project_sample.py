@@ -6,7 +6,7 @@ intervention-preview and intervention-apply), with the structured form the Scena
 screen sends for 20 people and 0.1 days instead of the 7-day example text, and an
 earlier fork. The 7-day sample itself is built on the judges' VM (docs/vm-deploy.md).
 
-The sample is in the browser's folders and format v5 (#427); the browser's form of it is the same
+The sample is in the browser's folders and format v6 (#427); the browser's form of it is the same
 Project written as one file (`--bundle`, #265), which native/wasm/tests import.
 """
 

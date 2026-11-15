@@ -356,8 +356,8 @@ impl Chain {
         Ok(self.positions(|piece| piece.is_samples()))
     }
 
-    /// The pieces of the records of `kind`, in order: the decision records and the tape's entries
-    /// from the Run's start, the conversation turns of the branch itself.
+    /// The pieces of the records of `kind`, in order: the tape's entries from the Run's start, the
+    /// conversation turns of the branch itself.
     pub fn records(&self, kind: RecordKind) -> Result<Vec<usize>> {
         self.require_complete()?;
         Ok(self.positions(|piece| matches!(piece, Piece::Records { kind: other, .. } if *other == kind)))
@@ -383,14 +383,14 @@ pub struct Verify {
     world: Option<Vec<(String, String)>>,
     export_sha256: Option<String>,
     saved_points: u64,
-    records: [u64; 3],
+    records: [u64; 2],
 }
 
 /// What reading a stored Run back gave: whether it is complete (it has its "end" line), whether
 /// the journal was torn, whether everything matched its "end" line and what did not (`export`, a
 /// part's name, `parts`, `records`, `metrics`), the digests read (each part's, the log's
-/// `event_log` with them, and the samples'), the counts (of records, samples, decision records,
-/// conversation turns and the tape's entries), and how many of its saved points it read.
+/// `event_log` with them, and the samples'), the counts (of records, samples, conversation
+/// turns and the tape's entries), and how many of its saved points it read.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Verified {
     pub complete: bool,
@@ -401,7 +401,6 @@ pub struct Verified {
     pub metrics: String,
     pub records: u64,
     pub samples: u64,
-    pub decisions: u64,
     pub conversations: u64,
     pub tape: u64,
     pub saved_points: u64,
@@ -445,7 +444,6 @@ impl Verified {
         for (name, count) in [
             ("records", self.records),
             ("samples", self.samples),
-            ("decisions", self.decisions),
             ("conversations", self.conversations),
             ("tape", self.tape),
             ("saved_points", self.saved_points),
@@ -553,9 +551,8 @@ impl Verify {
             metrics: self.samples.digest(),
             records: self.log.records(),
             samples: self.samples.samples(),
-            decisions: self.records[0],
-            conversations: self.records[1],
-            tape: self.records[2],
+            conversations: self.records[0],
+            tape: self.records[1],
             saved_points: self.saved_points,
         })
     }

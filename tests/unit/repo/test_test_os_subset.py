@@ -1,8 +1,7 @@
 """`pytest --os-subset` keeps what the Windows and macOS jobs of 「PRの確認」 (ci.yml) run (#380).
 
 Those jobs keep tests/unit, tests/e2e and the integration tests marked os_dependent; the rest
-runs on Linux on every pull request and on each OS by hand. The subset is taken before the
-shard, so --shard splits what it left.
+runs on Linux on every pull request and on each OS by hand.
 """
 
 from __future__ import annotations
@@ -40,9 +39,3 @@ def test_the_subset_keeps_the_unit_tests_and_the_marked_integration_tests() -> N
     assert any(test.startswith(UNMARKED) for test in every)
     assert any(test.startswith(MARKED) for test in every)
     assert subset == [test for test in every if not test.startswith(UNMARKED)]
-
-
-def test_the_shard_splits_what_the_subset_left() -> None:
-    subset = _ids("--os-subset")
-    assert _ids("--os-subset", "--shard", "1/2") == subset[0::2]
-    assert _ids("--os-subset", "--shard", "2/2") == subset[1::2]

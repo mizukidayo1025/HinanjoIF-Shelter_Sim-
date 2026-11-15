@@ -36,8 +36,8 @@ codegen-units = 1
 # The test jobs of 「PRの確認」 (ci.yml) build with this profile (Issue #217): the same
 # optimization level as release, but thin LTO and 16 codegen units, so the two crates of the
 # workspace build much sooner, and the tests take as long as with release. The bytes of a Run do
-# not depend on it (the hashes of every path are the same). The job 「計算結果が変わっていないか」
-# of ci.yml, long-regression.yml, deploy/vm and the build in docs/development.md keep --release.
+# not depend on it (the hashes of every path are the same, checked with it on every OS since #477).
+# long-regression.yml, deploy/vm and the build in docs/development.md keep --release.
 [profile.ci]
 inherits = "release"
 lto = "thin"

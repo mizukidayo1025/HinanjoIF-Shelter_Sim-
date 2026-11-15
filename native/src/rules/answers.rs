@@ -103,6 +103,7 @@ fn run_answer<'py>(
 
 /// `GET /api/v1/projects/{project}/runs/{run}/evidence`.
 #[pyfunction]
+#[pyo3(signature = (project_id, run_id, run, evidence))]
 fn evidence_answer<'py>(py: Python<'py>, project_id: &str, run_id: &str, run: Option<Vec<u8>>, evidence: Option<Vec<u8>>) -> PyResult<Bound<'py, PyBytes>> {
     bytes(py, records::evidence_answer(project_id, run_id, run.as_deref(), evidence.as_deref()))
 }
@@ -117,6 +118,7 @@ fn branch_of<'py>(py: Python<'py>, project_id: &str, run_id: &str, run: Option<V
 /// `GET …/branches/{branch}/llm-status`: `query` the text after "?", `branch` the bytes of the
 /// branch's `branch.json`.
 #[pyfunction]
+#[pyo3(signature = (query, project_id, run_id, branch_id, branch))]
 fn llm_status_answer<'py>(py: Python<'py>, query: &str, project_id: &str, run_id: &str, branch_id: &str, branch: Option<Vec<u8>>) -> PyResult<Bound<'py, PyBytes>> {
     bytes(py, routes::llm_status_answer(query, project_id, run_id, branch_id, branch.as_deref()))
 }
@@ -459,6 +461,7 @@ impl PyPreviewPlan {
 
 /// `POST …/intervention-apply`, its first checks: the draft's id, whose draft the caller reads.
 #[pyfunction]
+#[pyo3(signature = (body))]
 fn apply_draft_id(body: Option<Vec<u8>>) -> PyResult<String> {
     interventions::apply_draft_id(body.as_deref()).map_err(failed)
 }

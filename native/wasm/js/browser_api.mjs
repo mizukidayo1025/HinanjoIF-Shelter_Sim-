@@ -31,7 +31,7 @@
 //                                            "code": "browser_unsupported"}
 //
 // A frame is the core's (`Simulation.frame`, #264) with the world's digest as its `state_hash`, as
-// Python's is. The Run at a minute: a branch keeps one live Simulation; a later minute steps it
+// the server's is. The Run at a minute: a branch keeps one live Simulation; a later minute steps it
 // forward when that is cheaper than restoring the nearest saved point, any other minute seeks
 // (`RunReader.seek`, #251) and frees the Simulation it replaces. Replay therefore steps the kept
 // Simulation and never restores. At most `keep` Simulations are kept (the least recently used one
@@ -279,7 +279,7 @@ export class BrowserApi {
     }
   }
 
-  /// `POST runs/{run}/delete` (Python's ProjectAPI and `ProjectStore.delete_run`): the core's
+  /// `POST runs/{run}/delete` (web/projects.py's `ProjectAPI.delete_run`): the core's
   /// checks (the Run's id as the confirmation, no computation of it running, a status that is not
   /// running); then its folder is removed and what this API keeps of it is let go.
   async deleteRun(projectId, runId, body) {
@@ -304,8 +304,8 @@ export class BrowserApi {
     return answer;
   }
 
-  /// The record of a branch with computed minutes (the core's `branch_of`); an error, as
-  /// Python's, for one there is not.
+  /// The record of a branch with computed minutes (the core's `branch_of`); an error, as the
+  /// server's, for one there is not.
   async branch(projectId, runId, branchId) {
     const files = await store.runFiles(this.wasm, this.tree, projectId, runId);
     try {
@@ -315,7 +315,7 @@ export class BrowserApi {
     }
   }
 
-  /// `replay-frames` of one branch (the core's checks, in Python's order, `ReplayPlan`); two
+  /// `replay-frames` of one branch (the core's checks, in the server's order, `ReplayPlan`); two
   /// branches are a comparison (stage C).
   async replay(projectId, runId, search) {
     const files = await store.runFiles(this.wasm, this.tree, projectId, runId);
@@ -341,7 +341,7 @@ export class BrowserApi {
   }
 
   /// The frame of a branch at a minute, as JSON text. A Run computed with other model versions
-  /// is not computed again with the core's (Python's D2, `TimelineStore.frame`): the frame is the
+  /// is not computed again with the core's (D2 of the model versions): the frame is the
   /// saved point's at or before the minute, with `model_view` and, where the minute is not a saved
   /// point's, `saved_point_rounding` (the core's `ModelStatus::describe_json`).
   async frameText(projectId, runId, record, minute) {

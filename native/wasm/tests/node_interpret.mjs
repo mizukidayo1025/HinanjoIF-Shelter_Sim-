@@ -1,12 +1,12 @@
-// The offline intervention compiler in WASM answers as Python's (#303).
+// The offline intervention compiler in WASM gives the recorded answers (#303).
 //
 // Usage: node native/wasm/tests/node_interpret.mjs PKG_DIR
 //   PKG_DIR: the output of `wasm-bindgen --target nodejs` for sheltersim_wasm.wasm.
 //
-// For each request of native/core/tests/data/offline_interpreter.json (tests/support/core_interpret.py),
-// it calls `compileInterventionOffline` and checks the sha256 of the answer against what Python's
-// `compile_natural_language` gave without an API key, or that it refuses where Python raised a
-// ValueError, as native/core/tests/interpret.rs does in native code. The summaries hold floats, so
+// For each request of native/core/tests/data/offline_interpreter.json, it calls
+// `compileInterventionOffline` and checks the sha256 of the answer against the one the file
+// records, or that it refuses where the file records `invalid` (recorded before #430), as
+// native/core/tests/interpret.rs does in native code. The summaries hold floats, so
 // the request is written from the file's own number text (a float such as 1.0 stays 1.0).
 
 import { createHash } from "node:crypto";

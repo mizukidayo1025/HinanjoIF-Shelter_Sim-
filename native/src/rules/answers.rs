@@ -390,7 +390,9 @@ impl PyReplayPlan {
     }
 }
 
-/// Python's `_require_current_model` of a branch: its `journal.jsonl` and the Run's Scenario.
+/// Refuses a branch whose stored Run was computed with other model versions than the core's
+/// (`sheltersim_core::answers::frames::require_current_model`), from its `journal.jsonl` and the
+/// Run's Scenario; `web/workspace.py`'s `_require_current_model` calls it.
 #[pyfunction]
 fn require_current_model(journal: &[u8], scenario: &[u8]) -> PyResult<()> {
     frames::require_current_model(journal, scenario).map_err(failed)

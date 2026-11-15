@@ -9,7 +9,8 @@
 //!   .lock
 //! ```
 //!
-//! The last three are the Python server's locks (`lock`). An id is one of Python's identifiers
+//! The last three are the store's locks (`lock`); the Python server's `ProjectStore.transaction`
+//! takes the same `.lock`. An id is one of Python's identifiers
 //! (`ProjectStore._path`, the browser's `ID`), and no part of a path under the root may be a
 //! symlink.
 
@@ -23,7 +24,7 @@ use crate::{Error, Result};
 // browser's store reads with.
 pub use sheltersim_core::answers::records::{is_id, INVALID_ID, RESERVED};
 
-/// `id`, or Python's error for one that is not an identifier.
+/// `id`, or the refusal `INVALID_ID` for one that is not an identifier.
 pub fn check_id(id: &str) -> Result<&str> {
     if is_id(id) {
         Ok(id)

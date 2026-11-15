@@ -16,10 +16,11 @@
 // A Run computed with other model versions is view-only (the core's `model_version`, #368): its
 // stored Run's versions are compared with the ones the core records now for its Scenario
 // (`modelVersions`, or only the engine's items for a Scenario the core cannot sign), and resume,
-// intervention-preview and intervention-apply refuse it with Python's 409 `run_model_view_only`.
-// Its frames show the saved point at or before the minute asked for (browser_api.mjs, Python's D2).
+// intervention-preview and intervention-apply refuse it with the server's 409 `run_model_view_only`.
+// Its frames show the saved point at or before the minute asked for (browser_api.mjs, D2 of the
+// model versions).
 //
-// Computing (Computing.resume). Python's checks and answers (src/sheltersim/web/projects.py
+// Computing (Computing.resume). The server's checks and answers (src/sheltersim/web/projects.py
 // `submit`, `cancel`), one computation at a time (the thread worker's max_jobs). The procedure is
 // the core's (`sheltersim_core::compute`, WASM's `Procedure.goOn`, #476), whose steps
 // run_store.mjs's `StepHost` does with OPFS, as the local and VM servers do them with their files:
@@ -38,7 +39,7 @@
 // A page closed in the middle (recoverInterrupted): the Worker dies with the page; the record
 // keeps the last head, the journal may hold lines after it (or a line cut short, which reading
 // ignores). On the next start a branch left `running` whose lock no Worker holds becomes
-// `interrupted`, as Python's server start does (the core's `Procedure.recover`); resuming it cuts
+// `interrupted`, as the server's start does (the core's `Procedure.recover`); resuming it cuts
 // the lines after its head off.
 // The lock of a branch (`branchLock`, a Web Lock in the page) is held while it computes, so
 // another tab neither computes it at the same time nor calls it interrupted.
@@ -51,10 +52,11 @@ export const CHUNK_TICKS = 60;
 const JOURNAL = "journal.jsonl";
 const decoder = new TextDecoder();
 const refused = (message) => new store.ProjectStoreError(message);
-/// Python's status of a Run that is computing, and of one a computation left (`_advance`).
+/// The status of a branch and its Run while it computes.
 const RUNNING = "running";
 
-/// Python's `fields`: the document has the required keys and no others but the optional ones.
+/// web/projects.py's `fields`: the document has the required keys and no others but the optional
+/// ones.
 export function checkFields(document, required, optional = []) {
   const keys = Object.keys(document);
   if (keys.some((key) => !required.includes(key) && !optional.includes(key)) || required.some((key) => !keys.includes(key))) {
@@ -98,8 +100,8 @@ export async function readHeads(wasm, backend) {
 }
 
 /// A branch left `running` that no Worker computes (its lock is free: `branchLock(name)` gives a
-/// release) was interrupted: its record and its Run's become `interrupted` (Python's
-/// `recover_interrupted` at the server's start; the core's `Procedure.recover`), its head kept.
+/// release) was interrupted: its record and its Run's become `interrupted` (the server's
+/// `recover_interrupted` at its start; the core's `Procedure.recover`), its head kept.
 /// Every Project and Run is looked at; one whose Runs or branches cannot be listed is left as it
 /// is. Returns the branches recovered, as "project/run/branch".
 export async function recoverInterrupted({ wasm, tree, branchLock }) {
@@ -130,10 +132,11 @@ export async function branchModelStatus(wasm, tree, projectId, runId, branchId) 
   return { recorded: JSON.stringify(recorded), installed: JSON.stringify(installed), status };
 }
 
-/// Python's `_require_current_model`: a refusal (409 `run_model_view_only`, Python's text) where
-/// the branch's stored Run was computed with other model versions than the core records now. A
-/// branch without a stored Run, or whose head cannot be read, is left to the computation (which
-/// fails the Run, as Python leaves a head it cannot read to the job); a stored Run of an older
+/// The server's `_require_current_model` (web/workspace.py): a refusal (409 `run_model_view_only`,
+/// the core's text) where the branch's stored Run was computed with other model versions than the
+/// core records now. A branch without a stored Run, or whose head cannot be read, is left to the
+/// computation (which fails the Run, as the server leaves a head it cannot read to the job); a
+/// stored Run of an older
 /// format is refused (`stored_run_outdated`).
 export async function requireCurrentModel(wasm, tree, projectId, runId, branchId) {
   const compared = await branchModelStatus(wasm, tree, projectId, runId, branchId);
@@ -159,7 +162,7 @@ export class Computing {
     this.done = [];
   }
 
-  /// `POST runs/{run}/resume` (Python's `submit`, its checks in its order): the answer's text.
+  /// `POST runs/{run}/resume` (the server's `submit`, its checks in its order): the answer's text.
   async resume(projectId, runId, document) {
     const { wasm, tree } = this.api;
     checkFields(document, ["branch_id", "target_minute"]);
@@ -193,7 +196,7 @@ export class Computing {
     return JSON.stringify({ branch_id: branchId, run_id: runId, status: RUNNING, target_minute: target });
   }
 
-  /// `POST runs/{run}/cancel` (Python's): asks the Run's computations (of `branch_id` only, when
+  /// `POST runs/{run}/cancel` (the server's `cancel`): asks the Run's computations (of `branch_id` only, when
   /// given) to stop after their chunk; the Run's record as it is now.
   async cancel(projectId, runId, document) {
     checkFields(document, [], ["branch_id"]);
@@ -249,8 +252,9 @@ export class Computing {
       console.error(error);
       job.error = String(error?.message ?? error);
     }
-    // The status, the end of the job and its lock go together, in one task of the queue (as
-    // Python's `_advance` ends under its lock), so a request after it may start the next one.
+    // The status, the end of the job and its lock go together, in one task of the queue (as the
+    // server's `finish` in web/worker_process.py ends under its lock), so a request after it may
+    // start the next one.
     const end = () => {
       if (this.jobs.get(job.key) !== job) return;
       this.jobs.delete(job.key);

@@ -4,10 +4,10 @@
 //   PKG_DIR: the output of `wasm-bindgen --target nodejs` for sheltersim_wasm.wasm.
 //
 // A Project is made in a store in memory: its records, a Scenario and evidence given as bytes (as
-// Python writes them), and two branches computed in WASM from worlds of
+// the core writes them), and two branches computed in WASM from worlds of
 // native/core/tests/data/tick_core.json and stored as they go. Its bundle is imported into an
 // empty store: every route's answer is the same text, and each branch reads back to the digests it
-// was computed to (and the native path's). Bundles that are cut, changed, of another version, or
+// was computed to (and the fixture's). Bundles that are cut, changed, of another version, or
 // whose records or stored Runs do not hold together are refused with an error, and leave nothing.
 
 import { readFileSync } from "node:fs";
@@ -30,7 +30,7 @@ const fixture = JSON.parse(raw.toString("utf8"));
 const [mainWorld, childWorld] = Object.keys(fixture.worlds);
 const encoder = new TextEncoder();
 
-// A Scenario and evidence as Python writes them: numbers such as 1.0 stay as written.
+// A Scenario and evidence as the core writes them: numbers such as 1.0 stay as written.
 const scenarioBytes = encoder.encode('{"id":"trial","seed":7,"share":1.0,"name":"試し"}');
 const scenarioHash = await store.sha256Hex(scenarioBytes);
 const evidenceBytes = encoder.encode('{"schema_version":1,"weight":0.50,"legend":"仮定"}');

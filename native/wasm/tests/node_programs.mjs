@@ -1,16 +1,16 @@
-// The EffectProgram of an intervention before it is scheduled, in WASM, is Python's (#304).
+// The EffectProgram of an intervention before it is scheduled, in WASM, is the recorded one (#304).
 //
 // Usage: node native/wasm/tests/node_programs.mjs PKG_DIR
 //   PKG_DIR: the output of `wasm-bindgen --target nodejs` for sheltersim_wasm.wasm.
 //
-// For each case of native/core/tests/data/programs.json (tests/support/core_programs.py), it
-// gives the program's JSON text (as bytes: JSON.parse would write 1.0 as 1) to `effectProgramDump`
-// and checks the sha256 of the dump (the approval's hash) against Python's, or that the contract
-// refuses it; then it runs the case's world in WASM to the minute and checks that
-// `Simulation.validateEffectProgram` gives the issues `validate_effect_program` gave, or refuses
-// a case the browser does not check, as native/core/tests/programs.rs does in native code. A
-// program without issues is then scheduled (`Simulation.applyEffectProgram`, #305) on a new run
-// of its world: the receipt and the world after it and at the end of the Run are Python's.
+// For each case of native/core/tests/data/programs.json, it gives the program's JSON text (as
+// bytes: JSON.parse would write 1.0 as 1) to `effectProgramDump` and checks the sha256 of the dump
+// (the approval's hash) against the recorded one, or that the contract refuses it; then it runs
+// the case's world in WASM to the minute and checks that `Simulation.validateEffectProgram` gives
+// the recorded issues, or refuses a case the browser does not check, as
+// native/core/tests/programs.rs does in native code. A program without issues is then scheduled
+// (`Simulation.applyEffectProgram`, #305) on a new run of its world: the receipt and the world
+// after it and at the end of the Run are the recorded ones. The values were recorded before #430.
 
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -69,8 +69,8 @@ for (const item of fixture.cases) {
 }
 for (const run of Object.values(runs)) run.free();
 
-// Scheduling (#305): a program without issues on a new run of its world at its minute, as a fork's
-// `BranchRuntime.apply_effect_program`; one with issues is refused, the world as it was.
+// Scheduling (#305): a program without issues on a new run of its world at its minute, as a fork
+// schedules it on its child (`program::schedule`); one with issues is refused, the world as it was.
 const sorted = (value) => JSON.stringify(Object.fromEntries(Object.entries(value).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))));
 let scheduled = 0;
 for (const item of fixture.cases) {

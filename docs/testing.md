@@ -72,7 +72,7 @@ python -m coverage report --sort=cover
 | `tests/e2e/` | e2e：HTTPかCLIから入り、時間も進める | `test_<利用者の流れ>.py`。例：`test_project_scenario_to_results.py` |
 | `tests/live/` | 有料APIを呼ぶテスト（`live_api`の印） | `test_live_api.py`だけ。APIキーを使えるようにするゲート（`sheltersim.llm.config`）が、このパスのテストにだけ開くため |
 
-- `<担当>`は、AGENTS.mdのモジュールのうちPythonに残るもの（`experiments`、`policies`、`region`、`llm`、`storage`、`web`など）と`cli`、それにリポジトリ自体（テストの配置、文書、fixture、出典台帳）を確かめる`repo`です。
+- `<担当>`は、AGENTS.mdのモジュールのうちPythonに残るもの（`scenario_authoring`、`experiments`、`region`、`llm`、`storage`、`web`など）と`cli`、それにリポジトリ自体（テストの配置、文書、fixture、出典台帳）を確かめる`repo`です。
 - 名前に、不具合名（例：`resource_loss_without_operational_state`）、開発の回の名前（例：`round2_common_services`）、`regressions`を使いません。不具合の再発防止テストはその機能のファイルに足し、守るべき振る舞いを関数名に書き、Issue番号をdocstringかコメントに書きます。
 - ブラウザー用の静的ファイル（JavaScript、HTML）を確かめる単体は、Pythonのモジュール名がないので`tests/unit/web/test_static_<ファイル名>.py`にします。例：`demo-v2.js`なら`test_static_demo_v2.py`。nodeで関数を動かすテストは、nodeがない環境ではskipします。
 - 何を確かめるか（結果・契約・画面）は、ディレクトリにも印にもしません。実行の選び分けに使わない印は、付け忘れても気づけず、すぐ実態とずれるためです。確かめる振る舞いは、関数名とファイルのdocstringに書きます。
@@ -107,9 +107,9 @@ python -m coverage report --sort=cover
 
 `native/core/tests/`（`cargo test -p sheltersim_core`）の規則のテストは、`native/core/tests/data/`のファイルの世界と期待する値を読みます（#225）。中核のcrateの`sheltersim_core::load`（`native/core/src/load/`）が世界を読みます。読む処理はブラウザーのHostも使うので（#244）、テストの中には置きません。
 
-- ほとんどのファイルは、#430より前にPythonが作った世界（`export_world`の書き出し）と、Pythonの規則がその上で出した値を記録したものです。Pythonの世界と規則は#430で消したので、これらのファイルを書き直すものはありません。記録した値が、中核の答えを固定します。中核の答えを意図して変えたときは、理由をPull Requestに書いて、ファイルの期待する値を中核の値で書き直します。
+- ほとんどのファイルは、#430より前に記録した世界と値です。今はこれらのファイルを書き直すものはなく、記録した値が今の中核の出力を固定します。Pythonとの一致はもう求めません。テストの名前と説明は、今の中核の関数と、固定する出力と記録した値で書き、消えたPythonの関数やpytestのファイルを説明に使いません（#494）。中核の出力を意図して変えたときは、理由をPull Requestに書いて、ファイルの期待する値を中核の値で書き直します（挙動の変更。下の「挙動を変えない変更（リファクタリング）」）。
 - 今も書き直せるファイル（画面の経路のserverの答え、Pythonに残るScenario作りの答え）は、`tests/support/core_fixtures.py`の`FIXTURES`に、ファイル名と、それを作る関数を書きます。`python benchmarks/core_fixtures.py [名前 ...]`で書き直します。名前を省くと、すべて書き直します。`tests/integration/test_core_fixtures.py`は、登録したファイルごとに、今の関数が作るものと同じであることを確かめます。
-- 中核の0分の世界の作り方（`sheltersim_core::initial`）は、`fixtures/initial_corpus.json.xz`のScenarioごとに、記録したdigest（Pythonが作っていたbytesのもの）と比べます（`tests/integration/test_initial_corpus.py`）。
+- 中核の0分の世界の作り方（`sheltersim_core::initial`）は、`fixtures/initial_corpus.json.xz`のScenarioごとに、#430より前に記録したdigestと比べます（`tests/integration/test_initial_corpus.py`）。
 - ファイルは小さく保ちます。小さな生成Scenario（数人）を使い、テストのファイルの間で世界を共有します。
 - `sheltersim_core::load`は、信頼しない入力を読む前提で書きます。書き出しの形でない値は`Error`にし、crateのコードで`panic!`や`unwrap`をしません。形の誤りが誤りになることは`native/core/tests/load_input.rs`で確かめます。
 - Rustのテストは、`load::entry(ファイル名, 世界の名前)`で書き出しを読み、`load::loaded`で世界とRunとその方策を、`load::host`で節と図面（`Geo`）を持つ`TestHost`を作ります。tickを動かすテストは`load::following_host`で`TestHost`を作ります。Runの途中の世界が要るテストは、中核でtickを進めて作れます（`support/ticks.rs`の`run`）。
@@ -127,7 +127,7 @@ UIで作るScenarioは、必ず図面（`facility_geometry`）と認知（`agent
 
 共通fixtureは、demo-v2のScenario画面が送る入力（`GENERATED_SCENARIO_REQUEST`：合成市・地震・20人・0.25日。各項目は利用者の入力として扱います）を、UIと同じ`ProjectAPI`のpreviewに渡して作ります。違いは地域調査だけで、本物は公開Webサービスに接続するため、空の調査結果に差し替えています。
 
-この共通fixtureの実行結果は、`fixtures/regression-contract.json`の`generated_small`が固定していて、`tests/e2e/test_project_scenario_to_results.py`が確かめます（fixtureそのものは`tests/unit/repo/test_generated_scenario_fixture.py`）。
+この共通fixtureの実行結果は、`fixtures/regression-contract.json`の`generated_small`（このファイルの唯一の項目）が固定していて、`tests/e2e/test_project_scenario_to_results.py`が確かめます（fixtureそのものは`tests/unit/repo/test_generated_scenario_fixture.py`）。
 
 ## 全経路の確認（ゲート）
 
@@ -143,7 +143,7 @@ python benchmarks/gate_all_paths.py --output 出力先 --determinism
 - `--determinism`：別のプロセス、別の`PYTHONHASHSEED`、別の`RAYON_NUM_THREADS`（1と4）で、すべてのScenarioを動かして、1回目と比べます。`RAYON_NUM_THREADS`は、tickの人ごとの計算を手伝うスレッド（`native/core/src/parallel.rs`）の数を変えます。1は手伝いなし、4は手伝い3つです。人ごとの計算は少ない人数では呼んだスレッドだけで行うので、4の回は`SHELTERSIM_GATE_PEOPLE_PER_HELPER=1`で、どの人数でも1人ずつ手伝いに渡します。
 - 保存した点からの再開、再開した Run のさらに再開、保存したRunの続きの計算は、1つのScenarioの中でまっすぐのRunと比べます（`must_match`）。
 - 介入は、中核が予定できる操作（文章の読み取りが作る操作）なら、Runの途中の分に適用します。それ以外の操作は、0分の世界に予定した記録（`fixtures/gate-scheduled-programs.json.xz`）から計算します。この記録は、Pythonの経路を消す前に作り、Pythonの経路と中核が同じ世界で終わることを確かめたものです。
-- `policies`のモデルを足したら、ここにもScenarioを足します。`tests/integration/test_all_paths_gate.py`は、モデルの一覧がここに入っていないと失敗します。
+- Model Catalog（`native/core/src/validate/model-catalog.json`）にモデルを足したら、ここにもScenarioを足します。`tests/integration/test_all_paths_gate.py`は、モデルの一覧がここに入っていないと失敗します。
 - 介入が拒否された結果と、有効な入力でRunが止まる結果（`run_stops`のScenario）も、期待値に入れます。直したら期待値が変わるので気づけます。止まるものは、見つけたときにIssueにします。直したものは`run_stops`にRunとして残し、再発に気づけるようにします。
 - 全件を動かすテストには`long_simulation`の印を付けます。通常のpytestは、1つの小さなScenarioだけを動かします。
 

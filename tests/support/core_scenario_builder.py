@@ -78,21 +78,6 @@ def builder_constants() -> dict[str, Any]:
         CORE_MODEL_SUITE_V2,
         model_catalog,
     )
-    from sheltersim.domain.agent_dynamics import (
-        INSTALLED_FACILITY_ANNOUNCEMENT_SOURCE_ID,
-        ORIENTATION_FACILITY_KINDS,
-        ORIENTATION_FACILITY_SOURCE_ID,
-    )
-    from sheltersim.domain.body_state import BODY_SOURCE_ID
-    from sheltersim.domain.geometry_overlay import (
-        INSTALLED_FACILITY_PLACEMENT_SOURCE_ID,
-        TEMPORARY_ROOM_BED_SOURCE_ID,
-        TEMPORARY_ROOM_INTAKE_SOURCE_ID,
-    )
-    from sheltersim.domain.movement import MOVEMENT_SOURCE_ID
-    from sheltersim.domain.psychological_state import INTEGRATED_PSYCHOLOGY_POLICY_VERSION
-    from sheltersim.domain.staff_operations import STAFF_OPERATIONS_SOURCE_ID
-    from sheltersim.domain.temporary_spaces import TEMPORARY_SPACES_SOURCE_ID
     from sheltersim.experiments.initial_scenario import (
         InitialScenarioBuilder,
         InitialScenarioRequest,
@@ -102,12 +87,29 @@ def builder_constants() -> dict[str, Any]:
         SLEEP_DEBT_BALANCE_SOURCE_ID,
     )
     from sheltersim.experiments.scenario import TOILET_SERVICE_SOURCE_ID, ScenarioSpec
-    from sheltersim.policies.psychology import IntegratedDistressLifeStatePolicy
     from sheltersim.region.conditions import (
         RESOURCE_SERVICE_ASSUMPTION_ID,
         STANDARD_PROVISIONING_SOURCE_ID,
     )
     from sheltersim.region.population import OPERATOR_POPULATION_SOURCE_ID
+    from sheltersim.scenario_authoring.configs.agent_dynamics import (
+        INSTALLED_FACILITY_ANNOUNCEMENT_SOURCE_ID,
+        ORIENTATION_FACILITY_KINDS,
+        ORIENTATION_FACILITY_SOURCE_ID,
+    )
+    from sheltersim.scenario_authoring.configs.body_state import BODY_SOURCE_ID
+    from sheltersim.scenario_authoring.configs.geometry_overlay import (
+        INSTALLED_FACILITY_PLACEMENT_SOURCE_ID,
+        TEMPORARY_ROOM_BED_SOURCE_ID,
+        TEMPORARY_ROOM_INTAKE_SOURCE_ID,
+    )
+    from sheltersim.scenario_authoring.configs.movement import MOVEMENT_SOURCE_ID
+    from sheltersim.scenario_authoring.configs.psychological_state import (
+        INTEGRATED_PSYCHOLOGY_POLICY_VERSION,
+    )
+    from sheltersim.scenario_authoring.configs.psychology import IntegratedDistressLifeStatePolicy
+    from sheltersim.scenario_authoring.configs.staff_operations import STAFF_OPERATIONS_SOURCE_ID
+    from sheltersim.scenario_authoring.configs.temporary_spaces import TEMPORARY_SPACES_SOURCE_ID
 
     catalog = model_catalog()
     request = InitialScenarioRequest(municipality="合成市", disaster="地震", evacuees=3)

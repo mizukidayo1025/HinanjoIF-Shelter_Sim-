@@ -886,12 +886,12 @@ fn a_run_of_other_model_versions_is_view_only_with_pythons_rule_and_text() {
     assert!(!status.current());
 }
 
-/// The RNG's algorithm is the one the Scenario authoring of Python draws with (`core/rng.py`).
+/// The RNG's algorithm is the one the Scenario authoring of Python draws with (`scenario_authoring/rng.py`).
 #[test]
 fn the_rng_algorithm_is_the_scenario_authoring_s() {
-    let python = fs::read_to_string(format!("{}/../../src/sheltersim/core/rng.py", env!("CARGO_MANIFEST_DIR"))).unwrap();
+    let python = fs::read_to_string(format!("{}/../../src/sheltersim/scenario_authoring/rng.py", env!("CARGO_MANIFEST_DIR"))).unwrap();
     assert_eq!(model_version::RNG_ALGORITHM, "sha256-keyed-v1");
-    assert!(python.contains("\"sha256-keyed-v1\""), "core/rng.py's algorithm is not the core's");
+    assert!(python.contains("\"sha256-keyed-v1\""), "scenario_authoring/rng.py's algorithm is not the core's");
 }
 
 #[test]

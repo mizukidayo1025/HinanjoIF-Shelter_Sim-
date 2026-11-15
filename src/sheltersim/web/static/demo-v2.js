@@ -963,7 +963,7 @@
   function clearRunView() {
     renderKpis($("sim-kpis"));
     renderKpiStrip($("report-kpis"));
-    $("clock").textContent = "開始前";
+    $("seek-label").textContent = "開始前";
     $("branch-select").replaceChildren();
     $("compare-branch").replaceChildren();
     $("issues").replaceChildren();
@@ -1185,11 +1185,6 @@
       $("seek").max = upper();
       $("seek").value = state.minute;
       $("seek-label").textContent = time(state.minute);
-      $("clock").textContent = time(
-        state.page === "comparison" && state.comparison
-          ? state.comparison.minute
-          : state.minute,
-      );
       $("computed-label").textContent =
         `実計算の記録 · ${upper()}分まで計算済み`;
     }
@@ -2097,9 +2092,10 @@
             comparison: comparing,
           };
           drawAll();
-          $("clock").textContent = replayTime(player.clock.position);
-          if (comparing)
-            $("compare-time").textContent = replayTime(player.clock.position);
+          // The time shows under the map, by the time bar (#484).
+          $(comparing ? "compare-time" : "seek-label").textContent = replayTime(
+            player.clock.position,
+          );
         },
         onState: (status) => {
           if (status === "paused" || status === "end") {

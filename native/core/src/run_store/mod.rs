@@ -34,7 +34,8 @@
 //!   decisions, conversations, llm_tape   append-only records (`records`, decision 4): the
 //!                 decision records the Run collected (`PlainRun::take_decisions`), the branch's
 //!                 question turns (after the "end" line: the questions are about a Run computed to
-//!                 its end), the LLM's responses (defined; nothing writes it yet). The line holds
+//!                 its end), the LLM's calls (`PlainRun::take_tape`, #428: `llm::tape_entry`, which
+//!                 `llm::Replay` answers from when ticks are computed again). The line holds
 //!                 the count
 //!   saved         a saved point (#251): the Run at a minute (`archive::SavedPoint`: the world without
 //!                 its log and the counts of records and samples up to then), every `save_every`

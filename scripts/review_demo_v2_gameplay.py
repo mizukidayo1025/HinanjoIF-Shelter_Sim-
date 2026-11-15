@@ -184,11 +184,11 @@ def main():
         )
         page.locator("#play").click()
         frozen = pixels("#simulation-map")
-        frozen_clock = page.locator("#clock").inner_text()
+        frozen_clock = page.locator("#seek-label").inner_text()
         page.wait_for_timeout(650)
         assert (
             frozen == pixels("#simulation-map")
-            and frozen_clock == page.locator("#clock").inner_text()
+            and frozen_clock == page.locator("#seek-label").inner_text()
         )
         page.locator("#play").click()
         page.wait_for_timeout(300)

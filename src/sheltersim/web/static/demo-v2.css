@@ -283,22 +283,6 @@ hr {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.clock {
-  background: #edf5ff;
-  border-radius: 7px;
-  padding: 5px 16px;
-  min-width: 170px;
-}
-.clock small {
-  display: block;
-  font-size: 9px;
-  letter-spacing: 0.1em;
-}
-.clock strong {
-  font-size: 16px;
-  white-space: nowrap;
-  font-variant-numeric: tabular-nums;
-}
 .speed-label {
   font-size: 9px;
   color: var(--muted);
@@ -952,6 +936,8 @@ main {
   min-width: 90px;
   font-size: 12px;
   font-weight: 700;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 .events {
   display: flex;
@@ -1410,13 +1396,6 @@ body.is-busy #intervention-apply {
   }
 }
 @media (max-width: 900px) {
-  .clock {
-    min-width: 120px;
-    padding: 5px 9px;
-  }
-  .clock strong {
-    font-size: 12px;
-  }
   .brand strong {
     font-size: 23px;
   }
@@ -1512,9 +1491,6 @@ body.is-busy #intervention-apply {
   .app-header #play {
     margin-left: auto;
     padding: 7px;
-  }
-  .clock {
-    padding: 3px 6px;
   }
   .brand strong {
     font-size: 21px;
@@ -1831,15 +1807,6 @@ body {
   flex: 1;
   font-size: 12px;
   font-weight: 650;
-}
-.clock {
-  min-width: 176px;
-  padding: 4px 15px;
-}
-.clock strong {
-  font:
-    700 17px Arial,
-    sans-serif;
 }
 .speed-label {
   font-size: 10px;
@@ -2390,6 +2357,8 @@ h2 {
 #compare-time {
   font-size: 11px;
   font-weight: 700;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 .comparison-grid {
   gap: 10px;
@@ -2821,13 +2790,6 @@ h2 {
     width: 32px;
     height: 36px;
   }
-  .clock {
-    min-width: 110px;
-    padding: 5px 8px;
-  }
-  .clock strong {
-    font-size: 12px;
-  }
   .nav-item {
     font-size: 0;
     padding: 14px 7px;
@@ -3015,7 +2977,6 @@ h2 {
   font-size: 10px;
   color: var(--muted);
 }
-.clock {font-variant-numeric:tabular-nums;}
 
 /* 介入・分岐のアイコンを、ナビの「分岐比較」と同じ図形に揃える */
 .inline-icon {
@@ -3565,8 +3526,7 @@ h2 {
   }
 }
 
-/* ヘッダーとサイドバー（#372）：時刻・再生速度・再生は、時刻のある画面（シミュレーション・分岐比較）だけに出す */
-body:not([data-view="simulation"]):not([data-view="comparison"]) .clock,
+/* ヘッダーとサイドバー（#372）：再生速度・再生は、時刻のある画面（シミュレーション・分岐比較）だけに出す */
 body:not([data-view="simulation"]):not([data-view="comparison"]) .speed-label,
 body:not([data-view="simulation"]):not([data-view="comparison"]) #play {
   display: none;
@@ -3651,16 +3611,6 @@ body[data-scenario="unavailable"] #page-scenario .scenario-grid {
     background-size: 305px auto;
     background-position: -75px -21px;
   }
-  .clock {
-    min-width: 0;
-    padding: 3px 8px;
-  }
-  .clock small {
-    display: none;
-  }
-  .clock strong {
-    font-size: 12px;
-  }
   .app-header #play {
     margin-left: auto;
     flex: none;
@@ -3678,10 +3628,6 @@ body[data-scenario="unavailable"] #page-scenario .scenario-grid {
   }
   .app-header #play:not([data-mode="play"]) .play-label {
     display: inline;
-  }
-  /* その間は時計を隠し、ボタンの言葉を切らない（中止のボタンが進み具合を出す） */
-  .app-header:has(#play:not([data-mode="play"])) .clock {
-    display: none;
   }
 }
 @media (max-width: 540px) {

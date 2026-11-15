@@ -261,9 +261,6 @@ fn a_space_is_registered_counted_and_expired_on_the_row() {
     let found = overlay::capacity(&world, &places, "z0", 10, Some(18)).unwrap();
     assert_eq!((found.effective, found.active_people, found.expired_people, found.retained), (15, 0, 5, 5));
     assert_eq!(found.total(), Ok(15));
-    // The same from the values a world outside the core holds.
-    let (spaces, overlay_value) = (state(&world, SPACES_KEY), state(&world, OVERLAY_KEY));
-    assert_eq!(overlay::capacity_of_values(Some(&spaces), Some(&overlay_value), &schema, "z0", 10, 18), Ok(found));
 }
 
 #[test]

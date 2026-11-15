@@ -535,33 +535,9 @@ pub fn capacity(world: &World, places: &Places<'_>, zone_id: &str, nominal: i64,
     capacity_in(spaces, overlay, places.schema, zone_id, nominal, current)
 }
 
-/// `capacity_metrics` of the values of the two namespaces (None where `model_state` has no such
-/// key), for `current` people in the zone: for a world the core does not hold (a save's world
-/// being validated, one whose `model_state` is another mapping), whose values the PyO3 crate reads.
-pub fn capacity_of_values(spaces: Option<&V>, overlay: Option<&V>, schema: &Kept<Option<i64>>, zone_id: &str, nominal: i64, current: i64) -> Result<Capacity> {
-    capacity_in(spaces, || Ok(overlay), schema, zone_id, nominal, current)
-}
-
-/// A namespace's value, borrowed from its row or given.
-trait Value {
-    fn value(&self) -> &V;
-}
-
-impl Value for &V {
-    fn value(&self) -> &V {
-        self
-    }
-}
-
-impl Value for ShardRef<'_, ValueRow> {
-    fn value(&self) -> &V {
-        &self.0
-    }
-}
-
-fn capacity_in<O: Value>(
+fn capacity_in<'w>(
     spaces: Option<&V>,
-    overlay: impl FnOnce() -> Result<Option<O>>,
+    overlay: impl FnOnce() -> Result<Option<ShardRef<'w, ValueRow>>>,
     schema: &Kept<Option<i64>>,
     zone_id: &str,
     nominal: i64,
@@ -609,7 +585,7 @@ fn capacity_in<O: Value>(
     let rooms_count = matches!(schema_of(schema)?, Some(3 | 4));
     let (mut room_capacity, mut active_admissions, mut expired_capacity, mut expired_admissions) = (0, 0, 0, 0);
     if let Some(overlay) = overlay()? {
-        let V::Map(overlay) = overlay.value() else {
+        let V::Map(overlay) = &overlay.0 else {
             return refuse("the overlay is not a plain dict");
         };
         let empty = V::Map(IndexMap::new());

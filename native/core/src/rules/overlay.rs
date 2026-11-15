@@ -26,7 +26,8 @@ use indexmap::IndexMap;
 use sha2::{Digest, Sha256};
 
 use crate::cell::ShardRef;
-use crate::config::movement::Movement;
+use crate::config::movement::{Movement, MovementModel};
+use crate::config::read::Read;
 use crate::config::service::ResourceService;
 use crate::entities::{Activity, Entities};
 use crate::error::{Error, Result};
@@ -1093,36 +1094,14 @@ pub fn plan_bed(world: &World, beds: &Beds<'_>, agent_id: &str) -> Result<Option
                 continue;
             }
             let bed = point_in_value(raw_bed)?;
-            let cell = cell_of(bed)?;
-            let mut used = false;
-            'cells: for dx in [-1, 0, 1] {
-                for dy in [-1, 0, 1] {
-                    for point in by_cell.get(&(cell.0 + dx, cell.1 + dy)).map_or(&[][..], Vec::as_slice) {
-                        if squared_distance(*point, bed)? <= radius {
-                            used = true;
-                            break 'cells;
-                        }
-                    }
-                }
-            }
-            if used {
+            if bed_is_near_someone(&by_cell, bed, radius)? {
                 continue;
             }
             attempts += 1;
             let Some(path) = geo.room_route(&zone_id, start, bed, mobility).map_err(Error::unsupported)? else {
                 continue;
             };
-            let mut lengths = Vec::with_capacity(path.len());
-            for pair in path.windows(2) {
-                let length = pow(squared_distance(pair[1], pair[0])?, 0.5)?;
-                lengths.push(length);
-            }
-            let travel = if py_sum(&lengths) <= 1e-8 || path.len() < 2 {
-                0
-            } else {
-                let length = polyline_length(&path).ok_or_else(|| Error::unsupported("not a plain sum"))?;
-                walking::room_minutes(&movement.model, geo, &rows, &agent_zone, mobility, length)?
-            };
+            let travel = bed_travel_minutes(&movement.model, geo, &rows, &agent_zone, mobility, &path)?;
             consider(travel, room_id, index, bed, path);
             if attempts >= MAX_BED_ROUTES {
                 break 'rooms;
@@ -1139,6 +1118,36 @@ pub fn plan_bed(world: &World, beds: &Beds<'_>, agent_id: &str) -> Result<Option
     };
     let target_id = bed_target_id(&room_id, bed_index);
     Ok(Some(Bed { room_id, bed_index, target_id, reserved_minute, point, path, travel_minutes, is_new: existing.is_none() }))
+}
+
+/// A person of the zone within a bed's radius of the bed, looked for in the bed's cell of the grid
+/// and the eight around it.
+fn bed_is_near_someone(by_cell: &HashMap<(i64, i64), Vec<Pt>>, bed: Pt, radius: f64) -> Result<bool> {
+    let cell = cell_of(bed)?;
+    for dx in [-1, 0, 1] {
+        for dy in [-1, 0, 1] {
+            for point in by_cell.get(&(cell.0 + dx, cell.1 + dy)).map_or(&[][..], Vec::as_slice) {
+                if squared_distance(*point, bed)? <= radius {
+                    return Ok(true);
+                }
+            }
+        }
+    }
+    Ok(false)
+}
+
+/// The minutes of the walk to a bed along its path in the room: none for a path of no length.
+fn bed_travel_minutes(model: &Read<MovementModel>, geo: &Geo, rows: &Entities, agent_zone: &str, mobility: &str, path: &[Pt]) -> Result<i64> {
+    let mut lengths = Vec::with_capacity(path.len());
+    for pair in path.windows(2) {
+        let length = pow(squared_distance(pair[1], pair[0])?, 0.5)?;
+        lengths.push(length);
+    }
+    if py_sum(&lengths) <= 1e-8 || path.len() < 2 {
+        return Ok(0);
+    }
+    let length = polyline_length(path).ok_or_else(|| Error::unsupported("not a plain sum"))?;
+    walking::room_minutes(model, geo, rows, agent_zone, mobility, length)
 }
 
 /// `(math.floor(x / 0.75), math.floor(y / 0.75))`.
@@ -1726,374 +1735,409 @@ pub fn check_change<C: WorldCell, H: Host>(
     Ok(data)
 }
 
+/// What the checks of an operator read: the world, the change, the plan's floor and constraints,
+/// the overlay's row, and the operator's target, parameters' dump and end.
+#[derive(Clone, Copy)]
+struct OpCheck<'a> {
+    world: &'a World,
+    change: &'a Change<'a>,
+    geo: &'a Geo,
+    layout: &'a Layout,
+    constraints: &'a Constraints,
+    state: &'a ValueRow,
+    target: &'a str,
+    data: &'a V,
+    end_minute: Option<i64>,
+}
+
 /// The checks of an operator, on its parameters' dump.
 fn check_op(world: &World, change: &Change<'_>, geo: &Geo, op: &str, target: &str, data: &V, end_minute: Option<i64>) -> Result<()> {
     let layout = layout_of_plan(geo)?;
     let constraints = constraints_of_plan(geo)?;
     let state = state_of(world, OVERLAY_KEY, change.overlay)?.ok_or_else(|| Error::unsupported("no overlay"))?;
+    let check = OpCheck { world, change, geo, layout, constraints, state: &state, target, data, end_minute };
     match op {
-        "set_route_access" => {
-            let V::Bool(accessible) = field(data, "accessible")? else {
-                return refuse("accessible is not a bool");
-            };
-            let edges = edges_of(world)?;
-            let Some(edge) = edges.get(target) else {
-                return invalid("target_missing: route does not exist");
-            };
-            if end_minute.is_none() {
-                return invalid("expiry_required: route-access changes require a bounded end");
-            }
-            if *accessible && edge.closed {
-                return invalid("unsupported_reopening: this operation cannot override a prior graph closure");
-            }
-            if !*accessible {
-                let rooms = part(&state.0, "temporary_rooms")?;
-                for room in map_of(&rooms)?.values() {
-                    let room = map_of(room)?;
-                    if !flag_of(room, "active")? {
-                        continue;
-                    }
-                    let ids = match room.get("route_edge_ids") {
-                        Some(ids) => list_of(ids)?,
-                        None => &[],
-                    };
-                    if !ids.iter().any(|id| matches!(id, V::Str(id) if &**id == target)) {
-                        continue;
-                    }
-                    let room_zone = str_of(room, "zone_id")?;
-                    let mut incoming = false;
-                    let mut outgoing = false;
-                    for id in ids {
-                        let V::Str(id) = id else {
-                            return refuse("a route's ID is not a str");
-                        };
-                        if &**id == target {
-                            continue;
-                        }
-                        let (Some(edge), Some(route)) = (edges.get(id), layout.routes.get(&**id)) else {
-                            continue;
-                        };
-                        if edge.closed || !route.accessible {
-                            continue;
-                        }
-                        incoming |= edge.to == *room_zone;
-                        outgoing |= edge.from == *room_zone;
-                    }
-                    if !incoming || !outgoing {
-                        return invalid("route_in_use: closure would disconnect an active temporary room");
-                    }
-                }
-            }
-            Ok(())
-        }
-        "transfer_equipment" => {
-            let (equipment, from_zone, to_zone) = (text_field(data, "equipment_id")?, text_field(data, "from_zone_id")?, text_field(data, "to_zone_id")?);
-            let point = point_field(data, "point_m")?;
-            let known = world.rows()?.facilities.get(target).map(|facility| facility.zone_id.clone());
-            let (Some(zone_now), Some(&old)) = (known, layout.facility_points.get(target)) else {
-                return invalid("target_missing: equipment must identify a positioned facility");
-            };
-            if &*equipment != target {
-                return invalid("target_mismatch: equipment_id must match the selected facility");
-            }
-            if from_zone != zone_now || !zone_rows(world)?.zones.contains_key(&*to_zone) {
-                return invalid("precondition_failed: equipment source/destination zone does not match");
-            }
-            if end_minute.is_some() {
-                return invalid("unsupported_transfer_expiry: equipment transfers are permanent");
-            }
-            let (_, kind) = facility_is_free(
-                world,
-                change,
-                target,
-                "facility_in_use: equipment queues and services must be empty",
-                "facility_in_use: an active staff task targets this equipment",
-            )?;
-            let (Some(_), Some(destination)) = (layout.zones.get(&*from_zone), layout.zones.get(&*to_zone)) else {
-                return invalid("target_missing: equipment zone has no surveyed polygon");
-            };
-            if !point_in_polygon(point, &destination.polygon) {
-                return invalid("area_invalid: transfer point must lie inside the destination zone");
-            }
-            let rooms = part(&state.0, "temporary_rooms")?;
-            clear_of_rooms(geo, map_of(&rooms)?, target, &to_zone, point)?;
-            if !zones_connected(&edges_of(world)?, &from_zone, &to_zone) {
-                return invalid("route_unavailable: equipment zones have no open directed route");
-            }
-            service_staff_in_zone(world, change, geo, target, &kind, &to_zone)?;
-            if walls_are_near(constraints, point) {
-                return invalid("clear_width_insufficient: transferred equipment must remain half a metre from walls");
-            }
-            if !walkable_at(geo, &to_zone, point)? {
-                return invalid("clear_width_insufficient: transfer point is not walkable");
-            }
-            let (dx, dy) = (point.x - old.x, point.y - old.y);
-            for service in &layout.service_points {
-                if &*service.facility_id != target {
-                    continue;
-                }
-                let shifted = Pt { x: service.point.x + dx, y: service.point.y + dy };
-                if !usable(shifted.x, shifted.y) {
-                    return refuse("a moved service point is not a usable point");
-                }
-                if !point_in_polygon(shifted, &destination.polygon) {
-                    return invalid("area_invalid: transferred service point leaves its destination zone");
-                }
-                if walls_are_near(constraints, shifted) || !walkable_at(geo, &to_zone, shifted)? {
-                    return invalid("clear_width_insufficient: transferred service point is not walkable");
-                }
-            }
-            transferred_footprint_fits(constraints, target, &destination.polygon, old, point)
-        }
-        "move_facility" => {
-            let point = point_field(data, "point_m")?;
-            let known = world.rows()?.facilities.contains_key(target);
-            let (true, Some(&old)) = (known, layout.facility_points.get(target)) else {
-                return invalid("target_missing: facility has no surveyed position");
-            };
-            if end_minute.is_some() {
-                return invalid("unsupported_move_expiry: same-zone moves are permanent; approve an explicit later move");
-            }
-            let (zone_id, _) = facility_is_free(
-                world,
-                change,
-                target,
-                "facility_in_use: queues and services must be empty",
-                "facility_in_use: an active staff task targets this facility",
-            )?;
-            let Some(zone) = layout.zones.get(&*zone_id) else {
-                return refuse("a facility in a zone with no polygon");
-            };
-            if !point_in_polygon(point, &zone.polygon) {
-                return invalid("area_invalid: cross-zone facility moves are unsupported");
-            }
-            let rooms = part(&state.0, "temporary_rooms")?;
-            clear_of_rooms(geo, map_of(&rooms)?, target, &zone_id, point)?;
-            if walls_are_near(constraints, point) {
-                return invalid("clear_width_insufficient: moved service point requires half a metre from walls");
-            }
-            for service in &layout.service_points {
-                if &*service.facility_id != target {
-                    continue;
-                }
-                let shifted = Pt { x: service.point.x + point.x - old.x, y: service.point.y + point.y - old.y };
-                if !usable(shifted.x, shifted.y) {
-                    return refuse("a moved service point is not a usable point");
-                }
-                if !point_in_polygon(shifted, &zone.polygon) {
-                    return invalid("area_invalid: moved facility would move a service point outside its zone");
-                }
-                if walls_are_near(constraints, shifted) {
-                    return invalid("clear_width_insufficient: moved service point is too close to a wall");
-                }
-                if !walkable_at(geo, &zone_id, shifted)? {
-                    return invalid("clear_width_insufficient: moved service point is not walkable");
-                }
-            }
-            if !walkable_at(geo, &zone_id, point)? {
-                return invalid("clear_width_insufficient: moved service point is not walkable");
-            }
-            moved_footprint_fits(constraints, target, &zone.polygon, old, point)
-        }
-        "set_partition" => {
-            let polygon = points_field(data, "polygon_m")?;
-            let Some(zone) = layout.zones.get(target) else {
-                return invalid("target_missing: zone does not exist");
-            };
-            if end_minute.is_none() {
-                return invalid("expiry_required: partitions require an explicit bounded end");
-            }
-            // `_validate_partition_polygon`.
-            if !valid_simple(&polygon) || polygon.iter().any(|point| !point_in_polygon(*point, &zone.polygon)) {
-                return invalid("area_invalid: partition requires a simple positive-area polygon inside its zone");
-            }
-            if sides(&polygon).any(|(a, b)| !segment_inside_polygon(a, b, &zone.polygon)) {
-                return invalid("area_invalid: partition leaves a concave zone");
-            }
-            if layout.facility_points.values().any(|point| point_in_polygon(*point, &polygon)) {
-                return invalid("area_invalid: partition covers a facility");
-            }
-            for shape in &constraints.blocked {
-                if polygon.iter().any(|point| point_in_polygon(*point, shape))
-                    || point_in_polygon(shape[0], &polygon)
-                    || sides(&polygon).any(|(a, b)| segment_to_polygon(a, b, shape) < 1e-8)
-                {
-                    return invalid("area_invalid: partition overlaps equipment or another obstacle");
-                }
-            }
-            let movement = movement_of(world, change.movement)?;
-            if let Some(row) = &movement {
-                for position in row.positions.values() {
-                    if let Some(point) = position.point {
-                        if !usable(point.x, point.y) {
-                            return refuse("a position is not a usable point");
-                        }
-                        if point_in_polygon(Pt { x: point.x, y: point.y }, &polygon) {
-                            return invalid("route_in_use: partition covers a current person");
-                        }
-                    }
-                }
-            }
-            let staff_zones: Vec<Arc<str>> = world.rows()?.staff.iter().map(|(_, staff)| staff.zone_id.clone()).collect();
-            for zone_id in staff_zones {
-                if layout.zones.get(&*zone_id).is_some() {
-                    if let Some(centre) = geo.center(&zone_id)? {
-                        if point_in_polygon(centre, &polygon) {
-                            return invalid("route_in_use: partition covers a staff standing point");
-                        }
-                    }
-                }
-            }
-            for route in layout.routes.values() {
-                if route.points.windows(2).any(|pair| !segment_clear_of_polygon(pair[0], pair[1], &polygon, route.width / 2.0)) {
-                    return invalid("clear_width_insufficient: partition obstructs a declared passage");
-                }
-            }
-            if let Some(row) = &movement {
-                for journey in row.journeys.values() {
-                    let points: Vec<Pt> = journey.route_points.iter().map(|point| Pt { x: point.x, y: point.y }).collect();
-                    if points.iter().any(|point| !usable(point.x, point.y)) {
-                        return refuse("a route point is not a usable point");
-                    }
-                    if points.windows(2).any(|pair| !segment_clear_of_polygon(pair[0], pair[1], &polygon, WALL_CLEARANCE))
-                        && !walking::is_queue_trip(&journey.purpose)
-                    {
-                        return invalid("route_in_use: partition intersects current room travel");
-                    }
-                }
-            }
-            Ok(())
-        }
-        "temporary_room_geometry" => {
-            let polygon = points_field(data, "polygon_m")?;
-            let beds = points_field(data, "bed_points_m")?;
-            let room_id = text_field(data, "room_id")?;
-            let zone_id = text_field(data, "zone_id")?;
-            let V::List(route_ids) = field(data, "route_edge_ids")? else {
-                return refuse("not a tuple");
-            };
-            let route_ids: Vec<Arc<str>> = route_ids.iter().map(|id| Ok(kit::exact_str(id)?.clone())).collect::<Result<_>>()?;
-            let duration = world.duration_minutes()?;
-            if &*zone_id != target {
-                return invalid("target_mismatch: temporary room zone must match its selected zone");
-            }
-            if end_minute.is_none_or(|end| end >= duration) {
-                return invalid("expiry_required: temporary rooms need an in-run expiry");
-            }
-            let Some(zone) = layout.zones.get(target) else {
-                return invalid("target_missing: temporary room zone has no surveyed polygon");
-            };
-            // `_validate_room_polygon`.
-            if !valid_simple(&polygon) {
-                return invalid("area_invalid: temporary room polygon must be simple and nondegenerate");
-            }
-            if polygon.iter().any(|point| !point_in_polygon(*point, &zone.polygon)) {
-                return invalid("area_invalid: temporary room polygon must lie inside its zone");
-            }
-            if sides(&polygon).any(|(a, b)| !segment_inside_polygon(a, b, &zone.polygon)) {
-                return invalid("area_invalid: temporary room polygon crosses the zone boundary");
-            }
-            let edges = edges_of(world)?;
-            for id in &route_ids {
-                let (Some(edge), Some(route)) = (edges.get(id), layout.routes.get(&**id)) else {
-                    return invalid("route_unavailable: temporary room access route must connect to its zone");
-                };
-                if &*edge.from != target && &*edge.to != target {
-                    return invalid("route_unavailable: temporary room access route must connect to its zone");
-                }
-                if edge.closed || !route.accessible {
-                    return invalid("route_unavailable: temporary room access route is closed or inaccessible");
-                }
-            }
-            let incoming = route_ids.iter().any(|id| &*edges[id].to == target);
-            let outgoing = route_ids.iter().any(|id| &*edges[id].from == target);
-            if !incoming || !outgoing {
-                return invalid("route_unavailable: temporary room requires directed ingress and egress routes");
-            }
-            let rooms = part(&state.0, "temporary_rooms")?;
-            let rooms = map_of(&rooms)?;
-            if rooms.contains_key(&*room_id) {
-                return invalid("room_exists: temporary room ID already exists");
-            }
-            for row in rooms.values() {
-                let row = map_of(row)?;
-                if flag_of(row, "active")?
-                    && matches!(row.get("zone_id"), Some(V::Str(zone)) if &**zone == target)
-                    && polygons_overlap(&polygon, &polygon_of(row.get("polygon_m"))?)
-                {
-                    return invalid("area_invalid: temporary room overlaps another active room");
-                }
-            }
-            if layout.facility_points.values().any(|point| point_in_polygon(*point, &polygon)) {
-                return invalid("area_invalid: temporary room covers a facility");
-            }
-            let reservations = part(&state.0, "bed_reservations")?;
-            for reservation in map_of(&reservations)?.values() {
-                let reservation = map_of(reservation)?;
-                let Some(V::Str(room)) = reservation.get("room_id") else {
-                    continue;
-                };
-                let Some(V::Map(room)) = rooms.get(room) else {
-                    continue;
-                };
-                let held = match room.get("bed_points_m") {
-                    Some(held) => list_of(held)?,
-                    None => &[],
-                };
-                if let Some(V::Int(index)) = reservation.get("bed_index") {
-                    if *index >= 0 && (*index as usize) < held.len() && point_in_polygon(point_in_value(&held[*index as usize])?, &polygon) {
-                        return invalid("room_in_use: temporary room would cover a reserved sleep bed");
-                    }
-                }
-            }
-            if constraints.blocked.iter().any(|shape| polygons_overlap(&polygon, shape)) {
-                return invalid("area_invalid: temporary room overlaps an obstacle or equipment footprint");
-            }
-            if sides(&polygon).any(|(a, b)| constraints.walls.iter().any(|wall| segments_meet(a, b, wall.start, wall.end))) {
-                return invalid("area_invalid: temporary room boundary crosses a declared wall");
-            }
-            if let Some(row) = movement_of(world, change.movement)? {
-                for (positions, text) in [
-                    (&row.positions, "room_in_use: temporary room would cover a current person"),
-                    (&row.staff_positions, "room_in_use: temporary room would cover a current staff member"),
-                ] {
-                    for position in positions.values() {
-                        if let Some(point) = position.point {
-                            if !usable(point.x, point.y) {
-                                return refuse("a position is not a usable point");
-                            }
-                            if point_in_polygon(Pt { x: point.x, y: point.y }, &polygon) {
-                                return invalid(text);
-                            }
-                        }
-                    }
-                }
-            }
-            let mut access = Vec::with_capacity(route_ids.len() + 1);
-            for id in &route_ids {
-                let (edge, route) = (&edges[id], &layout.routes[&**id]);
-                let point = if &*edge.to == target { route.points[route.points.len() - 1] } else { route.points[0] };
-                access.push(point);
-            }
-            if let Some(center) = geo.center(target)? {
-                access.push(center);
-            }
-            for bed in &beds {
-                let mut reachable = false;
-                for entry in &access {
-                    if geo.room_route(target, Some(*entry), *bed, "independent").map_err(Error::unsupported)?.is_some() {
-                        reachable = true;
-                        break;
-                    }
-                }
-                if !reachable {
-                    return invalid("route_unavailable: every bed must be reachable from a room access point");
-                }
-            }
-            Ok(())
-        }
+        "set_route_access" => check_route_access(check),
+        "transfer_equipment" => check_transfer_equipment(check),
+        "move_facility" => check_move_facility(check),
+        "set_partition" => check_set_partition(check),
+        "temporary_room_geometry" => check_temporary_room(check),
         _ => invalid("unsupported_geometry_operator"),
     }
+}
+
+/// `set_route_access`: a route may close only when no active temporary room loses its way in or out.
+fn check_route_access(check: OpCheck<'_>) -> Result<()> {
+    let OpCheck { world, layout, state, target, data, end_minute, .. } = check;
+    let V::Bool(accessible) = field(data, "accessible")? else {
+        return refuse("accessible is not a bool");
+    };
+    let edges = edges_of(world)?;
+    let Some(edge) = edges.get(target) else {
+        return invalid("target_missing: route does not exist");
+    };
+    if end_minute.is_none() {
+        return invalid("expiry_required: route-access changes require a bounded end");
+    }
+    if *accessible && edge.closed {
+        return invalid("unsupported_reopening: this operation cannot override a prior graph closure");
+    }
+    if !*accessible {
+        let rooms = part(&state.0, "temporary_rooms")?;
+        for room in map_of(&rooms)?.values() {
+            let room = map_of(room)?;
+            if !flag_of(room, "active")? {
+                continue;
+            }
+            let ids = match room.get("route_edge_ids") {
+                Some(ids) => list_of(ids)?,
+                None => &[],
+            };
+            if !ids.iter().any(|id| matches!(id, V::Str(id) if &**id == target)) {
+                continue;
+            }
+            let room_zone = str_of(room, "zone_id")?;
+            let mut incoming = false;
+            let mut outgoing = false;
+            for id in ids {
+                let V::Str(id) = id else {
+                    return refuse("a route's ID is not a str");
+                };
+                if &**id == target {
+                    continue;
+                }
+                let (Some(edge), Some(route)) = (edges.get(id), layout.routes.get(&**id)) else {
+                    continue;
+                };
+                if edge.closed || !route.accessible {
+                    continue;
+                }
+                incoming |= edge.to == *room_zone;
+                outgoing |= edge.from == *room_zone;
+            }
+            if !incoming || !outgoing {
+                return invalid("route_in_use: closure would disconnect an active temporary room");
+            }
+        }
+    }
+    Ok(())
+}
+
+/// `transfer_equipment`: equipment moved to a point of another zone.
+fn check_transfer_equipment(check: OpCheck<'_>) -> Result<()> {
+    let OpCheck { world, change, geo, layout, constraints, state, target, data, end_minute } = check;
+    let (equipment, from_zone, to_zone) = (text_field(data, "equipment_id")?, text_field(data, "from_zone_id")?, text_field(data, "to_zone_id")?);
+    let point = point_field(data, "point_m")?;
+    let known = world.rows()?.facilities.get(target).map(|facility| facility.zone_id.clone());
+    let (Some(zone_now), Some(&old)) = (known, layout.facility_points.get(target)) else {
+        return invalid("target_missing: equipment must identify a positioned facility");
+    };
+    if &*equipment != target {
+        return invalid("target_mismatch: equipment_id must match the selected facility");
+    }
+    if from_zone != zone_now || !zone_rows(world)?.zones.contains_key(&*to_zone) {
+        return invalid("precondition_failed: equipment source/destination zone does not match");
+    }
+    if end_minute.is_some() {
+        return invalid("unsupported_transfer_expiry: equipment transfers are permanent");
+    }
+    let (_, kind) = facility_is_free(
+        world,
+        change,
+        target,
+        "facility_in_use: equipment queues and services must be empty",
+        "facility_in_use: an active staff task targets this equipment",
+    )?;
+    let (Some(_), Some(destination)) = (layout.zones.get(&*from_zone), layout.zones.get(&*to_zone)) else {
+        return invalid("target_missing: equipment zone has no surveyed polygon");
+    };
+    if !point_in_polygon(point, &destination.polygon) {
+        return invalid("area_invalid: transfer point must lie inside the destination zone");
+    }
+    let rooms = part(&state.0, "temporary_rooms")?;
+    clear_of_rooms(geo, map_of(&rooms)?, target, &to_zone, point)?;
+    if !zones_connected(&edges_of(world)?, &from_zone, &to_zone) {
+        return invalid("route_unavailable: equipment zones have no open directed route");
+    }
+    service_staff_in_zone(world, change, geo, target, &kind, &to_zone)?;
+    if walls_are_near(constraints, point) {
+        return invalid("clear_width_insufficient: transferred equipment must remain half a metre from walls");
+    }
+    if !walkable_at(geo, &to_zone, point)? {
+        return invalid("clear_width_insufficient: transfer point is not walkable");
+    }
+    let (dx, dy) = (point.x - old.x, point.y - old.y);
+    for service in &layout.service_points {
+        if &*service.facility_id != target {
+            continue;
+        }
+        let shifted = Pt { x: service.point.x + dx, y: service.point.y + dy };
+        if !usable(shifted.x, shifted.y) {
+            return refuse("a moved service point is not a usable point");
+        }
+        if !point_in_polygon(shifted, &destination.polygon) {
+            return invalid("area_invalid: transferred service point leaves its destination zone");
+        }
+        if walls_are_near(constraints, shifted) || !walkable_at(geo, &to_zone, shifted)? {
+            return invalid("clear_width_insufficient: transferred service point is not walkable");
+        }
+    }
+    transferred_footprint_fits(constraints, target, &destination.polygon, old, point)
+}
+
+/// `move_facility`: a facility moved within its zone.
+fn check_move_facility(check: OpCheck<'_>) -> Result<()> {
+    let OpCheck { world, change, geo, layout, constraints, state, target, data, end_minute } = check;
+    let point = point_field(data, "point_m")?;
+    let known = world.rows()?.facilities.contains_key(target);
+    let (true, Some(&old)) = (known, layout.facility_points.get(target)) else {
+        return invalid("target_missing: facility has no surveyed position");
+    };
+    if end_minute.is_some() {
+        return invalid("unsupported_move_expiry: same-zone moves are permanent; approve an explicit later move");
+    }
+    let (zone_id, _) = facility_is_free(
+        world,
+        change,
+        target,
+        "facility_in_use: queues and services must be empty",
+        "facility_in_use: an active staff task targets this facility",
+    )?;
+    let Some(zone) = layout.zones.get(&*zone_id) else {
+        return refuse("a facility in a zone with no polygon");
+    };
+    if !point_in_polygon(point, &zone.polygon) {
+        return invalid("area_invalid: cross-zone facility moves are unsupported");
+    }
+    let rooms = part(&state.0, "temporary_rooms")?;
+    clear_of_rooms(geo, map_of(&rooms)?, target, &zone_id, point)?;
+    if walls_are_near(constraints, point) {
+        return invalid("clear_width_insufficient: moved service point requires half a metre from walls");
+    }
+    for service in &layout.service_points {
+        if &*service.facility_id != target {
+            continue;
+        }
+        let shifted = Pt { x: service.point.x + point.x - old.x, y: service.point.y + point.y - old.y };
+        if !usable(shifted.x, shifted.y) {
+            return refuse("a moved service point is not a usable point");
+        }
+        if !point_in_polygon(shifted, &zone.polygon) {
+            return invalid("area_invalid: moved facility would move a service point outside its zone");
+        }
+        if walls_are_near(constraints, shifted) {
+            return invalid("clear_width_insufficient: moved service point is too close to a wall");
+        }
+        if !walkable_at(geo, &zone_id, shifted)? {
+            return invalid("clear_width_insufficient: moved service point is not walkable");
+        }
+    }
+    if !walkable_at(geo, &zone_id, point)? {
+        return invalid("clear_width_insufficient: moved service point is not walkable");
+    }
+    moved_footprint_fits(constraints, target, &zone.polygon, old, point)
+}
+
+/// `set_partition`: a partition inside a zone, clear of facilities, obstacles, people and passages.
+fn check_set_partition(check: OpCheck<'_>) -> Result<()> {
+    let OpCheck { world, change, geo, layout, constraints, target, data, end_minute, .. } = check;
+    let polygon = points_field(data, "polygon_m")?;
+    let Some(zone) = layout.zones.get(target) else {
+        return invalid("target_missing: zone does not exist");
+    };
+    if end_minute.is_none() {
+        return invalid("expiry_required: partitions require an explicit bounded end");
+    }
+    // `_validate_partition_polygon`.
+    if !valid_simple(&polygon) || polygon.iter().any(|point| !point_in_polygon(*point, &zone.polygon)) {
+        return invalid("area_invalid: partition requires a simple positive-area polygon inside its zone");
+    }
+    if sides(&polygon).any(|(a, b)| !segment_inside_polygon(a, b, &zone.polygon)) {
+        return invalid("area_invalid: partition leaves a concave zone");
+    }
+    if layout.facility_points.values().any(|point| point_in_polygon(*point, &polygon)) {
+        return invalid("area_invalid: partition covers a facility");
+    }
+    for shape in &constraints.blocked {
+        if polygon.iter().any(|point| point_in_polygon(*point, shape))
+            || point_in_polygon(shape[0], &polygon)
+            || sides(&polygon).any(|(a, b)| segment_to_polygon(a, b, shape) < 1e-8)
+        {
+            return invalid("area_invalid: partition overlaps equipment or another obstacle");
+        }
+    }
+    let movement = movement_of(world, change.movement)?;
+    if let Some(row) = &movement {
+        for position in row.positions.values() {
+            if let Some(point) = position.point {
+                if !usable(point.x, point.y) {
+                    return refuse("a position is not a usable point");
+                }
+                if point_in_polygon(Pt { x: point.x, y: point.y }, &polygon) {
+                    return invalid("route_in_use: partition covers a current person");
+                }
+            }
+        }
+    }
+    let staff_zones: Vec<Arc<str>> = world.rows()?.staff.iter().map(|(_, staff)| staff.zone_id.clone()).collect();
+    for zone_id in staff_zones {
+        if layout.zones.get(&*zone_id).is_some() {
+            if let Some(centre) = geo.center(&zone_id)? {
+                if point_in_polygon(centre, &polygon) {
+                    return invalid("route_in_use: partition covers a staff standing point");
+                }
+            }
+        }
+    }
+    for route in layout.routes.values() {
+        if route.points.windows(2).any(|pair| !segment_clear_of_polygon(pair[0], pair[1], &polygon, route.width / 2.0)) {
+            return invalid("clear_width_insufficient: partition obstructs a declared passage");
+        }
+    }
+    if let Some(row) = &movement {
+        for journey in row.journeys.values() {
+            let points: Vec<Pt> = journey.route_points.iter().map(|point| Pt { x: point.x, y: point.y }).collect();
+            if points.iter().any(|point| !usable(point.x, point.y)) {
+                return refuse("a route point is not a usable point");
+            }
+            if points.windows(2).any(|pair| !segment_clear_of_polygon(pair[0], pair[1], &polygon, WALL_CLEARANCE)) && !walking::is_queue_trip(&journey.purpose)
+            {
+                return invalid("route_in_use: partition intersects current room travel");
+            }
+        }
+    }
+    Ok(())
+}
+
+/// `temporary_room_geometry`: a temporary room inside its zone, with routes in and out and reachable beds.
+fn check_temporary_room(check: OpCheck<'_>) -> Result<()> {
+    let OpCheck { world, change, geo, layout, constraints, state, target, data, end_minute } = check;
+    let polygon = points_field(data, "polygon_m")?;
+    let beds = points_field(data, "bed_points_m")?;
+    let room_id = text_field(data, "room_id")?;
+    let zone_id = text_field(data, "zone_id")?;
+    let V::List(route_ids) = field(data, "route_edge_ids")? else {
+        return refuse("not a tuple");
+    };
+    let route_ids: Vec<Arc<str>> = route_ids.iter().map(|id| Ok(kit::exact_str(id)?.clone())).collect::<Result<_>>()?;
+    let duration = world.duration_minutes()?;
+    if &*zone_id != target {
+        return invalid("target_mismatch: temporary room zone must match its selected zone");
+    }
+    if end_minute.is_none_or(|end| end >= duration) {
+        return invalid("expiry_required: temporary rooms need an in-run expiry");
+    }
+    let Some(zone) = layout.zones.get(target) else {
+        return invalid("target_missing: temporary room zone has no surveyed polygon");
+    };
+    // `_validate_room_polygon`.
+    if !valid_simple(&polygon) {
+        return invalid("area_invalid: temporary room polygon must be simple and nondegenerate");
+    }
+    if polygon.iter().any(|point| !point_in_polygon(*point, &zone.polygon)) {
+        return invalid("area_invalid: temporary room polygon must lie inside its zone");
+    }
+    if sides(&polygon).any(|(a, b)| !segment_inside_polygon(a, b, &zone.polygon)) {
+        return invalid("area_invalid: temporary room polygon crosses the zone boundary");
+    }
+    let edges = edges_of(world)?;
+    for id in &route_ids {
+        let (Some(edge), Some(route)) = (edges.get(id), layout.routes.get(&**id)) else {
+            return invalid("route_unavailable: temporary room access route must connect to its zone");
+        };
+        if &*edge.from != target && &*edge.to != target {
+            return invalid("route_unavailable: temporary room access route must connect to its zone");
+        }
+        if edge.closed || !route.accessible {
+            return invalid("route_unavailable: temporary room access route is closed or inaccessible");
+        }
+    }
+    let incoming = route_ids.iter().any(|id| &*edges[id].to == target);
+    let outgoing = route_ids.iter().any(|id| &*edges[id].from == target);
+    if !incoming || !outgoing {
+        return invalid("route_unavailable: temporary room requires directed ingress and egress routes");
+    }
+    let rooms = part(&state.0, "temporary_rooms")?;
+    let rooms = map_of(&rooms)?;
+    if rooms.contains_key(&*room_id) {
+        return invalid("room_exists: temporary room ID already exists");
+    }
+    for row in rooms.values() {
+        let row = map_of(row)?;
+        if flag_of(row, "active")?
+            && matches!(row.get("zone_id"), Some(V::Str(zone)) if &**zone == target)
+            && polygons_overlap(&polygon, &polygon_of(row.get("polygon_m"))?)
+        {
+            return invalid("area_invalid: temporary room overlaps another active room");
+        }
+    }
+    if layout.facility_points.values().any(|point| point_in_polygon(*point, &polygon)) {
+        return invalid("area_invalid: temporary room covers a facility");
+    }
+    let reservations = part(&state.0, "bed_reservations")?;
+    for reservation in map_of(&reservations)?.values() {
+        let reservation = map_of(reservation)?;
+        let Some(V::Str(room)) = reservation.get("room_id") else {
+            continue;
+        };
+        let Some(V::Map(room)) = rooms.get(room) else {
+            continue;
+        };
+        let held = match room.get("bed_points_m") {
+            Some(held) => list_of(held)?,
+            None => &[],
+        };
+        if let Some(V::Int(index)) = reservation.get("bed_index") {
+            if *index >= 0 && (*index as usize) < held.len() && point_in_polygon(point_in_value(&held[*index as usize])?, &polygon) {
+                return invalid("room_in_use: temporary room would cover a reserved sleep bed");
+            }
+        }
+    }
+    if constraints.blocked.iter().any(|shape| polygons_overlap(&polygon, shape)) {
+        return invalid("area_invalid: temporary room overlaps an obstacle or equipment footprint");
+    }
+    if sides(&polygon).any(|(a, b)| constraints.walls.iter().any(|wall| segments_meet(a, b, wall.start, wall.end))) {
+        return invalid("area_invalid: temporary room boundary crosses a declared wall");
+    }
+    if let Some(row) = movement_of(world, change.movement)? {
+        for (positions, text) in [
+            (&row.positions, "room_in_use: temporary room would cover a current person"),
+            (&row.staff_positions, "room_in_use: temporary room would cover a current staff member"),
+        ] {
+            for position in positions.values() {
+                if let Some(point) = position.point {
+                    if !usable(point.x, point.y) {
+                        return refuse("a position is not a usable point");
+                    }
+                    if point_in_polygon(Pt { x: point.x, y: point.y }, &polygon) {
+                        return invalid(text);
+                    }
+                }
+            }
+        }
+    }
+    let mut access = Vec::with_capacity(route_ids.len() + 1);
+    for id in &route_ids {
+        let (edge, route) = (&edges[id], &layout.routes[&**id]);
+        let point = if &*edge.to == target { route.points[route.points.len() - 1] } else { route.points[0] };
+        access.push(point);
+    }
+    if let Some(center) = geo.center(target)? {
+        access.push(center);
+    }
+    for bed in &beds {
+        let mut reachable = false;
+        for entry in &access {
+            if geo.room_route(target, Some(*entry), *bed, "independent").map_err(Error::unsupported)?.is_some() {
+                reachable = true;
+                break;
+            }
+        }
+        if !reachable {
+            return invalid("route_unavailable: every bed must be reachable from a room access point");
+        }
+    }
+    Ok(())
 }
 
 // ---- apply_geometry_change ----------------------------------------------------------------------
@@ -2474,6 +2518,31 @@ pub fn check_overlay(world: &World, overlay: &Held, geo: Option<&Geo>) -> Result
         return refuse("the overlay exceeds a limit");
     }
     let minute = world.minute_index()?;
+    check_overlay_history(history, minute)?;
+    let geo = plan(geo)?;
+    let layout = layout_of_plan(geo)?;
+    let constraints = geo.constraints.as_ref();
+    let edges = edges_of(world)?;
+    // Facility and person facts, read once.
+    let (facility_zones, agents): (HashMap<Arc<str>, Arc<str>>, HashSet<Arc<str>>) = {
+        let rows = world.rows()?;
+        (rows.facilities.iter().map(|(id, facility)| (id.clone(), facility.zone_id.clone())).collect(), rows.agents.iter().map(|(id, _)| id.clone()).collect())
+    };
+    let RoomFacts { active_rooms, room_capacity, sleeping } = check_rooms(rooms, layout, &edges, minute)?;
+    check_facility_points(points, layout, &facility_zones, minute)?;
+    check_partitions(partitions, layout, minute)?;
+    check_route_modifiers(route_modifiers, &edges, minute)?;
+    let Some(constraints) = constraints else {
+        return refuse("no constraints");
+    };
+    check_footprints(constraints, layout, &facility_zones, &active_rooms)?;
+    check_reservations(reservations, &agents, &sleeping, minute)?;
+    check_admissions(admissions, &agents, &room_capacity, minute)
+}
+
+/// The overlay's history: each record of its shape, its transitions unique, its minutes in order
+/// and none after the minute.
+fn check_overlay_history(history: &[V], minute: i64) -> Result<()> {
     let mut seen = HashSet::new();
     let mut previous = None;
     for row in history {
@@ -2503,15 +2572,20 @@ pub fn check_overlay(world: &World, overlay: &Held, geo: Option<&Geo>) -> Result
         }
         previous = Some(at);
     }
-    let geo = plan(geo)?;
-    let layout = layout_of_plan(geo)?;
-    let constraints = geo.constraints.as_ref();
-    let edges = edges_of(world)?;
-    // Facility and person facts, read once.
-    let (facility_zones, agents): (HashMap<Arc<str>, Arc<str>>, HashSet<Arc<str>>) = {
-        let rows = world.rows()?;
-        (rows.facilities.iter().map(|(id, facility)| (id.clone(), facility.zone_id.clone())).collect(), rows.agents.iter().map(|(id, _)| id.clone()).collect())
-    };
+    Ok(())
+}
+
+/// What the temporary rooms give the later checks: the active rooms (ID, polygon, zone) and the
+/// people and beds each room takes.
+struct RoomFacts<'a> {
+    active_rooms: Vec<(&'a Arc<str>, Vec<Pt>, &'a Arc<str>)>,
+    room_capacity: HashMap<&'a str, i64>,
+    sleeping: HashMap<&'a str, i64>,
+}
+
+/// The temporary rooms: each of its contract's shape, in its zone with its beds inside it and its
+/// routes in and out while active, and the active rooms neither overlapping nor covering a facility.
+fn check_rooms<'a>(rooms: &'a Doc, layout: &Layout, edges: &HashMap<Arc<str>, Edge>, minute: i64) -> Result<RoomFacts<'a>> {
     let mut active_rooms: Vec<(&Arc<str>, Vec<Pt>, &Arc<str>)> = Vec::new();
     let mut room_capacity: HashMap<&str, i64> = HashMap::new();
     let mut sleeping: HashMap<&str, i64> = HashMap::new();
@@ -2613,6 +2687,11 @@ pub fn check_overlay(world: &World, overlay: &Held, geo: Option<&Geo>) -> Result
             return refuse("an active room covers a facility");
         }
     }
+    Ok(RoomFacts { active_rooms, room_capacity, sleeping })
+}
+
+/// The moved facilities and the service points: each inside its facility's zone.
+fn check_facility_points(points: &Doc, layout: &Layout, facility_zones: &HashMap<Arc<str>, Arc<str>>, minute: i64) -> Result<()> {
     for (key, row) in points {
         let row = map_of(row)?;
         if !has_exactly(row, &["point_m", "event_id", "source_ids", "minute"]) || !is_identifier(key) {
@@ -2635,6 +2714,11 @@ pub fn check_overlay(world: &World, overlay: &Held, geo: Option<&Geo>) -> Result
             return refuse("a service point leaves its zone");
         }
     }
+    Ok(())
+}
+
+/// The partitions: each of its shape, inside its zone, and bounded in time.
+fn check_partitions(partitions: &Doc, layout: &Layout, minute: i64) -> Result<()> {
     for (key, row) in partitions {
         let row = map_of(row)?;
         if !has_exactly(row, &["zone_id", "polygon_m", "event_id", "source_ids", "minute", "end_minute"]) || !is_identifier(key) {
@@ -2651,6 +2735,12 @@ pub fn check_overlay(world: &World, overlay: &Held, geo: Option<&Geo>) -> Result
             return refuse("a partition is not what the Python rule passes");
         }
     }
+    Ok(())
+}
+
+/// The route modifiers: each of its shape and bounded in time, and the graph closing each route as
+/// its modifiers do.
+fn check_route_modifiers(route_modifiers: &Doc, edges: &HashMap<Arc<str>, Edge>, minute: i64) -> Result<()> {
     let mut nested = 0;
     for (key, row) in route_modifiers {
         let row = map_of(row)?;
@@ -2687,9 +2777,16 @@ pub fn check_overlay(world: &World, overlay: &Held, geo: Option<&Geo>) -> Result
     if nested > 256 {
         return refuse("the overlay exceeds a limit");
     }
-    let Some(constraints) = constraints else {
-        return refuse("no constraints");
-    };
+    Ok(())
+}
+
+/// The footprints: each inside its facility's zone and clear of the active rooms there.
+fn check_footprints(
+    constraints: &Constraints,
+    layout: &Layout,
+    facility_zones: &HashMap<Arc<str>, Arc<str>>,
+    active_rooms: &[(&Arc<str>, Vec<Pt>, &Arc<str>)],
+) -> Result<()> {
     for (facility_id, footprint) in &constraints.footprints {
         let Some(zone_id) = facility_zones.get(facility_id) else {
             return refuse("a footprint of an unknown facility");
@@ -2704,6 +2801,11 @@ pub fn check_overlay(world: &World, overlay: &Held, geo: Option<&Geo>) -> Result
             return refuse("an active room overlaps a footprint");
         }
     }
+    Ok(())
+}
+
+/// The bed reservations: each of a known person, for a bed its room has, and no bed twice.
+fn check_reservations(reservations: &Doc, agents: &HashSet<Arc<str>>, sleeping: &HashMap<&str, i64>, minute: i64) -> Result<()> {
     let mut beds_held: HashSet<(Arc<str>, i64)> = HashSet::new();
     for (agent_id, reservation) in reservations {
         let reservation = map_of(reservation)?;
@@ -2728,6 +2830,11 @@ pub fn check_overlay(world: &World, overlay: &Held, geo: Option<&Geo>) -> Result
             return refuse("a reservation is not what the Python rule passes");
         }
     }
+    Ok(())
+}
+
+/// The room admissions: each of a known person to a known room, and no room over its capacity.
+fn check_admissions(admissions: &Doc, agents: &HashSet<Arc<str>>, room_capacity: &HashMap<&str, i64>, minute: i64) -> Result<()> {
     let mut counts: HashMap<&str, i64> = HashMap::new();
     for (agent_id, admission) in admissions {
         let admission = map_of(admission)?;

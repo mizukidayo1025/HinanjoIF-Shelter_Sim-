@@ -2017,7 +2017,15 @@ impl Case {
 
     fn enqueue(&mut self, queue: &str, request_id: &str) -> Result<(), Error> {
         let (held, plan) = (self.held(QUEUES), self.plan().unwrap());
-        self.with(|world| fifo::enqueue(world, &held, &plan, queue, request_id, "fresh-task", "A003", "toilet", 0))
+        self.with(|world| {
+            fifo::enqueue(
+                world,
+                &held,
+                &plan,
+                queue,
+                fifo::NewRequest { request_id, task_id: "fresh-task", agent_id: "A003", service_kind: "toilet", requested_minute: 0 },
+            )
+        })
     }
 }
 
@@ -2133,7 +2141,15 @@ fn a_queue_transition_is_an_applied_record_of_the_log() {
         let sequence = case.counter();
         let logged = case.records().len();
         let plan = case.plan().unwrap();
-        case.with(|world| fifo::record_transition(world, &held, &plan, &request, transition, &tasks[1], wait, cause)).unwrap();
+        case.with(|world| {
+            fifo::record_transition(
+                world,
+                &held,
+                &plan,
+                &fifo::Transition { request: &request, transition, task_id: &tasks[1], wait_minutes: wait, causation_id: cause },
+            )
+        })
+        .unwrap();
         assert_eq!(case.counter(), sequence + 1);
         let records = case.records();
         assert_eq!(records.len(), logged + 1);

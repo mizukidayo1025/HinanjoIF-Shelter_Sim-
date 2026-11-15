@@ -225,14 +225,14 @@ fn trip<'a>(agent: &str, route: Route, purpose: &'a str) -> Trip<'a> {
 #[test]
 fn the_routers_are_the_tables_and_tainted_tables_build_none() {
     let mut world = world();
-    let (people, staff) = travel::routers_of(&world, &RouteCapacities::default(), None).unwrap().unwrap();
+    let travel::Routers { people, staff } = travel::routers_of(&world, &RouteCapacities::default(), None).unwrap().unwrap();
     // No floor plan: the staff walk the people's graph.
     assert!(Arc::ptr_eq(&people, &staff.unwrap()));
     let found = travel::world_route(&world, &text("z0"), &text("z2")).unwrap().unwrap();
     assert_eq!((found.edge_ids, found.minutes), (vec![text("e1"), text("e3")], 6));
     // A plan the PyO3 crate could not read is said where the staff's graph needs it.
     let planned = world_with(map(vec![("facility_geometry", V::Null)]));
-    let (_, staff) = travel::routers_of(&planned, &RouteCapacities::default(), None).unwrap().unwrap();
+    let travel::Routers { staff, .. } = travel::routers_of(&planned, &RouteCapacities::default(), None).unwrap().unwrap();
     assert_eq!(staff.err(), Some(unsupported(PLAN_UNREAD)));
     world.entities.get_mut().taint_zones("a value that does not fit".to_owned());
     assert!(travel::routers_of(&world, &RouteCapacities::default(), None).unwrap().is_none());

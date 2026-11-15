@@ -103,14 +103,19 @@ pub struct Graph {
     pub capacities: Arc<RouteCapacities>,
 }
 
+/// The people's router and the staff's (a result of its own).
+pub struct Routers {
+    pub people: Arc<Router>,
+    pub staff: Result<Arc<Router>>,
+}
+
 /// `_refresh_space` for the kernels: the people's and the staff's routers, from the world's tables
 /// now. What `ZoneGraph.from_states(world.zones, world.zone_edges, edge_capacities=capacities)`
 /// turns down is its ValueError. With a floor plan (`"facility_geometry" in model_configs` and an
 /// edge), the staff's graph keeps the edges the plan finds clear for an independent walker. The
 /// staff's router is a result of its own, so that the people's is kept first, as before. None
 /// where the tables dropped their rows.
-#[allow(clippy::type_complexity)]
-pub fn routers_of(world: &World, capacities: &RouteCapacities, geo: Option<&Arc<Geo>>) -> Result<Option<(Arc<Router>, Result<Arc<Router>>)>> {
+pub fn routers_of(world: &World, capacities: &RouteCapacities, geo: Option<&Arc<Geo>>) -> Result<Option<Routers>> {
     let (people, edges) = {
         let rows = world.entities.try_borrow()?;
         if rows.zones_tainted().is_some() {
@@ -126,7 +131,7 @@ pub fn routers_of(world: &World, capacities: &RouteCapacities, geo: Option<&Arc<
             Ok(people.clone())
         }
     })();
-    Ok(Some((people, staff)))
+    Ok(Some(Routers { people, staff }))
 }
 
 /// `SpaceRouter(ZoneGraph.from_states(zones, edges)).route(...)` with nothing closed, for a rule
@@ -490,6 +495,16 @@ pub struct Walking<'a> {
     pub geo: Option<&'a Arc<Geo>>,
 }
 
+/// Who walks into the room of which facility, why, and from which zone (`_schedule_room_approach`'s
+/// `origin_zone_id`).
+#[derive(Clone, Copy)]
+pub struct RoomApproach<'a> {
+    pub agent_id: &'a Arc<str>,
+    pub facility_id: &'a Arc<str>,
+    pub purpose: &'a str,
+    pub origin_zone_id: &'a Arc<str>,
+}
+
 /// What a trip needs beside its route.
 pub struct Trip<'a> {
     pub agent_id: Arc<str>,
@@ -567,24 +582,12 @@ fn strings(ids: &[Arc<str>]) -> V {
 }
 
 /// The start of the walk in the row of `movement_v1`, where `model_state` has it.
-#[allow(clippy::too_many_arguments)]
-fn plan_walk(
-    world: &World,
-    walking: Walking<'_>,
-    agent_id: &Arc<str>,
-    journey: Journey,
-    origin: &Arc<str>,
-    points: &[Pt],
-    edge_ids: &[Arc<str>],
-    minute: i64,
-    minutes: i64,
-) -> Result<Option<Changes>> {
+fn plan_walk(world: &World, walking: Walking<'_>, start: Start<'_>) -> Result<Option<Changes>> {
     match walking.movement {
         Held::Absent => Ok(None),
         Held::Other(reason) => Err(Error::unsupported(*reason)),
         Held::Held => {
             let geo = plan(walking.geo)?;
-            let start = Start { agent_id, journey, origin, points, edge_ids, started: minute, duration: minutes };
             movement::plan_start_in(world, geo, start).map(Some)
         }
     }
@@ -736,24 +739,25 @@ pub fn plan_travel(world: &World, events: &Events<'_>, walking: Walking<'_>, tri
         support_request_id,
         support_staff_id,
     };
-    let changes = plan_walk(world, walking, &agent_id, journey, &route.origin, &points, &route.edge_ids, minute, route.minutes)?;
+    let changes = plan_walk(
+        world,
+        walking,
+        Start { agent_id: &agent_id, journey, origin: &route.origin, points: &points, edge_ids: &route.edge_ids, started: minute, duration: route.minutes },
+    )?;
     Ok(Some(PlannedTrip { agent_id, task_id, task_kind, target_id, minute, due, event, changes }))
 }
 
 /// `_schedule_room_approach` of `events/handlers.py`, changing nothing. None is its False.
-#[allow(clippy::too_many_arguments)]
 pub fn plan_room_approach(
     world: &World,
     events: &Events<'_>,
     walking: Walking<'_>,
-    agent_id: &Arc<str>,
-    facility_id: &Arc<str>,
-    purpose: &str,
+    approach: RoomApproach<'_>,
     route: Route,
     points: &[Pt],
     minute: i64,
-    origin_zone_id: &Arc<str>,
 ) -> Result<Option<PlannedTrip>> {
+    let RoomApproach { agent_id, facility_id, purpose, origin_zone_id } = approach;
     if route.minutes >= EXACT_INT {
         return refuse("a journey has no plain duration");
     }
@@ -818,7 +822,11 @@ pub fn plan_room_approach(
         support_request_id: None,
         support_staff_id: None,
     };
-    let changes = plan_walk(world, walking, agent_id, journey, &route.origin, points, &route.edge_ids, minute, route.minutes)?;
+    let changes = plan_walk(
+        world,
+        walking,
+        Start { agent_id, journey, origin: &route.origin, points, edge_ids: &route.edge_ids, started: minute, duration: route.minutes },
+    )?;
     Ok(Some(PlannedTrip { agent_id: agent_id.clone(), task_id, task_kind, target_id: facility_id.clone(), minute, due, event, changes }))
 }
 

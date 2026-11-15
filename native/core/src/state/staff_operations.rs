@@ -12,6 +12,8 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 
+use indexmap::IndexMap;
+
 use crate::entities::Entities;
 use crate::row::IdMap;
 use crate::value::V;
@@ -252,7 +254,62 @@ fn active_of(staff_id: &str, record: &OperationRecord, config: &V) -> Option<Act
     })
 }
 
+// ---- What the rules read of the config ---------------------------------------------------------
+
+/// A number of the config, as Python holds it: an int (one past i64 is `Big`), a float, or another
+/// value.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Number {
+    Int(i64),
+    Big,
+    Float(f64),
+    Other,
+}
+
+/// What the config holds under a name the rules read as a dict: nothing, another value, or the dict.
+#[derive(Clone, Copy)]
+pub enum Table<'a> {
+    Missing,
+    Other,
+    Map(Entries<'a>),
+}
+
+/// A dict of the config (the config itself, one of its tables, a zone's entry), read by name. The
+/// config is the row's as it was given (canonical, but not checked here): each rule says what it
+/// says of a value it can't read, where it reads it.
+#[derive(Clone, Copy)]
+pub struct Entries<'a>(&'a IndexMap<Arc<str>, V>);
+
+impl<'a> Entries<'a> {
+    /// `dict.get(name)`, as a number.
+    pub fn number(self, name: &str) -> Option<Number> {
+        self.0.get(name).map(|value| match value {
+            V::Int(number) => Number::Int(*number),
+            V::Big(_) => Number::Big,
+            V::Float(number) => Number::Float(*number),
+            _ => Number::Other,
+        })
+    }
+
+    /// `dict.get(name)`, as a dict.
+    pub fn table(self, name: &str) -> Table<'a> {
+        match self.0.get(name) {
+            None => Table::Missing,
+            Some(V::Map(entries)) => Table::Map(Entries(entries)),
+            Some(_) => Table::Other,
+        }
+    }
+}
+
 impl StaffOperationsRow {
+    /// The config as a dict, or None where it holds another value.
+    pub fn config_entries(&self) -> Option<Entries<'_>> {
+        match &self.config {
+            V::Map(config) => Some(Entries(config)),
+            _ => None,
+        }
+    }
+
     /// The rules of `validate_staff_operations_state` that read the row alone, for a world of these
     /// zones: the active records if they pass, or None, which is then the Python rule's to say.
     pub fn active_records(&self, zones: &HashSet<String>) -> Option<Vec<Active>> {

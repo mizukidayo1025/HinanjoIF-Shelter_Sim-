@@ -47,7 +47,7 @@ use crate::state::body_state::{BodyRow, NAME as BODY_STATE};
 use crate::state::effect_program::{EffectProgramRow, NAME as PROGRAM};
 use crate::state::shared_operations::{SharedOperationsRow, NAME as SHARED_OPERATIONS};
 use crate::state::staff_dynamics::{StaffDynamicsRow, NAME as STAFF_DYNAMICS};
-use crate::state::staff_operations::{OperationRecord, Phase, StaffOperationsRow, NAME};
+use crate::state::staff_operations::{Entries, Number, OperationRecord, Phase, StaffOperationsRow, Table, NAME};
 use crate::text::g_text;
 use crate::value::V;
 use crate::world::{World, WorldCell, MODEL_CONFIGS};
@@ -212,7 +212,7 @@ fn workers_at(world: &World, inputs: &Inputs<'_>, minute: i64) -> Result<Vec<Wor
     };
     staff_dynamics::with_staff_status(world, |status| {
         for worker in &mut workers {
-            worker.available = staff_dynamics::is_available(status, &worker.id)?;
+            worker.available = status.is_available(&worker.id)?;
             worker.can_start = !has_dynamics || (worker.on_shift && worker.available && !worker.on_operation);
         }
         Ok(())
@@ -1212,55 +1212,62 @@ pub fn open_waits(
 
 // ---- update_staff_operations ---------------------------------------------------------------------
 
-/// The value under `name` of a config document.
-fn config_item<'a>(config: &'a V, name: &str) -> Result<&'a V> {
-    match config {
-        V::Map(config) => config.get(name).ok_or_else(|| Error::unsupported("the config lacks a key")),
-        _ => Err(Error::unsupported("the config is not a map")),
+/// The config as a dict (`StaffOperationsRow::config_entries`).
+fn config_of(config: Option<Entries<'_>>) -> Result<Entries<'_>> {
+    config.ok_or_else(|| Error::unsupported("the config is not a map"))
+}
+
+/// The number under `name` of the config.
+fn config_number(config: Option<Entries<'_>>, name: &str) -> Result<Number> {
+    config_of(config)?.number(name).ok_or_else(|| Error::unsupported("the config lacks a key"))
+}
+
+/// `config["task_duration_minutes"]`.
+fn task_durations(config: Option<Entries<'_>>) -> Result<Entries<'_>> {
+    match config_of(config)?.table("task_duration_minutes") {
+        Table::Map(durations) => Ok(durations),
+        Table::Missing => Err(Error::unsupported("the config lacks a key")),
+        Table::Other => Err(Error::unsupported("the task durations are not a map")),
     }
 }
 
 /// `config[table].get(zone, {}).get(name)`. A table that is `required` is read as `config[table]`.
-fn zone_override<'a>(config: &'a V, table: &str, zone: &str, name: &str, required: bool) -> Result<Option<&'a V>> {
-    let V::Map(document) = config else {
-        return Err(Error::unsupported("the config is not a map"));
+fn zone_override(config: Option<Entries<'_>>, table: &str, zone: &str, name: &str, required: bool) -> Result<Option<Number>> {
+    let table = match config_of(config)?.table(table) {
+        Table::Map(table) => table,
+        Table::Missing => return if required { Err(Error::unsupported("the config lacks a table")) } else { Ok(None) },
+        Table::Other => return Err(Error::unsupported("a table of the config is not a map")),
     };
-    let Some(table) = document.get(table) else {
-        return if required { Err(Error::unsupported("the config lacks a table")) } else { Ok(None) };
-    };
-    let V::Map(table) = table else {
-        return Err(Error::unsupported("a table of the config is not a map"));
-    };
-    match table.get(zone) {
-        None => Ok(None),
-        Some(V::Map(entry)) => Ok(entry.get(name)),
-        Some(_) => Err(Error::unsupported("an entry of the config is not a map")),
+    match table.table(zone) {
+        Table::Missing => Ok(None),
+        Table::Map(entry) => Ok(entry.number(name)),
+        Table::Other => Err(Error::unsupported("an entry of the config is not a map")),
     }
 }
 
 /// `load * rate * elapsed` of `update_staff_operations`, from the left, as the float Python takes
 /// off the sanitation. `canonical_staff_operations_config` takes an int rate too (0 or 1 in its
 /// range): its product is an int, exact, which the float subtraction then reads as its float.
-fn used_sanitation(rate: &V, load: i64, elapsed: i64) -> Result<f64> {
+fn used_sanitation(rate: Number, load: i64, elapsed: i64) -> Result<f64> {
     match rate {
-        V::Float(rate) => Ok(load as f64 * rate * elapsed as f64),
-        V::Int(rate) => {
-            let used = i128::from(load) * i128::from(*rate) * i128::from(elapsed);
+        Number::Float(rate) => Ok(load as f64 * rate * elapsed as f64),
+        Number::Int(rate) => {
+            let used = i128::from(load) * i128::from(rate) * i128::from(elapsed);
             if used.unsigned_abs() > FLOAT_EXACT_INT as u128 {
                 return Err(Error::unsupported("the sanitation used does not fit a float"));
             }
             Ok(used as f64)
         }
-        _ => Err(Error::unsupported("a rate is not a number")),
+        Number::Big | Number::Other => Err(Error::unsupported("a rate is not a number")),
     }
 }
 
 /// A threshold a comparison with a float reads: both types compare as their value does.
-fn threshold(value: Option<&V>, default: f64) -> Result<f64> {
+fn threshold(value: Option<Number>, default: f64) -> Result<f64> {
     match value {
         None => Ok(default),
-        Some(V::Float(number)) => Ok(*number),
-        Some(V::Int(number)) if number.abs() < FLOAT_EXACT_INT => Ok(*number as f64),
+        Some(Number::Float(number)) => Ok(number),
+        Some(Number::Int(number)) if number.abs() < FLOAT_EXACT_INT => Ok(number as f64),
         Some(_) => Err(Error::unsupported("a threshold is not a number")),
     }
 }
@@ -1283,7 +1290,7 @@ pub fn update_operations(world: &World, inputs: &Inputs<'_>, minute: i64) -> Res
     let plan = {
         let row = inputs.operations_held(world)?;
         let mut plan = Vec::with_capacity(zones.len());
-        let global = config_item(&row.config, "sanitation_use_per_person_minute")?;
+        let global = config_number(row.config_entries(), "sanitation_use_per_person_minute")?;
         for (zone_id, load) in zones.iter().zip(&loads) {
             let Some((index, _, record)) = row.zones.get_full(zone_id) else {
                 return Err(Error::unsupported("a zone has no record"));
@@ -1295,7 +1302,7 @@ pub fn update_operations(world: &World, inputs: &Inputs<'_>, minute: i64) -> Res
             if elapsed >= FLOAT_EXACT_INT {
                 return Err(Error::unsupported("the time since the update does not fit a float"));
             }
-            let rate = zone_override(&row.config, "effects_by_zone", zone_id, "sanitation_use_per_person_minute", true)?.unwrap_or(global);
+            let rate = zone_override(row.config_entries(), "effects_by_zone", zone_id, "sanitation_use_per_person_minute", true)?.unwrap_or(global);
             let sanitation = py_max(0.0, record.sanitation - used_sanitation(rate, *load, elapsed)?);
             if record.sanitation.to_bits() != sanitation.to_bits() || record.updated_minute != minute {
                 plan.push((index, sanitation));
@@ -1390,7 +1397,7 @@ fn a_task_is_open(world: &World, inputs: &Inputs<'_>, row: &StaffOperationsRow, 
     };
     if cleaners {
         for (zone, record) in &row.zones {
-            let below = threshold(zone_override(&row.config, "thresholds_by_zone", zone, "cleaning_sanitation_below", false)?, CLEANING_BELOW)?;
+            let below = threshold(zone_override(row.config_entries(), "thresholds_by_zone", zone, "cleaning_sanitation_below", false)?, CLEANING_BELOW)?;
             if record.sanitation < below && !reserved("cleaning", zone) {
                 return Ok(true);
             }
@@ -1409,7 +1416,8 @@ fn a_task_is_open(world: &World, inputs: &Inputs<'_>, row: &StaffOperationsRow, 
                 continue;
             }
             let mean = mean_of(&group.uncertainty, "an uncertainty is not finite")?;
-            let at_least = threshold(zone_override(&row.config, "thresholds_by_zone", zone, "outreach_uncertainty_at_least", false)?, OUTREACH_AT_LEAST)?;
+            let at_least =
+                threshold(zone_override(row.config_entries(), "thresholds_by_zone", zone, "outreach_uncertainty_at_least", false)?, OUTREACH_AT_LEAST)?;
             if mean >= at_least && !reserved("information_outreach", zone) {
                 return Ok(true);
             }
@@ -1421,7 +1429,7 @@ fn a_task_is_open(world: &World, inputs: &Inputs<'_>, row: &StaffOperationsRow, 
                 continue;
             };
             let mean = mean_of(&group.stress, "a stress is not finite")?;
-            let at_least = threshold(zone_override(&row.config, "thresholds_by_zone", &zone, "patrol_stress_at_least", false)?, PATROL_AT_LEAST)?;
+            let at_least = threshold(zone_override(row.config_entries(), "thresholds_by_zone", &zone, "patrol_stress_at_least", false)?, PATROL_AT_LEAST)?;
             if mean >= at_least && !reserved("patrol", &zone) {
                 return Ok(true);
             }
@@ -1483,7 +1491,7 @@ fn open_tasks(world: &World, inputs: &Inputs<'_>, row: &StaffOperationsRow, work
         let mut zones: Vec<(&Arc<str>, f64)> = row.zones.iter().map(|(zone, record)| (zone, record.sanitation)).collect();
         zones.sort_by(|first, second| first.0.cmp(second.0));
         for (zone, sanitation) in zones {
-            let below = threshold(zone_override(&row.config, "thresholds_by_zone", zone, "cleaning_sanitation_below", false)?, CLEANING_BELOW)?;
+            let below = threshold(zone_override(row.config_entries(), "thresholds_by_zone", zone, "cleaning_sanitation_below", false)?, CLEANING_BELOW)?;
             if sanitation < below {
                 tasks.push(OpenTask {
                     urgency: 1.0 - sanitation,
@@ -1533,7 +1541,8 @@ fn open_tasks(world: &World, inputs: &Inputs<'_>, row: &StaffOperationsRow, work
                     continue;
                 }
                 let mean = mean_of(&group.uncertainty, "an uncertainty is not finite")?;
-                let at_least = threshold(zone_override(&row.config, "thresholds_by_zone", zone, "outreach_uncertainty_at_least", false)?, OUTREACH_AT_LEAST)?;
+                let at_least =
+                    threshold(zone_override(row.config_entries(), "thresholds_by_zone", zone, "outreach_uncertainty_at_least", false)?, OUTREACH_AT_LEAST)?;
                 if mean >= at_least {
                     tasks.push(OpenTask {
                         urgency: mean,
@@ -1554,7 +1563,7 @@ fn open_tasks(world: &World, inputs: &Inputs<'_>, row: &StaffOperationsRow, work
                     continue;
                 };
                 let mean = mean_of(&group.stress, "a stress is not finite")?;
-                let at_least = threshold(zone_override(&row.config, "thresholds_by_zone", &zone, "patrol_stress_at_least", false)?, PATROL_AT_LEAST)?;
+                let at_least = threshold(zone_override(row.config_entries(), "thresholds_by_zone", &zone, "patrol_stress_at_least", false)?, PATROL_AT_LEAST)?;
                 if mean >= at_least {
                     tasks.push(OpenTask {
                         urgency: mean * 0.5,
@@ -1636,13 +1645,10 @@ fn plan_operations(world: &World, inputs: &Inputs<'_>, at: i64, routed: &Routed<
         let row = inputs.operations_held(world)?;
         let mut durations = Vec::with_capacity(TASK_KINDS.len());
         for kind in TASK_KINDS {
-            let V::Map(table) = config_item(&row.config, "task_duration_minutes")? else {
-                return Err(Error::unsupported("the task durations are not a map"));
-            };
-            let Some(V::Int(minutes)) = table.get(kind) else {
+            let Some(Number::Int(minutes)) = task_durations(row.config_entries())?.number(kind) else {
                 return Err(Error::unsupported("a task duration is not an int"));
             };
-            durations.push((kind, *minutes));
+            durations.push((kind, minutes));
         }
         let reserved: HashSet<(Arc<str>, Arc<str>, Option<Arc<str>>)> = row
             .staff
@@ -1874,13 +1880,10 @@ fn plan_relief(world: &World, inputs: &Inputs<'_>, at: i64, next: i64, duration:
         let (Some(target), Some(kind)) = (&operation.target_zone_id, &operation.task_kind) else {
             return Err(Error::unsupported("a staff member's task has no target"));
         };
-        let V::Map(durations) = config_item(&row.config, "task_duration_minutes")? else {
-            return Err(Error::unsupported("the task durations are not a map"));
-        };
-        let Some(V::Int(work)) = durations.get(&**kind) else {
+        let Some(Number::Int(work)) = task_durations(row.config_entries())?.number(kind) else {
             return Err(Error::unsupported("a task duration is not an int"));
         };
-        let Some(after) = next.checked_add(*work) else {
+        let Some(after) = next.checked_add(work) else {
             return Err(Error::unsupported("a due minute out of range"));
         };
         if after >= duration {

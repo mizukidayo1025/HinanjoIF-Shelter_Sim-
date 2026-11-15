@@ -498,7 +498,7 @@ pub(crate) fn first_available(world: &World, mut candidates: Vec<Arc<str>>, minu
     // `staff_status(world)`, read once before the members, as the rule reads it.
     staff_dynamics::with_staff_status(world, |_| Ok(()))?;
     for candidate in candidates {
-        if !staff_dynamics::with_staff_status(world, |status| staff_dynamics::is_available(status, &candidate))? {
+        if !staff_dynamics::with_staff_status(world, |status| status.is_available(&candidate))? {
             continue;
         }
         if available_now(world, &candidate, minute)? {

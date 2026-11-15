@@ -701,7 +701,7 @@ fn guard_field(world: &World, ins: &GuardIn<'_>, row: &EventRow, field: GuardFie
             let (Some(staff_id), true) = (staff_id, known) else {
                 return Ok(Err("guard staff.available has no known staff target".to_owned()));
             };
-            let available = staff_dynamics::with_staff_status(world, |status| staff_dynamics::is_available(status, &staff_id))?;
+            let available = staff_dynamics::with_staff_status(world, |status| status.is_available(&staff_id))?;
             Ok(Ok(Actual::Bool(available)))
         }
     }
@@ -1725,7 +1725,7 @@ fn handoff_writes(world: &World, ins: &HandoffIn<'_>, plan: &Handoff, taken: &mu
     let Some(old_record) = old_record else {
         return Err(Error::unsupported("no record"));
     };
-    let available = staff_dynamics::with_staff_status(world, |status| staff_dynamics::is_available(status, replacement_id))?
+    let available = staff_dynamics::with_staff_status(world, |status| status.is_available(replacement_id))?
         && staff_operation_events::dynamics_available(world, replacement_id, minute).map_err(|error| Error::refused(AVAILABLE, error))?;
     if !available {
         return Err(Error::failed("staff handoff replacement is unavailable"));

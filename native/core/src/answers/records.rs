@@ -31,8 +31,16 @@ pub type Record = Map<String, Value>;
 /// The folder the store's usage accounts are kept in, which is no Project.
 pub const RESERVED: &str = "runtime-accounts";
 
+/// The store's text of an id that is not one.
+pub const INVALID_ID: &str = "invalid artifact identifier";
+/// The store's text of a record that is not there or is not JSON.
+pub const MISSING: &str = "saved artifact is missing or corrupt";
+/// The store's text of a record of another schema version.
+pub const UNSUPPORTED: &str = "unsupported saved artifact version; migration required";
+
 /// Whether `text` is an identifier the store takes for a folder (Python's `ProjectStore._path`):
-/// `^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$`.
+/// `^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$`. The browser's store and the store on a disk
+/// (`sheltersim_store`) both take this one.
 pub fn is_id(text: &str) -> bool {
     let bytes = text.as_bytes();
     !bytes.is_empty()
@@ -46,19 +54,38 @@ pub fn check_id(text: &str) -> Answer<()> {
     if is_id(text) {
         Ok(())
     } else {
-        Err(Refusal::storage("invalid artifact identifier").into())
+        Err(Refusal::storage(INVALID_ID).into())
+    }
+}
+
+/// A record's bytes read: a JSON object of `schema_version` 1, or the text of the store's refusal
+/// (`MISSING`, `UNSUPPORTED`). Both stores read records with this; each refuses with its own error.
+pub fn record_of(bytes: &[u8]) -> Result<Record, &'static str> {
+    let value: Value = std::str::from_utf8(bytes).ok().and_then(|text| serde_json::from_str(text).ok()).ok_or(MISSING)?;
+    match value {
+        Value::Object(record) if record.get("schema_version").and_then(super::js_number) == Some(1.0) => Ok(record),
+        _ => Err(UNSUPPORTED),
+    }
+}
+
+/// A Run's record's bytes read (`run.json`): `schema_version` 1, or 2, which adds `created_at`
+/// (#447); or the text of the store's refusal.
+pub fn run_record_of(bytes: &[u8]) -> Result<Record, &'static str> {
+    let value: Value = std::str::from_utf8(bytes).ok().and_then(|text| serde_json::from_str(text).ok()).ok_or(MISSING)?;
+    let version = value.get("schema_version").and_then(super::js_number);
+    match value {
+        Value::Object(record) if version == Some(1.0) => Ok(record),
+        Value::Object(record) if version == Some(2.0) => match record.get("created_at").and_then(Value::as_str) {
+            Some(created) if is_created_at(created) => Ok(record),
+            _ => Err(MISSING),
+        },
+        _ => Err(UNSUPPORTED),
     }
 }
 
 /// A record's bytes read: refused where they are not a JSON object of `schema_version` 1.
 pub fn parse_record(bytes: &[u8]) -> Answer<Record> {
-    let corrupt = || Refusal::storage("saved artifact is missing or corrupt");
-    let text = std::str::from_utf8(bytes).map_err(|_| corrupt())?;
-    let value: Value = serde_json::from_str(text).map_err(|_| corrupt())?;
-    match value {
-        Value::Object(record) if record.get("schema_version").and_then(super::js_number) == Some(1.0) => Ok(record),
-        _ => Err(Refusal::storage("unsupported saved artifact version; migration required").into()),
-    }
+    record_of(bytes).map_err(|text| Refusal::storage(text).into())
 }
 
 /// Whether `text` is a Run's creation time as `run.json` keeps it: UTC to the second,
@@ -77,25 +104,14 @@ pub fn is_created_at(text: &str) -> bool {
 
 /// A Run's record (`run.json`) read: `schema_version` 1, or 2, which adds `created_at` (#447).
 pub fn parse_run_record(bytes: &[u8]) -> Answer<Record> {
-    let corrupt = || Refusal::storage("saved artifact is missing or corrupt");
-    let text = std::str::from_utf8(bytes).map_err(|_| corrupt())?;
-    let value: Value = serde_json::from_str(text).map_err(|_| corrupt())?;
-    let version = value.get("schema_version").and_then(super::js_number);
-    match value {
-        Value::Object(record) if version == Some(1.0) => Ok(record),
-        Value::Object(record) if version == Some(2.0) => match record.get("created_at").and_then(Value::as_str) {
-            Some(created) if is_created_at(created) => Ok(record),
-            _ => Err(corrupt().into()),
-        },
-        _ => Err(Refusal::storage("unsupported saved artifact version; migration required").into()),
-    }
+    run_record_of(bytes).map_err(|text| Refusal::storage(text).into())
 }
 
 /// A Run's record that must be there: refused where it is missing.
 pub fn read_run_record(bytes: Option<&[u8]>) -> Answer<Record> {
     match bytes {
         Some(bytes) => parse_run_record(bytes),
-        None => Err(Refusal::storage("saved artifact is missing or corrupt").into()),
+        None => Err(Refusal::storage(MISSING).into()),
     }
 }
 
@@ -103,7 +119,7 @@ pub fn read_run_record(bytes: Option<&[u8]>) -> Answer<Record> {
 pub fn read_record(bytes: Option<&[u8]>) -> Answer<Record> {
     match bytes {
         Some(bytes) => parse_record(bytes),
-        None => Err(Refusal::storage("saved artifact is missing or corrupt").into()),
+        None => Err(Refusal::storage(MISSING).into()),
     }
 }
 
@@ -160,10 +176,8 @@ impl RunFiles {
 /// found by its record's id, and refused where it has no computed minutes.
 pub fn branch_of(project_id: &str, run_id: &str, files: &RunFiles, branch_id: &str) -> Answer<Record> {
     let (_, branches) = files.document(project_id, run_id)?;
-    let record = branches
-        .into_iter()
-        .find(|record| record.get("branch_id").and_then(Value::as_str) == Some(branch_id))
-        .ok_or_else(|| Refusal::storage("saved artifact is missing or corrupt"))?;
+    let record =
+        branches.into_iter().find(|record| record.get("branch_id").and_then(Value::as_str) == Some(branch_id)).ok_or_else(|| Refusal::storage(MISSING))?;
     if record.get("checkpoint_hash").is_none_or(Value::is_null) {
         return Err(Refusal::storage("branch has no computed minutes").into());
     }
@@ -280,7 +294,7 @@ pub fn project_answer(project_id: &str, project: Option<&[u8]>, scenarios: &[Sce
         let file = |wanted: &str| folder.files.iter().find(|(name, _)| name == wanted).map(|(_, bytes)| bytes.as_slice());
         for (name, version) in names {
             let record = read_record(file(name))?;
-            let text = file(&format!("v{version}.scenario.json")).ok_or_else(|| Refusal::storage("saved artifact is missing or corrupt"))?;
+            let text = file(&format!("v{version}.scenario.json")).ok_or_else(|| Refusal::storage(MISSING))?;
             if !first {
                 out.push(b',');
             }
@@ -345,6 +359,6 @@ pub fn evidence_answer(project_id: &str, run_id: &str, run: Option<&[u8]>, evide
     check_id(project_id)?;
     check_id(run_id)?;
     read_run_record(run)?;
-    let evidence = evidence.ok_or_else(|| Refusal::storage("saved artifact is missing or corrupt"))?;
+    let evidence = evidence.ok_or_else(|| Refusal::storage(MISSING))?;
     Ok(js_trim_end(utf8(evidence)?).as_bytes().to_vec())
 }

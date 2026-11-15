@@ -442,117 +442,9 @@ fn replay(ledger: &V, world: &Against<'_>) -> Result<()> {
         }
         last_audit_minute = record.minute;
         if record.operation == Operation::Initial {
-            if index >= RESOURCE_IDS.len() || record.resource != index {
-                return Err(ledger_error("initial resource audit records must lead in stable order"));
-            }
-            if record.event_id.is_some() || record.reservation_id.is_some() || record.agent_id.is_some() || record.source_id.is_some() {
-                return Err(ledger_error("initial resource audit cannot reference an event or Agent"));
-            }
-            if record.minute != 0 {
-                return Err(ledger_error("initial resource audit values are invalid"));
-            }
-            if record.quantity != record.balances[INITIAL] {
-                return Err(ledger_error("initial resource audit quantity does not match balance"));
-            }
-            let mut sorted = record.source_ids.clone();
-            sorted.sort_unstable();
-            sorted.dedup();
-            if record.source_ids != sorted {
-                return Err(ledger_error("initial resource audit source_ids must be sorted and unique"));
-            }
-            let mut balances = [0i128; 6];
-            balances[INITIAL] = record.quantity;
-            balances[REMAINING] = record.quantity;
-            replays[record.resource] = Some(Replay { balances, source_ids: record.source_ids.clone(), reservations: FxHashMap::default() });
+            replay_initial(&record, index, &mut replays)?;
         } else {
-            if index < RESOURCE_IDS.len() {
-                return Err(ledger_error("initial resource audit records must lead in stable order"));
-            }
-            if record.quantity == 0 {
-                return Err(ledger_error("resource event audit quantity must be positive"));
-            }
-            let (Some(event_id), Some(source_id)) = (record.event_id, record.source_id) else {
-                return Err(ledger_error("resource event audit requires event_id and source_id"));
-            };
-            if !event_ids.insert(event_id) {
-                return Err(ledger_error("resource audit event IDs must be unique"));
-            }
-            let has_reservation = matches!(record.operation, Operation::Reserve | Operation::Release | Operation::Consume);
-            if has_reservation != record.reservation_id.is_some() || has_reservation != record.agent_id.is_some() {
-                return Err(ledger_error("resource audit reservation identity is incomplete"));
-            }
-            if !record.source_ids.contains(&source_id) {
-                return Err(ledger_error("resource audit source is missing from source_ids"));
-            }
-            let Some(replay) = replays[record.resource].as_mut() else {
-                return Err(ledger_error("resource operation precedes its initial audit record"));
-            };
-            let quantity = record.quantity;
-            // A reservation's operation has both IDs (checked above).
-            let reservation = record.reservation_id.zip(record.agent_id);
-            match (record.operation, reservation) {
-                (Operation::Delivery, _) => {
-                    replay.balances[DELIVERED] += quantity;
-                    replay.balances[REMAINING] += quantity;
-                }
-                (Operation::Loss, _) => {
-                    if quantity > replay.balances[REMAINING] - replay.balances[RESERVED] {
-                        return Err(ledger_error("resource audit loss exceeds available inventory"));
-                    }
-                    replay.balances[LOSSES] += quantity;
-                    replay.balances[REMAINING] -= quantity;
-                }
-                (Operation::Reserve, Some((reservation_id, agent_id))) => {
-                    if used_history_set.contains(reservation_id) {
-                        return Err(ledger_error("resource audit reservation ID was reused"));
-                    }
-                    if quantity > replay.balances[REMAINING] - replay.balances[RESERVED] {
-                        return Err(ledger_error("resource audit reservation exceeds available stock"));
-                    }
-                    if !known_agent(agent_id) {
-                        return Err(ledger_error("resource audit references an unknown Agent"));
-                    }
-                    used_history.push(reservation_id);
-                    used_history_set.insert(reservation_id);
-                    replay.reservations.insert(reservation_id, (agent_id, quantity));
-                    replay.balances[RESERVED] += quantity;
-                }
-                (Operation::Release | Operation::Consume, Some((reservation_id, agent_id))) => {
-                    let reserved = match replay.reservations.get(reservation_id) {
-                        Some((agent, reserved)) if *agent == agent_id => *reserved,
-                        _ => return Err(ledger_error("resource audit reservation history is invalid")),
-                    };
-                    if !known_agent(agent_id) {
-                        return Err(ledger_error("resource audit references an unknown Agent"));
-                    }
-                    if record.operation == Operation::Release {
-                        if quantity != reserved {
-                            return Err(ledger_error("resource audit release quantity is invalid"));
-                        }
-                        replay.balances[RESERVED] -= reserved;
-                        replay.reservations.remove(reservation_id);
-                    } else {
-                        if quantity > reserved {
-                            return Err(ledger_error("resource audit consume exceeds its reservation"));
-                        }
-                        replay.balances[SERVED] += quantity;
-                        replay.balances[REMAINING] -= quantity;
-                        replay.balances[RESERVED] -= quantity;
-                        if quantity == reserved {
-                            replay.reservations.remove(reservation_id);
-                        } else {
-                            replay.reservations.insert(reservation_id, (agent_id, reserved - quantity));
-                        }
-                    }
-                }
-                _ => return Err(Error::unsupported("a reservation's operation without its IDs")),
-            }
-            if !replay.source_ids.contains(&source_id) {
-                replay.source_ids.push(source_id);
-            }
-            if record.source_ids != replay.source_ids {
-                return Err(ledger_error("resource audit source_ids do not match replay"));
-            }
+            replay_event(&record, index, &mut replays, &mut used_history, &mut used_history_set, &mut event_ids, &known_agent)?;
         }
         // Every record reaching here has its resource's replay: an initial one made it, and any
         // other is refused above without one.
@@ -578,6 +470,136 @@ fn replay(ledger: &V, world: &Against<'_>) -> Result<()> {
         if account.reservations != replay.reservations {
             return Err(ledger_error(format!("resource '{resource_id}' reservations do not match audit")));
         }
+    }
+    Ok(())
+}
+
+/// An initial audit record: it leads in stable order, references nothing and starts its
+/// resource's replay.
+fn replay_initial<'a>(record: &Record<'a>, index: usize, replays: &mut [Option<Replay<'a>>; 2]) -> Result<()> {
+    if index >= RESOURCE_IDS.len() || record.resource != index {
+        return Err(ledger_error("initial resource audit records must lead in stable order"));
+    }
+    if record.event_id.is_some() || record.reservation_id.is_some() || record.agent_id.is_some() || record.source_id.is_some() {
+        return Err(ledger_error("initial resource audit cannot reference an event or Agent"));
+    }
+    if record.minute != 0 {
+        return Err(ledger_error("initial resource audit values are invalid"));
+    }
+    if record.quantity != record.balances[INITIAL] {
+        return Err(ledger_error("initial resource audit quantity does not match balance"));
+    }
+    let mut sorted = record.source_ids.clone();
+    sorted.sort_unstable();
+    sorted.dedup();
+    if record.source_ids != sorted {
+        return Err(ledger_error("initial resource audit source_ids must be sorted and unique"));
+    }
+    let mut balances = [0i128; 6];
+    balances[INITIAL] = record.quantity;
+    balances[REMAINING] = record.quantity;
+    replays[record.resource] = Some(Replay { balances, source_ids: record.source_ids.clone(), reservations: FxHashMap::default() });
+    Ok(())
+}
+
+/// An event's audit record: its IDs and source, and its operation applied to its resource's
+/// replay.
+fn replay_event<'a>(
+    record: &Record<'a>,
+    index: usize,
+    replays: &mut [Option<Replay<'a>>; 2],
+    used_history: &mut Vec<&'a str>,
+    used_history_set: &mut FxHashSet<&'a str>,
+    event_ids: &mut FxHashSet<&'a str>,
+    known_agent: &dyn Fn(&str) -> bool,
+) -> Result<()> {
+    if index < RESOURCE_IDS.len() {
+        return Err(ledger_error("initial resource audit records must lead in stable order"));
+    }
+    if record.quantity == 0 {
+        return Err(ledger_error("resource event audit quantity must be positive"));
+    }
+    let (Some(event_id), Some(source_id)) = (record.event_id, record.source_id) else {
+        return Err(ledger_error("resource event audit requires event_id and source_id"));
+    };
+    if !event_ids.insert(event_id) {
+        return Err(ledger_error("resource audit event IDs must be unique"));
+    }
+    let has_reservation = matches!(record.operation, Operation::Reserve | Operation::Release | Operation::Consume);
+    if has_reservation != record.reservation_id.is_some() || has_reservation != record.agent_id.is_some() {
+        return Err(ledger_error("resource audit reservation identity is incomplete"));
+    }
+    if !record.source_ids.contains(&source_id) {
+        return Err(ledger_error("resource audit source is missing from source_ids"));
+    }
+    let Some(replay) = replays[record.resource].as_mut() else {
+        return Err(ledger_error("resource operation precedes its initial audit record"));
+    };
+    let quantity = record.quantity;
+    // A reservation's operation has both IDs (checked above).
+    let reservation = record.reservation_id.zip(record.agent_id);
+    match (record.operation, reservation) {
+        (Operation::Delivery, _) => {
+            replay.balances[DELIVERED] += quantity;
+            replay.balances[REMAINING] += quantity;
+        }
+        (Operation::Loss, _) => {
+            if quantity > replay.balances[REMAINING] - replay.balances[RESERVED] {
+                return Err(ledger_error("resource audit loss exceeds available inventory"));
+            }
+            replay.balances[LOSSES] += quantity;
+            replay.balances[REMAINING] -= quantity;
+        }
+        (Operation::Reserve, Some((reservation_id, agent_id))) => {
+            if used_history_set.contains(reservation_id) {
+                return Err(ledger_error("resource audit reservation ID was reused"));
+            }
+            if quantity > replay.balances[REMAINING] - replay.balances[RESERVED] {
+                return Err(ledger_error("resource audit reservation exceeds available stock"));
+            }
+            if !known_agent(agent_id) {
+                return Err(ledger_error("resource audit references an unknown Agent"));
+            }
+            used_history.push(reservation_id);
+            used_history_set.insert(reservation_id);
+            replay.reservations.insert(reservation_id, (agent_id, quantity));
+            replay.balances[RESERVED] += quantity;
+        }
+        (Operation::Release | Operation::Consume, Some((reservation_id, agent_id))) => {
+            let reserved = match replay.reservations.get(reservation_id) {
+                Some((agent, reserved)) if *agent == agent_id => *reserved,
+                _ => return Err(ledger_error("resource audit reservation history is invalid")),
+            };
+            if !known_agent(agent_id) {
+                return Err(ledger_error("resource audit references an unknown Agent"));
+            }
+            if record.operation == Operation::Release {
+                if quantity != reserved {
+                    return Err(ledger_error("resource audit release quantity is invalid"));
+                }
+                replay.balances[RESERVED] -= reserved;
+                replay.reservations.remove(reservation_id);
+            } else {
+                if quantity > reserved {
+                    return Err(ledger_error("resource audit consume exceeds its reservation"));
+                }
+                replay.balances[SERVED] += quantity;
+                replay.balances[REMAINING] -= quantity;
+                replay.balances[RESERVED] -= quantity;
+                if quantity == reserved {
+                    replay.reservations.remove(reservation_id);
+                } else {
+                    replay.reservations.insert(reservation_id, (agent_id, reserved - quantity));
+                }
+            }
+        }
+        _ => return Err(Error::unsupported("a reservation's operation without its IDs")),
+    }
+    if !replay.source_ids.contains(&source_id) {
+        replay.source_ids.push(source_id);
+    }
+    if record.source_ids != replay.source_ids {
+        return Err(ledger_error("resource audit source_ids do not match replay"));
     }
     Ok(())
 }

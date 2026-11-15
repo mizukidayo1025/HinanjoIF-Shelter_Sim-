@@ -403,7 +403,9 @@ the split of the first two PR by PR; its last section sums up what is where.
   the link's reply against the schema and the evidence), the review of a completed branch
   (`report::review`, `Reviewing::report`), the reading of an intervention's text
   (`interpret::Compiling`, through `interventions::PreviewPlan::compiling` and `answer_compiled`:
-  the operators the core runs only, one repair, the rules where no plan is accepted) and the
+  the operators the core runs only, one repair, the rules where no plan is accepted), the PDF
+  report's data, facts and analysis (`pdf::PdfPlan` given each branch's Run, frame, KPI table and
+  journal; `PdfAnalysis::read` refuses an analysis its checks do not pass) and the
   llm-status of a Run computed with an LLM (`routes::llm_run_status_answer`, from its stored
   tape). Each is steps around the port of `llm.rs` (`answers::asking`): the core gives the task's
   JSON, the caller hands it to its link and gives the reply's JSON back, so a link that answers

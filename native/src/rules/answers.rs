@@ -14,7 +14,7 @@ use pyo3::create_exception;
 use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
-use sheltersim_core::answers::{frames, history, interventions, questions, records, report, routes, Failure, Refusal};
+use sheltersim_core::answers::{frames, history, interventions, pdf, questions, records, report, routes, Failure, Refusal};
 use sheltersim_core::history::KpiTable;
 use sheltersim_core::interpret::Step;
 
@@ -676,6 +676,76 @@ fn review(run: &crate::rules::plain::PlainRun, scenario: &[u8], branch_id: &str)
     Ok(PyReviewing { reviewing: report::review(run.core(), scenario, branch_id).map_err(failed)? })
 }
 
+/// `POST runs/{run}/pdf-report` with an API key (#463, `pdf::PdfPlan`): the route's checks; then
+/// each branch's Run at the minute (`add_branch`), then the report's data, facts and analysis
+/// task (`analysis`).
+#[pyclass(name = "PdfPlan", module = "sheltersim_native.rules.answers")]
+pub struct PyPdfPlan {
+    plan: pdf::PdfPlan,
+}
+
+#[pyfunction]
+#[pyo3(signature = (project_id, run_id, body, run, branches))]
+fn pdf_plan(project_id: &str, run_id: &str, body: Option<Vec<u8>>, run: Option<Vec<u8>>, branches: Branches) -> PyResult<PyPdfPlan> {
+    Ok(PyPdfPlan { plan: pdf::PdfPlan::new(project_id, run_id, body.as_deref(), &run_files(run, branches)).map_err(failed)? })
+}
+
+#[pymethods]
+impl PyPdfPlan {
+    #[getter]
+    fn branch_ids(&self) -> Vec<String> {
+        self.plan.branch_ids().to_vec()
+    }
+
+    #[getter]
+    fn minute(&self) -> i64 {
+        self.plan.minute()
+    }
+
+    /// The branches' records (the report's heads), as a JSON list in `branch_ids`' order.
+    fn records_json<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
+        PyBytes::new(py, &records_json(self.plan.records()))
+    }
+
+    /// The next branch: its Run at the minute, its frame there, its KPI table and its journal.
+    fn add_branch(&mut self, run: &crate::rules::plain::PlainRun, frame: &[u8], table: &PyKpiTable, journal: &[u8]) -> PyResult<()> {
+        self.plan.add_branch(run.core(), frame, &table.table, journal).map_err(failed)
+    }
+
+    /// The report's data, facts and the analysis's task, of the Run's Scenario; `attempt` the
+    /// retry's number (0 first).
+    fn analysis(&self, scenario: &[u8], attempt: i64) -> PyResult<PyPdfAnalysis> {
+        Ok(PyPdfAnalysis { analysis: self.plan.analysis(scenario, attempt).map_err(failed)? })
+    }
+}
+
+/// The PDF report's data and facts, and its analysis asked of an LLM: `task()`, then `read(reply)`
+/// (None where the call failed), the checked analysis or the refusal.
+#[pyclass(name = "PdfAnalysis", module = "sheltersim_native.rules.answers")]
+pub struct PyPdfAnalysis {
+    analysis: pdf::PdfAnalysis,
+}
+
+#[pymethods]
+impl PyPdfAnalysis {
+    fn data<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
+        PyBytes::new(py, &self.analysis.data_json())
+    }
+
+    fn facts<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
+        PyBytes::new(py, &self.analysis.facts_json())
+    }
+
+    fn task<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyBytes>> {
+        bytes(py, self.analysis.task_json())
+    }
+
+    #[pyo3(signature = (reply))]
+    fn read<'py>(&self, py: Python<'py>, reply: Option<Vec<u8>>) -> PyResult<Bound<'py, PyBytes>> {
+        bytes(py, self.analysis.read(reply.as_deref()))
+    }
+}
+
 /// `GET …/branches/{branch}/llm-status` of a Run computed with an LLM: its mode (`llm.json`) and
 /// its stored tape's entries (`records("llm_tape")`).
 #[pyfunction]
@@ -723,6 +793,9 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyReviewing>()?;
     m.add_function(wrap_pyfunction!(review, m)?)?;
     m.add_function(wrap_pyfunction!(llm_run_status_answer, m)?)?;
+    m.add_class::<PyPdfPlan>()?;
+    m.add_class::<PyPdfAnalysis>()?;
+    m.add_function(wrap_pyfunction!(pdf_plan, m)?)?;
     m.add("Refused", m.py().get_type::<Refused>())?;
     m.add_function(wrap_pyfunction!(is_artifact_id, m)?)?;
     m.add_function(wrap_pyfunction!(projects_answer, m)?)?;

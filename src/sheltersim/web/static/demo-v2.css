@@ -3679,6 +3679,10 @@ body[data-scenario="unavailable"] #page-scenario .scenario-grid {
   .app-header #play:not([data-mode="play"]) .play-label {
     display: inline;
   }
+  /* その間は時計を隠し、ボタンの言葉を切らない（中止のボタンが進み具合を出す） */
+  .app-header:has(#play:not([data-mode="play"])) .clock {
+    display: none;
+  }
 }
 @media (max-width: 540px) {
   .playback {

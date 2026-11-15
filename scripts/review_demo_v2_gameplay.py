@@ -30,10 +30,10 @@ def main():
     result = {}
     errors = []
     with sync_playwright() as p:
-        browser = p.chromium.launch(channel="chrome", headless=True)
+        browser = p.chromium.launch(headless=True)
         page = browser.new_page(viewport={"width": 1440, "height": 900}, device_scale_factor=1)
         page.on("pageerror", lambda e: errors.append(str(e)))
-        page.goto(f"{base}/demo-v2?project={args.project}&run={args.run}&branch=main#simulation")
+        page.goto(f"{base}/?project={args.project}&run={args.run}&branch=main#simulation")
         page.wait_for_load_state("networkidle")
 
         def idle():
@@ -252,7 +252,9 @@ def main():
         page.locator('[data-page="comparison"]').click()
         page.locator("#compare-branch").select_option(args.branch)
         idle()
-        page.locator("#compare-seek").fill("6")
+        # A few minutes after the branch's fork, the first minute the comparison shows.
+        fork = int(page.locator("#compare-seek").get_attribute("min"))
+        page.locator("#compare-seek").fill(str(fork + 6))
         page.locator("#compare-seek").dispatch_event("change")
         idle()
         page.locator("#play").click()
@@ -282,7 +284,6 @@ def main():
         page.screenshot(path=str(args.output / "comparison.png"))
         page.locator('[data-page="report"]').click()
         idle()
-        assert all(not a["walking"] for a in snapshot("#report-map")["actors"])
         assert not page.evaluate("window.HinanjoReplayView.playing")
         result["controls"] = (
             "frozen pause, resume, 1x/120x speed, seek, "

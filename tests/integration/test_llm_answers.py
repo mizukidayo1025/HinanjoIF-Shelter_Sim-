@@ -5,6 +5,10 @@ The core builds the evidence and the task and checks the answer; the router behi
 port (`RouterLink`) only answers. No test calls a paid API: the Provider is a fake installed in
 place of Anthropic's, and a replay answers from the Run's analysis tape without any Provider.
 The answers without an API key are the browser's, fixed by the core's answer fixtures.
+
+Each kind of task the core asks has its cache key pinned (`LLMTask.cache_key`: the input, the
+state hash, the versions and the schema). A recorded call answers only a task of the same key, so
+a change that keeps the answers keeps these keys (#489).
 """
 
 from __future__ import annotations
@@ -22,21 +26,28 @@ from sheltersim.web.projects import ProjectAPI
 END = 30
 QUESTION_VERSION = "read-only-results-chat-v2-grounded-explanations"
 REVIEW_VERSION = "evidence-review-v1"
+QUESTION_KEY = "35085c37876657596793b896eef2f4fd336efb364899b681707aec4f4434c348"
+REVIEW_KEY = "ad5f34b6442a3def1f881135e9d87d98ea426a23c5dbdc573d0980e07e325146"
+COMPILER_KEY = "ee3939e1a4e39805baf9e106414704bd2344ee3e6b6770bec19f106a7f7974f3"
+REPAIR_KEY = "631ff3fd30d1dd3376d534beec770079cff1bfe1300a5d1c5efb1469741552b7"
 
 
 class FakeProvider:
-    """Answers each task with `answers[prompt_version](task)`, counting the calls; a task it has
-    no answer for gets text that is not JSON (the core then falls back)."""
+    """Answers each task with `answers[prompt_version](task)`, counting the calls and keeping
+    their cache keys; a task it has no answer for gets text that is not JSON (the core then falls
+    back)."""
 
     def __init__(self, answers: dict[str, Any]) -> None:
         self.answers = answers
         self.calls: list[str] = []
+        self.keys: list[str] = []
 
     def complete(self, *, model_id, task, max_output_tokens, timeout_seconds):
         from sheltersim.llm.contracts import ProviderResponse
 
         del max_output_tokens, timeout_seconds
         self.calls.append(task.prompt_version)
+        self.keys.append(task.cache_key(model_id))
         answer = self.answers.get(task.prompt_version)
         text = answer(task) if answer is not None else "not json"
         return ProviderResponse(
@@ -129,6 +140,7 @@ def test_a_question_cites_recorded_values_and_a_replay_answers_it_again(complete
     install(monkeypatch, provider)
     answer = ask(completed_api, "What was recorded?")
     assert provider.calls == [QUESTION_VERSION]
+    assert provider.keys == [QUESTION_KEY]
     assert answer["mode"] == "record"
     assert answer["availability"] == "configured"
     assert answer["usage"]["outcome"] == "recorded"
@@ -261,6 +273,7 @@ def test_the_review_of_a_branch_the_llm_completes_is_checked_against_its_evidenc
     evidence's values and fixed labels."""
     api, provider = llm_run
     assert provider.calls.count(REVIEW_VERSION) == 1
+    assert provider.keys[provider.calls.index(REVIEW_VERSION)] == REVIEW_KEY
     report = api.get(["p", "runs", "r", "branches", "main", "report"])
     assert report["status"] == "validated"
     assert report["review"]["status"] == "validated"
@@ -350,6 +363,7 @@ def test_a_plan_the_checks_refuse_is_repaired_once(completed_api, monkeypatch):
     install(monkeypatch, provider)
     answer = preview(completed_api, "仮設トイレを置いてほしい")
     assert provider.calls == [COMPILER_VERSION, REPAIR_VERSION]
+    assert provider.keys == [COMPILER_KEY, REPAIR_KEY]
     assert answer["status"] == "compiled"
     assert answer["usage"]["api_request_count"] == 2
 

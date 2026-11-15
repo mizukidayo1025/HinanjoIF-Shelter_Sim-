@@ -2,7 +2,7 @@
 
     SHELTERSIM_LLM_MODE=offline python scripts/build_project_sample.py OUTPUT_PROJECTS_DIR
 
-OUTPUT_PROJECTS_DIR is a ProjectStore root, such as `<runs-dir>/.projects` of
+OUTPUT_PROJECTS_DIR is a projects folder, such as `<runs-dir>/.projects` of
 `sheltersim web`. The script creates the Project `sample` in it with one Run of the
 Scenario the new UI generates from its example text (the 「例文を使う」 button:
 100 synthetic people in a standard synthetic shelter in 墨田区, earthquake, 7 days,
@@ -21,8 +21,15 @@ which reads public web services, is not run: the Scenario is built from the stan
 synthetic shelter and the recorded defaults alone, as a preview without research
 results is, and the research record says so with a fixed date.
 
+    SHELTERSIM_LLM_MODE=offline python scripts/build_project_sample.py OUTPUT_PROJECTS_DIR \\
+        --bundle sample.shelterproj
+
+also writes the sample as one file the browser imports (`.shelterproj`, #265): the site's
+example (scripts/build_static_site.py). The VM's sample and the browser's are one Project in one
+format since #427; scripts/build_browser_sample.py and its Node half are gone.
+
 The same text, seed and model give the same hashes on every build. A JSON summary
-(ids, Scenario, minutes, hashes, size) is printed and written to
+(ids, Scenario, minutes, heads and the core's digests, size) is printed and written to
 `<OUTPUT>/../sample-build.json` unless --summary names another file. Open the result
 with `/?project=sample&run=<run_id>&branch=<branch_id>` (docs/demo-guide.md).
 
@@ -31,10 +38,12 @@ with `/?project=sample&run=<run_id>&branch=<branch_id>` (docs/demo-guide.md).
 answers, without computing, whether a sample built earlier in OUTPUT_PROJECTS_DIR is what a
 build now would give: exit 0 if so, 3 with the reason if not. A build gives the same
 result when its plan (text, ids, fork minute, intervention) is the same, the Scenario the
-preview makes from the text has the same hash, and the installed model signatures equal
-the ones its Checkpoints recorded (core/model_version.py), as a Run is continued only
-then, and its history index is of the version this code writes. How the offline parser
-reads the intervention is not compared; rebuild after changing it.
+preview makes from the text has the same hash, and the core records the same model versions
+for it as the branches' stored Runs did (they are not view-only), as a Run is continued only
+then. How the offline parser reads the intervention is not compared; rebuild after changing it.
+
+The Project is in the browser's folders and format v5 (#427): the server reads it, and the
+browser can import it as one file (`ProjectFiles.export_project`).
 """
 
 from __future__ import annotations
@@ -52,7 +61,7 @@ from urllib.parse import urlencode
 
 from sheltersim.experiments.scenario import ScenarioSpec
 from sheltersim.llm.config import LLMMode, LLMSettings
-from sheltersim.storage.projects import ProjectStore, digest
+from sheltersim.storage.projects import ProjectStore
 
 PROJECT_ID = "sample"
 RUN_ID = "run-sample-toilet-outage"
@@ -191,7 +200,7 @@ def build_sample(
             "fallback_used": preview.get("fallback_used"),
             "approved_program_hash": preview["approved_program_hash"],
         },
-        "branches": [_branch_summary(store, "main"), _branch_summary(store, CHILD_ID)],
+        "branches": [_branch_summary(api.files, "main"), _branch_summary(api.files, CHILD_ID)],
         "open_branch_id": OPEN_BRANCH_ID,
         "open_path": open_path(PROJECT_ID, RUN_ID, OPEN_BRANCH_ID),
         "size_bytes": sum(
@@ -265,22 +274,19 @@ def sample_difference(
             api.close()
     if draft["approved_hash"] != summary["scenario"].get("scenario_hash"):
         return "the Scenario the preview makes from the text changed"
-    store = ProjectStore(projects_dir)
+    from sheltersim.web.projects import answers
+    from sheltersim.web.stored_runs import project_files
+
+    files = project_files(ProjectStore(projects_dir))
     for branch_id in plan["branch_ids"]:
         try:
-            reference = store.branch_reference(PROJECT_ID, RUN_ID, branch_id)
-            status = store.checkpoint_model_status(PROJECT_ID, RUN_ID, reference.checkpoint_hash)
+            journal = files.branch_file(PROJECT_ID, RUN_ID, branch_id, "journal.jsonl")
+            scenario = files.run_scenario_bytes(PROJECT_ID, RUN_ID)
+            view_only = journal is None or answers().view_only(journal, scenario)
         except Exception as exc:  # A missing or unreadable sample is rebuilt.
             return f"branch {branch_id} cannot be read: {exc}"
-        if not status.current:
-            return f"the model changed for branch {branch_id}: {', '.join(status.differences)}"
-    from sheltersim.storage import history_index
-
-    # An index of an older version answers no history until it is rebuilt (#130); a build
-    # now writes the current one, with the decisions a rebuild would not restore.
-    index = history_index.HistoryIndex(store, PROJECT_ID, RUN_ID)
-    if not index.path.exists() or index.version() != history_index._SCHEMA_VERSION:
-        return "the history index is of another version"
+        if view_only:
+            return f"the model changed for branch {branch_id}"
     return None
 
 
@@ -288,34 +294,58 @@ def _compute(api: Any, branch_id: str, end: int) -> None:
     """Resume a branch to the end, as the new UI's compute button does, and wait for it."""
     api.post([PROJECT_ID, "runs", RUN_ID, "resume"], {"branch_id": branch_id, "target_minute": end})
     api.wait_idle()
-    status = api.store.branch_status(PROJECT_ID, RUN_ID, branch_id)
-    reached = api.store.branch_reference(PROJECT_ID, RUN_ID, branch_id).computed_until
+    record = json.loads(api.files.branch_record(PROJECT_ID, RUN_ID, branch_id))
+    status, reached = record.get("status"), record["computed_until"]
     if status != "completed" or reached != end:
         raise RuntimeError(f"branch {branch_id} ended {status} at minute {reached}, not {end}")
 
 
-def _branch_summary(store: ProjectStore, branch_id: str) -> dict[str, Any]:
-    """The branch's head and the hashes of its world, event history and metrics."""
-    reference = store.branch_reference(PROJECT_ID, RUN_ID, branch_id)
-    saved = store.checkpoint_fields(
-        PROJECT_ID,
-        RUN_ID,
-        reference.checkpoint_hash,
-        ("state_hash", "world_state", "metrics_state", "model_versions", "runtime_state"),
+def _branch_summary(files: Any, branch_id: str) -> dict[str, Any]:
+    """The branch's head, the core's digests of the world it ended with and of its metric
+    samples, the model versions it was computed with and the state its fork started from."""
+    record = json.loads(files.branch_record(PROJECT_ID, RUN_ID, branch_id))
+    reader = files.reader(PROJECT_ID, RUN_ID, branch_id)
+    run, _, _ = reader.seek(record["computed_until"])
+    fork = next(
+        (line for line in json.loads(reader.lines_json()) if line.get("kind") == "fork"), None
     )
-    origin = saved["runtime_state"].get("fork_origin")
     return {
         "branch_id": branch_id,
-        "parent_branch_id": reference.parent_branch_id,
-        "fork_minute": reference.fork_minute,
-        "computed_until": reference.computed_until,
-        "world_hash": saved["state_hash"],
-        "events_hash": digest(saved["world_state"]["event_log"]),
-        "event_count": len(saved["world_state"]["event_log"]),
-        "metrics_hash": digest(saved["metrics_state"]),
-        "model_versions": saved["model_versions"],
-        "fork_origin_state_hash": origin["state_hash"] if origin else None,
+        "parent_branch_id": record["parent_branch_id"],
+        "fork_minute": record["fork_minute"],
+        "computed_until": record["computed_until"],
+        "head": record["checkpoint_hash"],
+        "state_hash": run.state_digest(),
+        "world_digests": json.loads(run.digests_json()),
+        "metrics_digest": run.metrics_digest(),
+        "model_versions": json.loads(reader.model_versions_json()),
+        "fork_origin_state_hash": fork["fork_origin"]["state_hash"] if fork else None,
     }
+
+
+def write_bundle(projects_dir: Path, path: Path, summary: dict[str, Any]) -> dict[str, Any]:
+    """Write Project `sample` of projects_dir as one file the browser imports (the browser's
+    bundle, `.shelterproj`, #265): the site's example (scripts/build_static_site.py). What
+    made it is kept in its manifest's `source`. Returns that `source`."""
+    from sheltersim.core.model_version import ENGINE_VERSION
+    from sheltersim.web.stored_runs import project_files
+
+    source = {
+        "tool": "scripts/build_project_sample.py",
+        "text": summary["scenario"]["text"],
+        "agent_count": summary["agent_count"],
+        "duration_minutes": summary["duration_minutes"],
+        "seed": summary["scenario"]["seed"],
+        "engine_version": ENGINE_VERSION,
+        "regional_research": summary["scenario"]["regional_research"],
+        "note": NOTE,
+    }
+    files = project_files(ProjectStore(projects_dir))
+    with files.transaction():
+        bundle = files.export_project(PROJECT_ID, json.dumps(source, ensure_ascii=False))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(bundle)
+    return source
 
 
 def main() -> int:
@@ -327,6 +357,11 @@ def main() -> int:
         "--summary",
         type=Path,
         help="where to write the JSON summary (default: sample-build.json next to OUTPUT)",
+    )
+    parser.add_argument(
+        "--bundle",
+        type=Path,
+        help="also write the sample as one file the browser imports (.shelterproj), the site's",
     )
     parser.add_argument(
         "--check",
@@ -353,6 +388,8 @@ def main() -> int:
             print("current" if reason is None else f"rebuild: {reason}")
             return 0 if reason is None else 3
         summary = build_sample(output)
+        if arguments.bundle is not None:
+            write_bundle(output, arguments.bundle.resolve(), summary)
     summary_path.parent.mkdir(parents=True, exist_ok=True)
     summary_path.write_text(
         json.dumps(summary, ensure_ascii=False, sort_keys=True, indent=2) + "\n", encoding="utf-8"

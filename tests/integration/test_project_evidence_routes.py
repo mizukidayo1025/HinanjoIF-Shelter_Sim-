@@ -1,5 +1,6 @@
-"""A Branch's history route on a generated Run with a Branch that adds toilets: the KPIs and
-the conversation of the questions answer (#368 decision A).
+"""A Branch's history route on a generated Run with a Branch that adds toilets: the KPIs answer
+(#368 decision A), from the stored Run of format v5 (#427). The conversation of the questions has
+its own route (`…/conversations`).
 
 The comparison of several Runs, the first divergence, the approved-condition differences and
 the people and household samples went with the older screens (#376). The routes only read the
@@ -9,39 +10,39 @@ Run.
 from __future__ import annotations
 
 import copy
+import json
 
 import pytest
 
 from sheltersim.experiments.scenario import ScenarioSpec
-from sheltersim.storage.projects import StorageError, digest
-from sheltersim.web.projects import ProjectAPI
+from sheltersim.storage.projects import digest
+from sheltersim.web.projects import ProjectAPI, answers
 
 END = 60
 FORK_MINUTE = 10
 ADDED_TOILETS = 2
-ANSWERED_KINDS = ("kpis", "conversations")
+ANSWERED_KINDS = ("kpis",)
 
 
 @pytest.fixture(scope="module")
-def evidence_api(tmp_path_factory, generated_previews, add_toilets_program, saved_timeline):
-    """A ProjectAPI over Run r of the generated Scenario, with a capacity Branch."""
+def evidence_api(tmp_path_factory, generated_previews, add_toilets_program, saved_project):
+    """A ProjectAPI over Run r of the generated Scenario, with a capacity Branch (format v5)."""
     preview = generated_previews(duration_days=END / 1440)
     scenario = ScenarioSpec.model_validate(copy.deepcopy(preview["scenario"]))
     with pytest.MonkeyPatch.context() as monkeypatch:
         monkeypatch.setenv("SHELTERSIM_LLM_MODE", "offline")
-        store, timeline = saved_timeline(tmp_path_factory.mktemp("evidence") / "projects", scenario)
-        timeline.advance("main", END, checkpoint_interval=10)
-        program = add_toilets_program(ADDED_TOILETS, start_minute=FORK_MINUTE)
-        timeline.fork(
-            "main",
-            FORK_MINUTE,
-            "capacity",
-            program=program,
-            approved_program_hash=digest(program.model_dump(mode="json")),
-        )
-        timeline.advance("capacity", END)
+        store = saved_project(tmp_path_factory.mktemp("evidence") / "projects", scenario)
         api = ProjectAPI(store)
         try:
+            api.submit("p", "r", "main", END)
+            api.wait_idle(timeout=120)
+            program = add_toilets_program(ADDED_TOILETS, start_minute=FORK_MINUTE).model_dump(
+                mode="json"
+            )
+            text = json.dumps(program, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+            api.fork("p", "r", "main", "capacity", FORK_MINUTE, text, digest(program))
+            api.submit("p", "r", "capacity", END)
+            api.wait_idle(timeout=120)
             yield api, scenario
         finally:
             api.close()
@@ -62,8 +63,7 @@ def test_each_answered_history_kind_answers_for_both_branches(evidence_api, kind
 
         assert (result["run_id"], result["branch_id"], result["kind"]) == ("r", branch_id, kind)
         assert result["computed_until"] == END
-        expected = "end_of_tick" if kind == "kpis" else "recorded_event_minute"
-        assert result["time_semantics"] == expected
+        assert result["time_semantics"] == "end_of_tick"
         assert all(item["branch_id"] == branch_id for item in result["items"])
 
 
@@ -78,5 +78,5 @@ def test_kpi_history_has_one_end_of_tick_row_per_computed_minute(evidence_api):
 @pytest.mark.parametrize("start,end", [(0, END), (FORK_MINUTE, END + 1)])
 def test_history_outside_the_branch_range_is_refused(evidence_api, start, end):
     api, _ = evidence_api
-    with pytest.raises(StorageError, match="history_outside_computed_range"):
+    with pytest.raises(answers().Refused, match="history_outside_computed_range"):
         _history(api, "capacity", kind="kpis", start=start, end=end)

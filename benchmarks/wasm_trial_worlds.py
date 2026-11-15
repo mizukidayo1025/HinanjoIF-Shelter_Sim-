@@ -98,19 +98,16 @@ def native(scenario: Any, output: Path, name: str) -> dict[str, Any]:
 
 def project(scenario: Any, directory: Path, world_expected: dict[str, str]) -> dict[str, Any]:
     """The Project screen's route for the same Scenario, in a store under `directory`."""
-    from gate_scenarios import project_run, timeline_hashes
-    from support.core_tick import world_digests
+    from gate_scenarios import project_parts
 
     root = directory / "projects"
     started = time.perf_counter()
-    store = project_run(root, scenario, scenario.duration_minutes)
+    digests, _ = project_parts(root, scenario, scenario.duration_minutes)
     seconds = time.perf_counter() - started
-    run = store.root / "p" / "runs" / "r"
-    world, _ = timeline_hashes(store, "main")
-    digests = world_digests(world)
+    run = root / "p" / "runs" / "r"
     return {
         "seconds": seconds,
-        "minute": world.minute_index,
+        "minute": scenario.duration_minutes,
         "run_bytes": _bytes(run),
         "run_parts_bytes": {
             child.name: _bytes(child) if child.is_dir() else child.stat().st_size

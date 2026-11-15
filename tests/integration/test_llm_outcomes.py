@@ -13,16 +13,12 @@ from pathlib import Path
 import pytest
 
 from sheltersim import cli
-from sheltersim.core.world import WorldState
-from sheltersim.experiments.branch import BranchRuntime
 from sheltersim.experiments.runner import run_scenario
-from sheltersim.experiments.timeline import TimelineStore
 from sheltersim.llm.cache import ResponseTape
 from sheltersim.llm.config import LLMMode, LLMSettings
 from sheltersim.llm.contracts import LLMAllowanceError, ProviderResponse
 from sheltersim.llm.provider import LLMRouter
-from sheltersim.storage.projects import ProjectStore, digest
-from sheltersim.web.projects import ProjectAPI
+from sheltersim.storage.projects import ProjectStore
 
 
 class AcceptingProvider:
@@ -106,36 +102,6 @@ def test_offline_run_manifest_has_no_requested_tasks(
     assert usage["failures"] == 0
 
 
-def test_project_branch_llm_status_reads_head_checkpoint_records(
-    tmp_path: Path, small_benchmark_scenario, recording_router
-) -> None:
-    scenario = small_benchmark_scenario()
-    store = ProjectStore(tmp_path)
-    store.create_project("project")
-    saved = store.save_scenario(
-        "project", scenario, approved_hash=digest(json.loads(scenario.canonical_json()))
-    )
-    store.create_run("project", "run", scenario.id, saved["scenario_version"])
-    runtime = BranchRuntime.from_world(WorldState.from_scenario(scenario))
-    router = recording_router(DeniedAllowanceProvider())
-    timeline = TimelineStore(store, "project", "run")
-    timeline.record(runtime, router=router)
-    timeline.advance("main", 200, router=router)
-    head_before = store.branch_reference("project", "run", "main").checkpoint_hash
-    api = ProjectAPI(store, recover=False)
-    try:
-        status = api.get(["project", "runs", "run", "branches", "main", "llm-status"], {})
-    finally:
-        api.close()
-
-    assert status["mode"] == "record"
-    assert status["computed_until"] == 200
-    assert status["outcomes"]["status"] == "all_fallback"
-    assert status["outcomes"]["fallback_count"] == len(router.records) > 0
-    # Reading the status is observational and leaves the branch head unchanged.
-    assert store.branch_reference("project", "run", "main").checkpoint_hash == head_before
-
-
 def test_prepare_cli_warns_when_scenario_draft_falls_back(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -165,44 +131,6 @@ def test_prepare_cli_warns_when_scenario_draft_falls_back(
     preview = json.loads(captured.out)
     assert preview["generation_manifest"]["status"] == "rule_fallback"
     assert "warning: LLM fallback:" in captured.err and "invalid_output" in captured.err
-
-
-def test_project_report_exists_before_the_run_is_marked_completed(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, small_benchmark_scenario
-) -> None:
-    scenario = small_benchmark_scenario(30)
-    store = ProjectStore(tmp_path)
-    store.create_project("project")
-    saved = store.save_scenario(
-        "project", scenario, approved_hash=digest(json.loads(scenario.canonical_json()))
-    )
-    store.create_run("project", "run", scenario.id, saved["scenario_version"])
-    TimelineStore(store, "project", "run").record(
-        BranchRuntime.from_world(WorldState.from_scenario(scenario))
-    )
-    report_present_at_completion = []
-    # A computation records completion as its branch's status, which the Run's status
-    # summarizes (#48).
-    real_set_branch_status = store.set_branch_status
-
-    def spy(project_id, run_id, branch_id, status, **options):
-        if status == "completed":
-            report = store._path(project_id, "runs", run_id, "branches", branch_id, "report.json")
-            report_present_at_completion.append(report.exists())
-        return real_set_branch_status(project_id, run_id, branch_id, status, **options)
-
-    monkeypatch.setattr(store, "set_branch_status", spy)
-    api = ProjectAPI(store, recover=False)
-    try:
-        api.submit("project", "run", "main", 30)
-        # The single worker finishes the run before this no-op (#143).
-        api.wait_idle(timeout=120)
-    finally:
-        api.close()
-
-    # The UI fetches the report once when the status leaves "running".
-    assert store.run("project", "run")["status"] == "completed"
-    assert report_present_at_completion == [True]
 
 
 def test_runtime_calls_leave_the_review_its_allowance(

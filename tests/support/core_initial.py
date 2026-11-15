@@ -1,10 +1,10 @@
 """The worlds and the installed catalogs of the core's minute-0 builder (Issues #249, #429).
 
 The core builds the entry of any Scenario's world at minute 0 (`native/core/src/initial/`) from
-the Scenario's canonical JSON, the bytes `export_world` writes for the browser
-(`scripts/build_browser_sample.py`), and a new Run's records (`model_versions` and the evidence
-route's answer, #301). What the records read of the installed code (the operator and model
-catalog, the evidence's catalogs, sources and texts) is `native/core/src/initial/records.json`
+the Scenario's canonical JSON, the bytes `export_world` writes for the browser, and a new Run's
+records (`model_versions` and the evidence route's answer, #301). What the records read of the
+installed code (the operator and model catalog, the evidence's catalogs, sources and texts) is
+`native/core/src/initial/records.json`
 (`initial_records`). `SCREEN_REQUESTS` are the requests of the Scenario screen (the structured
 form and the example text's) with edge values, whose Scenarios the tests build in both.
 

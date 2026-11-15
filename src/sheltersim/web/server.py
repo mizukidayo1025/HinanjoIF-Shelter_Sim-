@@ -7,10 +7,13 @@ import mimetypes
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from typing import Any
-from urllib.parse import parse_qs, unquote, urlsplit
+from urllib.parse import unquote, urlsplit
 
 from sheltersim.storage.projects import DEFAULT_MAX_BYTES, ProjectStore, StorageError
-from sheltersim.web.projects import ProjectAPI
+from sheltersim.web.projects import ProjectAPI, answers
+
+# A refusal of the core's answers: (HTTP status, error, code, the body to answer with).
+REFUSED = answers().Refused
 
 _STATIC = Path(__file__).with_name("static")
 
@@ -108,7 +111,8 @@ def _handler_for(projects: ProjectAPI | None = None) -> type[BaseHTTPRequestHand
                         if projects is None:
                             raise StorageError("project storage is unavailable")
                         parts = [unquote(p) for p in parsed.path.split("/") if p][3:]
-                        payload = projects.get(parts, parse_qs(parsed.query))
+                        self._raw_response(200, projects.answer_get(parts, parsed.query))
+                        return
                     else:
                         self._json_response(400, {"error": "unknown API route"})
                         return
@@ -124,6 +128,8 @@ def _handler_for(projects: ProjectAPI | None = None) -> type[BaseHTTPRequestHand
                     self.end_headers()
                 else:
                     self._static_response(parsed.path)
+            except REFUSED as exc:
+                self._raw_response(exc.args[0], exc.args[3])
             except StorageError as exc:
                 self._json_response(409, {"error": str(exc), "code": exc.code})
             except ValueError:
@@ -154,24 +160,13 @@ def _handler_for(projects: ProjectAPI | None = None) -> type[BaseHTTPRequestHand
                 length = int(self.headers.get("Content-Length", "0"))
                 if not 0 < length <= 2_097_152:
                     raise StorageError("project request exceeds the body limit")
-                document = json.loads(self.rfile.read(length).decode("utf-8"))
+                body = self.rfile.read(length)
+                document = json.loads(body.decode("utf-8"))
                 if not isinstance(document, dict):
                     raise StorageError("project request must be an object")
-                if len(parts) == 7 and parts[4] == "runs" and parts[6] == "pdf-report":
-                    payload = projects.pdf_reports.export(parts[3], parts[5], document)
-                    self.send_response(200)
-                    self.send_header("Content-Type", "application/pdf")
-                    self.send_header(
-                        "Content-Disposition", 'attachment; filename="hinanjo-if-report.pdf"'
-                    )
-                    self.send_header("Content-Length", str(len(payload)))
-                    self.send_header("Cache-Control", "no-store")
-                    self.send_header("X-Content-Type-Options", "nosniff")
-                    self.end_headers()
-                    self.wfile.write(payload)
-                    return
-                payload = projects.post(parts[3:], document)
-                self._json_response(200, payload)
+                self._raw_response(200, projects.answer_post(parts[3:], body))
+            except REFUSED as exc:
+                self._raw_response(exc.args[0], exc.args[3])
             except StorageError as exc:
                 self._json_response(409, {"error": str(exc), "code": exc.code})
             except (ValueError, UnicodeDecodeError):
@@ -186,13 +181,19 @@ def _handler_for(projects: ProjectAPI | None = None) -> type[BaseHTTPRequestHand
             self._json_response(405, {"error": "inspector API is read-only"})
 
         def _json_response(self, status: int, document: Any) -> None:
-            payload = json.dumps(
-                document,
-                ensure_ascii=False,
-                sort_keys=True,
-                separators=(",", ":"),
-                allow_nan=False,
-            ).encode("utf-8")
+            self._raw_response(
+                status,
+                json.dumps(
+                    document,
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                    allow_nan=False,
+                ).encode("utf-8"),
+            )
+
+        def _raw_response(self, status: int, payload: bytes) -> None:
+            """An answer whose JSON bytes are written already (the core's)."""
             self.send_response(status)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Content-Length", str(len(payload)))

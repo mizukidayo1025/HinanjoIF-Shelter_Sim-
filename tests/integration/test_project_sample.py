@@ -6,30 +6,23 @@ intervention-preview and intervention-apply), with the structured form the Scena
 screen sends for 20 people and 0.1 days instead of the 7-day example text, and an
 earlier fork. The 7-day sample itself is built on the judges' VM (docs/vm-deploy.md).
 
-The browser's form of the sample (scripts/build_browser_sample.py, #265) starts from the inputs
-Python writes for it: they are the records and answers the server gives for the same Scenario and
-Run. Its Node half (the WASM Run and the bundle) is checked by native/wasm/tests.
+The sample is in the browser's folders and format v5 (#427); the browser's form of it is the same
+Project written as one file (`--bundle`, #265), which native/wasm/tests import.
 """
 
 from __future__ import annotations
 
-import hashlib
 import html
 import json
 import runpy
 import shutil
-import sqlite3
 import sys
 from collections.abc import Callable
-from contextlib import closing
 from pathlib import Path
 from typing import Any
 
 import pytest
-from support.core_fixtures import run_world
 
-from sheltersim.core.rng import CounterRNG
-from sheltersim.experiments.timeline import TimelineStore
 from sheltersim.storage.projects import ProjectStore
 from sheltersim.web.projects import ProjectAPI
 
@@ -39,7 +32,6 @@ pytestmark = pytest.mark.os_dependent
 
 BUILDER = Path(__file__).parents[2] / "scripts" / "build_project_sample.py"
 LANDING = Path(__file__).parents[2] / "deploy" / "vm" / "render_landing.py"
-BROWSER = Path(__file__).parents[2] / "scripts" / "build_browser_sample.py"
 END = 144
 FORK = 60
 
@@ -72,7 +64,7 @@ def build(
 
 def _results(summary: dict[str, Any]) -> list[tuple[Any, ...]]:
     return [
-        (b["branch_id"], b["computed_until"], b["world_hash"], b["events_hash"], b["metrics_hash"])
+        (b["branch_id"], b["computed_until"], b["head"], b["world_digests"], b["metrics_digest"])
         for b in summary["branches"]
     ]
 
@@ -84,7 +76,7 @@ def test_two_builds_of_the_sample_give_the_same_hashes(
     assert first["scenario"]["scenario_hash"] == second["scenario"]["scenario_hash"]
     assert _results(first) == _results(second)
     assert first["intervention"] == second["intervention"]
-    assert first["branches"][0]["world_hash"] != first["branches"][1]["world_hash"]
+    assert first["branches"][0]["state_hash"] != first["branches"][1]["state_hash"]
 
 
 def test_the_sample_holds_a_completed_run_and_an_approved_outage_branch(
@@ -101,35 +93,35 @@ def test_the_sample_holds_a_completed_run_and_an_approved_outage_branch(
     assert summary["open_branch_id"] == "main"
     assert summary["open_path"] == f"/?project=sample&run={run_id}&branch=main#simulation"
 
-    store = ProjectStore(tmp_path / "projects")
-    assert [p["project_id"] for p in store.projects()] == ["sample"]
-    run = store.run("sample", run_id)
+    api = ProjectAPI(ProjectStore(tmp_path / "projects"), recover=False)
+    try:
+        assert [p["project_id"] for p in api.get([])["projects"]] == ["sample"]
+        project = api.get(["sample"])
+        run = api.get(["sample", "runs", run_id])
+        branch = ["sample", "runs", run_id, "branches"]
+        main = api.get([*branch, "main", "timeline"], f"minute={END}")
+        child = api.get([*branch, child_id, "timeline"], f"minute={END}")
+    finally:
+        api.close()
     assert run["status"] == "completed"
-    [saved] = store.scenarios("sample")
+    [saved] = project["scenarios"]
     provenance = saved["scenario"]["provenance"]
     assert provenance["region_research"]["warnings"] == [builder["RESEARCH_WARNING"]]
-    branches = {b["branch_id"]: b for b in store.branches("sample", run_id)}
+    branches = {b["branch_id"]: b for b in run["branches"]}
     assert branches["main"]["computed_until"] == END
     assert branches[child_id]["parent_branch_id"] == "main"
     assert branches[child_id]["fork_minute"] == FORK
     assert branches[child_id]["computed_until"] == END
+    lines = json.loads(api.files.reader("sample", run_id, child_id).lines_json())
+    [fork] = [line for line in lines if line["kind"] == "fork"]
+    assert fork["minute"] == FORK
+    assert fork["approved_program_hash"] == summary["intervention"]["approved_program_hash"]
 
-    timeline = TimelineStore(store, "sample", run_id)
-    main, child = timeline.seek("main", END), timeline.seek(child_id, END)
-    assert main.command_log == []
-    [command] = child.command_log
-    assert command["command"] == "effect_program"
-    assert command["minute"] == FORK
-    assert command["program_hash"] == summary["intervention"]["approved_program_hash"]
-    assert main.world.facilities["toilet_01"].working_units == 1
-    assert child.world.facilities["toilet_01"].working_units == 0
+    def working(frame: dict[str, Any]) -> int:
+        [toilet] = [item for item in frame["facilities"] if item["id"] == "toilet_01"]
+        return toilet["working_units"]
 
-    # The Run's first save names the random stream its engine draws from (#281): it is the world
-    # at minute 0 as a Run sets it up, the one build_browser_sample.py exports for the browser.
-    first = timeline.seek("main", 0).world
-    assert first.rng_state == CounterRNG(first.seed).metadata
-    scenario = store.scenario("sample", saved["scenario_id"], saved["scenario_version"])
-    assert first.state_digest() == run_world(scenario)[0].state_digest()
+    assert (working(main), working(child)) == (1, 0)
 
 
 def test_a_copy_of_the_sample_answers_the_routes_the_new_ui_opens_it_with(
@@ -142,15 +134,15 @@ def test_a_copy_of_the_sample_answers_the_routes_the_new_ui_opens_it_with(
     run_id, child_id = builder["RUN_ID"], builder["CHILD_ID"]
     api = ProjectAPI(ProjectStore(tmp_path / "slot"))
     try:
-        assert [p["project_id"] for p in api.get([], {})["projects"]] == ["sample"]
-        assert [r["run_id"] for r in api.get(["sample", "runs"], {})["runs"]] == [run_id]
+        assert [p["project_id"] for p in api.get([])["projects"]] == ["sample"]
+        assert [r["run_id"] for r in api.get(["sample", "runs"])["runs"]] == [run_id]
         branch = ["sample", "runs", run_id, "branches", child_id]
         frame = api.get([*branch, "timeline"], {"minute": [str(FORK)]})
         assert (frame["branch_id"], frame["minute"]) == (child_id, FORK)
         assert frame["agents"]
         assert all(agent["point"] is not None for agent in frame["agents"])
         assert "toilet_01" in frame["geometry"]["facility_points"]
-        assert api.get([*branch, "llm-status"], {})["mode"] == "offline"
+        assert api.get([*branch, "llm-status"])["mode"] == "offline"
         comparison = api.get(
             ["sample", "runs", run_id, "compare"],
             {"branch_ids": [f"main,{child_id}"], "minute": [str(END)]},
@@ -205,18 +197,14 @@ def test_a_sample_is_rebuilt_only_when_a_build_now_would_give_another_result(
     other = json.loads(json.dumps(summary))
     other["scenario"]["scenario_hash"] = "0" * 64
     assert check(other) == "the Scenario the preview makes from the text changed"
-    # A model version the saved Checkpoints did not record makes the sample view-only.
-    from sheltersim.core import model_version
-
-    monkeypatch.setattr(model_version, "ENGINE_VERSION", "test-next")
-    assert check(summary).startswith("the model changed for branch main: engine:model")
-    monkeypatch.undo()
-    # An index of an older version answers no history until rebuilt (#130).
-    index = tmp_path / "sample" / "sample" / "runs" / summary["run_id"] / "history.sqlite"
-    with closing(sqlite3.connect(index)) as db:  # Closed before the files are removed.
-        db.execute("PRAGMA user_version=3")
-        db.commit()
-    assert check(summary) == "the history index is of another version"
+    # A sample the Python server stored before #427 (no journal) is built again.
+    journal = Path(tmp_path / "sample" / "sample" / "runs" / summary["run_id"] / "branches")
+    journal = journal / "main" / "journal.jsonl"
+    kept = journal.read_bytes()
+    journal.unlink()
+    assert check(summary) == "the model changed for branch main"
+    journal.write_bytes(kept)
+    assert check(summary) is None
     shutil.rmtree(tmp_path / "sample" / "sample")
     monkeypatch.setenv("SHELTERSIM_LLM_MODE", "offline")
     assert check(summary).startswith("branch main cannot be read")
@@ -242,58 +230,25 @@ def test_the_check_command_answers_setup_sh_with_its_first_line_and_status(
     assert capsys.readouterr().out.startswith("rebuild: no readable summary")
 
 
-def test_the_browser_sample_starts_from_the_records_and_answers_of_the_server(
-    builder: dict[str, Any],
-    generated_request: Callable[..., dict[str, Any]],
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
+def test_the_sample_is_written_as_one_file_the_browser_imports(
+    builder: dict[str, Any], build: Callable[[str], dict[str, Any]], tmp_path: Path
 ) -> None:
-    """#265: the inputs of the browser's bundle are what the server answers for the same text.
-
-    The world at minute 0 is the one a Run of the Scenario ticks from: after some ticks it is the
-    world the Project's route computed.
-    """
-    from support.core_fixtures import run_world
-    from support.core_tick import world_digests
-
-    monkeypatch.setenv("SHELTERSIM_LLM_MODE", "offline")
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    request = generated_request(duration_days=FORK / 1440)
-    inputs_dir = tmp_path / "inputs"
-    inputs = runpy.run_path(str(BROWSER))["export_inputs"](inputs_dir, text="", request=request)
-
-    run_id = builder["RUN_ID"]
-    api = ProjectAPI(ProjectStore(tmp_path / "projects"), recover=False)
-    api.workspace.research.research = builder["_no_research"]
-    try:
-        draft, _ = builder["_preview"](api, "", request)
-        body = {"approved": True, "approved_hash": draft["approved_hash"], "run_id": run_id}
-        api.post(["sample", "scenario-approve"], {**body, "preview_id": draft["preview_id"]})
-        project = api.get(["sample"], {})
-        run = api.get(["sample", "runs", run_id], {})
-        evidence = api.get(["sample", "runs", run_id, "evidence"], {})
-        api.post(["sample", "runs", run_id, "resume"], {"branch_id": "main", "target_minute": FORK})
-        api.wait_idle(timeout=120)
-        computed = TimelineStore(api.store, "sample", run_id).seek("main", FORK).world
-    finally:
-        api.close()
-
-    record = ("schema_version", "project_id", "archived")
-    assert inputs["project"] == {key: project[key] for key in record}
-    scenario_bytes = (inputs_dir / "scenario.json").read_bytes()
-    [scenario] = project["scenarios"]
-    assert {**inputs["scenario_record"], "scenario": json.loads(scenario_bytes)} == scenario
-    assert hashlib.sha256(scenario_bytes).hexdigest() == scenario["scenario_hash"]
-    assert inputs["run"] == {key: value for key, value in run.items() if key != "branches"}
-    assert json.loads((inputs_dir / "evidence.json").read_bytes()) == json.loads(
-        json.dumps(evidence)
-    )
-    assert inputs["source"]["agent_count"] == len(scenario["scenario"]["profiles"])
-    # The VM's intervention is the example's (#310): a structured form's Scenario has none.
-    assert (inputs["schema_version"], inputs["intervention"]) == (2, None)
-
-    entry = json.loads((inputs_dir / "export.json").read_bytes())
-    assert entry["world"]["minute_index"] == 0
-    stored = api.store.scenario("sample", scenario["scenario_id"], scenario["scenario_version"])
-    world, _, _ = run_world(stored, FORK)
-    assert world_digests(world) == world_digests(computed)
+    """--bundle (#427): the same Project as the browser's bundle (#265), what made it in its
+    manifest, without the server's own files."""
+    summary = build("projects")
+    path = tmp_path / "sample.shelterproj"
+    source = builder["write_bundle"](tmp_path / "projects", path, summary)
+    bundle = path.read_bytes()
+    assert bundle[:16] == b"\x89SHELTERSIM-PRJ\n"
+    length = int.from_bytes(bundle[20:24], "big")
+    manifest = json.loads(bundle[56 : 56 + length])
+    assert (manifest["format"], manifest["version"]) == ("sheltersim-project-bundle", 2)
+    assert manifest["project_id"] == "sample"
+    assert manifest["source"] == source
+    assert source["tool"] == "scripts/build_project_sample.py"
+    paths = [entry["path"] for entry in manifest["entries"]]
+    run = f"runs/{builder['RUN_ID']}"
+    for branch in ("main", builder["CHILD_ID"]):
+        for name in ("branch.json", "journal.jsonl", "data.pack"):
+            assert f"{run}/branches/{branch}/{name}" in paths
+    assert not any("worker-lock" in path or path.startswith("drafts") for path in paths)

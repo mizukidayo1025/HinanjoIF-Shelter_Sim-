@@ -10,6 +10,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import sys
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -219,6 +220,23 @@ def run_library(
     return world, seen[0].to_dict()
 
 
+def run_library_recorder(scenario: Any, directory: Path) -> tuple[WorldState, Any]:
+    """run_scenario, with the metrics recorder its artifact writer ends with."""
+    seen: list[Any] = []
+    finalize = RunArtifactWriter.finalize
+
+    def observed(writer: RunArtifactWriter, world: WorldState) -> None:
+        finalize(writer, world)
+        seen.append(writer.metrics)
+
+    RunArtifactWriter.finalize = observed
+    try:
+        world = run_scenario(scenario, directory, trace_level=TraceLevel.OFF)
+    finally:
+        RunArtifactWriter.finalize = finalize
+    return world, seen[0]
+
+
 def open_timeline(directory: Path, scenario: Any) -> tuple[ProjectStore, TimelineStore]:
     store = ProjectStore(directory)
     store.create_project("p")
@@ -355,13 +373,23 @@ def _facility_idle(facility_id: str) -> Callable[[WorldState], bool]:
 # The scenarios ---------------------------------------------------------------------------
 
 
-def project_run(directory: Path, scenario: Any, minutes: int) -> ProjectStore:
+def project_run(directory: Path, scenario: Any, minutes: int) -> dict[str, str]:
+    """The core's hashes (`core_hashes`) of the world `project_parts` ends with."""
+    parts, metrics = project_parts(directory, scenario, minutes)
+    return core_hashes(parts, metrics)
+
+
+def project_parts(directory: Path, scenario: Any, minutes: int) -> tuple[dict[str, str], str]:
     """The route the seven-day gate uses: the Project screen's ProjectAPI worker computes
-    `scenario` up to `minutes` as Project "p", Run "r", branch "main" of a store in `directory`."""
+    `scenario` up to `minutes` as Project "p", Run "r", branch "main" of a store in `directory`,
+    in the core into its stored Run of format v5 (#427). The digests of the world's parts and of
+    its metric samples it ended with, read back from the stored Run."""
+    from sheltersim.web.stored_runs import save_scenario
+
     store = ProjectStore(directory)
     api = ProjectAPI(store, recover=False)
-    store.create_project("p")
-    store.save_scenario("p", scenario, approved_hash=digest(json.loads(scenario.canonical_json())))
+    api.post([], {"project_id": "p"})
+    save_scenario(api.files, "p", scenario, digest(json.loads(scenario.canonical_json())))
     api.post(
         ["p", "runs"],
         {
@@ -374,19 +402,36 @@ def project_run(directory: Path, scenario: Any, minutes: int) -> ProjectStore:
     api.submit("p", "r", "main", minutes)
     # Only ends a stuck run; the reversed-order variants on a busy machine take long.
     api.wait_idle(timeout=7200)
+    run, _, _ = api.files.reader("p", "r", "main").seek(minutes)
     api.close()
-    return store
+    return json.loads(run.digests_json()), run.metrics_digest()
+
+
+def core_hashes(parts: dict[str, str], metrics: str) -> dict[str, str]:
+    """The three hashes of a world as the core digests it: its parts' digests, its event log's,
+    and its metric samples'."""
+    return {
+        "world_hash": hashlib.sha256(json.dumps(parts, sort_keys=True).encode()).hexdigest(),
+        "events_hash": parts["event_log"],
+        "metrics_hash": metrics,
+    }
 
 
 def _generated_project(directory: Path) -> Outcome:
-    """The route the seven-day gate uses: the Project screen's ProjectAPI worker."""
+    """The route the seven-day gate uses: the Project screen's ProjectAPI worker, whose Run is the
+    core's (#427), against the library's world digested the core's way."""
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tests"))
+    from support.core_tick import metrics_digest, world_digests
+
     outcome = Outcome()
     scenario = generated(evacuees=100, minutes=720)
-    store = project_run(directory / "projects", scenario, 720)
-    outcome.add("main", *timeline_hashes(store, "main"))
-    library, metrics = run_library(scenario, directory / "library")
-    outcome.add("library", library, metrics)
-    outcome.must_match.append(("main", "library", "saving a Run does not change it"))
+    outcome.runs["main"] = project_run(directory / "projects", scenario, 720)
+    library, recorder = run_library_recorder(scenario, directory / "library")
+    outcome.add("library", library, recorder.to_dict())
+    outcome.runs["library_core"] = core_hashes(
+        world_digests(library), metrics_digest(recorder.snapshots)
+    )
+    outcome.must_match.append(("main", "library_core", "saving a Run does not change it"))
     return outcome
 
 

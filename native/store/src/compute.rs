@@ -250,6 +250,16 @@ impl ProjectFiles {
         Ok(turns.split_off(skip))
     }
 
+    /// The "conversations" pieces of a branch's stored Run, each one's bytes before compression
+    /// (the browser's `conversationPieces`): none for a branch without a stored Run.
+    pub fn conversation_pieces(&self, project: &str, run: &str, branch: &str) -> Result<Vec<Vec<u8>>> {
+        let path = self.layout().branch_file(project, run, branch, JOURNAL)?;
+        if fs::metadata(&path).map_or(true, |metadata| metadata.len() == 0) {
+            return Ok(Vec::new());
+        }
+        self.reader(project, run, branch)?.raw_records(RecordKind::Conversations)
+    }
+
     /// The branches left `running` that no writer holds (their lock is free) become `interrupted`,
     /// with their Runs, as the Python server's start does (`recover_interrupted`); their heads stay.
     /// Each is taken under its lock. Returns them as `(project, run, branch)`.

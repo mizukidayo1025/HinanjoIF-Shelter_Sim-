@@ -126,14 +126,19 @@
   "generated_project": {
    "runs": {
     "main": {
-     "world_hash": "acdbd3a428595d8aeb590ad43e61268a8c325e29708934ac90c626d7cb7a03c5",
+     "world_hash": "0f04a24d094ba25c63fb21ac32d9e77d65c38bc3da66141f14317888ffc25fc7",
      "events_hash": "3491ec368f5752017e156d2eb9d14b712bbd65ed9f55c2798d7b6fde12dcf3b0",
-     "metrics_hash": "44f0ed529d76bd33e23c45a99533b6dbe22a2a04d2739d873362f5e57f4f38f6"
+     "metrics_hash": "2dd71322d19a27735a3b57e1adf1d5c1f684521049eb30de9232d84dd24073e7"
     },
     "library": {
      "world_hash": "acdbd3a428595d8aeb590ad43e61268a8c325e29708934ac90c626d7cb7a03c5",
      "events_hash": "3491ec368f5752017e156d2eb9d14b712bbd65ed9f55c2798d7b6fde12dcf3b0",
      "metrics_hash": "44f0ed529d76bd33e23c45a99533b6dbe22a2a04d2739d873362f5e57f4f38f6"
+    },
+    "library_core": {
+     "world_hash": "0f04a24d094ba25c63fb21ac32d9e77d65c38bc3da66141f14317888ffc25fc7",
+     "events_hash": "3491ec368f5752017e156d2eb9d14b712bbd65ed9f55c2798d7b6fde12dcf3b0",
+     "metrics_hash": "2dd71322d19a27735a3b57e1adf1d5c1f684521049eb30de9232d84dd24073e7"
     }
    },
    "refused": {}

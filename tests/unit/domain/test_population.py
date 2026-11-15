@@ -689,56 +689,6 @@ def test_dynamic_arrival_external_approach_progress_and_checkpoint(
     completed_row = next(row for row in indexed["items"] if row["action"] == "approach_completed")
     assert completed_row["event_id"] == completion[0].event.event_id
 
-    from sheltersim.web import workspace as workspace_module
-    from sheltersim.web.workspace import ProjectWorkspace
-
-    store = ProjectStore(tmp_path / "arrival-intervention")
-    store.create_project("project")
-    workspace = ProjectWorkspace(SimpleNamespace(store=store))
-
-    class FakeTimelineStore:
-        def __init__(self, *_args: object) -> None:
-            pass
-
-        def seek(self, _branch_id: str, _minute: int) -> SimpleNamespace:
-            return SimpleNamespace(world=world)
-
-    monkeypatch.setattr(workspace_module, "TimelineStore", FakeTimelineStore)
-    program = EffectProgram(
-        program_id="operator-arrival-preview",
-        narrative="Add a resident using the selected approach route.",
-        source_text="Operator supplied typed arrival condition.",
-        simulation_start_minute=world.minute_index,
-        effects=[
-            TimedAction(
-                effect_id="arrival-via-route",
-                op="add_evacuees",
-                target_selector=TargetSelector(kind="zone", target_id="corridor"),
-                start_minute=world.minute_index + 1,
-                parameters={"count": 1, "approach_route_id": "arrival-to-corridor"},
-                units="evacuee",
-                source_id="SRC-OPERATOR-ARRIVAL",
-                policy_dependencies=["population_dynamics_v1"],
-                reversible=False,
-            )
-        ],
-        support_mode=SupportMode.NATIVE,
-        compiler_provenance={"compiler_kind": "offline_rule", "compiler_version": "operator-v1"},
-    )
-    preview = workspace.intervention(
-        "project",
-        "run",
-        "main",
-        {"minute": world.minute_index, "program": program.model_dump(mode="json")},
-    )
-    assert preview["can_apply"] is True
-    assert preview["program"]["effects"][0]["parameters"]["approach_route_id"] == (
-        "arrival-to-corridor"
-    )
-    assert workspace._preview("project", preview["preview_id"])["program"].program_id == (
-        "operator-arrival-preview"
-    )
-
 
 def test_arrival_approach_contract_rejects_unknown_routes_and_records_horizon_censoring() -> None:
     world = _approach_world()

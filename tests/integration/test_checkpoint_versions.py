@@ -15,7 +15,6 @@ fixtures/saved_runs/engine-v1-small, saved before the model version was recorded
 
 from __future__ import annotations
 
-import argparse
 import hashlib
 
 import pytest
@@ -36,7 +35,6 @@ from sheltersim.llm.provider import LLMRouter
 from sheltersim.storage.checkpoints import CheckpointArchive
 from sheltersim.storage.history_index import HistoryIndex
 from sheltersim.storage.projects import StorageError, digest
-from sheltersim.web.projects import ProjectAPI
 
 V1_UNTIL = 60
 RESUMED_UNTIL = 90
@@ -138,19 +136,6 @@ def test_a_v1_checkpoint_forks_and_compares(v1_run, current_run) -> None:
 
     timeline.advance("child", V1_UNTIL + 10)
     assert timeline.seek("child", V1_UNTIL).world.canonical_json() == source.canonical_json()
-
-    api = ProjectAPI(store, recover=False)
-    try:
-        comparison = api.workspace.comparison("p", "r", ["main", "child"], V1_UNTIL)
-        assert comparison["shared_origin"] is True
-        assert comparison["common_range"] == [V1_UNTIL, V1_UNTIL]
-        replay = api.get(
-            ["p", "runs", "r", "replay-frames"],
-            {"branch_ids": ["main"], "start": [str(V1_UNTIL)], "end": [str(V1_UNTIL)]},
-        )
-        assert replay["samples"][0]["minute"] == V1_UNTIL
-    finally:
-        api.close()
 
 
 def test_a_changed_chunk_of_a_v1_run_is_refused(v1_run) -> None:
@@ -263,54 +248,6 @@ def test_an_older_model_run_is_shown_at_its_saved_points(
     assert _saved_files(store) == saved
 
 
-def test_an_older_model_run_is_read_through_the_project_api(
-    engine_v1_run, newer_engine, no_computation
-) -> None:
-    store, _ = engine_v1_run
-    saved = _saved_files(store)
-    api = ProjectAPI(store, recover=False)
-    try:
-        frame = api.get(["p", "runs", "r", "branches", "main", "timeline"], {"minute": ["45"]})
-        assert frame["minute"] == 30 and frame["saved_point_rounding"]["saved_minute"] == 30
-
-        replay = api.get(
-            ["p", "runs", "r", "replay-frames"],
-            {"branch_ids": ["main,child"], "start": ["59"], "end": ["60"]},
-        )
-        first, last = replay["samples"]
-        assert [f["minute"] for f in first["frames"]] == [30, 30]
-        assert all(f["saved_point_rounding"]["requested_minute"] == 59 for f in first["frames"])
-        assert [f["minute"] for f in last["frames"]] == [60, 60]
-        assert all("saved_point_rounding" not in f for f in last["frames"])
-
-        comparison = api.get(
-            ["p", "runs", "r", "compare"], {"branch_ids": ["main,child"], "minute": ["45"]}
-        )
-        assert [f["saved_point_rounding"]["saved_minute"] for f in comparison["frames"]] == [
-            30,
-            30,
-        ]
-
-        from sheltersim.web.pdf_report import collect_report
-
-        report = collect_report(api, "p", "r", ["main", "child"], 60)
-        assert [branch["minute"] for branch in report["branches"]] == [60, 60]
-        with pytest.raises(StorageError, match="pdf_saved_point_required") as between:
-            collect_report(api, "p", "r", ["main"], 45)
-        assert "30分" in str(between.value)
-
-        compatibility = api.get(["p", "runs", "r", "branches", "main", "compatibility"], {})
-        assert compatibility["continuation_model_state_compatible"] is False
-        assert compatibility["model_view"]["view_only"] is True
-        assert {
-            item["component"]: (item["recorded"], item["installed"])
-            for item in compatibility["differences"]
-        } == {"engine:model": ("1", newer_engine)}
-    finally:
-        api.close()
-    assert _saved_files(store) == saved
-
-
 def _refused(call) -> str:
     with pytest.raises(StorageError) as refused:
         call()
@@ -338,63 +275,6 @@ def test_continuing_forking_submitting_or_applying_to_an_older_model_run_fails(
         )
     )
 
-    api = ProjectAPI(store, recover=False)
-    try:
-        _refused(
-            lambda: api.post(
-                ["p", "runs", "r", "resume"], {"branch_id": "main", "target_minute": 90}
-            )
-        )
-        _refused(
-            lambda: api.fork(
-                "p",
-                "r",
-                "main",
-                {
-                    "minute": 30,
-                    "child_id": "new-child",
-                    "approved": True,
-                    "program": program.model_dump(mode="json"),
-                    "approved_program_hash": digest(program.model_dump(mode="json")),
-                },
-            )
-        )
-        _refused(
-            lambda: api.workspace.intervention(
-                "p", "r", "main", {"minute": 30, "program": program.model_dump(mode="json")}
-            )
-        )
-        assert store.run("p", "r")["status"] != "running"
-    finally:
-        api.close()
-
-    from sheltersim.storage.commands import execute
-
-    root = store._path("p").parent
-    for action, extra in (("resume", {}), ("fork", {"child_id": "cli-child"})):
-        arguments = argparse.Namespace(
-            root=root,
-            project_action=action,
-            project_id="p",
-            run_id="r",
-            branch_id="main",
-            minute=30 if action == "fork" else 90,
-            **extra,
-        )
-        _refused(lambda arguments=arguments: execute(arguments))
-    assert (
-        execute(
-            argparse.Namespace(
-                root=root,
-                project_action="frame",
-                project_id="p",
-                run_id="r",
-                branch_id="main",
-                minute=45,
-            )
-        )["saved_point_rounding"]["saved_minute"]
-        == 30
-    )
     assert _saved_files(store) == saved
     assert not store._path("p", "runs", "r", "branches", "new-child").exists()
 

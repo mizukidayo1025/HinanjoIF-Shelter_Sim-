@@ -1,4 +1,5 @@
-"""Application wiring for generated scenarios, exact branches, and analysis."""
+"""The Scenario screen's routes (a Scenario made from text and approved, #301) and the routes
+of an intervention and a question, whose answers are the core's (#449, #427)."""
 
 from __future__ import annotations
 
@@ -10,24 +11,9 @@ from collections import OrderedDict
 from typing import Any
 
 from sheltersim.contracts.workspace import DraftInput
-from sheltersim.events.effects import EffectProgram, validate_effect_program
 from sheltersim.experiments.initial_scenario import InitialScenarioBuilder, InitialScenarioRequest
-from sheltersim.experiments.timeline import TimelineStore
 from sheltersim.llm.accounting import StoredResponseTape, accounted_router
-from sheltersim.llm.config import LLMSettings
-from sheltersim.llm.natural_language import (
-    InterventionCompilerUnavailable,
-    compile_natural_language,
-    scenario_summary_from_world,
-)
-from sheltersim.llm.provider import LLMRouter
 from sheltersim.llm.region_prepare import parse_scenario_text
-from sheltersim.llm.report import (
-    build_review_evidence,
-    generate_evidence_review,
-    render_review_markdown,
-    scenario_assumption_ids,
-)
 from sheltersim.region.models import RegionResearchRequest
 from sheltersim.region.population import (
     age_bands_from_observations,
@@ -35,7 +21,7 @@ from sheltersim.region.population import (
 )
 from sheltersim.region.research import RegionResearchService
 from sheltersim.storage.artifacts import ArtifactStore
-from sheltersim.storage.projects import StorageError, digest, safe_document
+from sheltersim.storage.projects import StorageError, digest
 
 
 class ProjectWorkspace:
@@ -68,31 +54,7 @@ class ProjectWorkspace:
             from sheltersim.experiments.scenario import ScenarioSpec
 
             content["scenario"] = ScenarioSpec.model_validate(content["scenario"])
-        elif content["kind"] == "intervention":
-            content["program"] = EffectProgram.model_validate(content["program"])
         return content
-
-    def analysis_router(
-        self,
-        project_id: str,
-        run_id: str,
-        *,
-        operation: str = "questions",
-        branch_id: str | None = None,
-        settings: LLMSettings | None = None,
-    ) -> LLMRouter:
-        tape = StoredResponseTape(
-            self.store, self.store._path(project_id, "runs", run_id, "analysis-tape.json")
-        )
-        return accounted_router(
-            self.store,
-            project_id,
-            run_id=run_id,
-            operation=operation,
-            branch_id=branch_id,
-            tape=tape,
-            settings=settings,
-        )
 
     def _preparation_account(self, project_id: str, requested: str | None = None) -> str:
         if requested is not None:
@@ -118,16 +80,6 @@ class ProjectWorkspace:
                 if pending["account_id"] == account_id:
                     self.store._write(path, {**pending, "status": "bound", "run_id": run_id})
 
-    def save_analysis(self, project_id: str, run_id: str, router: LLMRouter) -> None:
-        snapshot = router.snapshot_state()
-        # Answers and prompts are represented only by sanitized turns and hashes.
-        snapshot["response_tape"] = {"schema_version": 1, "entries": {}}
-        with self.store.transaction():
-            self.store._write(
-                self.store._path(project_id, "runs", run_id, "analysis.json"),
-                {"schema_version": 1, "router": safe_document(snapshot)},
-            )
-
     def preview(self, project_id: str, body: dict[str, Any]) -> dict[str, Any]:
         from sheltersim.web.projects import fields
 
@@ -146,7 +98,7 @@ class ProjectWorkspace:
                 "weather_area_code",
             },
         )
-        self.store.project(project_id)
+        self.api.files.project(project_id)
         draft_id = self._preparation_account(project_id, body.get("draft_id"))
         tape = StoredResponseTape(
             self.store, self.store._path(project_id, "usage-tapes", f"{draft_id}.json")
@@ -269,8 +221,11 @@ class ProjectWorkspace:
         )
         return result
 
-    def approve(self, project_id: str, body: dict[str, Any]) -> dict[str, Any]:
+    def approve(self, project_id: str, body: dict[str, Any]) -> bytes:
+        """`POST {project}/scenario-approve`: the reviewed Scenario saved as a new revision and a
+        Run of it created (`POST {project}/runs`)."""
         from sheltersim.web.projects import fields
+        from sheltersim.web.stored_runs import save_scenario
 
         fields(body, {"preview_id", "approved_hash", "approved", "run_id"})
         preview = self._preview(project_id, body["preview_id"])
@@ -282,31 +237,21 @@ class ProjectWorkspace:
             or not preview["can_start"]
         ):
             raise StorageError("approval must match a startable reviewed scenario")
-        run_path = self.store._path(project_id, "runs", body["run_id"], "run.json")
-        if run_path.exists():
-            existing = self.store.run(project_id, body["run_id"])
+        existing = self.api.files.run_file(project_id, body["run_id"], "run.json")
+        if existing is not None:
+            existing = json.loads(existing)
             if existing["scenario_hash"] != preview["hash"]:
                 raise StorageError("run_id_conflict")
-            result = self.api.post(
-                [project_id, "runs"],
-                {
-                    "run_id": body["run_id"],
-                    "scenario_id": existing["scenario_id"],
-                    "scenario_version": existing["scenario_version"],
-                    "usage_account_id": preview["usage_account_id"],
-                },
-            )
-            self._bind_preparation(project_id, preview["usage_account_id"], body["run_id"])
-            return result
-        saved = self.store.save_scenario(
-            project_id, preview["scenario"], approved_hash=preview["hash"]
-        )
-        result = self.api.post(
-            [project_id, "runs"],
+            scenario_id, version = existing["scenario_id"], existing["scenario_version"]
+        else:
+            saved = save_scenario(self.api.files, project_id, preview["scenario"], preview["hash"])
+            scenario_id, version = saved["scenario_id"], saved["scenario_version"]
+        result = self.api.create_run(
+            project_id,
             {
                 "run_id": body["run_id"],
-                "scenario_id": saved["scenario_id"],
-                "scenario_version": saved["scenario_version"],
+                "scenario_id": scenario_id,
+                "scenario_version": version,
                 "usage_account_id": preview["usage_account_id"],
             },
         )
@@ -314,220 +259,109 @@ class ProjectWorkspace:
         self.drafts.pop(body["preview_id"], None)
         return result
 
-    def comparison(
-        self, project_id: str, run_id: str, branch_ids: list[str], minute: int
-    ) -> dict[str, Any]:
-        common_range, receipts, paired = self.comparison_context(
-            project_id, run_id, branch_ids, minute
+    # ---- Interventions and questions (the core's answers, #449) -------------------------------
+
+    def intervention_preview(
+        self, project_id: str, run_id: str, branch_id: str, body: bytes
+    ) -> bytes:
+        """`POST …/intervention-preview` (`{minute, text}`): the branch's Run at the minute, the
+        text read by the offline compiler, the program's checks on the world, and the draft kept
+        for the approval (the browser's `interventionPreview`)."""
+        from sheltersim.web.projects import answers
+
+        core, files = answers(), self.api.files
+        plan = core.preview_plan(
+            body, project_id, run_id, *files.run_listing(project_id, run_id), branch_id
         )
-        timeline = TimelineStore(self.store, project_id, run_id)
-        frames = [timeline.frame(key, minute) for key in branch_ids]
-        from sheltersim.web.replay import comparison_projection
+        self._require_current_model(project_id, run_id, branch_id)
+        plan.check_typed()
+        record = json.loads(plan.record_json())
+        run = self.api.live.at(project_id, run_id, record, plan.minute)
+        preview_id = uuid.uuid4().hex
+        answer, draft = plan.answer(run, preview_id)
+        if draft is not None:
+            with files.transaction():
+                files.keep_draft(project_id, preview_id, draft)
+        return answer
 
-        return comparison_projection(run_id, minute, common_range, frames, receipts, paired)
+    def intervention_apply(
+        self, project_id: str, run_id: str, branch_id: str, body: bytes
+    ) -> bytes:
+        """`POST …/intervention-apply`: the draft and the approval checked, then the child made
+        at once (`ProjectAPI.fork`); its outcome is the Run's `last_fork`."""
+        from sheltersim.web.projects import answers
 
-    def comparison_context(
-        self, project_id: str, run_id: str, branch_ids: list[str], minute: int
-    ) -> tuple[list[int], list[Any], bool]:
-        """A comparison's common range, fork receipts and shared origin, without frames."""
-        if not 2 <= len(branch_ids) <= 8 or len(set(branch_ids)) != len(branch_ids):
-            raise StorageError("comparison requires 2–8 distinct project branches")
-        refs = {b["branch_id"]: b for b in self.store.branches(project_id, run_id)}
-        if any(key not in refs for key in branch_ids):
-            raise StorageError("comparison branch is missing from this Run")
-        lower = max(refs[key]["fork_minute"] for key in branch_ids)
-        upper = min(refs[key]["computed_until"] for key in branch_ids)
-        if type(minute) is not int or not lower <= minute <= upper:
-            raise StorageError("comparison minute is outside the common computed range")
-        receipts = []
-        for key in branch_ids:
-            # Only the fork receipt is needed; read the head's verified runtime_state
-            # instead of decoding and validating each branch's whole history.
-            runtime_state = self.store.checkpoint_fields(
-                project_id, run_id, refs[key]["checkpoint_hash"], ("runtime_state",)
-            )["runtime_state"]
-            receipts.append(runtime_state.get("fork_origin"))
-        origins = [r for r in receipts if r is not None]
-        if origins:
-            first = origins[0]
-            paired = all(
-                (r == first or key == first["branch_id"])
-                for key, r in zip(branch_ids, receipts, strict=True)
-            )
-        else:
-            paired = False
-        return [lower, upper], receipts, paired
-
-    def intervention(
-        self, project_id: str, run_id: str, branch_id: str, body: dict[str, Any]
-    ) -> dict[str, Any]:
-        from sheltersim.web.projects import fields
-
-        fields(body, {"minute"}, {"text", "program"})
-        if ("text" in body) == ("program" in body):
-            raise StorageError("provide exactly one of text or program")
-        runtime = TimelineStore(self.store, project_id, run_id).seek(branch_id, body["minute"])
-        if "program" in body:
-            try:
-                program = EffectProgram.model_validate(body["program"])
-            except (TypeError, ValueError) as exc:
-                raise StorageError(f"invalid typed EffectProgram: {exc}") from exc
-            issues = validate_effect_program(runtime.world, program)
-            result = {
-                "schema_version": 1,
-                "status": "compiled" if not issues else "blocked",
-                "support_mode": program.support_mode.value,
-                "compiler_provenance": program.compiler_provenance.model_dump(mode="json"),
-                "explanation": (
-                    "Operator supplied a typed EffectProgram; validation is required before "
-                    "approval."
-                ),
-                "program": program.model_dump(mode="json"),
-                "can_apply": not issues,
-                "validation_issues": list(issues),
-            }
-        else:
-            compiler_tape = StoredResponseTape(
-                self.store, self.store._path(project_id, "runs", run_id, "compiler-tape.json")
-            )
-            try:
-                compiled = compile_natural_language(
-                    {
-                        "text": body["text"],
-                        "branch_id": branch_id,
-                        "selected_minute": body["minute"],
-                        "scenario_summary": scenario_summary_from_world(runtime.world).model_dump(
-                            mode="json"
-                        ),
-                    },
-                    router=accounted_router(
-                        self.store,
-                        project_id,
-                        run_id=run_id,
-                        operation="compiler",
-                        branch_id=branch_id,
-                        tape=compiler_tape,
-                    ),
-                )
-            except InterventionCompilerUnavailable as exc:
-                raise StorageError(str(exc), code="intervention_compiler_unavailable") from exc
-            result = compiled.model_dump(mode="json")
-            program = None
-            if compiled.draft_plan is not None and compiled.status == "compiled":
-                raw = compiled.draft_plan.model_dump(mode="json")
-                program = EffectProgram.model_validate(
-                    {k: v for k, v in raw.items() if k in EffectProgram.model_fields}
-                )
-                issues = validate_effect_program(runtime.world, program)
-                result["can_apply"] = not issues
-                result["validation_issues"] = list(issues)
-                result["program"] = program.model_dump(mode="json")
-        if program is not None:
-            if "approved_program_hash" not in result:
-                result["approved_program_hash"] = digest(program.model_dump(mode="json"))
-            if "preview_id" not in result:
-                result["preview_id"] = self._cache(
-                    {
-                        "kind": "intervention",
-                        "project_id": project_id,
-                        "run_id": run_id,
-                        "branch_id": branch_id,
-                        "minute": body["minute"],
-                        "state_hash": runtime.world.state_digest(),
-                        "program": program,
-                        "hash": result["approved_program_hash"],
-                        "can_apply": result["can_apply"],
-                    }
-                )
-        return result
-
-    def post(self, parts: list[str], body: dict[str, Any]) -> dict[str, Any] | None:
-        with self._lock:
-            if len(parts) == 2 and parts[1] == "scenario-preview":
-                return self.preview(parts[0], body)
-            if len(parts) == 2 and parts[1] == "scenario-approve":
-                return self.approve(parts[0], body)
-            if len(parts) == 6 and parts[1] == "runs" and parts[3] == "branches":
-                project_id, run_id, branch_id, action = parts[0], parts[2], parts[4], parts[5]
-                if action == "questions":
-                    from sheltersim.web.results_chat import ResultsChatService
-
-                    return ResultsChatService(self.api).ask(
-                        {**body, "project_id": project_id, "run_id": run_id, "branch_id": branch_id}
-                    )
-                if action == "intervention-preview":
-                    return self.intervention(project_id, run_id, branch_id, body)
-                if action == "intervention-apply":
-                    from sheltersim.web.projects import fields
-
-                    fields(body, {"preview_id", "approved_program_hash", "approved", "child_id"})
-                    preview = self._preview(project_id, body["preview_id"])
-                    if (
-                        not preview
-                        or preview.get("kind") != "intervention"
-                        or (preview["project_id"], preview["run_id"], preview["branch_id"])
-                        != (project_id, run_id, branch_id)
-                    ):
-                        raise StorageError("intervention preview expired or has another scope")
-                    if not preview["can_apply"] or body["approved_program_hash"] != preview["hash"]:
-                        raise StorageError("intervention approval does not match validated preview")
-                    # The fork checks the source state against the preview's while it
-                    # restores the source, instead of restoring it once more here.
-                    result = self.api.fork(
-                        project_id,
-                        run_id,
-                        branch_id,
-                        {
-                            "minute": preview["minute"],
-                            "child_id": body["child_id"],
-                            "approved": body["approved"],
-                            "program": preview["program"].model_dump(mode="json"),
-                            "approved_program_hash": preview["hash"],
-                        },
-                        expected_state_hash=preview["state_hash"],
-                    )
-                    self.drafts.pop(body["preview_id"], None)
-                    return result
-            return None
-
-    def finish_review(self, project_id: str, run_id: str, branch_id: str, runtime: Any) -> None:
-        if runtime.runtime_state.get("execution_purpose") == "offline_experiment":
-            with self.store.transaction():
-                self.store._write(
-                    self.store._path(
-                        project_id, "runs", run_id, "branches", branch_id, "report.json"
-                    ),
-                    {
-                        "schema_version": 1,
-                        "status": "offline_experiment_no_paid_review",
-                        "limits": "Use saved experiment evaluation; no automatic provider review.",
-                    },
-                )
-            return
-        path = self.store._path(project_id, "runs", run_id, "branches", branch_id, "report.json")
-        if path.exists():
-            return
-        run = self.store.run(project_id, run_id)
-        scenario = self.store.scenario(project_id, run["scenario_id"], run["scenario_version"])
-        evidence = build_review_evidence(
-            metrics=[s.csv_row() for s in runtime.metrics.snapshots[-1:]],
-            realized_events=[r.to_dict() for r in runtime.world.event_log.records[-100:]],
-            assumptions=scenario_assumption_ids(scenario),
+        core, files, api = answers(), self.api.files, self.api
+        draft = files.draft(project_id, core.apply_draft_id(body))
+        plan = core.apply_plan(
+            body, draft, project_id, run_id, branch_id, api.busy(project_id, run_id, branch_id)
         )
-        with self._lock:
-            router = self.analysis_router(
-                project_id, run_id, operation="report", branch_id=branch_id
+        # A Run of another model version is view-only: no fork, no EffectProgram.
+        self._require_current_model(project_id, run_id, branch_id)
+        record = json.loads(plan.fork_checks(*files.run_listing(project_id, run_id)))
+        api.keep_fork_outcome(project_id, run_id, None)
+        try:
+            child, _, state_hash = api.fork(
+                project_id,
+                run_id,
+                record["branch_id"],
+                plan.child_id,
+                plan.minute,
+                plan.program_text,
+                plan.hash,
+                _draft_state_hash(draft),
             )
-            result = generate_evidence_review(evidence, router)
-            self.save_analysis(project_id, run_id, router)
-            document = {
-                "schema_version": 1,
-                "branch_id": branch_id,
-                "minute": runtime.world.minute_index,
-                "state_hash": runtime.world.state_digest(),
-                "status": result.status,
-                "markdown": render_review_markdown(result),
-                "review": result.to_dict(),
-            }
-            with self.store.transaction():
-                self.store._write(path, safe_document(document), immutable=True)
+            outcome = core.created_outcome(child["branch_id"], plan.minute, state_hash)
+        except StorageError as exc:
+            outcome = core.failed_outcome(str(exc), True, exc.code)
+        except ValueError as exc:
+            outcome = core.failed_outcome(str(exc), True, None)
+        except Exception as exc:
+            outcome = core.failed_outcome(str(exc), False, None)
+        api.keep_fork_outcome(project_id, run_id, outcome)
+        return plan.answer()
+
+    def question(self, project_id: str, run_id: str, branch_id: str, body: bytes) -> bytes:
+        """`POST …/questions`: the request's and the evidence's checks, the answer without a
+        Provider, and the turn kept in the branch's stored Run (the browser's
+        `questionResponse`)."""
+        import secrets
+        import time
+
+        from sheltersim.web.projects import answers
+
+        core, files, api = answers(), self.api.files, self.api
+        plan = core.question_plan(body, project_id, run_id, branch_id)
+        listing = files.run_listing(project_id, run_id)
+        plan.check_branch(*listing)
+        plan.evidence(files.run_scenario_bytes(project_id, run_id))
+        minute = plan.minute
+        record = json.loads(core.branch_of(project_id, run_id, *listing, branch_id))
+        compared = plan.check_frame(api.frame(project_id, run_id, record, minute))
+        if compared:
+            core.comparison_range(compared, minute, project_id, run_id, *listing)
+            core.compare_plan(
+                f"branch_ids={','.join(compared)}&minute={minute}", project_id, run_id, *listing
+            ).receipts(api.journals(project_id, run_id, compared))
+        answer, turn = plan.answer(
+            secrets.token_hex(12), f"t-{time.time_ns()}-{secrets.token_hex(4)}"
+        )
+        with files.claim_branch(project_id, run_id, branch_id) as lease, files.transaction():
+            files.keep_turn(lease, project_id, run_id, branch_id, turn)
+        return answer
+
+    def _require_current_model(self, project_id: str, run_id: str, branch_id: str) -> None:
+        from sheltersim.web.projects import answers
+
+        files = self.api.files
+        answers().require_current_model(
+            files.branch_file(project_id, run_id, branch_id, "journal.jsonl") or b"",
+            files.run_scenario_bytes(project_id, run_id),
+        )
+
+
+def _draft_state_hash(draft: bytes) -> str:
+    """The digest of the parent's world the preview saw, which its draft keeps: the fork is
+    refused where the parent's world at the minute is another ("source state changed")."""
+    document = json.loads(draft)
+    return document.get("content", document)["state_hash"]

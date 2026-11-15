@@ -57,7 +57,7 @@ PROJECT, RUN, BRANCH = "sample", "run-sample-toilet-outage", "main"
 # The Run of the sample's Scenario the check makes and computes (3): the site offered one until
 # #411; now the check makes it as a person's own Run is made, through `POST runs`.
 COMPUTE_RUN = "run-check-compute"
-# What the home's list of examples says of the sample (build_browser_sample.py: 墨田区).
+# What the home's list of examples says of the sample (build_project_sample.py: 墨田区).
 EXAMPLE_PLACE = "墨田区"
 COMPUTE_PATH = f"/api/v1/projects/{PROJECT}/runs/{COMPUTE_RUN}"
 RUN_PATH = f"/api/v1/projects/{PROJECT}/runs/{RUN}"

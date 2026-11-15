@@ -6,12 +6,13 @@
 //!
 //! Each method reads its arguments, calls one function of the store and converts what it gives: a
 //! record as its JSON text (sorted keys, as the file holds it), bytes as `bytes`. A refusal of the
-//! store is a ValueError with Python's `StorageError` text (a leading `code: ` names its code), an
+//! store is a `Refused` (a ValueError) with Python's `StorageError` text (a leading `code: ` names its code), an
 //! error of the core its own class (`core::errors::to_py_err`), and an error of a file an OSError.
 //! Waiting for the store's transaction releases the GIL, so a Python thread holding it can end.
 
 use std::path::PathBuf;
 
+use pyo3::create_exception;
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
@@ -23,11 +24,20 @@ use sheltersim_store::stored::FromStart;
 use sheltersim_store::{compress, lock, quota, stored, Error};
 
 use crate::core::errors::{to_py_err, OrPy};
+use crate::core::llm_link::{PyLink, Raised};
+use sheltersim_core::llm::Limits;
 use crate::rules::plain::PlainRun;
+
+create_exception!(
+    sheltersim_native.rules.run_files,
+    Refused,
+    PyValueError,
+    "A refusal of the store, with the text of Python's StorageError (a leading `code: ` names its code)."
+);
 
 fn to_py(error: Error) -> PyErr {
     match error {
-        Error::Refused(text) => PyValueError::new_err(text),
+        Error::Refused(text) => Refused::new_err(text),
         Error::Core(error) => to_py_err(error),
         Error::Io(error) => error.into(),
     }
@@ -140,6 +150,16 @@ impl ProjectFiles {
     #[pyo3(signature = (root, limit_bytes=None))]
     fn new(root: PathBuf, limit_bytes: Option<u64>) -> PyResult<Self> {
         Ok(Self { inner: records::ProjectFiles::new(&root, limit_bytes).or_store()? })
+    }
+
+    /// The store's folder.
+    fn root(&self) -> PathBuf {
+        self.inner.layout().root().to_path_buf()
+    }
+
+    /// What the store may hold, or None.
+    fn limit(&self) -> Option<u64> {
+        self.inner.limit()
     }
 
     /// What the store's files take now: `(bytes, files)`.
@@ -308,7 +328,7 @@ impl ProjectFiles {
 
     /// Goes on with a branch from its record's head toward `target`.
     fn go_on(&self, lease: &Lease, project: &str, run: &str, branch: &str, target: i64) -> PyResult<Computation> {
-        Ok(Computation { inner: Some(self.inner.go_on(lease_of(lease)?, project, run, branch, target).or_store()?) })
+        Ok(Computation { inner: Some(self.inner.go_on(lease_of(lease)?, project, run, branch, target).or_store()?), raised: Raised::default() })
     }
 
     /// Makes the branch `child` of `parent` at `minute` with the EffectProgram `program` (its JSON
@@ -341,6 +361,12 @@ impl ProjectFiles {
     #[pyo3(signature = (project, run, branch, limit=100))]
     fn conversations<'py>(&self, py: Python<'py>, project: &str, run: &str, branch: &str, limit: usize) -> PyResult<Vec<Bound<'py, PyBytes>>> {
         Ok(self.inner.conversations(project, run, branch, limit).or_store()?.iter().map(|turn| PyBytes::new(py, turn)).collect())
+    }
+
+    /// The "conversations" pieces of a branch's stored Run, decompressed, in the order of its
+    /// journal (what `answers.conversations_answer` reads).
+    fn conversation_pieces<'py>(&self, py: Python<'py>, project: &str, run: &str, branch: &str) -> PyResult<Vec<Bound<'py, PyBytes>>> {
+        Ok(self.inner.conversation_pieces(project, run, branch).or_store()?.iter().map(|piece| PyBytes::new(py, piece)).collect())
     }
 
     /// The latest line of a branch's stored Run a branch forked from it reads up to, or None.
@@ -513,10 +539,14 @@ impl StoredRun {
     }
 
     /// The Run at `minute`, restored from the nearest saved point at or before it and computed to
-    /// it: `(PlainRun, the minute it was computed from, the branch's line restored)`.
-    #[pyo3(signature = (minute, decisions=false))]
-    fn seek(&mut self, minute: i64, decisions: bool) -> PyResult<(PlainRun, i64, usize)> {
-        let sought = self.inner.seek(minute, decisions).or_store()?;
+    /// it: `(PlainRun, the minute it was computed from, the branch's line restored)`. The ticks of
+    /// a Run that kept an LLM tape answer from it, within `llm_limits` (the JSON of `llm::Limits`
+    /// the Run was computed with; the model's defaults where None).
+    #[pyo3(signature = (minute, decisions=false, llm_limits=None))]
+    fn seek(&mut self, minute: i64, decisions: bool, llm_limits: Option<&[u8]>) -> PyResult<(PlainRun, i64, usize)> {
+        let limits = llm_limits.map_or(Ok(Limits::default()), |raw| Limits::from_json(raw).or_py())?;
+        let replaying = stored::Replaying { offline: false, limits };
+        let sought = self.inner.seek_with(minute, decisions, &replaying).or_store()?;
         Ok((PlainRun::of_run(sought.run), sought.from, sought.base))
     }
 
@@ -531,6 +561,8 @@ impl StoredRun {
 #[pyclass(unsendable, module = "sheltersim_native.rules.run_files")]
 pub struct Computation {
     inner: Option<compute::Computation>,
+    /// What the Python link raised last, the cause `chunk` raises (`core::llm_link`).
+    raised: Raised,
 }
 
 impl Computation {
@@ -560,10 +592,28 @@ impl Computation {
         Ok((minute, hash.to_owned()))
     }
 
+    /// Gives the Run an LLM (`PlainRun.set_llm`, #428): `link` a Python object with `offline` and
+    /// `complete(task: bytes) -> bytes` (`sheltersim.llm.link.RouterLink`), asked within `limits`
+    /// (the JSON of `llm::Limits`; the model's defaults where None). Its calls are kept in the
+    /// stored Run's LLM tape.
+    #[pyo3(signature = (link, limits=None))]
+    fn set_llm(&mut self, py: Python<'_>, link: Py<PyAny>, limits: Option<&[u8]>) -> PyResult<()> {
+        let limits = limits.map_or(Ok(Limits::default()), |raw| Limits::from_json(raw).or_py())?;
+        let link = PyLink::new(py, link, &self.raised)?;
+        self.get()?.run.set_llm(Box::new(link), limits).or_py()
+    }
+
     /// One chunk of at most `ticks` ticks: the status once the computation ends ("completed",
-    /// "paused"), else None.
-    fn chunk(&mut self, files: &ProjectFiles, ticks: u64) -> PyResult<Option<&'static str>> {
-        self.get()?.chunk(&files.inner, ticks).or_store()
+    /// "paused"), else None. What the LLM's link raised is the cause of the error.
+    fn chunk(&mut self, py: Python<'_>, files: &ProjectFiles, ticks: u64) -> PyResult<Option<&'static str>> {
+        self.raised.borrow_mut().take();
+        let result = self.get()?.chunk(&files.inner, ticks).or_store();
+        if let Err(error) = &result {
+            if let Some(raised) = self.raised.borrow_mut().take() {
+                error.set_cause(py, Some(raised));
+            }
+        }
+        result
     }
 
     /// Ends the computation where it got to (a cancel): its status.
@@ -580,6 +630,7 @@ impl Computation {
 }
 
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add("Refused", m.py().get_type::<Refused>())?;
     m.add_class::<Lease>()?;
     m.add_class::<ProjectFiles>()?;
     m.add_class::<StoredRun>()?;

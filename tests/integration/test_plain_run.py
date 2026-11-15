@@ -1,7 +1,7 @@
 """The core's Run without Python (`PlainRun`) from Python, against the native path (#368, step 2).
 
 `sheltersim_native.rules.plain.PlainRun` is the browser's `Simulation` for Python: it reads the
-JSON of `export_world` (as `scripts/build_browser_sample.py` writes it), or builds a Scenario's
+JSON of `export_world` (as the core's `initial_entry` writes it), or builds a Scenario's
 world at minute 0 in the core (`from_scenario`, #429), and runs the ticks on the
 core's host without Python (`sheltersim_core::plain`). Each world of `support/core_tick.py` runs
 through it and through `TickEngine` (the native path) to the same world digests and metric samples.
@@ -52,7 +52,7 @@ BUILDERS = {
 
 
 def _entry(world: Any, controller: Any) -> bytes:
-    """The exported world's JSON bytes, as `build_browser_sample.py` writes them."""
+    """The exported world's JSON bytes, as `export_world` gives them."""
     entry = export_world(world, controller)
     return json.dumps(entry, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode()
 

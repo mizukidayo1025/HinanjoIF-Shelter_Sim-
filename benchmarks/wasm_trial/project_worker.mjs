@@ -5,7 +5,7 @@
 //   roundtrip  computes the world (of a file of named worlds) into a Project of OPFS, answers the
 //              Project's routes, exports the Project to a bundle, removes the whole folder (the
 //              store is empty), imports the bundle and answers the routes again
-//   bundle     imports a bundle file (the sample of scripts/build_browser_sample.py) into an
+//   bundle     imports a bundle file (the sample of scripts/build_project_sample.py --bundle) into an
 //              empty folder and answers the routes
 // The folder is projects-check/ under OPFS's root; it is removed afterwards unless `keep`.
 // Message out: { type: "done", ... } or { type: "error", message }.

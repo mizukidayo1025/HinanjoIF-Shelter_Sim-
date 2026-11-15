@@ -242,3 +242,60 @@ def test_the_server_reads_the_files_an_answer_needs_and_exports_a_project(tmp_pa
     paths = [entry["path"] for entry in manifest["entries"]]
     assert "runs/r/branches/main/journal.jsonl" in paths
     assert not any("worker-lock" in path for path in paths)
+
+
+def test_a_run_computed_with_an_llm_keeps_its_tape_and_a_seek_answers_from_it(tmp_path):
+    """A computation given an LLM link (#428, the server's Run with a Provider) keeps each call in
+    the stored Run's LLM tape; a seek between saved points answers the ticks from the tape, never
+    from a provider, and reaches the Run's world (#427)."""
+    import dataclasses
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "benchmarks"))
+    from gate_scenarios import ScriptedProvider, _llm_settings, generated, with_rumors
+
+    from sheltersim.llm.cache import ResponseTape
+    from sheltersim.llm.config import LLMMode
+    from sheltersim.llm.link import RouterLink
+    from sheltersim.llm.provider import LLMRouter
+    from sheltersim.web.stored_runs import minute_zero_entry
+
+    limits = json.dumps(
+        {
+            "social": {
+                "cooldown_minutes": 5,
+                "per_agent_per_day": 40,
+                "global_per_day": 120,
+                "complaint_wait_minutes": 5,
+            }
+        }
+    ).encode()
+    scenario = with_rumors(generated(evacuees=24, minutes=240, staff_count=1))
+    entry = json.loads(minute_zero_entry(scenario.canonical_json().encode()))
+    for agent in entry["world"]["agents"]:
+        agent["stress"] = 0.9
+    export = json.dumps(entry, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode()
+
+    def link() -> RouterLink:
+        settings = dataclasses.replace(_llm_settings(LLMMode.RECORD))
+        return RouterLink(LLMRouter(settings, provider=ScriptedProvider(), tape=ResponseTape()))
+
+    files = FILES.ProjectFiles(tmp_path)
+    files.create_project("p")
+    text = json.dumps({"duration_minutes": 240, "id": "s", "seed": 1}).encode()
+    files.save_scenario("p", text, hashlib.sha256(text).hexdigest())
+    files.create_run("p", "r", "s", 1, 1, VERSIONS, b'{"schema_version":1}')
+    with files.claim_branch("p", "r", "main") as lease:
+        files.start_branch(lease, "p", "r", "main", export, save_every=60)
+        computation = files.go_on(lease, "p", "r", "main", 240)
+        computation.set_llm(link(), limits)
+        while computation.chunk(files, 25) is None:
+            pass
+    reader = files.reader("p", "r", "main")
+    tape = reader.records("llm_tape")
+    assert tape
+    run, start, _ = reader.seek(150, llm_limits=limits)
+    assert (start, run.minute()) == (120, 150)
+    straight = PLAIN.PlainRun(export)
+    straight.set_llm(link(), limits)
+    straight.advance(150)
+    assert run.digests_json() == straight.digests_json()

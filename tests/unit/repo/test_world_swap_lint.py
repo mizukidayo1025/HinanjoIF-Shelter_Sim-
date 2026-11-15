@@ -28,7 +28,6 @@ ALLOWED: dict[tuple[str, str, str], str] = {
         "the copy-and-swap where the world's core holds no transaction (Unsupported)"
     ),
     ("core/world.py", "_bare_world", "update"): "fills a new world made with object.__new__",
-    ("web/pdf_render.py", "save", "update"): "a reportlab canvas's page state, not a world",
 }
 
 

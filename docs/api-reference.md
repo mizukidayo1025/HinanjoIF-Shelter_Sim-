@@ -35,7 +35,7 @@ Scenario JSON、Run manifest、CheckpointはJSONを使います。eventとdecisi
 
 ## HTTP route群
 
-serverは型付きrequest契約と、許可されたfield/queryだけを受け付ける検証を使います。実装はsrc/sheltersim/web/server.py、projects.py、project_services.py、workspace.pyにあります。
+serverは許可されたfield/queryだけを受け付けます。実装はsrc/sheltersim/web/server.py、projects.py、project_services.py、workspace.pyにあります。#427から、画面が呼ぶ道の答えと誤りは中核の関数（`sheltersim_core::answers`、PyO3の`sheltersim_native.rules.answers`）が作り、ブラウザー版と同じbytesです。
 
 | Route | 操作 |
 |---|---|
@@ -43,23 +43,23 @@ serverは型付きrequest契約と、許可されたfield/queryだけを受け�
 | /api/v1/projects/{project} | Project、Scenario、Run、証拠を参照します |
 | /api/v1/projects/{project}/scenario-preview | Scenario案を作成・検証します |
 | /api/v1/projects/{project}/scenario-approve | preview hashを承認し、保存ScenarioとRunを作成します |
-| /api/v1/projects/{project}/runs/{run} | Runを再開・取消し、比較・証拠・監査・利用記録を参照します。取消し（`POST …/cancel`）は `branch_id` を渡すとそのBranchの計算だけを、渡さなければRunのすべての計算を止めます。Runの参照の `branches` には、Branchごとの計算の状態（`status`）が付きます（#48） |
+| /api/v1/projects/{project}/runs/{run} | Runを再開・取消し・削除し、比較・証拠・利用記録を参照します。取消し（`POST …/cancel`）は `branch_id` を渡すとそのBranchの計算だけを、渡さなければRunのすべての計算を止めます。Runの参照の `branches` には、Branchごとの計算の状態（`status`）が付きます（#48） |
 | /api/v1/projects/{project}/runs/{run}/branches/{branch} | timeline、履歴（`kind`は`kpis`と`conversations`だけ）、report、会話、LLM fallback集計（llm-status）を参照し、介入のpreview・apply、質問を送ります |
 | /api/v1/usage/runtime | CLI（と以前の画面のDemo）の上限付き利用記録を参照します |
 
-Project APIは登録モデル・契約（`GET …/contracts`）、Runの監査（`GET …/runs/{run}/audit`）、利用記録（`GET …/usage`、`GET …/runs/{run}/usage`）、履歴index、Checkpointも扱います。以前の画面だけが使った道（図面のupload・asset・Geometry、draft、evaluation、dataset、実験、複数Runの比較〔`comparison-query`〕、条件の差〔`condition-differences`〕、`first-divergence`、世帯の修正、標準施設の補正〔`facility-preview`〕、計測〔`…/telemetry`と、`resume`の`measure_performance`〕、介入なしの分岐〔`…/branches/{branch}/fork`〕、アーカイブ〔`POST …/archive`、`POST …/runs/{run}/archive`、`GET …/scenarios`、CLIの`project archive`。不要なRunは`POST …/runs/{run}/delete`で消します〕）は#376でなくしました。OpenAPI documentは別途生成していません。field・responseの正確な契約は現在のPydantic modelとtestを参照してください。
+Project APIは登録モデル・契約（`GET …/contracts`）と、LLMの利用記録（`GET …/usage`、`GET …/runs/{run}/usage`）も扱います。Runの監査（`…/audit`）、履歴の索引（`…/index`）、Checkpointの一覧と節（`…/checkpoints`）、互換性（`…/compatibility`）、作り直し（`…/rerun`）、CLIの`project fork`・`project rerun`は、PythonのCheckpointと一緒に#427でなくしました。以前の画面だけが使った道（図面のupload・asset・Geometry、draft、evaluation、dataset、実験、複数Runの比較〔`comparison-query`〕、条件の差〔`condition-differences`〕、`first-divergence`、世帯の修正、標準施設の補正〔`facility-preview`〕、計測〔`…/telemetry`と、`resume`の`measure_performance`〕、介入なしの分岐〔`…/branches/{branch}/fork`〕、アーカイブ〔`POST …/archive`、`POST …/runs/{run}/archive`、`GET …/scenarios`、CLIの`project archive`。不要なRunは`POST …/runs/{run}/delete`で消します〕）は#376でなくしました。OpenAPI documentは別途生成していません。field・responseの正確な契約は現在のPydantic modelとtestを参照してください。
 
 ### Projectと介入の流れ
 
 - POST /api/v1/projects でローカルProjectを作成し、GETで一覧と容量を確認します。Project、Run、Branch IDは表示名ではなく不透明な識別子です。
 - POST /api/v1/projects/{project}/scenario-preview はdraftを検証し、期限付きpreview IDと正準approval hashを返します。previewだけではRunを作らず、simulationも開始しません。
 - POST /api/v1/projects/{project}/scenario-approve はpreview ID、一致するhash、approved: true、新しいRun IDを要求します。不変のScenario版と初期Run状態を保存します。
-- Branchのintervention-previewは、指定時刻に自然言語または型付きprogramを受け取り、分離したstateで検証します。元Branchは変えません。自然言語の変換がruleの結果になった場合（`fallback_used: true`）、Opusを使わなかった理由を`limitations`に含めます。`SHELTERSIM_LLM_ERROR_POLICY=stop`では、ruleの結果の代わりに409（`code: intervention_compiler_unavailable`）で理由を返します（llm-integration.md参照）。intervention-applyはpreview ID、program hash、明示承認、child IDを要求し、元state hashを再検査して独立Branchを作ります。
-- intervention-applyは、Webサーバーでは別プロセスで子Branchを作り、すぐに `{"status": "running", "branch_id": 子のID, "minute": 分岐時刻}` を返します（#48）。時刻の範囲、子IDの重複、program hashの不一致は、その場で拒否します。作っている間、Runの状態は `running` です。終わると元の状態に戻り、Runの参照（`GET …/runs/{run}`）の `last_fork` に結果を載せます。成功なら `{"status": "created", "branch_id", "minute", "state_hash"}`、失敗なら `{"status": "failed", "error", "code"}` です。`last_fork` は、そのサーバーのプロセスで最後に始めた分岐の結果だけで、保存しません。CLIとテスト（`ProjectAPI(worker="thread")`）では、従来どおり子Branchを作り終えてから `{"branch_id", "minute", "state_hash"}` を返します。CLIの`project fork`は、介入なしの子Branchを`TimelineStore.fork`で作ります。
+- Branchのintervention-previewは、指定時刻に自然言語を受け取り、中核のofflineの読み取り（ブラウザー版と同じ）でprogramにし、その時刻の世界で検証します。元Branchは変えません。#427から、APIキーがあってもLLMでは読みません（中核にLLMの口ができるまで）。intervention-applyはpreview ID、program hash、明示承認、child IDを要求し、元state hashを再検査して独立Branchを作ります。
+- intervention-applyは、ブラウザー版と同じく、その場で子Branchを作ってから `{"status": "running", "branch_id": 子のID, "minute": 分岐時刻}` を返します（#427）。結果はRunの参照（`GET …/runs/{run}`）の `last_fork` に載ります。成功なら `{"status": "created", "branch_id", "minute", "state_hash"}`、失敗なら `{"status": "failed", "error", "code"}` です。`last_fork` は、そのサーバーのプロセスで最後の分岐の結果だけで、保存しません。
 - 図面の取り込み（upload、plan-preview、Geometryの承認）と、scenario-previewの`plan_override`・`geometry_id`は#376でなくしました（決定3）。scenario-previewは標準の合成施設から作ります。
 - timeline frameは指定tickの直前境界を表します。未計算・利用不可の履歴を推定値で返さず、要求を失敗させます。Branch比較は共通の計算済み時刻を使います。出力はsimulation上の記述で、外部データによる因果証拠ではありません。
 - `GET /api/v1/projects/{project}/runs/{run}/replay-frames?branch_ids=A,B&start=M&end=N` は、1〜2個の異なるBranchについて、両端を含む最大8個の計算済み境界を連続読取りします。各queryは1回だけ指定します。`samples` はBranchが1個なら既存timeline frame、2個なら既存compare responseと同じ契約です。未計算範囲・fork前・重複Branch・読み取り中のhead変更は拒否します。記録済み応答だけで復元し、保存Branchを進めず、live Providerも呼びません。
-- 今と違うモデルの版で計算したRunは閲覧のみです。timeline frame、replay-frames、比較の各frameには`model_view`（`view_only`、`recorded_version`、`installed_version`、`differences`、`message`）が付き、保存の間の時刻は直前の保存の時点を返して`saved_point_rounding`（`requested_minute`、`saved_minute`、`message`）を付けます。`minute`は表示した保存の時点です。resume、fork、intervention-preview・applyは409、`code: run_model_view_only`で拒否します（[project-persistence.md](project-persistence.md#旧モデルのrun閲覧のみ)）。
+- 今と違うモデルの版で計算したRunは閲覧のみです。timeline frame、replay-frames、比較の各frameには`model_view`（`view_only`、`recorded_version`、`installed_version`、`differences`、`message`）が付き、保存の間の時刻は直前の保存の時点を返して`saved_point_rounding`（`requested_minute`、`saved_minute`、`message`）を付けます。`minute`は表示した保存の時点です。resume、intervention-preview・applyは409、`code: run_model_view_only`で拒否します（[project-persistence.md](project-persistence.md#旧モデルのrun閲覧のみ)）。
 - Branchへの質問は保存Run/Branchの証拠を読むだけで、simulation stateを変更しません。詳細はproject-persistence.md、adaptive-event-compiler.md、effect-program.mdを参照してください。
 
 ブラウザーrouteは / だけです（画面のファイルは`demo-v2*`）。Project APIと承認契約を利用します（[対応表](ui-backup.md)）。`/index.html`は、クエリを保ったまま / へ302で送ります。前の道の`/demo-v2`と、以前の画面の道（`/demo`、`/admin`）は、旧版を使う人がいないので転送しません（#434）。以前の画面だけが使った `/api/v1/runs`（`sheltersim run --output` の成果物の参照）、`/api/v1/demo`、`/api/v1/nl`、`/api/v1/jobs`、`/api/v1/results-chat` はありません。CLIのRunは `sheltersim inspect` で確かめます。ブラウザー版（静的サイト、#266）では、画面の中のWorkerが計算済みのRunの道（Project・Run・Branchの記録、timeline、1つの分岐のreplay-frames、evidenceなど）に同じJSONで答え、それ以外の道は「ブラウザー版では未対応」（409、`code`は`browser_unsupported`）を返します（[development.md](development.md#ブラウザー版のapi266)）。serverは既定で127.0.0.1にbindし、認証機能を持ちません。信頼できないnetworkへ公開しないでください。

@@ -1,24 +1,56 @@
-"""Persistent project HTTP adapter and bounded resumable cloud background runs."""
+"""The Project API of the local and VM versions: the screen's routes under /api/v1/projects,
+answered from the stored Runs of format v5 as the browser answers them (#427).
+
+The records and each branch's stored Run are in the browser's folders
+(native/wasm/js/project_store.mjs), written and read by the store in Rust
+(`sheltersim_native.rules.run_files`, native/store, #426). The answers are the core's
+(`sheltersim_native.rules.answers`, #449), the functions the browser calls through WASM
+(native/wasm/js/browser_api.mjs), so both give the same bytes. What stays here is what stays in
+the browser's JS: routing a request to its answer, reading the files an answer needs, the order of
+the computations, and which Runs are kept at which minute. Python also makes what only it makes:
+a Scenario from text (`scenario-preview`, web/workspace.py) and the world a Run starts from
+(web/stored_runs.py).
+
+Computing. A branch computes from its head in chunks, a saved point every 360 minutes
+(web/worker_process.py): in a process of its own (the server, up to max_jobs at once across Runs
+and their branches, #48) or on a thread of this process (tests and the CLI, one at a time). A
+fork is made at once in the caller, as the browser makes it: the parent at the minute, the program
+applied, the child's stored Run (which reads the parent's pieces up to its base).
+
+The Runs at a minute (`LiveRuns`): a branch keeps one Run; a later minute steps it forward when
+that is cheaper than restoring the nearest saved point, any other minute seeks, as the browser's
+`BrowserApi.simulationAt` does. A Run stays on the thread that made it: the server answers on one
+thread.
+
+A stored Run of an older format (the Python server's Checkpoints before #427, the browser's v1 to
+v4) is not read: 409 `stored_run_outdated`, compute it again.
+"""
 
 from __future__ import annotations
 
+import json
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
-from typing import Any, Callable
+from dataclasses import dataclass, field
+from typing import Any
+from urllib.parse import parse_qs, urlencode
 
-from sheltersim.core.rng import CounterRNG
-from sheltersim.core.world import WorldState
-from sheltersim.events.effects import EffectProgram
-from sheltersim.experiments.branch import BranchRuntime
-from sheltersim.experiments.scenario import ScenarioSpec
-from sheltersim.experiments.timeline import TimelineError, TimelineStore
-from sheltersim.experiments.validation import evidence_context
-from sheltersim.llm.accounting import accounted_router, usage_limits
-from sheltersim.llm.config import LLMMode, LLMSettings
-from sheltersim.storage.projects import ProjectStore, StorageError, digest, view_only_error
-from sheltersim.storage.usage import UsageLedger
+from sheltersim import native
+from sheltersim.storage.projects import StorageError
+from sheltersim.web.stored_runs import FILES, project_files, storage_error
+
+_JSON: dict[str, Any] = {
+    "separators": (",", ":"),
+    "sort_keys": True,
+    "ensure_ascii": False,
+    "allow_nan": False,
+}
+
+
+def answers() -> Any:
+    """The core's answers (`sheltersim_native.rules.answers`)."""
+    return native.rules("answers")
 
 
 def fields(document: dict[str, Any], required: set[str], optional: set[str] | None = None) -> None:
@@ -26,9 +58,29 @@ def fields(document: dict[str, Any], required: set[str], optional: set[str] | No
         raise StorageError("request fields do not match this operation")
 
 
+def json_bytes(value: Any) -> bytes:
+    """An answer Python writes, as the server writes JSON."""
+    return json.dumps(value, **_JSON).encode()
+
+
+def _refusals(method: Any) -> Any:
+    """A method of the API whose refusals of the files or the core are raised as the server
+    answers them (`_refusal`), for callers in Python (the CLI, tests)."""
+    import functools
+
+    @functools.wraps(method)
+    def call(*values: Any, **options: Any) -> Any:
+        try:
+            return method(*values, **options)
+        except ValueError as exc:
+            raise _refusal(exc) from None
+
+    return call
+
+
 @dataclass
 class _Job:
-    """A computation or fork running for one Run."""
+    """A computation running for one branch."""
 
     branch_id: str
     cancel: Any
@@ -36,48 +88,122 @@ class _Job:
     watcher: threading.Thread | None = None
 
 
+@dataclass
+class _Live:
+    """A branch's Run kept at a minute (`LiveRuns`)."""
+
+    run: Any
+    head: str
+    saved: list[int]
+    restored_at: int | None
+    used: int
+
+
+@dataclass
+class LiveRuns:
+    """The Runs the API keeps at a minute, at most `keep` of them (the browser's
+    `BrowserApi.live`): a later minute of a kept Run is stepped to when that costs no more ticks
+    than restoring the nearest saved point; any other minute is sought (`StoredRun.seek`). The
+    least recently used Run goes first."""
+
+    files: Any
+    keep: int = 2
+    live: dict[tuple[str, str, str], _Live] = field(default_factory=dict)
+    used: int = 0
+
+    def at(
+        self,
+        project_id: str,
+        run_id: str,
+        record: dict[str, Any],
+        minute: int,
+        *,
+        exact: bool = False,
+    ) -> Any:
+        """The branch's Run at `minute`. With `exact` (a saved point of a Run of other model
+        versions, which is not computed again) the kept Run is used only when it is the saved
+        point as restored."""
+        key = (project_id, run_id, record["branch_id"])
+        live = self.live.get(key)
+        if live is not None and (
+            live.head != record["checkpoint_hash"]
+            or (exact and not (live.restored_at == minute and live.run.minute() == minute))
+        ):
+            del self.live[key]
+            live = None
+        self.used += 1
+        if live is not None:
+            live.used = self.used
+            now = live.run.minute()
+            if now == minute:
+                return live.run
+            point = max([0, *(saved for saved in live.saved if saved <= minute)])
+            live.restored_at = None
+            if now < minute and (now >= point or minute - now <= FILES.SAVE_EVERY):
+                if live.run.advance(minute - now) != minute - now:
+                    raise StorageError(f"the Run does not reach minute {minute}")
+                return live.run
+            del self.live[key]
+        while len(self.live) >= self.keep:
+            del self.live[min(self.live, key=lambda each: self.live[each].used)]
+        reader = self.files.reader(project_id, run_id, record["branch_id"])
+        run, start, _ = reader.seek(minute)
+        saved = [
+            head["minute"] for head in json.loads(reader.heads_json()) if head["kind"] != "end"
+        ]
+        restored = minute if start == minute else None
+        self.live[key] = _Live(run, record["checkpoint_hash"], saved, restored, self.used)
+        return run
+
+    def forget(self, project_id: str, run_id: str) -> None:
+        for key in [key for key in self.live if key[:2] == (project_id, run_id)]:
+            del self.live[key]
+
+    def clear(self) -> None:
+        self.live.clear()
+
+
 class ProjectAPI:
-    """Saved-run application operations, separate from the legacy read-only Inspector."""
+    """The Project routes of the server, the CLI and the tests."""
 
     def __init__(
         self,
-        store: ProjectStore,
+        store: Any,
         *,
         recover: bool = True,
         worker: str = "thread",
         max_jobs: int = 1,
+        keep: int = 2,
     ) -> None:
-        """worker="process" computes each branch and creates each fork in its own process
-        (the server, #48), up to max_jobs at once, across Runs and their branches;
-        "thread" computes one branch at a time on a thread of this process and forks in
-        the caller (tests and CLI)."""
+        """worker="process" computes each branch in its own process (the server, #48), up to
+        max_jobs at once, across Runs and their branches; "thread" computes one branch at a time
+        on a thread of this process (tests and CLI). `keep` Runs are kept at a minute."""
         if worker not in {"thread", "process"}:
             raise ValueError("worker must be 'thread' or 'process'")
         if type(max_jobs) is not int or max_jobs < 1:
             raise ValueError("max_jobs must be a positive integer")
         self.store = store
+        self.files = project_files(store)
         if recover:
-            self.store.recover_interrupted()
+            with self.files.transaction():
+                self.files.recover_interrupted()
         self._worker = worker
         # A thread shares the GIL, so only processes compute Runs in parallel.
         self._max_jobs = max_jobs if worker == "process" else 1
         self._pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="sheltersim-project")
         self._lock = threading.RLock()
-        # The job of each branch being computed or created by a fork, by (project, run,
-        # branch). A branch has at most one, as its writer lease allows (#48).
+        # The job of each branch being computed, by (project, run, branch).
         self._jobs: dict[tuple[str, str, str], _Job] = {}
-        # The outcome of the last fork started in this server process, by Run.
-        self._fork_outcomes: dict[tuple[str, str], dict[str, Any]] = {}
+        # The outcome of the last fork of each Run in this process: its JSON bytes.
+        self._fork_outcomes: dict[tuple[str, str], bytes] = {}
         self._closed = False
+        self.live = LiveRuns(self.files, keep)
         from sheltersim.web.workspace import ProjectWorkspace
 
         self.workspace = ProjectWorkspace(self)
         from sheltersim.web.project_services import ProjectServices
 
         self.services = ProjectServices(self)
-        from sheltersim.web.pdf_report import PDFReportService
-
-        self.pdf_reports = PDFReportService(self)
 
     def close(self) -> None:
         with self._lock:
@@ -89,9 +215,10 @@ class ProjectAPI:
             if job.watcher is not None:
                 job.watcher.join()
         self._pool.shutdown(wait=True)
+        self.live.clear()
 
     def wait_idle(self, timeout: float | None = None) -> None:
-        """Wait until the computations and forks submitted so far have ended."""
+        """Wait until the computations submitted so far have ended."""
         if self._worker == "thread":
             self._pool.submit(lambda: None).result(timeout=timeout)
             return
@@ -103,605 +230,556 @@ class ProjectAPI:
             if watcher.is_alive():
                 raise TimeoutError("the background job is still running")
 
-    def _require_current_model(self, project_id: str, run_id: str, branch_id: str) -> None:
-        """Refuse a Run of another model version before a job starts.
+    # ---- Requests ------------------------------------------------------------------------------
 
-        Only the head's recorded versions and configs are read. A head that can't be
-        read is left to the job, which loads and validates it and fails the Run.
-        """
+    def get(self, parts: list[str], query: dict[str, list[str]] | str | None = None) -> Any:
+        """A GET's answer as Python values (`query` as `parse_qs` gives it, or its text)."""
+        text = urlencode(query, doseq=True) if isinstance(query, dict) else (query or "")
+        return json.loads(self.answer_get(parts, text))
+
+    def post(self, parts: list[str], document: dict[str, Any]) -> Any:
+        """A POST's answer as Python values."""
+        return json.loads(self.answer_post(parts, json_bytes(document)))
+
+    def answer_get(self, parts: list[str], query: str) -> bytes:
+        """The JSON bytes of the answer to `GET /api/v1/projects/<parts>?<query>`. A refusal
+        raises the core's `Refused`, a StorageError (409) or a ValueError (400)."""
         try:
-            status = TimelineStore(self.store, project_id, run_id).model_status(branch_id)
-        except StorageError:
-            if not self.store._path(
-                project_id, "runs", run_id, "branches", branch_id, "branch.json"
-            ).exists():
-                raise
-            return
-        if not status.current:
-            raise view_only_error(status)
+            return self._get(parts, query)
+        except ValueError as exc:
+            raise _refusal(exc) from None
 
-    def _admit(self, project_id: str, run_id: str, branch_id: str) -> None:
-        """Refuse a job for a branch that has one, or beyond max_jobs; holds self._lock."""
-        if self._closed or (project_id, run_id, branch_id) in self._jobs:
-            raise StorageError("background worker is busy; wait or pause the active run")
-        if len(self._jobs) >= self._max_jobs:
-            raise StorageError("background workers are busy; wait until a running computation ends")
+    def answer_post(self, parts: list[str], body: bytes) -> bytes:
+        """The JSON bytes of the answer to `POST /api/v1/projects/<parts>` with `body`."""
+        try:
+            return self._post(parts, body)
+        except ValueError as exc:
+            raise _refusal(exc) from None
 
-    def get(self, parts: list[str], query: dict[str, list[str]]) -> dict[str, Any]:
+    # ---- GET -----------------------------------------------------------------------------------
+
+    def _get(self, parts: list[str], query: str) -> bytes:
+        core = answers()
+        files = self.files
+        no_query = query == ""
+        if not parts:
+            if not no_query:
+                raise StorageError("projects list takes no query parameters")
+            used, count = files.usage()
+            return core.projects_answer(
+                files.projects_listing(), used, count, float(self.store.max_bytes)
+            )
         shared = self.services.get(parts, query)
         if shared is not None:
             return shared
-        if not parts:
-            if query:
-                raise StorageError("projects list takes no query parameters")
-            return {"projects": self.store.projects(), "storage": self.store.usage()}
         project_id = parts[0]
-        if len(parts) == 1 and not query:
-            return self.store.project(project_id)
-        if len(parts) == 2 and parts[1] == "runs" and not query:
-            return {"runs": self.store.runs(project_id)}
-        if len(parts) == 3 and parts[1] == "runs" and not query:
-            run = self.store.run(project_id, parts[2])
-            with self._lock:
-                outcome = self._fork_outcomes.get((project_id, parts[2]))
-            return {**run, "last_fork": outcome} if outcome is not None else run
-        if len(parts) == 4 and parts[1] == "runs" and parts[3] == "replay-frames":
-            from sheltersim.web.replay import replay_frames
-
-            if set(query) != {"branch_ids", "start", "end"} or any(
-                len(values) != 1 for values in query.values()
-            ):
-                raise StorageError("replay parameters must each occur once")
-            try:
-                start, end = int(query["start"][0]), int(query["end"][0])
-            except ValueError as exc:
-                raise StorageError("replay bounds must be integers") from exc
-            return replay_frames(
-                self.store,
-                self.workspace,
-                project_id,
-                parts[2],
-                query["branch_ids"][0].split(","),
-                start,
-                end,
-            )
-        if (
-            len(parts) == 4
-            and parts[1] == "runs"
-            and parts[3] == "compare"
-            and set(query) == {"branch_ids", "minute"}
-        ):
-            if any(len(values) != 1 for values in query.values()):
-                raise StorageError("comparison parameters must each occur once")
-            try:
-                minute = int(query["minute"][0])
-            except ValueError as exc:
-                raise StorageError("comparison minute must be an integer") from exc
-            return self.workspace.comparison(
-                project_id, parts[2], query["branch_ids"][0].split(","), minute
-            )
-        if len(parts) == 4 and parts[1] == "runs" and parts[3] == "evidence" and not query:
-            run = self.store.run(project_id, parts[2])
-            scenario = self.store.scenario(project_id, run["scenario_id"], run["scenario_version"])
-            return evidence_context(scenario)
-        if len(parts) == 6 and parts[1] == "runs" and parts[3] == "branches":
-            run_id, branch_id, action = parts[2], parts[4], parts[5]
-            if action == "timeline" and set(query) == {"minute"} and len(query["minute"]) == 1:
-                try:
-                    minute = int(query["minute"][0])
-                except ValueError as exc:
-                    raise StorageError("minute must be an integer") from exc
-                return TimelineStore(self.store, project_id, run_id).frame(branch_id, minute)
-            if action == "report" and not query:
-                # The report is its own artifact; the branch pointer proves the
-                # branch exists without decoding its checkpoint history.
-                self.store.branch_reference(project_id, run_id, branch_id)
-                path = self.store._path(
-                    project_id, "runs", run_id, "branches", branch_id, "report.json"
+        if len(parts) == 1 and no_query:
+            project, scenarios, runs = files.project_listing(project_id, True)
+            return core.project_answer(project_id, project, scenarios, runs)
+        if len(parts) == 2 and parts[1] == "runs" and no_query:
+            project, _, runs = files.project_listing(project_id, False)
+            return core.runs_answer(project_id, project, runs)
+        if len(parts) >= 3 and parts[1] == "runs":
+            run_id = parts[2]
+            if len(parts) == 3 and no_query:
+                with self._lock:
+                    outcome = self._fork_outcomes.get((project_id, run_id))
+                return core.run_answer(
+                    project_id, run_id, *files.run_listing(project_id, run_id), outcome
                 )
-                return self.store._read(path) if path.exists() else {"status": "not_generated"}
-            if action == "llm-status" and not query:
-                from sheltersim.llm.outcomes import summarize_call_outcomes
-
-                reference = self.store.branch_reference(project_id, run_id, branch_id)
-                saved = self.store.checkpoint_fields(
-                    project_id, run_id, reference.checkpoint_hash, ("runtime_state",)
-                )["runtime_state"].get("llm")
-                return {
-                    "schema_version": 1,
-                    "branch_id": branch_id,
-                    "checkpoint_hash": reference.checkpoint_hash,
-                    "computed_until": reference.computed_until,
-                    "mode": saved.get("mode") if isinstance(saved, dict) else None,
-                    "outcomes": summarize_call_outcomes(
-                        saved.get("records", []) if isinstance(saved, dict) else []
-                    ),
-                    "record_scope": "router records in the branch head checkpoint; a child "
-                    "branch includes the parent's records before its fork",
+            if len(parts) == 4 and parts[3] == "evidence" and no_query:
+                return core.evidence_answer(
+                    project_id,
+                    run_id,
+                    files.run_file(project_id, run_id, "run.json"),
+                    files.run_file(project_id, run_id, "evidence.json"),
+                )
+            if len(parts) == 4 and parts[3] == "replay-frames":
+                return self._replay(project_id, run_id, query)
+            if (
+                len(parts) == 4
+                and parts[3] == "compare"
+                and set(parse_qs(query))
+                == {
+                    "branch_ids",
+                    "minute",
                 }
-            if action == "conversations" and not query:
-                self.store.branch_reference(project_id, run_id, branch_id)
-                from sheltersim.storage.history_index import HistoryIndex
-
-                return {
-                    "turns": HistoryIndex(self.store, project_id, run_id).conversation_tail(
-                        branch_id, None, 100
-                    ),
-                    "coverage": "latest_100_turns",
-                    "history_route": "history?kind=conversations",
-                }
+            ):
+                return self._compare(project_id, run_id, query)
+            if len(parts) == 6 and parts[3] == "branches":
+                return self._branch_get(project_id, run_id, parts[4], parts[5], query)
         raise StorageError("unknown project route or query")
 
-    def post(self, parts: list[str], document: dict[str, Any]) -> dict[str, Any]:
-        shared = self.services.post(parts, document)
-        if shared is not None:
-            return shared
-        extra = self.workspace.post(parts, document)
-        if extra is not None:
-            return extra
-        if not parts:
-            fields(document, {"project_id"})
-            return self.store.create_project(document["project_id"])
-        project_id = parts[0]
-        if len(parts) == 2:
-            if parts[1] == "scenarios":
-                fields(document, {"scenario", "approved", "approved_hash"})
-                if document["approved"] is not True:
-                    raise StorageError("scenario needs explicit human approval")
-                scenario = ScenarioSpec.model_validate(document["scenario"])
-                return self.store.save_scenario(
-                    project_id, scenario, approved_hash=document["approved_hash"]
-                )
-            if parts[1] == "runs":
-                fields(
-                    document,
-                    {"run_id", "scenario_id", "scenario_version"},
-                    {"usage_account_id", "execution_mode"},
-                )
-                if "execution_mode" in document and document["execution_mode"] != "offline":
-                    raise StorageError("only_explicit_offline_experiment_mode_is_supported")
-                settings = LLMSettings.from_env()
-                if document.get("execution_mode") == "offline":
-                    from dataclasses import replace
+    def _branch_get(
+        self, project_id: str, run_id: str, branch_id: str, action: str, query: str
+    ) -> bytes:
+        core = answers()
+        files = self.files
+        branch = files.branch_file(project_id, run_id, branch_id, "branch.json")
+        if action == "timeline":
+            values = parse_qs(query)
+            if set(values) != {"minute"} or len(values["minute"]) != 1:
+                raise StorageError("unknown project route or query")
+            record, minute = core.timeline_plan(
+                values["minute"][0],
+                project_id,
+                run_id,
+                *files.run_listing(project_id, run_id),
+                branch_id,
+            )
+            return self.frame(project_id, run_id, json.loads(record), minute)
+        if action == "conversations" and query == "":
+            core.branch_of(project_id, run_id, *files.run_listing(project_id, run_id), branch_id)
+            return core.conversations_answer(
+                files.conversation_pieces(project_id, run_id, branch_id)
+            )
+        if action == "llm-status":
+            return core.llm_status_answer(query, project_id, run_id, branch_id, branch)
+        if action == "history":
+            plan = core.history_plan(query, project_id, run_id, branch_id, branch)
+            table = core.KpiTable()
+            if plan.anchor() is not None:
+                reader = files.reader(project_id, run_id, branch_id)
+                for kind, raw in reader.sample_pieces():
+                    if kind == "sample_tables":
+                        table.read_sample_tables(raw)
+                    else:
+                        table.read_sample_block(raw)
+            return plan.answer(table)
+        if action == "report":
+            kept = files.branch_file(project_id, run_id, branch_id, "report.json")
+            answer = core.report_answer(query, project_id, run_id, branch_id, branch, kept)
+            if answer is not None:
+                return answer
+            record = json.loads(branch)
+            # A report not made yet is made from the Run at its end, in a Run of its own.
+            self.live.forget(project_id, run_id)
+            reader = files.reader(project_id, run_id, branch_id)
+            run, _, _ = reader.seek(record["computed_until"])
+            scenario = files.run_scenario_bytes(project_id, run_id)
+            text = core.build_report(run, scenario, branch_id)
+            with files.transaction():
+                files.keep_report(project_id, run_id, branch_id, text + b"\n")
+            return text
+        raise StorageError("unknown project route or query")
 
-                    settings = replace(settings, mode=LLMMode.OFFLINE, api_key=None)
-                existing_path = self.store._path(project_id, "runs", document["run_id"], "run.json")
-                if existing_path.exists():
-                    run = self.store.run(project_id, document["run_id"])
-                    if (run["scenario_id"], run["scenario_version"]) != (
-                        document["scenario_id"],
-                        document["scenario_version"],
-                    ):
-                        raise StorageError("run_id_conflict")
-                    if run["branches"]:
-                        if document.get("execution_mode") == "offline":
-                            # Only the saved purpose is read, also of a view-only Run.
-                            head = self.store.branch_reference(project_id, run["run_id"], "main")
-                            initial = self.store.checkpoint_fields(
-                                project_id, run["run_id"], head.checkpoint_hash, ("runtime_state",)
-                            )
-                            if (
-                                initial["runtime_state"].get("execution_purpose")
-                                != "offline_experiment"
-                            ):
-                                raise StorageError("run_execution_mode_conflict")
-                        UsageLedger.for_run(
-                            self.store,
-                            project_id,
-                            run["run_id"],
-                            usage_limits(settings),
-                            document.get("usage_account_id"),
-                        )
-                        return run
-                else:
-                    run = self.store.create_run(
-                        project_id,
-                        document["run_id"],
-                        document["scenario_id"],
-                        document["scenario_version"],
-                    )
-                scenario = self.store.scenario(
-                    project_id, document["scenario_id"], document["scenario_version"]
+    def frame(self, project_id: str, run_id: str, record: dict[str, Any], minute: int) -> bytes:
+        """The frame of a branch at a minute (the browser's `frameText`). A Run computed with
+        other model versions is not computed again (Python's D2): the frame is the saved point's
+        at or before the minute, with the fields that say so."""
+        core = answers()
+        files = self.files
+        branch_id = record["branch_id"]
+        journal = files.branch_file(project_id, run_id, branch_id, "journal.jsonl") or b""
+        scenario = files.run_scenario_bytes(project_id, run_id)
+        if journal and core.view_only(journal, scenario):
+            heads = json.loads(files.reader(project_id, run_id, branch_id).heads_json())
+            saved = max(
+                head["minute"]
+                for head in heads
+                if head["kind"] != "end" and head["minute"] <= minute
+            )
+            run = self.live.at(project_id, run_id, record, saved, exact=True)
+            frame = run.frame(run_id, branch_id, record["computed_until"])
+            return core.view_frame(frame, journal, scenario, saved, minute)
+        run = self.live.at(project_id, run_id, record, minute)
+        return run.frame(run_id, branch_id, record["computed_until"])
+
+    def journals(self, project_id: str, run_id: str, branch_ids: list[str]) -> list[bytes]:
+        """The branches' journals (empty where there is none), for their fork receipts."""
+        return [
+            self.files.branch_file(project_id, run_id, branch_id, "journal.jsonl") or b""
+            for branch_id in branch_ids
+        ]
+
+    def _compare(self, project_id: str, run_id: str, query: str) -> bytes:
+        plan = answers().compare_plan(
+            query, project_id, run_id, *self.files.run_listing(project_id, run_id)
+        )
+        plan.receipts(self.journals(project_id, run_id, plan.branch_ids))
+        records = json.loads(plan.records_json())
+        frames = [self.frame(project_id, run_id, record, plan.minute) for record in records]
+        return plan.answer(run_id, frames)
+
+    def _replay(self, project_id: str, run_id: str, query: str) -> bytes:
+        listing = self.files.run_listing(project_id, run_id)
+        plan = answers().replay_plan(query, project_id, run_id, *listing)
+        records = json.loads(plan.records_json())
+        minutes = range(plan.start, plan.end + 1)
+        if len(records) == 2:
+            plan.receipts(
+                project_id, run_id, *listing, self.journals(project_id, run_id, plan.branch_ids)
+            )
+            samples = [
+                plan.compare(
+                    run_id,
+                    minute,
+                    [self.frame(project_id, run_id, record, minute) for record in records],
                 )
-                world = WorldState.from_scenario(scenario)
-                # The Run's first save names the random stream its TickEngine draws from, as every
-                # later save and the exported world do (#281); the engine sets the same value.
-                world.rng_state = dict(CounterRNG(world.seed).metadata)
-                runtime = BranchRuntime.from_world(world)
-                if document.get("execution_mode") == "offline":
-                    runtime.runtime_state["execution_purpose"] = "offline_experiment"
-                # Runtime AUTO selection is captured at the first checkpoint, not during seek.
-                router = accounted_router(
-                    self.store,
-                    project_id,
-                    run_id=run["run_id"],
-                    account_id=document.get("usage_account_id"),
-                    operation="runtime",
-                    branch_id="main",
-                    settings=settings,
-                )
-                try:
-                    TimelineStore(self.store, project_id, run["run_id"]).record(
-                        runtime, router=router
-                    )
-                except Exception:
-                    self.store.set_status(project_id, run["run_id"], "failed")
-                    raise
-                return self.store.run(project_id, run["run_id"])
+                for minute in minutes
+            ]
+        else:
+            samples = [self.frame(project_id, run_id, records[0], minute) for minute in minutes]
+        return plan.answer(samples)
+
+    # ---- POST ----------------------------------------------------------------------------------
+
+    def _post(self, parts: list[str], body: bytes) -> bytes:
+        files = self.files
+        if not parts:
+            document = _document(body)
+            fields(document, {"project_id"})
+            if not isinstance(document["project_id"], str):
+                raise ValueError("invalid project request")
+            with files.transaction():
+                return files.create_project(document["project_id"]).encode()
+        project_id = parts[0]
+        if len(parts) == 2 and parts[1] in {"scenario-preview", "scenario-approve", "runs"}:
+            document = _document(body)
+            if parts[1] == "scenario-preview":
+                return json_bytes(self.workspace.preview(project_id, document))
+            if parts[1] == "scenario-approve":
+                return self.workspace.approve(project_id, document)
+            return self.create_run(project_id, document)
         if len(parts) == 4 and parts[1] == "runs":
             run_id, action = parts[2], parts[3]
-            if action == "delete":
-                fields(document, {"confirmation"})
-                with self._lock:
-                    if any(key[:2] == (project_id, run_id) for key in self._jobs):
-                        raise StorageError("cannot delete an active run")
-                    self.store.delete_run(project_id, run_id, confirmation=document["confirmation"])
-                return {"deleted": run_id}
             if action == "resume":
+                document = _document(body)
                 fields(document, {"branch_id", "target_minute"})
                 return self.submit(
                     project_id, run_id, document["branch_id"], document["target_minute"]
                 )
             if action == "cancel":
+                document = _document(body)
                 # Without branch_id, every computation of the Run stops (#48).
                 fields(document, set(), {"branch_id"})
-                with self._lock:
-                    jobs = [
-                        job
-                        for key, job in self._jobs.items()
-                        if key[:2] == (project_id, run_id)
-                        and document.get("branch_id") in {None, key[2]}
-                    ]
-                    for job in jobs:
-                        job.cancel.set()
-                    if not jobs and self.store.run(project_id, run_id)["status"] == "running":
-                        raise StorageError(
-                            "run_worker_busy: cancellation must reach the owning worker"
-                        )
-                return self.store.run(project_id, run_id)
+                return self.cancel(project_id, run_id, document.get("branch_id"))
+            if action == "pdf-report":
+                # Without the analysis of a Provider no PDF is made: always a refusal.
+                answers().pdf_report_answer(
+                    project_id, run_id, body, *files.run_listing(project_id, run_id)
+                )
+            if action == "delete":
+                return self.delete_run(project_id, run_id, body)
+        if len(parts) == 6 and parts[1] == "runs" and parts[3] == "branches":
+            run_id, branch_id, action = parts[2], parts[4], parts[5]
+            if action == "intervention-preview":
+                return self.workspace.intervention_preview(project_id, run_id, branch_id, body)
+            if action == "intervention-apply":
+                return self.workspace.intervention_apply(project_id, run_id, branch_id, body)
+            if action == "questions":
+                return self.workspace.question(project_id, run_id, branch_id, body)
         raise StorageError("unknown project operation")
 
-    def fork(
-        self,
-        project_id: str,
-        run_id: str,
-        branch_id: str,
-        document: dict[str, Any],
-        *,
-        expected_state_hash: str | None = None,
-    ) -> dict[str, Any]:
-        """Fork a child Branch: an intervention apply passes the program and the state its
-        preview saw (the fork route without an intervention went with the older screens, #376)."""
+    @_refusals
+    def create_run(self, project_id: str, document: dict[str, Any]) -> bytes:
+        """`POST {project}/runs`: a Run of a saved Scenario revision, its branch `main` stored at
+        minute 0 (the browser's `ScenarioRoutes.runs`); a Run of the same Scenario revision that
+        is there already is answered as it is."""
+        from sheltersim.llm.config import LLMMode, LLMSettings
+        from sheltersim.web.stored_runs import start_run
+
         fields(
             document,
-            {"minute", "child_id", "approved"},
-            {"program", "approved_program_hash"},
+            {"run_id", "scenario_id", "scenario_version"},
+            {"usage_account_id", "execution_mode"},
         )
-        if document["approved"] is not True:
-            raise StorageError("branch creation needs explicit human approval")
-        with self._lock:
-            # Another branch of the Run may compute meanwhile (#48).
-            if (project_id, run_id, branch_id) in self._jobs:
-                raise StorageError("pause background calculation before forking")
-            # A Run of another model version is view-only: no fork, no EffectProgram.
-            self._require_current_model(project_id, run_id, branch_id)
-            program = (
-                EffectProgram.model_validate(document["program"])
-                if document.get("program") is not None
-                else None
-            )
-            if self._worker == "process":
-                self._admit(project_id, run_id, document["child_id"])
-                return self._fork_process(
-                    project_id, run_id, branch_id, document, program, expected_state_hash
-                )
-            timeline = TimelineStore(self.store, project_id, run_id)
-            child = timeline.fork(
-                branch_id,
-                document["minute"],
-                document["child_id"],
-                program=program,
-                approved_program_hash=document.get("approved_program_hash"),
-                expected_state_hash=expected_state_hash,
-            )
-            # The child's saved head holds the hash of its world.
-            head = self.store.branch_reference(project_id, run_id, child.branch_id)
-            saved = self.store.checkpoint_fields(
-                project_id, run_id, head.checkpoint_hash, ("state_hash",)
-            )
-        return {
-            "branch_id": child.branch_id,
-            "minute": child.world.minute_index,
-            "state_hash": saved["state_hash"],
-        }
-
-    def submit(
-        self,
-        project_id: str,
-        run_id: str,
-        branch_id: str,
-        target_minute: int,
-    ) -> dict[str, Any]:
-        with self._lock:
-            self._admit(project_id, run_id, branch_id)
-            # The pointer and the immutable Scenario bound the range without decoding
-            # the history; the worker loads and validates the checkpoint once.
-            reference = self.store.branch_reference(project_id, run_id, branch_id)
-            # A Run of another model version is view-only; say so before any job starts.
-            self._require_current_model(project_id, run_id, branch_id)
-            run = self.store.run(project_id, run_id)
-            scenario = self.store.scenario(project_id, run["scenario_id"], run["scenario_version"])
-            if (
-                type(target_minute) is not int
-                or not reference.computed_until < target_minute <= scenario.duration_minutes
+        if "execution_mode" in document and document["execution_mode"] != "offline":
+            raise StorageError("only_explicit_offline_experiment_mode_is_supported")
+        run_id = document["run_id"]
+        if not isinstance(run_id, str) or not answers().is_artifact_id(run_id):
+            raise StorageError("invalid artifact identifier")
+        run = self.files.run_file(project_id, run_id, "run.json")
+        if run is not None:
+            record = json.loads(run)
+            if (record["scenario_id"], record["scenario_version"]) != (
+                document["scenario_id"],
+                document["scenario_version"],
             ):
-                raise StorageError("target minute must be in the uncomputed remaining range")
-            if self._worker == "process":
-                return self._submit_process(project_id, run_id, branch_id, target_minute)
-            lease = self.store.claim_branch(project_id, run_id, branch_id)
-            try:
-                job = _Job(branch_id, threading.Event())
-                self._jobs[(project_id, run_id, branch_id)] = job
-                self.store.set_branch_status(project_id, run_id, branch_id, "running")
-                self._pool.submit(
-                    self._advance,
+                raise StorageError("run_id_conflict")
+        if run is None or not json.loads(self.files.branches(project_id, run_id)):
+            settings = LLMSettings.from_env()
+            offline = document.get("execution_mode") == "offline"
+            llm = None
+            if offline or settings.effective_mode is not LLMMode.OFFLINE:
+                llm = {
+                    "schema_version": 1,
+                    "mode": "offline" if offline else settings.effective_mode.value,
+                    "execution_purpose": "offline_experiment" if offline else None,
+                }
+            start_run(
+                self.store,
+                self.files,
+                project_id,
+                run_id,
+                document["scenario_id"],
+                document["scenario_version"],
+                llm=llm,
+            )
+            if llm is not None and llm["mode"] != "offline" and document.get("usage_account_id"):
+                from sheltersim.llm.accounting import usage_limits
+                from sheltersim.storage.usage import UsageLedger
+
+                # The Scenario's preparation and the Run share one LLM allowance.
+                UsageLedger.for_run(
+                    self.store,
                     project_id,
                     run_id,
-                    branch_id,
-                    target_minute,
-                    job.cancel.is_set,
-                    lease,
+                    usage_limits(settings),
+                    document["usage_account_id"],
                 )
-            except BaseException:
-                self._jobs.pop((project_id, run_id, branch_id), None)
-                try:
-                    self.store.set_branch_status(project_id, run_id, branch_id, "interrupted")
-                finally:
-                    self.store.release_run(lease)
-                raise
-            return {
-                "status": "running",
-                "run_id": run_id,
+        return answers().run_answer(
+            project_id, run_id, *self.files.run_listing(project_id, run_id), None
+        )
+
+    @_refusals
+    def submit(self, project_id: str, run_id: str, branch_id: str, target_minute: Any) -> bytes:
+        """`POST runs/{run}/resume`: computing a branch from its head toward target_minute starts
+        (the browser's `Computing.resume`: Python's checks in their order)."""
+        files = self.files
+        with self._lock:
+            key = (project_id, run_id, branch_id)
+            if self._closed or key in self._jobs:
+                raise StorageError("background worker is busy; wait or pause the active run")
+            if len(self._jobs) >= self._max_jobs:
+                raise StorageError(
+                    "background workers are busy; wait until a running computation ends"
+                )
+            record = json.loads(files.branch_record(project_id, run_id, branch_id))
+            scenario = files.run_scenario_bytes(project_id, run_id)
+            # A Run of another model version is view-only; say so before any job starts.
+            answers().require_current_model(
+                files.branch_file(project_id, run_id, branch_id, "journal.jsonl") or b"",
+                scenario,
+            )
+            duration = json.loads(scenario)["duration_minutes"]
+            if (
+                type(target_minute) is not int
+                or not record["computed_until"] < target_minute <= duration
+            ):
+                raise StorageError("target minute must be in the uncomputed remaining range")
+            if record["checkpoint_hash"] is None:
+                raise StorageError("branch has no computed minutes")
+            self._require_llm_mode(project_id, run_id)
+            if self._worker == "process":
+                self._start_process(key, target_minute)
+            else:
+                self._start_thread(key, target_minute)
+        return json_bytes(
+            {
                 "branch_id": branch_id,
+                "run_id": run_id,
+                "status": "running",
                 "target_minute": target_minute,
             }
-
-    def _fork_process(
-        self,
-        project_id: str,
-        run_id: str,
-        branch_id: str,
-        document: dict[str, Any],
-        program: EffectProgram | None,
-        expected_state_hash: str | None,
-    ) -> dict[str, Any]:
-        """Start the fork in its own process; called with self._lock held.
-
-        The checks that need no restore answer at once; the fork's outcome is the
-        run's last_fork once the Run's status leaves running.
-        """
-        reference = self.store.branch_reference(project_id, run_id, branch_id)
-        minute = document["minute"]
-        if (
-            type(minute) is not int
-            or not reference.fork_minute <= minute <= reference.computed_until
-        ):
-            raise TimelineError("minute is outside this branch's computed range")
-        child_id = document["child_id"]
-        child = self.store._path(project_id, "runs", run_id, "branches", child_id, "branch.json")
-        if child.exists():
-            raise TimelineError("child branch already exists")
-        if program is not None and document.get("approved_program_hash") != digest(
-            program.model_dump(mode="json")
-        ):
-            raise TimelineError("EffectProgram approval hash does not match preview")
-        previous = self.store.run(project_id, run_id)["status"]
-        # The Run's status once no branch computes; a fork itself computes nothing.
-        idle = previous if previous != "running" else "paused"
-        self._fork_outcomes.pop((project_id, run_id), None)
-        self._start_process(
-            {
-                "kind": "fork",
-                "project_id": project_id,
-                "run_id": run_id,
-                "branch_id": branch_id,
-                "document": document,
-                "expected_state_hash": expected_state_hash,
-            },
-            (project_id, run_id, child_id),
-            idle,
         )
-        return {"status": "running", "branch_id": child_id, "minute": minute}
 
-    def _submit_process(
-        self,
-        project_id: str,
-        run_id: str,
-        branch_id: str,
-        target_minute: int,
-    ) -> dict[str, Any]:
-        """Start the run's process; called with self._lock held."""
-        self._start_process(
+    def _require_llm_mode(self, project_id: str, run_id: str) -> None:
+        """A Run computed with a Provider goes on only with the same LLM mode configured."""
+        from sheltersim.llm.config import LLMSettings
+        from sheltersim.web.stored_runs import llm_settings
+
+        saved = llm_settings(self.store, project_id, run_id)
+        if saved is not None and saved["mode"] != "offline":
+            if LLMSettings.from_env().effective_mode.value != saved["mode"]:
+                raise StorageError("saved LLM mode unavailable; restore original configuration")
+
+    def _start_process(self, key: tuple[str, str, str], target_minute: int) -> None:
+        """Starts the branch's computation in its own process; called with self._lock held."""
+        from sheltersim.web.worker_process import start_worker
+
+        project_id, run_id, branch_id = key
+        process, cancel, outcome = start_worker(
+            self.store,
             {
-                "kind": "advance",
                 "project_id": project_id,
                 "run_id": run_id,
                 "branch_id": branch_id,
                 "target_minute": target_minute,
             },
-            (project_id, run_id, branch_id),
-            None,
         )
-        return {
-            "status": "running",
-            "run_id": run_id,
-            "branch_id": branch_id,
-            "target_minute": target_minute,
-        }
-
-    def _start_process(
-        self, job: dict[str, Any], active: tuple[str, str, str], restore: str | None
-    ) -> None:
-        from sheltersim.web.worker_process import start_worker
-
-        process, cancel, outcome = start_worker(self.store, job)
-        running = _Job(active[2], cancel)
-        running.watcher = threading.Thread(
+        job = _Job(branch_id, cancel)
+        job.watcher = threading.Thread(
             target=self._watch,
-            args=(process, outcome, job["kind"], *active, restore, running),
-            name=f"sheltersim-watch-{active[1]}",
+            args=(process, outcome, key, job),
+            name=f"sheltersim-watch-{run_id}",
             daemon=True,
         )
-        self._jobs[active] = running
-        running.watcher.start()
+        self._jobs[key] = job
+        job.watcher.start()
 
-    def _watch(
-        self,
-        process: Any,
-        outcome: Any,
-        kind: str,
-        project_id: str,
-        run_id: str,
-        branch_id: str,
-        restore: str | None,
-        job: _Job,
-    ) -> None:
-        """Wait for a job's process. A process that ended without recording an
-        outcome (killed, crashed) leaves its branch interrupted, as a restart would. A
-        fork's child is paused once created, its status is forgotten otherwise, and
-        the Run returns to restore unless another branch computes."""
-        result = None
+    def _start_thread(self, key: tuple[str, str, str], target_minute: int) -> None:
+        """Starts the branch's computation on the API's thread; called with self._lock held."""
+        from sheltersim.web.worker_process import finish
+
+        files = self.files
+        project_id, run_id, branch_id = key
+        lease = files.claim_branch(project_id, run_id, branch_id)
+        job = _Job(branch_id, threading.Event())
+        try:
+            with files.transaction():
+                files.set_branch_status(project_id, run_id, branch_id, "running")
+            self._jobs[key] = job
+            self._pool.submit(
+                finish,
+                files,
+                lease,
+                project_id,
+                run_id,
+                branch_id,
+                target_minute,
+                job.cancel.is_set,
+                lock=self._lock,
+                ended=lambda: self._forget(key, job),
+            )
+        except BaseException:
+            self._jobs.pop(key, None)
+            try:
+                with files.transaction():
+                    files.set_branch_status(project_id, run_id, branch_id, "interrupted")
+            finally:
+                lease.release()
+            raise
+
+    def _forget(self, key: tuple[str, str, str], job: _Job) -> None:
+        with self._lock:
+            if self._jobs.get(key) is job:
+                del self._jobs[key]
+
+    def _watch(self, process: Any, outcome: Any, key: tuple[str, str, str], job: _Job) -> None:
+        """Wait for a computation's process. A process that ended without setting its branch's
+        final status (killed, crashed) leaves the branch interrupted, as a restart would."""
         try:
             while True:
-                result = outcome.recv()
+                outcome.recv()
         except (EOFError, OSError):
             pass
         finally:
             outcome.close()
         process.join()
+        project_id, run_id, branch_id = key
+        files = self.files
         try:
-            if kind == "fork":
-                state, detail = result if result is not None else (None, None)
-                recorded = (
-                    {"status": "created", **detail}
-                    if state == "forked"
-                    else {"status": "failed", **detail}
-                    if state == "fork_failed"
-                    else {"status": "failed", "error": "run_worker_ended", "code": None}
-                )
-                with self._lock:
-                    self._fork_outcomes[(project_id, run_id)] = recorded
             try:
-                lease = self.store.claim_branch(project_id, run_id, branch_id)
-            except StorageError:
+                lease = files.claim_branch(project_id, run_id, branch_id)
+            except ValueError:
                 # Another process owns the branch now, or the Run was deleted.
+                return
+            try:
+                with files.transaction():
+                    record = json.loads(files.branch_record(project_id, run_id, branch_id))
+                    if record.get("status") in {"queued", "running"}:
+                        files.set_branch_status(project_id, run_id, branch_id, "interrupted")
+            except ValueError:
                 pass
-            else:
-                try:
-                    if kind == "fork":
-                        created = self.store._path(
-                            project_id, "runs", run_id, "branches", branch_id, "branch.json"
-                        ).exists()
-                        if created:
-                            self.store.set_branch_status(
-                                project_id, run_id, branch_id, "paused", run_status=restore
-                            )
-                        else:
-                            self.store.forget_branch_status(project_id, run_id, branch_id)
-                            self.store.settle_run_status(project_id, run_id, restore or "paused")
-                    elif self.store.branch_status(project_id, run_id, branch_id) in {
-                        "queued",
-                        "running",
-                    }:
-                        self.store.set_branch_status(project_id, run_id, branch_id, "interrupted")
-                finally:
-                    self.store.release_run(lease)
+            finally:
+                lease.release()
         finally:
-            with self._lock:
-                if self._jobs.get((project_id, run_id, branch_id)) is job:
-                    del self._jobs[(project_id, run_id, branch_id)]
+            self._forget(key, job)
 
-    def _advance(
+    @_refusals
+    def cancel(self, project_id: str, run_id: str, branch_id: str | None) -> bytes:
+        """`POST runs/{run}/cancel`: asks the Run's computations (of `branch_id` only, when
+        given) to stop at their next chunk; the Run as it is now."""
+        with self._lock:
+            jobs = [
+                job
+                for key, job in self._jobs.items()
+                if key[:2] == (project_id, run_id) and branch_id in {None, key[2]}
+            ]
+            for job in jobs:
+                job.cancel.set()
+            text = answers().run_answer(
+                project_id, run_id, *self.files.run_listing(project_id, run_id), None
+            )
+            if not jobs and json.loads(text)["status"] == "running":
+                raise StorageError("run_worker_busy: cancellation must reach the owning worker")
+        return text
+
+    @_refusals
+    def delete_run(self, project_id: str, run_id: str, body: bytes) -> bytes:
+        """`POST runs/{run}/delete`: the Run's id as the confirmation, no computation of it
+        running and a status that is not running; then its folder is removed."""
+        files = self.files
+        with self._lock:
+            active = any(key[:2] == (project_id, run_id) for key in self._jobs)
+            answer = answers().delete_answer(
+                project_id, run_id, body, active, *files.run_listing(project_id, run_id)
+            )
+            self.live.forget(project_id, run_id)
+            self._fork_outcomes.pop((project_id, run_id), None)
+            with files.claim_run(project_id, run_id), files.transaction():
+                files.remove_run(project_id, run_id)
+        return answer
+
+    @_refusals
+    def fork(
         self,
         project_id: str,
         run_id: str,
-        branch_id: str,
-        target_minute: int,
-        cancelled: Callable[[], bool],
-        lease: int,
-    ) -> None:
-        status = "failed"
-        try:
-            # Router setup needs only the head pointer and runtime_state; the full
-            # checkpoint is loaded and validated once by _advance_locked.
-            reference = self.store.branch_reference(project_id, run_id, branch_id)
-            runtime_state = self.store.checkpoint_fields(
-                project_id, run_id, reference.checkpoint_hash, ("runtime_state",)
-            )["runtime_state"]
-            saved_llm = runtime_state.get("llm")
-            router = None
-            if saved_llm is not None:
-                settings = LLMSettings.from_env()
-                if saved_llm["mode"] == "offline":
-                    from sheltersim.experiments.timeline import settings_from_record
-
-                    settings = settings_from_record(
-                        runtime_state.get("llm_settings", {}), mode=LLMMode.OFFLINE, api_key=None
-                    )
-                elif settings.effective_mode.value != saved_llm["mode"]:
-                    raise StorageError("saved LLM mode unavailable; restore original configuration")
-                router = accounted_router(
-                    self.store,
+        parent_id: str,
+        child_id: str,
+        minute: int,
+        program: str,
+        approved_program_hash: str,
+        state_hash: str | None = None,
+    ) -> tuple[dict[str, Any], str, str]:
+        """Makes the branch `child_id` of `parent_id` at `minute` with the EffectProgram
+        `program` (its JSON text), at once: `(the child's record, the receipt's JSON text, the
+        child's state hash)`."""
+        files = self.files
+        with self._lock:
+            if (project_id, run_id, parent_id) in self._jobs:
+                raise StorageError("pause background calculation before forking")
+            with files.claim_branch(project_id, run_id, child_id) as lease, files.transaction():
+                record, receipt, state = files.fork(
+                    lease,
                     project_id,
-                    run_id=run_id,
-                    operation="runtime",
-                    branch_id=branch_id,
-                    settings=settings,
+                    run_id,
+                    parent_id,
+                    child_id,
+                    minute,
+                    program,
+                    approved_program_hash,
+                    state_hash,
                 )
-            runtime = TimelineStore(self.store, project_id, run_id)._advance_locked(
-                branch_id, target_minute, router=router, cancelled=cancelled
-            )
-            status = (
-                "completed"
-                if runtime.world.minute_index == runtime.world.duration_minutes
-                else "paused"
-            )
-            if status == "completed":
-                # The UI fetches the report once when the status leaves "running", so
-                # write the report (or its unavailability) before marking completion.
-                try:
-                    self.workspace.finish_review(project_id, run_id, branch_id, runtime)
-                except Exception:
-                    # Simulation completion remains valid even if bounded reporting is unavailable.
-                    path = self.store._path(
-                        project_id, "runs", run_id, "branches", branch_id, "report.json"
-                    )
-                    try:
-                        with self.store.transaction():
-                            self.store._write(
-                                path,
-                                {
-                                    "schema_version": 1,
-                                    "status": "unavailable",
-                                    "limitation": (
-                                        "No validated report was generated within the configured "
-                                        "mode/budget."
-                                    ),
-                                },
-                            )
-                    except (StorageError, OSError):
-                        # A full disk can also prevent recording the optional report failure.
-                        # Keep the already durable completed simulation and its status.
-                        pass
-        except Exception:
-            # Provider errors may contain secrets; the Branch is only marked failed.
-            status = "failed"
-        finally:
-            # The final status, the lease and the job end together under the lock a
-            # submit takes, so a client that sees the status may start the next job.
-            with self._lock:
-                try:
-                    self.store.set_branch_status(project_id, run_id, branch_id, status)
-                finally:
-                    self.store.release_run(lease)
-                    self._jobs.pop((project_id, run_id, branch_id), None)
+        return json.loads(record), receipt, state
+
+    def keep_fork_outcome(self, project_id: str, run_id: str, outcome: bytes | None) -> None:
+        """Keeps the outcome of the Run's last fork (its JSON bytes), the Run's `last_fork`."""
+        with self._lock:
+            if outcome is None:
+                self._fork_outcomes.pop((project_id, run_id), None)
+            else:
+                self._fork_outcomes[(project_id, run_id)] = outcome
+
+    def busy(self, project_id: str, run_id: str, branch_id: str) -> bool:
+        """Whether a computation of the branch is running."""
+        with self._lock:
+            return (project_id, run_id, branch_id) in self._jobs
+
+
+def _document(body: bytes) -> dict[str, Any]:
+    """A POST's body as the server reads it: not JSON 400, not an object 409."""
+    try:
+        document = json.loads(body.decode("utf-8"))
+    except (ValueError, UnicodeDecodeError):
+        raise ValueError("invalid project request") from None
+    if not isinstance(document, dict):
+        raise StorageError("project request must be an object")
+    return document
+
+
+def _refusal(error: ValueError) -> Exception:
+    """A ValueError of the files or the core as the server answers it: the core's refusal and a
+    StorageError as they are; a stored Run of an older format 409 `stored_run_outdated`; a
+    refusal of the files (`run_files.Refused`, with the text of Python's StorageError) a
+    StorageError; any other ValueError as it is (400)."""
+    if isinstance(error, (StorageError, answers().Refused)):
+        return error
+    text = str(error)
+    if text.startswith("stored_run_outdated:"):
+        return StorageError(text, code="stored_run_outdated")
+    if isinstance(error, FILES.Refused):
+        return storage_error(error)
+    return error

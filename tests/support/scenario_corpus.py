@@ -19,7 +19,7 @@ What changes from call to call in Python is pinned or masked:
 
 `case_outputs(name)` computes one case in full (bytes included): the preview's answer, the
 Scenario's canonical bytes, the FacilityDesign's bytes, the research, the minute-0 world as
-`export_world` writes it for the browser (`scripts/build_browser_sample.py`), the Run's
+`export_world` writes it for the browser (as the browser sample was written before #427), the Run's
 `model_versions` and the evidence route's answer. It also checks that the Scenario is a fixed
 point of `ScenarioSpec.model_validate` (the browser builds Scenarios without the full validation,
 #285). `corpus_document()` is the committed file, `native/core/tests/data/scenario_corpus.json`:
@@ -540,7 +540,7 @@ def _bytes(value: Any) -> bytes:
 
 
 def _export_bytes(scenario: Any) -> bytes:
-    """The minute-0 world as the browser sample writes it (scripts/build_browser_sample.py)."""
+    """The minute-0 world as Python exports it (`export_world` of the world and its controller)."""
     from sheltersim.core.world_export import export_world
     from support.core_fixtures import run_world
 
@@ -580,12 +580,15 @@ def _run(api: Any, store: Any, name: str) -> dict[str, Any]:
     outputs["research_bytes"] = _bytes(answer["research"])
     if not answer["can_start"]:
         return outputs
-    saved = store.save_scenario(PROJECT_ID, scenario, approved_hash=answer["approved_hash"])
-    run = store.create_run(PROJECT_ID, RUN_ID, saved["scenario_id"], saved["scenario_version"])
-    outputs["model_versions"] = run["model_versions"]
-    outputs["evidence_bytes"] = _bytes(api.get([PROJECT_ID, "runs", RUN_ID, "evidence"], {}))
-    read_back = store.scenario(PROJECT_ID, saved["scenario_id"], saved["scenario_version"])
-    outputs["export_bytes"] = _export_bytes(read_back)
+    # What the server records for a Run of the Scenario (web/stored_runs.py, #427): the core's
+    # model versions and evidence; the world at minute 0 as Python exports it.
+    import sheltersim_native
+
+    outputs["model_versions"] = json.loads(sheltersim_native.initial_model_versions(scenario_bytes))
+    outputs["evidence_bytes"] = _bytes(
+        json.loads(sheltersim_native.initial_evidence(scenario_bytes))
+    )
+    outputs["export_bytes"] = _export_bytes(ScenarioSpec.from_json(scenario_bytes.decode()))
     return outputs
 
 
@@ -603,8 +606,8 @@ def case_outputs(name: str) -> dict[str, Any]:
         root = Path(scratch)
         with recorded_world(root):
             store = ProjectStore(root / "projects")
-            store.create_project(PROJECT_ID)
             api = ProjectAPI(store, recover=False)
+            api.post([], {"project_id": PROJECT_ID})
             try:
                 return _run(api, store, name)
             finally:

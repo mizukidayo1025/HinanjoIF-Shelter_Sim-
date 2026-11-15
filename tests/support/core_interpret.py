@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from datetime import date
 from typing import Any
 
@@ -284,9 +285,17 @@ SAFETY_TEXTS: tuple[str, ...] = (
 )
 
 
+# How the Python server redacted a question's entity names before #427 (the core's `questionText`
+# does it now).
+_REDACT_ENTITY = re.compile(
+    r"\b(?:agent|person|staff|group|event|run|branch)[ _:#-]*[A-Za-z0-9_.:-]{1,80}\b|"
+    r"\b[A-Z]{1,8}[-_:]?\d{1,8}\b|[\u4e00-\u9fff]{1,4}(?:さん|様|氏)",
+    re.IGNORECASE,
+)
+
+
 def _question_text(question: str) -> str:
     from sheltersim.llm.natural_language import _sanitize_narrative
-    from sheltersim.web.results_chat import _REDACT_ENTITY
 
     return _REDACT_ENTITY.sub("[selected entity]", _sanitize_narrative(question)).strip()
 

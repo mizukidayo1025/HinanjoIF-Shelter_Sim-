@@ -1,8 +1,11 @@
 """The offline scenarios of the all-paths gate (benchmarks/gate_all_paths.py).
 
-Each entry builds small synthetic Scenarios from code and fixtures/, runs them and returns
-the hashes of the worlds it ended with. Nothing here calls a provider over the network: a
-scripted local provider writes a response tape and the replay reads that tape.
+Each entry builds small synthetic Scenarios from code and fixtures/, runs them in the core
+(`PlainRun`, the tick of every version since #427) and returns the core's hashes of the worlds it
+ended with. An intervention is an EffectProgram applied to the Run at its minute, or, for a
+primitive the core does not schedule, a recorded minute-0 entry with the program scheduled ahead
+(`SCHEDULED`). Nothing here calls a provider over the network: a scripted local provider writes a
+response tape and the replay reads that tape.
 """
 
 from __future__ import annotations
@@ -10,61 +13,58 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
-import sys
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from sheltersim import native
 from sheltersim.contracts.bootstrap import ensure_builtin_contracts
 from sheltersim.contracts.policies import selected_models
-from sheltersim.core.checkpoint import Checkpoint
-from sheltersim.core.engine import TickEngine, TraceLevel
-from sheltersim.core.world import StateInvariantError, WorldState
-from sheltersim.domain.staff_dynamics import staff_dynamics_on_shift
-from sheltersim.events.effects import (
-    DEFAULT_PRIMITIVE_REGISTRY,
-    EffectProgram,
-    GuardExpression,
-    SupportMode,
-    TargetSelector,
-    TimedAction,
-)
-from sheltersim.experiments.branch import (
-    AddStaffCommand,
-    AddToiletCommand,
-    BranchRuntime,
-    RelocateFacilityCommand,
-    SetFacilityWorkingUnitsCommand,
-    SetZoneEdgeCommand,
-)
 from sheltersim.experiments.initial_scenario import InitialScenarioBuilder, InitialScenarioRequest
-from sheltersim.experiments.metrics import MetricsRecorder
-from sheltersim.experiments.runner import OfflineSimulationController, run_scenario
 from sheltersim.experiments.scenario import ScenarioSpec
-from sheltersim.experiments.timeline import TimelineStore, _MetricSink
-from sheltersim.inspection.traces import RunArtifactWriter
 from sheltersim.llm.cache import ResponseTape
 from sheltersim.llm.config import LLMMode, LLMSettings
 from sheltersim.llm.contracts import ProviderResponse
+from sheltersim.llm.link import RouterLink
 from sheltersim.llm.provider import LLMRouter
-from sheltersim.llm.runtime import SocialRuntimeLimits
 from sheltersim.storage.projects import ProjectStore, digest
 from sheltersim.web.projects import ProjectAPI
 
 REPOSITORY = Path(__file__).resolve().parents[1]
 SCENARIOS = REPOSITORY / "fixtures" / "scenarios"
 SOURCE_ID = "GATE-SYNTHETIC-INPUT"
+PLAIN = native.rules("plain")
+# The Branches whose programs the core does not schedule (it schedules the primitives a text's
+# reading gives, `native/core/src/program.rs`): each the minute-0 entry of its Scenario with the
+# program scheduled at minute 0 (recorded by the Python path before #430, which ended with the
+# same world as the core), run to its end.
+SCHEDULED = REPOSITORY / "fixtures" / "gate-scheduled-programs.json.xz"
+# The policies each effect primitive the core schedules requires (the EffectProgram contract's
+# `policy_dependencies`).
+REQUIRED_POLICIES = {
+    "add_evacuees": ["population_dynamics_v1"],
+    "add_staff": ["staff_operations"],
+    "add_toilet": ["facility_capacity"],
+    "depart_evacuees": ["population_dynamics_v1"],
+    "facility_outage": ["facility_capacity"],
+    "water_outage": ["operational_events_v1", "resource_service_v1"],
+}
 
 
-def hashes_of(world: WorldState, metrics: dict[str, Any]) -> dict[str, str]:
-    """The same three hashes as benchmarks/investigate_performance.py."""
-    document = world.to_dict()
+def core_hashes(parts: dict[str, str], metrics: str) -> dict[str, str]:
+    """The three hashes of a world as the core digests it: its parts' digests, its event log's,
+    and its metric samples'."""
     return {
-        "world_hash": digest(document),
-        "events_hash": digest(document["event_log"]),
-        "metrics_hash": digest(metrics),
+        "world_hash": hashlib.sha256(json.dumps(parts, sort_keys=True).encode()).hexdigest(),
+        "events_hash": parts["event_log"],
+        "metrics_hash": metrics,
     }
+
+
+def hashes_of(run: Any) -> dict[str, str]:
+    """The three hashes of a Run's world now."""
+    return core_hashes(json.loads(run.digests_json()), run.metrics_digest())
 
 
 @dataclass
@@ -78,8 +78,8 @@ class Outcome:
     # Interventions the simulation refused, with the reason; part of the expected result.
     refused: dict[str, str] = field(default_factory=dict)
 
-    def add(self, label: str, world: WorldState, metrics: dict[str, Any]) -> None:
-        self.runs[label] = hashes_of(world, metrics)
+    def add(self, label: str, run: Any) -> None:
+        self.runs[label] = hashes_of(run)
 
 
 @dataclass(frozen=True)
@@ -197,193 +197,139 @@ def with_rumors(scenario: Any, **config: Any) -> ScenarioSpec:
 # Runs ------------------------------------------------------------------------------------
 
 
-def run_library(
-    scenario: Any,
-    directory: Path,
-    *,
-    trace_level: TraceLevel = TraceLevel.OFF,
-    router: LLMRouter | None = None,
-) -> tuple[WorldState, dict[str, Any]]:
-    """run_scenario, with the metrics its artifact writer ends with."""
-    seen: list[Any] = []
-    finalize = RunArtifactWriter.finalize
-
-    def observed(writer: RunArtifactWriter, world: WorldState) -> None:
-        finalize(writer, world)
-        seen.append(writer.metrics)
-
-    RunArtifactWriter.finalize = observed
-    try:
-        world = run_scenario(scenario, directory, trace_level=trace_level, llm_router=router)
-    finally:
-        RunArtifactWriter.finalize = finalize
-    return world, seen[0].to_dict()
+def scenario_bytes(scenario: Any) -> bytes:
+    return scenario.canonical_json().encode()
 
 
-def run_library_recorder(scenario: Any, directory: Path) -> tuple[WorldState, Any]:
-    """run_scenario, with the metrics recorder its artifact writer ends with."""
-    seen: list[Any] = []
-    finalize = RunArtifactWriter.finalize
+def entry_of(scenario: Any) -> bytes:
+    """The minute-0 entry the core builds of a Scenario (`initial_entry`, #429)."""
+    import sheltersim_native
 
-    def observed(writer: RunArtifactWriter, world: WorldState) -> None:
-        finalize(writer, world)
-        seen.append(writer.metrics)
-
-    RunArtifactWriter.finalize = observed
-    try:
-        world = run_scenario(scenario, directory, trace_level=TraceLevel.OFF)
-    finally:
-        RunArtifactWriter.finalize = finalize
-    return world, seen[0]
+    return bytes(sheltersim_native.initial_entry(scenario_bytes(scenario)))
 
 
-def open_timeline(directory: Path, scenario: Any) -> tuple[ProjectStore, TimelineStore]:
-    store = ProjectStore(directory)
-    store.create_project("p")
-    store.save_scenario("p", scenario, approved_hash=digest(json.loads(scenario.canonical_json())))
-    store.create_run("p", "r", scenario.id, 1)
-    timeline = TimelineStore(store, "p", "r")
-    timeline.record(BranchRuntime.from_world(WorldState.from_scenario(scenario)))
-    return store, timeline
+def advance_to(run: Any, minute: int) -> None:
+    """Run the ticks up to `minute`; a stop raises RuntimeError, caused by the tick's error."""
+    if minute > run.minute():
+        run.advance(minute - run.minute())
 
 
-def timeline_hashes(store: ProjectStore, branch: str) -> tuple[WorldState, dict[str, Any]]:
-    _, checkpoint = store.load_branch("p", "r", branch)
-    return checkpoint.restore_world(), checkpoint.metrics_state
-
-
-def single(scenario_of: Callable[[], Any], **options: Any) -> Callable[[Path], Outcome]:
-    """One Run through run_scenario."""
-
-    def run(directory: Path) -> Outcome:
-        outcome = Outcome()
-        outcome.add("run", *run_library(scenario_of(), directory / "run", **options))
-        return outcome
-
+def run_core(scenario: Any) -> Any:
+    """The Scenario's Run in the core, from minute 0 to its end."""
+    run = PLAIN.PlainRun.from_scenario(scenario_bytes(scenario))
+    advance_to(run, run.duration())
     return run
+
+
+def _fork_with(
+    outcome: Outcome, scenario: Any, name: str, program: dict[str, Any], end: int
+) -> None:
+    """A Branch of the Scenario's Run: the program applied at its first minute, then the Run to
+    `end`. A refusal is recorded, as it is a result too."""
+    run = PLAIN.PlainRun.from_scenario(scenario_bytes(scenario))
+    advance_to(run, program["simulation_start_minute"])
+    try:
+        run.apply_effect_program(json.dumps(program, ensure_ascii=False).encode())
+    except ValueError as exc:
+        outcome.refused[name] = str(exc)
+        return
+    try:
+        advance_to(run, end)
+    except RuntimeError as exc:
+        # A Branch the simulation cannot finish: pinned, so that a fix shows up in the gate.
+        outcome.refused[name] = f"stopped: {exc}: {exc.__cause__}"
+        return
+    outcome.add(name, run)
+
+
+def _scheduled(outcome: Outcome, scenario_name: str, names: dict[str, str]) -> None:
+    """The recorded Branches of a scenario (`SCHEDULED`), each run from minute 0 to its end."""
+    import lzma
+
+    branches = json.loads(lzma.decompress(SCHEDULED.read_bytes()))["branches"]
+    for name in names:
+        row = branches[f"{scenario_name}/{name}"]
+        run = PLAIN.PlainRun(
+            json.dumps(
+                row["entry"], sort_keys=True, ensure_ascii=False, separators=(",", ":")
+            ).encode()
+        )
+        try:
+            advance_to(run, row["end"])
+        except RuntimeError as exc:
+            outcome.refused[name] = f"stopped: {exc}: {exc.__cause__}"
+            continue
+        outcome.add(name, run)
 
 
 def _action(
     op: str,
     kind: str,
-    target: str,
+    target: str | None,
     units: str,
     parameters: dict[str, Any],
     *,
     start: int,
     end: int | None = None,
     effect_id: str | None = None,
-) -> TimedAction:
-    """A timed effect; its policy dependencies are the ones the primitive requires."""
-    return TimedAction(
-        effect_id=effect_id or f"{op}-1",
-        op=op,
-        target_selector=TargetSelector(kind=kind, target_id=target),
-        start_minute=start,
-        end_minute=end,
-        parameters=parameters,
-        units=units,
-        source_id=SOURCE_ID,
-        assumption_ids=[],
-        policy_dependencies=sorted(DEFAULT_PRIMITIVE_REGISTRY.get(op).required_policies),
-        reversible=end is not None,
-    )
+) -> dict[str, Any]:
+    """A timed effect's JSON; its policy dependencies are the ones the primitive requires."""
+    return {
+        "effect_id": effect_id or f"{op}-1",
+        "op": op,
+        "target_selector": {"kind": kind, "target_id": target, "candidate_ids": []},
+        "start_minute": start,
+        "end_minute": end,
+        "guard": None,
+        "parameters": parameters,
+        "units": units,
+        "source_id": SOURCE_ID,
+        "assumption_ids": [],
+        "policy_dependencies": REQUIRED_POLICIES[op],
+        "causation_id": None,
+        "reversible": end is not None,
+    }
 
 
-def _program(name: str, *effects: TimedAction) -> EffectProgram:
-    return EffectProgram(
-        program_id=f"program-{name}",
-        narrative=name,
-        source_text=name,
-        simulation_start_minute=min(effect.start_minute for effect in effects),
-        effects=list(effects),
-        assumptions=[],
-        support_mode=SupportMode.NATIVE,
-        compiler_provenance={"compiler_kind": "offline_rule", "compiler_version": "gate-v1"},
-    )
+def _program(name: str, *effects: dict[str, Any]) -> dict[str, Any]:
+    """An EffectProgram's JSON, as the contract dumps it."""
+    return {
+        "schema_version": 1,
+        "program_id": f"program-{name}",
+        "narrative": name,
+        "source_text": name,
+        "simulation_start_minute": min(effect["start_minute"] for effect in effects),
+        "effects": list(effects),
+        "assumptions": [],
+        "support_mode": "native",
+        "compiler_provenance": {
+            "compiler_kind": "offline_rule",
+            "compiler_version": "gate-v1",
+            "model_id": None,
+            "prompt_hash": None,
+        },
+    }
 
 
-def _fork_with(
-    outcome: Outcome,
-    store: ProjectStore,
-    timeline: TimelineStore,
-    source: str,
-    name: str,
-    program: EffectProgram,
-    end: int,
-) -> None:
-    """Fork and run one intervention Branch; a refusal is recorded, as it is a result too."""
-    try:
-        timeline.fork(
-            source,
-            program.simulation_start_minute,
-            name,
-            program=program,
-            approved_program_hash=digest(program.model_dump(mode="json")),
-        )
-    except ValueError as exc:
-        outcome.refused[name] = str(exc)
-        return
-    try:
-        timeline.advance(name, end, checkpoint_interval=end)
-    except StateInvariantError as exc:
-        # A Branch the simulation cannot finish: pinned, so that a fix shows up in the gate.
-        outcome.refused[name] = f"stopped: {exc}: {exc.__cause__}"
-        return
-    outcome.add(name, *timeline_hashes(store, name))
+def single(scenario_of: Callable[[], Any]) -> Callable[[Path], Outcome]:
+    """One Run of a Scenario."""
 
+    def run(directory: Path) -> Outcome:
+        del directory
+        outcome = Outcome()
+        outcome.add("run", run_core(scenario_of()))
+        return outcome
 
-def _first_minute(
-    timeline: TimelineStore,
-    branch: str,
-    first: int,
-    last: int,
-    condition: Callable[[WorldState], bool],
-) -> int:
-    for world in timeline.iter_worlds(branch, first, last):
-        if condition(world):
-            return world.minute_index
-    raise AssertionError(f"no minute in {first}..{last} of {branch} meets the condition")
-
-
-def _staff_idle(staff_id: str) -> Callable[[WorldState], bool]:
-    def check(world: WorldState) -> bool:
-        return world.staff[staff_id].active_task_id is None and staff_dynamics_on_shift(
-            world, staff_id, world.minute_index
-        )
-
-    return check
-
-
-def _facility_idle(facility_id: str) -> Callable[[WorldState], bool]:
-    def check(world: WorldState) -> bool:
-        facility = world.facilities[facility_id]
-        return not any(
-            (
-                facility.queue_agent_ids,
-                facility.active_agent_ids,
-                facility.resource_queue_agent_ids,
-                facility.resource_active_agent_ids,
-            )
-        )
-
-    return check
+    return run
 
 
 # The scenarios ---------------------------------------------------------------------------
 
 
-def project_run(directory: Path, scenario: Any, minutes: int) -> dict[str, str]:
-    """The core's hashes (`core_hashes`) of the world `project_parts` ends with."""
-    parts, metrics = project_parts(directory, scenario, minutes)
-    return core_hashes(parts, metrics)
-
-
-def project_parts(directory: Path, scenario: Any, minutes: int) -> tuple[dict[str, str], str]:
-    """The route the seven-day gate uses: the Project screen's ProjectAPI worker computes
-    `scenario` up to `minutes` as Project "p", Run "r", branch "main" of a store in `directory`,
-    in the core into its stored Run of format v5 (#427). The digests of the world's parts and of
-    its metric samples it ended with, read back from the stored Run."""
+def project_run(directory: Path, scenario: Any, minutes: int) -> Any:
+    """The route of the screen: the Project API's worker computes `scenario` up to `minutes` as
+    Project "p", Run "r", Branch "main" of a store in `directory`, into its stored Run of format
+    v5 (#427). The Run read back from the store at `minutes`."""
     from sheltersim.web.stored_runs import save_scenario
 
     store = ProjectStore(directory)
@@ -399,58 +345,33 @@ def project_parts(directory: Path, scenario: Any, minutes: int) -> tuple[dict[st
             "execution_mode": "offline",
         },
     )
-    api.submit("p", "r", "main", minutes)
-    # Only ends a stuck run; the reversed-order variants on a busy machine take long.
-    api.wait_idle(timeout=7200)
+    for target in (minutes // 3, minutes):
+        # A resume from what is stored: the second computation goes on from the first's end.
+        api.submit("p", "r", "main", target)
+        # Only ends a stuck run; the variants on a busy machine take long.
+        api.wait_idle(timeout=7200)
     run, _, _ = api.files.reader("p", "r", "main").seek(minutes)
     api.close()
-    return json.loads(run.digests_json()), run.metrics_digest()
-
-
-def core_hashes(parts: dict[str, str], metrics: str) -> dict[str, str]:
-    """The three hashes of a world as the core digests it: its parts' digests, its event log's,
-    and its metric samples'."""
-    return {
-        "world_hash": hashlib.sha256(json.dumps(parts, sort_keys=True).encode()).hexdigest(),
-        "events_hash": parts["event_log"],
-        "metrics_hash": metrics,
-    }
+    return run
 
 
 def _generated_project(directory: Path) -> Outcome:
-    """The route the seven-day gate uses: the Project screen's ProjectAPI worker, whose Run is the
-    core's (#427), against the library's world digested the core's way."""
-    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tests"))
-    from support.core_tick import metrics_digest, world_digests
-
+    """The route of the screen (the Project API's worker into a stored Run, computed in two
+    parts) against a Run straight through."""
     outcome = Outcome()
     scenario = generated(evacuees=100, minutes=720)
-    outcome.runs["main"] = project_run(directory / "projects", scenario, 720)
-    library, recorder = run_library_recorder(scenario, directory / "library")
-    outcome.add("library", library, recorder.to_dict())
-    outcome.runs["library_core"] = core_hashes(
-        world_digests(library), metrics_digest(recorder.snapshots)
-    )
-    outcome.must_match.append(("main", "library_core", "saving a Run does not change it"))
+    outcome.add("main", project_run(directory / "projects", scenario, 720))
+    outcome.add("plain", run_core(scenario))
+    outcome.must_match.append(("main", "plain", "saving a Run does not change it"))
     return outcome
 
 
-def _trace_levels(directory: Path) -> Outcome:
+def _rumors(directory: Path) -> Outcome:
+    """Rumors and corrections, on the generated Scenario and on the older Scenario form."""
+    del directory
     outcome = Outcome()
-    scenario = with_rumors(generated(evacuees=20, minutes=240))
-    for level in TraceLevel:
-        world, metrics = run_library(scenario, directory / level.value, trace_level=level)
-        outcome.add(level.value, world, metrics)
-    # The older Scenario form traces other models (its psychology has its own trace path).
-    legacy = fixture_short("baseline_100_7d", minutes=180, agents=12)
-    for level in TraceLevel:
-        world, metrics = run_library(legacy, directory / f"old-{level.value}", trace_level=level)
-        outcome.add(f"old-{level.value}", world, metrics)
-    for level in (TraceLevel.SUMMARY, TraceLevel.FULL):
-        outcome.must_match.append(("off", level.value, "tracing does not change the simulation"))
-        outcome.must_match.append(
-            ("old-off", f"old-{level.value}", "tracing does not change the simulation")
-        )
+    outcome.add("generated", run_core(with_rumors(generated(evacuees=20, minutes=240))))
+    outcome.add("old-form", run_core(fixture_short("baseline_100_7d", minutes=180, agents=12)))
     return outcome
 
 
@@ -516,128 +437,134 @@ def _llm_settings(mode: LLMMode) -> LLMSettings:
     )
 
 
+# The stressed Run's social limits: the daily caps opened, so each kind of decision is asked.
+STRESSED_LIMITS = json.dumps(
+    {
+        "social": {
+            "cooldown_minutes": 5,
+            "per_agent_per_day": 40,
+            "global_per_day": 120,
+            "complaint_wait_minutes": 5,
+        }
+    }
+).encode()
+
+
+def stressed_entry(scenario: Any) -> bytes:
+    """The Scenario's minute-0 entry with everyone under stress."""
+    entry = json.loads(entry_of(scenario))
+    for agent in entry["world"]["agents"]:
+        agent["stress"] = 0.9
+    return json.dumps(entry, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode()
+
+
+def _linked(run: Any, router: LLMRouter, limits: bytes | None = None) -> Any:
+    run.set_llm(RouterLink(router), limits)
+    advance_to(run, run.duration())
+    return run
+
+
 def _llm_tape(directory: Path) -> Outcome:
-    """Decisions a scripted provider records, then the same Run from its tape alone."""
+    """Decisions a scripted provider records through the core's LLM port (#428), then the same
+    Run from its tape alone: through the router's replay, and through the core's own."""
+    del directory
     outcome = Outcome()
-    scenario = with_rumors(
-        generated(evacuees=30, minutes=360, staff_count=1),
-    )
+    scenario = with_rumors(generated(evacuees=30, minutes=360, staff_count=1))
     router = LLMRouter(
         _llm_settings(LLMMode.RECORD), provider=ScriptedProvider(), tape=ResponseTape()
     )
-    world, metrics = run_library(scenario, directory / "record", router=router)
-    outcome.add("record", world, metrics)
+    recorded = _linked(PLAIN.PlainRun.from_scenario(scenario_bytes(scenario)), router)
+    outcome.add("record", recorded)
     replay = LLMRouter(
         _llm_settings(LLMMode.REPLAY), tape=ResponseTape.from_dict(router.tape.to_dict())
     )
-    world, metrics = run_library(scenario, directory / "replay", router=replay)
-    outcome.add("replay", world, metrics)
+    outcome.add("replay", _linked(PLAIN.PlainRun.from_scenario(scenario_bytes(scenario)), replay))
     outcome.must_match.append(("record", "replay", "a Run replays from its response tape"))
+    tape = list(recorded.take_tape())
+    again = PLAIN.PlainRun.from_scenario(scenario_bytes(scenario))
+    again.set_llm_replay(tape, False)
+    advance_to(again, again.duration())
+    outcome.add("core-replay", again)
+    outcome.must_match.append(("record", "core-replay", "a Run replays from its stored tape"))
     # Everyone under stress and the daily caps opened, so each kind of decision applies.
-    stressed = with_rumors(generated(evacuees=24, minutes=240, staff_count=1))
-    tape: dict[str, Any] = {}
-    for label, router in (
-        (
-            "stressed-record",
-            LLMRouter(
-                _llm_settings(LLMMode.RECORD), provider=ScriptedProvider(), tape=ResponseTape()
-            ),
-        ),
-        ("stressed-replay", None),
-    ):
-        if router is None:
-            router = LLMRouter(_llm_settings(LLMMode.REPLAY), tape=ResponseTape.from_dict(tape))
-        outcome.add(label, *_stressed_run(stressed, router))
-        tape = router.tape.to_dict()
-    outcome.must_match.append(("stressed-record", "stressed-replay", "a Run replays from its tape"))
-    # The Project route keeps the responses in the Checkpoint; a fork replays them.
-    store, timeline = open_timeline(directory / "projects", scenario)
-    project_router = LLMRouter(
+    stressed = stressed_entry(with_rumors(generated(evacuees=24, minutes=240, staff_count=1)))
+    router = LLMRouter(
         _llm_settings(LLMMode.RECORD), provider=ScriptedProvider(), tape=ResponseTape()
     )
-    timeline.advance("main", 360, router=project_router, checkpoint_interval=60)
-    outcome.add("project", *timeline_hashes(store, "main"))
-    timeline.fork("main", 120, "fork")
-    timeline.advance("fork", 360, checkpoint_interval=60)
-    outcome.add("project-fork", *timeline_hashes(store, "fork"))
-    outcome.must_match.append(
-        ("project", "project-fork", "a fork replays the recorded decisions without a provider")
+    outcome.add("stressed-record", _linked(PLAIN.PlainRun(stressed), router, STRESSED_LIMITS))
+    replay = LLMRouter(
+        _llm_settings(LLMMode.REPLAY), tape=ResponseTape.from_dict(router.tape.to_dict())
     )
+    outcome.add("stressed-replay", _linked(PLAIN.PlainRun(stressed), replay, STRESSED_LIMITS))
+    outcome.must_match.append(("stressed-record", "stressed-replay", "a Run replays from its tape"))
     return outcome
 
 
-def _stressed_run(scenario: Any, router: LLMRouter) -> tuple[WorldState, dict[str, Any]]:
-    """Controller with wider limits than a Run's, over a synthetic stressed population."""
-    runtime = BranchRuntime.from_world(WorldState.from_scenario(scenario))
-    world = runtime.world
-    for agent in world.agents.values():
-        agent.stress = 0.9
-    controller = OfflineSimulationController(world, _MetricSink(runtime.metrics), llm_router=router)
-    controller.social_policy.limits = SocialRuntimeLimits(
-        cooldown_minutes=5, per_agent_per_day=40, global_per_day=120, complaint_wait_minutes=5
-    )
-    # The complaints' threshold is the Run's (`Policies`, lane P8 b3): read it again.
-    controller._run_core.refresh_policies(controller)
-    TickEngine(world, phase_handler=controller).run(steps=scenario.duration_minutes)
-    return world, runtime.metrics.to_dict()
+def _stored(run: Any) -> dict[str, Any]:
+    """What a stored Run holds up to now (`run_store`): its saved point, and its log's and
+    samples' tables and blocks, sealed."""
+    run.seal_blocks()
+    log_blocks, _ = run.log_block_counts()
+    sample_blocks, _ = run.sample_block_counts()
+    return {
+        "point": run.saved_point(),
+        "log_tables": run.log_tables(0, 0),
+        "log_blocks": [run.log_block(index) for index in range(log_blocks)],
+        "sample_tables": run.sample_tables(0, 0),
+        "sample_blocks": [run.sample_block(index) for index in range(sample_blocks)],
+    }
+
+
+def _restored(entry: bytes, stored: dict[str, Any]) -> Any:
+    """The Run at a saved point, built again from what was stored."""
+    restore = PLAIN.Restore(stored["point"])
+    restore.read_log_tables(stored["log_tables"])
+    for block in stored["log_blocks"]:
+        if restore.log_needed():
+            restore.read_log_block(block)
+    restore.read_sample_tables(stored["sample_tables"])
+    for block in stored["sample_blocks"]:
+        if restore.samples_needed():
+            restore.read_sample_block(block)
+    return PLAIN.PlainRun.restore(entry, restore)
 
 
 def _fork_resume(directory: Path) -> Outcome:
-    """A fork, a resume from disk and a Checkpoint round trip end as the straight Run does.
+    """A Run restored at a saved point, a restore of a restored Run and a resume from the stored
+    Run end as the straight Run does.
 
-    The defined behaviour (AGENTS.md): a Checkpoint holds everything a Run needs, and a
-    no-op fork has no effect of its own.
+    The defined behaviour (AGENTS.md): a saved point holds everything a Run needs.
     """
     outcome = Outcome()
     end, middle = 300, 130
     scenario = with_rumors(generated(evacuees=24, minutes=end))
-    store, timeline = open_timeline(directory / "straight", scenario)
-    timeline.advance("main", end, checkpoint_interval=30)
-    outcome.add("straight", *timeline_hashes(store, "main"))
-    # Fork between two saves and at a saved minute: the first replays the gap from a save.
+    entry = entry_of(scenario)
+    straight = PLAIN.PlainRun(entry)
+    advance_to(straight, middle)
+    seen = straight.world_parts()
+    advance_to(straight, end)
+    outcome.add("straight", straight)
+    # Restored between two saves, at a saved point and at the first minute.
     for minute in (middle, 120, 1):
         name = f"fork-{minute}"
-        timeline.fork("main", minute, name)
-        timeline.advance(name, end, checkpoint_interval=45)
-        outcome.add(name, *timeline_hashes(store, name))
-        outcome.must_match.append(("straight", name, "a no-op fork ends as the straight Run"))
-    # A second-generation fork reads across its parent's segment.
-    timeline.fork("fork-130", 200, "fork-of-fork")
-    timeline.advance("fork-of-fork", end, checkpoint_interval=30)
-    outcome.add("fork-of-fork", *timeline_hashes(store, "fork-of-fork"))
-    outcome.must_match.append(("straight", "fork-of-fork", "a fork of a fork too"))
-    # Reading the past is read-only: the world of a seek matches the world at that minute.
-    seen = timeline.seek("main", middle).world
-    copied = timeline.seek("fork-130", middle).world
-    if seen.canonical_json() != copied.canonical_json():
-        raise AssertionError("a past minute reads differently through a fork")
-    # A resume: a new store over the same directory continues a Run saved at the mid-point.
-    store_two, timeline_two = open_timeline(directory / "resumed", scenario)
-    timeline_two.advance("main", middle, checkpoint_interval=30)
-    del store_two, timeline_two
-    reopened = ProjectStore(directory / "resumed")
-    TimelineStore(reopened, "p", "r").advance("main", end, checkpoint_interval=30)
-    outcome.add("resumed", *timeline_hashes(reopened, "main"))
+        source = PLAIN.PlainRun(entry)
+        advance_to(source, minute)
+        restored = _restored(entry, _stored(source))
+        if minute == middle and restored.world_parts() != seen:
+            raise AssertionError("a restored minute reads differently from the straight Run")
+        if minute == middle:
+            advance_to(restored, 200)
+            again = _restored(entry, _stored(restored))
+            advance_to(again, end)
+            outcome.add("fork-of-fork", again)
+            outcome.must_match.append(("straight", "fork-of-fork", "a restore of a restore too"))
+        advance_to(restored, end)
+        outcome.add(name, restored)
+        outcome.must_match.append(("straight", name, "a restored Run ends as the straight Run"))
+    # A resume: the stored Run's second computation goes on from the first's end.
+    outcome.add("resumed", project_run(directory / "resumed", scenario, end))
     outcome.must_match.append(("straight", "resumed", "a resume ends as the straight Run"))
-    # A Checkpoint through its JSON form, without any store.
-    outcome.add("checkpoint-json", *_through_checkpoint_json(scenario, middle))
-    outcome.must_match.append(("straight", "checkpoint-json", "a Checkpoint holds the whole state"))
     return outcome
-
-
-def _engine(world: WorldState, metrics: MetricsRecorder) -> TickEngine:
-    return TickEngine(world, phase_handler=OfflineSimulationController(world, _MetricSink(metrics)))
-
-
-def _through_checkpoint_json(scenario: Any, middle: int) -> tuple[WorldState, dict[str, Any]]:
-    runtime = BranchRuntime.from_world(WorldState.from_scenario(scenario))
-    _engine(runtime.world, runtime.metrics).run(steps=middle)
-    checkpoint = Checkpoint.from_json(
-        Checkpoint.capture(runtime.world, metrics=runtime.metrics).to_json()
-    )
-    world, metrics = checkpoint.restore_state()
-    _engine(world, metrics).run(steps=scenario.duration_minutes - middle)
-    return world, metrics.to_dict()
 
 
 def _operations() -> dict[str, Any]:
@@ -683,23 +610,13 @@ def _operations() -> dict[str, Any]:
 
 
 def _interventions(directory: Path) -> Outcome:
-    """Every effect primitive except those on the floor plan, each on its own Branch."""
+    """The EffectPrograms other than the floor plan's: those the core schedules applied at a
+    minute of the Run, and the others scheduled ahead at minute 0 (`SCHEDULED`)."""
+    del directory
     outcome = Outcome()
     start, end = 60, 240
     scenario = generated(evacuees=30, minutes=end, operational_conditions=_operations())
-    store, timeline = open_timeline(directory / "projects", scenario)
-    timeline.advance("main", end, checkpoint_interval=30)
-    outcome.add("main", *timeline_hashes(store, "main"))
-    world = WorldState.from_scenario(scenario)
-    shipment_id = next(
-        key
-        for key, row in world.model_state["operational_events_v1"]["shipments"].items()
-        if row["resource_id"] == "water_ml"
-    )
-
-    def zone_condition(op: str, units: str, parameters: dict[str, Any]) -> TimedAction:
-        return _action(op, "zone", "sleeping", units, parameters, start=start, end=180)
-
+    outcome.add("main", run_core(scenario))
     actions = {
         "add-staff": _action(
             "add_staff", "zone", "staff", "staff_member", {"count": 2}, start=start
@@ -716,28 +633,6 @@ def _interventions(directory: Path) -> Outcome:
             start=start,
             end=120,
         ),
-        "availability": _action(
-            "set_facility_availability",
-            "facility",
-            "medical_desk",
-            "facility_unit",
-            {"working_units": 0},
-            start=start,
-            end=120,
-        ),
-        "repair": _action(
-            "facility_repair",
-            "facility",
-            "toilet_01",
-            "facility_unit",
-            {
-                "facility_id": "toilet_01",
-                "component_id": "toilet_01",
-                "expected_working_units": 0,
-                "restored_working_units": 1,
-            },
-            start=start,
-        ),
         "water-outage": _action(
             "water_outage",
             "facility",
@@ -747,389 +642,53 @@ def _interventions(directory: Path) -> Outcome:
             start=start,
             end=120,
         ),
-        "delivery": _action(
-            "deliver_resource",
-            "resource",
-            "water_ml",
-            "water_ml",
-            {"warehouse_id": "main_warehouse", "resource_id": "water_ml", "quantity": 100_000},
-            start=start,
-        ),
-        "delay-shipment": _action(
-            "modify_supply_schedule",
-            "shipment",
-            shipment_id,
-            "minute",
-            {"shipment_id": shipment_id, "to_minute": 200},
-            start=start,
-        ),
-        "staff-away": _action(
-            "set_staff_availability",
-            "staff",
-            "staff_003",
-            "staff_member",
-            {"available": False},
-            start=start,
-            end=120,
-        ),
-        "staff-role": _action(
-            "set_staff_role",
-            "staff",
-            "staff_002",
-            "staff_role",
-            {"skills": ["support", "water_service", "meal_service"]},
-            start=_first_minute(timeline, "main", start, end - 30, _staff_idle("staff_002")),
-        ),
-        "noise": zone_condition("set_ambient_noise", "normalized_noise_0_1", {"level": 1.0}),
-        "lighting": zone_condition("set_lighting", "normalized_lighting_0_1", {"level": 1.0}),
-        "ventilation": zone_condition(
-            "set_ventilation", "relative_ventilation_effectiveness_0_1", {"effectiveness": 0.0}
-        ),
-        "privacy": zone_condition("set_privacy", "normalized_privacy_0_1", {"level": 0.0}),
-        "temperature": zone_condition("set_temperature", "celsius", {"temperature_c": 35.0}),
-        "demand": zone_condition(
-            "modify_demand_rate",
-            "relative_action_rate",
-            {"action": "rest", "probability_multiplier": 2.0, "duration_multiplier": 2.0},
-        ),
     }
     for name, action in actions.items():
-        _fork_with(outcome, store, timeline, "main", name, _program(name, action), end)
-    # An order needs an idle worker with the skill, so a role change comes first.
-    idle_at = _first_minute(timeline, "main", start, end - 60, _staff_idle("staff_001"))
-    trained = _program(
-        "trained",
-        _action(
-            "set_staff_role",
-            "staff",
-            "staff_001",
-            "staff_role",
-            {"skills": ["support", "cleaning", "maintenance", "patrol", "intake", "information"]},
-            start=idle_at,
-        ),
-        _action("add_staff", "zone", "sleeping", "staff_member", {"count": 1}, start=idle_at),
-    )
-    _fork_with(outcome, store, timeline, "main", "trained", trained, end)
-    order_at = _first_minute(timeline, "trained", idle_at + 1, end - 30, _staff_idle("staff_001"))
-    for task_kind, extra in (
-        ("patrol", {"target_zone_id": "sleeping"}),
-        ("cleaning", {"target_zone_id": "toilet"}),
-        ("information_outreach", {"target_zone_id": "sleeping"}),
-        ("intake", {"target_zone_id": "intake"}),
-    ):
-        order = _action(
-            "staff_task_order",
-            "staff",
-            "staff_001",
-            "staff_task_order",
-            {"task_kind": task_kind, "reason": "synthetic order", **extra},
-            start=order_at,
-        )
-        _fork_with(
-            outcome,
-            store,
-            timeline,
-            "trained",
-            f"order-{task_kind}",
-            _program(task_kind, order),
-            end,
-        )
-
-    # Maintenance needs a facility with a unit out and nothing blocking the repair.
-    repair = _action(
-        "staff_task_order",
-        "staff",
-        "staff_001",
-        "staff_task_order",
+        _fork_with(outcome, scenario, name, _program(name, action), end)
+    _scheduled(
+        outcome,
+        "interventions",
         {
-            "task_kind": "maintenance",
-            "reason": "synthetic order",
-            "target_zone_id": world.facilities["intake_desk"].zone_id,
-            "target_id": "intake_desk",
+            "availability": "medical_desk's working units 0 from 60 to 120",
+            "delivery": "100 l of water delivered at 60",
+            "delay-shipment": "the water shipment moved to 200 at 60",
+            "staff-away": "staff_003 away from 60 to 120",
+            "staff-role": "staff_002's skills changed at 62",
+            "noise": "noise 1.0 in sleeping from 60 to 180",
+            "lighting": "lighting 1.0 in sleeping from 60 to 180",
+            "ventilation": "ventilation 0.0 in sleeping from 60 to 180",
+            "privacy": "privacy 0.0 in sleeping from 60 to 180",
+            "temperature": "35 °C in sleeping from 60 to 180",
+            "demand": "rest twice as likely and long in sleeping from 60 to 180",
+            "trained": "staff_001 given every skill and a worker added at 135",
+            "guard-and": "the availability under an and of four true guards",
+            "guard-or-false": "the availability under an or of two false guards",
+            "guard-zone": "noise 0.5 under a guard on the zone's occupancy",
+            "guard-resource": "a delivery under a guard on the stock",
         },
-        start=order_at,
     )
-    _fork_with(outcome, store, timeline, "trained", "order-maintenance", _program("m", repair), end)
-
-    # Guards: a true one applies the effect, a false one suppresses its start and expiry.
-    def guarded(name: str, guard: GuardExpression) -> None:
-        action = _action(
-            "set_facility_availability",
-            "facility",
-            "medical_desk",
-            "facility_unit",
-            {"working_units": 0},
-            start=start,
-            end=120,
-        ).model_copy(update={"guard": guard})
-        _fork_with(outcome, store, timeline, "main", name, _program(name, action), end)
-
-    leaves = {
-        "minute": GuardExpression(operator="gte", field="simulation.minute", value=start),
-        "capacity": GuardExpression(operator="gt", field="target.capacity", value=0),
-        "working": GuardExpression(operator="ne", field="target.working_units", value=99),
-        "queue": GuardExpression(operator="lt", field="target.queue_length", value=99),
-    }
-    guarded("guard-and", GuardExpression(operator="and", operands=list(leaves.values())))
-    guarded(
-        "guard-or-false",
-        GuardExpression(
-            operator="or",
-            operands=[
-                GuardExpression(operator="eq", field="target.capacity", value=99),
-                GuardExpression(operator="lte", field="simulation.minute", value=0),
-            ],
-        ),
-    )
-    for name, op, kind, target, units, parameters, field_name, value in (
-        (
-            "guard-zone",
-            "set_ambient_noise",
-            "zone",
-            "sleeping",
-            "normalized_noise_0_1",
-            {"level": 0.5},
-            "zone.occupancy",
-            0,
-        ),
-        (
-            "guard-resource",
-            "deliver_resource",
-            "resource",
-            "water_ml",
-            "water_ml",
-            {"warehouse_id": "main_warehouse", "resource_id": "water_ml", "quantity": 1000},
-            "resource.available_quantity",
-            0,
-        ),
-    ):
-        timed = op != "deliver_resource"
-        action = _action(
-            op, kind, target, units, parameters, start=start, end=120 if timed else None
-        ).model_copy(
-            update={"guard": GuardExpression(operator="gte", field=field_name, value=value)}
-        )
-        _fork_with(outcome, store, timeline, "main", name, _program(name, action), end)
-
-    # A handoff moves a running task to another worker.
-    def can_hand_off(world: WorldState) -> bool:
-        record = world.model_state["staff_operations_v1"]["staff"]["staff_001"]
-        added = sorted(set(world.staff) - {staff.id for staff in scenario.staff})
-        return (
-            record.get("phase") == "working"
-            and world.staff[added[0]].active_task_id is None
-            and world.staff[added[0]].zone_id == record.get("target_zone_id")
-        )
-
-    idle_again = _first_minute(timeline, "main", start, end - 60, _staff_idle("staff_001"))
-    setup = _program(
-        "handoff-setup",
-        _action("add_staff", "zone", "sleeping", "staff_member", {"count": 1}, start=idle_again),
-        _action(
-            "staff_task_order",
-            "staff",
-            "staff_001",
-            "staff_task_order",
-            {"task_kind": "patrol", "target_zone_id": "sleeping", "reason": "synthetic patrol"},
-            start=idle_again,
-        ),
-    )
-    _fork_with(outcome, store, timeline, "main", "handoff-setup", setup, end)
-    minute = _first_minute(timeline, "handoff-setup", idle_again, end - 1, can_hand_off)
-    state = timeline.seek("handoff-setup", minute).world
-    handoff = _action(
-        "staff_handoff",
-        "staff",
-        "staff_001",
-        "staff_member",
-        {
-            "staff_id": "staff_001",
-            "replacement_staff_id": sorted(set(state.staff) - {row.id for row in scenario.staff})[
-                0
-            ],
-            "task_id": state.model_state["staff_operations_v1"]["staff"]["staff_001"]["task_id"],
-            "reason_code": "reassigned",
-        },
-        start=minute,
-    )
-    _fork_with(outcome, store, timeline, "handoff-setup", "handoff", _program("h", handoff), end)
     return outcome
 
 
 def _geometry(directory: Path) -> Outcome:
-    """The floor-plan primitives: the overlay, and walks that replan around it."""
+    """The floor-plan primitives, scheduled ahead at minute 0 (`SCHEDULED`): the overlay, and
+    walks that replan around it."""
+    del directory
     outcome = Outcome()
-    start, end = 30, 300
-    # The polygons below fit the plan generated for this many people.
-    scenario = generated(evacuees=20, minutes=end)
-    store, timeline = open_timeline(directory / "projects", scenario)
-    timeline.advance("main", end, checkpoint_interval=30)
-    outcome.add("main", *timeline_hashes(store, "main"))
-    toilet = scenario.model_configs["facility_geometry"]["facility_points"]["toilet_01"]
-    free = _first_minute(timeline, "main", start, end - 30, _facility_idle("toilet_01"))
-    room_points = [
-        {"x": 0.5, "y": 8.0},
-        {"x": 2.5, "y": 8.0},
-        {"x": 2.5, "y": 12.0},
-        {"x": 0.5, "y": 12.0},
-    ]
-    beds = [
-        {"x": 1.0, "y": 9.0},
-        {"x": 2.0, "y": 9.0},
-        {"x": 1.0, "y": 11.0},
-        {"x": 2.0, "y": 11.0},
-    ]
-    actions: dict[str, TimedAction] = {
-        "move-facility": _action(
-            "move_facility",
-            "facility",
-            "toilet_01",
-            "metre_2d",
-            {"point_m": {"x": toilet["x"], "y": 8.0}},
-            start=free,
-        ),
-        "transfer": _action(
-            "transfer_equipment",
-            "equipment",
-            "toilet_01",
-            "metre_2d",
-            {
-                "schema_version": 1,
-                "equipment_id": "toilet_01",
-                "from_zone_id": "toilet",
-                "to_zone_id": "sleeping",
-                "point_m": {"x": 5.0, "y": 9.0},
-            },
-            start=free,
-        ),
-        "transfer-refused": _action(
-            "transfer_equipment",
-            "equipment",
-            "water_station_main",
-            "metre_2d",
-            {
-                "schema_version": 1,
-                "equipment_id": "water_station_main",
-                "from_zone_id": "food",
-                "to_zone_id": "sleeping",
-                "point_m": {"x": 5.0, "y": 9.0},
-            },
-            start=start,
-        ),
-        "partition": _action(
-            "set_partition",
-            "zone",
-            "toilet",
-            "metre_2d",
-            {
-                "polygon_m": [
-                    {"x": 13.9, "y": 8.4},
-                    {"x": 14.9, "y": 8.4},
-                    {"x": 14.9, "y": 9.0},
-                    {"x": 13.9, "y": 9.0},
-                ]
-            },
-            start=start,
-            end=120,
-        ),
-        "temporary-room": _action(
-            "temporary_room_geometry",
-            "zone",
-            "sleeping",
-            "metre_2d",
-            {
-                "schema_version": 1,
-                "room_id": "room_a",
-                "zone_id": "sleeping",
-                "polygon_m": room_points,
-                "people_capacity": 4,
-                "sleeping_capacity": 4,
-                "bed_points_m": beds,
-                "route_edge_ids": ["route_corridor_sleeping", "route_sleeping_corridor"],
-            },
-            start=start,
-            end=150,
-        ),
-        "close-route": _action(
-            "set_route_access",
-            "route",
-            "route_corridor_toilet",
-            "boolean",
-            {"accessible": False},
-            start=start,
-            end=95,
-        ),
-    }
-    for name, action in actions.items():
-        _fork_with(outcome, store, timeline, "main", name, _program(name, action), end)
-    # A partition is refused while someone stands where it goes, so wait for a clear minute.
-    for minute in range(start, end - 90, 10):
-        partition = actions["partition"].model_copy(
-            update={"start_minute": minute, "end_minute": minute + 90}
-        )
-        outcome.refused.pop("partition", None)
-        _fork_with(outcome, store, timeline, "main", "partition", _program("p", partition), end)
-        if "partition" in outcome.runs:
-            break
-
-    # A route closed under a resident walking to a support worker.
-    trip = None
-    for state in timeline.iter_worlds("main", start, end - 30):
-        for journey in sorted(
-            state.model_state["movement_v1"]["journeys"].values(), key=lambda row: row["event_id"]
-        ):
-            if journey.get("purpose") == "staff_support_travel" and journey.get("route_edge_ids"):
-                trip = (state.minute_index, journey["route_edge_ids"][-1])
-                break
-        if trip is not None:
-            break
-    if trip is not None:
-        closure = _action(
-            "set_route_access",
-            "route",
-            trip[1],
-            "boolean",
-            {"accessible": False},
-            start=trip[0],
-            end=trip[0] + 20,
-        )
-        _fork_with(
-            outcome, store, timeline, "main", "support-trip-closed", _program("t", closure), end
-        )
-
-    # A route closed under a worker who is walking it: the trip is replanned or given up.
-    idle_at = _first_minute(timeline, "main", start, end - 60, _staff_idle("staff_001"))
-    patrol = _action(
-        "staff_task_order",
-        "staff",
-        "staff_001",
-        "staff_task_order",
-        {"task_kind": "patrol", "target_zone_id": "sleeping", "reason": "synthetic patrol"},
-        start=idle_at,
+    outcome.add("main", run_core(generated(evacuees=20, minutes=300)))
+    _scheduled(
+        outcome,
+        "geometry",
+        {
+            "move-facility": "toilet_01 moved at 52",
+            "transfer": "toilet_01 carried to sleeping at 52",
+            "partition": "a partition in the toilet zone from 60 to 150",
+            "temporary-room": "a room of four beds in sleeping from 30 to 150",
+            "close-route": "route_corridor_toilet closed from 30 to 95",
+            "support-trip-closed": "route_corridor_staff closed from 39 to 59",
+            "walk-closed": "route_corridor_sleeping closed from 172 to 187",
+        },
     )
-    _fork_with(outcome, store, timeline, "main", "walk", _program("walk", patrol), end)
-
-    def walking(world: WorldState) -> bool:
-        record = world.model_state["staff_operations_v1"]["staff"]["staff_001"]
-        return record.get("phase") == "travel"
-
-    if "walk" in outcome.runs:
-        minute = _first_minute(timeline, "walk", idle_at, end - 30, walking)
-        record = timeline.seek("walk", minute).world.model_state["staff_operations_v1"]["staff"][
-            "staff_001"
-        ]
-        closure = _action(
-            "set_route_access",
-            "route",
-            record["route_edge_ids"][-1],
-            "boolean",
-            {"accessible": False},
-            start=minute,
-            end=minute + 15,
-        )
-        _fork_with(
-            outcome, store, timeline, "walk", "walk-closed", _program("closed", closure), end
-        )
     return outcome
 
 
@@ -1139,143 +698,70 @@ def _run_stops(directory: Path) -> Outcome:
     A stop found here is pinned as the expected result, so that a fix or another stop shows up
     in the gate. A fixed one stays as a Run, so that it doesn't come back.
     """
+    del directory
     outcome = Outcome()
-    # The closure's expiry is due in the minute support requests time out, after them in the
-    # batch of due events. Their care interruptions are recorded after the batch, and the
-    # expiry's copy of the world used to fail its validation in between (#88, 元 #309).
-    scenario = generated(evacuees=30, minutes=180)
-    store, timeline = open_timeline(directory / "expiry", scenario)
-    timeline.advance("main", 30, checkpoint_interval=30)
-    closure = _action(
-        "set_route_access",
-        "route",
-        "route_corridor_toilet",
-        "boolean",
-        {"accessible": False},
-        start=30,
-        end=90,
+    _scheduled(
+        outcome,
+        "run_stops",
+        {
+            # The closure's expiry is due in the minute support requests time out, after them in
+            # the batch of due events. Their care interruptions are recorded after the batch, and
+            # the expiry's copy of the world used to fail its validation in between (#88, 元 #309).
+            "expiry-at-a-timeout": "route_corridor_toilet closed from 30 to 90",
+            # A guard on an absence with an end. The restoration event used to inherit the guard
+            # and stop the Run (#89, 元 #310); now the guard is only the start's.
+            "guarded-absence": "staff_003 away from 60 to 120 under a guard",
+        },
     )
-    _fork_with(outcome, store, timeline, "main", "expiry-at-a-timeout", _program("c", closure), 180)
-    # A guard on an absence with an end. The restoration event used to inherit the guard and stop
-    # the Run (#89, 元 #310); now the guard is only the start's and staff_003 comes back at 120.
-    scenario = generated(evacuees=30, minutes=180)
-    store, timeline = open_timeline(directory / "guard", scenario)
-    timeline.advance("main", 60, checkpoint_interval=60)
-    absence = _action(
-        "set_staff_availability",
-        "staff",
-        "staff_003",
-        "staff_member",
-        {"available": False},
-        start=60,
-        end=120,
-    ).model_copy(
-        update={"guard": GuardExpression(operator="eq", field="staff.available", value=True)}
-    )
-    _fork_with(outcome, store, timeline, "main", "guarded-absence", _program("g", absence), 180)
     return outcome
 
 
 def _population(directory: Path) -> Outcome:
     """Arrivals, departures and each presence change of one person."""
+    del directory
     outcome = Outcome()
     start, end = 30, 240
     scenario = generated(evacuees=30, minutes=end)
-    store, timeline = open_timeline(directory / "projects", scenario)
-    timeline.advance("main", end, checkpoint_interval=30)
-    outcome.add("main", *timeline_hashes(store, "main"))
-    world = timeline.seek("main", start).world
-    people = sorted(world.agents)
-    free = [
-        agent_id
-        for agent_id in people
-        if world.agents[agent_id].activity.value in ("idle", "resting", "sleeping")
-    ]
-    waiting = [agent_id for agent_id in people if world.agents[agent_id].support_request_id]
-    by_zone: dict[str, list[str]] = {}
-    for agent_id in free:
-        by_zone.setdefault(world.agents[agent_id].zone_id, []).append(agent_id)
-    pair = next(members[:2] for _, members in sorted(by_zone.items()) if len(members) > 1)
-
-    def presence(effect_id: str, person: str, *, at: int = start, **parameters: Any) -> TimedAction:
-        return _action(
-            "population_presence",
-            "person",
-            person,
-            "population_transition",
-            parameters,
-            start=at,
-            effect_id=effect_id,
-        )
-
-    reunion = presence(
-        "reunite",
-        pair[0],
-        action="reunite",
-        household_id=world.agents[pair[0]].profile.group_id,
-    ).model_copy(update={"target_selector": TargetSelector(kind="person", candidate_ids=pair)})
+    outcome.add("main", run_core(scenario))
     programs = {
-        "arrive": [
-            _action(
-                "add_evacuees",
-                "zone",
-                "sleeping",
-                "evacuee",
-                {"count": 6, "household_size": 2, "mobility": "assisted"},
-                start=start,
-            ),
-        ],
-        "arrive-space": [
-            _action(
-                "add_evacuees",
-                "zone",
-                "sleeping",
-                "evacuee",
-                {"count": 20, "mobility": "wheelchair"},
-                start=start,
-            ),
-            _action(
-                "add_temporary_space",
-                "zone",
-                "sleeping",
-                "person_capacity",
-                {"people_capacity": 20, "sleeping_capacity": 20},
-                start=start,
-                end=180,
-            ),
-        ],
-        "depart": [
-            _action(
-                "depart_evacuees",
-                "zone",
-                "sleeping",
-                "evacuee",
-                {"count": 5, "include_initial": True},
-                start=start,
-            ),
-        ],
-        "exit-expected-return": [
-            presence("exit", free[0], action="temporary_exit", expected_return_minute=start + 60),
-        ],
-        "exit-then-return": [
-            presence("exit", free[0], action="temporary_exit"),
-            presence("return", free[0], at=start + 40, action="return"),
-        ],
-        "transfer": [presence("transfer", free[0], action="transfer")],
-        "relocate": [presence("relocate", free[0], action="relocate", zone_id="quiet")],
-        "reunite": [reunion],
+        "arrive": _action(
+            "add_evacuees",
+            "zone",
+            "sleeping",
+            "evacuee",
+            {"count": 6, "household_size": 2, "mobility": "assisted"},
+            start=start,
+        ),
+        "depart": _action(
+            "depart_evacuees",
+            "zone",
+            "sleeping",
+            "evacuee",
+            {"count": 5, "include_initial": True},
+            start=start,
+        ),
     }
-    if waiting:
-        programs["exit-waiting"] = [
-            presence("exit", waiting[0], action="temporary_exit", expected_return_minute=start + 90)
-        ]
-    for name, actions in programs.items():
-        _fork_with(outcome, store, timeline, "main", name, _program(name, *actions), end)
+    for name, action in programs.items():
+        _fork_with(outcome, scenario, name, _program(name, action), end)
+    _scheduled(
+        outcome,
+        "population",
+        {
+            "arrive-space": "20 wheelchair users and a temporary space at 30",
+            "exit-expected-return": "A005 out at 30, expected back at 90",
+            "exit-then-return": "A005 out at 30, back at 70",
+            "transfer": "A005 transferred at 30",
+            "relocate": "A005 moved to quiet at 30",
+            "reunite": "A005 and A012 reunited at 30",
+            "exit-waiting": "A001 out at 30 while waiting for support",
+        },
+    )
     return outcome
 
 
 def _conditions(directory: Path) -> Outcome:
     """Every kind of condition the operator can enter on the form, including infrastructure."""
+    del directory
     outcome = Outcome()
     infrastructure = {
         "dependency_edges": [
@@ -1336,7 +822,7 @@ def _conditions(directory: Path) -> Outcome:
         "infrastructure": infrastructure,
     }
     scenario = generated(evacuees=40, minutes=300, operational_conditions=conditions)
-    outcome.add("run", *run_library(scenario, directory / "run"))
+    outcome.add("run", run_core(scenario))
 
     # With the staff all away the queues stall: requests time out and walks are interrupted.
     def understaffed(document: dict[str, Any]) -> None:
@@ -1360,12 +846,13 @@ def _conditions(directory: Path) -> Outcome:
         ),
         understaffed,
     )
-    outcome.add("one-worker", *run_library(thin, directory / "one-worker"))
+    outcome.add("one-worker", run_core(thin))
     return outcome
 
 
 def _split_queues(directory: Path) -> Outcome:
     """Two service points with a queue each, which the generator never makes."""
+    del directory
     outcome = Outcome()
 
     def split(document: dict[str, Any]) -> None:
@@ -1397,44 +884,17 @@ def _split_queues(directory: Path) -> Outcome:
             {"id": "toilet_staff_01", "zone_id": zones["toilet_01"], "skills": ["toilet_service"]}
         )
 
-    scenario = edited(generated(evacuees=30, minutes=300), split)
-    outcome.add("run", *run_library(scenario, directory / "run"))
+    outcome.add("run", run_core(edited(generated(evacuees=30, minutes=300), split)))
     fifo = edited(
         generated(evacuees=30, minutes=300, queue_policy_id="strict-fifo-queue-v1"), split
     )
-    outcome.add("strict-fifo", *run_library(fifo, directory / "strict-fifo"))
-    return outcome
-
-
-def _branch_commands(directory: Path) -> Outcome:
-    """The layout commands of the older demo, on the older Scenario form that has zone edges."""
-    del directory
-    outcome = Outcome()
-    commands = {
-        "add-staff": AddStaffCommand("S-EXTRA", "toilet", ("support",)),
-        "add-toilet": AddToiletCommand("toilet-extra", "toilet", 1, 1),
-        "working-units": SetFacilityWorkingUnitsCommand("toilet_1", 0),
-        "route-capacity": SetZoneEdgeCommand("corridor_toilet", 8, False, 1),
-        "route-closed": SetZoneEdgeCommand("corridor_toilet", 4, True, None),
-        "relocate": RelocateFacilityCommand("toilet_2", "corridor"),
-    }
-    for name, command in commands.items():
-        scenario = fixture_short("h00_small_replay", minutes=120, agents=4)
-        runtime = BranchRuntime.from_world(WorldState.from_scenario(scenario))
-        _engine(runtime.world, runtime.metrics).run(steps=20)
-        child = runtime.fork(name)
-        try:
-            child.apply(command)
-        except ValueError as exc:
-            outcome.refused[name] = str(exc)
-            continue
-        _engine(child.world, child.metrics).run(steps=100)
-        outcome.add(name, child.world, child.metrics.to_dict())
+    outcome.add("strict-fifo", run_core(fifo))
     return outcome
 
 
 def _arrivals(directory: Path) -> Outcome:
     """Arrivals that walk in from outside, wait for intake and fill the alternative zones."""
+    del directory
     outcome = Outcome()
     start, end = 20, 300
 
@@ -1452,11 +912,9 @@ def _arrivals(directory: Path) -> Outcome:
         ]
 
     scenario = edited(generated(evacuees=30, minutes=end), approach)
-    store, timeline = open_timeline(directory / "projects", scenario)
-    timeline.advance("main", end, checkpoint_interval=30)
-    outcome.add("main", *timeline_hashes(store, "main"))
+    outcome.add("main", run_core(scenario))
 
-    def arrival(effect_id: str, zone: str, at: int, **parameters: Any) -> TimedAction:
+    def arrival(effect_id: str, zone: str, at: int, **parameters: Any) -> dict[str, Any]:
         return _action(
             "add_evacuees", "zone", zone, "evacuee", parameters, start=at, effect_id=effect_id
         )
@@ -1473,50 +931,6 @@ def _arrivals(directory: Path) -> Outcome:
                 approach_route_id="arrival-to-corridor",
             ),
         ],
-        "overflow": [
-            arrival(
-                "overflow",
-                "toilet",
-                start,
-                count=200,
-                household_size=3,
-                admission_zone_ids=["quiet", "sleeping"],
-                person_context_overrides=[
-                    {"member_index": 0, "care_support_needs": ["hygiene_support"]},
-                ],
-            )
-        ],
-        "room-arrivals": [
-            _action(
-                "temporary_room_geometry",
-                "zone",
-                "sleeping",
-                "metre_2d",
-                {
-                    "schema_version": 1,
-                    "room_id": "room_a",
-                    "zone_id": "sleeping",
-                    "polygon_m": [
-                        {"x": 0.5, "y": 8.0},
-                        {"x": 2.5, "y": 8.0},
-                        {"x": 2.5, "y": 12.0},
-                        {"x": 0.5, "y": 12.0},
-                    ],
-                    "people_capacity": 4,
-                    "sleeping_capacity": 4,
-                    "bed_points_m": [
-                        {"x": 1.0, "y": 9.0},
-                        {"x": 2.0, "y": 9.0},
-                        {"x": 1.0, "y": 11.0},
-                        {"x": 2.0, "y": 11.0},
-                    ],
-                    "route_edge_ids": ["route_corridor_sleeping", "route_sleeping_corridor"],
-                },
-                start=start,
-                end=150,
-            ),
-            arrival("to-room", "sleeping", start + 1, count=8),
-        ],
         "later-departure": [
             arrival("in", "sleeping", start, count=6),
             _action(
@@ -1531,31 +945,15 @@ def _arrivals(directory: Path) -> Outcome:
         ],
     }
     for name, actions in programs.items():
-        _fork_with(outcome, store, timeline, "main", name, _program(name, *actions), end)
-
-    # An intake order needs arrivals still waiting at the door and a free worker.
-    added = sorted(
-        set(timeline.seek("walk-in", end).world.staff) - {row.id for row in scenario.staff}
+        _fork_with(outcome, scenario, name, _program(name, *actions), end)
+    _scheduled(
+        outcome,
+        "arrivals",
+        {
+            "overflow": "200 arrivals at the toilet zone at 20, one needing hygiene support",
+            "room-arrivals": "a room of four beds at 20 and 8 arrivals at 21",
+        },
     )
-
-    def free_worker(world: WorldState) -> str | None:
-        return next((key for key in added if world.staff[key].active_task_id is None), None)
-
-    def intake_possible(world: WorldState) -> bool:
-        pending = world.model_state.get("population_dynamics_v1", {}).get("pending_arrivals")
-        return bool(pending) and free_worker(world) is not None
-
-    minute = _first_minute(timeline, "walk-in", start + 1, end - 30, intake_possible)
-    worker = free_worker(timeline.seek("walk-in", minute).world)
-    order = _action(
-        "staff_task_order",
-        "staff",
-        worker,
-        "staff_task_order",
-        {"task_kind": "intake", "reason": "synthetic intake", "target_zone_id": "intake"},
-        start=minute,
-    )
-    _fork_with(outcome, store, timeline, "walk-in", "intake", _program("intake", order), end)
     return outcome
 
 
@@ -1575,6 +973,7 @@ def _corridor_route(document: dict[str, Any]) -> list[dict[str, float]]:
 
 def _scarcity(directory: Path) -> Outcome:
     """Stock that runs out, so services stall, and care needs that the default form lacks."""
+    del directory
     outcome = Outcome()
     empty = generated(
         evacuees=24,
@@ -1588,7 +987,7 @@ def _scarcity(directory: Path) -> Outcome:
             },
         },
     )
-    outcome.add("empty-stock", *run_library(empty, directory / "empty-stock"))
+    outcome.add("empty-stock", run_core(empty))
     care = generated(
         evacuees=30,
         minutes=480,
@@ -1623,12 +1022,13 @@ def _scarcity(directory: Path) -> Outcome:
             "source_ids": [SOURCE_ID],
         },
     )
-    outcome.add("care-needs", *run_library(care, directory / "care-needs"))
+    outcome.add("care-needs", run_core(care))
     return outcome
 
 
 def _operational(directory: Path) -> Outcome:
     """Stock, deliveries and outages from the fixture files, with their dated events moved."""
+    del directory
     outcome = Outcome()
     moved = {
         "resource_delivery": 20,
@@ -1645,13 +1045,13 @@ def _operational(directory: Path) -> Outcome:
         "delivery_intervention",
         "research_shortage_100_7d",
     ):
-        scenario = fixture_short(name, minutes=200, agents=20, remap=moved)
-        outcome.add(name, *run_library(scenario, directory / name))
+        outcome.add(name, run_core(fixture_short(name, minutes=200, agents=20, remap=moved)))
     return outcome
 
 
 def _long_generated(directory: Path) -> Outcome:
     """Two days of a few people: rhythms, shifts and supplies that only a day boundary reaches."""
+    del directory
     outcome = Outcome()
     scenario = generated(
         evacuees=16,
@@ -1667,7 +1067,7 @@ def _long_generated(directory: Path) -> Outcome:
             },
         },
     )
-    outcome.add("run", *run_library(scenario, directory / "run"))
+    outcome.add("run", run_core(scenario))
     return outcome
 
 
@@ -1780,28 +1180,29 @@ def all_scenarios() -> dict[str, GateScenario]:
     scenarios = [
         GateScenario(
             "generated_project",
-            "100人の生成Scenarioを画面の経路で12時間（今の7日分の確認の短縮形）",
+            "100人の生成Scenarioを画面の経路で12時間（2回に分けた計算と保存）",
             _generated_project,
         ),
         GateScenario(
             "long_generated", "少人数の2日間（日付をまたぐ処理、配給、シフト）", _long_generated
         ),
-        GateScenario("trace_levels", "すべてのtrace level（新旧のScenarioの形）", _trace_levels),
-        GateScenario("fork_resume", "途中からの分岐・再開・Checkpointの往復", _fork_resume),
+        GateScenario("rumors", "噂と訂正（新旧のScenarioの形）", _rumors),
+        GateScenario(
+            "fork_resume", "保存した点からの再開・再開の再開・保存したRunの続き", _fork_resume
+        ),
         GateScenario("llm_tape", "記録した応答（台本のProvider）とその再生", _llm_tape),
         GateScenario(
             "interventions",
-            "床図以外のEffectProgramのすべての操作",
+            "床図以外のEffectProgramの操作（途中で適用するものと、0分に予定したもの）",
             _interventions,
         ),
-        GateScenario("geometry", "床図を変える操作と迂回", _geometry),
+        GateScenario("geometry", "床図を変える操作と迂回（0分に予定したもの）", _geometry),
         GateScenario("population", "人の出入りとpopulation_presence", _population),
         GateScenario(
             "operational", "fixtureの運営Scenario（在庫・配送・断水・故障）", _operational
         ),
         GateScenario("conditions", "入力できるすべての運営条件とインフラの依存", _conditions),
         GateScenario("split_queues", "1つの設備に複数の列", _split_queues),
-        GateScenario("branch_commands", "旧demoの配置コマンド", _branch_commands),
         GateScenario("arrivals", "外から歩いて来る到着と受け入れ", _arrivals),
         GateScenario("scarcity", "在庫切れとケアの必要", _scarcity),
         GateScenario(

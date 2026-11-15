@@ -17,7 +17,7 @@ from support.paths import BENCHMARKS, GATE_ALL_PATHS
 
 GATE = BENCHMARKS / "gate_all_paths.py"
 # Starts and ends quickly, on Scenarios small enough for two runs of each variant.
-SMALL = "branch_commands"
+SMALL = "run_stops"
 
 
 def _gate(*arguments: object) -> subprocess.CompletedProcess[str]:
@@ -61,7 +61,7 @@ def test_the_determinism_check_runs_each_variant_in_a_process_of_its_own(tmp_pat
 
     assert done.returncode == 0, done.stdout + done.stderr
     summary = json.loads((tmp_path / "run" / "summary.json").read_text(encoding="utf-8"))
-    # The worker counts vary the helpers of the tick too (native/src/core/parallel.rs), so every
+    # The worker counts vary the helpers of the tick too (native/core/src/parallel.rs), so every
     # scenario runs them, saved or not.
     assert summary["determinism"][SMALL] == {
         "second_process": "same",

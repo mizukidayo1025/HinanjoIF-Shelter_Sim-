@@ -13,47 +13,36 @@ SHELTERSIM_LLM_MODE=offline python benchmarks/run_benchmarks.py \
 
 既定値は30、100、500、1000人、seed 2026と2027です。期間を指定しない場合はScenarioの期間を使用します。比較するときは人数・期間・seed・trace level・モデル版・環境をそろえてください。出力先にRun成果物が作られるため、Git管理外の一時ディレクトリを使います。
 
-## 保存付き計算の内訳
+## 中核の計算と保存付き計算
 
-上の計測器は `run_scenario()` の単体実行です。UIからの計算はProjectAPIのworkerを通り、30分ごとにCheckpointの検証・保存・索引登録を行います。両者の差と処理別の内訳は、1ケース1プロセスで次のように測ります。
+`benchmarks/investigate_performance.py` は、100人のScenarioを中核（`PlainRun`）で計算する時間を、1ケース1プロセスで測ります（#430）。
 
 ```shell
 PYTHONPATH=src SHELTERSIM_LLM_MODE=offline python benchmarks/investigate_performance.py \
-  --scenario generated --duration 1440 --route project --output /tmp/sheltersim-perf-project
+  --scenario generated --duration 10080 --route project --output /tmp/sheltersim-perf-project
 ```
 
-`--route library` は単体実行、`--route project` は `ProjectAPI.submit()` からworker完了までを測ります。`--scenario-file` で承認済みScenarioのローカルコピーを指定できます。生Scenarioには人口情報が含まれる場合があるため、出力先はGit管理外にします。`result.json` の処理別時間は内側の処理を含む累積値なので合計しません。修正前後の比較では `world_hash`、`events_hash`、`metrics_hash` が一致することも確認します。ネットワーク接続は計測中に拒否します。
+`--route plain` は `PlainRun` を保存なしで最後まで、`--route project` は画面と同じ道（`ProjectAPI` のworkerが形v5の保存したRunへ、360分ごとに保存する点を書きながら計算する道、#427）を測ります。`--scenario-file` で承認済みScenarioのローカルコピーを指定できます。生Scenarioには人口情報が含まれる場合があるため、出力先はGit管理外にします。ネットワーク接続は計測中に拒否します。
 
 ### ピークのメモリー
 
-`result.json` の `peak_rss` に、プロセスの最大RSS（MiB）を3つ記録します（#138）。
+`result.json` の `peak_rss` に、プロセスの最大RSS（MiB）を記録します（#138）。
 
 | 項目 | 意味 |
 |---|---|
-| `computation_mib` | 計算が終わった時点の、このプロセスの最大RSS。準備と計算を含み、そのあとの読み直しとハッシュを含みません |
-| `index_process_mib` | 計算と並行して保存を索引に登録するプロセスの最大RSS。短い計算は保存ごとに自分で登録するのでプロセスがなく、`null` です |
-| `with_hashing_mib` | 終わりの時点の、このプロセスの最大RSS。保存したRunの読み直しと、`world_hash` などのハッシュを含みます |
+| `computation_mib` | 計算が終わった時点の、このプロセスの最大RSS。準備と計算を含み、そのあとの読み直しを含みません |
+| `with_hashing_mib` | 終わりの時点の、このプロセスの最大RSS。保存したRunの読み直しを含みます |
 
-ハッシュは世界全体の文書（`WorldState.to_dict()`）から取るので、長いRunでは `with_hashing_mib` が計算そのものより大きくなります。100人・7日分では、計算は約1.5 GB、ハッシュを含めると約4.5 GBでした。`/usr/bin/time -v` の最大RSSは `with_hashing_mib` に当たります。計算のメモリーを比べるときは `computation_mib` と `index_process_mib` を使います。値は `resource` モジュールで読むので、Windowsではどれも `null` です。
+値は `resource` モジュールで読むので、Windowsではどれも `null` です。
 
 ### ハッシュの比較
 
-`--expect` に前の計測の `result.json` を渡すと、`world_hash`・`events_hash`・`metrics_hash` を比べます。結果は `result.json` の `expected_hashes` に記録し、1つでも違えば終了コード1で終わります。同じScenario・期間で、変更の前後の計算結果が変わっていないことを確かめるときに使います。
+`result.json` の `core_digests` は、終わりの世界の部分ごとのdigestと、指標の標本のdigestです。`--expect` に前の計測の `result.json` を渡すと、これを比べます。結果は `result.json` の `expected_hashes` に記録し、違えば終了コード1で終わります。同じScenario・期間で、変更の前後の計算結果が変わっていないことを確かめるときに使います。`plain` と `project` の道は、同じdigestになります。
 
 ```shell
 PYTHONPATH=src SHELTERSIM_LLM_MODE=offline python benchmarks/investigate_performance.py \
-  --scenario generated --duration 1440 --route project --output /tmp/sheltersim-perf-after \
+  --scenario generated --duration 10080 --route plain --output /tmp/sheltersim-perf-after \
   --expect /tmp/sheltersim-perf-before/result.json
-```
-
-### 長いRunの終わりだけを測る
-
-7日分のような長いRunの終わりの保存とtickは、Runを最初から計算し直さずに測れます。前の `--route project` の計測が残した `projects` を `--from-project` に渡し、`--fork-minute` の時刻で `main` から介入なしの子Branch（`late-{分}`）を作って、そこから `--duration` 分だけ計算します。Scenarioは保存されたRunのものを使います。分岐にかかった時間は `result.json` の `late_window.fork_seconds` に記録します。同じ時刻からは1回しか分岐できないので、測り直すときは別の時刻を選ぶか、元の計測をやり直します。子Branchの最後の世界は、元のRunの同じ時刻の世界と同じなので、元のRunの終わりまで計算すれば `--expect` で比べられます。
-
-```shell
-PYTHONPATH=src SHELTERSIM_LLM_MODE=offline python benchmarks/investigate_performance.py \
-  --route project --from-project /tmp/sheltersim-perf-7d/projects --fork-minute 9600 \
-  --duration 240 --output /tmp/sheltersim-perf-7d-late
 ```
 
 ## 保持した1日計測

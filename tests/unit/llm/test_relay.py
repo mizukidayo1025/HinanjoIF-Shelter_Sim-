@@ -27,6 +27,7 @@ RELAY = ROOT / "deploy" / "workers" / "relay.mjs"
 HARNESS = ROOT / "tests" / "support" / "llm_relay_harness.mjs"
 NEW_PASSPHRASE = ROOT / "deploy" / "workers" / "new_passphrase.mjs"
 KEY = "sk-ant-test-key-never-shown"
+ADMIN_KEY = "owner-key-never-shown-0123456789"
 PASSPHRASE = "abcde-fghjk-mnpqr-stuvw"
 OTHER = "zzzzz-yyyyy-xxxxx-wwwww"
 RECIPIENTS = json.dumps(
@@ -103,6 +104,7 @@ def _run(
     )
     # Neither secret ever leaves the relay: not in an answer, not in a log line.
     assert KEY not in done.stdout and PASSPHRASE not in done.stdout and OTHER not in done.stdout
+    assert ADMIN_KEY not in done.stdout
     return json.loads(done.stdout)
 
 
@@ -410,3 +412,139 @@ def test_the_scenario_text_task_sends_python_s_prompt_and_refuses_what_python_re
             answer
         )
         assert "provider_request" not in answer
+
+
+# ---- The owner's routes (/admin, #433) -------------------------------------------------------
+
+ADMIN_ENV = {"ANTHROPIC_API_KEY": KEY, "LLM_PASSPHRASES": RECIPIENTS, "LLM_ADMIN_KEY": ADMIN_KEY}
+
+
+def _admin(route: str, key: str | None = ADMIN_KEY, **step: Any) -> dict[str, Any]:
+    return _post(f"/llm/v1/admin/{route}", passphrase=key, **step)
+
+
+def test_an_issued_passphrase_is_kept_only_as_its_digest() -> None:
+    result = _run([_admin("issue", body={"label": "  審査員C "})], env=ADMIN_ENV)
+    (issued,) = result["answers"]
+    assert issued["status"] == 200 and issued["body"]["label"] == "審査員C"
+    passphrase = issued["body"]["passphrase"]
+    assert re.fullmatch(r"[a-hjkmnp-z2-9]{5}(-[a-hjkmnp-z2-9]{5}){3}", passphrase)
+    (row,) = result["ledger"]["recipients"]
+    assert row["label"] == "審査員C" and row["revoked_at"] is None
+    assert row["sha256"] == hashlib.sha256(passphrase.encode()).hexdigest()
+    assert not any(passphrase in line for line in result["logs"])
+
+
+def test_the_owner_issues_lists_and_revokes_in_one_ledger() -> None:
+    result = _run(
+        [
+            _admin("issue", body={"label": "審査員C"}),
+            _admin("issue", body={"label": "審査員C"}),
+            _admin("issue", body={"label": "審査員A"}),
+            _admin("issue", body={"label": ""}),
+            _admin("issue", body={"label": "x" * 41}),
+            _task(),
+            _admin("recipients"),
+            _admin("revoke", body={"label": "審査員A"}),
+            _admin("revoke", body={"label": "誰でもない"}),
+            _admin("revoke", body={"label": "審査員C"}),
+            _admin("revoke", body={"label": "審査員C"}),
+            _admin("issue", body={"label": "審査員C"}),
+            _admin("recipients"),
+        ],
+        env=ADMIN_ENV,
+    )
+    a = result["answers"]
+    codes = [(x["status"], x["body"].get("code")) for x in a]
+    assert codes[:5] == [
+        (200, None),
+        (409, "llm_admin_label_taken"),  # a label with a passphrase not revoked
+        (409, "llm_admin_label_taken"),  # a label of the secret's list
+        (400, "llm_admin_label_invalid"),
+        (400, "llm_admin_label_invalid"),
+    ]
+    listed = a[6]["body"]
+    assert listed["day"] == "2026-11-15" and listed["cap_usd"] == 5
+    by_label = {item["label"]: item for item in listed["recipients"]}
+    assert [item["source"] for item in listed["recipients"]] == ["secret", "secret", "issued"]
+    assert by_label["審査員A"]["today"]["calls"] == 1
+    assert by_label["審査員A"]["total"]["calls"] == 1
+    assert by_label["審査員A"]["today"]["spent_usd"] == (100 * 4 + 50 * 20) / 1e6
+    assert by_label["審査員B"]["today"] == {
+        "calls": 0,
+        "spent_usd": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+    }
+    assert by_label["審査員C"]["active"] is True and by_label["審査員C"]["revoked_at"] is None
+    assert by_label["審査員C"]["issued_at"] == "2026-11-15T14:59:00.000Z"
+    assert listed["remaining_usd"] == 5 - (100 * 4 + 50 * 20) / 1e6
+    assert codes[7:12] == [
+        (409, "llm_admin_secret_entry"),  # the secret's entries are not revoked here
+        (404, "llm_admin_label_unknown"),
+        (200, None),
+        (404, "llm_admin_label_unknown"),  # revoked already
+        (200, None),  # a revoked label can be issued again
+    ]
+    again = [item for item in a[12]["body"]["recipients"] if item["label"] == "審査員C"]
+    assert [item["active"] for item in again] == [False, True]
+    issued = [x["body"]["passphrase"] for x in (a[0], a[11])]
+    assert issued[0] != issued[1]
+    assert [r["revoked_at"] is None for r in result["ledger"]["recipients"]] == [False, True]
+    actions = [json.loads(line) for line in result["logs"] if "llm_relay_admin" in line]
+    assert [(x["action"], x["recipient"]) for x in actions] == [
+        ("issue", "審査員C"),
+        ("revoke", "審査員C"),
+        ("issue", "審査員C"),
+    ]
+
+
+def test_the_owner_s_key_is_required_and_wrong_keys_lock_the_address_out() -> None:
+    address = {"CF-Connecting-IP": "203.0.113.9"}
+    steps = [_admin("recipients", key="wrong", headers=address) for _ in range(10)]
+    steps += [
+        _admin("recipients", headers=address),
+        # Wrong keys are counted apart from wrong passphrases: the passphrase still gets in.
+        _post("/llm/v1/session", headers=address),
+        _admin("recipients", headers={"CF-Connecting-IP": "203.0.113.10"}),
+        _admin("recipients", key=None),
+        # A passphrase is not the owner's key.
+        _admin("recipients", key=PASSPHRASE, headers={"CF-Connecting-IP": "203.0.113.11"}),
+    ]
+    result = _run(steps, env=ADMIN_ENV)
+    a = result["answers"]
+    assert {(x["status"], x["body"]["code"]) for x in a[:10]} == {(401, "llm_admin_key_invalid")}
+    assert a[0]["body"]["error"] == "管理用の鍵が違います。"
+    assert (a[10]["status"], a[10]["body"]["code"]) == (429, "llm_admin_locked")
+    assert a[11]["status"] == 200 and a[12]["status"] == 200
+    assert (a[13]["status"], a[13]["body"]["code"]) == (401, "llm_admin_key_required")
+    assert (a[14]["status"], a[14]["body"]["code"]) == (401, "llm_admin_key_invalid")
+    assert all(row["address"].startswith("admin:") for row in result["ledger"]["failures"])
+
+
+def test_without_the_owner_s_key_set_the_admin_routes_say_how_to_set_it() -> None:
+    (answer,) = _run([_admin("recipients")])["answers"]
+    assert (answer["status"], answer["body"]["code"]) == (503, "llm_admin_unconfigured")
+    assert "LLM_ADMIN_KEY" in answer["body"]["error"]
+
+
+def test_an_issued_passphrase_works_on_the_session_and_tasks_until_revoked() -> None:
+    """Drives the relay with a script that reads the issued passphrase from the issue's answer
+    (tests/support/llm_relay_harness.mjs's `use_issued`)."""
+    result = _run(
+        [
+            _admin("issue", body={"label": "審査員C"}),
+            _post("/llm/v1/session", passphrase="{issued}"),
+            _task(passphrase="{issued}"),
+            _admin("revoke", body={"label": "審査員C"}),
+            _post("/llm/v1/session", passphrase="{issued}"),
+        ],
+        env=ADMIN_ENV,
+    )
+    issued, session, task, revoked, after = result["answers"]
+    assert issued["status"] == 200
+    assert session["status"] == 200 and session["body"]["recipient"] == "審査員C"
+    assert task["status"] == 200
+    assert revoked["status"] == 200
+    assert (after["status"], after["body"]["code"]) == (401, "llm_passphrase_invalid")
+    assert [row["recipient"] for row in result["ledger"]["usage"]] == ["審査員C"]

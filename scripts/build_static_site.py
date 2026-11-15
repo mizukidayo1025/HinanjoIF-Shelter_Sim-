@@ -20,6 +20,9 @@ The site is served at the root of its domain, as the screen loads `/demo-v2.css`
                             Cloudflare Workers' static assets (deploy/workers/wrangler.jsonc, #289),
                             Cloudflare Pages, GitHub Pages and Netlify do; for others see the docs)
     /demo-v2.css, /demo-v2*.js, /demo-v2-logo.jpg   the screen's files
+    /admin                  admin.html (ADMIN_PAGE): the LLM relay's owner page, to issue,
+                            list and revoke passphrases (deploy/workers/admin.html, #433); not
+                            linked from the screen
     /LICENSE.txt            the repository's LICENSE (the .txt files begin with UTF-8's byte order
                             mark, as hosts answer them without a charset)
     /THIRD-PARTY-NOTICES.txt
@@ -106,6 +109,11 @@ SHIM = (
 )
 NO_SCENARIOS = ' data-scenarios="unavailable"'
 FIRST_SCRIPT = '<script src="/demo-v2-scene.js" defer></script>'
+# The owner's page of the LLM relay (#433): its source, and the path the site serves it at (the
+# one place that names it; the tests and the deploy workflow's check read it from here or from the
+# build's summary). Not under /llm/ (the relay's).
+ADMIN_SOURCE = ROOT / "deploy" / "workers" / "admin.html"
+ADMIN_PAGE = "admin"
 # The licenses of what the WASM holds (#290): its crates' in NOTICES, the Rust standard library's
 # in RUST_LIBRARY_NOTICES (the notices rustc ships for programs it builds).
 NOTICES = "THIRD-PARTY-NOTICES.txt"
@@ -479,6 +487,11 @@ def build(
         if name.endswith(".txt") and not data.startswith(UTF8_BOM):
             data = UTF8_BOM + data
         (output / name).write_bytes(data)
+    # The owner's page of the relay (#433), served at /ADMIN_PAGE as the host answers a path without
+    # its .html (deploy/workers/wrangler.jsonc's html_handling).
+    admin = output / f"{ADMIN_PAGE}.html"
+    admin.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(ADMIN_SOURCE, admin)
     # GitHub Pages: serve the files as they are, without Jekyll.
     (output / ".nojekyll").write_bytes(b"")
     files = sorted(path for path in output.rglob("*") if path.is_file())
@@ -488,6 +501,7 @@ def build(
     return {
         "output": str(output),
         "open": target,
+        "admin_page": f"/{ADMIN_PAGE}",
         "files": len(files),
         "bytes": sum(path.stat().st_size for path in files),
         "largest": {

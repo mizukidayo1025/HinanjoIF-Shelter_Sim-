@@ -201,6 +201,7 @@ python scripts/serve_static_site.py ../hinanjo-if-site --port 8000
 | `/` | `index.html`。`demo-v2.html`と同じ頁で、ホームを開きます。取り寄せた例のRun、「計算済みの例を取得する」（#411）、自分のシナリオ、ライセンスの表示へのリンク（#371） |
 | `/demo-v2` | `demo-v2.html`（前の道。同じ頁で、開くとアドレスを`/`に替えます、#376） |
 | `/demo-v2.css`、`/demo-v2*.js`、`/demo-v2-logo.jpg` | 画面のファイル（変えずに写す） |
+| `/admin` | `admin.html`。中継の合言葉を発行・確認・停止する管理の頁（#433、下の「LLMの中継」）。画面からはリンクしません。道は`scripts/build_static_site.py`の`ADMIN_PAGE`だけが決めます |
 | `/LICENSE.txt` | リポジトリーの`LICENSE`（MIT）。`.txt`の2つは先頭にUTF-8のBOMを付けます。Workersは`.txt`を文字コードの指定なしの`text/plain`で返すため、BOMがないとブラウザーが日本語を文字化けさせます（#410） |
 | `/THIRD-PARTY-NOTICES.txt` | WASMに入る外部のcrateの一覧と、そのライセンス・表示のファイルの本文（#290）。`sheltersim_wasm`の通常の依存を`cargo tree`でたどり（wasm32のtarget、proc-macroとそれだけが使うものを除く）、各crateのpackageの`LICENSE*`・`COPYING*`・`NOTICE*`などを入れます。同じ本文は1回だけ書きます。そのようなファイルのないcrateがあると、サイトを作りません |
 | `/THIRD-PARTY-NOTICES-rust-library.html` | WASMに入るRustの標準ライブラリーの表示（rustcの`share/doc/rust/COPYRIGHT-library.html`をそのまま写したもの） |
@@ -278,20 +279,33 @@ python benchmarks/static_site_e2e.py --url https://hinanjo-if.water7.workers.dev
 | secret | 中身 |
 |---|---|
 | `ANTHROPIC_API_KEY` | AnthropicのAPIキー。ないと、中継は合言葉の確認だけに答え、作業は503の`llm_relay_unconfigured`で断ります |
-| `LLM_PASSPHRASES` | 合言葉を配った相手の一覧。`[{"label": "審査員A", "sha256": "…"}]`の形のJSONで、`sha256`は合言葉のSHA-256です。合言葉そのものは置きません |
+| `LLM_ADMIN_KEY` | 管理の頁（`/admin`）で使う管理用の鍵。ないと、管理の道は503の`llm_admin_unconfigured`で断ります |
+| `LLM_PASSPHRASES` | （なくてもよい）コマンドで配る相手の一覧。`[{"label": "審査員A", "sha256": "…"}]`の形のJSONで、`sha256`は合言葉のSHA-256です。合言葉そのものは置きません |
+
+最初に一度だけ、APIキーと管理用の鍵を入れます。
 
 ~~~shell
 npx wrangler@4.161.0 login
 npx wrangler@4.161.0 secret put ANTHROPIC_API_KEY --config deploy/workers/wrangler.jsonc   # 聞かれたらキーを貼る
+node deploy/workers/new_passphrase.mjs --admin-key                                          # 管理用の鍵を作って出す（どこにも残さない）
+npx wrangler@4.161.0 secret put LLM_ADMIN_KEY --config deploy/workers/wrangler.jsonc       # 聞かれたら上の鍵を貼る
+~~~
+
+それからは、サイトの`/admin`（#433）で合言葉を扱います。頁で管理用の鍵を入れて「一覧を読む」を押すと、相手ごとの今日と累計の回数・費用が出ます。「合言葉を発行する」に相手の名前を入れると、中継が合言葉を作って一度だけ表示します（中継はSHA-256だけをDurable Objectの`recipients`の表に残します）。「停止」を押すと、その合言葉は次の要求から断られます。止めた名前で発行し直すこともできます。管理用の鍵は頁を開いている間だけ使い、どこにも保存しません。管理の道（`POST /llm/v1/admin/recipients`、`issue`、`revoke`）の形は`relay.mjs`の冒頭にあります。
+
+コマンドで配ることもできます（前からの道。secretの一覧は`/admin`からは止められません）。
+
+~~~shell
 node deploy/workers/new_passphrase.mjs 審査員A   # 合言葉と、一覧に足す1行を出す（相手ごとに1回）
 npx wrangler@4.161.0 secret put LLM_PASSPHRASES --config deploy/workers/wrangler.jsonc     # 聞かれたら一覧のJSONを貼る
 ~~~
 
-- 合言葉は相手に直接渡し、リポジトリーやIssueに書きません。`new_passphrase.mjs`は合言葉をどこにも残しません。
-- ある相手を止めるときは、一覧からその行を消して、`LLM_PASSPHRASES`を入れ直します。
-- 1つのアドレスから合言葉を10回間違えると、15分は受け付けません。
+- 合言葉と管理用の鍵は相手（や自分）に直接渡し、リポジトリーやIssueに書きません。`new_passphrase.mjs`と`/admin`はどれもどこにも残しません。
+- `/admin`で発行した相手は`/admin`の「停止」で、secretの一覧の相手は一覧からその行を消して`LLM_PASSPHRASES`を入れ直して止めます。
+- 管理用の鍵が漏れたと思ったら、`LLM_ADMIN_KEY`を入れ直します。前の鍵はすぐに使えなくなります。
+- 1つのアドレスから合言葉を10回間違えると、15分は受け付けません。管理用の鍵の誤りも、合言葉とは別に同じように数えます。
 - 相手ごとの使った量は、中継のDurable Objectの`usage`の表に残り、呼ぶたびに`wrangler tail`とWorkersのログへ1行（相手の名前、作業、結果、費用）を出します。合言葉、APIキー、送った文は出しません。
-- 公開のworkflowは、公開の後に`POST /llm/v1/session`が合言葉なしで401の`application/json`を返すことを確かめます。本物のAPIは呼びません。
+- 公開のworkflowは、公開の後に`POST /llm/v1/session`が合言葉なしで401の`application/json`を返すこと、管理の頁（サイトを作った要約の`admin_page`）が200の`text/html`で、`POST /llm/v1/admin/recipients`が鍵なしで401（`LLM_ADMIN_KEY`を入れる前は503）の`application/json`を返すことを確かめます。本物のAPIは呼びません。
 - `tests/unit/llm/test_relay.py`が、nodeで中継を動かして確かめます（Durable Objectは`node:sqlite`、Anthropicは決めた答えに差し替え。`tests/support/llm_relay_harness.mjs`）。
 
 #### GitHub Actionsで公開する

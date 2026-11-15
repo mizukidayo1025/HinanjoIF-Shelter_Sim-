@@ -185,6 +185,14 @@ jobs:
           got=$(curl -s -o /dev/null -w "%{http_code} %{content_type}" -X POST "$SITE_URL/llm/v1/session")
           echo "POST /llm/v1/session -> $got"
           case "$got" in "401 application/json"*) ;; *) echo "::error::POST /llm/v1/session: expected 401 application/json, got $got"; fail=1 ;; esac
+          # The relay's owner page (#433), at the path the build says (build_static_site.py's
+          # ADMIN_PAGE), and its routes refusing a request without the owner's key (503 until the
+          # secret LLM_ADMIN_KEY is set).
+          admin=$(python -c 'import json, sys; print(json.load(open(sys.argv[1]))["admin_page"])' "$RUNNER_TEMP/site-build.json")
+          check "$admin" "200 text/html"
+          got=$(curl -s -o /dev/null -w "%{http_code} %{content_type}" -X POST "$SITE_URL/llm/v1/admin/recipients")
+          echo "POST /llm/v1/admin/recipients -> $got"
+          case "$got" in "401 application/json"* | "503 application/json"*) ;; *) echo "::error::POST /llm/v1/admin/recipients: expected 401 or 503 JSON, got $got"; fail=1 ;; esac
           exit $fail
       - name: 結果を保存
         if: ${{ !cancelled() }}

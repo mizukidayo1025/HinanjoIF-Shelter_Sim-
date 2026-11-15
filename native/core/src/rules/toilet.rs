@@ -346,44 +346,9 @@ fn pass(world: &World, start: &Start<'_>, drawn: Option<f64>) -> WriteResult<Pas
     if minute != world.minute_index()? {
         return Err(Error::unsupported("another minute").into());
     }
-    let head = match start.queue_id {
-        Some(queue_name) => {
-            let Some(point) = point_of(start.geo, queue_name) else {
-                return Err(Error::unsupported("a queue with no signed point").into());
-            };
-            let Some(row) = fifo::queues(world, start.queues)? else {
-                return Err(Error::unsupported("no queue state").into());
-            };
-            let Some(queue) = row.queues.get(queue_name) else {
-                return Err(Error::unsupported("no such queue").into());
-            };
-            let Some(first) = queue.queued_request_ids.first() else {
-                return Err(Error::unsupported("the queue is empty").into());
-            };
-            let Some(request) = row.requests.get(&**first) else {
-                return Err(Error::unsupported("a queue lists an unknown request").into());
-            };
-            if &*point.facility_id != facility_name {
-                return Err(Error::unsupported("a queue's point is another facility's").into());
-            }
-            Some(IndependentHead {
-                queue_id: Arc::from(queue_name),
-                request: request.clone(),
-                active_count: queue.active_request_ids.len() as i64,
-                point_capacity: point.service_capacity,
-                required_skills: point.required_staff_skills.clone(),
-            })
-        }
-        None => None,
-    };
+    let head = independent_head(world, start)?;
     if let Some(head) = &head {
-        let (active, limit) = {
-            let rows = world.rows()?;
-            let Some(facility) = rows.facilities.get(facility_name) else {
-                return Err(Error::unsupported("no such facility").into());
-            };
-            (facility.active_agent_ids.len() as i64, facility.capacity.min(facility.working_units))
-        };
+        let (active, limit) = facility_load(world, facility_name)?;
         if head.active_count >= head.point_capacity || active >= limit {
             fifo::write_stall(world, &head.queue_id, &head.request.request_id, "capacity")?;
             return Ok(Pass::Done(Started::Stopped));
@@ -395,78 +360,15 @@ fn pass(world: &World, start: &Start<'_>, drawn: Option<f64>) -> WriteResult<Pas
             }
         }
     }
-    let (agent_id, queue_task_id, queue_start) = {
-        let rows = world.rows()?;
-        let Some(facility) = rows.facilities.get(facility_name) else {
-            return Err(Error::unsupported("no such facility").into());
-        };
-        match &head {
-            Some(head) => {
-                let Some(task) = rows.active_tasks.get(&head.request.queue_task_id).filter(|task| &*task.kind == "toilet_queue") else {
-                    return Err(Error::unsupported("a queue's request lost its task").into());
-                };
-                if !facility.queue_agent_ids.contains(&head.request.agent_id) {
-                    return Err(Error::unsupported("a request is missing from the facility's list").into());
-                }
-                (head.request.agent_id.clone(), task.id.clone(), task.start_minute)
-            }
-            None => {
-                let Some(agent_id) = facility.queue_agent_ids.first() else {
-                    return Err(Error::unsupported("the queue is empty").into());
-                };
-                // `_queue_task`.
-                let mut found = None;
-                for (_, task) in rows.active_tasks.iter() {
-                    if &*task.kind == "toilet_queue" && task.agent_id.as_deref() == Some(&**agent_id) && task.resource_id.as_deref() == Some(facility_name) {
-                        if found.is_some() {
-                            return Err(Error::unsupported("a person with two queue tasks").into());
-                        }
-                        found = Some((task.id.clone(), task.start_minute));
-                    }
-                }
-                let Some((task_id, start)) = found else {
-                    return Err(Error::unsupported("a person with no queue task").into());
-                };
-                (agent_id.clone(), task_id, start)
-            }
-        }
-    };
+    let (agent_id, queue_task_id, queue_start) = queue_task(world, facility_name, &head)?;
     let wait = minute.checked_sub(queue_start).ok_or_else(|| Error::unsupported("a start out of range"))?;
     if !(0..1 << 53).contains(&wait) {
         return Err(Error::unsupported("a wait for the Python rule to judge").into());
     }
     // The draw and its key, as `rng_key` holds them.
-    let draw = match (start.rng, drawn) {
-        (Rng::Seed(seed), _) => {
-            let draws = KeyedDraws::new(seed);
-            let mut key = Key::labelled(label::TOILET_SERVICE);
-            key.text(facility_name).text(&agent_id).text("minute").int(minute).text(&start.policy).text("duration");
-            if let Some(head) = &head {
-                key.text(&head.queue_id);
-            }
-            key.draw(&draws)
-        }
-        (Rng::Host, None) => {
-            let mut parts = vec![
-                Part::Text(Arc::from(label::TOILET_SERVICE)),
-                Part::Text(Arc::from(facility_name)),
-                Part::Text(agent_id.clone()),
-                Part::Text(Arc::from("minute")),
-                Part::Int(minute),
-                Part::Text(start.policy.clone()),
-                Part::Text(Arc::from("duration")),
-            ];
-            if let Some(head) = &head {
-                parts.push(Part::Text(head.queue_id.clone()));
-            }
-            return Ok(Pass::Draw(parts));
-        }
-        (Rng::Host, Some(draw)) => {
-            if !(0.0..1.0).contains(&draw) {
-                return Err(Error::value_error("keyed RNG draw must be between zero and one").into());
-            }
-            draw
-        }
+    let draw = match draw_of(start, drawn, &agent_id, &head)? {
+        Ok(draw) => draw,
+        Err(parts) => return Ok(Pass::Draw(parts)),
     };
     let (lowest, highest) = (start.lowest, start.highest);
     let span = highest - lowest + 1;
@@ -484,21 +386,7 @@ fn pass(world: &World, start: &Start<'_>, drawn: Option<f64>) -> WriteResult<Pas
     // The first free skilled person in ID order, where the point asks for skills.
     let mut staff_id: Option<Arc<str>> = None;
     if let Some(head) = head.as_ref().filter(|head| !head.required_skills.is_empty()) {
-        let candidates: Vec<Arc<str>> = {
-            let rows = world.rows()?;
-            let Some(facility) = rows.facilities.get(facility_name) else {
-                return Err(Error::unsupported("no such facility").into());
-            };
-            rows.staff
-                .iter()
-                .filter(|(_, person)| {
-                    head.required_skills.iter().all(|wanted| person.skills.0.contains(wanted))
-                        && person.zone_id == facility.zone_id
-                        && person.active_task_id.is_none()
-                })
-                .map(|(_, person)| person.id.clone())
-                .collect()
-        };
+        let candidates = skilled_staff(world, facility_name, head)?;
         match first_available(world, candidates, minute)? {
             Some(chosen) => staff_id = Some(chosen),
             None => {
@@ -510,24 +398,10 @@ fn pass(world: &World, start: &Start<'_>, drawn: Option<f64>) -> WriteResult<Pas
     let sequence = events.next_sequence()?;
     let event_id: Arc<str> = Arc::from(format!("toilet-complete-{sequence}"));
     let task_id: Arc<str> = Arc::from(format!("toilet-service-{sequence}"));
-    {
-        let task_is_taken = world.rows()?.active_tasks.get(&task_id).is_some();
-        if events.is_taken(&event_id, None)? || task_is_taken {
-            return Err(Error::unsupported("the service's identity is taken").into());
-        }
-        if events.with_log(|log| log.has_sequence(sequence))? {
-            return Err(Error::unsupported("the service's sequence is taken").into());
-        }
-    }
+    identity_is_free(world, &events, &event_id, &task_id, sequence)?;
     let facility_arc: Arc<str> = Arc::from(facility_name);
     let text = |value: &str| V::Str(Arc::from(value));
-    let mut payload = IndexMap::with_capacity(4);
-    payload.insert(Arc::from("facility_id"), V::Str(facility_arc.clone()));
-    payload.insert(Arc::from("agent_id"), V::Str(agent_id.clone()));
-    payload.insert(Arc::from("task_id"), V::Str(task_id.clone()));
-    if head.is_some() {
-        payload.insert(Arc::from("staff_id"), staff_id.as_ref().map_or(V::Null, |id| V::Str(id.clone())));
-    }
+    let payload = completion_payload(&facility_arc, &agent_id, &task_id, head.is_some(), &staff_id);
     let mut provenance = IndexMap::with_capacity(13);
     provenance.insert(Arc::from("source_type"), text("assumption"));
     provenance.insert(Arc::from("source_id"), text(DURATION_SOURCE));
@@ -539,19 +413,7 @@ fn pass(world: &World, start: &Start<'_>, drawn: Option<f64>) -> WriteResult<Pas
     provenance.insert(Arc::from("queue_wait_minutes"), V::Int(wait));
     provenance.insert(Arc::from("requested_at"), V::Int(queue_start));
     provenance.insert(Arc::from("service_started_at"), V::Int(minute));
-    let mut rng_key = vec![
-        text(label::TOILET_SERVICE),
-        V::Str(facility_arc.clone()),
-        V::Str(agent_id.clone()),
-        text("minute"),
-        V::Int(minute),
-        V::Str(start.policy.clone()),
-        text("duration"),
-    ];
-    if let Some(head) = &head {
-        rng_key.push(V::Str(head.queue_id.clone()));
-    }
-    provenance.insert(Arc::from("rng_key"), V::List(rng_key));
+    provenance.insert(Arc::from("rng_key"), rng_key(start, &facility_arc, &agent_id, &head));
     provenance.insert(Arc::from("rng_draw"), V::Float(draw));
     if let Some(head) = &head {
         provenance.insert(Arc::from("queue_id"), V::Str(head.queue_id.clone()));
@@ -591,18 +453,7 @@ fn pass(world: &World, start: &Start<'_>, drawn: Option<f64>) -> WriteResult<Pas
 
     // Write.
     events.allocate_sequence()?;
-    {
-        let mut rows = world.rows_mut()?;
-        let Some(facility) = rows.facilities.get_mut(facility_name) else {
-            return Err(Error::unsupported("no such facility").into());
-        };
-        if head.is_some() {
-            remove_from(&mut facility.queue_agent_ids, &agent_id)?;
-        } else {
-            facility.queue_agent_ids.remove(0);
-        }
-        facility.active_agent_ids.push(agent_id.clone());
-    }
+    queued_to_active(world, facility_name, &agent_id, head.is_some())?;
     remove_task(world, &queue_task_id)?;
     {
         let mut rows = world.rows_mut()?;
@@ -635,6 +486,215 @@ fn pass(world: &World, start: &Start<'_>, drawn: Option<f64>) -> WriteResult<Pas
     }
     record_wait(world, "toilet_wait", wait)?;
     Ok(Pass::Done(Started::Event(event_id)))
+}
+
+/// The head of the signed point's queue a pass serves, with its point's capacity and skills; None
+/// for the facility's shared queue.
+fn independent_head(world: &World, start: &Start<'_>) -> Result<Option<IndependentHead>> {
+    let facility_name = start.facility_id;
+    let head = match start.queue_id {
+        Some(queue_name) => {
+            let Some(point) = point_of(start.geo, queue_name) else {
+                return Err(Error::unsupported("a queue with no signed point").into());
+            };
+            let Some(row) = fifo::queues(world, start.queues)? else {
+                return Err(Error::unsupported("no queue state").into());
+            };
+            let Some(queue) = row.queues.get(queue_name) else {
+                return Err(Error::unsupported("no such queue").into());
+            };
+            let Some(first) = queue.queued_request_ids.first() else {
+                return Err(Error::unsupported("the queue is empty").into());
+            };
+            let Some(request) = row.requests.get(&**first) else {
+                return Err(Error::unsupported("a queue lists an unknown request").into());
+            };
+            if &*point.facility_id != facility_name {
+                return Err(Error::unsupported("a queue's point is another facility's").into());
+            }
+            Some(IndependentHead {
+                queue_id: Arc::from(queue_name),
+                request: request.clone(),
+                active_count: queue.active_request_ids.len() as i64,
+                point_capacity: point.service_capacity,
+                required_skills: point.required_staff_skills.clone(),
+            })
+        }
+        None => None,
+    };
+    Ok(head)
+}
+
+/// `_queue_task` of the head: the person, the queue task and its start.
+fn queue_task(world: &World, facility_name: &str, head: &Option<IndependentHead>) -> Result<(Arc<str>, Arc<str>, i64)> {
+    let (agent_id, queue_task_id, queue_start) = {
+        let rows = world.rows()?;
+        let Some(facility) = rows.facilities.get(facility_name) else {
+            return Err(Error::unsupported("no such facility").into());
+        };
+        match &head {
+            Some(head) => {
+                let Some(task) = rows.active_tasks.get(&head.request.queue_task_id).filter(|task| &*task.kind == "toilet_queue") else {
+                    return Err(Error::unsupported("a queue's request lost its task").into());
+                };
+                if !facility.queue_agent_ids.contains(&head.request.agent_id) {
+                    return Err(Error::unsupported("a request is missing from the facility's list").into());
+                }
+                (head.request.agent_id.clone(), task.id.clone(), task.start_minute)
+            }
+            None => {
+                let Some(agent_id) = facility.queue_agent_ids.first() else {
+                    return Err(Error::unsupported("the queue is empty").into());
+                };
+                // `_queue_task`.
+                let mut found = None;
+                for (_, task) in rows.active_tasks.iter() {
+                    if &*task.kind == "toilet_queue" && task.agent_id.as_deref() == Some(&**agent_id) && task.resource_id.as_deref() == Some(facility_name) {
+                        if found.is_some() {
+                            return Err(Error::unsupported("a person with two queue tasks").into());
+                        }
+                        found = Some((task.id.clone(), task.start_minute));
+                    }
+                }
+                let Some((task_id, start)) = found else {
+                    return Err(Error::unsupported("a person with no queue task").into());
+                };
+                (agent_id.clone(), task_id, start)
+            }
+        }
+    };
+    Ok((agent_id, queue_task_id, queue_start))
+}
+
+/// The draw of the service's minutes and its key, as `rng_key` holds them: `Err` holds the parts of
+/// the key for the host to draw from, where the host draws and has not yet.
+fn draw_of(start: &Start<'_>, drawn: Option<f64>, agent_id: &Arc<str>, head: &Option<IndependentHead>) -> Result<std::result::Result<f64, Vec<Part>>> {
+    let (facility_name, minute) = (start.facility_id, start.minute);
+    let draw = match (start.rng, drawn) {
+        (Rng::Seed(seed), _) => {
+            let draws = KeyedDraws::new(seed);
+            let mut key = Key::labelled(label::TOILET_SERVICE);
+            key.text(facility_name).text(&agent_id).text("minute").int(minute).text(&start.policy).text("duration");
+            if let Some(head) = &head {
+                key.text(&head.queue_id);
+            }
+            key.draw(&draws)
+        }
+        (Rng::Host, None) => {
+            let mut parts = vec![
+                Part::Text(Arc::from(label::TOILET_SERVICE)),
+                Part::Text(Arc::from(facility_name)),
+                Part::Text(agent_id.clone()),
+                Part::Text(Arc::from("minute")),
+                Part::Int(minute),
+                Part::Text(start.policy.clone()),
+                Part::Text(Arc::from("duration")),
+            ];
+            if let Some(head) = &head {
+                parts.push(Part::Text(head.queue_id.clone()));
+            }
+            return Ok(Err(parts));
+        }
+        (Rng::Host, Some(draw)) => {
+            if !(0.0..1.0).contains(&draw) {
+                return Err(Error::value_error("keyed RNG draw must be between zero and one").into());
+            }
+            draw
+        }
+    };
+    Ok(Ok(draw))
+}
+
+/// The free staff with the point's skills in the facility's zone, in the table's order.
+fn skilled_staff(world: &World, facility_name: &str, head: &IndependentHead) -> Result<Vec<Arc<str>>> {
+    let rows = world.rows()?;
+    let Some(facility) = rows.facilities.get(facility_name) else {
+        return Err(Error::unsupported("no such facility").into());
+    };
+    let candidates: Vec<Arc<str>> = rows
+        .staff
+        .iter()
+        .filter(|(_, person)| {
+            head.required_skills.iter().all(|wanted| person.skills.0.contains(wanted)) && person.zone_id == facility.zone_id && person.active_task_id.is_none()
+        })
+        .map(|(_, person)| person.id.clone())
+        .collect();
+    Ok(candidates)
+}
+
+/// The people the facility serves now, and its capacity for its working units.
+fn facility_load(world: &World, facility_name: &str) -> Result<(i64, i64)> {
+    let rows = world.rows()?;
+    let Some(facility) = rows.facilities.get(facility_name) else {
+        return Err(Error::unsupported("no such facility"));
+    };
+    Ok((facility.active_agent_ids.len() as i64, facility.capacity.min(facility.working_units)))
+}
+
+/// The completion's identity and sequence free: no event and no task of its IDs, and no record of
+/// its sequence.
+fn identity_is_free(world: &World, events: &Events<'_>, event_id: &str, task_id: &str, sequence: i64) -> Result<()> {
+    let task_is_taken = world.rows()?.active_tasks.get(task_id).is_some();
+    if events.is_taken(event_id, None)? || task_is_taken {
+        return Err(Error::unsupported("the service's identity is taken"));
+    }
+    if events.with_log(|log| log.has_sequence(sequence))? {
+        return Err(Error::unsupported("the service's sequence is taken"));
+    }
+    Ok(())
+}
+
+/// The payload of the service's completion; an independent queue's names its staff (or None).
+fn completion_payload(
+    facility_arc: &Arc<str>,
+    agent_id: &Arc<str>,
+    task_id: &Arc<str>,
+    independent: bool,
+    staff_id: &Option<Arc<str>>,
+) -> IndexMap<Arc<str>, V> {
+    let mut payload = IndexMap::with_capacity(4);
+    payload.insert(Arc::from("facility_id"), V::Str(facility_arc.clone()));
+    payload.insert(Arc::from("agent_id"), V::Str(agent_id.clone()));
+    payload.insert(Arc::from("task_id"), V::Str(task_id.clone()));
+    if independent {
+        payload.insert(Arc::from("staff_id"), staff_id.as_ref().map_or(V::Null, |id| V::Str(id.clone())));
+    }
+    payload
+}
+
+/// The person moved from the facility's queue (its head, or their place in an independent one) to
+/// the people it serves.
+fn queued_to_active(world: &World, facility_name: &str, agent_id: &Arc<str>, independent: bool) -> Result<()> {
+    let mut rows = world.rows_mut()?;
+    let Some(facility) = rows.facilities.get_mut(facility_name) else {
+        return Err(Error::unsupported("no such facility"));
+    };
+    if independent {
+        remove_from(&mut facility.queue_agent_ids, agent_id)?;
+    } else {
+        facility.queue_agent_ids.remove(0);
+    }
+    facility.active_agent_ids.push(agent_id.clone());
+    Ok(())
+}
+
+/// The key of the service's draw, as the completion's provenance records it.
+fn rng_key(start: &Start<'_>, facility_arc: &Arc<str>, agent_id: &Arc<str>, head: &Option<IndependentHead>) -> V {
+    let text = |value: &str| V::Str(Arc::from(value));
+    let minute = start.minute;
+    let mut rng_key = vec![
+        text(label::TOILET_SERVICE),
+        V::Str(facility_arc.clone()),
+        V::Str(agent_id.clone()),
+        text("minute"),
+        V::Int(minute),
+        V::Str(start.policy.clone()),
+        text("duration"),
+    ];
+    if let Some(head) = &head {
+        rng_key.push(V::Str(head.queue_id.clone()));
+    }
+    V::List(rng_key)
 }
 
 // ---- complete ------------------------------------------------------------------------------------

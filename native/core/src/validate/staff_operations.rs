@@ -8,6 +8,7 @@ use indexmap::IndexMap;
 
 use super::extension_head::py::{self, eq, eq_int, eq_opt_str, eq_str, get, keys_are, Held};
 use super::View;
+use crate::entities::StaffRow;
 use crate::error::{Error, Result};
 use crate::events::EventRow;
 use crate::text::py_repr;
@@ -282,52 +283,8 @@ fn check_record(rows: &crate::entities::Entities, pending: &[Arc<EventRow>], dur
     let route_edges = field("route_edge_ids");
     let travel = field("travel_minutes");
     let target_zone = field("target_zone_id");
-    let active = || -> Result<bool> {
-        if !py::key_in(task_id, Held::Tracked, |id| rows.active_tasks.contains_key(id))? {
-            return Ok(false);
-        }
-        let V::Str(task) = task_id else {
-            return Ok(false);
-        };
-        let Some(row) = rows.active_tasks.get(task) else {
-            return Ok(false);
-        };
-        if row.staff_id.as_deref() != Some(&**staff_id)
-            || member.active_task_id.as_deref() != Some(&**task)
-            || member.work_queue.len() != 1
-            || member.work_queue[0] != *task
-            || !eq(&V::Int(member.busy_until), due)
-            || !py::in_texts(field("task_kind"), Held::Tracked, &TASK_KINDS)?
-            || !py::key_in(target_zone, Held::Tracked, |id| rows.zones.contains_key(id))?
-            || !py::is_exact_int(started)
-            || !py::is_exact_int(due)
-            || py::wide(due) <= py::wide(started)
-        {
-            return Ok(false);
-        }
-        let (V::List(zones), V::List(edges)) = (route_zones, route_edges) else {
-            return Ok(false);
-        };
-        for zone in zones {
-            if !py::key_in(zone, Held::Tracked, |id| rows.zones.contains_key(id))? {
-                return Ok(false);
-            }
-        }
-        for edge in edges {
-            if !py::key_in(edge, Held::Tracked, |id| rows.zone_edges.contains_key(id))? {
-                return Ok(false);
-            }
-        }
-        if !py::is_exact_int(travel) || py::negative(travel) || !matches!(field("causation_event_ids"), V::List(_)) || py::negative(started) {
-            return Ok(false);
-        }
-        if !matches!(field("reason"), V::Str(reason) if !reason.is_empty()) {
-            return Ok(false);
-        }
-        let target = field("target_id");
-        Ok(matches!(target, V::Null) || py::key_in(target, Held::Tracked, |id| rows.facilities.contains_key(id))?)
-    };
-    if !active()? {
+    let active = Active { record, task_id, started, due, route_zones, route_edges, travel, target_zone };
+    if !active_fits(rows, member, staff_id, active)? {
         return Err(Error::Value(format!("active staff_operations_v1 record for {id} is invalid")));
     }
     // Every ID of the route is known and every minute an int now.
@@ -385,6 +342,81 @@ fn check_record(rows: &crate::entities::Entities, pending: &[Arc<EventRow>], dur
     if py::wide(due) != Some(arrives_at + duration) {
         return Err(Error::Value(format!("staff_operations_v1 due minute for {id} is invalid")));
     }
+    check_event_references(pending, staff_id, active, is_travel, travel_due, &id)
+}
+
+/// The fields of an active staff record that its checks read.
+#[derive(Clone, Copy)]
+struct Active<'a> {
+    record: &'a IndexMap<Arc<str>, V>,
+    task_id: &'a V,
+    started: &'a V,
+    due: &'a V,
+    route_zones: &'a V,
+    route_edges: &'a V,
+    travel: &'a V,
+    target_zone: &'a V,
+}
+
+impl<'a> Active<'a> {
+    /// A field of the record, None for a missing one.
+    fn field(&self, name: &str) -> &'a V {
+        get(self.record, name)
+    }
+}
+
+/// Whether an active record's task, route IDs, minutes and reason fit the rows (or the TypeError
+/// of hashing one of its values).
+fn active_fits(rows: &crate::entities::Entities, member: &StaffRow, staff_id: &Arc<str>, active: Active<'_>) -> Result<bool> {
+    let Active { task_id, started, due, route_zones, route_edges, travel, target_zone, .. } = active;
+    if !py::key_in(task_id, Held::Tracked, |id| rows.active_tasks.contains_key(id))? {
+        return Ok(false);
+    }
+    let V::Str(task) = task_id else {
+        return Ok(false);
+    };
+    let Some(row) = rows.active_tasks.get(task) else {
+        return Ok(false);
+    };
+    if row.staff_id.as_deref() != Some(&**staff_id)
+        || member.active_task_id.as_deref() != Some(&**task)
+        || member.work_queue.len() != 1
+        || member.work_queue[0] != *task
+        || !eq(&V::Int(member.busy_until), due)
+        || !py::in_texts(active.field("task_kind"), Held::Tracked, &TASK_KINDS)?
+        || !py::key_in(target_zone, Held::Tracked, |id| rows.zones.contains_key(id))?
+        || !py::is_exact_int(started)
+        || !py::is_exact_int(due)
+        || py::wide(due) <= py::wide(started)
+    {
+        return Ok(false);
+    }
+    let (V::List(zones), V::List(edges)) = (route_zones, route_edges) else {
+        return Ok(false);
+    };
+    for zone in zones {
+        if !py::key_in(zone, Held::Tracked, |id| rows.zones.contains_key(id))? {
+            return Ok(false);
+        }
+    }
+    for edge in edges {
+        if !py::key_in(edge, Held::Tracked, |id| rows.zone_edges.contains_key(id))? {
+            return Ok(false);
+        }
+    }
+    if !py::is_exact_int(travel) || py::negative(travel) || !matches!(active.field("causation_event_ids"), V::List(_)) || py::negative(started) {
+        return Ok(false);
+    }
+    if !matches!(active.field("reason"), V::Str(reason) if !reason.is_empty()) {
+        return Ok(false);
+    }
+    let target = active.field("target_id");
+    Ok(matches!(target, V::Null) || py::key_in(target, Held::Tracked, |id| rows.facilities.contains_key(id))?)
+}
+
+/// An active record's pending completion event, and its arrival event while it travels.
+fn check_event_references(pending: &[Arc<EventRow>], staff_id: &Arc<str>, active: Active<'_>, is_travel: bool, travel_due: &V, id: &str) -> Result<()> {
+    let Active { task_id, due, target_zone, .. } = active;
     let payload = |event: &EventRow, name: &str| -> V {
         match &event.payload {
             V::Map(payload) => payload.get(name).cloned().unwrap_or(V::Null),
@@ -408,8 +440,8 @@ fn check_record(rows: &crate::entities::Entities, pending: &[Arc<EventRow>], dur
         })
         .collect();
     let consistent = completions.len() == 1
-        && eq(&payload(completions[0], "task_kind"), field("task_kind"))
-        && eq(&payload(completions[0], "target_id"), field("target_id"))
+        && eq(&payload(completions[0], "task_kind"), active.field("task_kind"))
+        && eq(&payload(completions[0], "target_id"), active.field("target_id"))
         && arrivals.len() == usize::from(is_travel)
         && arrivals.first().is_none_or(|arrival| eq(&V::Int(arrival.due_minute), travel_due) && eq(&payload(arrival, "target_zone_id"), target_zone));
     if !consistent {

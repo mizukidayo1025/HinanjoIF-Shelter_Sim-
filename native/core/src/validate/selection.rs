@@ -246,7 +246,7 @@ fn check_behavior_parameters(catalog: &Catalog, behavior: &IndexMap<Arc<str>, V>
 }
 
 /// What the selected models require: the configs and psychology they depend on, the registry
-/// schema, an installed factory, the proximity config and the declared state contracts.
+/// schema, the proximity config and the declared state contracts.
 fn check_requirements(
     catalog: &Catalog,
     configs: &IndexMap<Arc<str>, V>,

@@ -51,7 +51,7 @@ SHELTERSIM_LLM_MODE=record SHELTERSIM_LLM_ERROR_POLICY=stop \
 
 | 画面・機能 | 既存API | 調査時の状態 / 新UIでの対応 |
 |---|---|---|
-| ホーム | GET /api/v1/projects、GET P | 計算済みの例（Project `sample`の計算を終えたRun。ブラウザー版では「計算済みの例を取得する」で選んで取り寄せたもの、#411）、自分のシナリオ（このブラウザーの自分のProject）を並べる。読むだけで何も変えない（#371） |
+| ホーム | GET /api/v1/projects、GET P、POST R/delete | 「保存済みのシナリオ」1つの一覧（#440）。計算済みの例（Project `sample`のRun。ブラウザー版では「計算済みの例を取得する」で選んで取り寄せたもの、#411）に「例」を付け、自分のシナリオ（このブラウザーの自分のProject）と並べる。各行の「削除」（名前を示して確認）でそのシナリオを消す。サーバー版の例は取り直せないので消せない。ブラウザー版の例は消すと、「計算済みの例を取得する」がまた出る（#371、#440） |
 | API を有効にする（ブラウザー版） | POST /llm/v1/session（中継、#419） | ホームの「AIの機能（API）」で、配布した合言葉を中継に確かめ、相手の名前とサイト全体のその日の残りを出す。合言葉はこのブラウザー（localStorage）にだけ残し、中継が断ったら忘れる。解除できる。サーバー版には出さない（#420） |
 | Project作成・保存Run復元 | POST /api/v1/projects、GET P、GET P/runs | 実装済み / 新しいシナリオは例のProjectでなく自分のProjectに作る。開いているRunはURLが持つ |
 | 自然言語・基本条件・任意資源 | POST P/scenario-preview | 実装済み / 入力値を優先し、出典・補完仮定・警告・ブロッカーを表示。ブラウザー版でAPIを有効にしていると、文を中継経由でAIが読み取り、プレビューに「AIが文を読み取りました」か「AIを使えず、文に明示された値だけで読み取りました」と、使えなかった理由を出す（#421） |
@@ -66,7 +66,7 @@ SHELTERSIM_LLM_MODE=record SHELTERSIM_LLM_ERROR_POLICY=stop \
 | 介入の明示承認・独立分岐 | POST B/intervention-apply | 実装済み / hashと入力・時刻・分岐を照合。変更で再承認が必要 |
 | 同期比較 | GET R/compare?branch_ids=A,B&minute=M | 実装済み / parentとchildを共通時刻・レイヤー・ズームで比較 |
 | 詳細（記録・モデル・係数・出典・作用・LLMの利用） | GET R、GET R/evidence、GET B/llm-status、GET P/contracts、GET R/usage | 「詳細」の画面。シナリオの記録（条件の版とhash、seed、モデルの版の署名）、分岐の系譜、evidenceのモデルと係数（根拠の等級・値・単位・範囲・出典）、出典と仮定、介入で使える作用の型、LLMの利用を出す。AGENTS.mdの「provenanceを対応する参照画面に残す」に当たる。ブラウザー版は`contracts`・`usage`に答えないので、作用の型と呼び出しの数の代わりにその旨を出す（#376） |
-| シナリオの削除、同じ条件で新しいシナリオ | POST R/delete（`confirmation`はRunのID）、POST P/runs（同じScenarioとseed） | シナリオ設定の「このシナリオを削除」（名前を示して確認）と「同じ条件で新しいシナリオを作る」。自分のProjectのシナリオだけ。計算済みの例は消せない（#376） |
+| シナリオの削除、同じ条件で新しいシナリオ | POST R/delete（`confirmation`はRunのID）、POST P/runs（同じScenarioとseed） | 削除はホームの一覧の「削除」（#440）。シナリオ設定には「同じ条件で新しいシナリオを作る」だけを置く（自分のProjectのシナリオだけ、#376） |
 | 過去の質問と回答 | GET B/conversations | レポートを開くと、その分岐でこれまでにした質問と回答（最後の100件）を、質問の欄の上に出す（#376） |
 | 2〜8分岐の同時比較 | GET R/compare?branch_ids=A,B,…&minute=M | 分岐比較の画面の「ほかの分岐とも並べる」。選んだ分岐（元のシナリオを左端）を、共通の計算済みの時刻（表示中の時刻が入ればその時刻）の指標の表で並べ、左端との差を出す（#376） |
 | 両分岐を先へ計算 | POST R/resumeを順番に実行 | 実装済み / 共通の目標まで計算後compareを取得 |

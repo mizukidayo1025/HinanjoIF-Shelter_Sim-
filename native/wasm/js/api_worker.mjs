@@ -11,7 +11,8 @@
 // "sheltersim-browser-store", so two tabs never open the same files at once. Opening the page
 // fetches no example: one is fetched when the home's list is chosen from (`install`, #411). An
 // example the store holds of an earlier version of the site is removed at the start, as the site
-// no longer offers it. A computation a closed page left becomes `interrupted` (js/compute.mjs,
+// no longer offers it. An example whose Runs were all deleted on the home (#440) is offered again
+// and fetched again over its Project (browser_api.mjs's exampleHeld). A computation a closed page left becomes `interrupted` (js/compute.mjs,
 // #267); a branch that computes holds the Web Lock of its name (`lockName`) until its computation
 // ends.
 //
@@ -27,7 +28,7 @@
 //               { type: "installed", id, installed, ms } or { type: "install-failed", id, message };
 //               { type: "stats", id, stats } for { type: "stats", id } (checks).
 
-import { BrowserApi, checkExamples, installSample, markerExamples, openStore, SAMPLE_MARKER } from "./browser_api.mjs";
+import { BrowserApi, checkExamples, exampleHeld, installSample, markerExamples, openStore, SAMPLE_MARKER } from "./browser_api.mjs";
 import { recoverInterrupted } from "./compute.mjs";
 import { opfsTree } from "./project_store.mjs";
 import { RegionProviderError } from "./research.mjs";
@@ -122,8 +123,7 @@ async function start(examplesUrl) {
     const held = await readMarker();
     const out = [];
     for (const example of examples) {
-      const installed = held[example.project_id] === example.sha256 && (await tree.read([example.project_id, "project.json"])) !== null;
-      out.push({ ...example, installed });
+      out.push({ ...example, installed: await exampleHeld(tree, example, held) });
     }
     return out;
   };
@@ -138,6 +138,8 @@ async function start(examplesUrl) {
       const manifest = await response.json();
       if (manifest?.sha256 !== example.sha256 || manifest?.project_id !== projectId) throw new Error("計算済みの例の目録が、例の一覧と合いません。ページを開き直してください");
       const held = await readMarker();
+      // An example whose Runs were deleted on the home (#440) is fetched and imported again.
+      const whole = await exampleHeld(tree, example, held);
       return installSample({
         wasm,
         tree,
@@ -147,7 +149,7 @@ async function start(examplesUrl) {
           if (!part.ok) throw new Error(`計算済みの例の ${path} を読めません（HTTP ${part.status}）`);
           return new Uint8Array(await part.arrayBuffer());
         },
-        readMarker: async () => (held[projectId] ? { sha256: held[projectId], project_id: projectId } : null),
+        readMarker: async () => (whole ? { sha256: held[projectId], project_id: projectId } : null),
         writeMarker: () => writeMarker({ ...held, [projectId]: manifest.sha256 }),
         progress,
       });

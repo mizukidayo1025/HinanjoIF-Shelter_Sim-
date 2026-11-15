@@ -3389,7 +3389,7 @@ h2 {
   background-position: -109.5px -31px;
 }
 
-/* ホーム（#371）：最初に開く画面。計算済みの例・自分のシナリオへの入口 */
+/* ホーム（#371）：最初に開く画面。保存済みのシナリオ（#440）への入口 */
 .home-hero {
   display: flex;
   align-items: center;
@@ -3424,6 +3424,29 @@ h2 {
   display: grid;
   gap: 8px;
   margin: 10px 0;
+}
+/* 保存済みのシナリオの1行：開くリンクと「削除」（#440） */
+.home-item {
+  display: grid;
+  /* The column of 「削除」 is kept on every row, so the rows line up (the server's example has
+     none). */
+  grid-template-columns: 1fr 4.5em;
+  gap: 8px;
+  align-items: center;
+}
+.home-delete {
+  justify-self: end;
+}
+.home-tag {
+  display: inline-block;
+  margin-left: 4px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--blue-light);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  vertical-align: middle;
 }
 .home-run {
   display: grid;

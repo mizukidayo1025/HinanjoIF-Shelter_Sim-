@@ -667,33 +667,47 @@
         !ownId || exampleIds.includes(ownId) ? null : read(ownId),
       ]);
     if (scope !== state.homeVersion) return;
-    const links = examples.flatMap(([id, project]) =>
-      (project?.runs || [])
-        .filter((r) => r.status === "completed")
-        .map((r) => runLink(id, r, project.scenarios, "計算済みの例を見る")),
+    // One list of the saved Scenarios (#440): the examples', marked 「例」, then one's own.
+    const rows = [
+      ...examples.flatMap(([id, project]) =>
+        homeRows(id, project, { example: true, deletable: Boolean(browser) }),
+      ),
+      ...(own ? homeRows(ownId, own, { example: false, deletable: true }) : []),
+    ];
+    $("home-list").replaceChildren(
+      ...(rows.length ? rows : [el("p", "まだシナリオはありません。", "quiet-message")]),
     );
-    $("home-example").hidden = !links.length;
-    $("home-example-list").replaceChildren(...links);
     $("home-fetch").hidden = !offered.some((e) => !e.installed);
     $("home-api").hidden = !browser;
     if (browser) void refreshApi();
     $("home-browser-notes").hidden = !browser;
     $("home-new").disabled = site.scenarios === "unavailable";
     $("home-new-note").hidden = site.scenarios !== "unavailable";
-    const mine = own?.runs || [];
-    $("home-own-list").replaceChildren(
-      ...(mine.length
-        ? mine.map((r) =>
-            runLink(
-              ownId,
-              r,
-              own.scenarios,
-              undefined,
-              runNames(mine, own.scenarios).get(r.run_id),
-            ),
-          )
-        : [el("p", "まだシナリオはありません。", "quiet-message")]),
-    );
+  }
+  // A Project's Runs as rows of the home's list: each opens its Run, and has 「削除」 when it may
+  // be deleted. The server's example cannot be fetched again, so it has none there (#440).
+  function homeRows(projectId, project, { example, deletable }) {
+    const runs = project?.runs || [],
+      names = runNames(runs, project?.scenarios || []);
+    return runs.map((run) => {
+      const name = names.get(run.run_id),
+        row = el("div", undefined, "home-item"),
+        link = runLink(projectId, run, project.scenarios, undefined, name);
+      if (example) link.querySelector("strong").append(" ", el("span", "例", "home-tag"));
+      row.append(link);
+      if (deletable) {
+        const remove = el("button", "削除", "danger compact home-delete");
+        remove.type = "button";
+        remove.setAttribute("aria-label", `「${name}」を削除`);
+        remove.addEventListener("click", () =>
+          action("シナリオを削除しています…", () =>
+            deleteRun(projectId, run.run_id, name),
+          ),
+        );
+        row.append(remove);
+      }
+      return row;
+    });
   }
   // 「計算済みの例を取得する」 (#411): the site's examples, what each holds and its size; the one
   // chosen is fetched and saved in this browser, then opened.
@@ -1000,13 +1014,12 @@
         .map((t) => el("span", t, "chip")),
     );
     $("scenario-open-json").textContent = json(scenario);
-    // The example's Scenarios are kept as they are; one's own can be made again or deleted (#376).
-    const own = state.project === ownProject;
+    // One's own Scenario can be made again (#376); deleting is on the home's list (#440).
+    const own = Boolean(ownId) && state.project === ownId;
     $("scenario-copy").hidden = !own;
-    $("scenario-delete").hidden = !own;
     $("scenario-actions-note").textContent = own
-      ? "同じ条件で作ると、同じseedから0分の状態で始まります。削除すると、このシナリオの計算と分岐、質問の記録が消えます。"
-      : "計算済みの例は、作り直したり削除したりできません。";
+      ? "同じ条件で作ると、同じseedから0分の状態で始まります。シナリオの削除は、ホームの一覧から行います。"
+      : "計算済みの例は、作り直せません。";
   }
   // 「同じ条件で新しいシナリオを作る」: a new Run of the open Run's Scenario and seed (POST runs).
   async function copyScenario() {
@@ -1019,28 +1032,33 @@
     await refreshRuns();
     await openRunInPlace(runId);
   }
-  // 「このシナリオを削除」: after the person confirms with the Scenario's name (POST runs/{run}/delete).
-  async function deleteScenario() {
-    const name = $("scenario-name").textContent;
+  // 「削除」 on the home (#440): after the person confirms with the Scenario's name
+  // (POST runs/{run}/delete). Deleting the open Run closes it.
+  async function deleteRun(projectId, runId, name) {
     if (
       !confirm(
         `「${name}」を削除します。計算の記録、分岐、質問の記録も消え、元に戻せません。よろしいですか？`,
       )
     )
       return;
-    await api(`${runBase()}/delete`, { confirmation: state.run });
-    clearTimeout(state.poll);
-    state.scope++;
-    state.run = null;
-    state.data = null;
-    state.frame = null;
-    state.loadedRun = null;
-    state.comparison = null;
-    invalidateIntervention();
-    resetChat();
-    clearRunView();
-    await refreshRuns();
-    show("home");
+    await api(`/api/v1/projects/${enc(projectId)}/runs/${enc(runId)}/delete`, {
+      confirmation: runId,
+    });
+    if (state.project === projectId && state.run === runId) {
+      clearTimeout(state.poll);
+      state.scope++;
+      state.run = null;
+      state.data = null;
+      state.frame = null;
+      state.loadedRun = null;
+      state.comparison = null;
+      invalidateIntervention();
+      resetChat();
+      clearRunView();
+      await refreshRuns();
+      remember();
+    }
+    await loadHome();
   }
   function invalidateIntervention() {
     state.intervention = null;
@@ -3353,9 +3371,6 @@
     await copyScenario();
     show("simulation");
   });
-  $("scenario-delete").addEventListener("click", () =>
-    action("シナリオを削除しています…", deleteScenario),
-  );
   $("home-fetch").addEventListener("click", () => void openExamples());
   $("home-api-enable").addEventListener("click", () => {
     $("api-dialog-note").textContent = "";

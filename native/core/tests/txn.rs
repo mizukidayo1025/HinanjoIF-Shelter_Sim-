@@ -331,7 +331,20 @@ fn event(id: &str, due: i64, sequence: i64) -> EventRow {
     let mut provenance: IndexMap<Arc<str>, V> = IndexMap::new();
     provenance.insert(text("source"), V::Str(text("s")));
     provenance.insert(text("object"), shuffled_value(1));
-    EventRow::new(text(id), EventKind::Exogenous, due, 0, sequence, text("delivery"), payload, None, None, provenance).unwrap()
+    EventRow {
+        event_id: text(id),
+        kind: EventKind::Exogenous,
+        due_minute: due,
+        priority: 0,
+        sequence,
+        event_type: text("delivery"),
+        payload: V::Map(payload),
+        source_id: None,
+        causation_id: None,
+        provenance: V::Map(provenance),
+    }
+    .checked()
+    .unwrap()
 }
 
 #[test]

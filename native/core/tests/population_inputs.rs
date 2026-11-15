@@ -73,7 +73,20 @@ fn world() -> World {
 
 fn event(payload: V) -> EventRow {
     let V::Map(payload) = payload else { panic!("a payload is a map") };
-    EventRow::new(text("e-1"), EventKind::Intervention, 7, 0, 3, text("effect_program_population"), payload, Some(text("SRC")), None, IndexMap::new()).unwrap()
+    EventRow {
+        event_id: text("e-1"),
+        kind: EventKind::Intervention,
+        due_minute: 7,
+        priority: 0,
+        sequence: 3,
+        event_type: text("effect_program_population"),
+        payload: V::Map(payload),
+        source_id: Some(text("SRC")),
+        causation_id: None,
+        provenance: V::Map(IndexMap::new()),
+    }
+    .checked()
+    .unwrap()
 }
 
 /// A holding whose `model_state` holds these keys.

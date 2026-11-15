@@ -252,18 +252,19 @@ fn edge(json: &Value) -> Result<EdgeRow> {
 /// An event of the queue (`ScheduledEvent.to_dict()`), with `ScheduledEvent`'s checks.
 pub fn event(json: &Value) -> Result<EventRow> {
     let kind = EventKind::parse(str_of(&json["kind"], "kind")?).ok_or_else(|| bad("kind is not an event kind"))?;
-    EventRow::new(
-        s(json, "event_id")?,
+    EventRow {
+        event_id: s(json, "event_id")?,
         kind,
-        i(json, "due_minute")?,
-        i(json, "priority")?,
-        i(json, "sequence")?,
-        s(json, "event_type")?,
-        map(&json["payload"])?,
-        opt_s(json, "source_id"),
-        opt_s(json, "causation_id"),
-        map(&json["provenance"])?,
-    )
+        due_minute: i(json, "due_minute")?,
+        priority: i(json, "priority")?,
+        sequence: i(json, "sequence")?,
+        event_type: s(json, "event_type")?,
+        payload: V::Map(map(&json["payload"])?),
+        source_id: opt_s(json, "source_id"),
+        causation_id: opt_s(json, "causation_id"),
+        provenance: V::Map(map(&json["provenance"])?),
+    }
+    .checked()
     .ok_or_else(|| bad("an event ScheduledEvent refuses"))
 }
 

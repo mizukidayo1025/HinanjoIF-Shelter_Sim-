@@ -90,8 +90,20 @@ fn world(namespaces: Vec<(&str, V)>) -> World {
 }
 
 fn event(event_id: &str, sequence: i64, due: i64, event_type: &str, payload: Vec<(&str, V)>) -> EventRow {
-    EventRow::new(text(event_id), EventKind::Exogenous, due, 0, sequence, text(event_type), entries(payload), Some(text("scenario")), None, IndexMap::new())
-        .unwrap()
+    EventRow {
+        event_id: text(event_id),
+        kind: EventKind::Exogenous,
+        due_minute: due,
+        priority: 0,
+        sequence,
+        event_type: text(event_type),
+        payload: V::Map(entries(payload)),
+        source_id: Some(text("scenario")),
+        causation_id: None,
+        provenance: V::Map(IndexMap::new()),
+    }
+    .checked()
+    .unwrap()
 }
 
 fn failed<T>(result: Result<T, Error>) -> String {
@@ -314,31 +326,33 @@ fn a_delivery_delay_moves_the_pending_delivery_and_keeps_its_identity() {
     marker.insert(text("effect_id"), s("e"));
     let mut provenance = IndexMap::new();
     provenance.insert(text("effect_program_v1"), V::Map(marker));
-    let delay = EventRow::new(
-        text("delay-1"),
-        EventKind::Exogenous,
-        10,
-        0,
-        8,
-        text("delivery_delayed"),
-        entries(vec![("shipment_id", s("sh1")), ("to_minute", V::Int(60))]),
-        Some(text("scenario")),
-        None,
-        provenance,
-    )
+    let delay = EventRow {
+        event_id: text("delay-1"),
+        kind: EventKind::Exogenous,
+        due_minute: 10,
+        priority: 0,
+        sequence: 8,
+        event_type: text("delivery_delayed"),
+        payload: V::Map(entries(vec![("shipment_id", s("sh1")), ("to_minute", V::Int(60))])),
+        source_id: Some(text("scenario")),
+        causation_id: None,
+        provenance: V::Map(provenance),
+    }
+    .checked()
     .unwrap();
-    let early = EventRow::new(
-        text("delay-1"),
-        EventKind::Exogenous,
-        10,
-        0,
-        8,
-        text("delivery_delayed"),
-        entries(vec![("shipment_id", s("sh1")), ("to_minute", V::Int(20))]),
-        Some(text("scenario")),
-        None,
-        IndexMap::new(),
-    )
+    let early = EventRow {
+        event_id: text("delay-1"),
+        kind: EventKind::Exogenous,
+        due_minute: 10,
+        priority: 0,
+        sequence: 8,
+        event_type: text("delivery_delayed"),
+        payload: V::Map(entries(vec![("shipment_id", s("sh1")), ("to_minute", V::Int(20))])),
+        source_id: Some(text("scenario")),
+        causation_id: None,
+        provenance: V::Map(IndexMap::new()),
+    }
+    .checked()
     .unwrap();
     let mut taken = Vec::new();
     assert_eq!(failed(handlers::delivery_delay(&world, &Held::Held, &early, &mut taken)), "shipment delay must move a not-yet-due delivery forward");
@@ -360,18 +374,19 @@ fn a_delivery_delay_moves_the_pending_delivery_and_keeps_its_identity() {
     let V::Map(state) = state(&world, handlers::OPERATIONAL) else { panic!() };
     assert_eq!(state["shipments"], map(vec![("sh1", map(vec![("event_id", s("delivery-1")), ("resource_id", s("water_ml")), ("due_minute", V::Int(60))]))]));
     // Its delivery is due later now: a second delay must be later still.
-    let again = EventRow::new(
-        text("delay-2"),
-        EventKind::Exogenous,
-        10,
-        0,
-        9,
-        text("delivery_delayed"),
-        entries(vec![("shipment_id", s("sh1")), ("to_minute", V::Int(50))]),
-        Some(text("scenario")),
-        None,
-        IndexMap::new(),
-    )
+    let again = EventRow {
+        event_id: text("delay-2"),
+        kind: EventKind::Exogenous,
+        due_minute: 10,
+        priority: 0,
+        sequence: 9,
+        event_type: text("delivery_delayed"),
+        payload: V::Map(entries(vec![("shipment_id", s("sh1")), ("to_minute", V::Int(50))])),
+        source_id: Some(text("scenario")),
+        causation_id: None,
+        provenance: V::Map(IndexMap::new()),
+    }
+    .checked()
     .unwrap();
     assert_eq!(failed(handlers::delivery_delay(&world, &Held::Held, &again, &mut taken)), "shipment delay must move a not-yet-due delivery forward");
 }
@@ -570,18 +585,19 @@ fn a_population_primitive_must_be_in_its_program() {
 #[test]
 fn a_proximity_contact_without_its_config_or_positions_is_refused_by_its_texts() {
     let world = world(Vec::new());
-    let contact = EventRow::new(
-        text("contact-1"),
-        EventKind::Endogenous,
-        10,
-        0,
-        1,
-        text("proximity_contact_update"),
-        IndexMap::new(),
-        Some(text("ASM-PROXIMITY-CONTACT-V1")),
-        None,
-        IndexMap::new(),
-    )
+    let contact = EventRow {
+        event_id: text("contact-1"),
+        kind: EventKind::Endogenous,
+        due_minute: 10,
+        priority: 0,
+        sequence: 1,
+        event_type: text("proximity_contact_update"),
+        payload: V::Map(IndexMap::new()),
+        source_id: Some(text("ASM-PROXIMITY-CONTACT-V1")),
+        causation_id: None,
+        provenance: V::Map(IndexMap::new()),
+    }
+    .checked()
     .unwrap();
     assert_eq!(failed(handlers::proximity(&world, None, &Held::Absent, &contact)), "proximity contact provenance or time is invalid");
     let config =
@@ -608,18 +624,19 @@ fn an_idle_member_s_unavailability_schedules_the_restoration_and_marks_the_statu
     let inputs = StaffIn { operational: &held, ops: &ops, service: Err(Unread::Raised), cooldown: None, metric_state_held: true };
     let mut provenance = IndexMap::new();
     provenance.insert(text("effect_program_v1"), map(vec![("program_id", s("p")), ("guard", s("g"))]));
-    let gone = EventRow::new(
-        text("gone-2"),
-        EventKind::Exogenous,
-        10,
-        0,
-        5,
-        text("staff_unavailable"),
-        entries(vec![("staff_id", s("s1")), ("until_minute", V::Int(40))]),
-        Some(text("scenario")),
-        None,
-        provenance,
-    )
+    let gone = EventRow {
+        event_id: text("gone-2"),
+        kind: EventKind::Exogenous,
+        due_minute: 10,
+        priority: 0,
+        sequence: 5,
+        event_type: text("staff_unavailable"),
+        payload: V::Map(entries(vec![("staff_id", s("s1")), ("until_minute", V::Int(40))])),
+        source_id: Some(text("scenario")),
+        causation_id: None,
+        provenance: V::Map(provenance),
+    }
+    .checked()
     .unwrap();
     let mut taken = Vec::new();
     let done = handlers::staff_unavailable(&mut world, &inputs, &gone, &mut taken).ok().unwrap();

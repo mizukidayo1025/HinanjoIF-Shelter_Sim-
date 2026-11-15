@@ -334,7 +334,20 @@ fn ending_event(event_type: &str, agent: &str, payload: &[(&str, V)], due: i64) 
     for (key, value) in payload {
         fields.insert(text(key), value.clone());
     }
-    EventRow::new(text("e-1"), EventKind::Endogenous, due, 0, 1, text(event_type), fields, None, None, IndexMap::new()).unwrap()
+    EventRow {
+        event_id: text("e-1"),
+        kind: EventKind::Endogenous,
+        due_minute: due,
+        priority: 0,
+        sequence: 1,
+        event_type: text(event_type),
+        payload: V::Map(fields),
+        source_id: None,
+        causation_id: None,
+        provenance: V::Map(IndexMap::new()),
+    }
+    .checked()
+    .unwrap()
 }
 
 #[test]

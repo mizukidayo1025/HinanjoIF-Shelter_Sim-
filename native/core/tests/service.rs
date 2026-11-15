@@ -422,8 +422,20 @@ fn a_cancel_of_a_queued_task_lets_the_person_go_and_lists_the_task() {
     let mut payload = IndexMap::new();
     payload.insert(text("task_id"), V::Str(text("resource-service-task-0")));
     payload.insert(text("reason"), V::Str(text("operator_cancelled")));
-    let event =
-        EventRow::new(text("cancel-1"), EventKind::Intervention, 5, 0, 3, text("resource_service_cancel"), payload, None, None, IndexMap::new()).unwrap();
+    let event = EventRow {
+        event_id: text("cancel-1"),
+        kind: EventKind::Intervention,
+        due_minute: 5,
+        priority: 0,
+        sequence: 3,
+        event_type: text("resource_service_cancel"),
+        payload: V::Map(payload),
+        source_id: None,
+        causation_id: None,
+        provenance: V::Map(IndexMap::new()),
+    }
+    .checked()
+    .unwrap();
     assert_eq!(service::cancel(&mut world, &manager, &event).unwrap(), None);
     let rows = world.rows().unwrap();
     assert!(rows.facilities.get(WATER).unwrap().resource_queue_agent_ids.is_empty());

@@ -977,18 +977,19 @@ fn schedule(
     cause: &str,
     provenance: IndexMap<Arc<str>, V>,
 ) -> Result<()> {
-    let row = EventRow::new(
-        Arc::from(event_id),
-        EventKind::Endogenous,
-        due,
-        EVENT_PRIORITY,
+    let row = EventRow {
+        event_id: Arc::from(event_id),
+        kind: EventKind::Endogenous,
+        due_minute: due,
+        priority: EVENT_PRIORITY,
         sequence,
-        Arc::from("social_interaction"),
-        payload,
-        Some(Arc::from(SOCIAL_POLICY_VERSION)),
-        Some(Arc::from(cause)),
-        provenance,
-    )
+        event_type: Arc::from("social_interaction"),
+        payload: V::Map(payload),
+        source_id: Some(Arc::from(SOCIAL_POLICY_VERSION)),
+        causation_id: Some(Arc::from(cause)),
+        provenance: V::Map(provenance),
+    }
+    .checked()
     .ok_or_else(|| Error::Value("the social interaction is not an event".to_owned()))?;
     events.schedule(row).map_err(Error::from)
 }

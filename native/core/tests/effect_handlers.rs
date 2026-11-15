@@ -217,18 +217,19 @@ fn marker(effect: &str, op: &str) -> V {
 }
 
 fn event(event_id: &str, due: i64, event_type: &str, payload: Vec<(&str, V)>, marker: V) -> EventRow {
-    EventRow::new(
-        text(event_id),
-        EventKind::Intervention,
-        due,
-        0,
-        100,
-        text(event_type),
-        entries(payload),
-        Some(text("SRC-TEST")),
-        None,
-        entries(vec![("effect_program_v1", marker)]),
-    )
+    EventRow {
+        event_id: text(event_id),
+        kind: EventKind::Intervention,
+        due_minute: due,
+        priority: 0,
+        sequence: 100,
+        event_type: text(event_type),
+        payload: V::Map(entries(payload)),
+        source_id: Some(text("SRC-TEST")),
+        causation_id: None,
+        provenance: V::Map(entries(vec![("effect_program_v1", marker)])),
+    }
+    .checked()
     .unwrap()
 }
 

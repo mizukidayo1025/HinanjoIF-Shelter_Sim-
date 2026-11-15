@@ -177,18 +177,19 @@ fn state(world: &World, name: &str) -> V {
 }
 
 fn arrival_event(id: &str) -> EventRow {
-    EventRow::new(
-        text(id),
-        EventKind::Intervention,
-        7,
-        0,
-        3,
-        text("effect_program_population"),
-        IndexMap::new(),
-        Some(text("SRC-ARRIVAL")),
-        None,
-        IndexMap::new(),
-    )
+    EventRow {
+        event_id: text(id),
+        kind: EventKind::Intervention,
+        due_minute: 7,
+        priority: 0,
+        sequence: 3,
+        event_type: text("effect_program_population"),
+        payload: V::Map(IndexMap::new()),
+        source_id: Some(text("SRC-ARRIVAL")),
+        causation_id: None,
+        provenance: V::Map(IndexMap::new()),
+    }
+    .checked()
     .unwrap()
 }
 
@@ -564,7 +565,20 @@ fn departures_take_the_initial_people_and_settle_their_events() {
         let mut payload = IndexMap::new();
         payload.insert(text("agent_id"), s(agent));
         let sequence = events.allocate_sequence().unwrap();
-        EventRow::new(text(id), EventKind::Endogenous, 20, 0, sequence, text("need_check"), payload, None, None, IndexMap::new()).unwrap()
+        EventRow {
+            event_id: text(id),
+            kind: EventKind::Endogenous,
+            due_minute: 20,
+            priority: 0,
+            sequence,
+            event_type: text("need_check"),
+            payload: V::Map(payload),
+            source_id: None,
+            causation_id: None,
+            provenance: V::Map(IndexMap::new()),
+        }
+        .checked()
+        .unwrap()
     };
     for (id, agent) in [("for-a1", "a1"), ("for-a2", "a2")] {
         assert!(events.schedule(named(id, agent)).is_ok());

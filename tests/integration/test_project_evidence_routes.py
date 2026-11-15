@@ -1,10 +1,10 @@
 """A Branch's history route on a generated Run with a Branch that adds toilets: the KPIs answer
 (#368 decision A), from the stored Run of format v6 (#427). The conversation of the questions has
-its own route (`…/conversations`).
+its own route (`…/conversations`), which answers the turns in the order the questions were asked.
 
 The comparison of several Runs, the first divergence, the approved-condition differences and
-the people and household samples went with the older screens (#376). The routes only read the
-Run.
+the people and household samples went with the older screens (#376). The history routes only read
+the Run; the questions keep their turns in the Branch's stored Run.
 """
 
 from __future__ import annotations
@@ -78,3 +78,26 @@ def test_history_outside_the_branch_range_is_refused(evidence_api, start, end):
     api, _ = evidence_api
     with pytest.raises(answers().Refused, match="history_outside_computed_range"):
         _history(api, "capacity", kind="kpis", start=start, end=end)
+
+
+def test_the_conversation_keeps_its_turns_in_the_order_asked_even_if_the_clock_goes_back(
+    evidence_api, monkeypatch
+):
+    """A turn's id holds the wall clock (`t-` and nanoseconds), which can go back (WSL's clock
+    under load): the conversation is in the order the questions were asked, not in that of the
+    ids. Its order once followed the ids, and the interventions fixture then differed at its
+    first stored question when the tests ran in parallel (#437)."""
+    api, _ = evidence_api
+    branch = ["p", "runs", "r", "branches", "capacity"]
+    before = len(api.get([*branch, "conversations"])["turns"])
+    clock = iter(range(3_000_000_000_000_000_000, 0, -1_000_000_000))
+    monkeypatch.setattr("time.time_ns", lambda: next(clock))
+    asked = ["一つ目", "二つ目", "三つ目"]
+    for question in asked:
+        api.post([*branch, "questions"], {"question": question})
+    monkeypatch.undo()
+
+    turns = api.get([*branch, "conversations"])["turns"][before:]
+    assert [turn["question"] for turn in turns] == asked
+    stamps = [int(turn["turn_id"].split("-")[1]) for turn in turns]
+    assert stamps == sorted(stamps, reverse=True)

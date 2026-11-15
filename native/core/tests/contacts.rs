@@ -193,7 +193,7 @@ fn social_inputs<'a>(
     neighbors: &'a Neighbors,
     traced: bool,
 ) -> social::Inputs<'a> {
-    social::Inputs { settings, expressiveness, view, deltas, minute: 10, seed: "2026", neighbors, traced }
+    social::Inputs { settings, expressiveness: social::Expressiveness::new(expressiveness), view, deltas, minute: 10, seed: "2026", neighbors, traced }
 }
 
 #[test]

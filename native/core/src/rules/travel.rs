@@ -911,31 +911,54 @@ pub fn schedule_return(world: &World, routing: &Routing<'_>, walking: Walking<'_
 
 // ---- The choice of a facility -------------------------------------------------------------------
 
+/// `model_configs["facility_queues"]["queue_capacity_by_facility"]` as the configs hold it: a
+/// facility's capacity is read where the choice of a facility needs it, and refused there.
+struct QueueCapacities<'a>(Option<&'a IndexMap<Arc<str>, V>>);
+
+impl<'a> QueueCapacities<'a> {
+    /// The config's checks of `_facility_queue_has_capacity`, in its order: no capacities where the
+    /// configs have no queue config, or the config has none.
+    fn of(configs: &'a V) -> Result<Self> {
+        let Some(config) = map(configs)?.get("facility_queues") else {
+            return Ok(Self(None));
+        };
+        let config = map(config)?;
+        let Some(schema) = config.get("schema_version") else {
+            return refuse("the queue config has no schema");
+        };
+        if kit::exact_int(schema)? != 1 {
+            return refuse("another queue config");
+        }
+        let Some(capacities) = config.get("queue_capacity_by_facility") else {
+            return Ok(Self(None));
+        };
+        Ok(Self(Some(map(capacities)?)))
+    }
+
+    /// The facility's capacity, or None for no limit.
+    fn of_facility(&self, facility_id: &str) -> Result<Option<i64>> {
+        let Some(capacities) = self.0 else {
+            return Ok(None);
+        };
+        let Some(maximum) = capacities.get(facility_id) else {
+            return Ok(None);
+        };
+        if matches!(maximum, V::Null) {
+            return Ok(None);
+        }
+        let maximum = kit::exact_int(maximum)?;
+        if maximum < 0 {
+            return refuse("a negative queue capacity");
+        }
+        Ok(Some(maximum))
+    }
+}
+
 /// `_facility_queue_has_capacity`.
-fn queue_has_capacity(configs: &V, rows: &Entities, facility_id: &str, facility: &FacilityRow, resource: bool) -> Result<bool> {
-    let Some(config) = map(configs)?.get("facility_queues") else {
+fn queue_has_capacity(capacities: &QueueCapacities<'_>, rows: &Entities, facility_id: &str, facility: &FacilityRow, resource: bool) -> Result<bool> {
+    let Some(maximum) = capacities.of_facility(facility_id)? else {
         return Ok(true);
     };
-    let config = map(config)?;
-    let Some(schema) = config.get("schema_version") else {
-        return refuse("the queue config has no schema");
-    };
-    if kit::exact_int(schema)? != 1 {
-        return refuse("another queue config");
-    }
-    let Some(capacities) = config.get("queue_capacity_by_facility") else {
-        return Ok(true);
-    };
-    let Some(maximum) = map(capacities)?.get(facility_id) else {
-        return Ok(true);
-    };
-    if matches!(maximum, V::Null) {
-        return Ok(true);
-    }
-    let maximum = kit::exact_int(maximum)?;
-    if maximum < 0 {
-        return refuse("a negative queue capacity");
-    }
     let (queued, active) = if resource {
         (&facility.resource_queue_agent_ids, &facility.resource_active_agent_ids)
     } else {
@@ -998,7 +1021,7 @@ pub fn select(
             let Some(configs) = configs.as_ref() else {
                 continue;
             };
-            if queue_has_capacity(&configs.0, &rows, id, facility, resource)? {
+            if queue_has_capacity(&QueueCapacities::of(&configs.0)?, &rows, id, facility, resource)? {
                 let load = if resource {
                     facility.resource_queue_agent_ids.len() + facility.resource_active_agent_ids.len()
                 } else {

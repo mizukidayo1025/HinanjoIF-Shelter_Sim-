@@ -27,7 +27,7 @@ use crate::state::staff_operations::{Number, OperationRecord, Phase, StaffOperat
 use crate::value::V;
 use crate::world::{World, MODEL_CONFIGS};
 
-/// `_TASK_NAMES`.
+/// The Japanese name of a task kind.
 fn task_name(kind: &str) -> &'static str {
     match kind {
         "cleaning" => "清掃",
@@ -38,7 +38,7 @@ fn task_name(kind: &str) -> &'static str {
     }
 }
 
-/// An order, as `order_staff_operation` takes it.
+/// An order, as `order_operation` takes it.
 pub struct Order<'a> {
     pub staff_id: &'a str,
     pub task_kind: &'a str,
@@ -54,7 +54,7 @@ fn failed<T>(text: &str) -> Result<T> {
     Err(Error::failed(text))
 }
 
-/// `_missing_task_skill_message`: who could take the order instead, by ID.
+/// The text of a missing skill: who could take the order instead, by ID.
 fn missing_skill_message(rows: &Entities, staff_id: &str, kind: &str, skills: [&'static str; 2]) -> String {
     let mut qualified: Vec<String> =
         rows.staff.iter().filter(|(_, other)| other.skills.0.iter().any(|skill| skills.contains(&&**skill))).map(|(id, _)| id.to_string()).collect();
@@ -83,7 +83,7 @@ struct Checked {
     duration: i64,
 }
 
-/// `validate_staff_operation_order(world, ..., minute=minute)`: the route, or the rule's text.
+/// The order's checks at `minute`: the route, or the rule's text.
 fn validate(world: &World, inputs: &Inputs<'_>, order: &Order<'_>, minute: i64) -> Result<Checked> {
     // `state is None or SHARED_OPERATIONS_KEY not in world.model_state`.
     if matches!(inputs.staff, Held::Absent) || inputs.shared_absent {
@@ -136,7 +136,7 @@ fn validate(world: &World, inputs: &Inputs<'_>, order: &Order<'_>, minute: i64) 
         if &*facility_zone != order.target_zone_id {
             return failed("maintenance order must target a facility in its selected zone");
         }
-        // `_maintenance_blocked`: the outage, then the modifiers.
+        // Whether maintenance is blocked: the outage, then the modifiers.
         if working >= capacity
             || kit::active_outage(world.slots.try_value(crate::rules::world_view::INFRASTRUCTURE)?.as_deref(), &facility_id)?
             || kit::has_active_modifier(kit::held_row::<EffectProgramRow>(world, PROGRAM, inputs.program)?.as_deref(), &facility_id)
@@ -166,7 +166,7 @@ fn validate(world: &World, inputs: &Inputs<'_>, order: &Order<'_>, minute: i64) 
             return failed("intake order requires pending arrivals");
         }
     }
-    // `ZoneGraph.from_states(world.zones, world.zone_edges)` has no edge capacities, so the loads it is
+    // The world's zone graph (`travel::world_graph`) has no edge capacities, so the loads it is
     // given turn no edge down; they are read as the rule reads them.
     let graph = travel::world_graph(world)?;
     let geometry = match &world.row::<ValueRow>(MODEL_CONFIGS)?.0 {
@@ -205,7 +205,7 @@ fn text(value: &str) -> V {
     V::Str(Arc::from(value))
 }
 
-/// `order_staff_operation`: the task's ID. Its checks raise before any change; past them, the writes
+/// The order applied: the task's ID. Its checks raise before any change; past them, the writes
 /// are the rule's, in its order.
 pub fn order_operation(world: &World, inputs: &Inputs<'_>, order: &Order<'_>) -> WriteResult<String> {
     let minute = world.minute_index()?;
@@ -221,7 +221,7 @@ pub fn order_operation(world: &World, inputs: &Inputs<'_>, order: &Order<'_>) ->
     };
     let (formula_source, formula_policy, _) = formula.provenance();
     let (formula_source, formula_policy): (Arc<str>, Arc<str>) = (Arc::from(formula_source), Arc::from(formula_policy));
-    // `source_id or formula_source_id`.
+    // The order's `source_id`, or else the formula's.
     let event_source: Arc<str> = match order.source_id {
         Some(source) if !source.is_empty() => Arc::from(source),
         _ => formula_source.clone(),

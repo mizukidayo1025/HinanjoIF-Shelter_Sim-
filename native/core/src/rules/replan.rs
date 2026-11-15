@@ -1,5 +1,5 @@
-//! `_replan_journeys` of the update phase: the people whose route changed under them, in the order
-//! the walk returned them.
+//! The new routes of the update phase (`rules::tick::update::replan_journeys`): the people whose
+//! route changed under them, in the order the walk returned them.
 //!
 //! Each person is two steps. Their old trip stops (`stop`), and then a new route is planned from
 //! where that left them (`second_step`), reading what the stop wrote: their zone, and that nobody
@@ -53,8 +53,8 @@ pub const OTHER_OVERLAY: &str = "the world holds another overlay state";
 pub struct Replanning<'a> {
     pub routing: Routing<'a>,
     pub walking: Walking<'a>,
-    /// What `reserve_sleep_bed` reads, and whether the world holds `geometry_overlay_v1`, whose bed
-    /// a sleeper lets go.
+    /// What the bed's plan (`overlay::plan_bed`) reads, and whether the world holds
+    /// `geometry_overlay_v1`, whose bed a sleeper lets go.
     pub beds: Beds<'a>,
     /// The movement section of the configs, for the walk in a room.
     pub movement: &'a Kept<Movement>,
@@ -113,7 +113,7 @@ pub enum Second {
     /// Done: the serials of the queue's slots it took out.
     Done(Vec<u64>),
     /// A support whose staff the person can no longer reach: its continuity receipt, recorded
-    /// APPLIED at `minute`, is to be projected (`ingest_applied_shared_operation_records`), and then
+    /// APPLIED at `minute`, is to be projected (`care_receipts::ingest_applied`), and then
     /// `after_continuity` finishes the person's walk.
     Continuity { event: EventRow, minute: i64, taken: Vec<u64> },
 }
@@ -240,7 +240,8 @@ impl Step<'_, '_> {
         let route = travel::route(world, &self.replanning.routing, &zone, &target, agent_id)?.filter(|route| !route.edge_ids.is_empty());
         match route {
             Some(route) => {
-                // `_schedule_travel`, whose answer no one reads here.
+                // The trip planned and written (`travel::write_travel`); whether it was, no one
+                // reads here.
                 let events = Events::of(world)?;
                 if let Some(trip) = self.travel(&events, agent_id, route, Vec::new(), journey)? {
                     write_travel(world, &events, trip)?;
@@ -267,7 +268,7 @@ impl Step<'_, '_> {
         Ok(add_metric(world, REPLAN)?)
     }
 
-    /// `_replan_staff_support_trip`: whether the person still has their support.
+    /// The new trip to a staff member's support: whether the person still has their support.
     fn staff_support(&self, agent_id: &Arc<str>, journey: &Journey) -> WriteResult<Support> {
         let world = self.world;
         let minute = self.minute;

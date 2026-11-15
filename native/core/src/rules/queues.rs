@@ -1,4 +1,5 @@
-//! The physical queues of a facility: `prepare_facility_queue` and the movement it leads to. The
+//! The physical queues of a facility: their order (`prepare`, `prepare_independent`) and the
+//! movement it leads to. The
 //! kernels return the rules' ValueError texts themselves (`Error::value_error`;
 //! docs/rust-port/lanes/m4-queues.md).
 //!
@@ -46,7 +47,7 @@ const AGING_WEIGHT: f64 = 0.1;
 const AGING_MINUTES: f64 = 1440.0;
 /// How near a person counts as standing in their slot, in metres.
 const SLOT_TOLERANCE: f64 = 0.05;
-/// `NeedWeightedPhysicalQueuePolicy.model_id`, `source_id`.
+/// The need-weighted queue policy's model id and source id.
 const NEED_WEIGHTED_ID: &str = "need-weighted-physical-queue-v1";
 const NEED_WEIGHTED_SOURCE: &str = "ASM-NEED-WEIGHTED-PHYSICAL-QUEUE-V1";
 const ABANDON_DETAIL: &str = "Agent left a prolonged low-urgency queue and will reconsider after a bounded delay";
@@ -89,7 +90,7 @@ impl Fifo {
         }
     }
 
-    /// `request_for_agent` of this queue.
+    /// The person's request in this queue.
     pub fn request_of(&self, agent_id: &str) -> Option<&QueueRequest> {
         self.requests.iter().find(|request| &*request.agent_id == agent_id)
     }
@@ -144,8 +145,8 @@ impl Service {
     }
 }
 
-/// `_service_name`: `"toilet" in kind.casefold()`, then the two resource kinds. None for a kind the
-/// rule turns down.
+/// The service a facility kind gives: `"toilet" in kind.casefold()`, then the two resource kinds.
+/// None for a kind the rule turns down.
 pub fn service_of(kind: &str) -> Option<Service> {
     if is_toilet(kind) {
         Some(Service::Toilet)
@@ -158,7 +159,7 @@ pub fn service_of(kind: &str) -> Option<Service> {
     }
 }
 
-/// `_service_name` with its ValueError, whose text has the kind's Python `repr`.
+/// `service_of` with its ValueError, whose text has the kind's Python `repr`.
 fn service_named(kind: &str, kind_repr: Option<&str>) -> Result<Service> {
     match (service_of(kind), kind_repr) {
         (Some(service), _) => Ok(service),
@@ -167,7 +168,7 @@ fn service_named(kind: &str, kind_repr: Option<&str>) -> Result<Service> {
     }
 }
 
-/// `_service_need`.
+/// The person's need the service answers.
 fn need_of(needs: &NeedRow, service: Service) -> Result<f64> {
     let value = match service {
         Service::Toilet => needs.toilet_urgency,
@@ -188,7 +189,7 @@ fn priority(policy: &Policy, need: f64, waited: i64) -> f64 {
     }
 }
 
-/// `should_abandon`.
+/// Whether someone who has waited `waited` minutes with this need gives up, under the policy.
 fn abandons(policy: &Policy, service: Service, need: f64, waited: i64) -> bool {
     match policy {
         Policy::Strict => false,
@@ -210,7 +211,7 @@ fn policy_retry(policy: &Policy) -> i64 {
     }
 }
 
-/// `_queue_trips`: the trips of `movement_v1` to a place of this facility's queue, or of one of its
+/// The trips of `movement_v1` to a place of this facility's queue, or of one of its
 /// independent queues.
 fn fifo_trips<'a>(row: &'a MovementRow, facility_id: &'a str, queue_id: Option<&'a str>) -> impl Iterator<Item = (&'a Arc<str>, &'a Journey)> {
     row.journeys.iter().filter(move |(_, journey)| {
@@ -226,7 +227,7 @@ fn movement_row<'w>(world: &'w World, held: &Held) -> Result<Option<crate::cell:
     held_row::<MovementRow>(world, KEY, held)
 }
 
-/// `world.metric_state` as `field_mirror_of` and its row's check read it.
+/// `world.metric_state` as the field and its row's check read it.
 fn check_metrics(world: &World, metric_state_held: bool) -> Result<()> {
     if world.slots.get(METRIC_STATE).is_some() && !metric_state_held {
         return Err(Error::unsupported("the field holds another dict"));
@@ -235,13 +236,13 @@ fn check_metrics(world: &World, metric_state_held: bool) -> Result<()> {
     Ok(())
 }
 
-// ---- prepare_facility_queue --------------------------------------------------------------------
+// ---- prepare ------------------------------------------------------------------------------------
 
-/// What `prepare_facility_queue` and `prepare_independent_facility_queue` take besides the world.
+/// What `prepare` and `prepare_independent` take besides the world.
 pub struct Prepare<'a> {
     pub resource: bool,
     pub minute: i64,
-    /// `create_queue_policy` of the configs.
+    /// The queue policy of the configs (`config::queues`).
     pub policy: Policy,
     /// Whether the world holds `movement_v1`.
     pub movement: Held,
@@ -278,8 +279,9 @@ pub fn queued_kind(world: &World, facility_id: &str, resource: bool) -> Result<O
     Ok(rows.facilities.get(facility_id).filter(|facility| !members(facility, resource).is_empty()).map(|facility| facility.kind.clone()))
 }
 
-/// `prepare_facility_queue`, of a facility whose queue has people (`queued_kind`). Without
-/// `leave`, it asks for them where someone gives up, having written nothing.
+/// The order of a facility's queue and those who give up, for a facility whose queue has people
+/// (`queued_kind`). Without `leave`, it asks for them where someone gives up, having written
+/// nothing.
 pub fn prepare(world: &World, facility_id: &str, prepare: &Prepare<'_>, leave: Option<&LeaveInputs<'_>>) -> WriteResult<Prepared> {
     let (resource, minute, policy) = (prepare.resource, prepare.minute, prepare.policy);
     if let Some(row) = movement_row(world, &prepare.movement)? {
@@ -371,7 +373,7 @@ pub fn prepare(world: &World, facility_id: &str, prepare: &Prepare<'_>, leave: O
     Ok(Prepared::Done)
 }
 
-/// What `prepare_independent_facility_queue` reads before the policy: the facility and its kind,
+/// What `prepare_independent` reads before the policy: the facility and its kind,
 /// or None where it does nothing (no namespace or no such queue, someone walking to a place of the
 /// queue, nobody queued). The kind is None for a facility the rows don't have.
 pub fn independent_queue(world: &World, queue_id: &str, queues: &Held, movement: &Held) -> Result<Option<(Arc<str>, Option<Arc<str>>)>> {
@@ -396,8 +398,8 @@ pub fn independent_queue(world: &World, queue_id: &str, queues: &Held, movement:
     Ok(Some((facility_id, kind)))
 }
 
-/// `prepare_independent_facility_queue`, of a queue `independent_queue` found: an independent FIFO
-/// keeps its order, and only those who give up change anything. Without `leave`, it asks for them
+/// The same for an independent queue `independent_queue` found: an independent FIFO keeps its
+/// order, and only those who give up change anything. Without `leave`, it asks for them
 /// where someone gives up, having written nothing.
 pub fn prepare_independent(world: &World, queue_id: &str, facility_id: &str, prepare: &Prepare<'_>, leave: Option<&LeaveInputs<'_>>) -> WriteResult<Prepared> {
     let (resource, minute, policy) = (prepare.resource, prepare.minute, prepare.policy);
@@ -438,7 +440,7 @@ pub fn prepare_independent(world: &World, queue_id: &str, facility_id: &str, pre
                     None => return Err(Error::unsupported("no such agent").into()),
                 },
             };
-            // `_abandon_and_retry`'s first check: someone not in the facility's list stays as they are.
+            // The first check of giving up: someone not in the facility's list stays as they are.
             if abandons(&policy, service, need, waited) && members(facility, resource).contains(agent_id) {
                 leaving.push(Leaving { agent_id: agent_id.clone(), task_id: task.id.clone(), start: task.start_minute });
             }
@@ -457,7 +459,8 @@ pub fn prepare_independent(world: &World, queue_id: &str, facility_id: &str, pre
     Ok(Prepared::Done)
 }
 
-/// `_drop_stale_resource_stall` once the queue is in its new order: whether to delete the record.
+/// Whether the resource's stall record is stale once the queue is in its new order: whether to
+/// delete it.
 fn stale_stall(world: &World, prepare: &Prepare<'_>, facility_id: &str, new_order: &[Arc<str>]) -> Result<bool> {
     let agent = {
         let Some(row) = held_row::<ServiceRow>(world, SERVICE_KEY, &prepare.service)? else {
@@ -483,14 +486,14 @@ fn remove_stall(world: &World, facility_id: &str) -> Result<()> {
 
 // ---- _abandon_and_retry --------------------------------------------------------------------------
 
-/// Someone `should_abandon` picked, in the order the rule goes through them.
+/// Someone `abandons` picked, in the order the rule goes through them.
 struct Leaving {
     agent_id: Arc<str>,
     task_id: Arc<str>,
     start: i64,
 }
 
-/// What a call of `_abandon_and_retry` has in common for those who leave.
+/// What giving up (`write_all_leaving`) has in common for those who leave.
 struct LeaveCall<'a> {
     facility_id: &'a str,
     resource: bool,
@@ -502,10 +505,11 @@ struct LeaveCall<'a> {
     leave: Option<&'a LeaveInputs<'a>>,
 }
 
-/// What `_abandon_and_retry` writes for a person, with the sequences it takes from `sequence`.
+/// What giving up writes for a person, with the sequences it takes from `sequence`.
 struct LeavePlan {
     abandon: EventRow,
-    /// `finish_service`'s request and `record_queue_transition`'s record.
+    /// The request taken out of the independent queue and its transition record
+    /// (`facility_queues::transition_record`).
     transition: Option<(QueueRequest, EventRow)>,
     walk: Option<LeaveWalk>,
     sequences: i64,
@@ -545,7 +549,7 @@ fn return_path(geo: &Geo, movement: &MovementRow, rows: &Entities, model: &Read<
     Ok(Some(Some((minutes, path))))
 }
 
-/// `_abandon_and_retry` of one person, changing nothing. None when the rule returns at once and the
+/// Giving up, for one person, changing nothing. None when the rule returns at once and the
 /// person stays in line. Whether someone leaves doesn't turn on who left before: the path and the
 /// crowd of the zone stay what they were.
 fn plan_leave(world: &World, call: &LeaveCall<'_>, person: &Leaving, sequence: i64) -> Result<Option<LeavePlan>> {
@@ -636,7 +640,7 @@ struct Leaver<'a> {
     person: &'a Leaving,
 }
 
-/// `finish_service`'s request of the person's independent queue and its `abandoned` record, which
+/// The person's request taken out of their independent queue and its `abandoned` record, which
 /// takes `next`; None for a person in no independent queue.
 fn abandoned_transition(leaver: Leaver<'_>, leave: &LeaveInputs<'_>, next: i64) -> Result<Option<(QueueRequest, EventRow)>> {
     let Leaver { world, call, events, person } = leaver;
@@ -655,7 +659,7 @@ fn abandoned_transition(leaver: Leaver<'_>, leave: &LeaveInputs<'_>, next: i64) 
                         return Err(Error::unsupported("no floor plan"));
                     };
                     let capacity = point_of(geo, queue_id).map(|point| point.service_capacity);
-                    // After `finish_service` the request has no place in the queue.
+                    // Taken out, the request has no place in the queue.
                     let taken = events.is_realized(&fifo::transition_id(next), Some(next))?;
                     let wait = Some(minute - request.requested_minute);
                     let record = fifo::transition_record(
@@ -754,7 +758,7 @@ fn abandon_walk(leaver: Leaver<'_>, points: &Arc<[Pt]>, (minutes, due): (i64, i6
     Ok(LeaveWalk { task_id, destination: zone, due, event, changes })
 }
 
-/// `start_movement` of a walk along a path of points.
+/// The start of a walk along a path of points (`kit::movement::plan_start`).
 fn start_on_path(row: &MovementRow, rows: &Entities, start: Start<'_>) -> Result<Changes> {
     if start.points.is_empty() {
         return Err(Error::unsupported("a walk without the points of its path"));
@@ -778,7 +782,7 @@ fn plan_all_leaving(world: &World, call: &LeaveCall<'_>, leaving: &[Leaving]) ->
     Ok(())
 }
 
-/// `_abandon_and_retry`, in the order of its writes.
+/// Giving up, for each person who leaves, in the order of the writes.
 fn write_all_leaving(world: &World, call: &LeaveCall<'_>, leaving: &[Leaving]) -> WriteResult<()> {
     let minute = call.minute;
     for person in leaving {
@@ -847,7 +851,7 @@ fn write_all_leaving(world: &World, call: &LeaveCall<'_>, leaving: &[Leaving]) -
 
 // ---- progress_physical_queue_positions and _head_to_service --------------------------------------
 
-/// A route to walk: `_schedule_queue_trip`'s arguments.
+/// A route to walk to a place of a queue: what `plan_trip` takes.
 pub struct Route {
     pub agent_id: Arc<str>,
     pub index: usize,
@@ -859,7 +863,7 @@ pub struct Route {
 pub enum Plan {
     Nothing,
     Blocked,
-    /// `_schedule_queue_trip` of a route that really walks.
+    /// The trip of a route that really walks.
     Trip(Box<Trip>),
 }
 
@@ -902,7 +906,7 @@ pub struct TripEvent {
     pub duration: i64,
 }
 
-/// `_schedule_queue_trip`, changing nothing, taking this event number.
+/// The trip to a place of a queue, changing nothing, taking this event number.
 pub fn plan_trip(
     row: &MovementRow,
     rows: &Entities,
@@ -928,7 +932,7 @@ pub fn plan_trip(
         return Err(Error::unsupported("a facility with an empty ID"));
     }
     let task_kind = if resource { "resource_service_queue" } else { "toilet_queue" };
-    // `request_for_agent`, whose task and place in the queue a trip names.
+    // The person's request, whose task and place in the queue a trip names.
     let queue_request = match fifo {
         Some(fifo) => match fifo.requests.iter().find(|request| request.agent_id == route.agent_id) {
             Some(request) => Some((fifo, request)),
@@ -1064,7 +1068,7 @@ pub struct SlotOf<'a> {
     pub fifo: Option<&'a Fifo>,
 }
 
-/// `facility_queue_slot_route`: the route's minutes and its path, or None for no route.
+/// The route to the person's slot in the queue: its minutes and its path, or None for no route.
 pub fn slot_route(geo: &Geo, row: &MovementRow, rows: &Entities, model: &Read<MovementModel>, slot: SlotOf<'_>) -> Result<Option<(i64, Arc<[Pt]>)>> {
     let SlotOf { agent_id, facility, facility_id, fifo } = slot;
     let Some(destination) = queue_slot_in(geo, row, rows, agent_id, facility_id, fifo.map(Fifo::slot_view))? else {
@@ -1120,8 +1124,8 @@ fn walk_start<'w>(world: &'w World, walk: &Walk<'_>, queue_id: Option<&str>) -> 
     Ok((fifo, events))
 }
 
-/// `progress_physical_queue_positions` of a placed world (`"facility_geometry"` in the configs and
-/// `movement_v1` in the state): the first person of the queue not in their place walks there.
+/// The walks to the places of the queue, in a placed world (`"facility_geometry"` in the configs
+/// and `movement_v1` in the state): the first person of the queue not in their place walks there.
 pub fn positions(world: &World, walk: &Walk<'_>, facility_id: &str, resource: bool, minute: i64, queue_id: Option<&str>) -> WriteResult<bool> {
     let (fifo, events) = walk_start(world, walk, queue_id)?;
     let queue_name = fifo.as_ref().map(|fifo| &*fifo.queue_id);
@@ -1192,8 +1196,8 @@ pub fn positions(world: &World, walk: &Walk<'_>, facility_id: &str, resource: bo
     Ok(result)
 }
 
-/// `progress_physical_queue_head_to_service` of a placed world: false has written nothing, and a
-/// refusal changes nothing.
+/// The walk of the queue's head to the service, in a placed world: false has written nothing, and
+/// a refusal changes nothing.
 pub fn head_to_service(world: &World, walk: &Walk<'_>, facility_id: &str, resource: bool, minute: i64, queue_id: Option<&str>) -> WriteResult<bool> {
     let (fifo, events) = walk_start(world, walk, queue_id)?;
     let queue_name = fifo.as_ref().map(|fifo| &*fifo.queue_id);

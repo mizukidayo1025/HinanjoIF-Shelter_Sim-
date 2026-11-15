@@ -137,7 +137,7 @@ impl<'a, C: WorldCell, H: Host> CoreChecks<'a, C, H> {
         Ok(Some(answer))
     }
 
-    /// `validate_agent_dynamics_state` with the policy the configs select.
+    /// The check of `agent_dynamics_v1`, with the policy the configs select.
     fn agent_dynamics(&mut self, held: &Held) -> Result<bool> {
         if self.with(|world| absent(world, held, agent_dynamics::NAME))? {
             return Ok(true);
@@ -158,7 +158,7 @@ impl<'a, C: WorldCell, H: Host> CoreChecks<'a, C, H> {
         })
     }
 
-    /// `validate_movement_runtime_state`: the floor plan is read only for journeys in rooms.
+    /// The check of `movement_v1`: the floor plan is read only for journeys in rooms.
     fn movement(&mut self, held: &Held) -> Result<bool> {
         if self.with(|world| absent(world, held, MOVEMENT))? {
             return Ok(true);
@@ -183,7 +183,8 @@ impl<'a, C: WorldCell, H: Host> CoreChecks<'a, C, H> {
         }
     }
 
-    /// `validate_geometry_overlay_state`: the floor plan is read only where the rule reads it.
+    /// The check of the overlay (`overlay::check_overlay`): the floor plan is read only where the
+    /// rule reads it.
     fn overlay(&mut self, held: &Held) -> Result<bool> {
         match self.with(|world| overlay::check_overlay(world, held, None)) {
             Ok(()) => Ok(true),
@@ -197,7 +198,7 @@ impl<'a, C: WorldCell, H: Host> CoreChecks<'a, C, H> {
         }
     }
 
-    /// `validate_facility_queue_state`.
+    /// The check of `facility_queues_v1`.
     fn queues(&mut self, held: &Held) -> Result<bool> {
         let required = self.plan.independent_queues;
         match held {
@@ -221,7 +222,7 @@ fn host_refusal<E: HostFailure>(error: E) -> Error {
     Error::unsupported(error.text())
 }
 
-/// `namespace_is_absent`: `model_state` has no such key, or holds None there.
+/// Whether the namespace is absent: `model_state` has no such key, or holds None there.
 fn absent(world: &World, held: &Held, name: &str) -> Result<bool> {
     match held {
         Held::Absent => Ok(true),
@@ -248,8 +249,8 @@ fn untouched<T: Row, R>(world: &World, name: &str, f: impl FnOnce(&mut T) -> R) 
     Ok(f(slot.row_mut::<T>()?))
 }
 
-/// `validate_population_dynamics_state`: the core's check of a state with no one pending and no
-/// context, and else the rule itself.
+/// The check of the population's dynamics: the core's check of a state with no one pending and no
+/// context, and else the rule itself (`population::validate`).
 fn population_dynamics(world: &World, held: &Held) -> Result<bool> {
     Ok(match entity::population_dynamics(world, held)? {
         Dynamics::Taken => true,
@@ -312,7 +313,7 @@ fn service_passes(world: &World, holding: &Holding, held: &Held) -> Result<bool>
     row.passes_rules(&rows, &Known { rows: &rows, archived }, minute, &heads)
 }
 
-/// `validate_staff_operations_state`: the rules of the row, then those of each active record that
+/// The check of `staff_operations_v1`: the rules of the row, then those of each active record that
 /// read its task, its staff member, the graph and the pending events.
 fn staff_operations_pass(world: &World, held: &Held) -> Result<bool> {
     if absent(world, held, staff_operations::NAME)? {
@@ -362,8 +363,8 @@ fn sum(first: i64, second: i64) -> Result<i64> {
     first.checked_add(second).ok_or_else(|| Error::unsupported("a route's minutes out of range"))
 }
 
-/// The rules of the active records that read the world (`validate_staff_operations_state`), from
-/// the entity rows and the pending events' rows.
+/// The rules of the active records that read the world (of `staff_operations_v1`), from the entity
+/// rows and the pending events' rows.
 fn active_records_pass(world: &World, rows: &Entities, active: &[Active]) -> Result<bool> {
     let pending = pending_rows(world)?;
     for record in active {
@@ -456,8 +457,8 @@ fn active_records_pass(world: &World, rows: &Entities, active: &[Active]) -> Res
     Ok(true)
 }
 
-/// `_validate_staff_operation_receipt`'s reading of the retained completions, for a receipt of the
-/// shared operations.
+/// The reading of the retained completions by a staff operation's receipt check, for a receipt of
+/// the shared operations.
 fn completion_agrees(world: &World, staff: &Held, receipt: &serde_json::Value, truncated: bool) -> Result<bool> {
     let task_id = receipt.get("task_id").and_then(serde_json::Value::as_str);
     let minute = receipt.get("minute").and_then(serde_json::Value::as_i64);
@@ -471,9 +472,9 @@ fn completion_agrees(world: &World, staff: &Held, receipt: &serde_json::Value, t
     Ok(world.row::<StaffOperationsRow>(staff_operations::NAME)?.completion_agrees(task_id, minute, receipt, truncated))
 }
 
-/// `validate_shared_operations_state` of a tick (no replay of the history), `_TICK_VALID`: the
-/// recent receipts the core's rules appended and checked, each of an event the log holds; each
-/// head of a request agreeing with its request; the staff member each assignment's event names.
+/// The check of `shared_operations_v1` of a tick (no replay of the history): the recent receipts
+/// the core's rules appended and checked, each of an event the log holds; each head of a request
+/// agreeing with its request; the staff member each assignment's event names.
 fn shared_operations_pass(world: &World, held: &Held, staff: &Held) -> Result<bool> {
     if absent(world, held, shared_operations::NAME)? {
         return Ok(true);

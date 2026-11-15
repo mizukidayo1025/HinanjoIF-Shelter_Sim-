@@ -6,7 +6,7 @@
 //! the rule's order of checks (`decide`); every check comes before the first write. Where a value
 //! is not what a valid state holds, the rule says Unsupported, still before any change.
 //!
-//! What a walk to a toilet or a resource leads to (`_after_arrival`, `arrive`) is the functions
+//! What a walk to a toilet or a resource leads to (`arrive`) is the functions
 //! here (`arrival_approach`, `reject_room`, `rejected_request`) and the toilet's and the resource
 //! service's own requests (`Managers`, which `rules::dispatch` implements).
 
@@ -126,7 +126,7 @@ pub fn is_queue_walk(purpose: &str) -> bool {
     matches!(purpose, "toilet_queue_position" | "resource_queue_position" | "toilet_queue_service" | "resource_queue_service")
 }
 
-/// `ResourceServiceManager.resource_for_facility(kind) is None`.
+/// Whether the facility kind is one the resource service serves (water or meals).
 fn is_resource_facility(kind: &str) -> bool {
     matches!(kind, "water_station" | "meal_distribution")
 }
@@ -545,9 +545,10 @@ pub fn write(world: &World, inputs: &Inputs<'_>, row: &EventRow, decision: Decis
     Ok(())
 }
 
-/// A walk's checks and writes (`apply` without `_after_arrival`): the walk written, or None for a
-/// queue walk that writes nothing. An error of the rule's checks (`decide`) is `Checks`; what a
-/// relocation's completion refuses before the writes, and any error of the writes, is `After`.
+/// A walk's checks and writes (without what the arrival leads to, `arrive`): the walk written, or
+/// None for a queue walk that writes nothing. An error of the rule's checks (`decide`) is `Checks`;
+/// what a relocation's completion refuses before the writes, and any error of the writes, is
+/// `After`.
 pub fn apply(world: &World, inputs: &Inputs<'_>, row: &EventRow) -> std::result::Result<Option<Walk>, Applied> {
     let decision = match decide(world, inputs, row) {
         Ok(Some(decision)) => decision,
@@ -570,7 +571,7 @@ pub enum Applied {
     After(Error),
 }
 
-// ---- `_after_arrival` and `_reject_room_approach` ------------------------------------------------
+// ---- The arrival's approach and its rejection ---------------------------------------------------
 
 /// What a walk to a toilet or a resource does first, with a floor plan and a facility without
 /// independent queues: the walk in the room to the facility, or its rejection.
@@ -582,7 +583,7 @@ pub enum Approach {
     Travel(PlannedTrip),
 }
 
-/// The approach of `_after_arrival`. `has_geometry` is `"facility_geometry" in model_configs`;
+/// The approach of an arrival (`arrive`). `has_geometry` is `"facility_geometry" in model_configs`;
 /// `reserved` the sequences the caller's writer reserved.
 /// `approach` starts from the arrival's destination.
 pub fn arrival_approach(
@@ -623,9 +624,9 @@ fn action_of(kind: Option<&str>) -> &'static str {
     }
 }
 
-/// `_reject_room_approach`: for a resource request with a resource service (`resource`), the
-/// request's outcome rejected ("room_route_blocked") from the origin zone when a str, else the
-/// person's zone, and counted; always counted as `facility_approach_rejected_count`.
+/// The rejection of the approach in the room: for a resource request with a resource service
+/// (`resource`), the request's outcome rejected ("room_route_blocked") from the origin zone when a
+/// str, else the person's zone, and counted; always counted as `facility_approach_rejected_count`.
 pub fn reject_room(
     world: &World,
     service: &Held,
@@ -681,7 +682,7 @@ pub fn rejected_request(world: &World, service: &Held, agent_id: &str, facility_
     kit::add_metric(world, "resource_service_request_rejected_count")
 }
 
-/// What the resource branch of `_after_arrival` checks before the request, which may write the
+/// What the resource branch of `arrive` checks before the request, which may write the
 /// task counter and then turn the person down: the service's row and the metric state.
 pub fn check_resource_request(world: &World, service: &Held, metric_state_held: bool) -> Result<()> {
     if let Held::Other(reason) = service {
@@ -691,7 +692,7 @@ pub fn check_resource_request(world: &World, service: &Held, metric_state_held: 
     kit::check_metric_state(world, metric_state_held)
 }
 
-// ---- What a walk reads, and `_after_arrival`, through the host (lane P9-1a) -----------------------
+// ---- What a walk reads, and `arrive`, through the host ------------------------------------------
 
 /// The refusals of the namespaces the world holds other values of.
 pub const OTHER_MOVEMENT: &str = "the world holds another movement state";
@@ -767,7 +768,7 @@ pub fn has_geometry<C: WorldCell, H: Host>(cell: &C, host: &mut H) -> std::resul
         .ok_or_else(|| Error::unsupported(crate::host::TABLE_NOT_PLAIN).into())
 }
 
-/// A walk that reached a toilet or a resource, as `_after_arrival` takes it.
+/// A walk that reached a toilet or a resource, as `arrive` takes it.
 pub struct Arrival<'a> {
     pub agent_id: &'a str,
     pub purpose: &'a str,
@@ -777,7 +778,7 @@ pub struct Arrival<'a> {
     pub origin: Option<&'a str>,
     /// `"facility_geometry" in model_configs`.
     pub has_geometry: bool,
-    /// Whether the handler has a resource service (`_reject_room_approach` reads it).
+    /// Whether the handler has a resource service (`reject_room` reads it).
     pub resource_service: bool,
     /// `handler.validate_request_state`, truthy.
     pub validates: bool,
@@ -800,7 +801,7 @@ pub trait Managers<H: Host> {
 /// A rule's result past the host: a core error or a duplicate event is the write's.
 pub type Arrived = crate::events::writer::WriteResult<()>;
 
-/// `_reject_room_approach`, with whether the world holds the service and `metric_state` read
+/// `reject_room`, with whether the world holds the service and `metric_state` read
 /// through the host. `resource`: a resource request with a resource service.
 pub fn reject_room_through<C: WorldCell, H: Host>(
     cell: &C,
@@ -817,10 +818,10 @@ pub fn reject_room_through<C: WorldCell, H: Host>(
     Ok(cell.with(|world| reject_room(world, &held, metrics, resource, agent_id, facility_id, origin.as_ref()))??)
 }
 
-/// `_after_arrival` where the managers make their own requests (a manager with its own `request`, a
-/// test's, is the host's: `Host::apply_foreign`). With a floor plan and a facility without
-/// independent queues the person first walks in the room (`arrival_approach`), or the approach is
-/// turned away (`_reject_room_approach`). Then a toilet walk asks the toilet's queue, with the
+/// What an arrival leads to, where the managers make their own requests (a manager with its own
+/// `request`, a test's, is the host's: `Host::apply_foreign`). With a floor plan and a facility
+/// without independent queues the person first walks in the room (`arrival_approach`), or the
+/// approach is turned away (`reject_room`). Then a toilet walk asks the toilet's queue, with the
 /// world's validation around it where the handler asks for it, and its `ValueError` is the event's
 /// failure with its text; a resource walk asks the resource service's, and its refusal is recorded
 /// (`rejected_request`). What the floor plan's read raised is raised where the approach reads it.

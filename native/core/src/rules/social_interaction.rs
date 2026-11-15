@@ -434,7 +434,7 @@ fn untyped_event(world: &World, payload: &V) -> Result<Said> {
     Ok(None)
 }
 
-/// `_social_payload_fields(payload) == set(names)`: these fields, with or without
+/// Whether the payload's social fields are exactly `names`, with or without
 /// `conversation_state_context`.
 fn typed_fields(payload: &V, names: &[&str]) -> bool {
     let V::Map(map) = payload else {
@@ -482,7 +482,7 @@ impl Typed<'_> {
     }
 }
 
-/// `_apply_typed_interaction` of every type but the three social actions.
+/// A typed interaction of every type but the three social actions.
 fn other_typed_event(world: &World, event: &EventRow, interaction: &V, kind: Option<&str>, inputs: &Inputs) -> Result<Said> {
     let payload = &event.payload;
     let provenance = &event.provenance;

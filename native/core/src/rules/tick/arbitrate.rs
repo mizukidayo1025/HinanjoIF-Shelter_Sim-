@@ -2,7 +2,7 @@
 //! queues (`toilet::arbitrate`, `service::arbitrate`, which were the driver's loops), the
 //! assignment of support with its receipts, the staff's operations, the complaints and the relief.
 //!
-//! The queue steps each loop takes (`prepare_facility_queue`, the walks of a placed world, the
+//! The queue steps each loop takes (`queues::prepare`, the walks of a placed world, the
 //! independent queues' checks) read their inputs here (`rules::queues`, `rules::facility_queues`).
 
 use std::sync::Arc;
@@ -44,7 +44,7 @@ pub fn arbitrate<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R>
     if !none {
         crate::rules::service::arbitrate(tick)?;
     }
-    // `_assign_staff_support`.
+    // The staff's support assigned (`staff::assign_pending`).
     let assigned = assign_pending(tick).at("staff.assign_pending")?;
     if !assigned.is_empty() {
         // The receipts of the assignments.
@@ -189,7 +189,7 @@ impl<C: WorldCell, H: Host, R: RunCell> Tick<'_, C, H, R> {
     }
 }
 
-/// `update_staff_dynamics`.
+/// The staff dynamics of the minute (`staff_dynamics::update`).
 fn staff_dynamics<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R>) -> std::result::Result<(), H::Error> {
     let holding = tick.holding()?;
     if tick.is_absent(&holding, crate::state::staff_dynamics::NAME)? {
@@ -200,7 +200,7 @@ fn staff_dynamics<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R
     tick.world(|world| crate::rules::staff_dynamics::update(world, minute, &formula))
 }
 
-/// `update_staff_operations`.
+/// The staff's operations of the minute (`staff::update_operations`).
 fn update_operations<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R>) -> std::result::Result<(), H::Error> {
     let holding = tick.holding()?;
     if tick.is_absent(&holding, "staff_operations_v1")? {
@@ -211,8 +211,8 @@ fn update_operations<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H
     tick.world(|world| staff::update_operations(world, &staff.inputs(None), minute))
 }
 
-/// The staff service's parameters as the Run read them (`assign_pending_of_run`): a read that
-/// raised is raised again by reading the service again (policy E14).
+/// The staff service's parameters as the Run read them: a read that raised is raised again by
+/// reading the service again (policy E14).
 fn service_of<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R>) -> std::result::Result<Service, H::Error> {
     let policies = tick.policies.clone();
     let read = policies.services.staff.object().and_then(|service| crate::run::services::staff_service(service));
@@ -228,8 +228,8 @@ fn service_of<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R>) -
     }
 }
 
-/// `_assign_staff_support`'s `assign_pending`, with the service as the Run read it: the plain case
-/// first, and where a request may be assigned, the queue's rows, the floor plan and the
+/// The staff's support assigned (`staff::assign_pending`), with the service as the Run read it: the
+/// plain case first, and where a request may be assigned, the queue's rows, the floor plan and the
 /// controller's travel.
 fn assign_pending<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R>) -> std::result::Result<Vec<Arc<str>>, H::Error> {
     let service = service_of(tick)?;
@@ -270,7 +270,7 @@ fn assign_pending<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R
     }
 }
 
-/// `_record_assigned_support`: the receipts of the requests just assigned.
+/// The receipts of the requests just assigned (`support::record_assigned`).
 fn record_assigned<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R>, assigned: &[Arc<str>]) -> std::result::Result<(), H::Error> {
     let holding = tick.holding()?;
     let shared = match holding.is_absent("shared_operations_v1") {
@@ -285,7 +285,7 @@ fn record_assigned<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, 
     tick.written(written)
 }
 
-/// `assign_staff_operations` with the Run's staff router.
+/// The staff's operations assigned (`staff::assign_operations`) with the Run's staff router.
 fn assign_operations<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R>) -> std::result::Result<(), H::Error> {
     let holding = tick.holding()?;
     if tick.is_absent(&holding, "staff_operations_v1")? {
@@ -317,8 +317,8 @@ fn assign_operations<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H
     }
 }
 
-/// `_consider_due_complaints`: the policy's threshold as the Run read it, its decision through the
-/// host.
+/// The complaints due (`staff::consider_due_complaints`): the policy's threshold as the Run read
+/// it, its decision through the host.
 fn consider_due_complaints<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R>) -> std::result::Result<(), H::Error> {
     if let Some(limits) = tick.host.social_limits() {
         return staff::consider_due_complaints(tick.cell, tick.host, Some(limits.complaint_wait_minutes), tick.minute);
@@ -338,7 +338,7 @@ fn consider_due_complaints<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_
     staff::consider_due_complaints(tick.cell, tick.host, Some(threshold), tick.minute)
 }
 
-/// `schedule_staff_operation_relief`.
+/// The relief of the staff's operations (`staff::relief`).
 fn relief<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R>) -> std::result::Result<(), H::Error> {
     let holding = tick.holding()?;
     if tick.is_absent(&holding, "staff_operations_v1")? {
@@ -370,7 +370,7 @@ fn kind_repr(kind: &str) -> Option<String> {
 }
 
 impl<C: WorldCell, H: Host, R: RunCell> Tick<'_, C, H, R> {
-    /// `create_queue_policy` of the configs (`policy_of` of the queues' glue).
+    /// The queue policy of the configs (`config::queues`) and its selection.
     fn queue_policy(&mut self, holding: &Holding) -> std::result::Result<QueuePolicy, H::Error> {
         let config = self.value_now(holding, SectionId::FacilityQueues, |configs| &configs.facility_queues, QueueConfig::parse)?;
         let selected = match self.host_section(holding, SectionId::Selection, |configs| &configs.selection)? {
@@ -409,7 +409,7 @@ impl<C: WorldCell, H: Host, R: RunCell> Tick<'_, C, H, R> {
         Ok(Leave { movement, geo, metric_state_held })
     }
 
-    /// `prepare_facility_queue`.
+    /// The order of a facility's queue (`queues::prepare`).
     pub fn prepare_queue(&mut self, facility: &str, resource: bool) -> Step<(), H::Error> {
         self.prepare_shared(facility, resource).at("queues.prepare_facility_queue")
     }
@@ -436,7 +436,7 @@ impl<C: WorldCell, H: Host, R: RunCell> Tick<'_, C, H, R> {
         self.written(result).map(drop)
     }
 
-    /// `prepare_independent_facility_queue`.
+    /// The order of an independent queue (`queues::prepare_independent`).
     pub fn prepare_independent(&mut self, queue: &str, resource: bool) -> Step<(), H::Error> {
         self.prepare_one(queue, resource).at("queues.prepare_independent_facility_queue")
     }
@@ -479,7 +479,7 @@ impl<C: WorldCell, H: Host, R: RunCell> Tick<'_, C, H, R> {
         Ok(movement.has_geometry.then_some(movement))
     }
 
-    /// The floor plan of a placed world, which `physical_service_capacity` reads, or None.
+    /// The floor plan of a placed world, which `service::service_capacity` reads, or None.
     pub fn placement(&mut self) -> std::result::Result<Option<Arc<Geo>>, H::Error> {
         let holding = self.holding()?;
         match self.placed(&holding)? {
@@ -504,7 +504,8 @@ impl<C: WorldCell, H: Host, R: RunCell> Tick<'_, C, H, R> {
         Ok(Walking { movement, geo, moving, queues, metric_state_held: holding.field(METRIC_STATE) })
     }
 
-    /// `progress_physical_queue_positions` (`head` false) or `progress_physical_queue_head_to_service`.
+    /// The walks to the places of the queue (`queues::positions`, `head` false) or the head's walk
+    /// to the service (`queues::head_to_service`).
     pub fn progress(&mut self, facility: &str, resource: bool, head: bool, queue: Option<&str>) -> Step<bool, H::Error> {
         let label = if head { "queues.progress_physical_queue_head_to_service" } else { "queues.progress_physical_queue_positions" };
         self.walk_queue(facility, resource, head, queue).at(label)

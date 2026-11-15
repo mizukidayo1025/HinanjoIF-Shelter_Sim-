@@ -101,8 +101,8 @@ fn taken(first: i64, second: i64) -> Result<i64> {
     first.checked_sub(second).ok_or_else(|| Error::unsupported("a quantity past 64 bits"))
 }
 
-/// The world beside the ledger, as `validate_resource_ledger_state` reads it: the people, the
-/// zones and `world.resources`, from their rows.
+/// The world beside the ledger, as the ledger's checks (`LedgerRow::passes_rules_in`) read it: the
+/// people, the zones and `world.resources`, from their rows.
 struct InWorld<'a>(&'a World);
 
 impl LedgerWorld for InWorld<'_> {
@@ -132,12 +132,12 @@ impl LedgerWorld for InWorld<'_> {
     }
 }
 
-/// Whether `validate_resource_ledger_state` passes the ledger as the world holds it.
+/// Whether the ledger's checks pass the ledger as the world holds it.
 pub fn ledger_passes(world: &World, row: &LedgerRow) -> Result<bool> {
     row.passes_rules_in(&InWorld(world))
 }
 
-/// `_valid_id(value)`: Some(the ID), None when it isn't a str that is one.
+/// The stable ID `value` holds: Some(the ID), None when it isn't a str that is one.
 fn stable_id(value: &V) -> Option<&Arc<str>> {
     match value {
         V::Str(id) if is_valid_id(id) => Some(id),
@@ -155,7 +155,7 @@ fn valid_id(id: &str) -> Result<&str> {
     }
 }
 
-/// What `apply_resource_operation` reads of its event: the payload as the event holds it, its
+/// What `apply_operation` reads of its event: the payload as the event holds it, its
 /// `source_id` (None for none) and its `event_id`.
 pub struct OperationEvent<'a> {
     pub payload: &'a V,
@@ -178,17 +178,17 @@ pub struct Operation<'a> {
     pub event_id: &'a str,
 }
 
-/// The `operation` argument of `apply_resource_operation`: an exact str, or the `repr` of anything
+/// The `operation` argument of `apply_operation`: an exact str, or the `repr` of anything
 /// else, which is an unknown operation.
 pub enum OperationArg<'a> {
     Text(&'a str),
     Other(String),
 }
 
-/// `apply_resource_operation` of a world whose `model_state` holds the ledger's tree (the caller
+/// A resource operation applied to a world whose `model_state` holds the ledger's tree (the caller
 /// asks that first). Its checks are made in a fixed order, with their texts.
 pub fn apply_operation(world: &mut World, event: &OperationEvent<'_>, operation: OperationArg<'_>) -> std::result::Result<Applied, Fail> {
-    // `validate_resource_ledger_state` of the ledger as it is: what it turns down is Unsupported.
+    // The ledger's checks of the ledger as it is: what they turn down is Unsupported.
     let ledger_warehouse = {
         let row = world.row::<LedgerRow>(NAME)?;
         if !ledger_passes(world, &row)? {
@@ -446,7 +446,7 @@ pub fn apply_planned(world: &mut World, planned: &Operation<'_>) -> std::result:
     Ok(Applied { index, remaining })
 }
 
-/// The KPI columns of `resource_metric_values`, in their order: initial, delivered, served, losses,
+/// The ledger's KPI columns, in their order: initial, delivered, served, losses,
 /// remaining and reserved, of water and then of meals.
 pub fn metric_values(world: &World) -> Result<[[i64; 6]; 2]> {
     let row = world.row::<LedgerRow>(NAME)?;

@@ -1,5 +1,6 @@
-//! The core gives Python's bytes without Python. The expected values come from CPython 3.12
-//! (`repr`, `CounterRNG(2026).random(...)`); the Python tests check the same through the PyO3 crate.
+//! The core's floats and strings written as CPython 3.12 writes them (`repr`, `json.dumps`), its
+//! math as Python's, and its keyed draws (`rng::KeyedDraws`). The draws were recorded before #430
+//! and pin the core's output now.
 
 use sheltersim_core::json::{python_float_repr, write_float, write_json_string, NotFinite};
 use sheltersim_core::mathx::{pow, py_max, py_round};
@@ -15,7 +16,7 @@ fn float_repr_is_pythons() {
 }
 
 #[test]
-fn json_leaves_non_finite_floats_to_python() {
+fn json_refuses_non_finite_floats() {
     let mut out = Vec::new();
     assert_eq!(write_float(&mut out, f64::NAN), Err(NotFinite));
     assert_eq!(write_float(&mut out, f64::INFINITY), Err(NotFinite));
@@ -31,7 +32,7 @@ fn json_strings_escape_as_json_dumps() {
 }
 
 #[test]
-fn keyed_draws_match_counter_rng() {
+fn keyed_draws_are_the_recorded_ones() {
     let draws = KeyedDraws::new("2026");
     let mut key = Key::labelled("propose");
     key.int(1).text("agent-1");

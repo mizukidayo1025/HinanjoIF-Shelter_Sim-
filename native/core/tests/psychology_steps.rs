@@ -202,7 +202,7 @@ fn the_document_of_each_model_is_the_recorded_one() {
                     Held::Text(text) => V::Str(text.clone()),
                     other => panic!("a source id of {other:?}"),
                 };
-                let inputs = TraceInputs { source_id: &source_id, policy_version: &V::Str(result.policy_version.clone()), minute: &V::Int(0) };
+                let inputs = TraceInputs { source_id: &source_id, policy_version: &result.policy_version, minute: 0 };
                 let mut host = TestHost { level, ..TestHost::default() };
                 trace::record_psychology(&mut host, &view, result.traces.as_ref().unwrap(), &finals, &inputs).unwrap();
                 let [Call::Trace(Trace::Psychology { document, contributions })] = &host.calls[..] else {

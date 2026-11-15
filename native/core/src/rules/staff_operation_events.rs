@@ -39,7 +39,7 @@ use crate::host::Host;
 use crate::mathx::{py_max, py_min};
 use crate::row::ValueRow;
 use crate::rules::care_receipts::{self, Made, OperationOutcome};
-use crate::rules::common_operations::py_eq;
+use crate::rules::common_operations::Change;
 use crate::rules::kit::{self, Events, Held};
 use crate::rules::movement::{self, StaffOps};
 use crate::rules::staff_dynamics;
@@ -185,9 +185,59 @@ fn opt_text(text: &Option<Arc<str>>) -> V {
     text.clone().map_or(V::Null, V::Str)
 }
 
-/// `value == text` of a value and an optional text of a row.
-fn eq_text(value: &V, text: &Option<Arc<str>>) -> bool {
-    py_eq(value, &opt_text(text))
+/// A value of a payload where the rule compares it with an optional text of a row: a str, None (or
+/// no such key, as `payload.get` reads it), or any other value, which equals no such text.
+#[derive(Clone, Debug)]
+enum PayloadText {
+    Text(Arc<str>),
+    Null,
+    Other,
+}
+
+impl PayloadText {
+    fn of_value(value: &V) -> Self {
+        match value {
+            V::Str(text) => Self::Text(text.clone()),
+            V::Null => Self::Null,
+            _ => Self::Other,
+        }
+    }
+
+    /// `payload.get(name)`.
+    fn of(event: &EventRow, name: &str) -> Self {
+        Self::of_value(kit::payload(event, name).unwrap_or(&V::Null))
+    }
+
+    /// An optional text of a row, as Python's value.
+    fn of_row(text: &Option<Arc<str>>) -> Self {
+        text.clone().map_or(Self::Null, Self::Text)
+    }
+
+    fn text(&self) -> Option<&Arc<str>> {
+        match self {
+            Self::Text(text) => Some(text),
+            Self::Null | Self::Other => None,
+        }
+    }
+
+    /// `value == text` of this value and an optional text of a row.
+    fn is(&self, text: &Option<Arc<str>>) -> bool {
+        match (self, text) {
+            (Self::Text(value), Some(text)) => value == text,
+            (Self::Null, None) => true,
+            _ => false,
+        }
+    }
+
+    /// `value == self` of another payload's value, where this one is a str or None: `Other` is
+    /// never compared (each caller has matched it with a row's text first).
+    fn is_value(&self, value: &V) -> bool {
+        match (self, value) {
+            (Self::Text(text), V::Str(value)) => text == value,
+            (Self::Null, V::Null) => true,
+            _ => false,
+        }
+    }
 }
 
 /// `dict.get(value)` of a table keyed by str: None for a value that is no str, Unsupported for one
@@ -273,11 +323,11 @@ fn pending_rows(world: &World) -> Result<Vec<Arc<EventRow>>> {
 }
 
 /// `event.payload.get("task_id") == task_id`.
-fn names_task(row: &EventRow, task_id: &V) -> Result<bool> {
+fn names_task(row: &EventRow, task_id: &PayloadText) -> Result<bool> {
     let V::Map(payload) = &row.payload else {
         return Err(Error::unsupported("a payload is not a plain dict"));
     };
-    Ok(py_eq(payload.get("task_id").unwrap_or(&V::Null), task_id))
+    Ok(task_id.is_value(payload.get("task_id").unwrap_or(&V::Null)))
 }
 
 /// `event_queue.remove(event.event_id)` and the SUPPRESSED record of each event.
@@ -345,7 +395,7 @@ fn plan_interrupt(world: &World, inputs: &Inputs<'_>, staff_id: &str, event: &St
     if record.phase == Phase::Idle {
         return Ok(None);
     }
-    let task_id = opt_text(&record.task_id);
+    let task_id = PayloadText::of_row(&record.task_id);
     let due = event.due_minute;
     let Some(started) = record.started_minute else {
         return Err(Error::unsupported("a value is not an int"));
@@ -500,7 +550,7 @@ pub fn plan_arrive(world: &World, inputs: &Inputs<'_>, event: &EventRow) -> Resu
         || !has_task
         || staff_task.as_ref() != Some(&task)
         || record.travel_due_minute != Some(event.due_minute)
-        || !eq_text(&payload("target_zone_id"), &record.target_zone_id)
+        || !PayloadText::of(event, "target_zone_id").is(&record.target_zone_id)
     {
         return not_active();
     }
@@ -611,6 +661,7 @@ pub fn plan_relief(world: &World, inputs: &Inputs<'_>, event: &EventRow) -> Resu
     }
     let payload = |name: &str| kit::payload(event, name).unwrap_or(&V::Null);
     let task_id = payload("task_id");
+    let task = PayloadText::of_value(task_id);
     let previous_id = kit::exact_str(payload("previous_staff_id"))?.clone();
     let replacement_id = kit::exact_str(payload("replacement_staff_id"))?.clone();
     let stale = || Err(Error::suppressed("staff relief is stale or its replacement is no longer available"));
@@ -636,7 +687,7 @@ pub fn plan_relief(world: &World, inputs: &Inputs<'_>, event: &EventRow) -> Resu
     let replacement_zone = replacement.as_ref().map(|(zone, _, _)| zone.clone());
     // `or` in the Python rule's order: each test is reached only if those before it passed.
     let is_stale = (|| -> Result<bool> {
-        if operation.phase == Phase::Idle || !eq_text(task_id, &operation.task_id) || operation.target_zone_id != replacement_zone {
+        if operation.phase == Phase::Idle || !task.is(&operation.task_id) || operation.target_zone_id != replacement_zone {
             return Ok(true);
         }
         let Some(task_staff) = &task_staff else {
@@ -648,7 +699,7 @@ pub fn plan_relief(world: &World, inputs: &Inputs<'_>, event: &EventRow) -> Resu
         let Some(previous_task) = &previous_task else {
             return Ok(true);
         };
-        if !eq_text(task_id, previous_task) {
+        if !task.is(previous_task) {
             return Ok(true);
         }
         let Some((_, replacement_busy, _)) = &replacement else {
@@ -689,7 +740,7 @@ pub fn plan_relief(world: &World, inputs: &Inputs<'_>, event: &EventRow) -> Resu
     let mut has_completion = false;
     for candidate in pending_rows(world)? {
         let completes = &*candidate.event_type == "staff_operation_complete";
-        if (completes || &*candidate.event_type == "staff_operation_arrive") && names_task(&candidate, task_id)? {
+        if (completes || &*candidate.event_type == "staff_operation_arrive") && names_task(&candidate, &task)? {
             has_completion |= completes;
             pending.push(candidate);
         }
@@ -879,10 +930,10 @@ fn body_value(record: &BodyRecord, field: &str) -> f64 {
 }
 
 /// `_staff_operation_measurements`, of the payload's kind, target and zone.
-fn measurements(world: &World, inputs: &Inputs<'_>, kind: &str, target: &V, zone: &V) -> Result<Vec<Measure>> {
+fn measurements(world: &World, inputs: &Inputs<'_>, kind: &str, target: Option<&Arc<str>>, zone: Option<&Arc<str>>) -> Result<Vec<Measure>> {
     let mut values = Vec::new();
     match (kind, target, zone) {
-        ("cleaning", _, V::Str(zone)) => {
+        ("cleaning", _, Some(zone)) => {
             if let Some(row) = ops_row(world, inputs)? {
                 if let Some(record) = row.zones.get(&**zone) {
                     values.push(Measure {
@@ -895,7 +946,7 @@ fn measurements(world: &World, inputs: &Inputs<'_>, kind: &str, target: &V, zone
                 }
             }
         }
-        ("maintenance", V::Str(target), _) => {
+        ("maintenance", Some(target), _) => {
             if let Some(facility) = world.rows()?.facilities.get(&**target) {
                 values.push(Measure {
                     kind: "facility",
@@ -906,7 +957,7 @@ fn measurements(world: &World, inputs: &Inputs<'_>, kind: &str, target: &V, zone
                 });
             }
         }
-        ("information_outreach" | "patrol", _, V::Str(zone)) => {
+        ("information_outreach" | "patrol", _, Some(zone)) => {
             let body = kit::held_row::<BodyRow>(world, BODY, inputs.body)?;
             for person in sorted_agents(&*world.rows()?) {
                 if person.zone != *zone {
@@ -968,10 +1019,10 @@ pub struct CompletePlan {
     previous_units: Option<(Arc<str>, i64)>,
     event_id: Arc<str>,
     event_source: Option<Arc<str>>,
-    kind: V,
-    target: V,
-    zone: V,
-    payload_task: V,
+    /// The payload's `task_kind`, and its `target_id` and `target_zone_id` where they are str.
+    kind: Arc<str>,
+    target: Option<Arc<str>>,
+    zone: Option<Arc<str>>,
 }
 
 /// `config["effects_by_zone"].get(zone_id, {}).get(name, config[name])`, as a float.
@@ -1008,15 +1059,14 @@ pub fn plan_complete(world: &World, inputs: &Inputs<'_>, event: &EventRow) -> Re
         return Err(Error::unsupported("a payload is not a plain dict"));
     }
     let payload = |name: &str| kit::payload(event, name).cloned().unwrap_or(V::Null);
-    let payload_kind = payload("task_kind");
-    let payload_target = payload("target_id");
-    let payload_zone = payload("target_zone_id");
-    let kind_text = kit::exact_str(&payload_kind)?.clone();
+    let kind_text = kit::exact_str(kit::payload(event, "task_kind").unwrap_or(&V::Null))?.clone();
+    let payload_target = PayloadText::of(event, "target_id").text().cloned();
+    let payload_zone = PayloadText::of(event, "target_zone_id");
     let previous_units = match &payload_target {
-        V::Str(target) if &*kind_text == "maintenance" => world.rows()?.facilities.get(&**target).map(|facility| (facility.id.clone(), facility.working_units)),
+        Some(target) if &*kind_text == "maintenance" => world.rows()?.facilities.get(&**target).map(|facility| (facility.id.clone(), facility.working_units)),
         _ => None,
     };
-    let before = measurements(world, inputs, &kind_text, &payload_target, &payload_zone)?;
+    let before = measurements(world, inputs, &kind_text, payload_target.as_ref(), payload_zone.text())?;
     if &*event.event_type != "staff_operation_complete" {
         return Err(Error::failed("staff operation completion handler received another event"));
     }
@@ -1043,8 +1093,8 @@ pub fn plan_complete(world: &World, inputs: &Inputs<'_>, event: &EventRow) -> Re
         || !has_task
         || staff_task.as_ref() != Some(&task)
         || record.due_minute != Some(event.due_minute)
-        || !eq_text(&payload_kind, &record.task_kind)
-        || !eq_text(&payload_zone, &record.target_zone_id)
+        || record.task_kind.as_deref() != Some(&*kind_text)
+        || !payload_zone.is(&record.target_zone_id)
     {
         return not_active();
     }
@@ -1124,10 +1174,9 @@ pub fn plan_complete(world: &World, inputs: &Inputs<'_>, event: &EventRow) -> Re
         previous_units,
         event_id: event.event_id.clone(),
         event_source: event.source_id.clone(),
-        kind: payload_kind,
+        kind: kind_text,
         target: payload_target,
-        zone: payload_zone,
-        payload_task: payload("task_id"),
+        zone: payload_zone.text().cloned(),
     }))
 }
 
@@ -1155,7 +1204,7 @@ pub fn complete_or_intake(world: &World, inputs: &Inputs<'_>, event: &EventRow) 
 }
 
 pub fn write_complete(world: &World, inputs: &Inputs<'_>, plan: CompletePlan) -> Result<Vec<Made>> {
-    let CompletePlan { staff_id, task_id, mut entry, work, before, previous_units, event_id, event_source, kind, target, zone, payload_task } = plan;
+    let CompletePlan { staff_id, task_id, mut entry, work, before, previous_units, event_id, event_source, kind, target, zone } = plan;
     match work {
         Work::None | Work::Intake => {}
         Work::Blocked => entry.status = Outcome::Blocked,
@@ -1203,16 +1252,16 @@ pub fn write_complete(world: &World, inputs: &Inputs<'_>, plan: CompletePlan) ->
         }
     }
     let outcome = OperationOutcome {
-        task_id: payload_task.clone(),
-        staff_id: V::Str(staff_id.clone()),
-        task_kind: V::Str(entry.task_kind.clone()),
-        target_id: opt_text(&entry.target_id),
-        target_zone_id: V::Str(entry.target_zone_id.clone()),
-        reason: V::Str(entry.reason.clone()),
-        status: V::Str(Arc::from(entry.status.text())),
-        start_minute: V::Int(entry.start_minute),
-        arrival_minute: entry.arrival_minute.map_or(V::Null, V::Int),
-        travel_minutes: V::Int(entry.travel_minutes),
+        task_id: task_id.clone(),
+        staff_id: staff_id.clone(),
+        task_kind: entry.task_kind.clone(),
+        target_id: entry.target_id.clone(),
+        target_zone_id: entry.target_zone_id.clone(),
+        reason: entry.reason.clone(),
+        status: entry.status,
+        start_minute: entry.start_minute,
+        arrival_minute: entry.arrival_minute,
+        travel_minutes: entry.travel_minutes,
         changes: Vec::new(),
         measured: !before.is_empty(),
         causation: event_id.clone(),
@@ -1226,8 +1275,7 @@ pub fn write_complete(world: &World, inputs: &Inputs<'_>, plan: CompletePlan) ->
     set_record(world, &staff_id, idle_record())?;
 
     // The handler's receipts.
-    let kind_text = kit::exact_str(&kind)?.clone();
-    let mut after = measurements(world, inputs, &kind_text, &target, &zone)?;
+    let mut after = measurements(world, inputs, &kind, target.as_ref(), zone.as_ref())?;
     after.sort_by(|first, second| (first.kind, &first.entity, &first.path).cmp(&(second.kind, &second.entity, &second.path)));
     let mut changes = Vec::new();
     for measure in &after {
@@ -1235,14 +1283,14 @@ pub fn write_complete(world: &World, inputs: &Inputs<'_>, plan: CompletePlan) ->
             continue;
         };
         if previous.value.differs(measure.value) {
-            let mut change = IndexMap::with_capacity(6);
-            change.insert(Arc::from("entity_id"), V::Str(measure.entity.clone()));
-            change.insert(Arc::from("entity_kind"), V::Str(Arc::from(measure.kind)));
-            change.insert(Arc::from("field_path"), V::Str(Arc::from(measure.path.as_str())));
-            change.insert(Arc::from("before"), V::Float(previous.value.value()));
-            change.insert(Arc::from("after"), V::Float(measure.value.value()));
-            change.insert(Arc::from("unit"), V::Str(Arc::from(measure.unit)));
-            changes.push(V::Map(change));
+            changes.push(Change {
+                entity_id: measure.entity.clone(),
+                entity_kind: Arc::from(measure.kind),
+                field_path: Arc::from(measure.path.as_str()),
+                before: previous.value.value(),
+                after: measure.value.value(),
+                unit: Arc::from(measure.unit),
+            });
         }
     }
     let mut receipts = Vec::new();
@@ -1258,10 +1306,9 @@ pub fn write_complete(world: &World, inputs: &Inputs<'_>, plan: CompletePlan) ->
                 Some(source) if !source.is_empty() => vec![source],
                 _ => Vec::new(),
             };
-            let component = kit::exact_str(&payload_task)?.clone();
             receipts.push(care_receipts::facility_recovery_record(
                 world,
-                care_receipts::Recovery { facility_id: &facility, component_id: &component, status: "restored", previous, units },
+                care_receipts::Recovery { facility_id: &facility, component_id: &task_id, status: "restored", previous, units },
                 &event_id,
                 sources,
             )?);

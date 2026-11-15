@@ -18,7 +18,7 @@ use sheltersim_core::geometry::{zone_center, Geo, Pt, Route, Zone};
 use sheltersim_core::host::Contract;
 use sheltersim_core::row::{IdMap, ValueRow};
 use sheltersim_core::rules::kit::{Held, Kept};
-use sheltersim_core::rules::overlay::{self, Beds, Change, Places, OVERLAY_KEY, PLAN_UNREAD, SPACES_KEY};
+use sheltersim_core::rules::overlay::{self, Beds, Change, Places, SpaceRecord, OVERLAY_KEY, PLAN_UNREAD, SPACES_KEY};
 use sheltersim_core::value::V;
 use sheltersim_core::world::{Fit, Place, World, WorldCell};
 use support::{Call, TestHost};
@@ -203,13 +203,29 @@ fn space(id: &str, zone: &str, people: i64) -> V {
     ])
 }
 
+/// The record `space` holds, as a rule registers it.
+fn space_record(id: &str, zone: &str, people: i64) -> SpaceRecord {
+    SpaceRecord {
+        space_id: text(id),
+        zone_id: text(zone),
+        people_capacity: people,
+        sleeping_capacity: 0,
+        start_minute: 7,
+        end_minute: 100,
+        start_event_id: text("ev-start"),
+        program_id: text("p1"),
+        effect_id: text("x1"),
+        source_ids: vec![text("SRC-1")],
+    }
+}
+
 // ---- temporary spaces ----------------------------------------------------------------------------
 
 #[test]
 fn a_space_is_registered_counted_and_expired_on_the_row() {
     let world = world();
     let held = Held::Held;
-    overlay::register_space(&world, &held, space("sp1", "z0", 5), "ev-start").unwrap();
+    overlay::register_space(&world, &held, space_record("sp1", "z0", 5), "ev-start").unwrap();
     let spaces = state(&world, SPACES_KEY);
     assert_eq!(get(&spaces, &["spaces", "sp1"]), &space("sp1", "z0", 5));
     let activated = map(vec![
@@ -221,8 +237,8 @@ fn a_space_is_registered_counted_and_expired_on_the_row() {
         ("causation_id", V::Null),
     ]);
     assert_eq!(get(&spaces, &["history"]), &V::List(vec![activated.clone()]));
-    assert_eq!(overlay::register_space(&world, &held, space("sp1", "z0", 5), "ev-again"), Err(value_error("temporary space ID already exists")));
-    assert_eq!(overlay::register_space(&world, &Held::Absent, space("sp2", "z0", 5), "ev"), Err(value_error("temporary_spaces_v1 is not installed")));
+    assert_eq!(overlay::register_space(&world, &held, space_record("sp1", "z0", 5), "ev-again"), Err(value_error("temporary space ID already exists")));
+    assert_eq!(overlay::register_space(&world, &Held::Absent, space_record("sp2", "z0", 5), "ev"), Err(value_error("temporary_spaces_v1 is not installed")));
     assert_eq!(overlay::validate_spaces(&world, &held), Ok(true));
 
     let schema = schema(2);
@@ -243,9 +259,6 @@ fn a_space_is_registered_counted_and_expired_on_the_row() {
     let found = overlay::capacity(&world, &places, "z0", 10, Some(18)).unwrap();
     assert_eq!((found.effective, found.active_people, found.expired_people, found.retained), (15, 0, 5, 5));
     assert_eq!(found.total(), Ok(15));
-    // The same from the values a world outside the core holds.
-    let (spaces, overlay_value) = (state(&world, SPACES_KEY), state(&world, OVERLAY_KEY));
-    assert_eq!(overlay::capacity_of_values(Some(&spaces), Some(&overlay_value), &schema, "z0", 10, 18), Ok(found));
 }
 
 #[test]

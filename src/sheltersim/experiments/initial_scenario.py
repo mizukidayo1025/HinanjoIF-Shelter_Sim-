@@ -13,8 +13,6 @@ from pydantic import Field, field_validator, model_validator
 
 from sheltersim.contracts.extensions import FacilityGeometry
 from sheltersim.contracts.policies import CORE_MODEL_SUITE_MODELS, CORE_MODEL_SUITE_V2
-from sheltersim.domain.models import Mobility
-from sheltersim.domain.psychological_state import INTEGRATED_PSYCHOLOGY_POLICY_VERSION
 from sheltersim.experiments.scenario import (
     TOILET_SERVICE_SOURCE_ID,
     FacilitySpec,
@@ -51,6 +49,10 @@ from sheltersim.region.population import (
     PopulationConditionInput,
     SyntheticPopulationGenerator,
     population_statistics_notes,
+)
+from sheltersim.scenario_authoring.configs.models import Mobility
+from sheltersim.scenario_authoring.configs.psychological_state import (
+    INTEGRATED_PSYCHOLOGY_POLICY_VERSION,
 )
 
 
@@ -180,7 +182,9 @@ class InitialScenarioRequest(RegionModel):
                 "model parameter overrides must contain finite JSON numbers or bounded entity maps"
             )
         if shift_path in raw:
-            from sheltersim.domain.staff_dynamics import validate_staff_shift_windows_override
+            from sheltersim.scenario_authoring.configs.staff_dynamics import (
+                validate_staff_shift_windows_override,
+            )
 
             validate_staff_shift_windows_override(raw[shift_path])
         return raw
@@ -857,22 +861,25 @@ class InitialScenarioBuilder:
             "facility_geometry": geometry.model_dump(mode="json"),
             "population": population.population.model_dump(mode="json"),
         }
-        from sheltersim.domain.body_state import (
+        from sheltersim.experiments.scenario_connections import connect_generated_context
+        from sheltersim.scenario_authoring.configs.body_state import (
             BODY_SOURCE_ID,
             canonical_body_config,
         )
-        from sheltersim.domain.movement import MOVEMENT_SOURCE_ID, canonical_movement_config
-        from sheltersim.domain.staff_operations import (
+        from sheltersim.scenario_authoring.configs.movement import (
+            MOVEMENT_SOURCE_ID,
+            canonical_movement_config,
+        )
+        from sheltersim.scenario_authoring.configs.staff_operations import (
             STAFF_OPERATIONS_SOURCE_ID,
             canonical_staff_operations_config,
         )
-        from sheltersim.experiments.scenario_connections import connect_generated_context
 
         model_configs.update(connect_generated_context(population, editable_geometry, geometry))
         from dataclasses import asdict
 
-        from sheltersim.domain.models import InformationSpreadConfig
-        from sheltersim.policies.social import SocialPropagationParameters
+        from sheltersim.scenario_authoring.configs.models import InformationSpreadConfig
+        from sheltersim.scenario_authoring.configs.social import SocialPropagationParameters
 
         social_parameters = asdict(SocialPropagationParameters())
         social_parameters["enabled"] = request.social_propagation_enabled
@@ -888,7 +895,7 @@ class InitialScenarioBuilder:
         )
         information_config = InformationSpreadConfig().to_dict()
         information_config["enabled"] = request.information_spread_enabled
-        from sheltersim.policies.psychology import (
+        from sheltersim.scenario_authoring.configs.psychology import (
             IntegratedDistressLifeStatePolicy,
             PsychologyParameters,
         )
@@ -937,7 +944,9 @@ class InitialScenarioBuilder:
             "care_outcome": request.care_outcome_policy_id,
         }
         if request.social_proximity_policy_id == "distance-sampled-proximity-v1":
-            from sheltersim.domain.social_network import PROXIMITY_CONTACT_POLICY_VERSION
+            from sheltersim.scenario_authoring.configs.social_network import (
+                PROXIMITY_CONTACT_POLICY_VERSION,
+            )
 
             model_configs["social_proximity"] = {
                 "schema_version": 1,
@@ -968,7 +977,7 @@ class InitialScenarioBuilder:
             "policy_version": "shared-operations-v1",
         }
         model_configs["movement_model"] = canonical_movement_config(None)
-        from sheltersim.domain.geometry_overlay import (
+        from sheltersim.scenario_authoring.configs.geometry_overlay import (
             INSTALLED_FACILITY_PLACEMENT_SOURCE_ID,
             TEMPORARY_ROOM_BED_SOURCE_ID,
             TEMPORARY_ROOM_INTAKE_SOURCE_ID,
@@ -983,7 +992,9 @@ class InitialScenarioBuilder:
         # Water outages and staff absences need operational_events_v1, which a
         # Scenario otherwise has only once a delivery is planned (day 4 on) (#65).
         model_configs["operational_events"] = {"enabled": True}
-        from sheltersim.domain.temporary_spaces import TEMPORARY_SPACES_SOURCE_ID
+        from sheltersim.scenario_authoring.configs.temporary_spaces import (
+            TEMPORARY_SPACES_SOURCE_ID,
+        )
 
         for source_id, title in (
             (BODY_SOURCE_ID, "Experimental life-state feedback"),
@@ -1019,7 +1030,7 @@ class InitialScenarioBuilder:
                     ),
                 }
             )
-        from sheltersim.domain.agent_dynamics import (
+        from sheltersim.scenario_authoring.configs.agent_dynamics import (
             ANNOUNCED_FACILITY_AGENT_DYNAMICS_POLICY_VERSION,
             INSTALLED_FACILITY_ANNOUNCEMENT_SOURCE_ID,
             ORIENTATION_FACILITY_KINDS,
@@ -1106,15 +1117,6 @@ class InitialScenarioBuilder:
                 ),
             }
         )
-        from sheltersim.policies.queueing import (
-            NeedWeightedPhysicalQueuePolicy,
-            StrictFIFOQueuePolicy,
-        )
-        from sheltersim.policies.relationships import (
-            DistanceDurationRepeatTrustPolicy,
-            DurationOnlyTrustPolicy,
-        )
-
         selected_policy_sources = {
             "utility-softmax-v1": (
                 "ASM-UTILITY-BEHAVIOR-V1",
@@ -1128,20 +1130,20 @@ class InitialScenarioBuilder:
                 "ASM-PRIORITY-RULE-BEHAVIOR-V1",
                 "Priority-rule Agent behavior",
             ),
-            NeedWeightedPhysicalQueuePolicy.model_id: (
-                NeedWeightedPhysicalQueuePolicy.source_id,
+            "need-weighted-physical-queue-v1": (
+                "ASM-NEED-WEIGHTED-PHYSICAL-QUEUE-V1",
                 "Facility queue priority and abandonment",
             ),
-            StrictFIFOQueuePolicy.model_id: (
-                StrictFIFOQueuePolicy.source_id,
+            "strict-fifo-queue-v1": (
+                "ASM-STRICT-FIFO-QUEUE-V1",
                 "Strict FIFO facility queue",
             ),
-            DistanceDurationRepeatTrustPolicy.model_id: (
-                DistanceDurationRepeatTrustPolicy.source_id,
+            "distance-duration-repeat-trust-v1": (
+                "ASM-DISTANCE-DURATION-REPEAT-TRUST-V1",
                 "Distance and repeated-contact relationship trust",
             ),
-            DurationOnlyTrustPolicy.model_id: (
-                DurationOnlyTrustPolicy.source_id,
+            "duration-contact-trust-v1": (
+                "ASM-DURATION-CONTACT-TRUST-V1",
                 "Duration-only relationship trust",
             ),
             "body-feedback-complete-v1": (
@@ -1281,7 +1283,9 @@ class InitialScenarioBuilder:
                 }
             )
         if request.social_proximity_policy_id == "distance-sampled-proximity-v1":
-            from sheltersim.domain.social_network import PROXIMITY_CONTACT_SOURCE_ID
+            from sheltersim.scenario_authoring.configs.social_network import (
+                PROXIMITY_CONTACT_SOURCE_ID,
+            )
 
             if not any(
                 source.get("id") == PROXIMITY_CONTACT_SOURCE_ID for source in provenance["sources"]
@@ -1314,7 +1318,7 @@ class InitialScenarioBuilder:
             "recorded requirements do not imply that every corresponding behavior is simulated."
         )
         model_configs.update(operational_model_configs)
-        from sheltersim.domain.staff_dynamics import (
+        from sheltersim.scenario_authoring.configs.staff_dynamics import (
             SHIFT_STAFF_DYNAMICS_POLICY_VERSION,
             canonical_staff_dynamics_config,
         )
@@ -1341,7 +1345,7 @@ class InitialScenarioBuilder:
                     ),
                 }
             )
-        from sheltersim.domain.environment import ScenarioZoneEnvironmentConfig
+        from sheltersim.scenario_authoring.configs.environment import ScenarioZoneEnvironmentConfig
 
         model_configs.setdefault(
             "zone_environment",
@@ -1516,21 +1520,23 @@ def _apply_selected_policy_parameter_overrides(
     if not overrides:
         return ()
     from sheltersim.contracts.policies import model_catalog, selected_models
-    from sheltersim.domain.body_state import canonical_body_config
-    from sheltersim.domain.environment import ScenarioZoneEnvironmentConfig
-    from sheltersim.domain.facilities import TOILET_SERVICE_POLICY_VERSION
-    from sheltersim.domain.movement import canonical_movement_config
-    from sheltersim.domain.staff import STAFF_SUPPORT_POLICY_VERSION
-    from sheltersim.domain.staff_dynamics import (
-        SHIFT_STAFF_DYNAMICS_POLICY_VERSION,
-        STAFF_DYNAMICS_POLICY_VERSION,
-        canonical_staff_dynamics_config,
-    )
-    from sheltersim.domain.staff_operations import canonical_staff_operations_config
     from sheltersim.experiments.scenario import (
         RESOURCE_SERVICE_POLICY_ID,
         ResourceServiceConfig,
         ToiletServiceConfig,
+    )
+    from sheltersim.scenario_authoring.configs.body_state import canonical_body_config
+    from sheltersim.scenario_authoring.configs.environment import ScenarioZoneEnvironmentConfig
+    from sheltersim.scenario_authoring.configs.facilities import TOILET_SERVICE_POLICY_VERSION
+    from sheltersim.scenario_authoring.configs.movement import canonical_movement_config
+    from sheltersim.scenario_authoring.configs.staff import STAFF_SUPPORT_POLICY_VERSION
+    from sheltersim.scenario_authoring.configs.staff_dynamics import (
+        SHIFT_STAFF_DYNAMICS_POLICY_VERSION,
+        STAFF_DYNAMICS_POLICY_VERSION,
+        canonical_staff_dynamics_config,
+    )
+    from sheltersim.scenario_authoring.configs.staff_operations import (
+        canonical_staff_operations_config,
     )
 
     formula_domains = {
@@ -1554,20 +1560,24 @@ def _apply_selected_policy_parameter_overrides(
     selected = selected_models(model_configs)
     catalog = model_catalog()
     operator_catalog: dict[str, Any] | None = None
-    from sheltersim.domain.simulator_state import simulator_signatures
+    from sheltersim.scenario_authoring.configs.simulator_state import simulator_signatures
 
     simulator_models = simulator_signatures(model_configs)
     active_simulator_model_ids: list[str] = []
     if "operator:facility_awareness" in simulator_models:
-        from sheltersim.domain.facility_awareness import FACILITY_AWARENESS_POLICY_VERSION
+        from sheltersim.scenario_authoring.configs.facility_awareness import (
+            FACILITY_AWARENESS_POLICY_VERSION,
+        )
 
         active_simulator_model_ids.append(FACILITY_AWARENESS_POLICY_VERSION)
     if "simulator:movement_v1" in simulator_models:
-        from sheltersim.domain.movement import MOVEMENT_POLICY_VERSION
+        from sheltersim.scenario_authoring.configs.movement import MOVEMENT_POLICY_VERSION
 
         active_simulator_model_ids.append(MOVEMENT_POLICY_VERSION)
     if "simulator:staff_operations_v1" in simulator_models:
-        from sheltersim.domain.staff_operations import STAFF_OPERATIONS_POLICY_VERSION
+        from sheltersim.scenario_authoring.configs.staff_operations import (
+            STAFF_OPERATIONS_POLICY_VERSION,
+        )
 
         active_simulator_model_ids.append(STAFF_OPERATIONS_POLICY_VERSION)
     if "resource_service" in model_configs:
@@ -1786,7 +1796,9 @@ def _apply_selected_policy_parameter_overrides(
                     current[zone_id] = zone_baseline
                     normalized_value[zone_id] = normalized_fields
             elif scope == "per_staff_shift_windows":
-                from sheltersim.domain.staff_dynamics import validate_staff_shift_windows_override
+                from sheltersim.scenario_authoring.configs.staff_dynamics import (
+                    validate_staff_shift_windows_override,
+                )
 
                 normalized_value = validate_staff_shift_windows_override(
                     raw_value,
@@ -1937,7 +1949,7 @@ def _apply_selected_policy_parameter_overrides(
     if "social_propagation" in touched_sections:
         from dataclasses import asdict
 
-        from sheltersim.policies.social import SocialPropagationParameters
+        from sheltersim.scenario_authoring.configs.social import SocialPropagationParameters
 
         parsed_social = SocialPropagationParameters.from_mapping(
             model_configs["social_propagation"]
@@ -1948,15 +1960,15 @@ def _apply_selected_policy_parameter_overrides(
             "source_id": "ASM-SOCIAL-PROPAGATION-V1",
         }
     if "information_spread" in touched_sections:
-        from sheltersim.domain.models import InformationSpreadConfig
+        from sheltersim.scenario_authoring.configs.models import InformationSpreadConfig
 
         model_configs["information_spread"] = InformationSpreadConfig.from_mapping(
             model_configs["information_spread"]
         ).to_dict()
     if "facility_queues" in touched_sections:
-        from sheltersim.policies.queueing import create_queue_policy
+        from sheltersim.scenario_authoring.configs.queueing import check_facility_queue_config
 
-        create_queue_policy(model_configs)
+        check_facility_queue_config(model_configs)
     return tuple(applied)
 
 

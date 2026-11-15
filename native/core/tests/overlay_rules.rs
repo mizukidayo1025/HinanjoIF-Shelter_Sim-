@@ -44,7 +44,7 @@ use sheltersim_core::mathx::{py_max, py_min};
 use sheltersim_core::row::{StrEnum, ValueRow};
 use sheltersim_core::rules::facility_queues as fifo;
 use sheltersim_core::rules::kit::{self, Held, Kept};
-use sheltersim_core::rules::overlay::{self, Bed, Beds, Capacity, Change, Intake, Places, OVERLAY_KEY, SPACES_KEY};
+use sheltersim_core::rules::overlay::{self, Bed, Beds, Capacity, Change, Intake, Places, SpaceRecord, OVERLAY_KEY, SPACES_KEY};
 use sheltersim_core::rules::tick::read::kept_of;
 use sheltersim_core::rules::tick::{Seed, Tick, ZoneNeighbors};
 use sheltersim_core::rules::{queues, service, toilet};
@@ -423,7 +423,7 @@ impl Case {
         }
     }
 
-    fn register_space(&self, record: V, event_id: &str) -> Result<(), Error> {
+    fn register_space(&self, record: SpaceRecord, event_id: &str) -> Result<(), Error> {
         let held = self.held(SPACES_KEY);
         self.with(|world| overlay::register_space(world, &held, record, event_id))
     }
@@ -557,6 +557,22 @@ fn space(space_id: &str, zone: &str, active: bool, people: i64) -> V {
     }))
 }
 
+/// The record `space(space_id, zone, true, people)` holds, as a rule registers it.
+fn space_record(space_id: &str, zone: &str, people: i64) -> SpaceRecord {
+    SpaceRecord {
+        space_id: Arc::from(space_id),
+        zone_id: Arc::from(zone),
+        people_capacity: people,
+        sleeping_capacity: 2,
+        start_minute: 0,
+        end_minute: 100,
+        start_event_id: Arc::from("start"),
+        program_id: Arc::from("program"),
+        effect_id: Arc::from("effect"),
+        source_ids: vec![Arc::from("ASM-A")],
+    }
+}
+
 fn history_row(event_id: &str, space_id: &str, zone: &str, transition: &str, minute: i64, cause: Option<&str>) -> V {
     v(json!({
         "event_id": event_id,
@@ -584,7 +600,7 @@ fn a_space_registers_and_expires() {
     let case = spaces();
     let zone = case.first_zone();
     case.set_minute(4);
-    case.register_space(space("a", &zone, true, 5), "e1").unwrap();
+    case.register_space(space_record("a", &zone, 5), "e1").unwrap();
     let state = case.state(SPACES_KEY).unwrap();
     assert_eq!(at(&state, &["spaces", "a"]), &space("a", &zone, true, 5));
     assert_eq!(at(&state, &["history"]), &V::List(vec![history_row("e1", "a", &zone, "activated", 4, None)]));
@@ -618,7 +634,7 @@ fn the_limits_of_spaces_say_the_recorded_text() {
         (case, zone)
     };
     let (full, zone) = fill();
-    full.register_space(space("x", &zone, true, 5), "e").unwrap();
+    full.register_space(space_record("x", &zone, 5), "e").unwrap();
     assert_eq!(map_mut(at_mut(&mut full.state(SPACES_KEY).unwrap(), &["spaces"])).len() as i64, most);
     let (case, zone) = fill();
     case.edit_state(SPACES_KEY, |state| {
@@ -627,7 +643,7 @@ fn the_limits_of_spaces_say_the_recorded_text() {
     let before = case.fingerprint();
     // The ID is checked before the limit.
     for (space_id, said) in [("x", "temporary space runtime limit reached"), ("s0", "temporary space ID already exists")] {
-        assert_eq!(case.register_space(space(space_id, &zone, true, 5), "e"), Err(value_error(said)));
+        assert_eq!(case.register_space(space_record(space_id, &zone, 5), "e"), Err(value_error(said)));
         assert!(case.fingerprint() == before);
     }
 }
@@ -638,7 +654,7 @@ fn spaces_not_installed_say_the_recorded_text() {
     case.set_state(SPACES_KEY, None);
     let zone = case.first_zone();
     let said = value_error("temporary_spaces_v1 is not installed");
-    assert_eq!(case.register_space(space("a", &zone, true, 5), "e"), Err(said.clone()));
+    assert_eq!(case.register_space(space_record("a", &zone, 5), "e"), Err(said.clone()));
     assert_eq!(case.expire_space("a", "e", None), Err(said));
 }
 
@@ -649,7 +665,7 @@ fn a_full_history_drops_its_oldest_record() {
     let most = limit(&case, "space_history");
     let old: Vec<V> = (0..most).map(|index| history_row(&format!("old{index}"), "gone", &zone, "activated", 0, None)).collect();
     case.edit_state(SPACES_KEY, |state| list_mut(at_mut(state, &["history"])).extend(old.iter().cloned()));
-    case.register_space(space("a", &zone, true, 5), "e").unwrap();
+    case.register_space(space_record("a", &zone, 5), "e").unwrap();
     let mut expected = old[1..].to_vec();
     expected.push(history_row("e", "a", &zone, "activated", 0, None));
     assert_eq!(at(&case.state(SPACES_KEY).unwrap(), &["history"]), &V::List(expected));

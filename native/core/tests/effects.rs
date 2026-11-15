@@ -1,7 +1,5 @@
-//! Lane d3: the rules of an EffectProgram's events (`rules::effects`) on a world built here with no
-//! Python. The PyO3 crate's effects are glue over these, so the gate and the offline tests run them
-//! against the texts and digests of the deleted Python rules; these say what each reads, decides,
-//! refuses and writes, and what it asks the host.
+//! Lane d3: the rules of an EffectProgram's events (`rules::effects`) on a world built here: what
+//! each reads, decides, refuses and writes, and what it asks the host.
 
 use crate::support;
 
@@ -310,7 +308,7 @@ fn what_other_rules_ask_of_the_modifiers() {
     assert_eq!(effects::has_pending_modifier(&built, "toilet_2"), Ok(false));
     assert_eq!(effects::has_active_modifier(&built, &Held::Held, "toilet_1"), Ok(false));
     assert_eq!(effects::has_active_modifier(&built, &Held::Absent, "toilet_1"), Ok(false));
-    // A pending event without its row: the PyO3 crate reads the rows and asks again.
+    // A pending event without its row is refused (`PENDING_UNREAD`).
     built.queue_mut().unwrap().add(text("ev3"), (60, 0, 42), None);
     assert_eq!(effects::has_pending_modifier(&built, "toilet_2"), Err(Error::Unsupported(effects::PENDING_UNREAD.into())));
 }
@@ -405,7 +403,8 @@ fn an_environment_modifier_records_the_contract_s_dump_and_wraps_the_check_s_val
     let parameters = map(vec![("noise_db", V::Float(55.5))]);
     assert_eq!(host.calls, [Call::Contract(Contract::EffectParameters(text("set_ambient_noise")), parameters.clone())]);
     let EnvironmentPlan::Apply { record, .. } = &plan else { panic!("not a start") };
-    let V::Map(fields) = record else { panic!("not a record") };
+    let record = record.clone().into_value();
+    let V::Map(fields) = &record else { panic!("not a record") };
     let keys: Vec<&str> = fields.keys().map(|key| &**key).collect();
     assert_eq!(
         keys,
@@ -494,7 +493,8 @@ fn a_temporary_space_registers_its_record_and_wraps_the_registration_s_error() {
     let mut host = TestHost::default();
     let plan = effects::plan_temporary_space(&cell, &mut host, &ins, &start, false).unwrap();
     let SpacePlan::Register { record } = &plan else { panic!("not a start") };
-    let V::Map(fields) = record else { panic!("not a record") };
+    let record = record.clone().into_value();
+    let V::Map(fields) = &record else { panic!("not a record") };
     assert_eq!(fields["source_ids"], V::List(vec![s("ASM-A"), s("ASM-B"), s("SRC-1")]));
     assert_eq!((&fields["people_capacity"], &fields["sleeping_capacity"]), (&V::Int(4), &V::Int(2)));
     effects::write_temporary_space(&cell, &mut host, &held, &start, &plan).unwrap();
@@ -601,7 +601,7 @@ fn the_tick_s_check_of_the_state_passes_or_refuses() {
     let cell = Shard::new(world("set_facility_availability", Vec::new()));
     let mut host = TestHost::default();
     assert_eq!(effects::check_state(&cell, &mut host, &Held::Held, false), Ok(()));
-    // Without the state, a pending event with a marker is for Python to word.
+    // Without the state, a pending event with a marker is refused.
     let built = world("set_facility_availability", Vec::new());
     let marked = event("ev1", 10, "effect_program_apply", Vec::new(), marker("set_facility_availability", None, &[]));
     built.queue_mut().unwrap().add(text("ev1"), (10, 0, 41), Some(Arc::new(marked)));

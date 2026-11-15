@@ -634,61 +634,11 @@ pub fn contact<C: WorldCell, H: Host>(cell: &C, host: &mut H, inputs: &Inputs<'_
 fn contact_in(world: &World, inputs: &Inputs<'_>, event: &EventRow) -> Result<Applied> {
     let config = inputs.config;
     let payload = &event.payload;
-    if !fields_are(payload, &["message_id", "sender_agent_id", "recipient_agent_id", "belief", "contact_basis", "contact_minutes"]) {
-        return Err(Error::failed("information_contact_update payload fields do not match"));
-    }
-    if event.kind != EventKind::Endogenous {
-        return Err(Error::failed("information contact updates must be endogenous"));
-    }
-    if event.due_minute != world.minute_index()? {
-        return Err(Error::failed("information contact update must run at its due minute"));
-    }
+    let ContactIds { aware, message_id, sender_id, recipient_id } = contact_event(world, inputs, event)?;
     let due = event.due_minute;
     let provenance = &event.provenance;
-    let model = selected_information(inputs.selection)?;
-    let aware = &*model == EVIDENCE_AWARE;
-    if !text_is(kit::get(provenance, "source_type")?, "assumption")
-        || !text_is(kit::get(provenance, "source_id")?, CONTACT_SOURCE)
-        || !text_is(kit::get(provenance, "policy_version")?, &model)
-    {
-        return Err(Error::failed("information contact provenance is missing its assumption ID"));
-    }
-    let (Some(message_id), Some(sender_id), Some(recipient_id)) =
-        (str_of(field(payload, "message_id")), str_of(field(payload, "sender_agent_id")), str_of(field(payload, "recipient_agent_id")))
-    else {
-        return Err(Error::failed("information contact requires stable claim and Agent IDs"));
-    };
-    if sender_id == recipient_id {
-        return Err(Error::failed("information contact requires two different Agents"));
-    }
-    let known_people = {
-        let rows = world.rows()?;
-        rows.agents.contains_key(sender_id) && rows.agents.contains_key(recipient_id)
-    };
-    let known_message = world.row::<InformationRow>(NAME)?.messages.contains_key(&**message_id);
-    if !known_people || !known_message {
-        return Err(Error::failed("information contact references unknown state"));
-    }
     // The sender's belief, the claim, and the signal.
-    let found = {
-        let row = world.row::<InformationRow>(NAME)?;
-        let Some(message) = row.messages.get(&**message_id) else {
-            return Err(Error::unsupported("an unknown message"));
-        };
-        if !message.parses() {
-            return Err(Error::unsupported("a message is for the Python rule to read"));
-        }
-        let Some(sender) = row.beliefs.get(&**sender_id) else {
-            return Err(Error::unsupported("a person has no beliefs"));
-        };
-        match sender.get(&**message_id) {
-            None => None,
-            Some(known) if !known.parses() => return Err(Error::unsupported("a belief is for the Python rule to read")),
-            Some(known) => {
-                Some((message.truth_status.clone(), message.source_id.clone(), known.belief.clone(), known.source.clone(), known.last_event_id.clone()))
-            }
-        }
-    };
+    let found = sender_state(world, message_id, sender_id)?;
     // What no longer applies is suppressed, with the rule's text.
     let Some((truth, claim_source, sender_belief, sender_source, sender_event)) = found else {
         return Ok(Applied::Suppressed("contact sender no longer knows the message"));
@@ -720,14 +670,7 @@ fn contact_in(world: &World, inputs: &Inputs<'_>, event: &EventRow) -> Result<Ap
     if correcting && !matches!((&*truth, belief_text), ("true", "verified") | ("false", "rejected")) {
         return Err(Error::failed("transmitted correction conflicts with message truth"));
     }
-    let (previous, pressure, contacts, corrections) = {
-        let row = world.row::<InformationRow>(NAME)?;
-        let Some(recipient) = row.beliefs.get(&**recipient_id) else {
-            return Err(Error::unsupported("a person has no beliefs"));
-        };
-        let previous = recipient.get(&**message_id).map(prior_of).transpose()?;
-        (previous, row.query_pressure.get(&**recipient_id).copied(), row.counters.contact_deliveries, row.counters.correction_deliveries)
-    };
+    let (previous, pressure, contacts, corrections) = recipient_state(world, message_id, recipient_id)?;
     if let Some(prior) = &previous {
         let Some(rank) = belief_rank(&prior.belief) else {
             return Err(Error::unsupported("a belief is for the Python rule to read"));
@@ -803,4 +746,86 @@ fn contact_in(world: &World, inputs: &Inputs<'_>, event: &EventRow) -> Result<Ap
     }
     count(&mut row.counters.contact_deliveries);
     Ok(Applied::Applied)
+}
+
+/// The IDs an information contact names, and whether the model is the evidence-aware one.
+struct ContactIds<'e> {
+    aware: bool,
+    message_id: &'e Arc<str>,
+    sender_id: &'e Arc<str>,
+    recipient_id: &'e Arc<str>,
+}
+
+/// The rules of an information contact's own event: its fields, kind, minute and provenance, and
+/// the people and claim it names, which must be known.
+fn contact_event<'e>(world: &World, inputs: &Inputs<'_>, event: &'e EventRow) -> Result<ContactIds<'e>> {
+    let payload = &event.payload;
+    if !fields_are(payload, &["message_id", "sender_agent_id", "recipient_agent_id", "belief", "contact_basis", "contact_minutes"]) {
+        return Err(Error::failed("information_contact_update payload fields do not match"));
+    }
+    if event.kind != EventKind::Endogenous {
+        return Err(Error::failed("information contact updates must be endogenous"));
+    }
+    if event.due_minute != world.minute_index()? {
+        return Err(Error::failed("information contact update must run at its due minute"));
+    }
+    let provenance = &event.provenance;
+    let model = selected_information(inputs.selection)?;
+    let aware = &*model == EVIDENCE_AWARE;
+    if !text_is(kit::get(provenance, "source_type")?, "assumption")
+        || !text_is(kit::get(provenance, "source_id")?, CONTACT_SOURCE)
+        || !text_is(kit::get(provenance, "policy_version")?, &model)
+    {
+        return Err(Error::failed("information contact provenance is missing its assumption ID"));
+    }
+    let (Some(message_id), Some(sender_id), Some(recipient_id)) =
+        (str_of(field(payload, "message_id")), str_of(field(payload, "sender_agent_id")), str_of(field(payload, "recipient_agent_id")))
+    else {
+        return Err(Error::failed("information contact requires stable claim and Agent IDs"));
+    };
+    if sender_id == recipient_id {
+        return Err(Error::failed("information contact requires two different Agents"));
+    }
+    let known_people = {
+        let rows = world.rows()?;
+        rows.agents.contains_key(sender_id) && rows.agents.contains_key(recipient_id)
+    };
+    let known_message = world.row::<InformationRow>(NAME)?.messages.contains_key(&**message_id);
+    if !known_people || !known_message {
+        return Err(Error::failed("information contact references unknown state"));
+    }
+    Ok(ContactIds { aware, message_id, sender_id, recipient_id })
+}
+
+/// The claim's truth and source, and the sender's belief of it, that belief's source and its last
+/// event.
+type SenderState = (Arc<str>, Arc<str>, Arc<str>, Arc<str>, Arc<str>);
+
+/// The sender's belief, the claim, and the signal: None if the sender does not know the claim.
+fn sender_state(world: &World, message_id: &Arc<str>, sender_id: &Arc<str>) -> Result<Option<SenderState>> {
+    let row = world.row::<InformationRow>(NAME)?;
+    let Some(message) = row.messages.get(&**message_id) else {
+        return Err(Error::unsupported("an unknown message"));
+    };
+    if !message.parses() {
+        return Err(Error::unsupported("a message is for the Python rule to read"));
+    }
+    let Some(sender) = row.beliefs.get(&**sender_id) else {
+        return Err(Error::unsupported("a person has no beliefs"));
+    };
+    Ok(match sender.get(&**message_id) {
+        None => None,
+        Some(known) if !known.parses() => return Err(Error::unsupported("a belief is for the Python rule to read")),
+        Some(known) => Some((message.truth_status.clone(), message.source_id.clone(), known.belief.clone(), known.source.clone(), known.last_event_id.clone())),
+    })
+}
+
+/// The recipient's belief of the claim, if any, their query pressure, and the delivery counters.
+fn recipient_state(world: &World, message_id: &Arc<str>, recipient_id: &Arc<str>) -> Result<(Option<BeliefRow>, Option<f64>, i64, i64)> {
+    let row = world.row::<InformationRow>(NAME)?;
+    let Some(recipient) = row.beliefs.get(&**recipient_id) else {
+        return Err(Error::unsupported("a person has no beliefs"));
+    };
+    let previous = recipient.get(&**message_id).map(prior_of).transpose()?;
+    Ok((previous, row.query_pressure.get(&**recipient_id).copied(), row.counters.contact_deliveries, row.counters.correction_deliveries))
 }

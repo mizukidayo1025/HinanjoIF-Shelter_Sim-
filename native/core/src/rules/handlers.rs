@@ -620,7 +620,13 @@ pub fn facility_units(world: &World, inputs: &FacilityIn<'_>, event: &EventRow, 
     }
     let sources: Vec<Arc<str>> = event.source_id.iter().filter(|source| !source.is_empty()).cloned().collect();
     let status = if restores { "restored" } else { "degraded" };
-    care_receipts::facility_recovery_record(world, &id, &event.event_id, status, previous, next, &event.event_id, sources).map(Some)
+    care_receipts::facility_recovery_record(
+        world,
+        care_receipts::Recovery { facility_id: &id, component_id: &event.event_id, status, previous, units: next },
+        &event.event_id,
+        sources,
+    )
+    .map(Some)
 }
 
 // ---- The operational transaction --------------------------------------------------------------------
@@ -1188,11 +1194,13 @@ fn interrupt_support_task(
     let cause_type = if &*causation.event_type == "staff_shift_change" { "staff_shift_change" } else { "staff_unavailable" };
     Ok(care_receipts::continuity_record(
         world,
-        &request_id,
-        &request.agent_id,
-        task_id,
-        &previous,
-        if requeued { "requeued" } else { "unresolved" },
+        care_receipts::Continuity {
+            request_id: &request_id,
+            agent_id: &request.agent_id,
+            task_id,
+            previous_staff: &previous,
+            status: if requeued { "requeued" } else { "unresolved" },
+        },
         &causation.event_id,
         cause_type,
     )?)
@@ -1913,7 +1921,12 @@ pub fn infrastructure_receipts(world: &World, shared_absent: bool, previous: &[(
             continue;
         }
         let status = if units < was { "degraded" } else { "restored" };
-        records.push(care_receipts::facility_recovery_record(world, &id, &component, status, was, units, &event.event_id, sources.clone())?);
+        records.push(care_receipts::facility_recovery_record(
+            world,
+            care_receipts::Recovery { facility_id: &id, component_id: &component, status, previous: was, units },
+            &event.event_id,
+            sources.clone(),
+        )?);
     }
     Ok(records)
 }

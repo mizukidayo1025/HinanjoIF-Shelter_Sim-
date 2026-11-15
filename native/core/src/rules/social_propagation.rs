@@ -454,19 +454,26 @@ fn plan_person(shared: &Shared<'_>, me: usize) -> Result<PersonPlan> {
     Ok(out)
 }
 
+/// The state a minute's plan starts from: the contacts and each person's cooldown (both empty on
+/// the first tick).
+#[derive(Clone, Copy)]
+pub struct Before<'a> {
+    pub contacts: &'a IdMap<ContactRecord>,
+    pub cooldowns: &'a IdMap<i64>,
+}
+
 /// The plan of a minute from plain values: the people sorted by ID, the neighbors of their zones,
-/// and the state before (empty on the first tick). Changes nothing.
-#[allow(clippy::too_many_arguments)]
+/// and the state before. Changes nothing.
 pub fn plan(
     seed: &str,
     minute: i64,
     settings: &Settings,
     people: &[Person<'_>],
     neighbors: &HashMap<String, Vec<String>>,
-    previous: &IdMap<ContactRecord>,
-    cooldowns_before: &IdMap<i64>,
+    before: Before<'_>,
     traced: bool,
 ) -> Result<Plan> {
+    let Before { contacts: previous, cooldowns: cooldowns_before } = before;
     if previous.values().any(|record| record.last_seen_minute < 0 || record.consecutive_minutes < 0) {
         return unsupported("a contact field is negative");
     }
@@ -768,13 +775,21 @@ pub fn update(world: &World, inputs: &Inputs<'_>) -> Result<Planned> {
     // The first tick of a Run: `_read_runtime_state(None)`, and this step makes the namespace.
     let first_use = kit::namespace_absent(world, NAME)?;
     let plan = if first_use {
-        plan(inputs.seed, inputs.minute, settings, &people, &neighbors, &IdMap::default(), &IdMap::default(), inputs.traced)?
+        plan(inputs.seed, inputs.minute, settings, &people, &neighbors, Before { contacts: &IdMap::default(), cooldowns: &IdMap::default() }, inputs.traced)?
     } else {
         let row = world.row::<SocialRow>(NAME)?;
         if row.schema_version != SCHEMA_VERSION {
             return unsupported("another schema version");
         }
-        plan(inputs.seed, inputs.minute, settings, &people, &neighbors, &row.contacts, &row.agent_cooldown_until, inputs.traced)?
+        plan(
+            inputs.seed,
+            inputs.minute,
+            settings,
+            &people,
+            &neighbors,
+            Before { contacts: &row.contacts, cooldowns: &row.agent_cooldown_until },
+            inputs.traced,
+        )?
     };
     // What it records in `social_network_v1`, when that namespace is there, checked now so that its
     // refusals come before any write.

@@ -57,3 +57,53 @@ def test_the_screen_s_text_says_scenario_and_branch_not_run_or_branch():
                 texts.append(text)
     bad = [t for t in texts if re.search(r"\bRun\b|\bBranch\b|世界線|Checkpoint", t)]
     assert bad == []
+
+
+def test_the_screen_s_files_receive_only_what_another_file_gives():
+    """The screen's files share functions and values through window.HinanjoApp (#491,
+    docs/ui-backup.md): each gives what others use in `Object.assign(app, { … })` (a changing
+    variable through a getter), takes what an earlier file gives with `const { … } = app` and a
+    later file's functions with `const { … } = app.later`. A name taken through `app.later` that
+    no file gives fails only when it is called, so every name taken is checked here, and every
+    name given is taken by some file."""
+    import re
+
+    static = Path("src/sheltersim/web/static")
+    html = (static / "demo-v2.html").read_text(encoding="utf-8")
+    order = [
+        name
+        for name in re.findall(r'<script src="/(demo-v2[^"]*\.js)"', html)
+        if "window.HinanjoApp" in (static / name).read_text(encoding="utf-8")
+    ]
+    assert order[0] == "demo-v2-state.js" and order[-1] == "demo-v2.js"
+    names = lambda block: re.findall(r"[\w$]+", block)  # noqa: E731
+    given, taken = {}, []
+    for index, name in enumerate(order):
+        source = (static / name).read_text(encoding="utf-8")
+        for block in re.findall(r"^  Object\.assign\(app, \{(.*?)\}\);$", source, re.S | re.M):
+            for item in names(block):
+                assert item not in given, f"{item} is given by {given[item]} and {name}"
+                given[item] = index
+        for item in re.findall(r'^  Object\.defineProperty\(app, "(\w+)"', source, re.M):
+            given[item] = index
+        for block, later in re.findall(
+            r"^  const \{(.*?)\} = app(\.later)?;$", source, re.S | re.M
+        ):
+            taken += [(name, index, item, bool(later)) for item in names(block)]
+        taken += [(name, index, item, None) for item in re.findall(r"\bapp\.(\w+)\b", source)]
+    for name, index, item, later in taken:
+        if item == "later":
+            continue
+        assert item in given, f"{name} takes {item}, which no file gives"
+        if later is True:
+            assert given[item] > index, (
+                f"{name} takes {item} through app.later from an earlier file"
+            )
+        elif later is False:
+            assert given[item] < index, f"{name} takes {item} from a file loaded after it"
+    unused = set(given) - {item for _, _, item, _ in taken}
+    assert not unused, f"given but taken by no file: {sorted(unused)}"
+    node = shutil.which("node")
+    if node is not None:
+        for name in order:
+            subprocess.run([node, "--check", str(static / name)], check=True)

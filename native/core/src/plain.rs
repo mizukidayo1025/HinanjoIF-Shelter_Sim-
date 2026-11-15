@@ -13,8 +13,10 @@
 //!   classes and texts. Each tick ends as `validate_after_tick` ends it
 //!   (`engine::EndCheck::Whole`): the kernel's check with the core's validators of the namespaces
 //!   (`rules::tick_checks`), and where it refuses, the validation without the event history.
-//! - There is no LLM: the Run runs as one without (`Llm::default()`); no trace goes out
-//!   (`TraceLevel::Off`), and no foreign handler runs. No decision record goes out either
+//! - The LLM is a link the host is given (`PlainRun::set_llm`, #428): the core's rules ask it
+//!   (`rules::llm_runtime`) and keep the tape of its calls (`PlainRun::take_tape`). Without one the
+//!   Run runs as one without an LLM (`Llm::default()`). No trace goes out (`TraceLevel::Off`), and
+//!   no foreign handler runs. No decision record goes out either
 //!   (`DecisionSink::Silent`) unless the Run collects them (`PlainRun::collect_decisions`, #368):
 //!   then the sink is an indexed one, which keeps the JSON bytes the core writes of each decision
 //!   (`Decision::Indexed`), the rows `_IndexedMetricSink.observations` holds as bytes on the native
@@ -52,11 +54,13 @@ use crate::events::EventRow;
 use crate::geometry::Geo;
 use crate::host::{Contract, Decision, DecisionSink, Foreign, Holding, Host, Llm, Phase, Stage, Trace, TraceLevel, TxnKind, NO_FOREIGN, NO_PYTHON_SINK};
 use crate::json::Encoder;
+use crate::llm::{Limits, LlmLink, SocialLimits};
 use crate::load::{self, FloorPlans, Loaded, Sections};
 use crate::rules::action_lifecycle::ActiveActions;
 use crate::rules::behavior::Proposal;
 use crate::rules::common_operations::Logged;
 use crate::rules::decisions::Observed;
+use crate::rules::llm_runtime::{self, Runtime};
 use crate::rules::metrics::MetricSample;
 use crate::rules::world_view::ViewData;
 use crate::state::resource_ledger::NAME as LEDGER;
@@ -73,6 +77,8 @@ pub struct PlainHost {
     pub samples: MetricSamples,
     /// The decision records, where the Run collects them (`PlainRun::collect_decisions`).
     pub decisions: Option<Decisions>,
+    /// The LLM's link and what its rules keep, where the Run has one (`PlainRun::set_llm`).
+    pub llm: Option<Runtime>,
 }
 
 /// The decision records a Run collects (#368, off unless asked for): the JSON bytes the core
@@ -90,7 +96,7 @@ pub struct Decisions {
 impl PlainHost {
     /// The host of `loaded`, with the sections of the exported entry it was loaded from.
     pub fn new(entry: &Value, loaded: Rc<Loaded>) -> Result<Self> {
-        Ok(Self { loaded, sections: Sections::of_entry(entry)?, plans: FloorPlans::default(), samples: MetricSamples::default(), decisions: None })
+        Ok(Self { loaded, sections: Sections::of_entry(entry)?, plans: FloorPlans::default(), samples: MetricSamples::default(), decisions: None, llm: None })
     }
 
     /// How many times the floor plan was built.
@@ -425,28 +431,59 @@ impl Host for PlainHost {
         crate::contracts::validate(which, input)
     }
 
+    /// A router and a social policy where the Run has a link, as a Python Run with a router has.
     fn llm(&self) -> Result<Llm> {
-        Ok(Llm::default())
+        let linked = self.llm.is_some();
+        Ok(Llm { router: linked, social_policy: linked })
     }
 
-    fn prioritize_support_request(&mut self, _request_id: &str, _agent_id: &str, _observed_state_hash: &str) -> Result<()> {
-        Ok(())
+    fn social_limits(&self) -> Option<SocialLimits> {
+        self.llm.as_ref().map(|runtime| runtime.limits.social)
     }
 
-    fn consider_support_request(&mut self, _agent_id: &str, _request_id: &str) -> Result<()> {
-        Ok(())
+    fn prioritize_support_request(&mut self, request_id: &str, agent_id: &str, observed_state_hash: &str) -> Result<()> {
+        match &mut self.llm {
+            Some(runtime) => llm_runtime::prioritize_support_request(&self.loaded.cell, runtime, request_id, agent_id, observed_state_hash),
+            None => Ok(()),
+        }
     }
 
-    fn consider_complaint_response(&mut self, _agent_id: &str, _request_id: &str) -> Result<()> {
-        Ok(())
+    fn consider_support_request(&mut self, agent_id: &str, request_id: &str) -> Result<()> {
+        match &mut self.llm {
+            Some(runtime) => llm_runtime::consider_support_request(&self.loaded.cell, runtime, records(&mut self.decisions), agent_id, request_id),
+            None => Ok(()),
+        }
     }
 
-    fn consider_cooperation(&mut self, _initiator: &str, _participant: &str, _trigger_event_id: &str) -> Result<()> {
-        Ok(())
+    fn consider_complaint_response(&mut self, agent_id: &str, request_id: &str) -> Result<()> {
+        match &mut self.llm {
+            Some(runtime) => llm_runtime::consider_complaint_response(&self.loaded.cell, runtime, records(&mut self.decisions), agent_id, request_id),
+            None => Ok(()),
+        }
     }
 
-    fn consider_information_reaction(&mut self, _agent_id: &str, _participant: &str, _message: &str, _trigger_event_id: &str) -> Result<()> {
-        Ok(())
+    fn consider_cooperation(&mut self, initiator: &str, participant: &str, trigger_event_id: &str) -> Result<()> {
+        match &mut self.llm {
+            Some(runtime) => {
+                llm_runtime::consider_cooperation(&self.loaded.cell, runtime, records(&mut self.decisions), initiator, participant, trigger_event_id)
+            }
+            None => Ok(()),
+        }
+    }
+
+    fn consider_information_reaction(&mut self, agent_id: &str, participant: &str, message: &str, trigger_event_id: &str) -> Result<()> {
+        match &mut self.llm {
+            Some(runtime) => llm_runtime::consider_information_reaction(
+                &self.loaded.cell,
+                runtime,
+                records(&mut self.decisions),
+                agent_id,
+                participant,
+                message,
+                trigger_event_id,
+            ),
+            None => Ok(()),
+        }
     }
 
     /// The sample, with the ledger's columns where the world has a ledger (the native path's
@@ -529,6 +566,11 @@ impl Host for PlainHost {
     fn apply_foreign(&mut self, _event: &EventRow) -> Result<Foreign> {
         Err(Error::unsupported(NO_FOREIGN))
     }
+}
+
+/// Where the social policy's records go: the decision records the Run collects, if it does.
+fn records(decisions: &mut Option<Decisions>) -> llm_runtime::Records<'_> {
+    decisions.as_mut().map(|decisions| &mut decisions.records)
 }
 
 /// A Run of an exported world on a `PlainHost`: the ticks one at a time (`step`), the world's
@@ -614,6 +656,25 @@ impl PlainRun {
     /// collect them).
     pub fn take_decisions(&mut self) -> Vec<Vec<u8>> {
         self.host.decisions.as_mut().map(|decisions| std::mem::take(&mut decisions.records)).unwrap_or_default()
+    }
+
+    /// Gives the Run an LLM (#428): the core's rules ask `link` within `limits`
+    /// (`rules::llm_runtime`), as a Python Run with a router and its social policy does. A Run
+    /// restored from a saved point is given a link again; the rules' state is the world's.
+    pub fn set_llm(&mut self, link: Box<dyn LlmLink>, limits: Limits) -> Result<()> {
+        self.host.llm = Some(Runtime::new(link, limits, self.rng_state.clone())?);
+        Ok(())
+    }
+
+    /// The entries of the LLM's tape since the last call (`llm::tape_entry`), in order: none without
+    /// an LLM. A stored Run keeps them in its `llm_tape` pieces (`RunWriter::take`).
+    pub fn take_tape(&mut self) -> Vec<Vec<u8>> {
+        self.host.llm.as_mut().map(Runtime::take_tape).unwrap_or_default()
+    }
+
+    /// How many calls the LLM's link answered since `set_llm`.
+    pub fn llm_calls(&self) -> u64 {
+        self.host.llm.as_ref().map_or(0, Runtime::calls)
     }
 
     /// How many decisions since the Run began to collect them were left to a sink in Python

@@ -107,9 +107,9 @@ python -m coverage report --sort=cover
 
 `native/core/tests/`（`cargo test -p sheltersim_core`）の規則のテストは、`native/core/tests/data/`のファイルの世界と期待する値を読みます（#225）。中核のcrateの`sheltersim_core::load`（`native/core/src/load/`）が世界を読みます。読む処理はブラウザーのHostも使うので（#244）、テストの中には置きません。
 
-- ほとんどのファイルは、#430より前にPythonが作った世界（`export_world`の書き出し）と、Pythonの規則がその上で出した値を記録したものです。Pythonの世界と規則は#430で消したので、これらのファイルを書き直すものはありません。記録した値が、中核の答えを固定します。中核の答えを意図して変えたときは、理由をPull Requestに書いて、ファイルの期待する値を中核の値で書き直します。
+- ほとんどのファイルは、#430より前に記録した世界と値です。今はこれらのファイルを書き直すものはなく、記録した値が今の中核の出力を固定します。Pythonとの一致はもう求めません。テストの名前と説明は、今の中核の関数と、固定する出力と記録した値で書き、消えたPythonの関数やpytestのファイルを説明に使いません（#494）。中核の出力を意図して変えたときは、理由をPull Requestに書いて、ファイルの期待する値を中核の値で書き直します（挙動の変更。下の「挙動を変えない変更（リファクタリング）」）。
 - 今も書き直せるファイル（画面の経路のserverの答え、Pythonに残るScenario作りの答え）は、`tests/support/core_fixtures.py`の`FIXTURES`に、ファイル名と、それを作る関数を書きます。`python benchmarks/core_fixtures.py [名前 ...]`で書き直します。名前を省くと、すべて書き直します。`tests/integration/test_core_fixtures.py`は、登録したファイルごとに、今の関数が作るものと同じであることを確かめます。
-- 中核の0分の世界の作り方（`sheltersim_core::initial`）は、`fixtures/initial_corpus.json.xz`のScenarioごとに、記録したdigest（Pythonが作っていたbytesのもの）と比べます（`tests/integration/test_initial_corpus.py`）。
+- 中核の0分の世界の作り方（`sheltersim_core::initial`）は、`fixtures/initial_corpus.json.xz`のScenarioごとに、#430より前に記録したdigestと比べます（`tests/integration/test_initial_corpus.py`）。
 - ファイルは小さく保ちます。小さな生成Scenario（数人）を使い、テストのファイルの間で世界を共有します。
 - `sheltersim_core::load`は、信頼しない入力を読む前提で書きます。書き出しの形でない値は`Error`にし、crateのコードで`panic!`や`unwrap`をしません。形の誤りが誤りになることは`native/core/tests/load_input.rs`で確かめます。
 - Rustのテストは、`load::entry(ファイル名, 世界の名前)`で書き出しを読み、`load::loaded`で世界とRunとその方策を、`load::host`で節と図面（`Geo`）を持つ`TestHost`を作ります。tickを動かすテストは`load::following_host`で`TestHost`を作ります。Runの途中の世界が要るテストは、中核でtickを進めて作れます（`support/ticks.rs`の`run`）。
@@ -127,7 +127,7 @@ UIで作るScenarioは、必ず図面（`facility_geometry`）と認知（`agent
 
 共通fixtureは、demo-v2のScenario画面が送る入力（`GENERATED_SCENARIO_REQUEST`：合成市・地震・20人・0.25日。各項目は利用者の入力として扱います）を、UIと同じ`ProjectAPI`のpreviewに渡して作ります。違いは地域調査だけで、本物は公開Webサービスに接続するため、空の調査結果に差し替えています。
 
-この共通fixtureの実行結果は、`fixtures/regression-contract.json`の`generated_small`が固定していて、`tests/e2e/test_project_scenario_to_results.py`が確かめます（fixtureそのものは`tests/unit/repo/test_generated_scenario_fixture.py`）。
+この共通fixtureの実行結果は、`fixtures/regression-contract.json`の`generated_small`（このファイルの唯一の項目）が固定していて、`tests/e2e/test_project_scenario_to_results.py`が確かめます（fixtureそのものは`tests/unit/repo/test_generated_scenario_fixture.py`）。
 
 ## 全経路の確認（ゲート）
 

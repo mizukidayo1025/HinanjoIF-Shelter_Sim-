@@ -1,7 +1,8 @@
 //! The Python entries of the Rust core (`sheltersim_core`) for the local and VM versions (#368,
 //! #430): a Run of the core (`rules::plain`), the files of a stored Run (`rules::run_files`), the
 //! answers of the Project routes (`rules::answers`), the minute-0 entry and records of a new Run of
-//! a Scenario, and the offline parse of a Scenario's text. Python keeps no simulation of its own:
+//! a Scenario, the Model Catalog and the models a Scenario selects, and the offline parse of a
+//! Scenario's text. Python keeps no simulation of its own:
 //! every computation is the core's, as in the browser (WASM, `native/wasm`).
 //!
 //! Each entry reads its arguments, calls the core and converts what it gives: bytes as `bytes`,
@@ -68,6 +69,27 @@ fn initial_evidence<'py>(py: Python<'py>, scenario: &[u8]) -> PyResult<Bound<'py
     Ok(PyBytes::new(py, &bytes))
 }
 
+/// The core's Model Catalog (`sheltersim_core::validate::catalog`, `model-catalog.json`) as its JSON
+/// text: the installed models' definitions, `default_models`, the model `suites` and the psychology
+/// models of each kind. Python's Scenario authoring reads it (`contracts/policies.py`).
+#[pyfunction]
+fn model_catalog() -> &'static str {
+    sheltersim_core::validate::catalog::SOURCE
+}
+
+/// The models a Scenario's `model_configs` select (`sheltersim_core::validate::selection::select`), from
+/// the configs' JSON, as the JSON list of `[domain, model]` in the selection's order; or the core's
+/// error (a ValueError with its text for configs the core turns down).
+#[pyfunction]
+fn selected_models(configs: &[u8]) -> PyResult<String> {
+    use sheltersim_core::value::V;
+    let json: serde_json::Value = serde_json::from_slice(configs).map_err(|_| pyo3::exceptions::PyValueError::new_err("model configs must be JSON"))?;
+    let configs = V::from_json(&json).ok_or_else(|| Unsupported::new_err("model configs the core does not read"))?;
+    let selection = sheltersim_core::validate::selection::select(&configs).or_py()?;
+    let pairs: Vec<[&str; 2]> = selection.iter().map(|(domain, model)| [domain, model]).collect();
+    Ok(serde_json::to_string(&pairs).expect("pairs of str are JSON"))
+}
+
 /// Each person's compute of a tick goes to the core's helper threads from this many people on
 /// (`sheltersim_core::parallel`); the gate's variants set 1. Returns the value before.
 #[pyfunction]
@@ -88,6 +110,8 @@ fn sheltersim_native(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(initial_entry, module)?)?;
     module.add_function(wrap_pyfunction!(initial_model_versions, module)?)?;
     module.add_function(wrap_pyfunction!(initial_evidence, module)?)?;
+    module.add_function(wrap_pyfunction!(model_catalog, module)?)?;
+    module.add_function(wrap_pyfunction!(selected_models, module)?)?;
     module.add_function(wrap_pyfunction!(set_people_per_helper, module)?)?;
     module.add_function(wrap_pyfunction!(parallel_state, module)?)?;
     register_lanes(module)?;

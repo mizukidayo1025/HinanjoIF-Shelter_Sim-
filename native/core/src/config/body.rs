@@ -106,9 +106,8 @@ impl CareOutcome {
 
     /// `create_care_outcome_formula(configs)` of the installed formulas, for the model the
     /// selection names for `care_outcome`: its model, the catalog's `assumption_source_id`
-    /// (`contracts/model-catalog.json`) and a copy of `body_dynamics`. The PyO3 crate fills the
-    /// section from the Python factory, which may know a formula registered later; this is the
-    /// built-in one of a build without Python. Another model is refused.
+    /// (the Model Catalog, `validate/model-catalog.json`) and a copy of `body_dynamics`. Another
+    /// model is refused.
     pub fn parse(configs: &V, model_id: &str) -> Read<Self> {
         let source = match model_id {
             FIXED_HYGIENE_MODEL => "ASM-CARE-HYGIENE-FIXED-RELIEF-V1",

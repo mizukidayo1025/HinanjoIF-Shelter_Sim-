@@ -51,7 +51,20 @@ fn cell() -> Shard<World> {
 
 fn event(event_type: &str, payload: Vec<(&str, V)>) -> EventRow {
     let payload = payload.into_iter().map(|(key, value)| (text(key), value)).collect();
-    EventRow::new(text("E1"), EventKind::Exogenous, 3, 0, 1, text(event_type), payload, None, None, IndexMap::new()).unwrap()
+    EventRow {
+        event_id: text("E1"),
+        kind: EventKind::Exogenous,
+        due_minute: 3,
+        priority: 0,
+        sequence: 1,
+        event_type: text(event_type),
+        payload: V::Map(payload),
+        source_id: None,
+        causation_id: None,
+        provenance: V::Map(IndexMap::new()),
+    }
+    .checked()
+    .unwrap()
 }
 
 fn str_v(value: &str) -> V {

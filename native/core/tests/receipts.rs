@@ -532,18 +532,19 @@ fn shared() -> SharedOperationsRow {
 
 fn logged(document: &V, event_id: &str, minute: i64) -> Logged {
     let V::Map(payload) = document.clone() else { unreachable!() };
-    let event = EventRow::new(
-        text(event_id),
-        EventKind::Endogenous,
-        minute,
-        0,
-        1,
-        text("facility_recovery_transition"),
-        payload,
-        Some(text("ASM-FACILITY-RECOVERY-PRODUCER-V1")),
-        Some(text("cause-1")),
-        IndexMap::new(),
-    )
+    let event = EventRow {
+        event_id: text(event_id),
+        kind: EventKind::Endogenous,
+        due_minute: minute,
+        priority: 0,
+        sequence: 1,
+        event_type: text("facility_recovery_transition"),
+        payload: V::Map(payload),
+        source_id: Some(text("ASM-FACILITY-RECOVERY-PRODUCER-V1")),
+        causation_id: Some(text("cause-1")),
+        provenance: V::Map(IndexMap::new()),
+    }
+    .checked()
     .unwrap();
     Logged { status: EventStatus::Applied, realized_minute: minute, event }
 }
@@ -646,7 +647,13 @@ fn a_care_transition_is_its_record_and_its_receipt() {
 #[test]
 fn the_other_receipts_are_applied_records_of_their_events() {
     let world = world();
-    let made = care_receipts::facility_recovery_record(&world, "f1", "pump", "restored", 0, 3, "cause-1", vec![text("SRC-Z")]).unwrap();
+    let made = care_receipts::facility_recovery_record(
+        &world,
+        care_receipts::Recovery { facility_id: "f1", component_id: "pump", status: "restored", previous: 0, units: 3 },
+        "cause-1",
+        vec![text("SRC-Z")],
+    )
+    .unwrap();
     assert_eq!((&*made.event.event_id, made.event.sequence, made.minute), ("facility-recovery-transition-10", 10, 5));
     assert_eq!(made.detail, "facility restored receipt recorded after working-unit update");
     let V::Map(payload) = &made.event.payload else { unreachable!() };
@@ -656,14 +663,26 @@ fn the_other_receipts_are_applied_records_of_their_events() {
     assert_eq!(counter(&world), Some(11));
     // What the contract turns down is refused, before a sequence is taken.
     assert_eq!(
-        care_receipts::facility_recovery_record(&world, "f1", "pump", "restored", 3, 3, "cause-1", Vec::new()).map(|_| ()),
+        care_receipts::facility_recovery_record(
+            &world,
+            care_receipts::Recovery { facility_id: "f1", component_id: "pump", status: "restored", previous: 3, units: 3 },
+            "cause-1",
+            Vec::new()
+        )
+        .map(|_| ()),
         Err(unsupported("a receipt its contract turns down"))
     );
     assert_eq!(counter(&world), Some(11));
 
     let handoff = care_receipts::handoff_record(&world, "t1", "s1", "s2", "shift_end", "cause-2", Vec::new()).unwrap();
     assert_eq!((&*handoff.event.event_id, &*handoff.detail), ("staff-handoff-11", "staff task assignment updated before handoff receipt"));
-    let continuity = care_receipts::continuity_record(&world, "q-1", "a1", "t1", "s1", "requeued", "cause-3", "staff_shift_change").unwrap();
+    let continuity = care_receipts::continuity_record(
+        &world,
+        care_receipts::Continuity { request_id: "q-1", agent_id: "a1", task_id: "t1", previous_staff: "s1", status: "requeued" },
+        "cause-3",
+        "staff_shift_change",
+    )
+    .unwrap();
     assert_eq!(&*continuity.event.event_id, "staff-support-continuity-12");
     assert_eq!(continuity.detail, "staff support request was requeued after assigned staff became unavailable");
     assert!(Receipt::of(&continuity.event.payload).is_ok());

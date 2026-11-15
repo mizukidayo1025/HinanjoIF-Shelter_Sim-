@@ -701,18 +701,19 @@ fn plan_social<'w>(
     provenance.insert(names.source_type.clone(), V::Str(names.assumption.clone()));
     provenance.insert(names.source_id.clone(), V::Str(names.social_source.clone()));
     provenance.insert(names.policy_version.clone(), V::Str(names.social_policy.clone()));
-    let Some(event) = EventRow::new(
+    let Some(event) = EventRow {
         event_id,
-        EventKind::Endogenous,
-        due,
-        SOCIAL_PRIORITY,
+        kind: EventKind::Endogenous,
+        due_minute: due,
+        priority: SOCIAL_PRIORITY,
         sequence,
-        names.event_type.clone(),
-        payload,
-        Some(names.social_policy.clone()),
-        None,
-        provenance,
-    ) else {
+        event_type: names.event_type.clone(),
+        payload: V::Map(payload),
+        source_id: Some(names.social_policy.clone()),
+        causation_id: None,
+        provenance: V::Map(provenance),
+    }
+    .checked() else {
         return refuse("the event's values are not what an event takes");
     };
     Ok(Some((event, events, participant_id, due)))

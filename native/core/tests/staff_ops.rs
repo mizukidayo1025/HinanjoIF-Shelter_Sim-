@@ -175,18 +175,19 @@ fn records(world: &World) -> Vec<Value> {
 
 fn event(event_id: &str, sequence: i64, due: i64, event_type: &str, payload: Vec<(&str, V)>) -> EventRow {
     let V::Map(payload) = map(payload) else { unreachable!() };
-    EventRow::new(
-        text(event_id),
-        EventKind::Completion,
-        due,
-        5,
+    EventRow {
+        event_id: text(event_id),
+        kind: EventKind::Completion,
+        due_minute: due,
+        priority: 5,
         sequence,
-        text(event_type),
-        payload,
-        Some(text("autonomous-routed-staff-v1")),
-        None,
-        IndexMap::new(),
-    )
+        event_type: text(event_type),
+        payload: V::Map(payload),
+        source_id: Some(text("autonomous-routed-staff-v1")),
+        causation_id: None,
+        provenance: V::Map(IndexMap::new()),
+    }
+    .checked()
     .unwrap()
 }
 
@@ -355,18 +356,19 @@ fn relief(task: &str, previous: &str, replacement: &str) -> EventRow {
     else {
         unreachable!()
     };
-    EventRow::new(
-        text("relief-1"),
-        EventKind::Endogenous,
-        10,
-        0,
-        35,
-        text("staff_operation_relief"),
-        payload,
-        Some(text("same-site-staff-relief-v1")),
-        None,
-        provenance,
-    )
+    EventRow {
+        event_id: text("relief-1"),
+        kind: EventKind::Endogenous,
+        due_minute: 10,
+        priority: 0,
+        sequence: 35,
+        event_type: text("staff_operation_relief"),
+        payload: V::Map(payload),
+        source_id: Some(text("same-site-staff-relief-v1")),
+        causation_id: None,
+        provenance: V::Map(provenance),
+    }
+    .checked()
     .unwrap()
 }
 

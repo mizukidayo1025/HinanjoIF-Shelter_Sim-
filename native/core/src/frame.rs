@@ -1265,7 +1265,8 @@ fn build(world: &World, reads: &Reads, waits: &Waits, records: &Records, request
     occupancy.insert(text("waiting_outside_count"), int(pending.len()));
     occupancy.insert(text("zones"), V::List(occupancy_zones.clone()));
 
-    let demand = operational_demand(world, reads, configs, minute, population, pending.len(), occupancy_zones, shared.as_deref())?;
+    let demand =
+        operational_demand(world, reads, configs, Occupancy { minute, population, pending: pending.len(), zones: occupancy_zones }, shared.as_deref())?;
     let spatial = effective_spatial(
         reads.spatial.document.as_deref().ok_or_else(|| Error::unsupported("the host kept no spatial constraints' document"))?,
         overlay.as_ref(),
@@ -1526,18 +1527,18 @@ fn incoming_arrivals(reads: &Reads, geometry: Option<&V>, pending: &[V], minute:
     Ok(incoming)
 }
 
-/// `operational_demand_snapshot(world)`, as its contract dumps it.
-#[allow(clippy::too_many_arguments)]
-fn operational_demand(
-    world: &World,
-    reads: &Reads,
-    configs: &Map,
+/// What the demand's snapshot says of the people before the tick: the minute, the people admitted,
+/// the arrivals pending, and the occupancy of the zones.
+struct Occupancy {
     minute: i64,
     population: usize,
     pending: usize,
     zones: Vec<V>,
-    shared: Option<&SharedOperationsRow>,
-) -> Result<V> {
+}
+
+/// `operational_demand_snapshot(world)`, as its contract dumps it.
+fn operational_demand(world: &World, reads: &Reads, configs: &Map, occupancy: Occupancy, shared: Option<&SharedOperationsRow>) -> Result<V> {
+    let Occupancy { minute, population, pending, zones } = occupancy;
     // The Scenario's floor plan, without the overlay's moves, where the configs hold a truthy one.
     let raw_geometry = configs.get("facility_geometry").is_some_and(V::is_truthy);
     let geometry = match (&reads.geometry, raw_geometry) {

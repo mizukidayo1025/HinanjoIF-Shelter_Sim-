@@ -492,18 +492,20 @@ impl Command {
     }
 }
 
-/// A row of the lifecycle's history.
-#[allow(clippy::too_many_arguments)]
-fn history_row(
-    event_id: &Arc<str>,
-    agent_id: &str,
-    action: &str,
+/// What a row of the lifecycle's history says the person did: who, the action, the minute, and
+/// the zones from and to.
+#[derive(Clone, Copy)]
+struct Moved<'a> {
+    agent_id: &'a str,
+    action: &'a str,
     minute: i64,
-    from_zone: Option<&Arc<str>>,
-    to_zone: Option<&Arc<str>>,
-    household: Option<Arc<str>>,
-    sources: &[Arc<str>],
-) -> V {
+    from_zone: Option<&'a Arc<str>>,
+    to_zone: Option<&'a Arc<str>>,
+}
+
+/// A row of the lifecycle's history.
+fn history_row(event_id: &Arc<str>, moved: Moved<'_>, household: Option<Arc<str>>, sources: &[Arc<str>]) -> V {
+    let Moved { agent_id, action, minute, from_zone, to_zone } = moved;
     V::Map(doc([
         ("event_id", V::Str(event_id.clone())),
         ("agent_id", v_str(agent_id)),
@@ -517,23 +519,12 @@ fn history_row(
 }
 
 /// `_history`: the row, written, and its copy for the receipt.
-#[allow(clippy::too_many_arguments)]
-fn history(
-    world: &World,
-    inputs: &Inputs<'_>,
-    event: &EventIds,
-    agent_id: &str,
-    action: &str,
-    minute: i64,
-    from_zone: Option<&Arc<str>>,
-    to_zone: Option<&Arc<str>>,
-    command: &Command,
-) -> Result<V> {
+fn history(world: &World, inputs: &Inputs<'_>, event: &EventIds, moved: Moved<'_>, command: &Command) -> Result<V> {
     let household = match &command.household_id {
         Some(household) => Some(household.clone()),
-        None => household_of(world, &inputs.population.namespaces.presence, agent_id)?,
+        None => household_of(world, &inputs.population.namespaces.presence, moved.agent_id)?,
     };
-    let row = history_row(&event.event_id, agent_id, action, minute, from_zone, to_zone, household, &command.sources_with(event));
+    let row = history_row(&event.event_id, moved, household, &command.sources_with(event));
     append_history(world, row.clone())?;
     Ok(row)
 }
@@ -1703,7 +1694,7 @@ fn write_action(world: &World, inputs: &Inputs<'_>, row: &EventRow, event: &Even
                 set_presence(world, inputs, event, &agent_id, status, minute, &details)?;
             }
             let (action, to_zone) = if exit { ("temporary_exit", None) } else { ("transferred", command.zone_id.as_ref()) };
-            history(world, inputs, event, &agent_id, action, minute, Some(&from_zone), to_zone, command)?
+            history(world, inputs, event, Moved { agent_id: &agent_id, action, minute, from_zone: Some(&from_zone), to_zone }, command)?
         }
         Plan::ReturnWait { agent_id, destination, household, from_zone } => {
             let item = V::Map(doc([
@@ -1732,7 +1723,7 @@ fn write_action(world: &World, inputs: &Inputs<'_>, row: &EventRow, event: &Even
                 };
                 set_presence(world, inputs, event, &agent_id, "awaiting_admission", minute, &details)?;
             }
-            history(world, inputs, event, &agent_id, "waiting", minute, None, Some(&destination), command)?
+            history(world, inputs, event, Moved { agent_id: &agent_id, action: "waiting", minute, from_zone: None, to_zone: Some(&destination) }, command)?
         }
         Plan::Return { agent_id, destination, household, room } => {
             restore_person(world, inputs, &agent_id, &destination, minute, room.as_ref(), &event.event_id)?;
@@ -1745,7 +1736,7 @@ fn write_action(world: &World, inputs: &Inputs<'_>, row: &EventRow, event: &Even
                 };
                 set_presence(world, inputs, event, &agent_id, "admitted", minute, &details)?;
             }
-            history(world, inputs, event, &agent_id, "returned", minute, None, Some(&destination), command)?
+            history(world, inputs, event, Moved { agent_id: &agent_id, action: "returned", minute, from_zone: None, to_zone: Some(&destination) }, command)?
         }
         Plan::RelocateHere { agent_id, from_zone } => {
             world.rows_mut()?.agents.get_mut(&agent_id).ok_or_else(|| Error::Key(agent_id.to_string()))?.next_decision_at = minute + 1;
@@ -1758,7 +1749,13 @@ fn write_action(world: &World, inputs: &Inputs<'_>, row: &EventRow, event: &Even
                 });
                 set_presence(world, inputs, event, &agent_id, "admitted", minute, &details)?;
             }
-            history(world, inputs, event, &agent_id, "relocated", minute, Some(&from_zone), Some(&from_zone), command)?
+            history(
+                world,
+                inputs,
+                event,
+                Moved { agent_id: &agent_id, action: "relocated", minute, from_zone: Some(&from_zone), to_zone: Some(&from_zone) },
+                command,
+            )?
         }
         Plan::Relocate { agent_id, from_zone, destination, route } => {
             release_room(world, inputs, &agent_id)?;
@@ -1841,7 +1838,7 @@ fn write_action(world: &World, inputs: &Inputs<'_>, row: &EventRow, event: &Even
                 let details =
                     change(PresenceChange { from_zone: Some(zone.clone()), to_zone: Some(zone.clone()), action: Some("reunited"), ..Default::default() });
                 set_presence(world, inputs, event, agent_id, "admitted", minute, &details)?;
-                history(world, inputs, event, agent_id, "reunited", minute, Some(&zone), Some(&zone), command)?;
+                history(world, inputs, event, Moved { agent_id, action: "reunited", minute, from_zone: Some(&zone), to_zone: Some(&zone) }, command)?;
             }
             V::Map(doc([
                 ("event_id", V::Str(event.event_id.clone())),
@@ -2027,7 +2024,15 @@ fn write_returns(
             };
             set_presence(world, inputs, &synthetic, &entry.agent_id, "admitted", minute, &details)?;
         }
-        append_history(world, history_row(&entry.event_id, &entry.agent_id, "admitted", minute, None, Some(&entry.zone_id), household, &sources))?;
+        append_history(
+            world,
+            history_row(
+                &entry.event_id,
+                Moved { agent_id: &entry.agent_id, action: "admitted", minute, from_zone: None, to_zone: Some(&entry.zone_id) },
+                household,
+                &sources,
+            ),
+        )?;
         admitted.push(entry.agent_id.clone());
     }
     // No one admitted leaves the same people in the same order.
@@ -2157,7 +2162,15 @@ pub fn complete_relocation(world: &World, inputs: &Inputs<'_>, row: &EventRow) -
             };
             set_presence(world, inputs, &event, &agent_id, "admitted", row.due_minute, &details)?;
         }
-        append_history(world, history_row(&row.event_id, &agent_id, "relocated", row.due_minute, Some(&from_zone), Some(&to_zone), household, &sources))?;
+        append_history(
+            world,
+            history_row(
+                &row.event_id,
+                Moved { agent_id: &agent_id, action: "relocated", minute: row.due_minute, from_zone: Some(&from_zone), to_zone: Some(&to_zone) },
+                household,
+                &sources,
+            ),
+        )?;
         let mut state = lifecycle_mut(world)?;
         dict_mut(part_mut(&mut state.0, "pending_relocations")?)?.shift_remove(&*agent_id);
         Ok(())

@@ -661,19 +661,21 @@ fn check_presence_ids(event_id: &str, agent_id: &str, zone: Option<&str>, househ
     identifier(source_id)
 }
 
-/// `_record_presence_transition`. The plan checked the ledger and the IDs.
-#[allow(clippy::too_many_arguments)]
-fn record_presence_transition(
-    world: &World,
-    inputs: &Inputs,
-    agent_id: &Arc<str>,
-    event_id: &Arc<str>,
+/// A transition of a person's presence: who, by which event at which minute, the action, the zone
+/// and the household it names (None: the person's own), and its source.
+struct PresenceChange<'a> {
+    agent_id: &'a Arc<str>,
+    event_id: &'a Arc<str>,
     minute: i64,
     action: &'static str,
-    zone_id: Option<&Arc<str>>,
+    zone_id: Option<&'a Arc<str>>,
     household_id: Option<Arc<str>>,
-    source_id: &str,
-) -> Result<()> {
+    source_id: &'a str,
+}
+
+/// `_record_presence_transition`. The plan checked the ledger and the IDs.
+fn record_presence_transition(world: &World, inputs: &Inputs, change: PresenceChange<'_>) -> Result<()> {
+    let PresenceChange { agent_id, event_id, minute, action, zone_id, household_id, source_id } = change;
     let previous = {
         let Some(raw) = value_of(world, PRESENCE, &inputs.namespaces.presence)?.filter(|row| matches!(row.0, V::Map(_))) else {
             return Ok(());
@@ -1128,7 +1130,11 @@ fn write_admission(world: &World, inputs: &Inputs, admission: &Admission, minute
     };
     let action = if status.as_deref() == Some("awaiting_admission") { "admitted" } else { "arrived" };
     let (household, source) = household_and_source(item)?;
-    record_presence_transition(world, inputs, &agent_id, &event_text, minute, action, Some(zone_id), household, &source)?;
+    record_presence_transition(
+        world,
+        inputs,
+        PresenceChange { agent_id: &agent_id, event_id: &event_text, minute, action, zone_id: Some(zone_id), household_id: household, source_id: &source },
+    )?;
     Ok(agent_id)
 }
 
@@ -2763,7 +2769,19 @@ fn write_departure(world: &World, inputs: &Inputs, agent_id: &Arc<str>, row: &Ev
         movement.positions.shift_remove(&**agent_id);
     }
     world.rows_mut()?.agents.remove_row(agent_id);
-    record_presence_transition(world, inputs, agent_id, &row.event_id, row.due_minute, "departed", None, None, SOURCE_ID)
+    record_presence_transition(
+        world,
+        inputs,
+        PresenceChange {
+            agent_id,
+            event_id: &row.event_id,
+            minute: row.due_minute,
+            action: "departed",
+            zone_id: None,
+            household_id: None,
+            source_id: SOURCE_ID,
+        },
+    )
 }
 
 /// The writes of `queue_departures`, once the PyO3 crate has put a new state in: the people leave,

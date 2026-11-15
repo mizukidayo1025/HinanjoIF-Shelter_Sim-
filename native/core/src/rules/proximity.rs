@@ -233,18 +233,19 @@ pub fn sample_contacts(world: &World, proximity: &Proximity, minute: i64, moveme
         provenance.insert(Arc::from("source_id"), V::Str(source.clone()));
         provenance.insert(Arc::from("policy_version"), V::Str(version.clone()));
         provenance.insert(Arc::from("observed_minute"), V::Int(due_minute));
-        let row = EventRow::new(
-            Arc::from(format!("proximity-contact-{sequence}")),
-            EventKind::Endogenous,
+        let row = EventRow {
+            event_id: Arc::from(format!("proximity-contact-{sequence}")),
+            kind: EventKind::Endogenous,
             due_minute,
-            40,
+            priority: 40,
             sequence,
-            Arc::from("proximity_contact_update"),
-            payload,
-            Some(source.clone()),
-            None,
-            provenance,
-        );
+            event_type: Arc::from("proximity_contact_update"),
+            payload: V::Map(payload),
+            source_id: Some(source.clone()),
+            causation_id: None,
+            provenance: V::Map(provenance),
+        }
+        .checked();
         // Finite values, stable IDs and non-negative numbers, all checked above.
         let Some(row) = row else {
             return Err(Error::Runtime("a proximity contact is not an event".to_owned()).into());

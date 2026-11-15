@@ -1882,7 +1882,13 @@ pub fn facility_repair<C: WorldCell, H: Host>(cell: &C, host: &mut H, ins: &Stru
             return Ok(None);
         }
         let units = world.rows()?.facilities.get(&facility_id).ok_or_else(|| Error::Key(facility_id.to_string()))?.working_units;
-        care_receipts::facility_recovery_record(world, &facility_id, &component, "repaired", previous, units, &row.event_id, sources).map(Some)
+        care_receipts::facility_recovery_record(
+            world,
+            care_receipts::Recovery { facility_id: &facility_id, component_id: &component, status: "repaired", previous, units },
+            &row.event_id,
+            sources,
+        )
+        .map(Some)
     })??;
     Ok(made)
 }

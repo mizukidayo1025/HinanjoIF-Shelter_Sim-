@@ -21,6 +21,22 @@ fn minute_of(record: &Record, key: &str) -> Option<f64> {
     record.get(key).and_then(js_integer)
 }
 
+/// The common computed range of records: the latest fork minute and the earliest computed minute;
+/// None where a record lacks either.
+fn common_range<'a>(records: impl IntoIterator<Item = &'a Record>) -> Option<(f64, f64)> {
+    let (mut lower, mut upper) = (f64::NEG_INFINITY, f64::INFINITY);
+    for record in records {
+        let (fork, until) = (minute_of(record, "fork_minute")?, minute_of(record, "computed_until")?);
+        if fork > lower {
+            lower = fork;
+        }
+        if until < upper {
+            upper = until;
+        }
+    }
+    Some((lower, upper))
+}
+
 fn outside(minute: i64, record: &Record) -> bool {
     !matches!((minute_of(record, "fork_minute"), minute_of(record, "computed_until")), (Some(fork), Some(until)) if fork <= minute as f64 && minute as f64 <= until)
 }
@@ -53,11 +69,8 @@ pub fn comparison_range(branch_ids: &[String], minute: Option<f64>, project_id: 
         let record = branches.iter().rev().find(|record| record.get("branch_id").and_then(Value::as_str) == Some(id.as_str()));
         records.push(record.ok_or_else(|| Refusal::storage("comparison branch is missing from this Run"))?);
     }
-    let bound = |key: &str| records.iter().map(|record| minute_of(record, key).unwrap_or(f64::NAN)).collect::<Vec<f64>>();
-    let lower = bound("fork_minute").into_iter().fold(f64::NEG_INFINITY, |a, b| if a.is_nan() || b.is_nan() { f64::NAN } else { a.max(b) });
-    let upper = bound("computed_until").into_iter().fold(f64::INFINITY, |a, b| if a.is_nan() || b.is_nan() { f64::NAN } else { a.min(b) });
-    match minute {
-        Some(minute) if minute >= lower && minute <= upper => Ok((lower as i64, upper as i64)),
+    match (minute, common_range(records.iter().copied())) {
+        (Some(minute), Some((lower, upper))) if minute >= lower && minute <= upper => Ok((lower as i64, upper as i64)),
         _ => Err(Refusal::storage("comparison minute is outside the common computed range").into()),
     }
 }
@@ -215,9 +228,8 @@ impl ReplayPlan {
         for id in &branch_ids {
             records.push(branch_of(project_id, run_id, files, id)?);
         }
-        let lower = records.iter().map(|record| minute_of(record, "fork_minute").unwrap_or(f64::NAN)).fold(f64::NEG_INFINITY, f64::max);
-        let upper = records.iter().map(|record| minute_of(record, "computed_until").unwrap_or(f64::NAN)).fold(f64::INFINITY, f64::min);
-        if (start as f64) < lower || (end as f64) > upper || lower.is_nan() || upper.is_nan() {
+        let within = common_range(&records).is_some_and(|(lower, upper)| start as f64 >= lower && end as f64 <= upper);
+        if !within {
             return Err(Refusal::storage("replay interval is outside the common computed range").into());
         }
         Ok(ReplayPlan { branch_ids, start, end, records })

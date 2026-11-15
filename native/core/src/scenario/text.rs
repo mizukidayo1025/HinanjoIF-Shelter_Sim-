@@ -323,6 +323,34 @@ fn explicit_fields(text: &Text, folded: &str) -> Result<Values, Refusal> {
     if let Some(code) = municipality_code(text) {
         values.insert("municipality_code", V::Str(Arc::from(code.as_str())));
     }
+    insert_evacuees(text, &mut values);
+    insert_duration(text, &mut values)?;
+    insert_area(text, &mut values)?;
+    insert_accessible_toilets(text, &mut values);
+    insert_staff(text, &mut values);
+    insert_initial_resources(text, &mut values)?;
+    insert_seed(text, &mut values);
+    if let Some((season, _)) = SEASONS.iter().find(|(_, terms)| terms.iter().any(|term| folded.contains(&*casefold(term)))) {
+        values.insert("season", V::Str(Arc::from(*season)));
+    }
+    if let Some((disaster, _)) = DISASTER_TERMS.iter().find(|(name, terms)| folded.contains(name) || terms.iter().any(|term| folded.contains(term))) {
+        values.insert("disaster", V::Str(Arc::from(*disaster)));
+    }
+    if let Some(place) = municipality(text) {
+        if !place.is_empty() {
+            values.insert("municipality", V::Str(Arc::from(place.as_str())));
+        }
+    }
+    let conditions: Vec<V> =
+        CONDITIONS.iter().filter(|(_, terms)| terms.iter().any(|term| folded.contains(&*casefold(term)))).map(|(label, _)| V::Str(Arc::from(*label))).collect();
+    if !conditions.is_empty() {
+        values.insert("facility_conditions", V::List(conditions));
+    }
+    Ok(values)
+}
+
+/// The number of evacuees.
+fn insert_evacuees(text: &Text, values: &mut Values) {
     // ([0-9][0-9,]*)\s*(?:人|名|people|evacuees)
     let people = text.search(|start| {
         text.number_then(
@@ -337,6 +365,10 @@ fn explicit_fields(text: &Text, folded: &str) -> Result<Values, Refusal> {
     if let Some((digits, _)) = people {
         values.insert("evacuees", int_value(&digits.replace(',', "")));
     }
+}
+
+/// The duration in days, from days, else hours, else weeks.
+fn insert_duration(text: &Text, values: &mut Values) -> Result<(), Refusal> {
     // ([0-9]+(?:\.[0-9]+)?)\s*(?:日間|日|days?|d), else hours, else weeks.
     let unit =
         |first: &'static str, letter: char| move |at: usize| text.literal(at, first).or_else(|| text.at(at).filter(|char| ci(*char, letter)).map(|_| at + 1));
@@ -352,6 +384,11 @@ fn explicit_fields(text: &Text, folded: &str) -> Result<Values, Refusal> {
             values.insert("duration_days", V::Float(float_value(&weeks)? * 7.0));
         }
     }
+    Ok(())
+}
+
+/// The gross area in square meters.
+fn insert_area(text: &Text, values: &mut Values) -> Result<(), Refusal> {
     // ([0-9][0-9,.]*)\s*(?:m2|m²|㎡|平方メートル)
     let area = text.search(|start| {
         text.number_then(
@@ -366,6 +403,11 @@ fn explicit_fields(text: &Text, folded: &str) -> Result<Values, Refusal> {
     if let Some((area, _)) = area {
         values.insert("gross_area_m2", V::Float(float_value(&area.replace(',', ""))?));
     }
+    Ok(())
+}
+
+/// The number of accessible toilets.
+fn insert_accessible_toilets(text: &Text, values: &mut Values) {
     // ([0-9]+)\s*(?:基|台)\s*(?:の)?\s*(?:車いす|車椅子|バリアフリー)?\s*(?:トイレ|便所), else the
     // toilet before the count.
     let kinds = ["車いす", "車椅子", "バリアフリー"];
@@ -394,6 +436,10 @@ fn explicit_fields(text: &Text, folded: &str) -> Result<Values, Refusal> {
     if let Some((count, _)) = accessible {
         values.insert("accessible_toilet_count", int_value(&count));
     }
+}
+
+/// The number of staff.
+fn insert_staff(text: &Text, values: &mut Values) {
     // ([0-9]+)\s*(?:人|名)\s*(?:の)?\s*(?:職員|スタッフ)
     let staff = text.search(|start| {
         text.number_then(
@@ -409,18 +455,17 @@ fn explicit_fields(text: &Text, folded: &str) -> Result<Values, Refusal> {
     if let Some((count, _)) = staff {
         values.insert("staff_count", int_value(&count));
     }
+}
+
+/// The water and food stock entered, as the operational conditions' initial resources.
+fn insert_initial_resources(text: &Text, values: &mut Values) -> Result<(), Refusal> {
     // (?:飲料水|備蓄水|水(?:の在庫|在庫)?|water(?: stock)?)\s*[:：=]?\s*([0-9][0-9,.]*)\s*(ml|mL|リットル|ℓ|L|l)
-    let colon = |at: usize, marks: &[char]| {
-        let at = text.spaces(at);
-        let at = if text.at(at).is_some_and(|char| marks.contains(&char)) { at + 1 } else { at };
-        text.spaces(at)
-    };
     let water = text.search(|start| {
         let named = text
             .any_of(start, &["飲料水", "備蓄水"], false)
             .or_else(|| text.literal(start, "水").map(|at| text.any_of(at, &["の在庫", "在庫"], false).unwrap_or(at)))
             .or_else(|| text.ci_literal(start, "water").map(|at| text.ci_literal(at, " stock").unwrap_or(at)))?;
-        let at = colon(named, &[':', '：', '=']);
+        let at = colon(text, named, &[':', '：', '=']);
         text.number_then(
             at,
             |char| char.is_ascii_digit() || char == ',' || char == '.',
@@ -440,7 +485,7 @@ fn explicit_fields(text: &Text, folded: &str) -> Result<Values, Refusal> {
             .any_of(start, &["食料", "食糧", "食事在庫"], false)
             .or_else(|| text.ci_literal(start, "food").map(|at| text.ci_literal(at, " stock").unwrap_or(at)))
             .or_else(|| text.ci_literal(start, "meal").map(|at| text.ci_literal(at, " stock").unwrap_or(at)))?;
-        let at = colon(named, &[':', '：', '=']);
+        let at = colon(text, named, &[':', '：', '=']);
         text.number_then(
             at,
             |char| char.is_ascii_digit() || char == ',',
@@ -470,32 +515,27 @@ fn explicit_fields(text: &Text, folded: &str) -> Result<Values, Refusal> {
         );
         values.insert("operational_conditions", V::Map([(Arc::from("initial_resources"), resources)].into_iter().collect()));
     }
+    Ok(())
+}
+
+/// The seed.
+fn insert_seed(text: &Text, values: &mut Values) {
     // (?:seed|シード)\s*[:=]?\s*([0-9]+)
     let seed = text.search(|start| {
         let named = text.ci_literal(start, "seed").or_else(|| text.literal(start, "シード"))?;
-        let at = colon(named, &[':', '=']);
+        let at = colon(text, named, &[':', '=']);
         text.number_then(at, |char| char.is_ascii_digit(), Some)
     });
     if let Some((seed, _)) = seed {
         values.insert("seed", int_value(&seed));
     }
-    if let Some((season, _)) = SEASONS.iter().find(|(_, terms)| terms.iter().any(|term| folded.contains(&*casefold(term)))) {
-        values.insert("season", V::Str(Arc::from(*season)));
-    }
-    if let Some((disaster, _)) = DISASTER_TERMS.iter().find(|(name, terms)| folded.contains(name) || terms.iter().any(|term| folded.contains(term))) {
-        values.insert("disaster", V::Str(Arc::from(*disaster)));
-    }
-    if let Some(place) = municipality(text) {
-        if !place.is_empty() {
-            values.insert("municipality", V::Str(Arc::from(place.as_str())));
-        }
-    }
-    let conditions: Vec<V> =
-        CONDITIONS.iter().filter(|(_, terms)| terms.iter().any(|term| folded.contains(&*casefold(term)))).map(|(label, _)| V::Str(Arc::from(*label))).collect();
-    if !conditions.is_empty() {
-        values.insert("facility_conditions", V::List(conditions));
-    }
-    Ok(values)
+}
+
+/// The position after the spaces, one of `marks` if there and the spaces after it.
+fn colon(text: &Text, at: usize, marks: &[char]) -> usize {
+    let at = text.spaces(at);
+    let at = if text.at(at).is_some_and(|char| marks.contains(&char)) { at + 1 } else { at };
+    text.spaces(at)
 }
 
 // ---- The offline router's fallback -----------------------------------------------------------------

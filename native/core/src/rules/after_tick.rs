@@ -617,34 +617,95 @@ fn first(world: &World, memo: &Memo, inputs: &Inputs<'_>, configs_unchanged: boo
 
     // ---- The support requests to check: open, written or new since the last check. Their order does
     // not matter to a valid world; with several broken ones it decides only which error comes first.
-    let requests = {
-        let rows = world.rows()?;
-        let table = &rows.support_requests;
-        if !agents_unchanged || !starts_with(table, &memo.requests) {
-            // The table no longer starts with the requests held, or the Agents changed: read them all.
-            Checked { slots: table.slots().map(|(_, slot)| slot).collect(), open: Vec::new(), added: Vec::new(), restart: true, reopened: false }
-        } else {
-            let open: Vec<(Arc<str>, u32)> = memo.open.iter().filter_map(|key| Some((key.clone(), table.slot_of(key)?))).collect();
-            let added: Vec<(Arc<str>, u32)> = table.slots().skip(memo.requests.len()).map(|(key, slot)| (key.clone(), slot)).collect();
-            let known: FxHashSet<u32> = open.iter().chain(&added).map(|(_, slot)| *slot).collect();
-            // A request settled at the last check and written since may be open again.
-            let reopened = table.marked().iter().any(|slot| !known.contains(slot) && table.row_at(*slot).is_some_and(|row| !is_settled(row)));
-            let mut read: FxHashSet<u32> = FxHashSet::default();
-            let mut slots = Vec::with_capacity(open.len() + added.len());
-            let order = open.iter().map(|(_, slot)| *slot).chain(table.marked().iter().copied()).chain(added.iter().map(|(_, slot)| *slot));
-            for slot in order {
-                if table.row_at(slot).is_some() && read.insert(slot) {
-                    slots.push(slot);
-                }
-            }
-            Checked { slots, open, added, restart: false, reopened }
-        }
-    };
+    let requests = requests_to_check(world, memo, agents_unchanged)?;
 
     let mut validators: Vec<(Arc<str>, Asked)> = Vec::new();
-    let mut rule = |name: &str| validators.push((Arc::from(name), Asked::Rule));
 
     // ---- `validate_declared_states`.
+    let mut declared = declared_states(world, inputs, presence_unchanged)?;
+
+    // ---- `validate_simulator_extensions`.
+    let Extensions { body_rows, body_config, shared_operations } =
+        simulator_extensions(world, inputs, minute, dynamics_unchanged, lifecycle_unchanged, overlay_unchanged, &mut validators)?;
+
+    // ---- The rest of `validate`.
+    let (ledger, operational) = rest_of_validate(world, inputs, v6, &mut validators)?;
+    let mut event_rule_broken: Option<&'static str> = None;
+    let entity_inputs = EntityInputs {
+        requests: Requests::Slots(&requests.slots),
+        resource_config: plan.resource_config.as_ref(),
+        route_capacities: inputs.route_capacities,
+        ledger: held.of(LEDGER)?,
+        service: held.of(SERVICE)?,
+        spaces: held.of(SPACES)?,
+        overlay: held.of(OVERLAY)?,
+    };
+    let left = entity::entity_rules(world, &entity_inputs, &mut |kind: &str| {
+        if !plan.infrastructure_configured && plan.infrastructure_events.contains(kind) {
+            event_rule_broken = Some("an infrastructure event without the model");
+        } else if plan.environment_zones.is_none() && kind.starts_with(ENVIRONMENT_EVENTS) {
+            event_rule_broken = Some("a zone environment event without the policy");
+        } else if !operational && plan.operational_events.contains(kind) {
+            event_rule_broken = Some("an operational event without its state");
+        }
+    })?;
+    if let Some(reason) = event_rule_broken {
+        return refuse(reason);
+    }
+    let mut rule = |name: &str| validators.push((Arc::from(name), Asked::Rule));
+    if ledger {
+        rule(LEDGER);
+    }
+    // `_validate_zone_capacity` of the zones the entity rules leave: their temporary spaces and
+    // rooms count too.
+    let places = Places { spaces: held.of(SPACES)?, overlay: held.of(OVERLAY)?, schema: inputs.overlay_schema };
+    entity::zone_capacity_passes(world, &places, &left)?;
+
+    declared.append(&mut validators);
+    Ok(Found {
+        validators: declared,
+        body_rows,
+        shared_operations,
+        body_config,
+        agents_unchanged,
+        zones_unchanged,
+        facilities_unchanged,
+        seen,
+        presence_is_self_contained,
+        unchanged: [configs_unchanged, presence_unchanged, lifecycle_unchanged, dynamics_unchanged, overlay_unchanged],
+        requests,
+    })
+}
+
+/// The support requests `first` checks: open, written or new since the last check.
+fn requests_to_check(world: &World, memo: &Memo, agents_unchanged: bool) -> Result<Checked> {
+    let rows = world.rows()?;
+    let table = &rows.support_requests;
+    if !agents_unchanged || !starts_with(table, &memo.requests) {
+        // The table no longer starts with the requests held, or the Agents changed: read them all.
+        Ok(Checked { slots: table.slots().map(|(_, slot)| slot).collect(), open: Vec::new(), added: Vec::new(), restart: true, reopened: false })
+    } else {
+        let open: Vec<(Arc<str>, u32)> = memo.open.iter().filter_map(|key| Some((key.clone(), table.slot_of(key)?))).collect();
+        let added: Vec<(Arc<str>, u32)> = table.slots().skip(memo.requests.len()).map(|(key, slot)| (key.clone(), slot)).collect();
+        let known: FxHashSet<u32> = open.iter().chain(&added).map(|(_, slot)| *slot).collect();
+        // A request settled at the last check and written since may be open again.
+        let reopened = table.marked().iter().any(|slot| !known.contains(slot) && table.row_at(*slot).is_some_and(|row| !is_settled(row)));
+        let mut read: FxHashSet<u32> = FxHashSet::default();
+        let mut slots = Vec::with_capacity(open.len() + added.len());
+        let order = open.iter().map(|(_, slot)| *slot).chain(table.marked().iter().copied()).chain(added.iter().map(|(_, slot)| *slot));
+        for slot in order {
+            if table.row_at(slot).is_some() && read.insert(slot) {
+                slots.push(slot);
+            }
+        }
+        Ok(Checked { slots, open, added, restart: false, reopened })
+    }
+}
+
+/// `validate_declared_states`: each declared namespace is held, at its version. The result lists
+/// the validators to ask of them, but the presence's while it is unchanged.
+fn declared_states(world: &World, inputs: &Inputs<'_>, presence_unchanged: bool) -> Result<Vec<(Arc<str>, Asked)>> {
+    let (plan, held) = (inputs.plan, inputs.held);
     let mut declared: Vec<(Arc<str>, Asked)> = Vec::new();
     for (name, version) in &plan.declared {
         if !held.contains(name)? {
@@ -669,8 +730,30 @@ fn first(world: &World, memo: &Memo, inputs: &Inputs<'_>, configs_unchanged: boo
         }
         declared.push((name.clone(), Asked::Declared));
     }
+    Ok(declared)
+}
 
-    // ---- `validate_simulator_extensions`.
+/// What `simulator_extensions` read besides the validators it adds.
+struct Extensions {
+    body_rows: bool,
+    /// The saved body config's JSON, if the world has a body state.
+    body_config: Option<Vec<u8>>,
+    shared_operations: bool,
+}
+
+/// `validate_simulator_extensions`: the required namespaces are held, and the rules of the
+/// simulator's namespaces are added to `validators`.
+fn simulator_extensions(
+    world: &World,
+    inputs: &Inputs<'_>,
+    minute: i64,
+    dynamics_unchanged: bool,
+    lifecycle_unchanged: bool,
+    overlay_unchanged: bool,
+    validators: &mut Vec<(Arc<str>, Asked)>,
+) -> Result<Extensions> {
+    let (plan, held) = (inputs.plan, inputs.held);
+    let mut rule = |name: &str| validators.push((Arc::from(name), Asked::Rule));
     for name in &plan.required {
         if !held.contains(name)? {
             return refuse("a required namespace is missing");
@@ -714,8 +797,15 @@ fn first(world: &World, memo: &Memo, inputs: &Inputs<'_>, configs_unchanged: boo
         return refuse("shared operations without their contract");
     }
     let shared_operations = present(world, held, SHARED)?;
+    Ok(Extensions { body_rows, body_config, shared_operations })
+}
 
-    // ---- The rest of `validate`.
+/// The rest of `validate` before the entity rules: the ledger, the service state and the models'
+/// namespaces, whose rules are added to `validators`. The result says whether the ledger and the
+/// operational events are held.
+fn rest_of_validate(world: &World, inputs: &Inputs<'_>, v6: bool, validators: &mut Vec<(Arc<str>, Asked)>) -> Result<(bool, bool)> {
+    let (plan, held) = (inputs.plan, inputs.held);
+    let mut rule = |name: &str| validators.push((Arc::from(name), Asked::Rule));
     // A v6 world has a ledger and the service state; a v5 world has no service state, and a ledger
     // only with an initial stock.
     let ledger = held.contains(LEDGER)?;
@@ -768,50 +858,7 @@ fn first(world: &World, memo: &Memo, inputs: &Inputs<'_>, configs_unchanged: boo
         None if environment_present => return refuse("a zone environment without its config"),
         None => {}
     }
-    let mut event_rule_broken: Option<&'static str> = None;
-    let entity_inputs = EntityInputs {
-        requests: Requests::Slots(&requests.slots),
-        resource_config: plan.resource_config.as_ref(),
-        route_capacities: inputs.route_capacities,
-        ledger: held.of(LEDGER)?,
-        service: held.of(SERVICE)?,
-        spaces: held.of(SPACES)?,
-        overlay: held.of(OVERLAY)?,
-    };
-    let left = entity::entity_rules(world, &entity_inputs, &mut |kind: &str| {
-        if !plan.infrastructure_configured && plan.infrastructure_events.contains(kind) {
-            event_rule_broken = Some("an infrastructure event without the model");
-        } else if plan.environment_zones.is_none() && kind.starts_with(ENVIRONMENT_EVENTS) {
-            event_rule_broken = Some("a zone environment event without the policy");
-        } else if !operational && plan.operational_events.contains(kind) {
-            event_rule_broken = Some("an operational event without its state");
-        }
-    })?;
-    if let Some(reason) = event_rule_broken {
-        return refuse(reason);
-    }
-    if ledger {
-        rule(LEDGER);
-    }
-    // `_validate_zone_capacity` of the zones the entity rules leave: their temporary spaces and
-    // rooms count too.
-    let places = Places { spaces: held.of(SPACES)?, overlay: held.of(OVERLAY)?, schema: inputs.overlay_schema };
-    entity::zone_capacity_passes(world, &places, &left)?;
-
-    declared.append(&mut validators);
-    Ok(Found {
-        validators: declared,
-        body_rows,
-        shared_operations,
-        body_config,
-        agents_unchanged,
-        zones_unchanged,
-        facilities_unchanged,
-        seen,
-        presence_is_self_contained,
-        unchanged: [configs_unchanged, presence_unchanged, lifecycle_unchanged, dynamics_unchanged, overlay_unchanged],
-        requests,
-    })
+    Ok((ledger, operational))
 }
 
 /// The rules read after the validators, and the memo moved on.

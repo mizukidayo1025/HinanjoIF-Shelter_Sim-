@@ -19,6 +19,7 @@ use super::movement::py::{cmp_i64, int_cmp, item};
 use super::View;
 use crate::contracts::models::POINT2D;
 use crate::contracts::pydantic::{self as pd, Ctx, Field, Fields, In, IntS, Len, Lit, Model, Pattern, StrS, S};
+use crate::entities::Entities;
 use crate::error::{Error, Result};
 use crate::geometry::{point_in_polygon, segment_inside_polygon, Pt};
 use crate::host::Contract;
@@ -625,8 +626,40 @@ pub fn validate(view: &View<'_>) -> Result<()> {
     for (id, polygon) in &geometry.zones {
         zones.insert(id, polygon);
     }
-    let zone_of = |zone_id: &str| zones.get(zone_id).copied().ok_or_else(|| Error::Key(zone_id.to_owned()));
     let rows = view.rows()?;
+    let overlay = Overlay { geometry: &geometry, zones: &zones, rows: &rows, rooms, minute };
+    check_rooms(overlay)?;
+    check_points(overlay, facility_points, partitions, route_modifiers)?;
+    drop(rows);
+    let footprints = effective_footprints(view)?;
+    let rows = view.rows()?;
+    let overlay = Overlay { geometry: &geometry, zones: &zones, rows: &rows, rooms, minute };
+    check_footprints(overlay, &footprints)?;
+    check_beds(overlay, reservations, admissions)
+}
+
+/// What the checks of the overlay's records read: the surveyed geometry and its zones, the rows,
+/// the temporary rooms and the minute.
+#[derive(Clone, Copy)]
+struct Overlay<'a> {
+    geometry: &'a Plan,
+    zones: &'a HashMap<&'a str, &'a [Pt]>,
+    rows: &'a Entities,
+    rooms: &'a IndexMap<Arc<str>, V>,
+    minute: i64,
+}
+
+impl<'a> Overlay<'a> {
+    /// A zone's polygon; an unknown zone raises Python's `KeyError`.
+    fn zone_of(&self, zone_id: &str) -> Result<&'a [Pt]> {
+        self.zones.get(zone_id).copied().ok_or_else(|| Error::Key(zone_id.to_owned()))
+    }
+}
+
+/// The temporary rooms: each against its zone, its beds and its access routes, and the active
+/// rooms against each other and the facilities.
+fn check_rooms(overlay: Overlay<'_>) -> Result<()> {
+    let Overlay { geometry, zones, rows, rooms, minute } = overlay;
     let mut room_polygons: HashMap<&str, Vec<Pt>> = HashMap::new();
     for (room_id, room) in rooms {
         let room = map_of(room);
@@ -642,7 +675,7 @@ pub fn validate(view: &View<'_>) -> Result<()> {
             return invalid("temporary room remained active past its expiry");
         }
         let polygon = points(room.get("polygon_m"));
-        room_polygon(zone_of(zone_id)?, &polygon)?;
+        room_polygon(overlay.zone_of(zone_id)?, &polygon)?;
         if points(room.get("bed_points_m")).iter().any(|point| !point_in_polygon(*point, &polygon)) {
             return invalid("temporary room bed point lies outside its polygon");
         }
@@ -678,6 +711,18 @@ pub fn validate(view: &View<'_>) -> Result<()> {
             return invalid("active temporary room covers a facility");
         }
     }
+    Ok(())
+}
+
+/// The runtime facility points, service points, partitions and route modifiers against the
+/// surveyed zones and the graph.
+fn check_points(
+    overlay: Overlay<'_>,
+    facility_points: &IndexMap<Arc<str>, V>,
+    partitions: &IndexMap<Arc<str>, V>,
+    route_modifiers: &IndexMap<Arc<str>, V>,
+) -> Result<()> {
+    let Overlay { geometry, zones, rows, minute, .. } = overlay;
     for (key, row) in facility_points {
         let row = map_of(row);
         let Some(facility) = rows.facilities.get(key) else {
@@ -686,7 +731,7 @@ pub fn validate(view: &View<'_>) -> Result<()> {
         if later_than(int_field(row, "minute"), minute) {
             return invalid("geometry overlay references an unknown facility or invalid record");
         }
-        if !point_in_polygon(pt(int_field(row, "point_m")), zone_of(&facility.zone_id)?) {
+        if !point_in_polygon(pt(int_field(row, "point_m")), overlay.zone_of(&facility.zone_id)?) {
             return invalid("runtime facility point leaves its original zone");
         }
     }
@@ -694,7 +739,7 @@ pub fn validate(view: &View<'_>) -> Result<()> {
         let facility = rows.facilities.get(str_of(map_of(service), "facility_id"));
         let inside = match facility {
             None => false,
-            Some(facility) => point_in_polygon(*point, zone_of(&facility.zone_id)?),
+            Some(facility) => point_in_polygon(*point, overlay.zone_of(&facility.zone_id)?),
         };
         if !inside {
             return invalid("runtime service point leaves its facility's physical zone");
@@ -706,7 +751,7 @@ pub fn validate(view: &View<'_>) -> Result<()> {
         if !zones.contains_key(zone_id) || later_than(int_field(row, "minute"), minute) {
             return invalid("invalid runtime partition record");
         }
-        partition_polygon(zone_of(zone_id)?, &points(row.get("polygon_m")))?;
+        partition_polygon(overlay.zone_of(zone_id)?, &points(row.get("polygon_m")))?;
     }
     for (key, row) in route_modifiers {
         let row = map_of(row);
@@ -726,12 +771,16 @@ pub fn validate(view: &View<'_>) -> Result<()> {
             return invalid("route geometry overlay and graph closure disagree");
         }
     }
-    drop(rows);
-    let footprints = effective_footprints(view)?;
-    let rows = view.rows()?;
-    for (facility_id, polygon) in &footprints {
+    Ok(())
+}
+
+/// The runtime equipment footprints: each inside its facility's zone and clear of the active
+/// temporary rooms.
+fn check_footprints(overlay: Overlay<'_>, footprints: &[(Arc<str>, Vec<Pt>)]) -> Result<()> {
+    let Overlay { rows, rooms, .. } = overlay;
+    for (facility_id, polygon) in footprints {
         let facility = rows.facilities.get(facility_id).ok_or_else(|| Error::Key(facility_id.to_string()))?;
-        let zone = zone_of(&facility.zone_id)?;
+        let zone = overlay.zone_of(&facility.zone_id)?;
         if polygon.iter().any(|point| !point_in_polygon(*point, zone)) {
             return invalid("runtime equipment footprint leaves its original zone");
         }
@@ -744,6 +793,12 @@ pub fn validate(view: &View<'_>) -> Result<()> {
             return invalid("active temporary room overlaps an equipment footprint");
         }
     }
+    Ok(())
+}
+
+/// The bed reservations and room admissions of the temporary rooms, within their capacity.
+fn check_beds(overlay: Overlay<'_>, reservations: &IndexMap<Arc<str>, V>, admissions: &IndexMap<Arc<str>, V>) -> Result<()> {
+    let Overlay { rows, rooms, minute, .. } = overlay;
     let mut reserved: HashSet<(&str, i64)> = HashSet::new();
     for (agent_id, reservation) in reservations {
         let reservation = map_of(reservation);

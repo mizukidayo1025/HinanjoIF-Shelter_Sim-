@@ -21,7 +21,7 @@ from support.core_initial import (
     minute_zero_entry,
     scenario_of,
 )
-from support.initial_corpus import load_corpus, world_entry_bytes
+from support.initial_corpus import entry_bytes, load_corpus
 
 from sheltersim.core.world import WorldState
 from sheltersim.core.world_export import configs_fingerprint, export_world
@@ -72,20 +72,20 @@ CORPUS = load_corpus()
 
 
 @pytest.mark.parametrize("index", range(len(CORPUS)))
-def test_the_core_builds_the_world_python_builds_of_any_corpus_scenario(index: int) -> None:
-    """`sheltersim_core::initial::world_entry` of a Scenario of the corpus (one per configuration
-    the tests use, #429) is the bytes of `export_world(world)` of the world
-    `WorldState.from_scenario` builds, and the digest recorded with the case."""
+def test_the_core_builds_the_entry_python_exports_of_any_corpus_scenario(index: int) -> None:
+    """`sheltersim_core::initial::entry` of a Scenario of the corpus (one per configuration the
+    tests use, #429) is the bytes of `export_world(world, controller)` of the world
+    `WorldState.from_scenario` builds, set up for a Run, and the digest recorded with the case."""
     import sheltersim_native
 
     from sheltersim.experiments.scenario import ScenarioSpec
 
     case = CORPUS[index]
-    made = sheltersim_native.initial_world_entry(case["scenario"].encode())
+    made = sheltersim_native.initial_entry(case["scenario"].encode())
 
-    assert hashlib.sha256(made).hexdigest() == case["world_entry_sha256"]
-    assert len(made) == case["world_entry_bytes"]
-    assert made == world_entry_bytes(ScenarioSpec.model_validate_json(case["scenario"]))
+    assert hashlib.sha256(made).hexdigest() == case["entry_sha256"]
+    assert len(made) == case["entry_bytes"]
+    assert made == entry_bytes(ScenarioSpec.model_validate_json(case["scenario"]))
 
 
 def _rich_case() -> dict[str, Any]:
@@ -99,7 +99,7 @@ def _rich_case() -> dict[str, Any]:
     )
 
 
-# Configs `ScenarioSpec` accepts and the world's construction refuses (#429).
+# Configs `ScenarioSpec` accepts and the world's or the controller's construction refuses (#429).
 REFUSED_CONFIGS: dict[str, Callable[[dict[str, Any]], Any]] = {
     "body_value": lambda configs: configs["body_dynamics"].update(affect_transfer_rate=2.0),
     "body_field": lambda configs: configs["body_dynamics"].update(unknown=1),
@@ -118,16 +118,24 @@ REFUSED_CONFIGS: dict[str, Callable[[dict[str, Any]], Any]] = {
         configs.pop("facility_geometry"),
         configs.pop("spatial_constraints"),
     ),
+    "social_unknown": lambda configs: configs["social_propagation"].update(unknown=1),
+    "social_rate": lambda configs: configs["social_propagation"].update(
+        stress_spread_per_minute=0.5
+    ),
+    "social_cooldown": lambda configs: configs["social_propagation"].update(cooldown_minutes=0),
+    "social_source": lambda configs: configs["social_propagation"].update(
+        source_id="ASM-DEGROOT-CONTACT-V1"
+    ),
+    "social_source_type": lambda configs: configs["social_propagation"].update(source_type="x"),
 }
 
 
 @pytest.mark.parametrize("name", sorted(REFUSED_CONFIGS))
 def test_the_core_raises_python_s_error_for_a_world_python_refuses(name: str) -> None:
-    """Where `WorldState.from_scenario` raises for a Scenario `ScenarioSpec` accepts, the core
-    raises the same class with the same text (#429)."""
+    """Where Python raises building a Run's world or controller for a Scenario `ScenarioSpec`
+    accepts, the core raises the same class with the same text (#429)."""
     import sheltersim_native
 
-    from sheltersim.core.world import WorldState
     from sheltersim.experiments.scenario import ScenarioSpec
 
     document = _rich_case()
@@ -135,9 +143,9 @@ def test_the_core_raises_python_s_error_for_a_world_python_refuses(name: str) ->
     scenario = ScenarioSpec.model_validate(document)
 
     with pytest.raises(Exception) as python:
-        WorldState.from_scenario(scenario)
+        entry_bytes(scenario)
     with pytest.raises(Exception) as core:
-        sheltersim_native.initial_world_entry(scenario.canonical_json().encode())
+        sheltersim_native.initial_entry(scenario.canonical_json().encode())
 
     assert type(core.value) is type(python.value)
     assert str(core.value) == str(python.value)
@@ -197,16 +205,19 @@ def test_the_evidence_template_is_the_server_s_answer(tmp_path: Any) -> None:
     assert json.loads(json.dumps(answer)) == evidence_answer(scenario)
 
 
-def test_the_core_refuses_configs_its_table_lacks_and_what_is_not_a_scenario() -> None:
-    """A fingerprint the table lacks is Unsupported; bytes that are no Scenario are a ValueError."""
+def test_the_core_refuses_records_its_table_lacks_and_what_is_not_a_scenario() -> None:
+    """A new Run's records of a fingerprint the table lacks are Unsupported (its world is built);
+    bytes that are no Scenario are a ValueError."""
     import sheltersim_native
 
     from sheltersim.native import Unsupported
 
     document = json.loads(scenario_of({"evacuees": 3}).canonical_json())
     document["model_configs"]["behavior"]["temperature"] = 0.3
+    raw = json.dumps(document).encode()
     with pytest.raises(Unsupported, match="fingerprint"):
-        sheltersim_native.initial_entry(json.dumps(document).encode())
+        sheltersim_native.initial_model_versions(raw)
+    assert sheltersim_native.initial_entry(raw)
     for raw in (b"", b"[]", b"{}", b'{"seed": "1"}', b"\xff"):
         with pytest.raises(ValueError):
             sheltersim_native.initial_entry(raw)

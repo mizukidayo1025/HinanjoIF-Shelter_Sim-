@@ -34,11 +34,12 @@ REPAIR_KEY = "631ff3fd30d1dd3376d534beec770079cff1bfe1300a5d1c5efb1469741552b7"
 
 class FakeProvider:
     """Answers each task with `answers[prompt_version](task)`, counting the calls and keeping
-    their cache keys; a task it has no answer for gets text that is not JSON (the core then falls
-    back)."""
+    their cache keys; a task it has no answer for gets `otherwise(task)`, by default text that is
+    not JSON (the core then falls back)."""
 
-    def __init__(self, answers: dict[str, Any]) -> None:
+    def __init__(self, answers: dict[str, Any], otherwise: Any = None) -> None:
         self.answers = answers
+        self.otherwise = otherwise or (lambda _task: "not json")
         self.calls: list[str] = []
         self.keys: list[str] = []
 
@@ -49,7 +50,7 @@ class FakeProvider:
         self.calls.append(task.prompt_version)
         self.keys.append(task.cache_key(model_id))
         answer = self.answers.get(task.prompt_version)
-        text = answer(task) if answer is not None else "not json"
+        text = (answer or self.otherwise)(task)
         return ProviderResponse(
             text=text, model_id=model_id, input_tokens=10, output_tokens=5, elapsed_ms=0.0
         )
@@ -72,6 +73,41 @@ def scalars(data: Any, prefix: str = ""):
 
 def evidence_of(task: Any) -> list[dict[str, Any]]:
     return json.loads(task.input_text)["evidence"]
+
+
+def cite(task):
+    """A question's answer citing a recorded string and a recorded number of its evidence."""
+    found = [
+        (item["alias"], path, value)
+        for item in evidence_of(task)
+        for path, value in scalars(item["data"])
+    ]
+    text = next(item for item in found if isinstance(item[2], str))
+    number = next(
+        item for item in found if isinstance(item[2], (int, float)) and item[2] is not True
+    )
+    return json.dumps(
+        {
+            "claims": [
+                {"evidence": [{"alias": text[0], "field": text[1], "value": text[2]}]},
+                {
+                    "evidence": [
+                        {"alias": number[0], "field": number[1], "value": json.dumps(number[2])}
+                    ]
+                },
+            ],
+            "explanations": [
+                {
+                    "kind": "hypothesis",
+                    "text": "待ちの長さは処理能力に関係する可能性があります。",
+                    "evidence": [
+                        {"alias": number[0], "field": number[1], "value": json.dumps(number[2])}
+                    ],
+                }
+            ],
+        },
+        ensure_ascii=False,
+    )
 
 
 @pytest.fixture(scope="module")
@@ -102,40 +138,6 @@ def test_a_question_cites_recorded_values_and_a_replay_answers_it_again(complete
     """The answer's facts are the scalars the LLM cited, copied from the evidence (a string
     verbatim, a number as its JSON); replaying the Run's analysis tape gives the same facts
     without a Provider for the same question of the same evidence."""
-
-    def cite(task):
-        found = [
-            (item["alias"], path, value)
-            for item in evidence_of(task)
-            for path, value in scalars(item["data"])
-        ]
-        text = next(item for item in found if isinstance(item[2], str))
-        number = next(
-            item for item in found if isinstance(item[2], (int, float)) and item[2] is not True
-        )
-        return json.dumps(
-            {
-                "claims": [
-                    {"evidence": [{"alias": text[0], "field": text[1], "value": text[2]}]},
-                    {
-                        "evidence": [
-                            {"alias": number[0], "field": number[1], "value": json.dumps(number[2])}
-                        ]
-                    },
-                ],
-                "explanations": [
-                    {
-                        "kind": "hypothesis",
-                        "text": "待ちの長さは処理能力に関係する可能性があります。",
-                        "evidence": [
-                            {"alias": number[0], "field": number[1], "value": json.dumps(number[2])}
-                        ],
-                    }
-                ],
-            },
-            ensure_ascii=False,
-        )
-
     provider = FakeProvider({QUESTION_VERSION: cite})
     install(monkeypatch, provider)
     answer = ask(completed_api, "What was recorded?")
@@ -216,6 +218,28 @@ def test_an_answer_that_does_not_fit_its_schema_is_the_fallback(completed_api, m
     assert answer["facts"][0]["evidence"][0]["field"] == "stress_mean"
 
 
+def review(task):
+    """A review whose codes fit the evidence: a metric that is zero at the end, observed so."""
+    prompt = json.loads(task.input_text)
+    metric = next(key for key, value in prompt["final_metrics"].items() if value == 0)
+    return json.dumps(
+        {
+            "observed": [{"metric_id": metric, "direction": "zero"}],
+            "event_observations": [],
+            "assumptions": prompt["assumption_ids"][:1],
+            "hypotheses": [
+                {
+                    "hypothesis": "stress_pattern_needs_validation",
+                    "metric_ids": [metric],
+                    "event_refs": [],
+                    "assumption_ids": [],
+                }
+            ],
+            "recommendations": [],
+        }
+    )
+
+
 @pytest.fixture(scope="module")
 def llm_run(tmp_path_factory, generated_previews):
     """Run r of the generated Scenario computed to the end with an LLM (a fake Provider that
@@ -225,27 +249,6 @@ def llm_run(tmp_path_factory, generated_previews):
 
     preview = generated_previews(duration_days=END / 1440)
     scenario = ScenarioSpec.model_validate(copy.deepcopy(preview["scenario"]))
-
-    def review(task):
-        prompt = json.loads(task.input_text)
-        metric = next(key for key, value in prompt["final_metrics"].items() if value == 0)
-        return json.dumps(
-            {
-                "observed": [{"metric_id": metric, "direction": "zero"}],
-                "event_observations": [],
-                "assumptions": prompt["assumption_ids"][:1],
-                "hypotheses": [
-                    {
-                        "hypothesis": "stress_pattern_needs_validation",
-                        "metric_ids": [metric],
-                        "event_refs": [],
-                        "assumption_ids": [],
-                    }
-                ],
-                "recommendations": [],
-            }
-        )
-
     provider = FakeProvider({REVIEW_VERSION: review})
     with pytest.MonkeyPatch.context() as monkeypatch:
         # A module's fixture comes before each test's isolation: the usage ledgers it writes
@@ -387,3 +390,33 @@ def test_without_an_accepted_plan_the_rules_read_the_text_or_a_stop_policy_refus
         preview(completed_api, "空に虹をかけたい")
     assert refused.value.args[0] == 409
     assert refused.value.args[2] == "intervention_compiler_unavailable"
+
+
+def test_the_live_feature_check_takes_routes_that_exist(live_feature_route, tmp_path, monkeypatch):
+    """The paid check of each LLM stage (tests/live/test_live_api.py) runs offline with this fake
+    in Anthropic's place, and nothing leaves the process: a route it takes that is gone fails
+    here, not first when the paid gate is opened (#522). A task without a scripted answer gets
+    its own fallback text, which fits its schema."""
+    import socket
+
+    def refuse(*_args: Any, **_kwargs: Any) -> None:
+        raise AssertionError("the offline feature check opened a network connection")
+
+    monkeypatch.setattr(socket.socket, "connect", refuse)
+    monkeypatch.setattr(socket.socket, "connect_ex", refuse)
+    monkeypatch.setattr(socket, "create_connection", refuse)
+    provider = FakeProvider(
+        {REVIEW_VERSION: review, COMPILER_VERSION: toilets, QUESTION_VERSION: cite},
+        otherwise=lambda task: task.fallback_text,
+    )
+    install(monkeypatch, provider)
+
+    summary = live_feature_route(tmp_path, monkeypatch)
+
+    assert summary["review_status"] == "validated"
+    assert summary["intervention"] == {"status": "compiled", "fallback_used": False}
+    assert summary["question"] == {"outcome": "recorded", "accepted_fact_count": 2}
+    assert {call["outcome"] for call in summary["calls"]} == {"recorded"}
+    assert provider.calls.count(REVIEW_VERSION) == 1
+    assert provider.calls.count(COMPILER_VERSION) == 1
+    assert provider.calls.count(QUESTION_VERSION) == 1

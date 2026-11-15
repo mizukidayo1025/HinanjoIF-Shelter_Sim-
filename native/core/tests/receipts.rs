@@ -233,9 +233,12 @@ fn a_config_without_windows_and_a_bad_status_are_refused() {
     let mut row = dynamics(0.0);
     row.config.shift_windows_by_staff = Maybe(None);
     assert_eq!(staff_dynamics::on_shift(&row.config, "s1", 0), Err(unsupported("the config has no shift windows")));
+    let mut world = world();
     let status = map(&[("s1", map(&[("available", V::Int(1))]))]);
-    assert_eq!(staff_dynamics::is_available(Some(&status), "s1"), Err(unsupported("available is not a bool")));
-    assert_eq!(staff_dynamics::is_available(Some(&status), "s2"), Ok(true));
+    slot(&mut world, staff_dynamics::OPERATIONAL, Place::Value, Box::new(ValueRow(map(&[("staff_status", status)]))));
+    let available = |id: &str| staff_dynamics::with_staff_status(&world, |status| status.is_available(id));
+    assert_eq!(available("s1"), Err(unsupported("available is not a bool")));
+    assert_eq!(available("s2"), Ok(true));
 }
 
 #[test]

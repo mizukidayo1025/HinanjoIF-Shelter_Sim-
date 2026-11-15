@@ -192,10 +192,10 @@ fn bool_attr(object: &Obj, path: &[&'static str]) -> Got<bool> {
 /// A plain dict of the policy: a table by person, or the body config.
 type Table = IndexMap<Arc<str>, V>;
 
-/// An attribute that must be a plain dict.
-fn table_attr<'a>(object: &'a Obj, path: &[&'static str]) -> Got<&'a Table> {
+/// An attribute that must be a plain dict of numbers by person.
+fn table_attr<'a>(object: &'a Obj, path: &[&'static str]) -> Got<RateTable<'a>> {
     match value_of(object, path)? {
-        Some(V::Map(table)) => Ok(table),
+        Some(V::Map(table)) => Ok(RateTable(table)),
         _ => refused("a table of the policy is not a plain dict"),
     }
 }
@@ -213,12 +213,27 @@ fn float_item(dict: &Table, key: &str) -> Result<f64> {
     number_item(dict, key).map(|(value, _)| value)
 }
 
-/// `by_agent.get(id, default)` of a dict of numbers.
-#[inline]
-fn rate_of(by_agent: &Table, id: &str, default: f64) -> Result<f64> {
-    match by_agent.get(id) {
-        Some(value) => number_of(value),
-        None => Ok(default),
+/// A plain dict of the policy by person, as the Run read it: each person's number is read where
+/// the rule needs it, and refused there.
+#[derive(Clone, Copy)]
+pub struct RateTable<'a>(&'a Table);
+
+impl RateTable<'_> {
+    /// `by_agent.get(id, default)` of a dict of numbers.
+    #[inline]
+    fn rate(self, id: &str, default: f64) -> Result<f64> {
+        match self.0.get(id) {
+            Some(value) => number_of(value),
+            None => Ok(default),
+        }
+    }
+
+    /// `by_agent.get(id)` of a dict of numbers within 0..1: None for a person it lacks.
+    fn unit(self, id: &str) -> Result<Option<f64>> {
+        match self.0.get(id) {
+            Some(value) => unit_number(value).map(Some),
+            None => Ok(None),
+        }
     }
 }
 
@@ -329,7 +344,7 @@ pub struct LongTerm<'a> {
     pub parameters: LongTermParameters,
     /// `baseline_distress_by_agent`, or None where it is not a plain dict: refused where a new
     /// record needs it.
-    pub baselines: Option<&'a Table>,
+    pub baselines: Option<RateTable<'a>>,
 }
 
 /// Whether the model keeps long-term state. False for a model without it, whose step does nothing
@@ -364,7 +379,7 @@ pub fn long_term_of(psychology: &Psychology) -> Got<LongTerm<'_>> {
         high_distress_threshold: unit("high_distress_threshold")?,
     };
     let baselines = match value_of(settings, &["psychology", "parameters", "baseline_distress_by_agent"])? {
-        Some(V::Map(table)) => Some(table),
+        Some(V::Map(table)) => Some(RateTable(table)),
         _ => None,
     };
     Ok(LongTerm { parameters, baselines })
@@ -433,10 +448,7 @@ fn plan_long_term(row: &DistressRow, people: &[Person<'_>], minute: i64, long_te
             }
             None => {
                 let baseline = match long_term.baselines {
-                    Some(baselines) => match baselines.get(person.id) {
-                        Some(baseline) => unit_number(baseline)?,
-                        None => 0.0,
-                    },
+                    Some(baselines) => baselines.unit(person.id)?.unwrap_or(0.0),
                     None => return unsupported("the baselines are not a plain dict"),
                 };
                 let mut record = AgentRecord {
@@ -598,16 +610,16 @@ struct BodyRates {
 
 /// The tables by person, for lookups that a scenario may fill with one value per person.
 struct RateTables<'a> {
-    toilet: &'a Table,
-    hunger: &'a Table,
-    awake_fatigue: &'a Table,
-    natural_recovery: &'a Table,
-    baseline: &'a Table,
+    toilet: RateTable<'a>,
+    hunger: RateTable<'a>,
+    awake_fatigue: RateTable<'a>,
+    natural_recovery: RateTable<'a>,
+    baseline: RateTable<'a>,
     // Only with a formula; the built-in feedback of a life-state policy without one has no tables,
     // and a formula's config without one has an empty one: both give the shared rate.
-    sleep_debt: Option<&'a Table>,
-    negative: Option<&'a Table>,
-    discontent: Option<&'a Table>,
+    sleep_debt: Option<RateTable<'a>>,
+    negative: Option<RateTable<'a>>,
+    discontent: Option<RateTable<'a>>,
 }
 
 /// The numbers of a model, from what the Run read of `controller.psychology`.
@@ -671,10 +683,10 @@ pub fn params(psychology: &Psychology, model: Model, resource_service_enabled: O
         (None, None, false)
     };
     // `body_config.get(name, {})` with a formula, which must be a plain dict.
-    let by_agent = |name: &str| -> Got<Option<&Table>> {
+    let by_agent = |name: &str| -> Got<Option<RateTable<'_>>> {
         match config {
             Some(config) if with_formula => match config.get(name) {
-                Some(V::Map(table)) => Ok(Some(table)),
+                Some(V::Map(table)) => Ok(Some(RateTable(table))),
                 Some(_) => refused("a table of the policy is not a plain dict"),
                 None => Ok(None),
             },
@@ -1240,8 +1252,8 @@ fn read_life(agent: &ViewAgent, zone: &ViewZone, tables: &RateTables<'_>, g: &Bo
         Some(_) => return unsupported("the required sleep is out of bounds"),
     };
     let id = &*agent.id;
-    let rate = |table: Option<&Table>, default: f64| match table {
-        Some(by_agent) => rate_of(by_agent, id, default),
+    let rate = |table: Option<RateTable<'_>>, default: f64| match table {
+        Some(by_agent) => by_agent.rate(id, default),
         None => Ok(default),
     };
     let life = LifeInput {
@@ -1296,11 +1308,11 @@ fn read_view_people(data: &ViewData, params: &Params<'_>) -> Result<Vec<ViewPers
             group,
             rest_efficiency,
             environmental_per_minute: zone.environmental_stress_per_minute,
-            toilet_growth: rate_of(tables.toilet, id, rates.toilet_growth)?,
-            hunger_growth: rate_of(tables.hunger, id, rates.hunger_growth)?,
-            awake_fatigue: rate_of(tables.awake_fatigue, id, rates.awake_fatigue_growth)?,
-            kappa: if reversion { rate_of(tables.natural_recovery, id, rates.natural_recovery_rate)? } else { 0.0 },
-            baseline: if reversion { rate_of(tables.baseline, id, 0.0)? } else { 0.0 },
+            toilet_growth: tables.toilet.rate(id, rates.toilet_growth)?,
+            hunger_growth: tables.hunger.rate(id, rates.hunger_growth)?,
+            awake_fatigue: tables.awake_fatigue.rate(id, rates.awake_fatigue_growth)?,
+            kappa: if reversion { tables.natural_recovery.rate(id, rates.natural_recovery_rate)? } else { 0.0 },
+            baseline: if reversion { tables.baseline.rate(id, 0.0)? } else { 0.0 },
             life,
         });
     }

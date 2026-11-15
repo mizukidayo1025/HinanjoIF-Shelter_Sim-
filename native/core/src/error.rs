@@ -159,7 +159,7 @@ impl fmt::Display for Error {
 
 impl std::error::Error for Error {}
 
-/// Why a value or a write does not fit a row: the namespace is tainted with this reason.
+/// Why a value or a write does not fit a row.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Misfit(pub String);
 

@@ -110,9 +110,6 @@ impl LedgerWorld for InWorld<'_> {
 
     fn has_zone(&self, id: &str) -> Result<bool> {
         let rows = self.0.entities.try_borrow()?;
-        if rows.zones_tainted().is_some() {
-            return Err(Error::unsupported("the zone rows are tainted"));
-        }
         Ok(rows.zones.contains_key(id))
     }
 

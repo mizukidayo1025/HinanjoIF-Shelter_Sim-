@@ -6,8 +6,7 @@
 //! `update` plans everything from the rows first, so an Unsupported changes nothing; it then writes
 //! the row of `staff_dynamics_v1` alone. Every other function only reads, or builds a new value.
 //!
-//! `operational_events_v1` and `staff_operations_v1` are read from their rows. A namespace whose row
-//! a write that did not fit dropped (tainted) is refused: its tree is all there is of it.
+//! `operational_events_v1` and `staff_operations_v1` are read from their rows.
 
 use std::sync::Arc;
 
@@ -36,8 +35,6 @@ pub enum Held<T> {
     /// No such name, or None there: what `model_state.get(name)` reads as None.
     Absent,
     Row(T),
-    /// A write that did not fit dropped the row: the tree is all there is of it.
-    Tainted,
 }
 
 /// The row of a namespace of the world, or what it holds instead.
@@ -48,21 +45,19 @@ pub fn held_row<'w, T: Row>(world: &'w World, name: &str) -> Result<Held<ShardRe
     {
         let slot = slot.try_borrow()?;
         if slot.row.is_none() {
-            return Ok(if slot.taint.is_none() { Held::Absent } else { Held::Tainted });
+            return Ok(Held::Absent);
         }
     }
     world.row::<T>(name).map(Held::Row)
 }
 
 /// The row of a namespace of the world, as `model_state.get(name)` reads it: None for a name the
-/// world does not have (or holds as None), Unsupported for a namespace a write that did not fit
-/// tainted, whose tree the rules can't read here.
+/// world does not have (or holds as None).
 #[track_caller]
 pub fn namespace<'w, T: Row>(world: &'w World, name: &str) -> Result<Option<ShardRef<'w, T>>> {
     match held_row::<T>(world, name)? {
         Held::Absent => Ok(None),
         Held::Row(row) => Ok(Some(row)),
-        Held::Tainted => Err(Error::unsupported("the namespace has no row")),
     }
 }
 
@@ -272,9 +267,8 @@ pub fn on_shift_now(world: &World, staff_id: &str, minute: i64) -> Result<bool> 
 }
 
 /// `operation is None or operation.get("phase") == "idle"` of `staff_operations_v1`: a record of
-/// the row always has a phase. Every rule writes the namespace as its row (lanes b2 and b3), so a
-/// namespace whose row a write that did not fit dropped (tainted) is refused. `absent` says the
-/// caller read None under the key (no state), which no row holds.
+/// the row always has a phase. Every rule writes the namespace as its row (lanes b2 and b3).
+/// `absent` says the caller read None under the key (no state), which no row holds.
 pub fn operation_is_idle(world: &World, staff_id: &str, absent: bool) -> Result<bool> {
     if absent {
         return Ok(true);

@@ -184,14 +184,13 @@ pub fn kind_is(row: &EventRow, kind: EventKind) -> bool {
 // ---- Namespaces and configs (lane P8 a2) ----------------------------------------------------------
 
 /// `model_state.get(name) is None` as a kernel asks it, of the world's slots: true for a name no
-/// slot owns, and for a slot that has neither a row nor a taint (the key is not in `model_state`).
-/// A tainted namespace is present: its readers refuse it.
+/// slot owns, and for a slot that has no row (the key is not in `model_state`).
 pub fn namespace_absent(world: &World, name: &str) -> Result<bool> {
     match world.slots.get(name) {
         None => Ok(true),
         Some(slot) => {
             let slot = slot.try_borrow()?;
-            Ok(slot.row.is_none() && slot.taint.is_none())
+            Ok(slot.row.is_none())
         }
     }
 }
@@ -1080,7 +1079,7 @@ pub enum Held {
 }
 
 /// The row of a namespace the world holds, borrowed shared: None for an absent key, the refusal of
-/// `Other`, or the slot's own (a tainted namespace has no row).
+/// `Other`, or the slot's own.
 #[track_caller]
 pub fn held_row<'w, T: crate::row::Row>(world: &'w World, name: &str, held: &Held) -> Result<Option<crate::cell::ShardRef<'w, T>>> {
     match held {

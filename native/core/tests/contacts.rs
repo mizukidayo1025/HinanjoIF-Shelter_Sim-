@@ -349,9 +349,6 @@ fn what_the_step_turns_down_changes_nothing() {
     let world = social_world(Some(social_row(&[], &[])), false);
     world.slots.get(NETWORK).unwrap().try_borrow_mut().unwrap().row = Some(Box::new(network(i64::MAX - 1)));
     check(world, &deltas, &neighbors, "a count is too large");
-    let world = social_world(Some(social_row(&[], &[])), false);
-    world.slots.get(NETWORK).unwrap().try_borrow_mut().unwrap().taint = Some("a write that does not fit".to_owned());
-    check(world, &deltas, &neighbors, "the namespace has no row");
 }
 
 #[test]

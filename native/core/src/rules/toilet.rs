@@ -4,11 +4,11 @@
 //! rows alone.
 //!
 //! The caller reads first what the kernels take besides the rows (the manager's durations and
-//! policy, the random source's seed, whether the world holds each namespace, the floor plan, an
-//! answer of a tainted `staff_operations_v1`). The world's whole validation (`validate_state`) and
-//! the draw of a random source that is not a `CounterRNG` (a test's) go through the `Host`. A
-//! completion's walk home (`after_complete`): `complete` says the walk is due, and the dispatch
-//! runs it (`toilet_completion` of `rules::dispatch`).
+//! policy, the random source's seed, whether the world holds each namespace, the floor plan). The
+//! world's whole validation (`validate_state`) and the draw of a random source that is not a
+//! `CounterRNG` (a test's) go through the `Host`. A completion's walk home (`after_complete`):
+//! `complete` says the walk is due, and the dispatch runs it (`toilet_completion` of
+//! `rules::dispatch`).
 
 use std::sync::Arc;
 

@@ -112,11 +112,10 @@ impl<'w> View<'w> {
             return Ok(false);
         };
         let slot = slot.try_borrow()?;
-        Ok(slot.place != Place::Field && (slot.row.is_some() || slot.taint.is_some()))
+        Ok(slot.place != Place::Field && slot.row.is_some())
     }
 
-    /// `world.model_state.get(name)` (a key that holds None gives `V::Null`). Unsupported for a
-    /// tainted key, whose slot holds no row.
+    /// `world.model_state.get(name)` (a key that holds None gives `V::Null`).
     pub fn state(&self, name: &str) -> Result<Option<StateRef<'w>>> {
         let Some(slot) = self.world.slots.get(name) else {
             return Ok(None);
@@ -126,10 +125,7 @@ impl<'w> View<'w> {
             return Ok(None);
         }
         let Some(row) = held.row.as_deref() else {
-            return match &held.taint {
-                None => Ok(None),
-                Some(_) => Err(Error::unsupported("the namespace is tainted")),
-            };
+            return Ok(None);
         };
         if !row.as_any().is::<ValueRow>() {
             return value_of_row(row).map(|value| Some(StateRef::Owned(value)));
@@ -138,7 +134,7 @@ impl<'w> View<'w> {
     }
 
     /// The typed row of a key of `model_state`, where the slot holds a row of this type; None
-    /// otherwise (absent, tainted, or another row: read `state` then).
+    /// otherwise (absent, or another row: read `state` then).
     pub fn row<T: Row>(&self, name: &str) -> Result<Option<ShardRef<'w, T>>> {
         let Some(slot) = self.world.slots.get(name) else {
             return Ok(None);

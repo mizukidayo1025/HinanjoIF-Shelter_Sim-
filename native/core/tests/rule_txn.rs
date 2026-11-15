@@ -474,9 +474,9 @@ fn a_rule_transaction_checks_the_host_then_validates_twice_and_counts() {
 
     // A refused check: nothing is validated, nothing changes.
     let before = print(&cell);
-    let mut refusing = Recording { refuse: Some("the entity store is tainted"), ..Recording::default() };
+    let mut refusing = Recording { refuse: Some("the host refuses the check"), ..Recording::default() };
     let refused: Result<(), Fault> = txn::rule(&cell, &mut refusing, TxnKind::Full, |_, _| panic!("the body ran"));
-    assert_eq!(refused, Err(Fault::Core(Error::unsupported("the entity store is tainted"))));
+    assert_eq!(refused, Err(Fault::Core(Error::unsupported("the host refuses the check"))));
     assert_eq!(refusing.steps, ["check"]);
     assert_eq!(print(&cell), before);
 

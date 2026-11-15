@@ -1,7 +1,7 @@
 //! What an applied event records in `social_network_v1`
 //! (docs/rust-port/lanes/m3-social-network.md). `observe_event` skips what it does not record and
 //! gives a ValueError at the bound (`BOUND_REACHED`). Unsupported is left for what no applied event
-//! holds: an ID with a character JSON escapes, a tainted namespace, a count past i64.
+//! holds: an ID with a character JSON escapes, a namespace without its row, a count past i64.
 //!
 //! `observe_event` reads the event's row and `body_state_v1` first, which may give Unsupported, and
 //! only then writes the row of `social_network_v1`, where nothing can refuse any more.
@@ -135,7 +135,7 @@ impl NetworkWrite {
     }
 
     fn apply(&self, world: &World) -> Result<()> {
-        // Says Unsupported for a tainted namespace. The ValueError at the bound comes before
+        // Says Unsupported for a namespace without its row. The ValueError at the bound comes before
         // anything is written, so none of the records is written.
         {
             let row = world.row::<SocialNetworkRow>(NAME)?;

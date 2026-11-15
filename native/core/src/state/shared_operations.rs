@@ -157,8 +157,7 @@ pub struct Receipt {
     pub bytes: Box<[u8]>,
 }
 
-/// A deque because at its limit each new receipt drops the oldest. A write into a receipt doesn't
-/// fit, and taints the namespace.
+/// A deque because at its limit each new receipt drops the oldest.
 #[derive(Clone, Default)]
 pub struct Receipts {
     pub items: VecDeque<Receipt>,

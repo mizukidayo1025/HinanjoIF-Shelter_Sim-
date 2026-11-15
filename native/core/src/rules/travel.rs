@@ -4,8 +4,7 @@
 //!
 //! The rules are functions on the `World`. The route graph is the Run's (`Graph`), built from the
 //! world's zone and edge tables after each refresh of the Run's routes (`Routes::refresh`,
-//! `routers_of`): rows are the truth, and tables that a value did not fit (`zones_tainted`) are
-//! refused, with no other graph to fall back on. Edge capacities count every trip under way
+//! `routers_of`): rows are the truth, with no other graph to fall back on. Edge capacities count every trip under way
 //! (`active_edge_loads`), and a route a full edge turns down records a capacity wait through the
 //! world's writer (`kit::Events`). A trip writes its task, the person's activity and target, its
 //! completion event and the start of its walk in the row of `movement_v1`.
@@ -54,8 +53,6 @@ const CAPACITY_DETAIL: &str = "route edge capacity is full; the Agent remains at
 const APPROACH_SOURCE: &str = "ASM-SPATIAL-MOVEMENT-V2";
 const APPROACH_POLICY: &str = "spatial-route-and-room-waypoint-v2";
 const APPROACH_EVENT_SOURCE: &str = "agent-facility-approach-v2";
-/// The refusal of tables a value did not fit: the zones and the edges dropped their rows.
-pub const ZONES_TAINTED: &str = "the zones are tainted";
 
 #[track_caller]
 fn refuse<T>(reason: &'static str) -> Result<T> {
@@ -86,11 +83,7 @@ fn configs_of(world: &World) -> Result<ShardRef<'_, ValueRow>> {
 
 /// The zones and the zone edges, which a rule reads as `world.zones` and `world.zone_edges`.
 fn zone_rows(world: &World) -> Result<ShardRef<'_, Entities>> {
-    let rows = world.entities.try_borrow()?;
-    if rows.zones_tainted().is_some() {
-        return refuse(ZONES_TAINTED);
-    }
-    Ok(rows)
+    world.entities.try_borrow()
 }
 
 // ---- The routers of a Run -------------------------------------------------------------------------
@@ -113,13 +106,10 @@ pub struct Routers {
 /// (`Router::of_tables`) turns down is its ValueError. With a floor plan (`"facility_geometry" in
 /// model_configs` and an edge), the staff's graph keeps the edges the plan finds clear for an
 /// independent walker. The staff's router is a result of its own, so that the people's is kept
-/// first, as before. None where the tables dropped their rows.
-pub fn routers_of(world: &World, capacities: &RouteCapacities, geo: Option<&Arc<Geo>>) -> Result<Option<Routers>> {
+/// first, as before.
+pub fn routers_of(world: &World, capacities: &RouteCapacities, geo: Option<&Arc<Geo>>) -> Result<Routers> {
     let (people, edges) = {
         let rows = world.entities.try_borrow()?;
-        if rows.zones_tainted().is_some() {
-            return Ok(None);
-        }
         (Arc::new(Router::of_tables(&rows.zones, &rows.zone_edges, capacities)?), rows.zone_edges.len())
     };
     let staff = (|| {
@@ -130,7 +120,7 @@ pub fn routers_of(world: &World, capacities: &RouteCapacities, geo: Option<&Arc<
             Ok(people.clone())
         }
     })();
-    Ok(Some(Routers { people, staff }))
+    Ok(Routers { people, staff })
 }
 
 /// A route on the world's graph (`Router::of_tables`) with nothing closed, for a rule that has no
@@ -248,9 +238,6 @@ fn current_edge(rows: &Entities, ids: &[Arc<str>], start: i64, due: i64, minute:
     if duration <= 0 {
         return Ok(None);
     }
-    if rows.zones_tainted().is_some() {
-        return refuse(ZONES_TAINTED);
-    }
     let elapsed = minute - start;
     let mut weights = Vec::with_capacity(ids.len());
     for id in ids {
@@ -314,9 +301,6 @@ pub fn passage_edge_loads(world: &World, movement: &Held, staff: &Held, minute: 
         let Some(task_id) = payload_text(&event, "task_id") else {
             continue;
         };
-        if rows.tainted().is_some() {
-            return refuse("the entity store is tainted");
-        }
         let Some((start, due)) = rows.active_tasks.get(&task_id).map(|task| (task.start_minute, task.due_minute)) else {
             continue;
         };

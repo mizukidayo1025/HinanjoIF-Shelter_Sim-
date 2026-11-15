@@ -333,10 +333,6 @@ fn what_the_kernel_refused_it_still_refuses_with_its_text() {
     assert_eq!(sample_of(&world, true).err(), Some(unsupported("a staff queue names no task")));
 
     let mut world = self::world();
-    world.entities.get_mut().taint("a value does not fit".to_owned());
-    assert_eq!(sample_of(&world, true).err(), Some(unsupported("the entity store is tainted")));
-
-    let mut world = self::world();
     put(&mut world.entities.get_mut().facilities, "f9", facility("f9", "toilet", i64::MAX, &[], &[]));
     assert_eq!(sample_of(&world, true).err(), Some(unsupported("the working units do not fit an i64")));
 
@@ -344,7 +340,7 @@ fn what_the_kernel_refused_it_still_refuses_with_its_text() {
     assert_eq!(sample_of(&world, false).err(), Some(unsupported("the field holds another dict")));
     {
         let mut slot = world.slots.get(METRIC_STATE).unwrap().try_borrow_mut().unwrap();
-        (slot.row, slot.taint) = (None, Some("an int".to_owned()));
+        slot.row = None;
     }
     assert_eq!(sample_of(&world, true).err(), Some(unsupported("the namespace has no row")));
 

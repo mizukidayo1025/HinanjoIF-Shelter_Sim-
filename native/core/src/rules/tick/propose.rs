@@ -215,10 +215,7 @@ pub fn router<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R>, w
     }
     let capacities = tick.on_run(|run| run.config.route_capacities().cloned())?.map_err(H::Error::from)?;
     let plan = tick.plan();
-    let built = tick.world(|world| travel::routers_of(world, &capacities, plan.get()))?;
-    let Some(travel::Routers { people, staff }) = built else {
-        return Err(Error::unsupported(travel::ZONES_TAINTED).into());
-    };
+    let travel::Routers { people, staff } = tick.world(|world| travel::routers_of(world, &capacities, plan.get()))?;
     let router = match which {
         Which::People => people,
         Which::Staff => {

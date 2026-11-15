@@ -326,11 +326,7 @@ pub(crate) fn typed_of<'w, T: Row>(world: &'w World, name: &str, held: &Held) ->
 }
 
 pub(crate) fn zone_rows(world: &World) -> Result<ShardRef<'_, Entities>> {
-    let rows = world.entities.try_borrow()?;
-    if rows.zones_tainted().is_some() {
-        return refuse("the zones are tainted");
-    }
-    Ok(rows)
+    world.entities.try_borrow()
 }
 
 pub(crate) fn zone_known(world: &World, zone_id: &str) -> Result<bool> {
@@ -1048,7 +1044,7 @@ const NEED_NAMES: [&str; 4] = ["toilet_urgency", "hunger", "fatigue", "hydration
 /// `minute`, as an admission makes it (`write_admission`; `schema_version` is the world's: v5 has
 /// no hydration, which is then 0.0). Unsupported where the constructors raise another error (a
 /// field missing, a key the initial needs do not take), or make an object whose fields no row holds
-/// (an int need level, an ID that is not a str), which would taint the store. A `ValueError` comes
+/// (an int need level, an ID that is not a str). A `ValueError` comes
 /// first where the constructors raise it first.
 pub fn build_agent(profile: &V, zone_id: &Arc<str>, minute: i64, schema_version: i64) -> Result<Built> {
     let raw = map_of(profile)?;

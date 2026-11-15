@@ -185,7 +185,7 @@ fn immediate_need(row: &AgentRow) -> f64 {
     [row.needs.toilet_urgency, row.needs.hunger, row.needs.fatigue, row.needs.hydration_need].into_iter().fold(row.stress, py_max)
 }
 
-/// `model_state.get("body_state_v1")` as its row, None without it; a tainted one is refused.
+/// `model_state.get("body_state_v1")` as its row, None without it.
 fn body_of(world: &World) -> Result<Option<crate::cell::ShardRef<'_, BodyRow>>> {
     if kit::namespace_absent(world, BODY_STATE)? {
         return Ok(None);

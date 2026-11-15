@@ -10,11 +10,10 @@
 //! Every namespace is read from its row: `information_spread_v1`, `body_state_v1`,
 //! `psychological_distress_v1` and `staff_operations_v1` as their typed rows, and
 //! `operational_events_v1`, `infrastructure_v1`, `population_context_v1`, `population_dynamics_v1`,
-//! `population_presence_v1` and `zone_environment_v1` as `V`. A tainted namespace (a value its row
-//! cannot hold) is refused where it is read. Anything this module is not sure of says `Unsupported`
-//! before anything has changed, and the phase's step gives it as an `Error::Refused`. A value of
-//! another type than the view's fields hold is refused too: a typed field here could not keep it,
-//! and `1` and `1.0` would hash differently.
+//! `population_presence_v1` and `zone_environment_v1` as `V`. Anything this module is not sure of
+//! says `Unsupported` before anything has changed, and the phase's step gives it as an
+//! `Error::Refused`. A value of another type than the view's fields hold is refused too: a typed
+//! field here could not keep it, and `1` and `1.0` would hash differently.
 //!
 //! A person's context is parsed by `person_context.rs`, and a zone's conditions come from
 //! `zone_environment.rs`; what they make is kept in a `ViewCache` (on the controller's `Run`) while
@@ -223,37 +222,22 @@ impl ViewData {
 
 // ---- Reading the world ----------------------------------------------------------------------------
 
-/// What `model_state` holds under a namespace with a typed row.
-#[derive(Clone, PartialEq, Eq, Debug)]
-enum Held {
-    /// No such key.
-    Absent,
-    /// The row: what the tree holds, or all there is of a detached namespace.
-    Row,
-    /// A value the row could not hold, and why.
-    Tainted(String),
-}
-
-fn held(world: &World, name: &str) -> Result<Held> {
+/// Whether `model_state` holds a namespace with a typed row: a slot of the name with its row.
+fn has_row(world: &World, name: &str) -> Result<bool> {
     let Some(slot) = world.slots.get(name) else {
-        return Ok(Held::Absent);
+        return Ok(false);
     };
-    let slot = slot.try_borrow()?;
-    Ok(match (&slot.row, &slot.taint) {
-        (Some(_), _) => Held::Row,
-        (None, Some(taint)) => Held::Tainted(taint.clone()),
-        (None, None) => Held::Absent,
-    })
+    let held = slot.try_borrow()?.row.is_some();
+    Ok(held)
 }
 
-/// The typed row of a namespace, None without the key. A tainted namespace is refused, with why
-/// its row could not hold it: the rules of the view read no tree.
+/// The typed row of a namespace, None without the key.
 #[track_caller]
 fn row_of<'w, T: crate::row::Row>(world: &'w World, name: &str) -> Result<Option<ShardRef<'w, T>>> {
-    match held(world, name)? {
-        Held::Absent => Ok(None),
-        Held::Row => world.row::<T>(name).map(Some),
-        Held::Tainted(why) => Err(Error::unsupported(format!("{name} is tainted: {why}"))),
+    if has_row(world, name)? {
+        world.row::<T>(name).map(Some)
+    } else {
+        Ok(None)
     }
 }
 
@@ -952,7 +936,7 @@ pub fn build(world: &World, inputs: &Inputs<'_>, cache: &mut ViewCache) -> Resul
     }
     read_body_and_distress(world, &mut agents)?;
     read_facility_contexts(world, &mut facilities)?;
-    let body_present = held(world, body_state::NAME)? != Held::Absent;
+    let body_present = has_row(world, body_state::NAME)?;
     Ok(Draft {
         data: ViewData {
             minute_index: minute,
@@ -1214,11 +1198,11 @@ fn agent_parts(data: &ViewData, life: bool, information: bool, resource: bool) -
 fn write_document(data: &ViewData, world: &World, configs: Option<&V>, mut sink: impl FnMut(&[u8])) -> Result<()> {
     let configs = ModelConfigs::of(world, configs)?;
     let resource = data.resource_service_enabled;
-    let information = held(world, information::NAME)? != Held::Absent;
+    let information = has_row(world, information::NAME)?;
     let resource_config = if resource { Some(hashed_config(&configs, "resource_service")?) } else { None };
     let information_config = if information { Some(hashed_config(&configs, "information_spread")?) } else { None };
     // A row holds a namespace's dict of fields, which is never empty.
-    let life_context = data.has_population_context || held(world, body_state::NAME)? != Held::Absent;
+    let life_context = data.has_population_context || has_row(world, body_state::NAME)?;
 
     // Each run of people is written by the threads (parallel.rs); the bytes are the same as in one piece.
     let (life_parts, agent_parts) = agent_parts(data, life_context, information, resource)?;

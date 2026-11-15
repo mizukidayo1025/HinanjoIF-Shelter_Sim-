@@ -1124,10 +1124,9 @@ fn observed(world: &World, kind: &str, entity: &str, field_path: &str) -> Result
             };
             let state = {
                 let slot = slot.try_borrow()?;
-                match (&slot.row, &slot.taint) {
-                    (None, None) => return Ok(None),
-                    (None, Some(_)) => return Err(Error::unsupported("the namespace has no row")),
-                    (Some(row), _) => row_value(&**row)?,
+                match &slot.row {
+                    None => return Ok(None),
+                    Some(row) => row_value(&**row)?,
                 }
             };
             let V::Map(state) = &state else {
@@ -1149,9 +1148,6 @@ fn observed(world: &World, kind: &str, entity: &str, field_path: &str) -> Result
             let version = world.schema_version()?;
             let rows = if kind == "zone" {
                 let rows = world.entities.try_borrow()?;
-                if rows.zones_tainted().is_some() {
-                    return Err(Error::unsupported("the zone rows are tainted"));
-                }
                 rows
             } else {
                 world.rows()?

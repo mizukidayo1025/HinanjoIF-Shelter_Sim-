@@ -1,8 +1,6 @@
 //! `resource_service_v1`: what the staffed water and meal service holds. `rules/service.rs` writes
 //! the row alone, and an attached tree follows it (lane c3 of #152;
 //! docs/rust-port/lanes/m4-service.md).
-//!
-//! A value of another type than the rules write taints the namespace, and the rules refuse it.
 
 use std::collections::HashMap;
 use std::sync::Arc;

@@ -289,8 +289,7 @@ impl Default for Holding {
 }
 
 impl Holding {
-    /// What the world's slots hold: every slot of a namespace with a row (or a taint, whose tree
-    /// stays) is held, every other is absent, and every owned field is held. Where the host has no
+    /// What the world's slots hold: every slot of a namespace with a row is held, every other is absent, and every owned field is held. Where the host has no
     /// view of its own (`Host::holding` gives None), the rules read this (`kit::holding`).
     pub fn of_world(world: &World) -> crate::error::Result<Self> {
         let mut holding = Self::default();
@@ -301,7 +300,7 @@ impl Holding {
                     holding.fields.insert(name.clone(), true);
                 }
                 Place::Namespace | Place::Value => {
-                    if slot.row.is_some() || slot.taint.is_some() {
+                    if slot.row.is_some() {
                         let none = matches!(slot.row.as_deref().and_then(|row| row.as_any().downcast_ref::<ValueRow>()), Some(ValueRow(V::Null)));
                         holding.keys.insert(name.clone(), Key::new(Hold::Held, none));
                     }

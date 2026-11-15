@@ -426,9 +426,6 @@ pub fn decide(world: &World, inputs: &Inputs<'_>, row: &EventRow) -> Result<Opti
     };
     let zone_known = |zone: &str| -> Result<bool> {
         let rows = world.entities.try_borrow()?;
-        if rows.zones_tainted().is_some() {
-            return refuse("the zones are tainted");
-        }
         Ok(rows.zones.contains_key(zone))
     };
     if !zone_known(destination)? {

@@ -358,8 +358,7 @@ pub struct StaffTravel {
 }
 
 /// Where the staff's operations are read: none (no namespace, or not a dict), or the row of
-/// `staff_operations_v1`. Every rule writes the namespace as its row (lanes b2 and b3): a tainted
-/// one is refused where the row is read.
+/// `staff_operations_v1`. Every rule writes the namespace as its row (lanes b2 and b3).
 #[derive(Clone, Debug, PartialEq)]
 pub enum StaffOps {
     None,

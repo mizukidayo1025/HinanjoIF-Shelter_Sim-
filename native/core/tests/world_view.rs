@@ -437,15 +437,6 @@ fn what_the_view_cannot_read_it_refuses_before_making_anything() {
     let mut cache = ViewCache::default();
     let refused = |world: &World, cache: &mut ViewCache| build(world, cache).err();
 
-    // A tainted namespace, with why its row could not hold it.
-    let world = world(true);
-    {
-        let slot = world.slots.get("psychological_distress_v1").unwrap();
-        let mut slot = slot.try_borrow_mut().unwrap();
-        (slot.row, slot.taint) = (None, Some("not a float".to_owned()));
-    }
-    assert_eq!(refused(&world, &mut cache), Some(unsupported("psychological_distress_v1 is tainted: not a float")));
-
     // A person in a zone the world does not have.
     let mut world = self::world(false);
     world.entities.get_mut().agents.get_mut("A1").unwrap().zone_id = text("nowhere");

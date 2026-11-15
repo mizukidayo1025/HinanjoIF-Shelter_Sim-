@@ -471,7 +471,7 @@ fn an_interrupted_service_puts_the_person_back_at_the_head_with_a_new_task() {
 }
 
 #[test]
-fn a_tainted_service_namespace_is_refused() {
+fn a_service_namespace_of_another_value_is_refused() {
     let mut world = world(1000);
     let (config, geo, needs) = (config(), no_geo(), no_needs());
     let manager = Manager { service: Held::Other("the world holds another service state"), ..manager(&config, &geo) };

@@ -38,7 +38,7 @@ use crate::rules::kit::{self, Events, Held, Kept, NewEvent, NoTree};
 use crate::rules::movement;
 use crate::rules::staff_dynamics::{self, on_shift};
 use crate::rules::staff_operation_events::{self as operations, relief_skills, Stopping, FORMULA_UNREAD};
-use crate::rules::travel::{self, Routing, Trip, Walking, ZONES_TAINTED};
+use crate::rules::travel::{self, Routing, Trip, Walking};
 use crate::state::body_state::{BodyRow, NAME as BODY_STATE};
 use crate::state::effect_program::{EffectProgramRow, NAME as PROGRAM};
 use crate::state::shared_operations::{SharedOperationsRow, NAME as SHARED_OPERATIONS};
@@ -142,9 +142,6 @@ impl Inputs<'_> {
 /// The IDs of `world.zones`, in its order.
 fn world_zones(world: &World) -> Result<Vec<Arc<str>>> {
     let rows = world.entities.try_borrow()?;
-    if rows.zones_tainted().is_some() {
-        return Err(Error::unsupported(ZONES_TAINTED));
-    }
     Ok(rows.zones.iter().map(|(id, _)| id.clone()).collect())
 }
 
@@ -992,9 +989,6 @@ fn route_wait_reasons(
         };
         let minutes = movement_minutes(world, inputs, agent_id, &route)?;
         let rows = world.rows()?;
-        if rows.zones_tainted().is_some() {
-            return Err(Error::unsupported(ZONES_TAINTED));
-        }
         let Some(place) = rows.zones.get(destination) else {
             return Err(Error::unsupported("no such zone"));
         };

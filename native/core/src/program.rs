@@ -682,7 +682,7 @@ fn has(world: &World, name: &str) -> Result<bool> {
     Ok(match world.slots.get(name) {
         Some(slot) => {
             let slot = slot.try_borrow()?;
-            slot.place != Place::Field && (slot.row.is_some() || slot.taint.is_some())
+            slot.place != Place::Field && slot.row.is_some()
         }
         None => false,
     })
@@ -694,9 +694,6 @@ fn value(world: &World, name: &str) -> Result<Option<V>> {
         return Ok(None);
     }
     let slot = world.slots.get(name).ok_or_else(|| Error::Runtime("a slot left the world".to_owned()))?.try_borrow()?;
-    if slot.row.is_none() {
-        return Err(Error::unsupported(format!("{name} is tainted")));
-    }
     Ok(Some(slot.row::<ValueRow>()?.0.clone()))
 }
 
@@ -769,9 +766,6 @@ pub fn validate(world: &World, program: &EffectProgram, placement: &mut Placemen
         }
     }
     let rows = world.rows()?;
-    if let Some(taint) = rows.tainted().or(rows.zones_tainted()) {
-        return Err(Error::unsupported(format!("the world's tables are tainted: {taint}")));
-    }
     let minute = world.minute_index()?;
     let duration = world.duration_minutes()?;
     let schema_version = world.schema_version()?;

@@ -3,8 +3,8 @@
 //! queue's rows and the log.
 //!
 //! Each answer is yes only where the namespace's validator passes. Anything the core does not hold
-//! as the rules read it (a namespace held as another row than its own, a tainted table, a floor
-//! plan the host cannot give) is a no or a refusal, and the check then leaves the tick to the whole
+//! as the rules read it (a namespace held as another row than its own, a floor plan the host cannot
+//! give) is a no or a refusal, and the check then leaves the tick to the whole
 //! validation (`validate::world`), which passes or gives its error. So a no never changes an
 //! answer; it only costs time.
 //!

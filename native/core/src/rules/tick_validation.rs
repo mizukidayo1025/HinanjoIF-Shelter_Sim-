@@ -12,8 +12,8 @@
 //! passes.
 //!
 //! **It reads the rows** (Issue #152, lane P8 d4): the entity rows, the rows of the namespaces and
-//! the fields, and the rows of the queue's events. A value that does not fit a row taints the store,
-//! which these refuse. A pending event without its row is refused with `NO_ROW`.
+//! the fields, and the rows of the queue's events. A pending event without its row is refused with
+//! `NO_ROW`.
 
 use std::sync::Arc;
 
@@ -77,14 +77,10 @@ pub enum Requests<'a> {
     Slots(&'a [u32]),
 }
 
-/// The people's tables and the zones', borrowed shared: Unsupported while either part is tainted.
+/// The people's tables and the zones', borrowed shared.
 #[track_caller]
 pub fn tables(world: &World) -> Result<ShardRef<'_, Entities>> {
-    let rows = world.rows()?;
-    if rows.zones_tainted().is_some() {
-        return refuse("the zones are tainted");
-    }
-    Ok(rows)
+    world.rows()
 }
 
 fn no_repeats(ids: &[Arc<str>]) -> bool {

@@ -164,12 +164,9 @@ fn modifier_id(program_id: &str, effect_id: &str) -> String {
     text
 }
 
-/// `zone_id in world.zones`, of the zone rows (a table a value did not fit is refused).
+/// `zone_id in world.zones`, of the zone rows.
 #[track_caller]
 fn zone_known(rows: &Entities, zone_id: &str) -> Result<bool> {
-    if rows.zones_tainted().is_some() {
-        return Err(Error::unsupported("the zone table is tainted"));
-    }
     Ok(rows.zones.contains_key(zone_id))
 }
 

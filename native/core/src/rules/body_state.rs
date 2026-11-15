@@ -4,7 +4,7 @@
 //! One event is one plan: the plan is computed from the rows and the event's row, and only then is
 //! anything written, so an Unsupported changes nothing. It is left for what no applied event or
 //! valid state holds: an ID or a distance of another type, a person without a body record, a
-//! relationship without trust, a tainted namespace, a model this kernel doesn't know.
+//! relationship without trust, a model this kernel doesn't know.
 //!
 //! The rule writes the row of `body_state_v1` alone. Each history item is its canonical JSON, as
 //! the row holds it.

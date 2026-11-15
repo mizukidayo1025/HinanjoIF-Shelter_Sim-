@@ -21,7 +21,7 @@
 //! The sums go over `world.agents` in insertion order with `py_sum`, so every float keeps its bits.
 //! The ID lists and the JSON are written by byte order, which is the code point order of Python's
 //! `sorted` and of `canonical_json`. The errors are refusals (`Unsupported`) with their texts: a
-//! tainted row, a staff queue naming no task.
+//! namespace without its row, a staff queue naming no task.
 
 use std::sync::Arc;
 

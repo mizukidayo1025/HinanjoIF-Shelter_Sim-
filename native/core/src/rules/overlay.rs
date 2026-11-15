@@ -252,11 +252,7 @@ fn append_bounded(history: &mut Vec<V>, entry: V, limit: usize) {
 
 /// The zones and the zone edges, which a rule reads as `world.zones` and `world.zone_edges`.
 fn zone_rows(world: &World) -> Result<ShardRef<'_, Entities>> {
-    let rows = world.entities.try_borrow()?;
-    if rows.zones_tainted().is_some() {
-        return refuse("the zones are tainted");
-    }
-    Ok(rows)
+    world.entities.try_borrow()
 }
 
 /// The row of `movement_v1` where the world holds it.
@@ -2401,9 +2397,6 @@ impl Write<'_> {
             closed
         };
         let mut rows = world.entities.try_borrow_mut()?;
-        if rows.zones_tainted().is_some() {
-            return refuse("the zones are tainted");
-        }
         let Some(edge) = rows.zone_edges.get_mut(target) else {
             return refuse("no such route");
         };

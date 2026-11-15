@@ -6,8 +6,7 @@
 //!
 //! Each plans with nothing changed and then writes: `staff_operations_v1` is written as its row,
 //! and so are the entities, `body_state_v1`, `infrastructure_v1`, `movement_v1`, the event counter,
-//! the queue and the log. A namespace whose row a write that did not fit dropped (tainted) is
-//! refused, as is another document than the row's under its key. Unsupported comes only before the
+//! the queue and the log. Another document than the row's under its key is refused. Unsupported comes only before the
 //! first write. The outcomes are the rules' texts: each before any change, except a worker who
 //! became unavailable on arrival or completion, whose operation stops first (`interrupt`).
 //!
@@ -40,7 +39,6 @@ use crate::rules::common_operations::Change;
 use crate::rules::kit::{self, Events, Held};
 use crate::rules::movement::{self, StaffOps};
 use crate::rules::staff_dynamics;
-use crate::rules::travel::ZONES_TAINTED;
 use crate::state::body_state::{BodyRecord, BodyRow, NAME as BODY};
 use crate::state::effect_program::{EffectProgramRow, NAME as PROGRAM};
 use crate::state::movement::{MovementRow, Position};
@@ -402,9 +400,6 @@ fn plan_interrupt(world: &World, inputs: &Inputs<'_>, staff_id: &str, event: &St
     let mut nearest = None;
     if record.phase == Phase::Travel {
         let rows = world.entities.try_borrow()?;
-        if rows.zones_tainted().is_some() {
-            return Err(Error::unsupported(ZONES_TAINTED));
-        }
         let zones = &record.route_zone_ids;
         let zone_at = |index: usize| zones.get(index).cloned().ok_or_else(|| Error::unsupported("a route has fewer zones than its edges need"));
         let mut cumulative = 0_i64;
@@ -1355,9 +1350,6 @@ pub fn interrupt_trips(world: &World, inputs: &Inputs<'_>, event: &Stopping<'_>,
     for (staff_id, route) in travelling {
         let blocked = {
             let rows = world.entities.try_borrow()?;
-            if rows.zones_tainted().is_some() && !route.is_empty() {
-                return Err(Error::unsupported(ZONES_TAINTED).into());
-            }
             route.iter().any(|edge_id| match rows.zone_edges.get(edge_id) {
                 None => true,
                 Some(edge) => edge.closed || !geo.route_is_clear(edge_id, "independent"),

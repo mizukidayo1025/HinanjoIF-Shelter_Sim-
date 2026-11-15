@@ -4,8 +4,6 @@
 //! Each row is a struct named like the entity it holds, and `write_json` writes the bytes of its
 //! canonical JSON in a world's document of a version (`canonical`). A `Table` holds
 //! the rows of one `IdMap`, keys in the dict's order; `Entities` holds the seven tables of a world.
-//! The zones and zone edges have a taint of their own: a zone that does not fit leaves the people's
-//! rows alone, and the other way round.
 //!
 //! The rows are the truth (decision 1 of docs/rust-port/step5-plan.md, PR 6-1), and since #430
 //! removed the Python objects, all there is.
@@ -554,45 +552,10 @@ pub struct Entities {
     pub active_tasks: Table<TaskRow>,
     pub zones: Table<ZoneRow>,
     pub zone_edges: Table<EdgeRow>,
-    /// Why the rows of the people's five tables were dropped: a value that does not fit. Kernels
-    /// then say Unsupported (`World::rows`).
-    taint: Option<String>,
-    /// The same for the zones and the zone edges.
-    zone_taint: Option<String>,
 }
 
 impl Entities {
-    /// Why the rows of the people's tables were dropped, or None.
-    pub fn tainted(&self) -> Option<&str> {
-        self.taint.as_deref()
-    }
-
-    /// Why the rows of the zones and zone edges were dropped, or None.
-    pub fn zones_tainted(&self) -> Option<&str> {
-        self.zone_taint.as_deref()
-    }
-
-    /// Drop every row of the people's tables. The first reason stays the reason. The zones stay.
-    pub fn taint(&mut self, why: String) {
-        let taint = self.taint.take().unwrap_or(why);
-        self.agents = Table::default();
-        self.facilities = Table::default();
-        self.staff = Table::default();
-        self.support_requests = Table::default();
-        self.active_tasks = Table::default();
-        self.taint = Some(taint);
-    }
-
-    /// Drop every row of the zones and zone edges. The first reason stays the reason.
-    pub fn taint_zones(&mut self, why: String) {
-        let taint = self.zone_taint.take().unwrap_or(why);
-        self.zones = Table::default();
-        self.zone_edges = Table::default();
-        self.zone_taint = Some(taint);
-    }
-
-    /// The order a copy through canonical JSON gives (`Table::canonicalize`), for each table that
-    /// has rows; a tainted table has none.
+    /// The order a copy through canonical JSON gives (`Table::canonicalize`), for each table.
     pub fn canonicalize(&mut self) {
         self.agents.canonicalize();
         self.facilities.canonicalize();

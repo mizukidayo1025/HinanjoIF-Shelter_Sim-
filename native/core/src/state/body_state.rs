@@ -85,7 +85,7 @@ impl Field for Relationships {
 }
 
 /// The social history: the canonical JSON of each item. Nothing reads an item here, only its
-/// bytes, and a write into an old item doesn't fit: the namespace is then tainted.
+/// bytes.
 ///
 /// A deque because at its limit each new item drops the oldest, which in a `Vec` would move all
 /// 20,000 at each of the ~13 appends of a tick.

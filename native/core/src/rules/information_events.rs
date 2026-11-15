@@ -307,9 +307,6 @@ pub fn real_number(value: &V) -> Result<Option<f64>> {
 
 /// `zone in world.zones`.
 fn zone_is_known(rows: &Entities, zone: &str) -> Result<bool> {
-    if rows.zones_tainted().is_some() {
-        return Err(Error::unsupported("the zones are tainted"));
-    }
     Ok(rows.zones.contains_key(zone))
 }
 
@@ -603,9 +600,6 @@ fn contact_basis(world: &World, sender: &str, recipient: &str) -> Result<Option<
         };
         let (first, second) = (&*first.zone_id, &*second.zone_id);
         let same_zone = first == second;
-        if rows.zones_tainted().is_some() {
-            return Err(Error::unsupported("the zone edges are tainted"));
-        }
         // `{from, to} == {first, second}` of an open edge.
         let adjacent = rows.zone_edges.iter().any(|(_, edge)| {
             let (from, to) = (&*edge.from_zone_id, &*edge.to_zone_id);

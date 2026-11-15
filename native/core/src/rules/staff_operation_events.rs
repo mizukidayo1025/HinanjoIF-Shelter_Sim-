@@ -133,7 +133,6 @@ impl<E> Gathered<E> {
 }
 
 impl Inputs<'_> {
-    #[track_caller]
     fn formula(&self) -> Result<&StaffOperations> {
         self.formula.ok_or_else(|| Error::unsupported(FORMULA_UNREAD))
     }
@@ -237,7 +236,6 @@ impl PayloadText {
 
 /// `dict.get(value)` of a table keyed by str: None for a value that is no str, Unsupported for one
 /// Python can't hash.
-#[track_caller]
 fn key_of(value: &V) -> Result<Option<&Arc<str>>> {
     match value {
         V::Str(text) => Ok(Some(text)),
@@ -283,7 +281,6 @@ fn append_history(row: &mut StaffOperationsRow, entry: FinishedTask) {
     }
 }
 
-#[track_caller]
 fn gone(what: &str) -> Error {
     Error::Runtime(format!("{what} left under the plan"))
 }

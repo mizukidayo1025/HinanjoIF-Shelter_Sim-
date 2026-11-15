@@ -102,7 +102,6 @@ static NULL: V = V::Null;
 
 /// `map.get(key)`: None (`V::Null`) for a key it does not have. Unsupported for a value that is not
 /// a mapping.
-#[track_caller]
 pub fn get<'a>(map: &'a V, key: &str) -> Result<&'a V> {
     match map {
         V::Map(map) => Ok(map.get(key).unwrap_or(&NULL)),
@@ -112,7 +111,6 @@ pub fn get<'a>(map: &'a V, key: &str) -> Result<&'a V> {
 
 /// `mapping[key]`, or None for a key it does not have. Unsupported for a value that is not a
 /// mapping, as a payload whose read raises.
-#[track_caller]
 pub fn mapping_get<'a>(mapping: &'a V, key: &str) -> Result<Option<&'a V>> {
     match mapping {
         V::Map(map) => Ok(map.get(key)),
@@ -121,7 +119,6 @@ pub fn mapping_get<'a>(mapping: &'a V, key: &str) -> Result<Option<&'a V>> {
 }
 
 /// `mapping[key]`: `KeyError(key)` for a key it does not have.
-#[track_caller]
 fn item<'a>(mapping: &'a V, key: &str) -> Result<&'a V> {
     match mapping {
         V::Map(map) => map.get(key).ok_or_else(|| Error::Key(key.to_owned())),
@@ -130,7 +127,6 @@ fn item<'a>(mapping: &'a V, key: &str) -> Result<&'a V> {
 }
 
 /// An int and nothing else (not a bool); one past 64 bits is refused.
-#[track_caller]
 pub fn exact_int(value: &V) -> Result<i64> {
     match value {
         V::Int(number) => Ok(*number),
@@ -140,7 +136,6 @@ pub fn exact_int(value: &V) -> Result<i64> {
 }
 
 /// A str and nothing else.
-#[track_caller]
 pub fn exact_str(value: &V) -> Result<&Arc<str>> {
     match value {
         V::Str(text) => Ok(text),
@@ -149,7 +144,6 @@ pub fn exact_str(value: &V) -> Result<&Arc<str>> {
 }
 
 /// A str, or None for None.
-#[track_caller]
 pub fn optional_text(value: &V) -> Result<Option<&Arc<str>>> {
     match value {
         V::Null => Ok(None),
@@ -199,7 +193,6 @@ pub type Kept<T> = std::result::Result<Arc<T>, crate::config::Fault>;
 
 /// The value of a `Kept` section, or its error: a refusal its own `Unsupported`, any other fault a
 /// corrupt `model_configs`.
-#[track_caller]
 pub fn kept<T>(section: &Kept<T>) -> Result<&T> {
     match section {
         Ok(value) => Ok(value),
@@ -356,7 +349,6 @@ pub fn raise_section<H: Host>(host: &mut H, which: SectionId, fault: &crate::con
 
 /// `name in world.model_state`, of the holding (lane P9-1b). Refused for a `model_state` the
 /// kernels do not read, as each namespace of it is.
-#[track_caller]
 pub fn in_model_state(holding: &Holding, name: &str) -> Result<bool> {
     if !holding.table {
         return Err(Error::unsupported(crate::host::TABLE_MAPPING));
@@ -531,7 +523,6 @@ pub const POLICY_FAULT: &str = "a policy of the controller raised when the Run r
 
 /// A value of the Run's `Policies` as a rule takes it: a refusal is its `Unsupported`; any other
 /// fault `POLICY_FAULT`.
-#[track_caller]
 pub fn policy<T, F: std::borrow::Borrow<crate::config::Fault>>(read: std::result::Result<T, F>) -> Result<T> {
     match read {
         Ok(value) => Ok(value),
@@ -557,7 +548,6 @@ pub struct NewEvent {
 }
 
 /// `ScheduledEvent(...)` as a row: Unsupported for values the event refuses.
-#[track_caller]
 pub fn new_event(event: NewEvent) -> Result<EventRow> {
     EventRow {
         event_id: event.event_id,
@@ -600,7 +590,6 @@ pub struct Events<'w> {
 impl<'w> Events<'w> {
     /// Unsupported, with nothing changed, unless the world holds its queue and log and its event
     /// counter is an int a rule can add to: a rule asks in its planning stage.
-    #[track_caller]
     pub fn of(world: &'w World) -> Result<Self> {
         if !world.queue_held {
             return Err(Error::unsupported("the event queue is not in Rust"));
@@ -728,7 +717,6 @@ pub fn add_one(metrics: &mut MetricRow, name: &str) {
 }
 
 /// `world.metric_state` as its row, to write: Unsupported while the field holds no row.
-#[track_caller]
 pub fn metrics_of(world: &World) -> Result<ShardMut<'_, MetricRow>> {
     world.row_mut::<MetricRow>(METRIC_STATE)
 }
@@ -753,7 +741,6 @@ pub fn add_metric(world: &World, name: &str) -> Result<()> {
 // ---- People ---------------------------------------------------------------------------------------
 
 /// A person's activity and target, on the row.
-#[track_caller]
 pub fn set_agent(entities: &mut Entities, agent_id: &str, activity: Activity, target: Option<&str>) -> Result<()> {
     let Some(row) = entities.agents.get_mut(agent_id) else {
         return Err(Error::unsupported("no such agent"));
@@ -770,7 +757,6 @@ pub fn mobility_text(agent: &AgentRow) -> &'static str {
 
 /// A person's current household as far as the presence ledger answers: Some(household) when it
 /// does, None when the profile's group answers. `presence` is `model_state.get(PRESENCE)`.
-#[track_caller]
 pub fn presence_household(presence: Option<&V>, agent_id: &str) -> Result<Option<Option<Arc<str>>>> {
     let Some(V::Map(presence)) = presence else {
         return Ok(None);
@@ -823,7 +809,6 @@ pub fn is_toilet(kind: &str) -> bool {
 /// Whether an outage of the facility is active in `model_state.get("infrastructure_v1")`. A state
 /// that is not a dict has no outage; one whose records lack a key raises that `KeyError`, as
 /// Python's `record[key]` does.
-#[track_caller]
 pub fn active_outage(infrastructure: Option<&V>, facility_id: &str) -> Result<bool> {
     let Some(state @ V::Map(_)) = infrastructure else {
         return Ok(false);
@@ -998,7 +983,6 @@ fn targets_of(waiting: &V) -> Result<Vec<&Arc<str>>> {
 }
 
 /// `Identifier` of `contracts/extensions.py`.
-#[track_caller]
 fn identifier(text: &str) -> Result<()> {
     if is_stable_id(text) {
         Ok(())
@@ -1062,7 +1046,6 @@ pub enum Held {
 
 /// The row of a namespace the world holds, borrowed shared: None for an absent key, the refusal of
 /// `Other`, or the slot's own.
-#[track_caller]
 pub fn held_row<'w, T: crate::row::Row>(world: &'w World, name: &str, held: &Held) -> Result<Option<crate::cell::ShardRef<'w, T>>> {
     match held {
         Held::Absent => Ok(None),

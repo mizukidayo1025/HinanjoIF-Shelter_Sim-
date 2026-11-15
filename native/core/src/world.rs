@@ -152,7 +152,6 @@ impl<T> Fit<T> {
     }
 
     /// The value, or Unsupported with this reason.
-    #[track_caller]
     pub fn get(&self, reason: &'static str) -> Result<&T> {
         self.ok().ok_or_else(|| Error::unsupported(reason))
     }
@@ -190,27 +189,22 @@ pub struct Scalars {
 pub const SCALAR_NAMES: [&str; 5] = ["scenario_id", "seed", "duration_minutes", "minute_index", "schema_version"];
 
 impl Scalars {
-    #[track_caller]
     pub fn scenario_id(&self) -> Result<&Arc<str>> {
         self.scenario_id.get("the scenario ID is not a str")
     }
 
-    #[track_caller]
     pub fn seed(&self) -> Result<&Seed> {
         self.seed.get("the seed is not an int")
     }
 
-    #[track_caller]
     pub fn duration_minutes(&self) -> Result<i64> {
         self.duration_minutes.get("the duration is not an int").copied()
     }
 
-    #[track_caller]
     pub fn minute_index(&self) -> Result<i64> {
         self.minute_index.get("the minute is not an int").copied()
     }
 
-    #[track_caller]
     pub fn schema_version(&self) -> Result<i64> {
         self.schema_version.get("the schema version is not an int").copied()
     }
@@ -232,7 +226,6 @@ pub type ResourcesRow = IdMap<i64>;
 
 /// An ID counter of a `ValueRow` of `id_counters`: None without the key, Unsupported for a value
 /// that is not an int of an i64, or for a row that is not a map.
-#[track_caller]
 pub fn id_counter(counters: &ValueRow, name: &str) -> Result<Option<i64>> {
     let V::Map(map) = &counters.0 else {
         return Err(Error::unsupported("id_counters is not a map"));
@@ -334,7 +327,6 @@ impl World {
 
     /// The world's event queue, borrowed shared; Unsupported while the world's queue is not held
     /// here (`queue_held`).
-    #[track_caller]
     pub fn queue(&self) -> Result<ShardRef<'_, Queue>> {
         if !self.queue_held {
             return Err(Error::unsupported("the event queue is not in Rust"));
@@ -343,7 +335,6 @@ impl World {
     }
 
     /// `queue`, borrowed mutably.
-    #[track_caller]
     pub fn queue_mut(&self) -> Result<ShardMut<'_, Queue>> {
         if !self.queue_held {
             return Err(Error::unsupported("the event queue is not in Rust"));
@@ -352,7 +343,6 @@ impl World {
     }
 
     /// The world's EventLog, borrowed shared; Unsupported while it is not held here (`log_held`).
-    #[track_caller]
     pub fn log(&self) -> Result<ShardRef<'_, EventLog>> {
         if !self.log_held {
             return Err(Error::unsupported("the event log is not in Rust"));
@@ -361,7 +351,6 @@ impl World {
     }
 
     /// `log`, borrowed mutably.
-    #[track_caller]
     pub fn log_mut(&self) -> Result<ShardMut<'_, EventLog>> {
         if !self.log_held {
             return Err(Error::unsupported("the event log is not in Rust"));
@@ -406,29 +395,24 @@ impl World {
         self.scalars.try_borrow()
     }
 
-    #[track_caller]
     pub fn minute_index(&self) -> Result<i64> {
         self.scalars.try_borrow()?.minute_index()
     }
 
-    #[track_caller]
     pub fn duration_minutes(&self) -> Result<i64> {
         self.scalars.try_borrow()?.duration_minutes()
     }
 
-    #[track_caller]
     pub fn schema_version(&self) -> Result<i64> {
         self.scalars.try_borrow()?.schema_version()
     }
 
     /// The seed's text, which `KeyedDraws` takes.
-    #[track_caller]
     pub fn seed_text(&self) -> Result<Arc<str>> {
         Ok(self.scalars.try_borrow()?.seed()?.text.clone())
     }
 
     /// `world.resources` as its row, borrowed on its own; Unsupported while the field holds no row.
-    #[track_caller]
     pub fn resources(&self) -> Result<ShardRef<'_, ResourcesRow>> {
         self.slots.try_row::<ResourcesRow>(RESOURCES)
     }
@@ -436,7 +420,6 @@ impl World {
     /// `world.resources[resource] = remaining`, written by the core where an operation of the
     /// ledger took a stock (Issue #244, decision 2). The slot gets a new stamp; the host is told
     /// (`Host::resources_changed`).
-    #[track_caller]
     pub fn set_resource(&self, resource: &str, remaining: i64) -> Result<()> {
         let slot = self.slots.get(RESOURCES).ok_or_else(|| Error::unsupported("the namespace is not owned"))?;
         let mut slot = slot.try_borrow_mut()?;
@@ -448,7 +431,6 @@ impl World {
     /// `model_state[name] = row` for an owned namespace a rule starts (Issue #244, decision 2): the
     /// slot holds the row, with a new stamp. A namespace the world does not own is
     /// Unsupported. The host is told (`Host::start_namespace`).
-    #[track_caller]
     pub fn start_namespace(&self, name: &str, row: Box<dyn Row>) -> Result<()> {
         let slot = self.slots.get(name).ok_or_else(|| Error::unsupported("the namespace is not owned"))?;
         let mut slot = slot.try_borrow_mut()?;
@@ -458,38 +440,32 @@ impl World {
     }
 
     /// `world.id_counters.get(name)` from its row.
-    #[track_caller]
     pub fn id_counter(&self, name: &str) -> Result<Option<i64>> {
         id_counter(&*self.slots.try_row::<ValueRow>(ID_COUNTERS)?, name)
     }
 
     /// The rows of the entities, borrowed shared.
-    #[track_caller]
     pub fn rows(&self) -> Result<ShardRef<'_, Entities>> {
         self.entities.try_borrow()
     }
 
     /// `rows`, borrowed mutably.
-    #[track_caller]
     pub fn rows_mut(&self) -> Result<ShardMut<'_, Entities>> {
         self.entities.try_borrow_mut()
     }
 
     /// The row of an owned field or namespace as its type, borrowed shared: Unsupported when the
     /// name is not owned, has no row or has a row of another type.
-    #[track_caller]
     pub fn row<T: Row>(&self, name: &str) -> Result<ShardRef<'_, T>> {
         self.slots.try_row::<T>(name)
     }
 
     /// `row`, borrowed mutably.
-    #[track_caller]
     pub fn row_mut<T: Row>(&self, name: &str) -> Result<ShardMut<'_, T>> {
         self.slots.try_row_mut::<T>(name)
     }
 
     /// `world.metric_state` as its row.
-    #[track_caller]
     pub fn metric_state(&self) -> Result<ShardRef<'_, MetricRow>> {
         self.row::<MetricRow>(METRIC_STATE)
     }
@@ -546,7 +522,6 @@ impl Slot {
 
     /// The row as its type, to write from a kernel of the core: the slot gets a new stamp.
     /// Unsupported as `row_mut`, with no new stamp.
-    #[track_caller]
     pub fn row_written<T: Row>(&mut self) -> Result<&mut T> {
         self.row::<T>()?;
         self.touch();
@@ -560,13 +535,11 @@ impl Slot {
     }
 
     /// The row as its type, or Unsupported (the kernels' answer for an absent namespace).
-    #[track_caller]
     pub fn row_mut<T: Row>(&mut self) -> Result<&mut T> {
         let row = self.row.as_deref_mut().ok_or_else(|| Error::unsupported("the namespace has no row"))?;
         row.as_any_mut().downcast_mut::<T>().ok_or_else(|| Error::unsupported("the namespace has another row"))
     }
 
-    #[track_caller]
     pub fn row<T: Row>(&self) -> Result<&T> {
         let row = self.row.as_deref().ok_or_else(|| Error::unsupported("the namespace has no row"))?;
         row.as_any().downcast_ref::<T>().ok_or_else(|| Error::unsupported("the namespace has another row"))
@@ -617,14 +590,12 @@ impl Slots {
         self.by_name.get(name)
     }
 
-    #[track_caller]
     fn owned(&self, name: &str) -> Result<&CowShard<Slot>> {
         self.by_name.get(name).ok_or_else(|| Error::unsupported("the namespace is not owned"))
     }
 
     /// The row of a slot as its type, for a kernel that holds the whole world. The slot gets a new
     /// stamp (`Slot::row_written`).
-    #[track_caller]
     pub fn row_mut<T: Row>(&mut self, name: &str) -> Result<&mut T> {
         let slot = self.by_name.get_mut(name).ok_or_else(|| Error::unsupported("the namespace is not owned"))?;
         slot.get_mut().row_written::<T>()
@@ -632,14 +603,12 @@ impl Slots {
 
     /// The row of a slot as its type, borrowed on its own, for a kernel or a shim that holds the
     /// world shared. The slot gets a new stamp, as by `row_mut`.
-    #[track_caller]
     pub fn try_row_mut<T: Row>(&self, name: &str) -> Result<ShardMut<'_, T>> {
         let slot = self.owned(name)?.try_borrow_mut()?;
         ShardMut::try_map(slot, |slot| slot.row_written::<T>())
     }
 
     /// `try_row_mut`, shared.
-    #[track_caller]
     pub fn try_row<T: Row>(&self, name: &str) -> Result<ShardRef<'_, T>> {
         let slot = self.owned(name)?.try_borrow()?;
         ShardRef::try_map(slot, |slot| slot.row::<T>())
@@ -647,7 +616,6 @@ impl Slots {
 
     /// The value of a key held as a `ValueRow`, for a kernel that holds the whole world: None for a
     /// key the world does not have. Unsupported for a slot with another row.
-    #[track_caller]
     pub fn value(&mut self, name: &str) -> Result<Option<&V>> {
         match self.by_name.get_mut(name) {
             None => Ok(None),
@@ -656,7 +624,6 @@ impl Slots {
     }
 
     /// `value`, with the slot borrowed on its own, for a shim that holds the world shared.
-    #[track_caller]
     pub fn try_value(&self, name: &str) -> Result<Option<ShardRef<'_, V>>> {
         let Some(slot) = self.by_name.get(name) else {
             return Ok(None);
@@ -669,7 +636,6 @@ impl Slots {
     }
 }
 
-#[track_caller]
 fn slot_value(slot: &Slot) -> Result<Option<&ValueRow>> {
     if slot.row.is_none() {
         return Ok(None);

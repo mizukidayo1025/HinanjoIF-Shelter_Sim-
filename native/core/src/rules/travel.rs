@@ -54,19 +54,16 @@ const APPROACH_SOURCE: &str = "ASM-SPATIAL-MOVEMENT-V2";
 const APPROACH_POLICY: &str = "spatial-route-and-room-waypoint-v2";
 const APPROACH_EVENT_SOURCE: &str = "agent-facility-approach-v2";
 
-#[track_caller]
 fn refuse<T>(reason: &'static str) -> Result<T> {
     Err(Error::unsupported(reason))
 }
 
 /// The floor plan, or `PLAN_UNREAD` where the host could not read it.
-#[track_caller]
 pub(crate) fn plan(geo: Option<&Arc<Geo>>) -> Result<&Arc<Geo>> {
     geo.ok_or_else(|| Error::unsupported(PLAN_UNREAD))
 }
 
 /// A value of the configs as a plain dict.
-#[track_caller]
 fn map(value: &V) -> Result<&IndexMap<Arc<str>, V>> {
     match value {
         V::Map(map) => Ok(map),

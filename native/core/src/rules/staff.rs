@@ -472,7 +472,6 @@ fn write_plain(world: &World, plan: &PendingPlan, exposure: &Exposure) -> Result
     Ok(())
 }
 
-#[track_caller]
 fn left(what: &str) -> Error {
     Error::Runtime(format!("{what} left its row under the plan"))
 }

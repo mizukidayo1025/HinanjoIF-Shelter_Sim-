@@ -42,12 +42,10 @@ const SUPPORT_KINDS: [&str; 9] = [
     "dependent_assistance",
 ];
 
-#[track_caller]
 fn refused<T>() -> Result<T> {
     Err(Error::unsupported(REFUSED))
 }
 
-#[track_caller]
 fn text(value: &V) -> Result<&Arc<str>> {
     match value {
         V::Str(text) => Ok(text),
@@ -56,7 +54,6 @@ fn text(value: &V) -> Result<&Arc<str>> {
 }
 
 /// The items of a `tuple[..., ...]` field: a list, as documents hold it.
-#[track_caller]
 fn items(value: &V, limit: usize) -> Result<&[V]> {
     let V::List(found) = value else {
         return refused();
@@ -67,7 +64,6 @@ fn items(value: &V, limit: usize) -> Result<&[V]> {
     Ok(found)
 }
 
-#[track_caller]
 fn identifier(value: &V) -> Result<Arc<str>> {
     let found = text(value)?;
     if is_stable_id(found) {
@@ -77,12 +73,10 @@ fn identifier(value: &V) -> Result<Arc<str>> {
     }
 }
 
-#[track_caller]
 fn identifiers(value: &V, limit: usize) -> Result<Vec<Arc<str>>> {
     items(value, limit)?.iter().map(identifier).collect()
 }
 
-#[track_caller]
 fn optional_identifier(value: &V) -> Result<()> {
     if !matches!(value, V::Null) {
         identifier(value)?;
@@ -91,7 +85,6 @@ fn optional_identifier(value: &V) -> Result<()> {
 }
 
 /// A field of `bool`, in pydantic's lax mode: the bools, 0 and 1, and the words for them.
-#[track_caller]
 fn lax_bool(value: &V) -> Result<()> {
     match value {
         V::Bool(_) | V::Int(0 | 1) => Ok(()),
@@ -108,7 +101,6 @@ fn lax_bool(value: &V) -> Result<()> {
     }
 }
 
-#[track_caller]
 fn optional_lax_bool(value: &V) -> Result<()> {
     if matches!(value, V::Null) {
         Ok(())
@@ -118,7 +110,6 @@ fn optional_lax_bool(value: &V) -> Result<()> {
 }
 
 /// A field of `int | None = Field(strict=True, ge=0, le=high)`.
-#[track_caller]
 fn optional_int(value: &V, high: i64) -> Result<Option<i64>> {
     match value {
         V::Null => Ok(None),

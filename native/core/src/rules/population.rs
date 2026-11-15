@@ -87,7 +87,6 @@ pub(crate) type Doc = IndexMap<Arc<str>, V>;
 
 // ---- Reading values ------------------------------------------------------------------------------
 
-#[track_caller]
 pub(crate) fn refuse<T>(reason: &'static str) -> Result<T> {
     Err(Error::unsupported(reason))
 }
@@ -102,7 +101,6 @@ pub(crate) fn invalid<T>(text: &str) -> Result<T> {
     Err(Error::MarkedValue(text.to_owned()))
 }
 
-#[track_caller]
 pub(crate) fn map_of(value: &V) -> Result<&Doc> {
     match value {
         V::Map(map) => Ok(map),
@@ -110,7 +108,6 @@ pub(crate) fn map_of(value: &V) -> Result<&Doc> {
     }
 }
 
-#[track_caller]
 pub(crate) fn map_mut(value: &mut V) -> Result<&mut Doc> {
     match value {
         V::Map(map) => Ok(map),
@@ -118,7 +115,6 @@ pub(crate) fn map_mut(value: &mut V) -> Result<&mut Doc> {
     }
 }
 
-#[track_caller]
 pub(crate) fn list_of(value: &V) -> Result<&Vec<V>> {
     match value {
         V::List(items) => Ok(items),
@@ -126,7 +122,6 @@ pub(crate) fn list_of(value: &V) -> Result<&Vec<V>> {
     }
 }
 
-#[track_caller]
 pub(crate) fn list_mut(value: &mut V) -> Result<&mut Vec<V>> {
     match value {
         V::List(items) => Ok(items),
@@ -135,12 +130,10 @@ pub(crate) fn list_mut(value: &mut V) -> Result<&mut Vec<V>> {
 }
 
 /// `value[key]` of a plain dict: Unsupported for a key it doesn't have, which no valid state lacks.
-#[track_caller]
 pub(crate) fn field<'a>(value: &'a V, key: &str) -> Result<&'a V> {
     map_of(value)?.get(key).ok_or_else(|| Error::unsupported("a field is missing"))
 }
 
-#[track_caller]
 pub(crate) fn field_mut<'a>(value: &'a mut V, key: &str) -> Result<&'a mut V> {
     map_mut(value)?.get_mut(key).ok_or_else(|| Error::unsupported("a field is missing"))
 }
@@ -150,7 +143,6 @@ fn has(value: &V, key: &str) -> Result<bool> {
     Ok(map_of(value)?.contains_key(key))
 }
 
-#[track_caller]
 pub(crate) fn text(value: &V) -> Result<Arc<str>> {
     kit::exact_str(value).cloned()
 }
@@ -197,7 +189,6 @@ pub fn sha_hex(text: &str) -> String {
 }
 
 /// `Identifier` of `contracts/extensions.py`.
-#[track_caller]
 pub fn identifier(text: &str) -> Result<()> {
     if is_stable_id(text) {
         Ok(())
@@ -206,7 +197,6 @@ pub fn identifier(text: &str) -> Result<()> {
     }
 }
 
-#[track_caller]
 pub(crate) fn optional_identifier(text: Option<&str>) -> Result<()> {
     text.map_or(Ok(()), identifier)
 }

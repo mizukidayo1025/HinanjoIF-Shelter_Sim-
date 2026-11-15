@@ -36,7 +36,6 @@ use crate::value::V;
 /// A result whose failure is a refusal or a read of the policy to raise again.
 pub type Got<T> = std::result::Result<T, Bad>;
 
-#[track_caller]
 fn refused<T>(reason: &'static str) -> Got<T> {
     Err(Bad::Refused(Error::unsupported(reason)))
 }

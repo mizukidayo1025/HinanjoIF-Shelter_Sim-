@@ -87,7 +87,6 @@ pub struct Transition {
 }
 
 /// The status of a transition: one a care receipt holds.
-#[track_caller]
 pub fn status_of(text: &str) -> Result<(&'static str, CareStatus)> {
     let name = match text {
         "requested" => "requested",
@@ -324,7 +323,6 @@ fn str_list(items: &[Arc<str>]) -> V {
     V::List(items.iter().map(|item| V::Str(item.clone())).collect())
 }
 
-#[track_caller]
 fn refused<T>() -> Result<T> {
     Err(Error::unsupported("a receipt its contract turns down"))
 }

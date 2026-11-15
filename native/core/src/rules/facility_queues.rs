@@ -36,7 +36,6 @@ pub const MAX_REQUESTS: usize = 100_000;
 // ---- Reading -------------------------------------------------------------------------------------
 
 /// The row, or None for a world without the namespace.
-#[track_caller]
 pub fn queues<'w>(world: &'w World, held: &Held) -> Result<Option<ShardRef<'w, QueuesRow>>> {
     held_row::<QueuesRow>(world, STATE_KEY, held)
 }

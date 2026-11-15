@@ -93,7 +93,6 @@ fn str_v(value: &str) -> V {
     V::Str(text(value))
 }
 
-#[track_caller]
 fn map_of(value: &V) -> Result<&Doc> {
     match value {
         V::Map(map) => Ok(map),
@@ -108,7 +107,6 @@ fn str_of<'a>(map: &'a Doc, key: &str) -> Option<&'a Arc<str>> {
     }
 }
 
-#[track_caller]
 fn required_str<'a>(map: &'a Doc, key: &str) -> Result<&'a Arc<str>> {
     str_of(map, key).ok_or_else(|| Error::unsupported("a value is not a str"))
 }
@@ -165,7 +163,6 @@ fn modifier_id(program_id: &str, effect_id: &str) -> String {
 }
 
 /// `zone_id in world.zones`, of the zone rows.
-#[track_caller]
 fn zone_known(rows: &Entities, zone_id: &str) -> Result<bool> {
     Ok(rows.zones.contains_key(zone_id))
 }
@@ -336,7 +333,6 @@ fn parameters<H: Host>(host: &mut H, op: &str, raw: &V, catch: Catch, prefix: &s
 }
 
 /// A field of a contract's dump, as an attribute of the model reads it.
-#[track_caller]
 fn field<'a>(data: &'a V, name: &str) -> Result<&'a V> {
     match data {
         V::Map(map) => map.get(name).ok_or_else(|| Error::unsupported("the contract's dump lacks a field")),
@@ -344,7 +340,6 @@ fn field<'a>(data: &'a V, name: &str) -> Result<&'a V> {
     }
 }
 
-#[track_caller]
 fn field_str<'a>(data: &'a V, name: &str) -> Result<&'a Arc<str>> {
     kit::exact_str(field(data, name)?)
 }
@@ -355,7 +350,6 @@ fn validate<H: Host>(host: &mut H) -> std::result::Result<(), H::Error> {
 }
 
 /// `event.payload[key]`.
-#[track_caller]
 fn payload_item<'a>(row: &'a EventRow, key: &str) -> Result<&'a V> {
     map_of(&row.payload)?.get(key).ok_or_else(|| Error::Key(key.to_owned()))
 }

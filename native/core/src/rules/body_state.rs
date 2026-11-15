@@ -231,7 +231,6 @@ enum Item {
 
 impl Item {
     /// `payload.get(key)` of the event's row.
-    #[track_caller]
     fn read(event: &SocialEvent<'_>, key: &str) -> Result<Self> {
         Ok(match event.get(key) {
             None | Some(V::Null) => Self::Nothing,
@@ -253,7 +252,6 @@ impl Item {
 
     /// An ID the rule looks up in `world.agents`. None and a number are simply not there; an ID of
     /// another type than a str is refused, kept simple.
-    #[track_caller]
     fn id(&self) -> Result<Option<Arc<str>>> {
         match self {
             Self::Text(text) => Ok(Some(text.clone())),
@@ -388,7 +386,6 @@ fn pair_key(first: &str, second: &str) -> Option<Arc<str>> {
     (plain(first) && plain(second)).then(|| Arc::from(format!("[\"{first}\",\"{second}\"]")))
 }
 
-#[track_caller]
 fn config_float(config: &V, name: &str) -> Result<f64> {
     if let V::Map(map) = config {
         if let Some(V::Float(value)) = map.get(name) {

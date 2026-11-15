@@ -79,19 +79,16 @@ type Doc = IndexMap<Arc<str>, V>;
 
 // ---- Reading ---------------------------------------------------------------------------------------
 
-#[track_caller]
 fn refuse<T>(reason: &'static str) -> Result<T> {
     Err(Error::unsupported(reason))
 }
 
 /// `raise ValueError(text)` of the rules.
-#[track_caller]
 fn invalid<T>(text: &str) -> Result<T> {
     Err(Error::value_error(text))
 }
 
 /// The plan the caller read, or `PLAN_UNREAD`.
-#[track_caller]
 fn plan(geo: Option<&Geo>) -> Result<&Geo> {
     geo.ok_or_else(|| Error::unsupported(PLAN_UNREAD))
 }
@@ -274,7 +271,6 @@ fn position_of(movement: Option<&MovementRow>, agent_id: &str) -> Result<Option<
 }
 
 /// `config.get("schema_version")` of the overlay's config (`config::overlay::overlay_schema`).
-#[track_caller]
 fn schema_of(schema: &Kept<Option<i64>>) -> Result<Option<i64>> {
     Ok(*kit::kept(schema)?)
 }

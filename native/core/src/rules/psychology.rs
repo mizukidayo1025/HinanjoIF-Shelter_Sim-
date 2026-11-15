@@ -48,7 +48,6 @@ pub const DEFAULT_POLICY_VERSION: &str = "causal-stress-v1";
 /// The names of the body values of a person's next values (`Delta`), in the order of `Delta::body`.
 pub const BODY_NAMES: [&str; 7] = ["sleep_debt_minutes", "uncertainty", "reassurance", "discontent", "positive_affect", "negative_affect", "hygiene_need"];
 
-#[track_caller]
 fn unsupported<T>(reason: &'static str) -> Result<T> {
     Err(Error::unsupported(reason))
 }
@@ -85,7 +84,6 @@ impl From<Error> for Bad {
 
 type Got<T> = std::result::Result<T, Bad>;
 
-#[track_caller]
 fn refused<T>(reason: &'static str) -> Got<T> {
     Err(Bad::Refused(Error::unsupported(reason)))
 }

@@ -50,7 +50,6 @@ const ARRIVED_WITHIN: f64 = 0.05;
 /// The detail of the record of a queue trip's event that a replan suppresses.
 pub const QUEUE_REPLAN_DETAIL: &str = "In-room queue route changed after a wall, obstacle, or equipment update";
 
-#[track_caller]
 fn unsupported<T>(reason: &'static str) -> Result<T> {
     Err(Error::unsupported(reason))
 }

@@ -28,7 +28,7 @@ use crate::compress::COMPRESSION;
 use crate::files::AppendFile;
 use crate::lock::{self, Lease};
 use crate::records::{Branch, ProjectFiles, Record};
-use crate::stored::{read_journal, run_and_store, FromStart, Stored, StoredRun, StoredRunWriter, DATA, JOURNAL};
+use crate::stored::{python_stored, read_journal, run_and_store, FromStart, Stored, StoredRun, StoredRunWriter, DATA, JOURNAL};
 use crate::{Error, Result};
 
 /// The status of a branch and its Run while a computation goes on.
@@ -82,6 +82,9 @@ impl ProjectFiles {
     fn cut_to_head(&self, project: &str, run: &str, branch: &str, hash: &str) -> Result<(Head, RunWriter)> {
         let kept_through = self.kept_through(project, run, branch)?;
         let folder = self.branch_folder(project, run, branch)?;
+        if python_stored(&folder) && !folder.join(JOURNAL).exists() {
+            read_journal(&folder)?;
+        }
         let mut journal_file = AppendFile::open(&folder.join(JOURNAL), false)?;
         let mut data_file = AppendFile::open(&folder.join(DATA), false)?;
         let journal = Journal::parse(&journal_file.read_all()?)?;
@@ -384,12 +387,10 @@ impl Computation {
         Ok(())
     }
 
-    /// Writes the final `status` to the branch's record (at its head) and the Run's.
+    /// Writes the final `status` to the branch's record (at its head), and the Run's: `running`
+    /// while another of its branches computes, else `status` (`ProjectFiles::set_branch_status`).
     pub fn end(self, files: &ProjectFiles, status: &str) -> Result<Record> {
-        let record = Branch::of_record(&files.branch_record(&self.project, &self.run_id, &self.record.branch_id)?)?;
-        let record = files.write_branch(&self.project, &self.run_id, &Branch { status: Some(status.to_owned()), ..record })?;
-        files.set_run_status(&self.project, &self.run_id, status)?;
-        Ok(record)
+        files.set_branch_status(&self.project, &self.run_id, &self.record.branch_id, status, None)
     }
 }
 

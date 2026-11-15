@@ -20,33 +20,34 @@
 // Its frames show the saved point at or before the minute asked for (browser_api.mjs, Python's D2).
 //
 // Computing (Computing.resume). Python's checks and answers (src/sheltersim/web/projects.py
-// `submit`, `cancel`), one computation at a time (the thread worker's max_jobs). The branch is cut
-// back to its head, restored there (`RunReader.seek`, #251; the exported world at minute 0),
-// and computed in chunks of at most `chunkTicks` ticks. Each chunk
-// is a task of the store's queue (the requests' queue of browser_api.mjs, inside its Web Lock), so
-// the Worker answers timeline, history and the records between chunks. At every `save_every`
-// minutes (360, #263), at the target and when cancelled, the blocks are sealed and a saved point is
-// stored (`RunWriter.save`): the record then moves its head there, the frame of that minute is kept
-// for the screen's next `timeline` of it, and the Run's records stay `running` until the computation
-// ends: `completed` at the end of the clock (with the "world" and "end" lines, as runAndStore
-// stores them), `paused` at the target or when cancelled, `failed` on an error. The OPFS files
-// are opened for each chunk only: a file has one synchronous access handle at a time, and a read
+// `submit`, `cancel`), one computation at a time (the thread worker's max_jobs). The procedure is
+// the core's (`sheltersim_core::compute`, WASM's `Procedure.goOn`, #476), whose steps
+// run_store.mjs's `StepHost` does with OPFS, as the local and VM servers do them with their files:
+// the branch is cut back to its head and restored there (the exported world at minute 0), and
+// computed in chunks of at most `chunkTicks` ticks. Each
+// chunk (its ticks, then its steps) is a task of the store's queue (the requests' queue of
+// browser_api.mjs, inside its Web Lock), so the Worker answers timeline, history and the records
+// between chunks. At every `save_every` minutes (360, #263), at the target and when cancelled, the
+// blocks are sealed and a saved point is stored: the record then moves its head there, the frame
+// of that minute is kept for the screen's next `timeline` of it, and the Run's records stay
+// `running` until the computation ends: `completed` at the end of the clock (with the "world" and
+// "end" lines), `paused` at the target or when cancelled, `failed` on an error. The OPFS files are
+// opened for each chunk only: a file has one synchronous access handle at a time, and a read
 // between chunks opens its own.
 //
 // A page closed in the middle (recoverInterrupted): the Worker dies with the page; the record
 // keeps the last head, the journal may hold lines after it (or a line cut short, which reading
 // ignores). On the next start a branch left `running` whose lock no Worker holds becomes
-// `interrupted`, as Python's server start does; resuming it cuts the lines after its head off.
+// `interrupted`, as Python's server start does (the core's `Procedure.recover`); resuming it cuts
+// the lines after its head off.
 // The lock of a branch (`branchLock`, a Web Lock in the page) is held while it computes, so
 // another tab neither computes it at the same time nor calls it interrupted.
 
 import { ApiError } from "./api_answers.mjs";
 import * as store from "./project_store.mjs";
-import { RunReader, RunWriter } from "./run_store.mjs";
 
 /// Ticks per chunk by default: about a tenth of a second for 100 people.
 export const CHUNK_TICKS = 60;
-const DATA = "data.pack";
 const JOURNAL = "journal.jsonl";
 const decoder = new TextDecoder();
 const refused = (message) => new store.ProjectStoreError(message);
@@ -96,88 +97,19 @@ export async function readHeads(wasm, backend) {
   }
 }
 
-/// The latest line of a branch's stored Run that a branch forked from it reads its pieces up to
-/// (each child's base), or undefined where none is forked from it.
-async function forkedThrough(wasm, tree, projectId, runId, branchId) {
-  let latest;
-  for (const record of await store.branches(tree, projectId, runId)) {
-    if (record.parent_branch_id !== branchId) continue;
-    const bytes = await tree.read([projectId, "runs", runId, "branches", record.branch_id, JOURNAL]);
-    if (bytes === null || bytes.length === 0) continue;
-    const journal = new wasm.Journal(bytes);
-    try {
-      const base = journal.forkBase();
-      if (base !== undefined && (latest === undefined || base > latest)) latest = base;
-    } finally {
-      journal.free();
-    }
-  }
-  return latest;
-}
-
-/// Cuts a branch's stored Run back to the head `hash` (the core's `Journal::cut`): the journal's
-/// lines after it, then the bytes of data.pack no line up to it points at; refused where a branch
-/// forked from it reads its lines up to `keptThrough`, past the head. Returns the head and the
-/// core's writer that goes on after it.
-async function cutToHead(wasm, backend, hash, keptThrough) {
-  const file = await backend.open(JOURNAL);
-  const data = await backend.open(DATA);
-  try {
-    const journal = new wasm.Journal(file.read(0, file.size()));
-    try {
-      const [index, journalEnd, dataEnd] = journal.cut(hash, keptThrough);
-      const head = JSON.parse(journal.headsJson()).find((each) => each.index === index);
-      if (file.size() > journalEnd) {
-        file.truncate(journalEnd);
-        file.flush();
-      }
-      if (data.size() > dataEnd) {
-        data.truncate(dataEnd);
-        data.flush();
-      }
-      return { head, writer: journal.writerAfter(index) };
-    } finally {
-      journal.free();
-    }
-  } finally {
-    file.close();
-    data.close();
-  }
-}
-
 /// A branch left `running` that no Worker computes (its lock is free: `branchLock(name)` gives a
 /// release) was interrupted: its record and its Run's become `interrupted` (Python's
-/// `recover_interrupted` at the server's start), its head kept. Every Project and Run is looked
-/// at; one whose records cannot be read is left as it is. Returns the branches recovered, as
-/// "project/run/branch".
-export async function recoverInterrupted({ tree, branchLock }) {
-  const recovered = [];
-  for (const project of await store.projects(tree)) {
-    let runs;
-    try {
-      runs = [];
-      for (const runId of await store.runIds(tree, project.project_id)) runs.push({ run_id: runId, branches: await store.branches(tree, project.project_id, runId) });
-    } catch {
-      continue;
-    }
-    for (const run of runs) {
-      for (const branch of run.branches) {
-        if (branch.status !== RUNNING) continue;
-        const release = await branchLock(lockName(project.project_id, run.run_id, branch.branch_id));
-        if (!release) continue;
-        try {
-          const record = await store.branchRecord(tree, project.project_id, run.run_id, branch.branch_id);
-          if (record.status !== RUNNING) continue;
-          await store.writeBranch(tree, project.project_id, run.run_id, { ...record, status: "interrupted" });
-          await store.setRunStatus(tree, project.project_id, run.run_id, "interrupted");
-          recovered.push(`${project.project_id}/${run.run_id}/${branch.branch_id}`);
-        } finally {
-          release();
-        }
-      }
-    }
+/// `recover_interrupted` at the server's start; the core's `Procedure.recover`), its head kept.
+/// Every Project and Run is looked at; one whose Runs or branches cannot be listed is left as it
+/// is. Returns the branches recovered, as "project/run/branch".
+export async function recoverInterrupted({ wasm, tree, branchLock }) {
+  const procedure = wasm.Procedure.recover();
+  try {
+    await store.stepHost(wasm, tree, { branchLock, lockName }).finish(procedure);
+    return JSON.parse(procedure.recoveredJson());
+  } finally {
+    procedure.free();
   }
-  return recovered;
 }
 
 /// The name of a branch's lock (a Web Lock in the page).
@@ -250,8 +182,7 @@ export class Computing {
     try {
       // The kept worlds go first: WASM's memory does not shrink, and the computation holds one.
       this.api.freeLive();
-      await store.writeBranch(tree, projectId, runId, { ...record, status: RUNNING });
-      await store.setRunStatus(tree, projectId, runId, RUNNING);
+      await setStatus(wasm, tree, projectId, runId, branchId, RUNNING);
     } catch (error) {
       release();
       throw error;
@@ -283,14 +214,32 @@ export class Computing {
   /// A computation, a chunk at a time through the store's queue, to its status.
   async run(job) {
     const started = performance.now();
-    let state = null;
+    const { wasm, tree } = this.api;
+    const host = store.stepHost(wasm, tree, { onRecord: (record, procedure) => this.keepFrame(job, record, procedure) });
+    let procedure = null;
     let status = "failed";
+    let tickMs = 0;
+    let saveMs = 0;
     try {
       await this.pause();
-      state = await this.api.enqueue(() => this.start(job));
+      procedure = host.call(() => wasm.Procedure.goOn(job.projectId, job.runId, job.branchId, job.target));
+      // Cut back to the head and restored there.
+      if ((await this.api.enqueue(() => host.execute(procedure))) !== "compute") throw new Error("the computation did not start");
       for (;;) {
         await this.pause();
-        const ended = await this.api.enqueue(() => this.chunk(job, state));
+        const ended = await this.api.enqueue(async () => {
+          if (job.cancel) {
+            host.call(() => procedure.stop());
+          } else {
+            const ticking = performance.now();
+            host.call(() => procedure.advance(this.chunkTicks));
+            tickMs += performance.now() - ticking;
+          }
+          const storing = performance.now();
+          const at = await host.execute(procedure);
+          if (host.saving) saveMs += performance.now() - storing;
+          return at === "done" ? procedure.status() : null;
+        });
         if (ended) {
           status = ended;
           break;
@@ -310,12 +259,9 @@ export class Computing {
     await this.api
       .enqueue(async () => {
         try {
-          state?.simulation.free();
-          state?.writer.free();
-          const { tree } = this.api;
+          procedure?.free();
+          await setStatus(wasm, tree, job.projectId, job.runId, job.branchId, status);
           const record = await store.branchRecord(tree, job.projectId, job.runId, job.branchId);
-          await store.writeBranch(tree, job.projectId, job.runId, { ...record, status });
-          await store.setRunStatus(tree, job.projectId, job.runId, status);
           this.done.push({
             branch: job.key,
             from: job.from,
@@ -324,8 +270,8 @@ export class Computing {
             status,
             error: job.error ?? null,
             ms: performance.now() - started,
-            tickMs: state?.tickMs ?? 0,
-            saveMs: state?.saveMs ?? 0,
+            tickMs,
+            saveMs,
             memoryBytes: this.api.wasm.memoryBytes(),
           });
         } finally {
@@ -337,84 +283,21 @@ export class Computing {
     return status;
   }
 
-  /// Cuts the branch back to its head and restores the Run there.
-  async start(job) {
-    const { wasm, tree } = this.api;
-    const record = await store.branchRecord(tree, job.projectId, job.runId, job.branchId);
-    const backend = await store.branchBackend(tree, job.projectId, job.runId, job.branchId);
-    const keptThrough = await forkedThrough(wasm, tree, job.projectId, job.runId, job.branchId);
-    const { head, writer } = await cutToHead(wasm, backend, record.checkpoint_hash, keptThrough);
-    try {
-      const reader = await RunReader.open({ wasm, backend, parent: store.runBackends(tree, job.projectId, job.runId) });
-      let sought;
-      let duration;
-      let saveEvery;
-      try {
-        sought = await reader.seek(head.minute);
-        duration = reader.duration();
-        saveEvery = reader.saveEvery();
-      } finally {
-        reader.close();
-      }
-      const simulation = sought.simulation;
-      if (head.kind === "saved" && !(simulation.minute() === head.minute && sought.from === head.minute && writer.fits(simulation))) {
-        simulation.free();
-        throw new Error("the Run restored at the branch's head does not hold what its stored Run holds there");
-      }
-      return { simulation, backend, writer, record, duration, saveEvery, head: head.minute, tickMs: 0, saveMs: 0 };
-    } catch (error) {
-      writer.free();
-      throw error;
-    }
+  /// Keeps the frame of the branch's new head, once its record moved there.
+  keepFrame(job, record, procedure) {
+    if (record.branch_id !== job.branchId) return;
+    const minute = record.computed_until;
+    const text = decoder.decode(procedure.frame(job.runId, job.branchId, minute));
+    this.headFrame = { key: job.key, head: record.checkpoint_hash, minute, text };
   }
+}
 
-  /// One chunk: at most `chunkTicks` ticks, not past the next saved point or the target, then
-  /// the blocks sealed since stored, and at a saved point, the target or the clock's end the
-  /// branch's new head. Returns the computation's status once it ends, else null.
-  async chunk(job, state) {
-    const { wasm } = this.api;
-    const { simulation, duration, saveEvery } = state;
-    const writer = new RunWriter(wasm, await state.backend.open(DATA), await state.backend.open(JOURNAL), state.writer);
-    try {
-      let minute = simulation.minute();
-      if (job.cancel) {
-        if (minute > state.head) await this.commit(job, state, minute, await this.save(writer, state));
-        return minute === duration ? "completed" : "paused";
-      }
-      const step = wasm.savedPointStep(minute, this.chunkTicks, saveEvery, job.target);
-      const started = performance.now();
-      const ran = simulation.advance(step);
-      state.tickMs += performance.now() - started;
-      minute = simulation.minute();
-      if (ran !== step) throw new Error(`the Run stopped at minute ${minute}`);
-      await writer.take(simulation, false);
-      if (minute === duration) {
-        await this.save(writer, state);
-        const { head } = await writer.finish(simulation);
-        await this.commit(job, state, minute, head);
-        return "completed";
-      }
-      if (minute === job.target || wasm.isSavedPointMinute(minute, saveEvery)) await this.commit(job, state, minute, await this.save(writer, state));
-      return minute === job.target ? "paused" : null;
-    } finally {
-      writer.close();
-    }
-  }
-
-  async save(writer, state) {
-    const started = performance.now();
-    const head = await writer.save(state.simulation);
-    state.saveMs += performance.now() - started;
-    return head;
-  }
-
-  /// Moves the branch's head to the line of the head hash `head` at `minute` and keeps the frame
-  /// there.
-  async commit(job, state, minute, head) {
-    const { tree } = this.api;
-    await store.writeBranch(tree, job.projectId, job.runId, { ...state.record, computed_until: minute, checkpoint_hash: head, status: RUNNING });
-    state.head = minute;
-    const text = decoder.decode(state.simulation.frame(job.runId, job.branchId, minute, undefined));
-    this.headFrame = { key: job.key, head, minute, text };
+/// Sets a branch's status and its Run's (the core's `Procedure.setStatus`).
+async function setStatus(wasm, tree, projectId, runId, branchId, status) {
+  const procedure = wasm.Procedure.setStatus(projectId, runId, branchId, status);
+  try {
+    await store.stepHost(wasm, tree).finish(procedure);
+  } finally {
+    procedure.free();
   }
 }

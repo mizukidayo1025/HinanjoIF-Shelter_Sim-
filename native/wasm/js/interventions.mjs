@@ -18,8 +18,9 @@
 //       "state_hash"} or {"status": "failed", "error", "code"}.
 //
 // The checks, the answers, the draft and the outcome are the core's (`answers::interventions`,
-// #449), which the local and VM versions call through PyO3; this module reads the files and the
-// branch's Run, keeps the draft, and makes the child.
+// #449), which the local and VM versions call through PyO3; so is making the child (the core's
+// `Procedure.fork`, #476, whose steps run_store.mjs's `StepHost` does). This module reads the files
+// and the branch's Run for the preview and keeps the draft.
 //
 // A Run computed with other model versions is view-only: both routes refuse it as the server does
 // (409 `run_model_view_only`, compute.mjs `requireCurrentModel`).
@@ -37,9 +38,6 @@
 import { core } from "./api_answers.mjs";
 import { requireCurrentModel } from "./compute.mjs";
 import * as store from "./project_store.mjs";
-import { RunWriter } from "./run_store.mjs";
-
-const encoder = new TextEncoder();
 
 const draftPath = (projectId, previewId) => [projectId, "drafts", `${previewId}.json`];
 
@@ -111,42 +109,24 @@ export async function interventionApply(api, projectId, runId, branchId, body) {
   }
 }
 
-/// `TimelineStore.fork`: the parent at the minute, checked against the state the preview saw, the
-/// program applied, and the child's stored Run and record. The child's stored Run reads the
-/// parent's pieces up to the line the parent's world was restored from (its base), and stores the
-/// rest from there: the records to the fork's minute, and a saved point there,
-/// after the program was applied. Returns `last_fork` (the core's JSON).
+/// `TimelineStore.fork` (the core's `Procedure.fork`): the parent at the minute, checked against
+/// the state the preview saw, the program applied, and the child's stored Run and record. The
+/// child's stored Run reads the parent's pieces up to the line the parent's world was restored from
+/// (its base), and stores the rest from there: the records to the fork's minute, and a saved point there, after the program was applied. Returns `last_fork` (the core's
+/// JSON).
 async function fork(api, projectId, runId, parent, plan) {
   const { wasm, tree } = api;
   const minute = plan.minute();
   const childId = plan.childId();
   // The kept worlds go first: WASM's memory does not shrink.
   api.freeLive();
-  const reader = await store.branchReader(wasm, tree, projectId, runId, parent.branch_id);
+  // A draft holds the state its preview saw; one without it matches no state.
+  const procedure = wasm.Procedure.fork(projectId, runId, parent.branch_id, childId, minute, plan.programText(), plan.hash(), plan.stateHash() ?? "");
   try {
-    const { simulation, base } = await reader.seek(minute);
-    try {
-      const origin = simulation.stateDigest();
-      store.answered(() => plan.checkOrigin(origin));
-      const programText = plan.programText();
-      const receipt = simulation.applyEffectProgram(encoder.encode(programText));
-      const backend = await store.branchBackend(tree, projectId, runId, childId);
-      const writer = await RunWriter.create(wasm, backend);
-      let head;
-      try {
-        writer.core.forkStart(reader.journal, base, minute, parent.branch_id, origin, parent.checkpoint_hash, programText, plan.hash(), receipt);
-        await writer.flush();
-        head = await writer.save(simulation);
-      } finally {
-        writer.close();
-      }
-      await store.writeBranch(tree, projectId, runId, { branch_id: childId, parent_branch_id: parent.branch_id, fork_minute: minute, computed_until: minute, checkpoint_hash: head, status: "paused" });
-      return wasm.createdOutcome(childId, minute, simulation.stateDigest());
-    } finally {
-      simulation.free();
-    }
+    await store.stepHost(wasm, tree).finish(procedure);
+    return wasm.createdOutcome(childId, minute, procedure.stateHash());
   } finally {
-    reader.close();
+    procedure.free();
   }
 }
 

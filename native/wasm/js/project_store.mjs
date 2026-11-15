@@ -52,7 +52,9 @@
 // manifest's and every entry's sha256, the records, and then each branch's stored Run read back
 // to its digests (run_store.mjs's readAndVerify) and to its record's head.
 
-import { opfsBackend, readAndVerify, RunReader, RunWriter, runAndStore } from "./run_store.mjs";
+import { CORE_REFUSED, computeFromStart, coreRefusal, opfsBackend, readAndVerify, RunReader, SAVE_EVERY, StepHost } from "./run_store.mjs";
+
+export { CORE_REFUSED, coreRefusal };
 
 export const BUNDLE_FORMAT = "sheltersim-project-bundle";
 export const BUNDLE_VERSION = 2;
@@ -566,31 +568,51 @@ async function headOf(wasm, backend) {
   }
 }
 
-/// Computes a branch in WASM and stores it as it goes (run_store.mjs's runAndStore with `run`'s
-/// options: exportBytes, world, ticks, progress; the model versions of the Run's record), then
-/// writes its record: computed to the minute the Run reached, its head the journal's end line,
-/// completed when the clock is.
-export async function computeBranch({ wasm, tree, projectId, runId, branchId, parentBranchId = null, forkMinute = 0, run }) {
-  const { model_versions: modelVersions } = await readRunRecord(tree, projectId, runId);
-  await writeBranch(tree, projectId, runId, { branch_id: branchId, parent_branch_id: parentBranchId, fork_minute: forkMinute, status: "running" });
-  const backend = await branchBackend(tree, projectId, runId, branchId);
-  let ran;
-  try {
-    ran = await runAndStore({ wasm, backend, modelVersions, ...run });
-  } catch (error) {
-    await writeBranch(tree, projectId, runId, { branch_id: branchId, parent_branch_id: parentBranchId, fork_minute: forkMinute, status: "failed" });
-    throw error;
-  }
-  const head = await headOf(wasm, backend);
-  const record = await writeBranch(tree, projectId, runId, {
-    branch_id: branchId,
-    parent_branch_id: parentBranchId,
-    fork_minute: forkMinute,
-    computed_until: head.minute,
-    checkpoint_hash: head.checkpointHash,
-    status: head.minute >= head.duration ? "completed" : "paused",
+/// The records the core's computing procedure reads and writes in this store (run_store.mjs's
+/// `StepHost`, #476).
+export function stepRecords(tree) {
+  return {
+    runRecord: (projectId, runId) => readRunRecord(tree, projectId, runId),
+    branchRecord: (projectId, runId, branchId) => branchRecord(tree, projectId, runId, branchId),
+    branchFile: (projectId, runId, branchId, name) => tree.read([...branchPath(projectId, runId, branchId), name]),
+    branches: (projectId, runId) => branches(tree, projectId, runId),
+    projects: () => projects(tree),
+    runIds: (projectId) => runIds(tree, projectId),
+    writeBranch: (projectId, runId, record) => writeBranch(tree, projectId, runId, record),
+    // A branch's status and its Run's: the same status.
+    setStatus: async (projectId, runId, branchId, status) => {
+      const record = await branchRecord(tree, projectId, runId, branchId);
+      await writeBranch(tree, projectId, runId, { ...record, status });
+      await setRunStatus(tree, projectId, runId, status);
+    },
+    setRunStatus: (projectId, runId, status) => setRunStatus(tree, projectId, runId, status),
+  };
+}
+
+/// The host of the core's computing procedure in this store (`StepHost`): its records and its
+/// branches' folders; the core's refusals are this store's errors. `options` are StepHost's
+/// (`branchLock`, `lockName`, `onRecord`).
+export function stepHost(wasm, tree, options = {}) {
+  return new StepHost({
+    wasm,
+    folder: (projectId, runId, branchId) => branchBackend(tree, projectId, runId, branchId),
+    records: stepRecords(tree),
+    refused: (message, code) => new ProjectStoreError(message, code ?? null),
+    ...options,
   });
-  return { ran, record };
+}
+
+/// Computes a branch from minute 0 in WASM and stores it as it goes (the core's
+/// `Procedure.fromStart`, with `run`'s options: exportBytes, world, ticks, saveEvery, progress; the
+/// model versions of the Run's record): its record `running`, then computed to the minute the Run
+/// reached, its head the journal's end line, completed when the clock is (or `failed` where it
+/// fails). Returns what the Run gave and the record.
+export async function computeBranch({ wasm, tree, projectId, runId, branchId, parentBranchId = null, forkMinute = 0, run }) {
+  const host = stepHost(wasm, tree);
+  const { exportBytes, world = null, ticks = 1440, saveEvery = SAVE_EVERY, progress } = run;
+  const procedure = host.call(() => wasm.Procedure.fromStart(projectId, runId, branchId, exportBytes, world ?? undefined, saveEvery, undefined, true, parentBranchId ?? undefined, forkMinute));
+  const ran = await computeFromStart({ wasm, host, procedure, ticks, progress });
+  return { ran, record: await branchRecord(tree, projectId, runId, branchId) };
 }
 
 /// Reads a branch's stored Run back and checks it against its digests (readAndVerify) and its
@@ -623,15 +645,6 @@ export async function verifyBranch(wasm, tree, projectId, runId, record) {
 // The answers are the core's (`sheltersim_core::answers`, #449): the files a route needs are read
 // here and handed to WASM, which checks them as the server does and writes the answer. A file
 // whose path names an id that is not an identifier is not read (the core refuses the id first).
-
-/// What the message of a refusal of the core's answers starts with (native/wasm/src/answers.rs).
-export const CORE_REFUSED = "answer_refused ";
-
-/// A refusal the core's answers threw, as `{ status, error, code }`; null for another error.
-export function coreRefusal(error) {
-  const message = String(error?.message ?? "");
-  return message.startsWith(CORE_REFUSED) ? JSON.parse(message.slice(CORE_REFUSED.length)) : null;
-}
 
 /// Runs a call of the core's answers; a refusal it throws becomes the store's error (all of the
 /// records' refusals are the server's StorageError, 409).
@@ -769,29 +782,13 @@ export async function conversationPieces(wasm, tree, projectId, runId, branchId)
 }
 
 /// Keeps a question's turn (its JSON text) in a branch's stored Run computed to its end, after its
-/// "end" line (the core's `RunWriter::after_end`): the branch's head stays.
+/// "end" line (the core's `Procedure.keepTurn`): the branch's head stays.
 export async function keepTurn(wasm, tree, projectId, runId, branchId, turn) {
-  const backend = await branchBackend(tree, projectId, runId, branchId);
-  const journalFile = await backend.open("journal.jsonl");
-  let core;
+  const procedure = wasm.Procedure.keepTurn(projectId, runId, branchId, turn);
   try {
-    const journal = new wasm.Journal(journalFile.read(0, journalFile.size()));
-    try {
-      core = journal.writerAfterEnd();
-    } finally {
-      journal.free();
-    }
-  } catch (error) {
-    journalFile.close();
-    throw error;
-  }
-  const writer = new RunWriter(wasm, await backend.open("data.pack"), journalFile, core);
-  try {
-    core.turn(turn);
-    await writer.flush();
+    await stepHost(wasm, tree).finish(procedure);
   } finally {
-    writer.close();
-    core.free();
+    procedure.free();
   }
 }
 

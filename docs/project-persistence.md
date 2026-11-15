@@ -74,7 +74,7 @@ Pythonの欄のうち、ブラウザーで意味が変わるもの：
 
 ### ブラウザーで計算するBranchの先頭（#267）
 
-ブラウザーで計算する（`POST runs/{run}/resume`、`native/wasm/js/compute.mjs`）Branchの記録は、保存したRunの目録の「先頭にできる行」を指します。先頭にできるのは、`export`の行（0分）、`saved`の行（どれも、その前にログと標本の塊がすべて保存されています）、`end`の行です。目録の行を書いて書き込みを終えて（flush）から記録を書くので、記録が計算の確定点です。記録の先頭より後の行は、次の先頭まで届かなかった計算で、続けるときに切り落とします（目録を先に、続けて`data.pack`の、どの行も指さないbytesを切ります）。先頭にできる行と、切り落とす長さは中核が決めます（`run_store::Journal::heads`、`Journal::cut`、#368）。そのBranchから分岐した子が、先頭より後の行まで親の部分を読む場合は、切り落とさずに断ります（子は親の部分を写さずに参照するので、#368の決定6）。
+ブラウザーで計算する（`POST runs/{run}/resume`、`native/wasm/js/compute.mjs`。手順は中核の`sheltersim_core::compute`、下の「計算の段取り」）Branchの記録は、保存したRunの目録の「先頭にできる行」を指します。先頭にできるのは、`export`の行（0分）、`saved`の行（どれも、その前にログと標本の塊がすべて保存されています）、`end`の行です。目録の行を書いて書き込みを終えて（flush）から記録を書くので、記録が計算の確定点です。記録の先頭より後の行は、次の先頭まで届かなかった計算で、続けるときに切り落とします（目録を先に、続けて`data.pack`の、どの行も指さないbytesを切ります）。先頭にできる行と、切り落とす長さは中核が決めます（`run_store::Journal::heads`、`Journal::cut`、#368）。そのBranchから分岐した子が、先頭より後の行まで親の部分を読む場合は、切り落とさずに断ります（子は親の部分を写さずに参照するので、#368の決定6）。
 
 途中の点を先頭にできるよう、点を保存する前に、いつもログと標本の塊を閉じます（中核の`RunWriter::save`、`Blocks::seal`。形v5からは`runAndStore`も同じで、目録の`saved`の行の塊の数は、その行の前に保存した塊の数と等しくなります。#368の決定2）。閉じた後の記録は新しい塊に入るので、点の前に保存した塊だけで点に戻せ、戻したRunはそのまま後ろへ塊を足していけます（#251の`Restore`は、戻したRunの塊をすべて閉じたものとして持ちます）。塊の区切りが変わるだけで、記録、標本、digestは変わりません。続けるときは、先頭の点に戻したRunの表と塊の数が、目録のその点までの表と塊の行と合うことを確かめ（`RunWriter::after`と`fits`）、合わなければ続けずに`failed`にします。
 
@@ -85,7 +85,7 @@ Pythonの欄のうち、ブラウザーで意味が変わるもの：
 ローカル版・VM版がブラウザーと同じ置き場に計算を書き、同じ置き場から読むための部品が、`native/store`（crate `sheltersim_store`）です。中核（`sheltersim_core`）はファイルを読み書きせず、WASMの build にも入らないので、ファイル・圧縮・lock・容量の処理はこのcrateに置きます。Pythonからは`sheltersim_native.rules.run_files`（`ProjectFiles`、`Lease`、`StoredRun`、`Computation`）で呼びます。Pythonのserverの計算と読み出しは、#427からこれを使います（上の「Projectの永続化」）。
 
 - **フォルダーと記録**：上の表と同じです（`records.rs`）。記録は鍵を並べたJSONと改行で、ブラウザー・Pythonと同じbytesです。ファイルは一時ファイルに書いて flush してから名前を替え、フォルダーも flush します（Pythonの`ProjectStore._write`と同じ）。誤りの文はPythonの`StorageError`と同じです。
-- **計算の段取り**：Branchの先頭まで戻して（切り落とし、戻し、判断の記録を集める）区切って進めること、保存する点・目標・終わりで記録の先頭を動かすこと、止めること、中断したBranchを`interrupted`にすること、分岐を作ること、質問の会話を残すこと、0分から最後まで計算することは、中核の`sheltersim_core::compute`（#476）がI/Oをしない「段取りの機械」（`Procedure`）として決めます。機械は「この記録を読む」「この部品を読む」「この部品を書く」「この行を足す」「この記録を書く」「計算する」といった指示（`Step`）を返し、ホストが行った結果を受け取って次へ進みます。`compute.rs`はその指示をファイル・flush・lock・容量で行うだけです。tickは`Computation::advance`だけで進み、その後の指示（`store`）だけを置き場のtransactionの中で行います（#465）。
+- **計算の段取り**：Branchの先頭まで戻して（切り落とし、戻す）区切って進めること、保存する点・目標・終わりで記録の先頭を動かすこと、止めること、中断したBranchを`interrupted`にすること、分岐を作ること、質問の会話を残すこと、0分から最後まで計算することは、中核の`sheltersim_core::compute`（#476）がI/Oをしない「段取りの機械」（`Procedure`）として決めます。機械は「この記録を読む」「この部品を読む」「この部品を書く」「この行を足す」「この記録を書く」「計算する」といった指示（`Step`）を返し、ホストが行った結果を受け取って次へ進みます。`compute.rs`はその指示をファイル・flush・lock・容量で行うだけです。ブラウザーも同じ機械をWASMの`Procedure`で動かし、`run_store.mjs`の`StepHost`がその指示をOPFS（部品は`CompressionStream`で圧縮）と記録（`project_store.mjs`の`stepHost`）とWeb Lockで行います。ブラウザーのJSとRustのどちらにも、手順そのものは残っていません。tickは`Computation::advance`だけで進み、その後の指示（`store`）だけを置き場のtransactionの中で行います（#465）。
 - **保存したRun**：部品をdeflate-raw（flate2）で圧縮して`data.pack`の末尾に書き、ディスクまで flush してから、目録の行を`journal.jsonl`に書いて flush します（`compute.rs`、`stored.rs`）。圧縮後のbytesはブラウザーと違うことがありますが、先頭のhashと圧縮前の中身は同じです。
 - **別のプロセスの読み手**：目録を1度読み、最後の欠けていない行までを読みます。書き手が追記している途中の行や、強制終了で欠けた行は読みません。読んだ行が指すbytesは、もうディスクにあります。続きの計算は、Branchの記録の先頭より後の行（欠けた行を含む）を切り落としてから始めます。
 - **lock**：Pythonの`claim_branch`・`claim_run`・`transaction`と同じファイル（`.lock`、Runと各Branchの`worker-lock`）に、同じ種類のlockをかけます（Linux・macOSは`flock`、Windowsは`msvcrt.locking`が取る先頭のbyteに重なる`LockFileEx`）。PythonとRustのどちらが持っていても、もう一方は断られます。同じBranchの計算は1つです。
@@ -95,7 +95,7 @@ Pythonの欄のうち、ブラウザーで意味が変わるもの：
 - **古い形のRun**：#427より前にPythonのserverが保存したRun（Runのフォルダーに`checkpoints/`があり、Branchに目録がないもの）は、ブラウザーの形v1〜v4と同じく`stored_run_outdated`の誤り（「古い保存の形（Python の Checkpoint）…計算し直してください」）にします。
 - **LLMの記録**：APIキーのあるサーバーの計算は、中核のLLMの口（`Computation.set_llm`、PythonのLLMRouterを`RouterLink`で、#428）を使い、問い合わせを保存したRunのLLMのテープ（`llm_tape`の部品）に残します。テープのあるRunを途中の分に戻すときは、戻した点より後の問い合わせにテープから答えます（Providerは呼びません）。
 - **1つのファイル**：Projectを1つのファイル（`.shelterproj`、ブラウザーの`exportProject`と同じ形の版2）に書きます（`bundle.rs`）。Pythonのserverだけが持つファイル（lock、下書き、LLMの利用の記録・テープ・設定）は入れません。それ以外の知らないファイルは、ブラウザーと同じく断ります。
-- **確かめ**：`cargo test -p sheltersim_core --test core compute::`は、メモリーのホストで段取りの機械を動かし、0分から計算したRunと区切って計算したRunがブラウザーの保存したRunとbyteまで同じになること、記録の先頭の動き、欠けた行の切り落とし、途中で止めたときの保存、分岐・質問・中断の手順、断る文を確かめます。`cargo test -p sheltersim_store`は、`native/wasm/tests/node_stored_runs.mjs`の5つの保存したRunを、この置き場で作り直します。fixtureと同じ圧縮（deflateのstored block）では、目録・`data.pack`・記録（`stored_runs/records.json`）がブラウザーとbyteまで同じです。flate2では、各行の先頭のhashと圧縮前の部品が同じです。`tests/integration/test_run_files.py`は、PythonとRustのlockが互いに断ること、追記中に別のプロセスが読めること、Branchを持ったまま強制終了した書き手のlockが外れ、欠けた行が読まれず、続きの計算で最後まで同じ結果になることを確かめます。
+- **確かめ**：`cargo test -p sheltersim_core --test core compute::`は、メモリーのホストで段取りの機械を動かし、0分から計算したRunと区切って計算したRunがブラウザーの保存したRunとbyteまで同じになること、記録の先頭の動き、欠けた行の切り落とし、途中で止めたときの保存、分岐・質問・中断の手順、断る文を確かめます。`cargo test -p sheltersim_store`は、`native/wasm/tests/node_stored_runs.mjs`の6つの保存したRun（途中で止め、ページを閉じたときのように中断してから直し、終わりまで計算して質問を残すRun`stopped`を含む）を、この置き場で作り直します。どちらも中核の段取りの機械を通ります。fixtureと同じ圧縮（deflateのstored block）では、目録・`data.pack`・記録（`stored_runs/records.json`）がブラウザーとbyteまで同じです。flate2では、各行の先頭のhashと圧縮前の部品が同じです。`tests/integration/test_run_files.py`は、PythonとRustのlockが互いに断ること、追記中に別のプロセスが読めること、Branchを持ったまま強制終了した書き手のlockが外れ、欠けた行が読まれず、続きの計算で最後まで同じ結果になることを確かめます。
 
 ## ブラウザーの時系列・レポート・LLMの状態（#266）
 
@@ -133,7 +133,7 @@ Pythonの欄のうち、ブラウザーで意味が変わるもの：
 
 ## ブラウザーの介入と子の分岐（#306）
 
-画面の「この時刻から分岐を作る」の`POST …/branches/{branch}/intervention-preview`と`intervention-apply`に、APIキーのないVMと同じ答えを返します（確かめ、答え、下書き、`last_fork`は中核の`sheltersim_core::answers::interventions`。ブラウザーは`native/wasm/js/interventions.mjs`がファイルとRunを読み、子を作ります。#449）。
+画面の「この時刻から分岐を作る」の`POST …/branches/{branch}/intervention-preview`と`intervention-apply`に、APIキーのないVMと同じ答えを返します（確かめ、答え、下書き、`last_fork`は中核の`sheltersim_core::answers::interventions`。ブラウザーは`native/wasm/js/interventions.mjs`がファイルとRunを読みます。子を作る手順は中核の`Procedure::fork`です。#449、#476）。
 
 - プレビューは、Branchのその分の世界から要約（`Simulation.scenarioSummary`、#302）を作り、文をAPIキーなしで読み取ります（`compileInterventionOffline`、#303）。案が`compiled`なら、そのEffectProgram（`effectProgramDump`、#304）を世界で確かめ（`validateEffectProgram`）、承認のhash（programの正規のJSONのsha256）と下書きの`preview_id`を足します。下書きはProjectのフォルダーの`drafts/<preview_id>.json`に置き、Projectの1つのファイル（bundle）には入れません。下書きに伏せるべき文（連絡先、鍵）があれば、serverと同じく409で断ります。
 - 適用は、下書きと承認のhashを確かめ、serverのprocessのworkerと同じ`{"status": "running", "branch_id", "minute"}`を返します。子の分岐は答えの前に作ります。親をその分に戻し、プレビューが見た状態（`state_hash`）と同じことを確かめ、programを予定に入れ（`Simulation.applyEffectProgram`、#305）、子の保存したRunを書きます。結果は、serverと同じくRunの記録（`GET runs/{run}`）の`last_fork`（`{"status": "created", "branch_id", "minute", "state_hash"}`か`{"status": "failed", "error", "code"}`）で返します。子の記録は`paused`、`fork_minute`と`computed_until`は分岐の分です。続きは`resume`で計算します。

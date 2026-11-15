@@ -32,7 +32,7 @@ fn the_files_an_answer_reads_are_listed_by_folder_and_a_journal_up_to_its_last_w
     assert!(project.is_some());
     assert_eq!(scenarios[0].0, "trial");
     assert_eq!(scenarios[0].1.iter().map(|(name, _)| name.as_str()).collect::<Vec<_>>(), ["v1.json", "v1.scenario.json"]);
-    assert_eq!(runs.iter().map(|(name, _, _)| name.as_str()).collect::<Vec<_>>(), ["r-sample", "run-browser-compute"]);
+    assert_eq!(runs.iter().map(|(name, _, _)| name.as_str()).collect::<Vec<_>>(), ["r-sample", "run-browser-compute", "run-stopped"]);
     assert!(files.project_listing("p1", false).unwrap().1.is_empty());
 
     // A writer may be appending: a line cut short is not read.

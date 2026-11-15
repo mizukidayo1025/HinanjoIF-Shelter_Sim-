@@ -49,7 +49,9 @@ each one carries `#[rustfmt::skip]`.
 - **`store/` (`sheltersim_store`)**: the files of a stored Run on a disk (#426): the records, the
   journal and the pieces, the locks, the capacity, the readers of another process, and the steps of
   the core's computing procedure done with them (`compute.rs`, #476).
-- **`wasm/` (`sheltersim_wasm`)**: the browser's boundary to the core (wasm-bindgen).
+- **`wasm/` (`sheltersim_wasm`)**: the browser's boundary to the core (wasm-bindgen), the core's
+  computing procedure among it (`Procedure`, #476), whose steps `js/run_store.mjs`'s `StepHost`
+  does with OPFS.
 - **`src/` (`sheltersim_native`)**: the thin PyO3 wrapper. Each entry reads its arguments, calls the
   core and converts the result:
   - `rules.plain`: `PlainRun` (a Run of an entry or of a Scenario, its ticks, digests, frame,

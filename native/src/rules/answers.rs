@@ -553,11 +553,6 @@ impl PyApplyPlan {
         self.plan.hash().map(str::to_owned)
     }
 
-    /// The parent's world at the minute must be the one the preview saw (its digest).
-    fn check_origin(&self, state_hash: &str) -> PyResult<()> {
-        self.plan.check_origin(state_hash).map_err(failed)
-    }
-
     /// The answer while the child is made.
     fn answer<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
         PyBytes::new(py, &self.plan.answer())

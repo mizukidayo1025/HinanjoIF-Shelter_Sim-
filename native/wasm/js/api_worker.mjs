@@ -114,7 +114,7 @@ async function start(examplesUrl) {
     if (changed) await writeMarker(held);
     // What a page closed in the middle of a computation left.
     try {
-      await recoverInterrupted({ tree, branchLock });
+      await recoverInterrupted({ wasm, tree, branchLock });
     } catch (error) {
       console.warn("interrupted computations are not recovered:", error);
     }

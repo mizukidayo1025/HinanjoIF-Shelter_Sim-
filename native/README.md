@@ -344,21 +344,25 @@ split PR by PR; its last section sums up what is where.
   two branches with `interpret::kpi_differences` (WASM `kpiDifferences`, #307), and
   `wasm/js/questions.mjs` the offline answer to a question (#308). `wasm/tests/node_interventions.mjs`
   checks the answers against the Python server's in `core/tests/data/interventions.json`.
-- **A Scenario's world at minute 0** (#249): `initial::entry` builds, from a Scenario's
-  canonical JSON, the bytes `export_world` writes of the world a Run starts from (the rows, the
-  queue, the stock's ledger, each person's, staff member's and zone's records, the floor plan's
-  sections, the zone neighbors). What Python derives from the configs that are the same for every
-  Scenario the screen makes (the Run's policies, the contract-parsed sections, the namespaces'
-  templates) comes from `initial/table.json`, keyed by `initial::fingerprint` of the configs
-  without their data (`DATA_CONFIGS`); `tests/support/core_initial.py` writes it. Configs the table
-  lacks are `Unsupported`. In WASM: `initialEntry`; `core/tests/initial.rs` and
-  `wasm/tests/node_initial.mjs` check `core/tests/data/initial_worlds.json`. A new Run's records
-  come from the same table (#301): `initial::model_versions` (`model_signatures`, with the floor
-  plan's service-point signature computed) and `initial::evidence` (the evidence route's answer,
-  with the Scenario's sources, assumptions and research limits); in WASM `modelVersions` and
-  `runEvidence`.
-- **Out of the core** (decision 4): building a world from a Scenario the screen does not make and
-  restoring a Checkpoint stay in Python and the wrapper. The whole-world validation texts (E6) and the pydantic
+- **A Scenario's world at minute 0** (#249, #429): `initial::entry` builds, from a Scenario's
+  canonical JSON, the bytes `export_world` writes of the world a Run starts from. The core makes
+  the whole world of any Scenario as Python does (`initial/namespaces.rs`: `WorldState.from_scenario`,
+  `initialize_simulator_extensions`, `initialize_declared_states`, then the whole-world
+  validation, with Python's errors and texts), the sections Python's contracts parse
+  (`initial/sections.rs`, `sections` of `world_export.py`), the route capacities and the zone
+  neighbors; `initial::world_entry` is that entry without its Run (`export_world(world)`). What it
+  does not compute yet, the Run's policies, comes from `initial/table.json`, keyed by
+  `initial::fingerprint` of the configs without their data (`DATA_CONFIGS`);
+  `tests/support/core_initial.py` writes it. Configs the table lacks are `Unsupported`. In WASM:
+  `initialEntry`; `core/tests/initial.rs` and `wasm/tests/node_initial.mjs` check
+  `core/tests/data/initial_worlds.json`, and `tests/unit/core/test_world_export.py` checks
+  `initial::world_entry` on every Scenario of `fixtures/initial_corpus.json.xz` (one per
+  configuration the offline tests use; `benchmarks/initial_corpus.py` records it). A new Run's
+  records come from the same table (#301): `initial::model_versions` (`model_signatures`, with the
+  floor plan's service-point signature computed) and `initial::evidence` (the evidence route's
+  answer, with the Scenario's sources, assumptions and research limits); in WASM `modelVersions`
+  and `runEvidence`.
+- **Out of the core** (decision 4): restoring a Checkpoint stays in Python and the wrapper. The whole-world validation texts (E6) and the pydantic
   contracts (E15) stay Python behind `Host` in the native host; a host without Python answers both
   with the core's `validate` (#250, the rules ported so far) and `contracts::validate` (#346).
 

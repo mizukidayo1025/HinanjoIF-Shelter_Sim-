@@ -362,35 +362,34 @@ fn plan_of(geo: Option<&Arc<Geo>>) -> Result<&Geo> {
     }
 }
 
-/// A trip planned within the facility's zone, or to it.
-#[allow(clippy::too_many_arguments)]
-fn plan_facility_trip(
-    world: &World,
-    events: &Events<'_>,
-    walking: Walking<'_>,
-    agent_id: &Arc<str>,
-    route: Route,
-    points: Vec<Pt>,
+/// Who walks to which facility, why, and from which minute.
+struct ToFacility<'a> {
+    agent_id: &'a Arc<str>,
     purpose: &'static str,
-    facility_id: &Arc<str>,
+    facility_id: &'a Arc<str>,
     minute: i64,
-) -> Result<Option<PlannedTrip>> {
-    travel::plan_travel(
-        world,
-        events,
-        walking,
-        Trip {
-            agent_id: agent_id.clone(),
-            route,
-            points,
-            purpose,
-            facility_id: Some(facility_id.clone()),
-            minute,
-            causation_id: None,
-            support_request_id: None,
-            support_staff_id: None,
-        },
-    )
+}
+
+impl ToFacility<'_> {
+    /// A trip planned within the facility's zone, or to it.
+    fn plan(&self, world: &World, events: &Events<'_>, walking: Walking<'_>, route: Route, points: Vec<Pt>) -> Result<Option<PlannedTrip>> {
+        travel::plan_travel(
+            world,
+            events,
+            walking,
+            Trip {
+                agent_id: self.agent_id.clone(),
+                route,
+                points,
+                purpose: self.purpose,
+                facility_id: Some(self.facility_id.clone()),
+                minute: self.minute,
+                causation_id: None,
+                support_request_id: None,
+                support_staff_id: None,
+            },
+        )
+    }
 }
 
 /// The `reservation_id` of each pending `resource_reserve` event, in the queue's order, as the
@@ -464,6 +463,7 @@ fn plan_toilet(world: &World, events: &Events<'_>, trips: &Trips<'_>, agent_id: 
         return Ok(effect);
     };
     let walking = trips.walk.walking();
+    let to = ToFacility { agent_id, purpose: "toilet_request", facility_id: &facility_id, minute };
     effect.trip = if route.destination == *zone_id && has_independent(world, &trips.queues, &facility_id)? {
         effect.at_once = true;
         None
@@ -474,10 +474,10 @@ fn plan_toilet(world: &World, events: &Events<'_>, trips: &Trips<'_>, agent_id: 
                 effect.at_once = true;
                 None
             }
-            Some((local, points)) => plan_facility_trip(world, events, walking, agent_id, local, points, "toilet_request", &facility_id, minute)?,
+            Some((local, points)) => to.plan(world, events, walking, local, points)?,
         }
     } else {
-        plan_facility_trip(world, events, walking, agent_id, route, Vec::new(), "toilet_request", &facility_id, minute)?
+        to.plan(world, events, walking, route, Vec::new())?
     };
     effect.facility_id = Some(facility_id);
     Ok(effect)
@@ -508,6 +508,7 @@ fn plan_resource(
             effect.rejected = true;
         }
         Selected::Found(facility_id, route) => {
+            let to = ToFacility { agent_id, purpose: "resource_request", facility_id: &facility_id, minute };
             if route.destination == *zone_id && has_independent(world, &trips.queues, &facility_id)? {
                 effect.at_once = true;
             } else if route.destination == *zone_id {
@@ -515,14 +516,14 @@ fn plan_resource(
                     None => effect.outcome = Some(("rejected", "room_route_blocked", None)),
                     Some((local, _)) if local.minutes <= 0 => effect.at_once = true,
                     Some((local, points)) => {
-                        effect.trip = plan_facility_trip(world, events, walking, agent_id, local, points, "resource_request", &facility_id, minute)?;
+                        effect.trip = to.plan(world, events, walking, local, points)?;
                         if effect.trip.is_some() {
                             effect.outcome = Some(("travel_scheduled", "in_room_route_available", None));
                         }
                     }
                 }
             } else {
-                effect.trip = plan_facility_trip(world, events, walking, agent_id, route, Vec::new(), "resource_request", &facility_id, minute)?;
+                effect.trip = to.plan(world, events, walking, route, Vec::new())?;
                 if effect.trip.is_some() {
                     effect.outcome = Some(("travel_scheduled", "route_available", None));
                 } else {

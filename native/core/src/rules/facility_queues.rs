@@ -202,16 +202,20 @@ pub fn choose_queue(world: &World, held: &Held, geo: &Geo, facility_id: &str, ag
 
 // ---- Writing the row -----------------------------------------------------------------------------
 
+/// A request to put at the end of its queue: its ID, the task it serves, its person, its kind of
+/// service and the minute it was made.
+#[derive(Clone, Copy, Debug)]
+pub struct NewRequest<'a> {
+    pub request_id: &'a str,
+    pub task_id: &'a str,
+    pub agent_id: &'a str,
+    pub service_kind: &'a str,
+    pub requested_minute: i64,
+}
+
 /// `enqueue`'s writes, after its check: the request at the end of its point's queue.
-pub fn enqueue_row(
-    row: &mut QueuesRow,
-    point: &ServicePoint,
-    request_id: &str,
-    task_id: &str,
-    agent_id: &str,
-    service_kind: &str,
-    requested_minute: i64,
-) -> Result<()> {
+pub fn enqueue_row(row: &mut QueuesRow, point: &ServicePoint, request: NewRequest<'_>) -> Result<()> {
+    let NewRequest { request_id, task_id, agent_id, service_kind, requested_minute } = request;
     if !row.queues.contains_key(&*point.queue_id) {
         return Err(Error::unsupported("no such queue"));
     }
@@ -306,16 +310,8 @@ fn row_mut(world: &World) -> Result<ShardMut<'_, QueuesRow>> {
 }
 
 /// `enqueue`'s writes, on the world's row.
-pub fn write_enqueue(
-    world: &World,
-    point: &ServicePoint,
-    request_id: &str,
-    task_id: &str,
-    agent_id: &str,
-    service_kind: &str,
-    requested_minute: i64,
-) -> Result<()> {
-    enqueue_row(&mut *row_mut(world)?, point, request_id, task_id, agent_id, service_kind, requested_minute)
+pub fn write_enqueue(world: &World, point: &ServicePoint, request: NewRequest<'_>) -> Result<()> {
+    enqueue_row(&mut *row_mut(world)?, point, request)
 }
 
 /// `start_service`'s writes, on the world's row.
@@ -341,19 +337,8 @@ pub fn write_stall(world: &World, queue_id: &str, request_id: &str, reason: &str
 
 /// `enqueue`: Python's one ValueError for no namespace, no signed point of the queue, or the ID
 /// taken; then the request at the end of the queue.
-#[allow(clippy::too_many_arguments)]
-pub fn enqueue(
-    world: &World,
-    held: &Held,
-    geo: &Geo,
-    queue_id: &str,
-    request_id: &str,
-    task_id: &str,
-    agent_id: &str,
-    service_kind: &str,
-    requested_minute: i64,
-) -> Result<()> {
-    let found = queues(world, held)?.map(|row| (row.requests.contains_key(request_id), row.queues.contains_key(queue_id)));
+pub fn enqueue(world: &World, held: &Held, geo: &Geo, queue_id: &str, request: NewRequest<'_>) -> Result<()> {
+    let found = queues(world, held)?.map(|row| (row.requests.contains_key(request.request_id), row.queues.contains_key(queue_id)));
     let (Some((false, has_queue)), Some(point)) = (found, point_of(geo, queue_id)) else {
         return Err(Error::value_error(NOT_INSTALLED_OR_TAKEN));
     };
@@ -361,7 +346,7 @@ pub fn enqueue(
         // A signed point whose queue the state lacks, which its check turns down.
         return Err(Error::unsupported("a signed point has no queue"));
     }
-    write_enqueue(world, point, request_id, task_id, agent_id, service_kind, requested_minute)
+    write_enqueue(world, point, request)
 }
 
 /// `start_service` of a request its queue holds as queued.
@@ -404,22 +389,32 @@ pub fn transition_id(sequence: i64) -> Arc<str> {
     Arc::from(format!("facility-queue-transition-{sequence}"))
 }
 
+/// What a transition of a request is: the request, the transition's kind, the task it is of, the
+/// wait it ended (a completion's) and the event that caused it.
+#[derive(Clone, Copy)]
+pub struct Transition<'a> {
+    pub request: &'a QueueRequest,
+    pub transition: &'a str,
+    pub task_id: &'a str,
+    pub wait_minutes: Option<i64>,
+    pub causation_id: Option<&'a str>,
+}
+
+/// Where the request stands at its transition: its place in its queue (from 1) and its point's
+/// concurrent capacity.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Place {
+    pub queue_position: Option<i64>,
+    pub capacity: Option<i64>,
+}
+
 /// What `FacilityQueueTransitionReceipt.model_validate` takes of the payload `transition_payload`
 /// makes: its IDs are `Identifier`s, its kinds the contract's, its counts not negative (a place
 /// from 1), the request not from the future, the wait within the time since it, and a queued or
 /// requeued request with its place.
-#[allow(clippy::too_many_arguments)]
-pub fn receipt_takes(
-    event_id: &str,
-    request: &QueueRequest,
-    transition: &str,
-    task_id: &str,
-    wait_minutes: Option<i64>,
-    causation_id: Option<&str>,
-    queue_position: Option<i64>,
-    capacity: Option<i64>,
-    minute: i64,
-) -> bool {
+pub fn receipt_takes(event_id: &str, change: &Transition<'_>, place: Place, minute: i64) -> bool {
+    let Transition { request, transition, task_id, wait_minutes, causation_id } = *change;
+    let Place { queue_position, capacity } = place;
     let ids = [event_id, &request.request_id, &request.queue_id, &request.service_point_id, &request.facility_id, &request.agent_id, task_id];
     let requested = request.requested_minute;
     ids.iter().all(|id| is_identifier(id))
@@ -438,26 +433,16 @@ pub fn receipt_takes(
 
 /// What a transition's record says, in the receipt's order, changing nothing. `taken`: the log
 /// holds a record of its ID or its sequence already.
-#[allow(clippy::too_many_arguments)]
-pub fn transition_payload(
-    taken: bool,
-    request: &QueueRequest,
-    transition: &str,
-    task_id: &str,
-    wait_minutes: Option<i64>,
-    causation_id: Option<&str>,
-    queue_position: Option<i64>,
-    capacity: Option<i64>,
-    sequence: i64,
-    minute: i64,
-) -> Result<IndexMap<Arc<str>, V>> {
+pub fn transition_payload(taken: bool, change: &Transition<'_>, place: Place, sequence: i64, minute: i64) -> Result<IndexMap<Arc<str>, V>> {
     if taken {
         return Err(Error::unsupported("the record's identity is taken"));
     }
     let event_id = transition_id(sequence);
-    if !receipt_takes(&event_id, request, transition, task_id, wait_minutes, causation_id, queue_position, capacity, minute) {
+    if !receipt_takes(&event_id, change, place, minute) {
         return Err(Error::unsupported("the receipt's contract refuses it"));
     }
+    let Transition { request, transition, task_id, wait_minutes, causation_id } = *change;
+    let Place { queue_position, capacity } = place;
     let option_int = |value: Option<i64>| value.map_or(V::Null, V::Int);
     let mut payload: IndexMap<Arc<str>, V> = IndexMap::with_capacity(18);
     payload.insert(Arc::from("schema_version"), V::Int(1));
@@ -517,17 +502,8 @@ pub struct Recording {
 
 /// `record_queue_transition`, changing nothing: the payload of the record, with the place of the
 /// request in its queue, the point's capacity and the sequence it will take.
-#[allow(clippy::too_many_arguments)]
-pub fn plan_record(
-    world: &World,
-    held: &Held,
-    geo: &Geo,
-    request: &QueueRequest,
-    transition: &str,
-    task_id: &str,
-    wait_minutes: Option<i64>,
-    causation_id: Option<&str>,
-) -> Result<Recording> {
+pub fn plan_record(world: &World, held: &Held, geo: &Geo, change: &Transition<'_>) -> Result<Recording> {
+    let request = change.request;
     let events = Events::of(world)?;
     let minute = world.minute_index()?;
     let position = {
@@ -542,24 +518,14 @@ pub fn plan_record(
     let capacity = point_of(geo, &request.queue_id).map(|point| point.service_capacity);
     let sequence = events.next_sequence()?;
     let taken = events.is_realized(&transition_id(sequence), Some(sequence))?;
-    let payload = transition_payload(taken, request, transition, task_id, wait_minutes, causation_id, position, capacity, sequence, minute)?;
+    let payload = transition_payload(taken, change, Place { queue_position: position, capacity }, sequence, minute)?;
     Ok(Recording { sequence, minute, payload })
 }
 
 /// `record_queue_transition`: `plan_record`, then its writes (`write_record`), on one borrow.
-#[allow(clippy::too_many_arguments)]
-pub fn record_transition(
-    world: &World,
-    held: &Held,
-    geo: &Geo,
-    request: &QueueRequest,
-    transition: &str,
-    task_id: &str,
-    wait_minutes: Option<i64>,
-    causation_id: Option<&str>,
-) -> WriteResult<()> {
-    let recording = plan_record(world, held, geo, request, transition, task_id, wait_minutes, causation_id)?;
-    write_record(world, recording, causation_id)
+pub fn record_transition(world: &World, held: &Held, geo: &Geo, change: &Transition<'_>) -> WriteResult<()> {
+    let recording = plan_record(world, held, geo, change)?;
+    write_record(world, recording, change.causation_id)
 }
 
 /// `record_queue_transition`'s writes, of what `plan_record` read.
@@ -571,18 +537,24 @@ pub fn write_record(world: &World, recording: Recording, causation_id: Option<&s
 
 // ---- validate_facility_queue_state ---------------------------------------------------------------
 
+/// What the checks of the listed requests read: the world's rows, the queues' row and the minute.
+#[derive(Clone, Copy)]
+struct Listing<'a> {
+    rows: &'a crate::entities::Entities,
+    row: &'a QueuesRow,
+    minute: i64,
+}
+
 /// The checks of one listed request, false where the Python rule raises.
-#[allow(clippy::too_many_arguments)]
 fn request_passes(
-    rows: &crate::entities::Entities,
-    row: &QueuesRow,
+    listing: Listing<'_>,
     point: &ServicePoint,
     queue_id: &Arc<str>,
     request_id: &Arc<str>,
     is_queued: bool,
-    minute: i64,
     people: &mut HashSet<Arc<str>>,
 ) -> bool {
+    let Listing { rows, row, minute } = listing;
     let Some(request) = row.requests.get(&**request_id) else {
         return false;
     };
@@ -670,6 +642,7 @@ pub fn validate(world: &World, held: &Held, geo: &Geo, movement: &Held) -> Resul
     }
     {
         let rows = world.rows()?;
+        let listing = Listing { rows: &rows, row: &row, minute };
         let mut people: HashSet<Arc<str>> = HashSet::new();
         let mut listed = 0;
         for (queue_id, queue) in row.queues.iter() {
@@ -695,7 +668,7 @@ pub fn validate(world: &World, held: &Held, geo: &Geo, movement: &Held) -> Resul
             for request_id in queue.queued_request_ids.iter().chain(&queue.active_request_ids) {
                 listed += 1;
                 let is_queued = queued.contains(&**request_id);
-                if !request_passes(&rows, &row, point, queue_id, request_id, is_queued, minute, &mut people) {
+                if !request_passes(listing, point, queue_id, request_id, is_queued, &mut people) {
                     return Ok(false);
                 }
             }

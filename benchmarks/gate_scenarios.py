@@ -19,8 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from sheltersim import native
-from sheltersim.contracts.bootstrap import ensure_builtin_contracts
-from sheltersim.contracts.policies import selected_models
+from sheltersim.contracts.policies import model_catalog, selected_models
 from sheltersim.experiments.initial_scenario import InitialScenarioBuilder, InitialScenarioRequest
 from sheltersim.experiments.scenario import ScenarioSpec
 from sheltersim.llm.cache import ResponseTape
@@ -1169,11 +1168,8 @@ def _scenario_selecting(domain: str, model_id: str) -> Any:
 
 
 def selectable_models() -> list[tuple[str, str]]:
-    """Every (domain, model) of the policy registry, in a stable order."""
-    ensure_builtin_contracts()
-    from sheltersim.contracts.policies import MODEL_DEFINITIONS
-
-    return sorted((row["domain"], model_id) for model_id, row in MODEL_DEFINITIONS.items())
+    """Every (domain, model) of the Model Catalog, in a stable order."""
+    return sorted((row["domain"], model_id) for model_id, row in model_catalog().items())
 
 
 def all_scenarios() -> dict[str, GateScenario]:

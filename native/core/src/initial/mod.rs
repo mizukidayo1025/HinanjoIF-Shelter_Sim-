@@ -28,6 +28,7 @@ mod policies;
 mod records;
 mod sections;
 
+pub(crate) use records::state_contracts;
 pub use records::{evidence, model_versions};
 
 use std::sync::Arc;

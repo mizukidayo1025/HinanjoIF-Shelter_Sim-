@@ -35,7 +35,7 @@ use indexmap::IndexMap;
 use serde_json::Value;
 
 pub use run::{fault, neighbors, obj, policies, route_capacities};
-pub use sections::{overlay, FloorPlans, Sections, OVERLAY};
+pub use sections::{floor_plan_of, overlay, FloorPlans, Sections, OVERLAY};
 pub use typed::{typed_row, TYPED};
 
 use crate::cell::Shard;

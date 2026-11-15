@@ -510,3 +510,38 @@ impl FloorPlans {
         self.builds
     }
 }
+
+/// `Geo::of` of a world without the overlay, from its exported `facility_geometry` and, where the
+/// configs have them, `spatial_constraints` sections (the core's minute-0 builder, #429).
+pub fn floor_plan_of(facility: &Value, spatial: Option<&Value>) -> Result<Arc<Geo>> {
+    let refusal = |fault: &Fault| {
+        if fault.is_refusal() {
+            Error::unsupported(fault.text.to_string())
+        } else {
+            Error::unsupported("the Python rule's parse raises")
+        }
+    };
+    fn section(json: &Value) -> Result<std::result::Result<Option<&Value>, Fault>> {
+        Ok(if let Some(found) = json.get("value") {
+            Ok(Some(found))
+        } else if let Some(found) = json.get("fault") {
+            Err(fault(found)?)
+        } else {
+            Ok(None)
+        })
+    }
+    let facility = match section(facility)?.map_err(|found| refusal(&found))? {
+        None => None,
+        Some(json) => Some(facility_geometry(json)?.map_err(|found| refusal(&found))?.plan.map_err(|found| refusal(&found))?),
+    };
+    let spatial = match spatial {
+        None => None,
+        Some(json) => match section(json)?.map_err(|found| refusal(&found))? {
+            None => None,
+            Some(json) => Some(spatial_constraints(json)?.map_err(|found| refusal(&found))?),
+        },
+    };
+    let key = OverlayKey::of(None, None)?;
+    let (moves, partitions) = key.parts(None);
+    Ok(Arc::new(Geo::new(facility.as_deref(), spatial.as_ref(), moves.as_ref(), partitions.as_ref())?))
+}

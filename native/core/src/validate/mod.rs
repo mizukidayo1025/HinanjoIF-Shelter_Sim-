@@ -23,16 +23,16 @@
 mod agent_dynamics;
 pub(crate) mod body_state;
 pub mod catalog;
-mod declared;
+pub(crate) mod declared;
 mod effect_program;
 mod entities;
 mod events;
-mod extension_head;
+pub(crate) mod extension_head;
 mod facility_queues;
 mod geometry_overlay;
-mod information;
+pub(crate) mod information;
 mod infrastructure;
-mod models;
+pub(crate) mod models;
 mod movement;
 mod operational_events;
 pub(crate) mod population_dynamics;
@@ -45,11 +45,11 @@ pub mod selection;
 mod shared_operations;
 pub mod signatures;
 mod social_network;
-mod staff_dynamics;
-mod staff_operations;
+pub(crate) mod staff_dynamics;
+pub(crate) mod staff_operations;
 mod temporary_spaces;
 pub mod view;
-mod zone_environment;
+pub(crate) mod zone_environment;
 
 pub use view::{repr, repr_texts, StateRef, View};
 

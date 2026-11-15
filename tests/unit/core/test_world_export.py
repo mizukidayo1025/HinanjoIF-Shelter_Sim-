@@ -21,6 +21,7 @@ from support.core_initial import (
     minute_zero_entry,
     scenario_of,
 )
+from support.initial_corpus import load_corpus, world_entry_bytes
 
 from sheltersim.core.world import WorldState
 from sheltersim.core.world_export import configs_fingerprint, export_world
@@ -66,6 +67,80 @@ def test_export_has_the_world_its_slots_and_the_host_sections(
 
 
 # ---- The core's minute-0 builder (#249) ----------------------------------------------------------
+
+CORPUS = load_corpus()
+
+
+@pytest.mark.parametrize("index", range(len(CORPUS)))
+def test_the_core_builds_the_world_python_builds_of_any_corpus_scenario(index: int) -> None:
+    """`sheltersim_core::initial::world_entry` of a Scenario of the corpus (one per configuration
+    the tests use, #429) is the bytes of `export_world(world)` of the world
+    `WorldState.from_scenario` builds, and the digest recorded with the case."""
+    import sheltersim_native
+
+    from sheltersim.experiments.scenario import ScenarioSpec
+
+    case = CORPUS[index]
+    made = sheltersim_native.initial_world_entry(case["scenario"].encode())
+
+    assert hashlib.sha256(made).hexdigest() == case["world_entry_sha256"]
+    assert len(made) == case["world_entry_bytes"]
+    assert made == world_entry_bytes(ScenarioSpec.model_validate_json(case["scenario"]))
+
+
+def _rich_case() -> dict[str, Any]:
+    """The first Scenario of the corpus with every extension these mutations change."""
+    keys = {"body_dynamics", "staff_operations", "staff_dynamics", "shared_operations"}
+    keys |= {"agent_dynamics", "geometry_overlay", "facility_geometry", "spatial_constraints"}
+    return next(
+        json.loads(case["scenario"])
+        for case in CORPUS
+        if keys <= set(json.loads(case["scenario"])["model_configs"])
+    )
+
+
+# Configs `ScenarioSpec` accepts and the world's construction refuses (#429).
+REFUSED_CONFIGS: dict[str, Callable[[dict[str, Any]], Any]] = {
+    "body_value": lambda configs: configs["body_dynamics"].update(affect_transfer_rate=2.0),
+    "body_field": lambda configs: configs["body_dynamics"].update(unknown=1),
+    "staff_operations_field": lambda configs: configs["staff_operations"].update(unknown=1),
+    "staff_operations_duration": lambda configs: configs["staff_operations"][
+        "task_duration_minutes"
+    ].update(patrol=0),
+    "staff_dynamics_rest": lambda configs: configs["staff_dynamics"].update(rest_minutes=0),
+    "staff_dynamics_policy": lambda configs: configs["staff_dynamics"].update(policy_version="x"),
+    "shared_operations": lambda configs: configs["shared_operations"].update(schema_version=2),
+    "agent_dynamics_version": lambda configs: configs["agent_dynamics"].update(
+        policy_version="unknown"
+    ),
+    "agent_dynamics_source": lambda configs: configs["agent_dynamics"].update(source_id="X"),
+    "overlay_without_geometry": lambda configs: (
+        configs.pop("facility_geometry"),
+        configs.pop("spatial_constraints"),
+    ),
+}
+
+
+@pytest.mark.parametrize("name", sorted(REFUSED_CONFIGS))
+def test_the_core_raises_python_s_error_for_a_world_python_refuses(name: str) -> None:
+    """Where `WorldState.from_scenario` raises for a Scenario `ScenarioSpec` accepts, the core
+    raises the same class with the same text (#429)."""
+    import sheltersim_native
+
+    from sheltersim.core.world import WorldState
+    from sheltersim.experiments.scenario import ScenarioSpec
+
+    document = _rich_case()
+    REFUSED_CONFIGS[name](document["model_configs"])
+    scenario = ScenarioSpec.model_validate(document)
+
+    with pytest.raises(Exception) as python:
+        WorldState.from_scenario(scenario)
+    with pytest.raises(Exception) as core:
+        sheltersim_native.initial_world_entry(scenario.canonical_json().encode())
+
+    assert type(core.value) is type(python.value)
+    assert str(core.value) == str(python.value)
 
 
 @pytest.mark.parametrize("name", sorted(TABLE_REQUESTS))

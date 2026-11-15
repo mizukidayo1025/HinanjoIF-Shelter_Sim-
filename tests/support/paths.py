@@ -31,3 +31,6 @@ CORE_TEST_DATA = FIXTURES.parent / "native" / "core" / "tests" / "data"
 # support/core_initial.py writes.
 INITIAL_TABLE = FIXTURES.parent / "native" / "core" / "src" / "initial" / "table.json"
 VALIDATE_CATALOG = FIXTURES.parent / "native" / "core" / "src" / "validate" / "catalog.json"
+# The Scenarios the core's minute-0 builder is checked on (#429), which
+# benchmarks/initial_corpus.py records.
+INITIAL_CORPUS = FIXTURES / "initial_corpus.json.xz"

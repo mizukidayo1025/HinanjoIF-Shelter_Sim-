@@ -24,11 +24,15 @@
 //! - `compute`: what the browser's `compute.mjs` and `interventions.mjs` do with them: a branch
 //!   computed from its head in chunks, its head moved at each saved point, and a branch made by a
 //!   fork.
+//! - `listing`: the files the core's answers read, gathered as the browser gathers them (#427).
+//! - `bundle`: one file that carries a Project, as the browser's `exportProject` writes it (#427).
 
+pub mod bundle;
 pub mod compress;
 pub mod compute;
 pub mod files;
 pub mod layout;
+pub mod listing;
 pub mod lock;
 pub mod quota;
 pub mod records;

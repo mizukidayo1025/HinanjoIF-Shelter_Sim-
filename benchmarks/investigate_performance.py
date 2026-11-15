@@ -1,5 +1,5 @@
 """Offline timing of a Run in the core: `PlainRun` straight through (route plain), or the Project
-API's worker into a stored Run of format v5 (route project, the screen's since #427). The core's
+API's worker into a stored Run of format v6 (route project, the screen's since #427). The core's
 digests of the world and the metric samples it ends with are compared with --expect.
 
 Run in a fresh process per case. Output belongs outside the repository.
@@ -151,7 +151,7 @@ def main() -> None:
         }
     else:
         # The screen's route (#427): the Run's branch computed in the core (`PlainRun`) into its
-        # stored Run of format v5, a saved point every 360 minutes, on the API's thread.
+        # stored Run of format v6, a saved point every 360 minutes, on the API's thread.
         store = ProjectStore(args.output / "projects")
         api = ProjectAPI(store, recover=False)
         branch, target = "main", args.duration

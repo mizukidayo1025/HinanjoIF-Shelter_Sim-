@@ -13,7 +13,7 @@
 // hold the compressed pieces' offsets and lengths) and data.pack are the same on every machine.
 //
 // The Runs (native/core/tests/data/stored_runs/<name>.journal.jsonl, and runs.json with each Run's
-// data.pack's length and sha256), all of format v5 (#368), their decision records collected:
+// data.pack's length and sha256), all of format v6 (#478):
 //   from_zero    runAndStore of tick_core's `small_replay` (a day), saved points every 360 minutes
 //   no_points    the same without saved points but the end's (saveEvery 0)
 //   computed     a Run to compute (compute_run.mjs, the Run the site offered until #411): its

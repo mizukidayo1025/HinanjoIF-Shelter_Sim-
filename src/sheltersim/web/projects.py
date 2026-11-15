@@ -1,5 +1,5 @@
 """The Project API of the local and VM versions: the screen's routes under /api/v1/projects,
-answered from the stored Runs of format v5 as the browser answers them (#427).
+answered from the stored Runs of format v6 as the browser answers them (#427).
 
 The records and each branch's stored Run are in the browser's folders
 (native/wasm/js/project_store.mjs), written and read by the store in Rust

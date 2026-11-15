@@ -1,4 +1,4 @@
-"""A computation run in its own process (#48) stores what a worker thread stores (format v5,
+"""A computation run in its own process (#48) stores what a worker thread stores (format v6,
 #427), can be cancelled, refuses a branch another process writes, leaves a killed computation
 interrupted, and runs beside other Runs' and branches' computations up to the limit; a fork is
 made at once while another branch computes."""

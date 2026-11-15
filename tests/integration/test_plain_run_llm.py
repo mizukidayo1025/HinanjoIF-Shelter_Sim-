@@ -69,13 +69,8 @@ def _entry() -> bytes:
 
 def _linked(entry: bytes, link: Any) -> Any:
     run = PLAIN.PlainRun(entry)
-    run.collect_decisions(True)
     run.set_llm(link, STRESSED_LIMITS)
     return run
-
-
-def _dialogue(records: list[bytes]) -> list[dict[str, Any]]:
-    return [row for row in (json.loads(raw) for raw in records) if row["record_kind"] == "dialogue"]
 
 
 @pytest.fixture(scope="module")
@@ -94,7 +89,6 @@ def recorded() -> dict[str, Any]:
         "asked": provider.asked,
         "router": router,
         "observed": seen,
-        "records": run.take_decisions(),
         "tape": run.take_tape(),
         "calls": run.llm_calls(),
     }
@@ -115,8 +109,6 @@ def test_the_core_asks_each_kind_of_question_and_the_router_records_each_call(
     assert recorded["calls"] == len(recorded["tape"]) == len(router.records) == sum(kinds.values())
     # The router's observer (the usage ledger's hook) saw each call.
     assert recorded["observed"] == router.records
-    # The social policy's decisions are records of the Run.
-    assert _dialogue(recorded["records"])
 
 
 def test_the_tape_holds_each_call_without_the_prompt_or_the_models_free_text(
@@ -199,8 +191,6 @@ def test_the_routers_budget_and_stop_policy_hold_through_the_link() -> None:
     tape = [json.loads(raw) for raw in run.take_tape()]
     assert tape and {row["outcome"] for row in tape} == {"budget_exceeded"}
     assert all(row["fallback_used"] for row in tape)
-    accepted = [row for row in _dialogue(run.take_decisions()) if row["accepted"]]
-    assert accepted == []
     stopping = _record_router(_Keeping(), budget_usd=0.0, error_policy=LLMErrorPolicy.STOP)
     run = _linked(entry, RouterLink(stopping))
     with pytest.raises(RuntimeError) as stopped:

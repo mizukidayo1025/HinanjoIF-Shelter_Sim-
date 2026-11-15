@@ -42,7 +42,7 @@ preview makes from the text has the same hash, and the core records the same mod
 for it as the branches' stored Runs did (they are not view-only), as a Run is continued only
 then. How the offline parser reads the intervention is not compared; rebuild after changing it.
 
-The Project is in the browser's folders and format v5 (#427): the server reads it, and the
+The Project is in the browser's folders and format v6 (#427): the server reads it, and the
 browser can import it as one file (`ProjectFiles.export_project`).
 """
 

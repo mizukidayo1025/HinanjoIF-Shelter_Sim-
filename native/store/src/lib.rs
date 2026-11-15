@@ -1,5 +1,5 @@
 //! The files of the stored Runs of 避難所IF！ on a disk (Issue #426, part of #368): the core's
-//! format v5 (`sheltersim_core::run_store`, which does no I/O) written to and read from the same
+//! format v6 (`sheltersim_core::run_store`, which does no I/O) written to and read from the same
 //! folders as the browser's (`native/wasm/js/project_store.mjs`, `run_store.mjs`), for the local
 //! and VM servers through the PyO3 crate. The core stays free of I/O and builds for wasm32; this
 //! crate is not part of that build.

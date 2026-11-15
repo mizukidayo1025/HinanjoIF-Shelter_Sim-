@@ -139,9 +139,9 @@ pub fn prioritize_support_request<C: WorldCell>(cell: &C, runtime: &mut Runtime,
             let agent = rows.agents.get(agent_id).ok_or_else(|| Error::Key(format!("'{agent_id}'")))?;
             (agent.stress, agent.trust, agent.profile.support_need, [agent.needs.toilet_urgency, agent.needs.hunger, agent.needs.fatigue])
         };
-        let mut state = priority_state(world)?;
+        let mut state = PriorityRuntime::read(world)?;
         let day = day_key(minute);
-        let attempts = count_of(&state, "attempts_by_day", &day);
+        let attempts = count(&state.attempts_by_day, &day);
         let skip = if stress < limits.stress_threshold {
             Some("below_stress_threshold")
         } else if attempts >= limits.global_per_day {
@@ -151,14 +151,14 @@ pub fn prioritize_support_request<C: WorldCell>(cell: &C, runtime: &mut Runtime,
         };
         match skip {
             Some(reason) => {
-                let skipped = count_of(&state, "skipped_by_reason", reason);
-                set_count(&mut state, "skipped_by_reason", reason, skipped + 1);
-                put_value(world, PRIORITY_STATE, V::Map(state))?;
+                let skipped = count(&state.skipped_by_reason, reason);
+                state.skipped_by_reason.insert(Arc::from(reason), skipped + 1);
+                put_value(world, PRIORITY_STATE, state.value())?;
                 return Ok(None);
             }
             None => {
-                set_count(&mut state, "attempts_by_day", &day, attempts + 1);
-                put_value(world, PRIORITY_STATE, V::Map(state))?;
+                state.attempts_by_day.insert(Arc::from(day.as_str()), attempts + 1);
+                put_value(world, PRIORITY_STATE, state.value())?;
             }
         }
         let constraints = [
@@ -212,28 +212,6 @@ pub fn prioritize_support_request<C: WorldCell>(cell: &C, runtime: &mut Runtime,
         priorities.insert(Arc::from(request_id), V::Int(priority));
         put_value(world, LLM_STATE, V::Map(state))
     })?
-}
-
-/// `support_priority_runtime(world)`: the state, or a new one (`setdefault`); an error for one of
-/// another shape.
-fn priority_state(world: &World) -> Result<IndexMap<Arc<str>, V>> {
-    let Some(value) = world.slots.try_value(PRIORITY_STATE)? else {
-        return Ok(new_state(&[("schema_version", V::Int(1)), ("attempts_by_day", V::Map(IndexMap::new())), ("skipped_by_reason", V::Map(IndexMap::new()))]));
-    };
-    let incompatible = || Error::Value("saved support priority runtime state is incompatible".to_owned());
-    let V::Map(state) = &*value else {
-        return Err(incompatible());
-    };
-    if !same_keys(state, &["schema_version", "attempts_by_day", "skipped_by_reason"]) || !matches!(state.get("schema_version"), Some(V::Int(1))) {
-        return Err(incompatible());
-    }
-    for name in ["attempts_by_day", "skipped_by_reason"] {
-        match state.get(name) {
-            Some(V::Map(counts)) if counts.values().all(|count| matches!(count, V::Int(_))) => {}
-            _ => return Err(Error::Value(format!("saved support priority runtime {name} must map to integers"))),
-        }
-    }
-    Ok(state.clone())
 }
 
 fn support_advice_schema() -> V {
@@ -413,15 +391,15 @@ pub fn consider_support_request<C: WorldCell>(cell: &C, runtime: &mut Runtime, m
         if due >= world.duration_minutes()? {
             return Ok(Err((minute, "scenario_deadline")));
         }
-        let state = social_state(world)?;
+        let state = SocialRuntime::read(world)?;
         let day = minute.div_euclid(1440);
-        if count_of(&state, "attempts_by_agent_day", &format!("{day}:{agent_id}")) >= limits.per_agent_per_day {
+        if count(&state.attempts_by_agent_day, &format!("{day}:{agent_id}")) >= limits.per_agent_per_day {
             return Ok(Err((minute, "agent_daily_cap")));
         }
-        if count_of(&state, "attempts_by_day", &day.to_string()) >= limits.global_per_day {
+        if count(&state.attempts_by_day, &day.to_string()) >= limits.global_per_day {
             return Ok(Err((minute, "global_daily_cap")));
         }
-        if let Some(V::Int(prior)) = entry_of(&state, "last_attempt_minute", agent_id) {
+        if let Some(prior) = state.last_attempt(agent_id) {
             if minute - prior < limits.cooldown_minutes {
                 return Ok(Err((minute, "cooldown")));
             }
@@ -770,16 +748,16 @@ fn typed<C: WorldCell>(cell: &C, runtime: &mut Runtime, mut records: Records<'_>
         }
         let ids: Vec<&str> = participants.iter().map(String::as_str).collect();
         candidate.event_payload.insert(Arc::from("conversation_state_context"), capture_context(world, &ids)?);
-        let state = social_state(world)?;
+        let state = SocialRuntime::read(world)?;
         let day = minute.div_euclid(1440);
-        if count_of(&state, "attempts_by_day", &day.to_string()) >= limits.global_per_day {
+        if count(&state.attempts_by_day, &day.to_string()) >= limits.global_per_day {
             return Ok(Err((minute, "global_daily_cap")));
         }
         for id in &participants {
-            if count_of(&state, "attempts_by_agent_day", &format!("{day}:{id}")) >= limits.per_agent_per_day {
+            if count(&state.attempts_by_agent_day, &format!("{day}:{id}")) >= limits.per_agent_per_day {
                 return Ok(Err((minute, "agent_daily_cap")));
             }
-            if let Some(V::Int(prior)) = entry_of(&state, "last_attempt_minute", id) {
+            if let Some(prior) = state.last_attempt(id) {
                 if minute - prior < limits.cooldown_minutes {
                     return Ok(Err((minute, "cooldown")));
                 }
@@ -912,64 +890,222 @@ fn social_task(world: &World, runtime: &mut Runtime, candidate: &Candidate, part
 /// After a call: the day's attempts, and each participant's attempts of the day and last attempt,
 /// counted; one decision more.
 fn count_attempts(world: &mut World, minute: i64, participants: &[&str]) -> Result<()> {
-    let mut state = social_state(world)?;
+    let mut state = SocialRuntime::read(world)?;
     let day = minute.div_euclid(1440);
     let day_key = day.to_string();
-    let attempts = count_of(&state, "attempts_by_day", &day_key);
-    set_count(&mut state, "attempts_by_day", &day_key, attempts + 1);
+    let attempts = count(&state.attempts_by_day, &day_key);
+    state.attempts_by_day.insert(Arc::from(day_key.as_str()), attempts + 1);
     for id in participants {
         let key = format!("{day}:{id}");
-        let attempts = count_of(&state, "attempts_by_agent_day", &key);
-        set_count(&mut state, "attempts_by_agent_day", &key, attempts + 1);
-        set_count(&mut state, "last_attempt_minute", id, minute);
+        let attempts = count(&state.attempts_by_agent_day, &key);
+        state.attempts_by_agent_day.insert(Arc::from(key.as_str()), attempts + 1);
+        state.last_attempt_minute.insert(Arc::from(*id), LastAttempt::Minute(minute));
     }
-    let decisions = match state.get("decision_count") {
-        Some(V::Int(count)) => *count,
-        _ => return Err(Error::Value("saved social runtime decision_count must be an integer".to_owned())),
-    };
-    state.insert(Arc::from("decision_count"), V::Int(decisions + 1));
-    put_value(world, SOCIAL_STATE, V::Map(state))
+    state.decision_count += 1;
+    put_value(world, SOCIAL_STATE, state.value())
 }
 
-/// `_social_runtime(world)`: the state, or a new one, which is stored at once (`setdefault`); an
-/// error for one of another shape.
-fn social_state(world: &mut World) -> Result<IndexMap<Arc<str>, V>> {
-    let found = world.slots.try_value(SOCIAL_STATE)?.map(|value| V::clone(&value));
-    let Some(value) = found else {
-        let state = new_state(&[
-            ("schema_version", V::Int(1)),
-            ("attempts_by_day", V::Map(IndexMap::new())),
-            ("attempts_by_agent_day", V::Map(IndexMap::new())),
-            ("last_attempt_minute", V::Map(IndexMap::new())),
-            ("decision_count", V::Int(0)),
-        ]);
-        put_value(world, SOCIAL_STATE, V::Map(state.clone()))?;
-        return Ok(state);
-    };
-    let incompatible = || Error::Value("saved social runtime state is incompatible".to_owned());
-    let V::Map(state) = value else {
-        return Err(incompatible());
-    };
-    let names = ["schema_version", "attempts_by_day", "attempts_by_agent_day", "last_attempt_minute", "decision_count"];
-    if !same_keys(&state, &names) || !matches!(state.get("schema_version"), Some(V::Int(1))) {
-        return Err(incompatible());
+// ---- The runtime states ----------------------------------------------------------------------------
+
+/// A table of counts by key, in the order the state holds them.
+type Counts = IndexMap<Arc<str>, i64>;
+
+/// `state[table].get(key, 0)` of a table of counts.
+fn count(table: &Counts, key: &str) -> i64 {
+    table.get(key).copied().unwrap_or(0)
+}
+
+/// The names of a state in the order it holds them, where it has exactly these names (in any
+/// order), else None: the state is written back in its order.
+fn names_of(state: &IndexMap<Arc<str>, V>, names: &[&'static str]) -> Option<Vec<&'static str>> {
+    if state.len() != names.len() {
+        return None;
     }
-    for name in ["attempts_by_day", "attempts_by_agent_day", "last_attempt_minute"] {
-        if !matches!(state.get(name), Some(V::Map(_))) {
-            return Err(Error::Value(format!("saved social runtime {name} must be an object")));
-        }
+    state.keys().map(|key| names.iter().copied().find(|name| **key == **name)).collect()
+}
+
+/// A table of a state, read where it holds only ints.
+fn counts_of(table: &IndexMap<Arc<str>, V>) -> Option<Counts> {
+    table
+        .iter()
+        .map(|(key, count)| match count {
+            V::Int(count) => Some((key.clone(), *count)),
+            _ => None,
+        })
+        .collect()
+}
+
+fn counts_value(counts: &Counts) -> V {
+    V::Map(counts.iter().map(|(key, count)| (key.clone(), V::Int(*count))).collect())
+}
+
+/// `model_state["support_priority_runtime_v1"]`: the priority's attempts by day and its skips by
+/// reason.
+struct PriorityRuntime {
+    /// The state's names in its order.
+    names: Vec<&'static str>,
+    attempts_by_day: Counts,
+    skipped_by_reason: Counts,
+}
+
+impl PriorityRuntime {
+    const NAMES: [&'static str; 3] = ["schema_version", "attempts_by_day", "skipped_by_reason"];
+
+    /// `support_priority_runtime(world)`: the state, or a new one (`setdefault`, stored by the
+    /// caller's write); an error for one of another shape.
+    fn read(world: &World) -> Result<Self> {
+        let Some(value) = world.slots.try_value(PRIORITY_STATE)? else {
+            return Ok(Self { names: Self::NAMES.to_vec(), attempts_by_day: Counts::new(), skipped_by_reason: Counts::new() });
+        };
+        let incompatible = || Error::Value("saved support priority runtime state is incompatible".to_owned());
+        let V::Map(state) = &*value else {
+            return Err(incompatible());
+        };
+        let Some(names) = names_of(state, &Self::NAMES).filter(|_| matches!(state.get("schema_version"), Some(V::Int(1)))) else {
+            return Err(incompatible());
+        };
+        let table = |name: &str| {
+            match state.get(name) {
+                Some(V::Map(table)) => counts_of(table).ok_or(()),
+                _ => Err(()),
+            }
+            .map_err(|()| Error::Value(format!("saved support priority runtime {name} must map to integers")))
+        };
+        let attempts_by_day = table("attempts_by_day")?;
+        let skipped_by_reason = table("skipped_by_reason")?;
+        Ok(Self { names, attempts_by_day, skipped_by_reason })
     }
-    if !matches!(state.get("decision_count"), Some(V::Int(_))) {
-        return Err(Error::Value("saved social runtime decision_count must be an integer".to_owned()));
+
+    /// The state as it is stored, in its order.
+    fn value(&self) -> V {
+        V::Map(
+            self.names
+                .iter()
+                .map(|name| {
+                    let value = match *name {
+                        "schema_version" => V::Int(1),
+                        "attempts_by_day" => counts_value(&self.attempts_by_day),
+                        _ => counts_value(&self.skipped_by_reason),
+                    };
+                    (Arc::from(*name), value)
+                })
+                .collect(),
+        )
     }
-    for name in ["attempts_by_day", "attempts_by_agent_day"] {
-        if let Some(V::Map(counts)) = state.get(name) {
-            if !counts.values().all(|count| matches!(count, V::Int(_))) {
-                return Err(incompatible());
+}
+
+/// A person's last attempt of the social policy: the minute the policy writes, or another value
+/// the state held, which reads as none and is kept as it is.
+enum LastAttempt {
+    Minute(i64),
+    Other(V),
+}
+
+/// `model_state["social_runtime_v1"]`: the social policy's attempts by day, by person and day, each
+/// person's last attempt, and how many decisions it made.
+struct SocialRuntime {
+    /// The state's names in its order.
+    names: Vec<&'static str>,
+    attempts_by_day: Counts,
+    attempts_by_agent_day: Counts,
+    last_attempt_minute: IndexMap<Arc<str>, LastAttempt>,
+    decision_count: i64,
+}
+
+impl SocialRuntime {
+    const NAMES: [&'static str; 5] = ["schema_version", "attempts_by_day", "attempts_by_agent_day", "last_attempt_minute", "decision_count"];
+
+    /// `_social_runtime(world)`: the state, or a new one, which is stored at once (`setdefault`);
+    /// an error for one of another shape.
+    fn read(world: &mut World) -> Result<Self> {
+        let found = world.slots.try_value(SOCIAL_STATE)?.map(|value| Self::of(&value));
+        match found {
+            Some(state) => state,
+            None => {
+                let state = Self {
+                    names: Self::NAMES.to_vec(),
+                    attempts_by_day: Counts::new(),
+                    attempts_by_agent_day: Counts::new(),
+                    last_attempt_minute: IndexMap::new(),
+                    decision_count: 0,
+                };
+                put_value(world, SOCIAL_STATE, state.value())?;
+                Ok(state)
             }
         }
     }
-    Ok(state)
+
+    fn of(value: &V) -> Result<Self> {
+        let incompatible = || Error::Value("saved social runtime state is incompatible".to_owned());
+        let V::Map(state) = value else {
+            return Err(incompatible());
+        };
+        let Some(names) = names_of(state, &Self::NAMES).filter(|_| matches!(state.get("schema_version"), Some(V::Int(1)))) else {
+            return Err(incompatible());
+        };
+        let object = |name: &str| match state.get(name) {
+            Some(V::Map(table)) => Ok(table),
+            _ => Err(Error::Value(format!("saved social runtime {name} must be an object"))),
+        };
+        let by_day = object("attempts_by_day")?;
+        let by_agent_day = object("attempts_by_agent_day")?;
+        let last = object("last_attempt_minute")?;
+        let Some(V::Int(decision_count)) = state.get("decision_count") else {
+            return Err(Error::Value("saved social runtime decision_count must be an integer".to_owned()));
+        };
+        let (Some(attempts_by_day), Some(attempts_by_agent_day)) = (counts_of(by_day), counts_of(by_agent_day)) else {
+            return Err(incompatible());
+        };
+        let last_attempt_minute = last
+            .iter()
+            .map(|(id, value)| {
+                let last = match value {
+                    V::Int(minute) => LastAttempt::Minute(*minute),
+                    other => LastAttempt::Other(other.clone()),
+                };
+                (id.clone(), last)
+            })
+            .collect();
+        Ok(Self { names, attempts_by_day, attempts_by_agent_day, last_attempt_minute, decision_count: *decision_count })
+    }
+
+    /// `state["last_attempt_minute"].get(id)`, where it is an int.
+    fn last_attempt(&self, id: &str) -> Option<i64> {
+        match self.last_attempt_minute.get(id) {
+            Some(LastAttempt::Minute(minute)) => Some(*minute),
+            _ => None,
+        }
+    }
+
+    /// The state as it is stored, in its order.
+    fn value(&self) -> V {
+        V::Map(
+            self.names
+                .iter()
+                .map(|name| {
+                    let value = match *name {
+                        "schema_version" => V::Int(1),
+                        "attempts_by_day" => counts_value(&self.attempts_by_day),
+                        "attempts_by_agent_day" => counts_value(&self.attempts_by_agent_day),
+                        "last_attempt_minute" => V::Map(
+                            self.last_attempt_minute
+                                .iter()
+                                .map(|(id, last)| {
+                                    let value = match last {
+                                        LastAttempt::Minute(minute) => V::Int(*minute),
+                                        LastAttempt::Other(value) => value.clone(),
+                                    };
+                                    (id.clone(), value)
+                                })
+                                .collect(),
+                        ),
+                        _ => V::Int(self.decision_count),
+                    };
+                    (Arc::from(*name), value)
+                })
+                .collect(),
+        )
+    }
 }
 
 // ---- Helpers --------------------------------------------------------------------------------------
@@ -1031,35 +1167,6 @@ fn put_value(world: &mut World, name: &str, value: V) -> Result<()> {
 
 fn day_key(minute: i64) -> String {
     minute.div_euclid(1440).to_string()
-}
-
-fn entry_of<'a>(state: &'a IndexMap<Arc<str>, V>, table: &str, key: &str) -> Option<&'a V> {
-    match state.get(table) {
-        Some(V::Map(entries)) => entries.get(key),
-        _ => None,
-    }
-}
-
-/// `state[table].get(key, 0)` of a table of ints.
-fn count_of(state: &IndexMap<Arc<str>, V>, table: &str, key: &str) -> i64 {
-    match entry_of(state, table, key) {
-        Some(V::Int(count)) => *count,
-        _ => 0,
-    }
-}
-
-fn set_count(state: &mut IndexMap<Arc<str>, V>, table: &str, key: &str, count: i64) {
-    if let Some(V::Map(entries)) = state.get_mut(table) {
-        entries.insert(Arc::from(key), V::Int(count));
-    }
-}
-
-fn same_keys(state: &IndexMap<Arc<str>, V>, names: &[&str]) -> bool {
-    state.len() == names.len() && names.iter().all(|name| state.contains_key(*name))
-}
-
-fn new_state(entries: &[(&str, V)]) -> IndexMap<Arc<str>, V> {
-    entries.iter().map(|(name, value)| (Arc::from(*name), value.clone())).collect()
 }
 
 fn object_schema(properties: &[(&str, V)]) -> V {

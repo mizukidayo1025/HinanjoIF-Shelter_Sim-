@@ -100,7 +100,7 @@ fn each_log<'a>(value: &'a Value, found: &mut Vec<&'a Value>) {
     }
 }
 
-/// Every record of every `event_log` in the fixture files: records Python wrote.
+/// Every record of every `event_log` in the fixture files (recorded before #430).
 #[test]
 fn the_records_of_the_fixtures_come_back_byte_for_byte() {
     let directory = format!("{}/tests/data", env!("CARGO_MANIFEST_DIR"));

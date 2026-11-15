@@ -1,8 +1,7 @@
 //! Lane P9-3a: what the population rules read through the host (`population::Read`,
-//! `population_lifecycle::Read`), the arguments a population primitive's payload gives them with
-//! Python's semantics, and a presence command's contract and `selected_ids` (policy E15). Before,
-//! the PyO3 crate read these (`PopulationIn`, `LifecycleIn`, the handler's `tuple(payload.get(...))`);
-//! the texts are the same, and the gate and the offline tests run them on every Run.
+//! `population_lifecycle::Read`), the arguments a population primitive's payload gives them, and a
+//! presence command's contract and `selected_ids` (policy E15), with the texts of what each
+//! refuses.
 
 use crate::support;
 
@@ -178,7 +177,7 @@ fn the_approach_routes_are_the_section_s_its_refusal_or_what_the_parse_raises_ag
     assert!(!raised.caught);
     assert_eq!(raised.refusal, Error::Unsupported("the Python rule's parse raises".into()));
 
-    // No config: the parse of `{}` raises again; a host without Python raises nothing, which is the
+    // No config: the parse of `{}` raises again; the test host raises nothing, which is the
     // corrupt state's error, a ValueError the arrivals' `try` catches.
     let absent = routes(&mut with_geometry(Section::Absent)).unwrap_err();
     assert!(absent.caught);
@@ -186,7 +185,7 @@ fn the_approach_routes_are_the_section_s_its_refusal_or_what_the_parse_raises_ag
 }
 
 #[test]
-fn a_plan_s_read_error_and_a_write_s_refusal_say_python_s_texts() {
+fn a_plan_s_read_error_and_a_write_s_refusal_say_the_recorded_texts() {
     assert_eq!(population::plan_read_of(&Error::unsupported("no")), Error::Unsupported("no".into()));
     assert_eq!(population::plan_read_of(&Error::Key("k".to_owned())), Error::Unsupported("the plan read: k".into()));
     assert_eq!(population::planning(failed("text")), failed("text"));

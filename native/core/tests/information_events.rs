@@ -1,7 +1,6 @@
 //! Lane P8 d1: the information events (`rules::information_events`) and the social events
-//! (`rules::social_interaction`) in the core, on worlds built here. The PyO3 crate's files of the
-//! same names are glue over these, so the gate and the offline tests run them on every Run; these
-//! say what each does with no Python.
+//! (`rules::social_interaction`) in the core, on worlds built here: what each writes, and the
+//! texts of what each refuses, in the order the rules check them.
 
 use crate::support;
 
@@ -273,7 +272,7 @@ const RUMOR_DRAW: f64 = 0.6913947174306129;
 const EXPECTED_STRENGTH: f64 = 1.0;
 
 #[test]
-fn a_rumor_s_texts_come_in_the_python_rule_s_order() {
+fn a_rumor_s_texts_come_in_the_recorded_order() {
     let world = world();
     let config = config(true);
     let selection = selection(PLAIN);
@@ -301,7 +300,7 @@ fn a_rumor_s_texts_come_in_the_python_rule_s_order() {
     on(&mut taken, |cell| info::rumor(cell, &mut TestHost::default(), &inputs(&config, &Held::Held, &selection), &good)).unwrap();
     let again = on(&mut taken, |cell| info::rumor(cell, &mut TestHost::default(), &inputs(&config, &Held::Held, &selection), &good));
     assert_eq!(again, fail("information message ID already exists"));
-    // An ID the Python rule would turn down is left to it, with nothing written.
+    // An ID the rule does not judge is refused as unsupported, with nothing written.
     let mut odd = clone_world(&world);
     let refused =
         on(&mut odd, |cell| info::rumor(cell, &mut TestHost::default(), &inputs(&config, &Held::Held, &selection), &rumor_event("ev r1", "m1", "true", "a1")));
@@ -352,7 +351,7 @@ fn a_correction_reaches_everyone_in_the_zone_by_id() {
 }
 
 #[test]
-fn a_correction_s_texts_come_in_the_python_rule_s_order() {
+fn a_correction_s_texts_come_in_the_recorded_order() {
     let mut world = world();
     let (config, selection) = (config(true), selection(PLAIN));
     on(&mut world, |cell| info::rumor(cell, &mut TestHost::default(), &inputs(&config, &Held::Held, &selection), &rumor_event("ev-r1", "m1", "false", "a2")))
@@ -420,7 +419,7 @@ fn a_contact_passes_a_claim_on_and_counts_it() {
 }
 
 #[test]
-fn a_contact_s_texts_come_in_the_python_rule_s_order() {
+fn a_contact_s_texts_come_in_the_recorded_order() {
     let mut world = world();
     let (config, selection) = (config(true), selection(PLAIN));
     on(&mut world, |cell| info::rumor(cell, &mut TestHost::default(), &inputs(&config, &Held::Held, &selection), &rumor_event("ev-r1", "m1", "false", "a2")))
@@ -553,7 +552,7 @@ fn a_state_of_another_schema_is_upgraded_by_the_host_before_the_event_s_checks()
     on(&mut world, |cell| cell.with(|world| world.row_mut::<InformationRow>(NAME).unwrap().schema_version = 1)).unwrap();
     written(&mut world);
     let (config, selection) = (config(true), selection(PLAIN));
-    // A host without Python refuses, and nothing is written.
+    // A host that does not upgrade the state refuses, and nothing is written.
     let refused = on(&mut world, |cell| {
         info::rumor(cell, &mut TestHost::default(), &inputs(&config, &Held::Held, &selection), &rumor_event("ev-r1", "m1", "true", "a1"))
     });
@@ -684,7 +683,7 @@ fn a_social_action_relieves_the_participant_and_tires_a_helper() {
 }
 
 #[test]
-fn a_social_action_s_texts_come_in_the_python_rule_s_order() {
+fn a_social_action_s_texts_come_in_the_recorded_order() {
     let world = world();
     let run = |row: &EventRow| apply(&mut clone_world(&world), row, &SocialInputs::default());
     let good = action("reassurance_exchange", "a1", "a2", "offer_reassurance", "emotional_check_in");

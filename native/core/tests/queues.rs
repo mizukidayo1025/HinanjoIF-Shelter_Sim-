@@ -1,7 +1,5 @@
 //! Lane c1: the queues of a facility (`rules::queues`) and the independent FIFO of each service
-//! point (`rules::facility_queues`), on a world built here with no Python. The PyO3 crate's
-//! kernels of the same names are glue over these, so the gate and the offline tests run them on
-//! every Run; these say what each reads, decides and writes.
+//! point (`rules::facility_queues`), on a world built here: what each reads, decides and writes.
 
 use std::sync::Arc;
 
@@ -245,7 +243,7 @@ fn the_fifo_is_written_on_the_row_and_marks_its_slot() {
     assert!(row.queues["q-left"].active_request_ids.is_empty());
     assert_eq!(row.requests.keys().map(|id| &**id).collect::<Vec<_>>(), ["t2"]);
     drop(row);
-    // What the Python lists say of an ID they don't hold.
+    // An ID the list doesn't hold: CPython's text of `list.remove`.
     assert_eq!(fifo::write_to_head(&world, "q-left", "t9"), Err(Error::Value("list.remove(x): x not in list".into())));
     assert_eq!(fifo::write_to_head(&world, "q-none", "t2"), Err(Error::Key("q-none".into())));
     assert_eq!(fifo::write_stall(&world, "q-none", "t2", "staff"), Err(unsupported("no such queue")));

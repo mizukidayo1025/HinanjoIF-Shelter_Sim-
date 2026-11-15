@@ -1,16 +1,15 @@
 //! The proximity sampling of `DistanceSampledProximityPolicy` and the step that schedules what it
-//! finds (`rules::proximity`, the kernels of `sample_of` and `sample_contacts`), on the world of
-//! `integration/test_read_rules.py`, without Python (Issue #225, lane M10b).
+//! finds (`rules::proximity::sample` and `sample_contacts`), on the generated Scenario's world
+//! (Issue #225, lane M10b).
 //!
-//! `data/proximity.json` (`tests/support/core_fixtures_reads.py`) holds the generated Scenario of an
-//! hour with the distance sampler at minute 0 (`start`), the positions that file drew with
-//! `random.Random(7)`, and `stepped`: what the step reads of that world after 5 ticks (the
-//! positions, the ID counters and the minute). A test moves the people (the row of `movement_v1`,
-//! as the pytest file wrote the tree) and samples. Each answer is `json.dumps` of what the sampler
-//! found (`sample_of`'s pairs) or of the step's new events and the ID counters, and the digest of a
-//! test's answers is the one the pytest file took from the deleted Python rule (45a9bc9), written
-//! again here with `Dumps`. The orders of Python's dicts that the canonical document sorts (the
-//! positions, the ID counters) are in the entry (`orders`).
+//! `data/proximity.json` holds the generated Scenario of an hour with the distance sampler at
+//! minute 0 (`start`), with positions drawn with `random.Random(7)`, and `stepped`: what the step
+//! reads of that world after 5 ticks (the positions, the ID counters and the minute). A test moves
+//! the people (the row of `movement_v1`) and samples. Each answer is `json.dumps` of what the
+//! sampler found (the pairs) or of the step's new events and the ID counters, written with `Dumps`,
+//! and the test compares the digest of its answers with the one written in it. The values were
+//! recorded before #430 and pin the core's output now. The orders of the dicts that the canonical
+//! document sorts (the positions, the ID counters) are in the entry (`orders`).
 
 use crate::support;
 
@@ -58,7 +57,7 @@ fn world(name: &str) -> (Value, Shard<World>) {
     (entry, cell)
 }
 
-/// The people's IDs in the order of Python's dict of positions.
+/// The people's IDs in the recorded order of the positions.
 fn position_order(entry: &Value) -> Vec<String> {
     entry["orders"]["positions"].as_array().unwrap().iter().map(|id| id.as_str().unwrap().to_owned()).collect()
 }
@@ -72,7 +71,7 @@ fn placed(entry: &Value, cell: &Shard<World>) -> Vec<String> {
     .unwrap()
 }
 
-/// Change the positions of the row, as the pytest files wrote the tree.
+/// Change the positions of the row.
 fn positions(cell: &Shard<World>, change: impl FnOnce(&mut IndexMap<Arc<str>, Position, rustc_hash::FxBuildHasher>)) {
     cell.with(|world| change(&mut world.row_mut::<MovementRow>(MOVEMENT).unwrap().positions)).unwrap();
 }
@@ -85,8 +84,8 @@ fn point_value(point: &Placed) -> V {
     map(&[("x", V::Float(point.x)), ("y", V::Float(point.y))])
 }
 
-/// `sample_of`: the pairs `(distance, first, second, zone, first point, second point)`, and the
-/// answer, `json.dumps` of them, added to `answers`.
+/// `proximity::sample`'s pairs `(distance, first, second, zone, first point, second point)`, and
+/// the answer, `json.dumps` of them, added to `answers`.
 fn sample(cell: &Shard<World>, config: &V, answers: &mut Vec<String>) -> Vec<V> {
     let (points, pairs) = cell.with(|world| proximity::sample(world, config, &Held::Held)).unwrap().unwrap();
     let pairs: Vec<V> = pairs
@@ -107,13 +106,13 @@ fn sample(cell: &Shard<World>, config: &V, answers: &mut Vec<String>) -> Vec<V> 
     pairs
 }
 
-/// The answers, joined by new lines, are what the Python rule gave: the first 16 hex of their sha256.
-fn is_python_s(answers: &[String], digest: &str) {
+/// The answers, joined by new lines, are the recorded ones: the first 16 hex of their sha256.
+fn is_recorded(answers: &[String], digest: &str) {
     assert_eq!(&sha256_hex(answers.join("\n").as_bytes())[..16], digest);
 }
 
 #[test]
-fn the_pairs_of_a_sample_are_the_python_rules_from_the_row() {
+fn the_pairs_of_a_sample_are_the_recorded_ones_from_the_row() {
     let radii =
         [(V::Float(0.25), "e0a1057cd2ac16bd"), (V::Float(1.5), "37315c7ce0bf997c"), (V::Int(2), "e2a86b4db6b2805e"), (V::Float(10.0), "9a06c87007643049")];
     for (radius, digest) in radii {
@@ -152,7 +151,7 @@ fn the_pairs_of_a_sample_are_the_python_rules_from_the_row() {
             found += sample(&cell, &sampler(radius.clone(), limit), &mut answers).len();
         }
         assert!(found > 100);
-        is_python_s(&answers, digest);
+        is_recorded(&answers, digest);
     }
 }
 
@@ -175,7 +174,7 @@ fn a_pair_at_nearly_the_radius_across_two_cells_is_found() {
     let mut answers = Vec::new();
     let pairs = sample(&cell, &sampler(V::Float(radius), 10), &mut answers);
     assert_eq!(pairs.len(), 1);
-    is_python_s(&answers, "c94a22af8cb63695");
+    is_recorded(&answers, "c94a22af8cb63695");
 }
 
 /// Everyone placed at (1, 1) in the zone of the first placed person.
@@ -212,7 +211,7 @@ fn what_the_sampler_skips_it_skips_from_the_row() {
         let after = sample(&cell, &config, &mut answers);
         assert!(!before.is_empty());
         assert!(after.len() <= before.len());
-        is_python_s(&answers, "1e8c8a88054f414b");
+        is_recorded(&answers, "1e8c8a88054f414b");
     }
 }
 
@@ -230,12 +229,12 @@ fn a_person_who_is_gone_is_skipped() {
         let V::List(items) = pair else { unreachable!() };
         items[1..3].iter().all(|id| *id != text("nobody"))
     }));
-    is_python_s(&answers, "c5660ccef72b95d6");
+    is_recorded(&answers, "c5660ccef72b95d6");
 }
 
 // ---- The step -----------------------------------------------------------------------------------
 
-/// The config of the pytest file's stand-in for the controller (`_stand_in`).
+/// The config of the stand-in for the controller (`stand_in`).
 fn contact_config() -> V {
     map(&[
         ("schema_version", V::Int(1)),
@@ -288,7 +287,7 @@ fn to_dict(row: &EventRow) -> V {
     ])
 }
 
-/// `world.id_counters` in the order of Python's dict.
+/// `world.id_counters` in the recorded order.
 fn counters(entry: &Value, cell: &Shard<World>) -> V {
     let V::Map(held) = cell.with(|world| world.row::<ValueRow>(ID_COUNTERS).unwrap().0.clone()).unwrap() else { panic!("not a map") };
     let order = entry["orders"]["id_counters"].as_array().unwrap();
@@ -296,8 +295,8 @@ fn counters(entry: &Value, cell: &Shard<World>) -> V {
     V::Map(order.iter().map(|name| (Arc::from(name.as_str().unwrap()), held.get(name.as_str().unwrap()).unwrap().clone())).collect())
 }
 
-/// The pytest file's `_run_step`: the step's new events, by sequence, each `to_dict()`; the
-/// answer, `json.dumps([events, world.id_counters])`, added to `answers`.
+/// The step's new events, by sequence, each `to_dict()`; the answer,
+/// `json.dumps([events, world.id_counters])`, added to `answers`.
 fn run_step(entry: &Value, cell: &Shard<World>, minute: i64, answers: &mut Vec<String>, config: Option<V>) -> Vec<V> {
     let seen: HashSet<Arc<str>> = pending_rows(cell).into_iter().map(|row| row.event_id).collect();
     step(cell, &stand_in(config.unwrap_or_else(contact_config)), minute).unwrap_or_else(|error| panic!("{error:?}"));
@@ -316,7 +315,7 @@ fn field<'a>(event: &'a V, path: &[&str]) -> &'a V {
 }
 
 #[test]
-fn the_step_schedules_the_events_of_the_python_rule() {
+fn the_step_schedules_the_recorded_events() {
     let (entry, cell) = world("stepped");
     let order = position_order(&entry);
     positions(&cell, |positions| {
@@ -334,7 +333,7 @@ fn the_step_schedules_the_events_of_the_python_rule() {
     });
     let mut answers = Vec::new();
     let events = run_step(&entry, &cell, 30, &mut answers, None);
-    is_python_s(&answers, "079b3c75a9d8ef83");
+    is_recorded(&answers, "079b3c75a9d8ef83");
     assert!(events.len() > 3);
     let first = &events[0];
     assert_eq!(field(first, &["event_type"]), &text("proximity_contact_update"));
@@ -363,13 +362,13 @@ fn a_minute_off_the_interval_or_at_the_end_schedules_nothing() {
     };
     assert!(run_step(&entry, &cell, duration - 1, &mut answers, Some(every(1))).is_empty());
     assert_eq!(run_step(&entry, &cell, 7, &mut answers, Some(every(7))).len(), 2);
-    is_python_s(&answers, "1422d1ce681fb0d7");
+    is_recorded(&answers, "1422d1ce681fb0d7");
 }
 
 #[test]
 fn a_coordinate_too_large_for_a_cell_is_refused() {
-    // No floor plan reaches such a coordinate (the Python rule gave an OverflowError): the sampler
-    // and the step refuse, and the step schedules nothing.
+    // No floor plan reaches such a coordinate: the sampler and the step refuse, and the step
+    // schedules nothing.
     let (entry, cell) = world("start");
     let people = placed(&entry, &cell);
     positions(&cell, |positions| positions.get_mut(people[0].as_str()).unwrap().point.as_mut().unwrap().x = 1e300);

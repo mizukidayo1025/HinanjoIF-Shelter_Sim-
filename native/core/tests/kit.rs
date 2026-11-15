@@ -1,6 +1,5 @@
-//! P8-0a: the helpers the rules share (`rules::kit`), over worlds and values built here. The PyO3
-//! crate's helpers of the same names are glue over these, so the gate and the offline tests run
-//! them on every Run; these say what each does with no Python.
+//! P8-0a: the helpers the rules share (`rules::kit`), over worlds and values built here: what each
+//! reads, and the texts of what each refuses.
 
 use std::cell::RefCell;
 use std::sync::Arc;
@@ -103,7 +102,7 @@ fn counts_keep_what_ran_and_the_refusals_by_reason() {
 // ---- Values and events -----------------------------------------------------------------------------
 
 #[test]
-fn values_are_read_as_python_reads_them() {
+fn values_are_read_as_the_rules_read_them() {
     let payload = map(&[("agent_id", string("a1")), ("count", V::Int(2))]);
     assert_eq!(kit::get(&payload, "agent_id"), Ok(&string("a1")));
     assert_eq!(kit::get(&payload, "missing"), Ok(&V::Null));
@@ -372,7 +371,7 @@ fn an_outage_is_an_active_record_that_names_the_facility() {
     assert_eq!(kit::active_outage(Some(&state), "f9"), Ok(false));
     assert_eq!(kit::active_outage(None, "f3"), Ok(false));
     assert_eq!(kit::active_outage(Some(&V::Null), "f3"), Ok(false));
-    // The KeyError of Python's reads.
+    // A missing key is an `Error::Key`.
     assert_eq!(kit::active_outage(Some(&map(&[])), "f3"), Err(Error::Key("outages".to_owned())));
     let missing = map(&[("outages", map(&[("o1", map(&[("active", V::Bool(true))]))]))]);
     assert_eq!(kit::active_outage(Some(&missing), "f3"), Err(Error::Key("affected_facility_ids".to_owned())));
@@ -515,7 +514,7 @@ fn the_waiting_are_checked_in_the_order_admission_reads_them() {
 #[test]
 fn a_waiting_arrival_the_admission_could_not_take_is_refused_first() {
     let with = |item: V| dynamics(vec![item], vec![]);
-    // Python's KeyError of a missing key.
+    // A missing key is an `Error::Key`.
     assert_eq!(check(Some(&map(&[("arrivals", list(&[]))]))).0, Err(Error::Key("pending_arrivals".to_owned())));
     let no_minute = map(&[("event_id", string("e")), ("zone_id", string("z1"))]);
     assert_eq!(check(Some(&with(no_minute))), (Err(Error::Key("created_minute".to_owned())), vec!["begin".to_owned()]));

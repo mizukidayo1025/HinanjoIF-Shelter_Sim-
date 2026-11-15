@@ -1,8 +1,6 @@
-//! Lane c4: the rules of `domain/temporary_spaces.py` and `domain/geometry_overlay.py`
-//! (`rules::overlay`) on a world built here with no Python. The PyO3 crate's kernels of the same
-//! names are glue over these, so the gate and the offline tests run them on every Run; these say
-//! what each reads, decides and writes, and what it asks of the host (the parameters' contracts,
-//! policy E15).
+//! Lane c4: the temporary spaces' and the geometry overlay's rules (`rules::overlay`) on a world
+//! built here: what each reads, decides and writes, and what it asks of the host (the parameters'
+//! contracts, policy E15).
 
 use crate::support;
 
@@ -289,7 +287,7 @@ fn a_bed_plan_gives_an_older_state_its_empty_reservations_first() {
     assert_eq!(overlay::plan_bed(&world, &beds, "a1"), Ok(None));
     let V::Map(fields) = state(&world, OVERLAY_KEY) else { panic!() };
     assert_eq!(fields.keys().last().map(|key| &**key), Some("bed_reservations"));
-    // A plan the PyO3 crate could not read is said where the rule reads it.
+    // A plan the host could not read is said where the rule reads it.
     let unread = Beds { geo: None, ..beds };
     assert_eq!(overlay::plan_bed(&world, &unread, "a1"), Err(unsupported(PLAN_UNREAD)));
     // An unknown person, or a schema before beds, has none and reads no plan.

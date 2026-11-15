@@ -1,30 +1,19 @@
-//! The population rules on the generated world, against what their Python rules gave (Issue #225,
-//! lane M8; moved from `tests/unit/domain/test_population_rules.py`).
+//! The population rules (`rules::population`, `rules::population_lifecycle`) on the generated world
+//! (Issue #225, lane M8). The gate reaches these rules at a few events, so what it can't reach is
+//! checked here.
 //!
-//! The gate reaches these rules at a few events, so what it can't reach is checked here. Their
-//! Python rules are gone (lane L10, `kernel_only`): each case was run with them once (2d8fb46), and
-//! what they returned and the world they left were pinned in the pytest file's `PYTHON_GAVE`, per
-//! test and in call order, as 16 hex digits of the sha256 of the lines of each value: a world's
-//! sha256 of its canonical JSON, a result's `json.dumps(result, sort_keys=True, default=repr)`.
-//! `PYTHON_GAVE` here is that table, unchanged: every result is a value JSON writes without
-//! `repr` (an int, a bool, None, a tuple of IDs, a receipt), which `support/dumps.rs` writes again
-//! byte for byte, and the core's world writes the same canonical text (`support/texts.rs`). Each
-//! digest was checked on the same kernel by the pytest file before it moved (lane M8).
+//! `RECORDED` holds, per test and in call order, 16 hex digits of the sha256 of the lines of what
+//! each call returned and the world it left: a world's sha256 of its canonical JSON
+//! (`support/texts.rs`), a result's text as `json.dumps(result, sort_keys=True)` writes it
+//! (`support/dumps.rs`). The values were recorded before #430 and pin the core's output now.
 //!
 //! The world is the generated Scenario the Project screen makes (`generated` of
-//! `tests/data/generated_texts.json`), as the pytest file's `world` fixture made it; the worlds it
-//! built besides it are in `tests/data/population_rules.json`
-//! (`tests/support/core_fixtures_population.py`), with the IDs it picked in Python's order and
-//! what `PopulationPresenceCommand` made of its commands. The other edits are made here, as the pytest
-//! file made them. Each argument of a rule is what the PyO3 crate reads of the Python value the
-//! pytest file passed (`native/src/rules/population.rs`, `population_lifecycle.rs`), and each rule
-//! is the core's function its entry calls, with a host that does to the world what the native host
-//! does (`load::following_host`). `_apply_presence_action` of a candidate that is not the world is
-//! the PyO3 crate's (`act`), done here on two loaded worlds.
-//!
-//! The pytest file keeps one test of each entry, and the tests of the Python boundary: a refusal
-//! that is a `KernelRefusal`, events scheduled as Python objects, the registered validator's
-//! refusal, and the constructors of an admitted agent.
+//! `tests/data/generated_texts.json`); the worlds built besides it are in
+//! `tests/data/population_rules.json`, with the IDs a test picks and what
+//! `PopulationPresenceCommand` made of its commands. The other edits are made here. Each rule is
+//! called with a host that does to the world what the native host does (`load::following_host`); a
+//! presence action on a candidate that is not the world is done here on two loaded worlds
+//! (`action`).
 
 use crate::support;
 
@@ -59,8 +48,8 @@ const SPACES: &str = "temporary_spaces_v1";
 const AGENT_DYNAMICS: &str = "agent_dynamics_v1";
 const EFFECT_PROGRAM: &str = "effect_program_v1";
 
-/// What the Python rules gave, per test and in call order (the pytest file's `PYTHON_GAVE`).
-const PYTHON_GAVE: &[(&str, &[&str])] = &[
+/// The recorded digests, per test and in call order.
+const RECORDED: &[(&str, &[&str])] = &[
     ("test_a_broken_lifecycle_state_raises_the_rule_s_text[0-0]", &["4e3e1a5cf967fc03"]),
     ("test_a_broken_lifecycle_state_raises_the_rule_s_text[1-1]", &["4e3e1a5cf967fc03"]),
     ("test_a_broken_lifecycle_state_raises_the_rule_s_text[2-2]", &["4e3e1a5cf967fc03"]),
@@ -131,7 +120,7 @@ fn text(value: &str) -> Arc<str> {
     Arc::from(value)
 }
 
-/// What the pytest file picked in Python's order, and what the contracts made of its commands.
+/// The IDs the tests pick, and what the contracts made of their commands.
 fn inputs() -> Value {
     load::data(FILE)["inputs"].take()
 }
@@ -140,12 +129,12 @@ fn input(key: &str) -> String {
     inputs()[key].as_str().unwrap_or_else(|| panic!("no input {key}")).to_owned()
 }
 
-/// What `PopulationPresenceCommand` made of a command of the pytest file.
+/// What `PopulationPresenceCommand` made of a command.
 fn dumped(name: &str) -> V {
     load::v(&inputs()["commands"][name])
 }
 
-/// `_event` of the pytest file: an event of the test's source, its sequence from its ID.
+/// An event of the test's source, its sequence from its ID.
 fn event(event_id: &str, minute: i64, payload: Value) -> Value {
     let digest = sha256_hex(event_id.as_bytes());
     json!({
@@ -162,7 +151,7 @@ fn event(event_id: &str, minute: i64, payload: Value) -> Value {
     })
 }
 
-/// `_retry_event` of the pytest file.
+/// A departure event to retry, with this provenance.
 fn retry_event(provenance: Value) -> Value {
     json!({
         "event_id": "retried",
@@ -229,8 +218,8 @@ fn unsupported<T: std::fmt::Debug>(result: Result<T, Error>) {
 
 // ---- A case ----------------------------------------------------------------------------------------
 
-/// A world in a cell, with a host that does to it what the native host does, and the digests the
-/// Python rule gave in this test, in turn.
+/// A world in a cell, with a host that does to it what the native host does, and the recorded
+/// digests of this test, in turn.
 struct Case {
     entry: Value,
     loaded: Rc<Loaded>,
@@ -238,7 +227,7 @@ struct Case {
     gave: std::slice::Iter<'static, &'static str>,
 }
 
-/// The pytest file's `world` (`generated` of `generated_texts.json`), or a world of
+/// The generated world (`generated` of `generated_texts.json`), or a world of
 /// `population_rules.json`.
 fn entry_of(world: &str) -> Value {
     if world == "generated" {
@@ -253,7 +242,7 @@ fn case(world: &str, test: &str) -> Case {
     let loaded = Rc::new(load::loaded(&entry));
     let host = load::following_host(&entry, &loaded);
     // A test that compares no digest has none.
-    let gave = PYTHON_GAVE.iter().find(|(name, _)| *name == test).map_or(NONE, |(_, gave)| *gave).iter();
+    let gave = RECORDED.iter().find(|(name, _)| *name == test).map_or(NONE, |(_, gave)| *gave).iter();
     Case { entry, loaded, host, gave }
 }
 
@@ -286,19 +275,17 @@ impl Case {
         texts::sha(&self.bytes())
     }
 
-    /// `_python_gave(*values)`: the next digest of the test is these parts'.
+    /// The next digest of the test is these parts'.
     fn gave(&mut self, parts: &[String]) {
         let digest = sha256_hex(parts.join("\n").as_bytes());
         assert_eq!(&digest[..16], *self.gave.next().expect("a digest of this call"), "{parts:?}");
     }
 
-    /// `_python_gave(result, world)`.
     fn gave_result(&mut self, result: V) {
         let parts = [json_part(&result), self.world_part()];
         self.gave(&parts);
     }
 
-    /// `_python_gave(world)`.
     fn gave_world(&mut self) {
         let parts = [self.world_part()];
         self.gave(&parts);
@@ -388,7 +375,7 @@ impl Case {
         population::queue_arrivals(&self.loaded.cell, &mut self.host, &texts::row(event), given)
     }
 
-    /// `_arrive`: `count` arrivals of households of `household_size` into the first person's zone,
+    /// `count` arrivals of households of `household_size` into the first person's zone,
     /// at the world's minute, with the result and the world the rule's.
     fn arrive(&mut self, count: i64, household_size: i64, alternates: Alternates) -> i64 {
         let event = event("arrival-event", self.minute(), json!({}));
@@ -402,7 +389,7 @@ impl Case {
         population::queue_departures(&self.loaded.cell, &mut self.host, &texts::row(event), given)
     }
 
-    /// `_depart`: `count` departures from the first person's zone, with the result and the world
+    /// `count` departures from the first person's zone, with the result and the world
     /// the rule's.
     fn depart(&mut self, count: i64, include_initial: Option<Option<bool>>) -> usize {
         let event = event("departure-event", self.minute(), json!({}));
@@ -423,7 +410,7 @@ impl Case {
         population::schedule_retry_through(&self.loaded.cell, &mut self.host, &texts::row(event), id_prefix, subject)
     }
 
-    /// `_same_suppression`: the rule stops with its text, and the world keeps what it scheduled.
+    /// The rule stops with its text, and the world keeps what it scheduled.
     fn same_suppression(&mut self, expected: &str, event: &Value, id_prefix: &str, subject: &str) {
         let said = texts::suppressed(self.retry(event, id_prefix, subject));
         assert_eq!(said, expected);
@@ -444,8 +431,7 @@ impl Case {
         read.run::<_, Error, _>(&self.loaded.cell, population::validate)
     }
 
-    /// `_waiting_for_the_person`: a departure with the busy person selected waits, as the rule
-    /// did.
+    /// A departure with the busy person selected waits.
     fn waiting_for_the_person(&mut self, zone: &str) {
         let event = event("departure-event", self.minute(), json!({}));
         let given = DepartureGiven { zone: Ok(Some(text(zone))), count: Ok(Some(1)), include_initial: Some(Some(true)) };
@@ -486,8 +472,7 @@ impl Case {
         (candidate, host)
     }
 
-    /// `_command`: one presence command, on a candidate, as the rule did; the candidate is the world
-    /// after.
+    /// One presence command, on a candidate; the candidate is the world after.
     fn command(&mut self, minute: i64, name: &str) -> V {
         self.set_minute(minute);
         let command = dumped(name);
@@ -502,7 +487,7 @@ impl Case {
         receipt
     }
 
-    /// `_command_suppressed`: a deferred command, by the rule's text, and the world it left.
+    /// A deferred command, by the rule's text, and the world it left.
     fn command_suppressed(&mut self, reason: &str, name: &str) {
         let minute = 3;
         self.set_minute(minute);
@@ -537,7 +522,7 @@ impl Case {
         self.doc()["model_state"][LIFECYCLE].clone()
     }
 
-    /// `_return_waiting`: the person away and back to their full zone, waiting.
+    /// The person away and back to their full zone, waiting.
     fn return_waiting(&mut self, person: &str) -> String {
         let zone = self.agent(person, |agent| agent.zone_id.to_string());
         self.command(1, "exit_9");
@@ -563,8 +548,8 @@ impl Case {
         completion
     }
 
-    /// The destination of a relocation the pytest file picked: the first zone a route from the
-    /// person's zone leads to (`next(edge.to_zone_id ...)`, in Python's order).
+    /// The destination of a relocation the fixture picked: the first zone a route from the person's
+    /// zone leads to.
     fn first_step(&self, name: &str) -> String {
         inputs()["commands"][name]["zone_id"].as_str().unwrap().to_owned()
     }
@@ -591,9 +576,8 @@ fn command_event(command: &V, minute: i64) -> Value {
     event(&format!("command-{action}-{minute}"), minute, json!({}))
 }
 
-/// `apply_presence_action(world, candidate, event, typed, typed.selected_ids())` of the PyO3 crate:
-/// the plan reads `world` and the candidate, the writes go to the candidate, and a deferral
-/// schedules its retry on `world`.
+/// A presence action on a candidate that is not the world: the plan reads `world` and the
+/// candidate, the writes go to the candidate, and a deferral schedules its retry on `world`.
 fn action(world: &Loaded, world_host: &mut TestHost, candidate: &Loaded, candidate_host: &mut TestHost, row: &EventRow, dumped: &V) -> Result<V, Error> {
     let ids = lifecycle::selected_ids(dumped).unwrap().unwrap();
     let command = Command::of_dumped(dumped, ids).unwrap();
@@ -897,11 +881,11 @@ fn first_use_by_a_deferred_departure_keeps_the_state() {
 
 /// The admission after a departure used to fall back to the rule, past the writes. A waiting
 /// arrival whose minute is a bool, which no rule writes, is outside the contract: the departure is
-/// refused before it writes anything (the pytest file keeps that the refusal is a `KernelRefusal`).
+/// refused before it writes anything.
 #[test]
 fn who_waits_is_checked_before_a_departure_writes() {
     let mut case = case("generated", "test_who_waits_is_checked_before_a_departure_writes");
-    // `_full_zone_with_waiters`: someone new in a full zone, and one arrival waiting.
+    // Someone new in a full zone, and one arrival waiting.
     let zone = case.zone();
     case.set_capacity(&zone, None);
     assert_eq!(case.arrive(1, 1, Alternates::NotGiven), 1);
@@ -1104,7 +1088,7 @@ fn a_relocation_walks_and_its_completion_is_the_rule_s() {
     assert_eq!(doc["model_state"][PRESENCE]["history"].as_array().unwrap().last().unwrap()["action"], "relocated");
 }
 
-/// It used to fall back to the rule, past the writes: `_initial_dynamics` was the rule's.
+/// It used to fall back to the rule, past the writes.
 #[test]
 fn an_admission_after_a_relocation_is_the_kernel_s_too() {
     let mut case = case("generated", "test_an_admission_after_a_relocation_is_the_kernel_s_too");
@@ -1213,7 +1197,7 @@ fn the_plan_reads_the_world_in_any_order() {
     }
 }
 
-/// `_in_order`: the world's people and tasks in the canonical order (by ID), or its reverse.
+/// The world's people and tasks in the canonical order (by ID), or its reverse.
 fn in_order(world: &mut World, reverse: bool) {
     fn sorted<R: Clone>(table: &Table<R>, reverse: bool) -> Table<R> {
         let mut rows: Vec<(Arc<str>, R)> = table.iter().map(|(id, row)| (id.clone(), row.clone())).collect();
@@ -1235,7 +1219,7 @@ fn in_order(world: &mut World, reverse: bool) {
 
 // ---- Rooms of the overlay ------------------------------------------------------------------------
 
-/// `_arrive_in_room`: arrivals for the full medical area, given the quiet area's room.
+/// Arrivals for the full medical area, given the quiet area's room.
 fn arrive_in_room(case: &mut Case, count: i64) {
     let given = Given { zone: Ok(Some(text("medical"))), alternates: Ok(Alternates::Zones(vec![text("quiet")])), ..given("medical", count) };
     let arrived = case.arrivals(&event("arrival-event", 1, json!({})), given).unwrap();

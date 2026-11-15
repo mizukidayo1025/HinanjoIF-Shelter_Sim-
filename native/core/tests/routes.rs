@@ -1,6 +1,6 @@
-//! The route graph of lane 7-3 without Python: `ShortestTravelTimePolicy.route` of
-//! `policies/space.py` over a `Router`, the edges a floor plan closes, a Run's routers by epoch and
-//! its route capacities.
+//! The route graph of lane 7-3 (`sheltersim_core::routes`): the shortest route over a `Router`
+//! (`Router::shortest`), the edges a floor plan closes, a Run's routers by epoch and its route
+//! capacities.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;

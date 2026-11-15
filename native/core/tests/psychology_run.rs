@@ -1,20 +1,17 @@
-//! The psychology of a Run's ticks in the core, against what the deleted Python rules gave (Issue
-//! #225, lane M11; moved from `tests/integration/test_native_kernels.py` and
-//! `test_psychology_row.py`).
+//! The psychology of a Run's ticks in the core (Issue #225, lane M11).
 //!
 //! The world is the generated Scenario the Project screen makes, at minute 0 with the Run's
-//! policies (`generated_texts.json`'s `generated`); the core runs its ticks as `TickEngine.step`
-//! does (`support/ticks.rs`), which pass the worlds of `run_scenario` (`generated_run.rs`).
+//! policies (`generated_texts.json`'s `generated`); the core runs its ticks (`support/ticks.rs`),
+//! as in `generated_run.rs`.
 //!
 //! - The psychology step's deltas at each of the Run's 360 minutes, as the update phase finds the
-//!   world: the sha256 of `json.dumps` of each delta's fields, recorded once from the deleted Python
-//!   step `_psychology_update` (at 45a9bc9). `Dumps` writes the same text, so the digest is the
-//!   original one.
+//!   world: the sha256 of `json.dumps` of each delta's fields, written with `Dumps`
+//!   (`PSYCHOLOGY_DELTAS`).
 //! - The long-term distress and the world after 40 ticks: the sha256 of `json.dumps` of the
-//!   namespace's people and of `canonical_json()`, recorded once from the deleted rules of
-//!   `domain/psychological_state.py` and `domain/distress_monitor.py`. The core writes the same
-//!   bytes (`support/canonical.rs`, with the `rng_state` the engine gives), so this digest is the
-//!   original one too.
+//!   namespace's people and of the world's canonical JSON (`support/canonical.rs`, with the
+//!   `rng_state` the engine gives; `TICKS`).
+//!
+//! The values were recorded before #430 (at 45a9bc9) and pin the core's output now.
 
 use crate::support;
 
@@ -39,9 +36,9 @@ use support::load::{self, Loaded};
 use support::ticks::{self, check_after_tick, tick_at, NoPython};
 use support::{cases, TestHost};
 
-/// `PSYCHOLOGY_DELTAS` of `test_native_kernels.py`.
+/// The recorded digest of the deltas.
 const PSYCHOLOGY_DELTAS: &str = "842c8f23bf0c3e3ce2a8b971ca3bc742cc6c263cedaa52918c04e2e6d3ba7d9d";
-/// `ANSWERS["ticks"]` of `test_psychology_row.py`.
+/// The recorded digest of the world after 40 ticks.
 const TICKS: &str = "fe85fda26cad60572bea948b335dadb049ca64df5b21b88737d44d4785171ae9";
 
 fn generated() -> (Value, Rc<Loaded>, TestHost) {
@@ -55,7 +52,7 @@ fn text(value: &str) -> V {
     V::Str(Arc::from(value))
 }
 
-/// `[getattr(delta, name) for name in AgentStateDelta.__dataclass_fields__]`.
+/// The delta's fields, in order.
 fn delta_fields(delta: &Delta) -> V {
     let mut fields = vec![
         text(&delta.agent_id),
@@ -74,11 +71,11 @@ fn delta_fields(delta: &Delta) -> V {
     V::List(fields)
 }
 
-/// `test_the_psychology_kernel_gives_the_deltas_of_the_deleted_python_step`: before each tick's
-/// update phase, the step on the view `_view_after_movement` makes then. In this Run the movement
-/// replans no trip, so it moves only the points of the walks, which the step doesn't read.
+/// Before each tick's update phase, the step on the view `update::view_after_movement` makes then.
+/// In this Run the movement replans no trip, so it moves only the points of the walks, which the
+/// step doesn't read.
 #[test]
-fn the_psychology_step_gives_the_deltas_of_the_deleted_python_step() {
+fn the_psychology_step_gives_the_recorded_deltas() {
     let (_, loaded, mut host) = generated();
     let (mut memo, mut checks) = (Memo::default(), NoPython::default());
     let before: Vec<Phase> = Phase::ORDER.into_iter().filter(|phase| matches!(phase, Phase::DispatchDueEvents | Phase::CompleteScheduledTasks)).collect();
@@ -141,10 +138,9 @@ fn engine_rng_state(entry: &Value) -> Value {
     serde_json::json!({"algorithm": "sha256-keyed-v1", "seed": entry["world"]["seed"]})
 }
 
-/// `test_ticks_make_the_world_of_the_deleted_rules`: 40 ticks, then the namespace's people and the
-/// world's canonical JSON.
+/// 40 ticks, then the namespace's people and the world's canonical JSON.
 #[test]
-fn ticks_make_the_world_of_the_deleted_rules() {
+fn ticks_make_the_recorded_world() {
     let (entry, loaded, mut host) = generated();
     ticks::run(&loaded, &mut host, 40, &mut |_, _| {});
     let rng_state = engine_rng_state(&entry);

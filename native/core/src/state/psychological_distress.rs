@@ -1,7 +1,6 @@
 //! `psychological_distress_v1`: the template of an owned namespace
 //! (docs/rust-port/lanes/p5-template-namespace.md). The rule that writes it is
-//! `rules/psychology.rs`; `domain/psychological_state.py` stays the comparison base. The PyO3
-//! crate's `state/psychological_distress.rs` reads it from Python and holds its validator.
+//! `rules/psychology.rs`; `validate/psychology.rs` checks a saved namespace.
 
 use crate::row::IdMap;
 use crate::state_row;
@@ -49,7 +48,7 @@ impl AgentRecord {
 
 impl DistressRow {
     /// Whether validate_psychological_state passes the namespace. False says nothing about it:
-    /// the Python rules then say what is wrong.
+    /// the whole validation (`validate::world`) then says what is wrong.
     pub fn is_valid(&self) -> bool {
         self.schema_version == SCHEMA_VERSION
             && self.last_updated_minute >= -1

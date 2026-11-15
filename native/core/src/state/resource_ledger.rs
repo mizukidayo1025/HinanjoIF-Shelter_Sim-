@@ -1,14 +1,14 @@
-//! `resource_ledger_v1`: the two accounts, the reservations and the audit trail
-//! (`domain/resources.py`). `rules/resources.rs` writes it in place: a Python rule that replaced the
-//! whole namespace at each operation would forward all of it (docs/rust-port/lanes/m4-resources.md).
+//! `resource_ledger_v1`: the two accounts, the reservations and the audit trail.
+//! `rules/resources.rs` writes it in place (docs/rust-port/lanes/m4-resources.md).
 //!
 //! The audit trail is the canonical JSON of each record. Rules read only the newest record of each
 //! resource, which the row keeps typed. A record joins the row only if it passes every rule of
-//! `_validate_audit_record` that reads the record alone; any other record, or a write into a record
-//! already there, taints the namespace, and the Python rules and their errors run on the tree.
+//! `_validate_audit_record` that reads the record alone; any other record does not fit the row: a
+//! Run refuses to load such a world (`load::put_namespace`), and the whole validation reads it as a
+//! value (`load::Namespaces::Lenient`).
 //!
-//! The PyO3 crate's `state/resource_ledger.rs` reads it from Python and holds its validator, which
-//! hands the world's resources, people and zones to `passes_rules_in` as a `LedgerWorld`.
+//! `rules::resources::ledger_passes` hands the world's resources, people and zones to
+//! `passes_rules_in` as a `LedgerWorld`.
 
 use std::sync::Arc;
 
@@ -135,8 +135,8 @@ pub struct Audit {
     items: Vec<Box<[u8]>>,
     newest: [Option<AuditRecord>; 2],
     pub last_minute: i64,
-    /// Every minute is at least the one before. The Python check of a tick reads only the newest
-    /// records, so a false here says nothing, and the Python rule then decides.
+    /// Every minute is at least the one before. The check of a tick reads only the newest records,
+    /// so a false here says nothing, and the whole validation then decides.
     ordered: bool,
     /// The warehouse of every record, or None without records. A second warehouse is a misfit.
     warehouse: Option<Arc<str>>,
@@ -316,8 +316,8 @@ pub trait LedgerWorld {
 
 impl LedgerRow {
     /// Every rule `validate_resource_ledger_state` has, given a row of the right types, for a world
-    /// holding these resources, people and zones. True says the Python rule accepts; false decides
-    /// nothing.
+    /// holding these resources, people and zones. True says the whole validation accepts; false
+    /// decides nothing.
     pub fn passes_rules_in<W: LedgerWorld>(&self, world: &W) -> std::result::Result<bool, W::Error> {
         if self.schema_version != SCHEMA_VERSION
             || !is_valid_id(&self.warehouse_id)

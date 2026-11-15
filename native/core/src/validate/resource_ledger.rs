@@ -1,16 +1,15 @@
-//! The resource ledger block of `WorldState.validate` (`core/world.py`): the identity history of
-//! `population_dynamics_v1`, then `validate_resource_ledger` (with the history: the whole audit
-//! trail replayed) or `validate_resource_ledger_state` (without: the balances and the records of
-//! the last tick) of `domain/resources.py`, with Python's errors and texts. `validate::world` calls
-//! it only where `resource_ledger_v1` is in `model_state`, and makes a `ValueError` (a
-//! `ResourceLedgerError` too) `invalid resource ledger: {exc}`.
+//! The resource ledger block of `WorldState.validate`: the identity history of
+//! `population_dynamics_v1`, then the ledger's check (with the history: the whole audit trail
+//! replayed; without: the balances and the records of the last tick), with its errors and texts.
+//! `validate::world` calls it only where `resource_ledger_v1` is in `model_state`, and makes a
+//! `ValueError` (a `ResourceLedgerError` too) `invalid resource ledger: {exc}`.
 //!
-//! Each rule reads the namespace as the JSON value Python holds (`View::state`), so a ledger the
-//! typed row would refuse gives the same text. The replay is one pass over the audit trail, with
-//! sets for the event and reservation IDs, as Python's.
+//! Each rule reads the namespace as its JSON value (`View::state`), so a ledger the typed row would
+//! refuse gives the same text. The replay is one pass over the audit trail, with sets for the
+//! event and reservation IDs.
 //!
-//! Python's ints have any size; a `V::Big` is read as an `i128`, and one past that is `Unsupported`
-//! (no ledger holds such a count).
+//! A JSON int may have any size; a `V::Big` is read as an `i128`, and one past that is
+//! `Unsupported` (no ledger holds such a count).
 
 use std::sync::Arc;
 
@@ -60,7 +59,7 @@ const RESERVED: usize = 5;
 
 type Map = IndexMap<Arc<str>, V>;
 
-/// The check, as `validate` (`validate/mod.rs`) calls it in Python's order.
+/// The check, as `validate` (`validate/mod.rs`) calls it in its order.
 pub fn validate(view: &View<'_>) -> Result<()> {
     let archived = archived_agent_ids(view)?;
     let ledger = view.state(LEDGER)?;
@@ -109,8 +108,8 @@ fn has_fields(map: &Map, fields: &[&str]) -> bool {
     map.len() == fields.len() && fields.iter().all(|field| map.contains_key(*field))
 }
 
-/// The `TypeError` of hashing a list or a dict. Python holds a namespace no typed row takes as its
-/// tracked tree (`core/state_mirror.py`), whose classes the text names.
+/// The `TypeError` of hashing a list or a dict of the namespace, named as a tracked tree
+/// (`TrackedList`, `TrackedDict`) as the recorded texts have it.
 fn unhashable(value: &V) -> Result<()> {
     match value {
         V::List(_) => Err(Error::Type("unhashable type: 'TrackedList'".to_owned())),
@@ -606,8 +605,8 @@ fn replay_event<'a>(
 
 // ---- validate_resource_ledger_state --------------------------------------------------------------
 
-/// `records_since_previous_tick(history, minute_index)` of `core/history.py`: the records of the
-/// last tick and the one before them.
+/// `records_since_previous_tick(history, minute_index)`: the records of the last tick and the one
+/// before them.
 fn records_since_previous_tick(history: &[V], minute_index: i64) -> &[V] {
     let mut start = history.len();
     while start > 0 {

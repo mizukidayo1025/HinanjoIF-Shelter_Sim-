@@ -1,14 +1,11 @@
-//! The `WorldView` of the phases (`policies/world_view.py`), built from the rows of the core's
-//! `World`: a detached snapshot in plain Rust values (`ViewData`), which the rules read directly
-//! (lane P8 a1 of Issue #152). Its Python rules, `WorldView.from_world` and
-//! `WorldView.after_state_update`, went with lane L10.
+//! The `WorldView` of the phases, built from the rows of the core's `World`: a detached snapshot in
+//! plain Rust values (`ViewData`), which the rules read directly (lane P8 a1 of Issue #152).
 //!
-//! `build` is `from_world` without its hash, `refresh` is `after_state_update` (the prior view with
-//! what the update phase writes read again), and `state_hash` is the audit hash `_view_state_hash`
-//! wrote, over the same canonical JSON. The PyO3 crate's `rules/world_view.rs` gathers the inputs
-//! only Python has (the model selection, the configs while `model_configs` is a dict the world's
-//! slot does not hold, `simulator_extensions.enabled`), calls these with the world borrowed, and
-//! makes the Python `WorldView` from what they return.
+//! `build` makes a view without its hash, `refresh` is the prior view with what the update phase
+//! writes read again, and `state_hash` is the view's audit hash, over canonical JSON. The tick
+//! gathers the inputs from the host first (the model selection, the configs while `model_configs`
+//! is a dict the world's slot does not hold, `simulator_extensions.enabled`: `rules::tick::update`)
+//! and calls these with the world borrowed.
 //!
 //! Every namespace is read from its row: `information_spread_v1`, `body_state_v1`,
 //! `psychological_distress_v1` and `staff_operations_v1` as their typed rows, and
@@ -16,7 +13,7 @@
 //! `population_presence_v1` and `zone_environment_v1` as `V`. A tainted namespace (a value its row
 //! cannot hold) is refused where it is read. Anything this module is not sure of says `Unsupported`
 //! before anything has changed, and the phase's step raises KernelRefusal. A value of another type
-//! than the Python view would hold is refused too: a typed field here could not keep it, and `1` and
+//! than the view's fields hold is refused too: a typed field here could not keep it, and `1` and
 //! `1.0` would hash differently.
 //!
 //! A person's context is parsed by `person_context.rs`, and a zone's conditions come from
@@ -168,15 +165,15 @@ pub struct ViewFacility {
     pub facility_event_context_ids: Vec<Arc<str>>,
 }
 
-/// All of a `WorldView`. Nothing here refers to Python, so a rule can read it on any thread.
+/// All of a `WorldView`. Nothing here refers to the world, so a rule can read it on any thread.
 #[derive(Clone)]
 pub struct ViewData {
     pub minute_index: i64,
     pub resource_service_enabled: bool,
     pub autonomy_enabled: bool,
     pub has_population_context: bool,
-    /// Read from a Python view: only what the update kernels read is filled, and a zone is one
-    /// person's (the PyO3 crate's `from_python_view`). The behavior kernel reads more, and refuses it.
+    /// Only what the update kernels read is filled, and a zone is one person's: never so for a view
+    /// `build` or `refresh` makes (a test sets it). The behavior kernel reads more, and refuses it.
     pub partial: bool,
     /// In ID order.
     pub zones: Vec<Arc<ViewZone>>,
@@ -250,7 +247,7 @@ fn held(world: &World, name: &str) -> Result<Held> {
 }
 
 /// The typed row of a namespace, None without the key. A tainted namespace is refused, with why
-/// its row could not hold it: the rules of the view read no Python tree.
+/// its row could not hold it: the rules of the view read no tree.
 #[track_caller]
 fn row_of<'w, T: crate::row::Row>(world: &'w World, name: &str) -> Result<Option<ShardRef<'w, T>>> {
     match held(world, name)? {
@@ -266,7 +263,7 @@ fn state<'w>(world: &'w World, name: &str) -> Result<Option<ShardRef<'w, V>>> {
     world.slots.try_value(name)
 }
 
-/// `model_configs`, a map: the row of its slot, or the dict Python holds past it.
+/// `model_configs`, a map: the row of its slot, or the dict the host holds past it.
 pub struct ModelConfigs<'w> {
     held: ConfigsHeld<'w>,
     /// The stamp of the slot whose row these are; None for configs given past the slot.
@@ -279,8 +276,8 @@ enum ConfigsHeld<'w> {
 }
 
 impl<'w> ModelConfigs<'w> {
-    /// The configs of the world: `given` when the PyO3 crate read them from a dict the slot does not
-    /// hold (`world.model_configs` assigned whole), else the slot's row.
+    /// The configs of the world: `given` when the host read them from a dict the slot does not hold
+    /// (`world.model_configs` assigned whole, `Host::configs_given`), else the slot's row.
     pub fn of(world: &'w World, given: Option<&'w V>) -> Result<Self> {
         let (held, stamp) = match given {
             Some(given) => (ConfigsHeld::Given(given), None),
@@ -321,7 +318,7 @@ impl Deref for ModelConfigs<'_> {
     }
 }
 
-/// `record[name]`; a missing one raises in Python.
+/// `record[name]`; a missing one (a `KeyError` in Python) is refused.
 #[track_caller]
 fn field<'a>(record: &'a IndexMap<Arc<str>, V>, name: &str) -> Result<&'a V> {
     match record.get(name) {
@@ -330,7 +327,7 @@ fn field<'a>(record: &'a IndexMap<Arc<str>, V>, name: &str) -> Result<&'a V> {
     }
 }
 
-/// The dict a `get(key, {})` gave, where a non-dict raises in Python.
+/// The dict a `get(key, {})` gave; a non-dict (on which Python's next read raises) is refused.
 #[track_caller]
 fn required_dict(value: &V) -> Result<&IndexMap<Arc<str>, V>> {
     match value {
@@ -394,7 +391,7 @@ pub enum Household {
     /// No record, a record that is not a dict, or one without `household_id`: the profile's group.
     Profile,
     Is(Option<Arc<str>>),
-    /// A `household_id` that is not a str or None, which the Python rule refuses when it reads it.
+    /// A `household_id` that is not a str or None, which a rule refuses when it reads it.
     Other,
 }
 
@@ -848,7 +845,7 @@ fn read_facility_contexts(world: &World, facilities: &mut [ViewFacility]) -> Res
     let operational = state(world, OPERATIONAL_EVENTS)?;
     let water_outages = match operational.as_deref() {
         None => Vec::new(),
-        // `get(name, {})` of a stored None raises in Python.
+        // `get(name, {})` of a stored None raises in Python: refused.
         Some(V::Null) => return unsupported("the operational state is None"),
         Some(state) => records_of(required_dict(state)?.get("water_outages"))?,
     };
@@ -891,14 +888,14 @@ fn read_facility_contexts(world: &World, facilities: &mut [ViewFacility]) -> Res
     Ok(())
 }
 
-/// `_misinformation_applies`: whether the selected psychology reads beliefs in false claims. These
-/// are `LIFE_STATE_PSYCHOLOGY_POLICIES` of `domain/psychological_state.py`. `selection` is
-/// `selected_models(model_configs)` as the PyO3 crate read it (a fault for what it raised).
+/// `_misinformation_applies`: whether the selected psychology reads beliefs in false claims, as the
+/// life-state policies do. `selection` is `selected_models(model_configs)` as the tick read it (a
+/// fault for what it raised).
 pub fn misinformation_applies(selection: &std::result::Result<Arc<Selection>, Fault>) -> Result<bool> {
     let selection = match selection {
         Ok(selection) => selection,
         Err(fault) if fault.is_refusal() => return unsupported("a model ID is not a str"),
-        // A failure of the Python code is Python's to raise: `from_world` ran it again.
+        // Any other fault of the selection is refused.
         Err(_) => return unsupported("the Python rule raises"),
     };
     let Some(selected) = selection.get("psychology") else {
@@ -907,7 +904,7 @@ pub fn misinformation_applies(selection: &std::result::Result<Arc<Selection>, Fa
     Ok(matches!(&**selected, "life-state-feedback-v1" | "mean-reverting-life-state-v1"))
 }
 
-/// What only Python knows, gathered by the PyO3 crate before the world is borrowed.
+/// What the tick gathers from the host before the world is borrowed (`rules::tick::update`).
 pub struct Inputs<'a> {
     /// `selected_models(model_configs)`, or its fault.
     pub selection: &'a std::result::Result<Arc<Selection>, Fault>,
@@ -916,7 +913,7 @@ pub struct Inputs<'a> {
     pub configs: Option<&'a V>,
 }
 
-/// A view without `simulator_extensions.enabled`, which Python reads after the rest, as
+/// A view without `simulator_extensions.enabled`, which is read after the rest, as
 /// `from_world` read it last.
 pub struct Draft {
     data: ViewData,
@@ -972,8 +969,8 @@ pub fn build(world: &World, inputs: &Inputs<'_>, cache: &mut ViewCache) -> Resul
     })
 }
 
-/// The prior view with what the update phase writes read again (the Python `after_state_update`
-/// of before lane L10), without its hash.
+/// The prior view with what the update phase writes read again (`after_state_update`), without
+/// its hash.
 pub fn refresh(prior: &ViewData, world: &World) -> Result<ViewData> {
     let mut agents = prior.agents.clone();
     {
@@ -1215,7 +1212,7 @@ fn agent_parts(data: &ViewData, life: bool, information: bool, resource: bool) -
 
 /// The canonical JSON of the document `_view_state_hash` builds, handed to `sink` in pieces whose
 /// bytes, one after the other, are the document. Keys are written sorted. A float the canonical
-/// form does not hold says Unsupported, as the Python rule raised its own text on it.
+/// form does not hold says Unsupported.
 fn write_document(data: &ViewData, world: &World, configs: Option<&V>, mut sink: impl FnMut(&[u8])) -> Result<()> {
     let configs = ModelConfigs::of(world, configs)?;
     let resource = data.resource_service_enabled;

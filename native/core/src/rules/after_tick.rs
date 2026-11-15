@@ -1,36 +1,36 @@
-//! The check at the end of a tick (`WorldState.validate_after_tick`) in one call, with its memo.
+//! The check at the end of a tick in one call, with its memo (`engine::validate_after_tick` runs
+//! it).
 //!
-//! It holds no error text. It returns only if every rule of `validate(validate_event_history=False)`
-//! passes, and anything else is a refusal: `validate_after_tick` then runs that Python check, with no
-//! memo, which passes or raises its own text (policy E6 of docs/rust-port/step5-plan.md). So what a
-//! yes means is the one thing that must hold (`tests/integration/test_after_tick_kernel.py`). Since
-//! every rule passes, their order can't show.
+//! It holds no error text. It returns only if every rule of the whole validation without the event
+//! history (`validate::world`) passes, and anything else is a refusal:
+//! `engine::validate_after_tick` then runs that validation, with no memo, which passes or says its
+//! own text. So what a yes means is the one thing that must hold. Since every rule passes, their
+//! order can't show.
 //!
 //! The rules read the rows (Issue #152, lane P8 d4): the entity rows (`rules/tick_validation.rs`),
 //! the rows of the namespaces and fields, and the queue's event rows. The validators of the
 //! namespaces, the effect program's check and the reading of the saved body config are asked
-//! through `Checks`, with the world given back (rule R6 of design-p8.md): the check borrows the
-//! world twice, before and after them. The native path answers them with what Python registers
-//! (the PyO3 crate's `PyChecks`), a world without Python with the core's own
-//! (`rules::tick_checks::CoreChecks`, #250); both run the same rules of the core.
+//! through `Checks`, with the world given back: the check borrows the world twice, before and after
+//! them. The engine answers them with the core's rules (`rules::tick_checks::CoreChecks`, #250); a
+//! test of the check alone answers every one yes (`engine::NoPython`).
 //!
 //! The memo (`Memo`) is the facts of the last check this kernel passed, and lets it skip what is
 //! provably unchanged since: see "What the memo skips" below. A check that refuses leaves the memo
 //! as it was, but for the stamp of the configs and the people the body config names, which hold
 //! whatever the state is.
 //!
-//! The configs are read by the contracts in Python (`core/tick_validation.py`): the plan
-//! (`TickPlan`) is the section `tick_plan` of the configs, kept by the stamp of `model_configs`
-//! (`Configs.tick_plan`, lane 7-1), which the PyO3 crate fills at the first check after a write to
-//! the configs. The people the saved body config names (`body_config_ids`) are asked of Python when
-//! that config's JSON changed, and kept here with the JSON while the configs' stamp stands.
+//! The plan (`TickPlan`) is the section `tick_plan` of the configs, kept by the stamp of
+//! `model_configs` (`Configs.tick_plan`, lane 7-1) and read again at the first check after a write
+//! to the configs. The people the saved body config names (`body_config_ids`) are asked through
+//! `Checks` when that config's JSON changed, and kept here with the JSON while the configs' stamp
+//! stands.
 //!
 //! What the memo skips (each rests on one argument; a full validation at each save reads them all):
 //! - The configs are parsed only when the stamp of `model_configs` changes, which every write to it
 //!   gives (`Slot::touch`).
 //! - A settled support request (resolved or unresolved) depends only on its own fields, on the set
 //!   of Agent IDs, and on the clock only through "not after the current minute". It is checked again
-//!   when its row is written or filled (`Table::marked`, from Rust or from Python) or when the Agent
+//!   when its row is written or filled (`Table::marked`) or when the Agent
 //!   IDs change. The scans of unsettled requests during a tick use the same marks
 //!   (`unsettled_requests`).
 //! - The population presence, lifecycle and dynamics states and the geometry overlay are skipped when
@@ -74,7 +74,7 @@ pub const PSYCHOLOGY: &str = "psychological_distress_v1";
 const ENVIRONMENT_EVENTS: &str = "effect_program_environment";
 
 /// The namespaces the check reads or asks about besides the declared and required ones, for the
-/// PyO3 crate to say whether the Python world holds each (`Inputs::held`).
+/// engine to say whether the world holds each (`Inputs::held`).
 pub const READ: [&str; 16] = [
     PRESENCE,
     LIFECYCLE,
@@ -102,24 +102,24 @@ fn refuse<T>(reason: &'static str) -> Result<T> {
     Err(Error::unsupported(reason))
 }
 
-/// What the Python check would call besides the rules here: asked with the world given back. An
-/// error refuses the check. Each yes must hold only where the Python validator passes.
+/// What the check asks besides the rules here: asked with the world given back. An error refuses
+/// the check. Each yes must hold only where the whole validation passes.
 pub trait Checks {
-    /// The validator registered for a namespace (`state_mirror._RUST_VALIDATORS`): whether it takes
-    /// the world, its rows being what the world holds; None where none is registered.
+    /// The validator of a namespace (`CoreChecks::validator`): whether it takes the world, its rows
+    /// being what the world holds; None where the namespace has none.
     fn namespace(&mut self, name: &str) -> Result<Option<bool>>;
-    /// `body_state._ROWS_VALID`: the rows of the body state are the world's and valid.
+    /// Whether the rows of the body state are the world's and valid.
     fn body_rows(&mut self) -> Result<bool>;
-    /// `common_operations._TICK_VALID`: the shared operations of the tick.
+    /// Whether the shared operations of the tick pass.
     fn shared_operations(&mut self) -> Result<bool>;
-    /// The effect program's check, `effects.validate_state(world, validate_event_history=False)`.
+    /// The effect program's check without the event history (`effects::check_state`).
     fn effects(&mut self) -> Result<()>;
-    /// `tick_validation.body_config_ids(world)`: the people the saved body config names.
+    /// The people the saved body config names (`validate::body_state::body_config_ids`).
     fn body_config_ids(&mut self) -> Result<Vec<Arc<str>>>;
 }
 
-/// Whether the Python world holds each namespace the check reads, as the PyO3 crate read it before
-/// the check: the names of `READ` and the plan's declared and required ones.
+/// Whether the world holds each namespace the check reads, as the engine reads it before the check:
+/// the names of `READ` and the plan's declared and required ones.
 #[derive(Default)]
 pub struct HeldNamespaces(FxHashMap<Arc<str>, Held>);
 
@@ -236,8 +236,8 @@ impl Memo {
     }
 }
 
-/// What the first part of a check found: what it asks of Python, and what the memo keeps if the
-/// rest passes.
+/// What the first part of a check found: what it asks through `Checks`, and what the memo keeps if
+/// the rest passes.
 struct Found {
     validators: Vec<(Arc<str>, Asked)>,
     body_rows: bool,

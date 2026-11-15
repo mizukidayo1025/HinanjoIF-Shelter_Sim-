@@ -1,9 +1,8 @@
-//! `validate_body_state(world, validate_event_history=...)` of `domain/body_state.py`, its history
-//! included, and the `canonical_body_config` it calls, with Python's errors and texts (lane D of
-//! #250, #349). Raw errors.
+//! The check of `body_state_v1`, its history included, and the `canonical_body_config` it calls,
+//! with their errors and texts (lane D of #250, #349). Raw errors.
 //!
-//! Python skips the rules of the records and relationships where the row's kernel accepted them
-//! (`_ROWS_VALID`); that kernel accepts only what the rules accept, so they run here every time.
+//! The rules of the records and relationships run here every time, even where the row's own
+//! check (`state::body_state`) accepts them, which it does only where the rules do.
 
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -272,8 +271,8 @@ fn validate_body_config(view: &View<'_>, state: &Map) -> Result<HashSet<Key>> {
     Ok(configured)
 }
 
-/// `body_config_ids(world)` of `core/tick_validation.py`: `sorted(validate_body_config(world,
-/// {"config": config}))` of the saved config, the people its per-person parameters name, or what
+/// `body_config_ids(world)`: `sorted(validate_body_config(world, {"config": config}))` of the
+/// saved config, the people its per-person parameters name, or what
 /// `validate_body_config` raises. For the end-of-tick check (`rules::tick_checks`), which then
 /// reads whether each is here or in the population state's history. A name that is not a str
 /// (Python's `sorted` would compare it with the str ones) is a refusal.
@@ -378,7 +377,7 @@ pub fn since_previous_tick(history: &[V], minute_index: i64) -> &[V] {
     &history[start.saturating_sub(1)..]
 }
 
-/// The check, as `validate` (`validate/mod.rs`) calls it in Python's order.
+/// The check, as `validate` (`validate/mod.rs`) calls it in its order.
 pub fn validate(view: &View<'_>) -> Result<()> {
     let Some(state) = view.state(NAME)? else {
         return Ok(());

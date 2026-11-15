@@ -1,5 +1,6 @@
-//! What the Run read of the controller, from the document the PyO3 crate wrote of it
-//! (`RunCore.policies_document`) and the controller's route capacities and zone neighbors.
+//! What the Run read of the controller, from the entry's document of its policies
+//! (`initial::policies` writes the one of minute 0) and the controller's route capacities and zone
+//! neighbors.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -101,7 +102,7 @@ fn dispatch(json: &Value) -> Result<Dispatch> {
     Ok(Dispatch { known, handlers })
 }
 
-/// The Run's policies as the PyO3 crate read them (`RunCore.policies_document`).
+/// The Run's policies, from the entry's document of them.
 pub fn policies(json: &Value) -> Result<Policies> {
     let mut policies = Policies::of(Arc::new(obj(&json["controller"])?));
     policies.dispatch = dispatch(&json["dispatch"])?;

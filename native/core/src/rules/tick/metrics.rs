@@ -1,6 +1,6 @@
-//! The metrics phase (`MetricsPhase` of `experiments/phases/metrics.py` gives its steps): the minute's
-//! metrics, to the sink the host says (`Host::metric_sink`), and the open actions closed at the
-//! Run's last minute (`finalize_active_actions`, with the Run's actions).
+//! The metrics phase: the minute's metrics, to the sink the host says (`Host::metric_sink`), and
+//! the open actions closed at the Run's last minute (`finalize_active_actions`, with the Run's
+//! actions).
 
 use crate::config::movement::Movement;
 use crate::config::SectionId;

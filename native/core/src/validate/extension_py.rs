@@ -1,7 +1,7 @@
-//! What the extensions' Python rules do with a value of any type, for their ports (lane D of #250,
-//! #349): `isinstance` and `type(...) is` of the JSON types, `==`, `in` of a dict (which hashes the
-//! value: a list or a dict is a `TypeError`), `set(...)` of a list, `iter` of what `update` reads,
-//! and `json.loads` of a relationship key.
+//! Python's semantics of a value of any type, as the extensions' validators read one (lane D of
+//! #250, #349): `isinstance` and `type(...) is` of the JSON types, `==`, `in` of a dict (which
+//! hashes the value: a list or a dict is a `TypeError`), `set(...)` of a list, `iter` of what
+//! `update` reads, and `json.loads` of a relationship key.
 //!
 //! A value is what `json.loads` gives (`V`): an int is `Int` (or `Big` past 64 bits), and a bool is
 //! not an int to `type(x) is int`, but is one to `isinstance(x, int)`.
@@ -27,9 +27,9 @@ pub fn type_name(value: &V) -> &'static str {
     }
 }
 
-/// How Python holds a namespace's lists and dicts, which names their type in a `TypeError`: as
-/// plain ones (a namespace a row holds, read as a new document: `body_state_v1`), or as the
-/// mirror's `TrackedList` and `TrackedDict` (a namespace Python holds itself).
+/// How a `TypeError` names the type of a namespace's lists and dicts: as plain ones (a namespace a
+/// row holds, read as a new document: `body_state_v1`), or as `TrackedList` and `TrackedDict` (a
+/// namespace read as the world's tree).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Held {
     Plain,

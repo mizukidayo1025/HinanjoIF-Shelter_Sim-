@@ -1,12 +1,12 @@
-//! `validate_geometry_overlay_state(world)` of `domain/geometry_overlay.py`, with Python's errors
-//! and texts (lane E of #250, #350). Raw errors: `validate_simulator_extensions` passes them on.
+//! The check of `geometry_overlay_v1`, with its errors and texts (lane E of #250, #350). Raw
+//! errors: `validate_simulator_extensions` passes them on.
 //!
 //! Also the floor plans the validators of this lane read: `parsed_facility_geometry` (the
 //! Scenario's `FacilityGeometry`, `contracts::validate`) and `effective_geometry` (with the
-//! overlay's moved facilities), with the errors Python meets making them, and
+//! overlay's moved facilities), with the errors met making them, and
 //! `effective_spatial_constraints`' equipment footprints.
 //!
-//! `_GeometryOverlayState` is a pydantic model; only whether it validates matters (Python wraps
+//! `_GeometryOverlayState` is a pydantic model; only whether it validates matters (the check wraps
 //! its error), so its models here are the core's pydantic (`contracts::pydantic`).
 
 use std::cmp::Ordering;
@@ -163,7 +163,7 @@ fn overlay_part(view: &View<'_>, part: &str) -> Result<Option<V>> {
 }
 
 /// `effective_geometry(world)`: None without `facility_geometry`; else the Scenario's plan with
-/// the overlay's moved facilities and their service points, or the error Python meets making it.
+/// the overlay's moved facilities and their service points, or the error met making it.
 pub fn effective_geometry(view: &View<'_>) -> Result<Option<Plan>> {
     let raw = match view.config("facility_geometry")? {
         None | Some(V::Null) => return Ok(None),
@@ -208,7 +208,7 @@ pub fn effective_geometry(view: &View<'_>) -> Result<Option<Plan>> {
 }
 
 /// The equipment footprints of `effective_spatial_constraints(world)`: each facility and its
-/// polygon, a moved facility's moved with it; or the error Python meets making them.
+/// polygon, a moved facility's moved with it; or the error met making them.
 fn effective_footprints(view: &View<'_>) -> Result<Vec<(Arc<str>, Vec<Pt>)>> {
     let raw = view.config("spatial_constraints")?.unwrap_or(V::Map(IndexMap::new()));
     let constraints = contract(&Contract::SpatialConstraints, &raw)?;
@@ -577,7 +577,7 @@ fn partition_polygon(zone: &[Pt], polygon: &[Pt]) -> Result<()> {
     Ok(())
 }
 
-/// The check, as `validate` (`validate/mod.rs`) calls it in Python's order.
+/// The check, as `validate` (`validate/mod.rs`) calls it in its order.
 pub fn validate(view: &View<'_>) -> Result<()> {
     let Some(state) = view.state(KEY)? else {
         return Ok(());
@@ -650,7 +650,7 @@ struct Overlay<'a> {
 }
 
 impl<'a> Overlay<'a> {
-    /// A zone's polygon; an unknown zone raises Python's `KeyError`.
+    /// A zone's polygon; an unknown zone raises a `KeyError`.
     fn zone_of(&self, zone_id: &str) -> Result<&'a [Pt]> {
         self.zones.get(zone_id).copied().ok_or_else(|| Error::Key(zone_id.to_owned()))
     }

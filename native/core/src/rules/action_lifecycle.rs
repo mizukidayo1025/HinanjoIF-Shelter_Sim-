@@ -1,6 +1,4 @@
-//! `domain/action_lifecycle.py`: lifecycle receipts of autonomous actions (docs/rust-port/lanes/
-//! f-action-lifecycle.md). Its rules are these kernels alone (`kernel_only`). Moved to the core in
-//! lane P8 a2.
+//! Lifecycle receipts of autonomous actions (docs/rust-port/lanes/f-action-lifecycle.md).
 //!
 //! `ActiveActions` holds the open action of each agent as rows. The controller keeps it, and it is
 //! not saved: a restored Run makes it again from the event log (`active_action_index`).
@@ -497,7 +495,8 @@ pub struct Ending<'a> {
     pub ids: EndingIds<'a>,
 }
 
-/// The payload's values of `ENDING_KEYS` that are str (`payload.get(key)`), None for another value.
+/// The payload's values of the keys the rule reads that are str (`payload.get(key)`), None for
+/// another value.
 #[derive(Clone, Copy, Default)]
 pub struct EndingIds<'a> {
     pub agent_id: Option<&'a Arc<str>>,
@@ -507,9 +506,6 @@ pub struct EndingIds<'a> {
     pub staff_id: Option<&'a Arc<str>>,
     pub request_id: Option<&'a Arc<str>>,
 }
-
-/// The payload's keys the rule reads.
-pub const ENDING_KEYS: [&str; 6] = ["agent_id", "sender_agent_id", "facility_id", "participant_agent_id", "staff_id", "request_id"];
 
 impl<'a> Ending<'a> {
     pub fn of(row: &'a EventRow) -> Self {

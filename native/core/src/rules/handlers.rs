@@ -1,30 +1,27 @@
-//! The rest of `events/handlers.py`, on the rows of a `World` (moved to the core in P8 d2):
-//! proximity contacts, the resource ledger's events, facility outages and recoveries, the
-//! operational events (deliveries, water, staff), the checks of an EffectProgram's population
-//! primitive, and the infrastructure events. The PyO3 crate's file of the same name reads what Python
-//! holds (whether `model_state` holds each namespace, the floor plan, the sections of the configs it
-//! keeps by stamp, the manager of the resource service), makes the event's row, and calls these.
+//! The other event handlers, on the rows of a `World`: proximity contacts, the resource ledger's
+//! events, facility outages and recoveries, the operational events (deliveries, water, staff), the
+//! checks of an EffectProgram's population primitive, and the infrastructure events. The `*_event`
+//! entries at the end read what the host holds (whether `model_state` holds each namespace, the
+//! floor plan, the sections of the configs it keeps by stamp, the manager of the resource service)
+//! and call the rest.
 //!
-//! The checks and their texts are the Python rules', in their order. A suppressed or failed event is
-//! the rule's `Error::suppressed` or `Error::failed`, with the world as it was: a handler that writes
-//! before it may fail runs in the transaction that stands for the Python rule's copy of the world
-//! (the core's `txn::rule` since lane P9-1b: the `*_event` entries at the end read their inputs
-//! through the host and open it; the population primitives' bodies are still the PyO3 crate's), and
-//! its error rolls the transaction back.
+//! Each handler's checks and their texts come in a fixed order. A suppressed or failed event is the
+//! rule's `Error::suppressed` or `Error::failed`, with the world as it was: a handler that writes
+//! before it may fail runs in a transaction (the core's `txn::rule`), and its error rolls the
+//! transaction back.
 //!
 //! The end of an operational transaction (`settle`) is the core's: the event leaves the queue, its
 //! APPLIED record and the follow-up records go to the log, a continuity receipt goes into
 //! `shared_operations_v1`, and the whole world is validated through the host (`Host::validate_world`,
-//! or `Host::validate_in_flight` while the event is still pending; policy E6). The records a receipt's
-//! rule reads are looked up through the host (`Host::find_record`): the core's EventLog does not keep
-//! the bytes of records Python has taken. The infrastructure's spec is the contract's dump
-//! (`Host::contract`, policy E15), and the delivery delays inside a supply route's interruption
+//! or `Host::validate_in_flight` while the event is still pending). The records a receipt's rule
+//! reads are looked up through the host (`Host::find_record`). The infrastructure's spec is the
+//! contract's dump (`Host::contract`), and the delivery delays inside a supply route's interruption
 //! validate the world as a transaction's start does (`Host::validate_candidate`): they run inside the
 //! outer rule's transaction.
 //!
-//! The queue's slots a rule takes out are added to `taken`, as it goes, for the PyO3 crate to let
-//! their objects go (`QueueStore::forget`); so is the slot of a pending event a rule replaced, whose
-//! object the PyO3 crate makes again from its new row.
+//! The queue's slots a rule takes out are added to `taken`, as it goes, for the host to let its
+//! views of their events go (`Host::slots_changed`); so is the slot of a pending event a rule
+//! replaced, whose view the host makes again from its new row.
 
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
@@ -66,24 +63,24 @@ const OPERATIONAL_SOURCE: &str = "ASM-H03-OPERATIONAL-EVENTS-V1";
 const OPERATIONAL_POLICY: &str = "operational-events-v1";
 const INFRASTRUCTURE_POLICY: &str = "infrastructure-events-v1";
 const SUPPORT_SOURCE: &str = "ASM-STAFF-SUPPORT-LIFECYCLE-V1";
-/// `STAFF_SUPPORT_POLICY_VERSION` of `domain/staff.py`.
+/// `STAFF_SUPPORT_POLICY_VERSION` of `scenario_authoring/configs/staff.py`.
 pub const STAFF_SUPPORT_POLICY: &str = "staff-support-fifo-aging-v2";
 const SHARED_CONFIG: &str = "shared_operations";
-/// The text of `held` of `domain/common_operations.py` for a world without the namespace.
+/// The text of a world without the shared operations' namespace.
 const NOT_SELECTED: &str = "shared_operations_v1 must be selected in the immutable Scenario";
 
-/// The refusal of a rule that reads the resource service's manager, which the PyO3 crate could not
-/// make (`ResourceServiceManager(world)` raised): the glue raises what that raised, where the rule
+/// The refusal of a rule that reads the resource service's manager, which could not be made
+/// (`ServiceRead::of` failed): `staff_unavailable_event` raises what that raised, where the rule
 /// made it.
 pub const SERVICE_UNREAD: &str = "the resource service's manager could not be made";
-/// The refusal of a rule that reads `support_cooldown_minutes`, whose read raised: the glue raises
-/// what it raised.
+/// The refusal of a rule that reads `support_cooldown_minutes`, whose read raised: the dispatcher
+/// reads the section again (`Host::read_again`) and raises what that raised.
 pub const COOLDOWN_UNREAD: &str = "the support cooldown could not be read";
 
 // ---- What ran and what was refused ------------------------------------------------------------------
 
-/// What the handlers ran and refused, by label: the PyO3 crate's `stats`, and its `counted` of each
-/// entry. The core counts the labels it reaches inside a rule (`interrupt_for_staff`).
+/// What the handlers ran and refused, by label. The core counts the labels it reaches inside a rule
+/// (`interrupt_for_staff`).
 pub static COUNTS: Counts = Counts::new();
 
 // ---- Reading values ---------------------------------------------------------------------------------
@@ -270,8 +267,7 @@ fn exact_key(value: &V) -> Result<Arc<str>> {
     kit::exact_str(value).cloned()
 }
 
-/// The pending events in queue order, as their rows (the PyO3 crate reads the rows of the events
-/// Python scheduled first).
+/// The pending events in queue order, as their rows (`Host::read_queue_rows` reads them first).
 fn pending_rows(world: &World) -> Result<Vec<Arc<EventRow>>> {
     let queue = world.queue()?;
     queue.ordered().iter().map(|(_, serial)| queue.slot(*serial).row.clone().ok_or_else(|| Error::unsupported("a pending event has no row"))).collect()
@@ -309,9 +305,8 @@ fn identity_free(world: &World, event_id: &str, sequence: i64) -> Result<()> {
     Ok(())
 }
 
-/// `derived_effect_marker` (events/effects.py): a copy in the same order, phase `derived` and no
-/// guard. The guard decides whether the start applies; what the start schedules isn't guarded again
-/// (#89).
+/// The derived effect marker: a copy in the same order, phase `derived` and no guard. The guard
+/// decides whether the start applies; what the start schedules isn't guarded again (#89).
 fn derived_of(marker: &IndexMap<Arc<str>, V>) -> V {
     let mut derived = marker.clone();
     derived.shift_remove("guard");
@@ -373,7 +368,7 @@ pub fn proximity(world: &World, config: Option<&Proximity>, movement: &Held, eve
         return Err(Error::failed("proximity contact payload fields do not match"));
     }
     let zone_value = item(payload, "zone_id")?;
-    // `or` in the Python rule's order: each test is reached only if those before it passed.
+    // `or` in a fixed order: each test is reached only if those before it passed.
     let valid = (|| -> Result<Option<(Arc<str>, Arc<str>, f64)>> {
         let (Some(first_id), Some(second_id)) = (nonempty_str(item(payload, "first_agent_id")?), nonempty_str(item(payload, "second_agent_id")?)) else {
             return Ok(None);
@@ -489,7 +484,7 @@ fn ledger_payload(world: &World, inputs: &LedgerIn<'_>, event: &EventRow, operat
         if !matches {
             return Err(Error::failed("shipment delivery does not match operational state"));
         }
-        // In the order of the payload, as the Python rule's comprehension.
+        // In the order of the payload.
         let mut without = entries.clone();
         without.shift_remove("shipment_id");
         ledger_payload = V::Map(without);
@@ -520,8 +515,9 @@ fn ledger_payload(world: &World, inputs: &LedgerIn<'_>, event: &EventRow, operat
 }
 
 /// `ResourceLedgerHandler.apply`, with `apply_resource_operation`'s own kernel: the world's new
-/// balance of the resource, which the PyO3 crate puts in a new `resources` dict. The ledger's error
-/// is `Fail::Ledger`, which the handler raises as `EventApplicationError(str(exc))`.
+/// balance of the resource, which the dispatcher writes to the world's resources
+/// (`resources_taken`). The ledger's error is `Fail::Ledger`, which the handler raises as
+/// `EventApplicationError(str(exc))`.
 pub fn resource_ledger(world: &mut World, inputs: &LedgerIn<'_>, event: &EventRow, operation: &str) -> std::result::Result<Applied, Fail> {
     let payload = ledger_payload(world, inputs, event, operation)?;
     match inputs.ledger {
@@ -556,7 +552,7 @@ fn active_outage(world: &World, held: &Held, facility_id: &str) -> Result<bool> 
 
 /// `FacilityOutageHandler.apply` and `FacilityRecoveryHandler.apply`: `units` of a sign, and the
 /// facility's recovery receipt where the world has the shared contract. The checks and their texts
-/// are the Python rule's, in its order.
+/// come in a fixed order.
 pub fn facility_units(world: &World, inputs: &FacilityIn<'_>, event: &EventRow, restores: bool) -> Result<Option<Made>> {
     let (what, field) = if restores { ("facility recovery", "units_restored") } else { ("facility outage", "units_out") };
     let payload = &event.payload;
@@ -606,7 +602,7 @@ pub fn facility_units(world: &World, inputs: &FacilityIn<'_>, event: &EventRow, 
         }
     };
 
-    // Write. As with an outage's Python rule, those being served finish.
+    // Write. As with an outage, those being served finish.
     if let Some(facility) = world.rows_mut()?.facilities.get_mut(&id) {
         facility.working_units = next;
     }
@@ -838,20 +834,20 @@ pub fn water_restoration(world: &World, operational: &Held, event: &EventRow) ->
 
 // ---- Staff unavailable and restored -----------------------------------------------------------------
 
-/// Why the PyO3 crate could not make the resource service's manager: its own refusal, said again
-/// where the rule makes it, or another error, which the glue raises in place of `SERVICE_UNREAD`.
+/// Why the resource service's manager could not be made: its own refusal, said again where the rule
+/// makes it, or another error, which `staff_unavailable_event` raises in place of `SERVICE_UNREAD`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Unread {
     Refused(Cow<'static, str>),
     Raised,
 }
 
-/// What `StaffUnavailabilityHandler` reads of the Python world.
+/// What `StaffUnavailabilityHandler` reads besides the world's rows.
 pub struct StaffIn<'a> {
     pub operational: &'a Held,
     /// What the staff operations read (`staff_operations_v1`, `movement_v1`, the floor plan).
     pub ops: &'a staff_ops::Inputs<'a>,
-    /// `ResourceServiceManager(world)`, as the PyO3 crate made it.
+    /// The resource service's manager (`ServiceRead::manager`).
     pub service: std::result::Result<&'a Manager<'a>, Unread>,
     /// `model_configs.get("staff", {}).get("support_cooldown_minutes", 30)`, None where its read
     /// raised.
@@ -893,8 +889,8 @@ fn pending_reserves(world: &World) -> Result<Vec<Pending>> {
     Ok(found)
 }
 
-/// `ResourceServiceManager(world).interrupt_for_staff(staff_id, causation_event=event)`, counted as
-/// the PyO3 crate's entry counts it.
+/// `ResourceServiceManager(world).interrupt_for_staff(staff_id, causation_event=event)`, counted
+/// under its label.
 fn interrupt_service(world: &mut World, inputs: &StaffIn<'_>, staff_id: &str, event: &EventRow) -> service::Outcome<Option<Applied>> {
     const LABEL: &str = "interrupt_for_staff";
     let result = match &inputs.service {
@@ -1562,7 +1558,7 @@ where
 }
 
 /// The payload's `until_minute` if it is an int (not a bool) after the event's minute and within the
-/// Run; None where the Python rule's check says it is invalid.
+/// Run; None where it is invalid.
 fn until_of(world: &World, event: &EventRow) -> Result<Option<i64>> {
     // An int past 64 bits is before the event or past the Run.
     let Some(Wide::Int(until)) = wide_int(get(&event.payload, "until_minute")?) else {
@@ -1977,22 +1973,21 @@ pub fn infrastructure_receipts(world: &World, shared_absent: bool, previous: &[(
 // ---- The operational handlers with their inputs, in a rule transaction (lane P9-1b) --------------
 //
 // Each reads what the world's outside holds through the host (`Host::holding`, the sections of the
-// configs, the floor plan: H1 and H2 of design-p9.md), and runs in the core's rule transaction
-// (`txn::rule`, policy E16), whose start makes the host read the holding again: the rule reads the
-// world in canonical order, as the copy was. A read the Python rule made and the core could not (the
-// support cooldown, the staff operations formula) is refused with its `*_UNREAD` reason where the
-// rule reads it, for the PyO3 crate to raise what the read raised. The PyO3 crate reads the rows of
-// the pending events Python scheduled before it calls these.
+// configs, the floor plan), and runs in the core's rule transaction (`txn::rule`), whose start
+// makes the host read the holding again: the rule reads the world in canonical order. A read that
+// failed (the support cooldown, the staff operations formula) is refused with its `*_UNREAD` reason
+// where the rule reads it, and the dispatcher reads the section again (`read_again`) and raises
+// what that raised. The dispatcher reads the rows of the pending events (`Host::read_queue_rows`)
+// before it calls these.
 
 const OPERATIONAL_OTHER: &str = "the world holds another operational state";
-/// `SHARED_OPERATIONS_KEY` of `domain/shared_operations.py`.
+/// `SHARED_OPERATIONS_KEY` of `contracts/operations.py`.
 const SHARED_OPERATIONS: &str = "shared_operations_v1";
 
 /// `_apply_operational_transaction`: the rule (`body`, with the slots it took out) and the core's
-/// end of it (`settle`), in a rule transaction that stands for the Python rule's copy through
-/// canonical JSON, the EventLog included: the APPLIED record and the follow-ups go to the world's
-/// log, and a rollback takes them out again. The host lets go its views of the slots the rule and
-/// the end took out (`Host::slots_changed`).
+/// end of it (`settle`), in a rule transaction, the EventLog included: the APPLIED record and the
+/// follow-ups go to the world's log, and a rollback takes them out again. The host lets go its
+/// views of the slots the rule and the end took out (`Host::slots_changed`).
 pub fn operational<C: WorldCell, H: Host, T>(
     cell: &C,
     host: &mut H,
@@ -2066,8 +2061,7 @@ where
     simple_operational(cell, host, event, |world, held, row, _| staff_restoration(world, held, row))
 }
 
-/// The manager of the resource service as `ResourceServiceManager(world)` makes it (the PyO3 crate's
-/// `service::Inputs::of_world`), owned.
+/// The manager of the resource service as `ResourceServiceManager(world)` makes it, owned.
 struct ServiceRead {
     config: Arc<IndexMap<Arc<str>, V>>,
     service: Held,
@@ -2099,7 +2093,7 @@ impl ServiceRead {
         if schema != 6 || !holding.keys.contains_key(SERVICE) || !holding.keys.contains_key("resource_ledger_v1") {
             return Err(Error::unsupported("not an opted-in world").into());
         }
-        // A config that is not a dict was copied with `dict(raw)` of its Python value.
+        // A config that is not a dict is refused.
         let config = service.1.ok_or_else(|| Error::unsupported("the resource service's config is not a dict"))?;
         Ok(Self {
             config,
@@ -2123,9 +2117,8 @@ impl ServiceRead {
     }
 }
 
-/// A failure of a service's operation as the PyO3 crate raises it (`service::failed`): the ledger's
-/// text inside the rule's wrap. A value the text writes with `repr` that the core cannot write is
-/// refused.
+/// A failure of a service's operation as the event's error: the ledger's text inside the rule's
+/// wrap. A value the text writes with `repr` that the core cannot write is refused.
 fn service_failed<E: From<Error> + From<WriteError>>(failure: Failure) -> E {
     match failure {
         Failure::Write(error) => E::from(error),
@@ -2168,8 +2161,9 @@ fn replace_resources(world: &World, holding: &crate::host::Holding, applied: App
 }
 
 /// `StaffUnavailabilityHandler.apply`: the records of a support task it interrupted. A manager of
-/// the resource service whose read raised is that error where the rule makes the manager; a cooldown
-/// whose read raised stays `COOLDOWN_UNREAD`, and a formula `FORMULA_UNREAD`, for the PyO3 crate.
+/// the resource service whose read raised is that error where the rule makes the manager; a
+/// cooldown whose read raised stays `COOLDOWN_UNREAD`, and a formula `FORMULA_UNREAD`, for the
+/// dispatcher to read again.
 pub fn staff_unavailable_event<C: WorldCell, H: Host>(cell: &C, host: &mut H, event: &EventRow) -> std::result::Result<Vec<Made>, H::Error>
 where
     H::Error: From<WriteError>,
@@ -2250,8 +2244,8 @@ pub fn infrastructure_after<C: WorldCell, H: Host>(
 // ---- EffectProgramPopulationHandler (lane P9-3a) -----------------------------------------------------
 //
 // The checks of a primitive against its approved program, then the population rules, which read
-// their inputs through the host: an arrival or a departure in a rule transaction that stands for the
-// Python rule's copy, a presence command in its own.
+// their inputs through the host: an arrival or a departure in a rule transaction, a presence
+// command in its own.
 
 /// Count a result under its label, a refusal by its reason.
 fn counted_by<T, E: HostFailure>(label: &'static str, result: std::result::Result<T, E>) -> std::result::Result<T, E> {
@@ -2263,8 +2257,7 @@ fn counted_by<T, E: HostFailure>(label: &'static str, result: std::result::Resul
     result
 }
 
-/// A population rule's refusal as the `KernelRefusal` of its `kernel_only` entry (`label`), as the
-/// handler's Python rule called that rule of `domain/`.
+/// A population rule's refusal as the `KernelRefusal` named by its label (`label`).
 fn rule_refusal<E: HostFailure + From<Error>>(label: &'static str, error: E) -> E {
     if error.class() == crate::host::ErrorClass::Refused {
         return Error::Refused { label: label.to_owned(), reason: error.text().into() }.into();
@@ -2296,14 +2289,14 @@ pub fn population_event<C: WorldCell, H: Host>(cell: &C, host: &mut H, row: &Eve
     });
     let op = counted_by("population.checks", checked)?;
     if op == PopulationOp::Presence {
-        // Past its checks the Python rule lets this rule's exceptions go, as this does.
+        // Past its checks, this rule's exceptions go on as they are.
         let command = kit::payload(row, "command").cloned().unwrap_or(V::Null);
         return population_lifecycle::presence_command(cell, host, row, &command)
             .map(drop)
             .map_err(|error| rule_refusal("population_lifecycle.apply_presence_command", error));
     }
     let changed = crate::txn::rule_kept(cell, host, TxnKind::Full, |cell, host| population_writes(cell, host, row, op));
-    // Past the checks a call's exception is the Python rule's own: it made the same calls.
+    // Past the checks a call's exception goes on as the event's own.
     match counted_by("population.copy", changed)? {
         Some(deferred) => Err(deferred),
         None => Ok(()),

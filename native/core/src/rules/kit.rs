@@ -1,16 +1,14 @@
-//! What the rules ask of each other's files without being rules themselves (Issue #152, P8-0a;
-//! design-p8.md, section 3.1): making events as rows and writing them to the world's queue and
-//! log, the metric counts, a person's activity, the readers of payloads and of a few namespaces,
-//! and the checks a write stage asks first. A kernel moved to the core calls these, never the
-//! PyO3 crate, whose files of the same helpers are now glue over these.
+//! What the rules ask of each other's files without being rules themselves (Issue #152, P8-0a):
+//! making events as rows and writing them to the world's queue and log, the metric counts, a
+//! person's activity, the readers of payloads and of a few namespaces, and the checks a write stage
+//! asks first.
 //!
-//! The helpers that read a namespace take its value or its row: while a namespace is attached its
-//! tree is the truth (until P8-0c), so the PyO3 crate reads it and hands it in. The helpers that
-//! write a slot's row take a `TreeSink`, through which the PyO3 crate keeps the tree in step; a
-//! kernel of the core passes `NoTree`. `Events` and `add_metric` write the rows of the world's
-//! slots alone: their trees follow the rows once P8-0c marks the slots a kernel wrote.
+//! The helpers that read a namespace take its value or its row. The helpers that write a slot's row
+//! take a `TreeSink`; a kernel of the core passes `NoTree`. `Events` and `add_metric` write the
+//! rows of the world's slots alone: their trees follow the rows, as the slots a kernel wrote are
+//! marked (P8-0c).
 //!
-//! Errors are the core's, with the texts of the helpers they replace.
+//! Errors are the core's.
 
 use std::collections::BTreeMap;
 use std::convert::Infallible;
@@ -48,8 +46,8 @@ pub const POPULATION_SOURCE_ID: &str = "ASM-POPULATION-DYNAMICS-V1";
 
 // ---- What ran and what was refused --------------------------------------------------------------
 
-/// The counts a group of kernels keeps of what ran and what it refused, by label, for the shadow
-/// benchmarks (`stats` of the PyO3 crate's `handlers` and `effects`).
+/// The counts a group of kernels keeps of what ran and what it refused, by label (`ran_counts`),
+/// which the tests read.
 pub struct Counts {
     ran: Mutex<BTreeMap<&'static str, u64>>,
     refusals: Mutex<BTreeMap<String, u64>>,
@@ -134,7 +132,7 @@ fn item<'a>(mapping: &'a V, key: &str) -> Result<&'a V> {
     }
 }
 
-/// An int and nothing else, as the PyO3 crate's `exact_int` reads one.
+/// An int and nothing else (not a bool); one past 64 bits is refused.
 #[track_caller]
 pub fn exact_int(value: &V) -> Result<i64> {
     match value {
@@ -144,7 +142,7 @@ pub fn exact_int(value: &V) -> Result<i64> {
     }
 }
 
-/// A str and nothing else, as the PyO3 crate's `exact_str` reads one.
+/// A str and nothing else.
 #[track_caller]
 pub fn exact_str(value: &V) -> Result<&Arc<str>> {
     match value {
@@ -208,13 +206,13 @@ pub fn namespace_absent(world: &World, name: &str) -> Result<bool> {
     }
 }
 
-/// A section of the configs as the PyO3 crate read it for a kernel, before the kernel borrowed the
+/// A section of the configs as the caller read it for a kernel, before the kernel borrowed the
 /// world: its value, or the fault the kernel raises where the rule reads the section, so that a
 /// bad config raises at the same point as before, and not at all where the rule never reads it.
 pub type Kept<T> = std::result::Result<Arc<T>, crate::config::Fault>;
 
 /// The value of a `Kept` section, or its error: a refusal its own `Unsupported`, any other fault a
-/// corrupt `model_configs` (the PyO3 crate's `configs::read`).
+/// corrupt `model_configs`.
 #[track_caller]
 pub fn kept<T>(section: &Kept<T>) -> Result<&T> {
     match section {
@@ -229,9 +227,9 @@ pub fn kept<T>(section: &Kept<T>) -> Result<&T> {
 /// The refusal of a section a host was asked for and did not fill.
 pub const NOT_FILLED: &str = "the host did not fill the section";
 
-/// Whether the world holds each namespace and owned field (H1 of design-p9.md): the host's
-/// `Holding`, or, for a host without Python views, the world's own slots. Asked with nothing of the
-/// world borrowed.
+/// Whether the world holds each namespace and owned field: the host's `Holding`, or, for a host
+/// that keeps none, the world's own slots (`Holding::of_world`). Asked with nothing of the world
+/// borrowed.
 pub fn holding<C: WorldCell, H: Host>(cell: &C, host: &mut H) -> std::result::Result<Arc<Holding>, H::Error> {
     if let Some(holding) = host.holding()? {
         return Ok(holding);
@@ -240,7 +238,7 @@ pub fn holding<C: WorldCell, H: Host>(cell: &C, host: &mut H) -> std::result::Re
 }
 
 /// The configs of the world now: those kept for the stamp of the `model_configs` slot while the
-/// world holds that field, else new ones that serve one read (the PyO3 crate's `configs::current`).
+/// world holds that field, else new ones that serve one read.
 pub fn configs_now(world: &World, holding: &Holding) -> Result<Arc<Configs>> {
     if holding.field(MODEL_CONFIGS) {
         if let Some(slot) = world.slots.get(MODEL_CONFIGS) {
@@ -251,10 +249,10 @@ pub fn configs_now(world: &World, holding: &Holding) -> Result<Arc<Configs>> {
     Ok(Arc::new(Configs::new(None)))
 }
 
-/// A section of the configs now, as a rule's reader reads it (H2 of design-p9.md): kept for the
-/// configs' stamp, else filled by the host, which is asked with nothing of the world borrowed and at
-/// the read where the rule reads the section first, as the PyO3 crate parses it today. A parse never
-/// raises: what it raised is the section's fault, for the rule to raise where it reads it.
+/// A section of the configs now, as a rule's reader reads it: kept for the configs' stamp, else
+/// filled by the host (`Host::fill_section`), which is asked with nothing of the world borrowed and
+/// at the read where the rule reads the section first. A parse never raises: what it raised is the
+/// section's fault, for the rule to raise where it reads it.
 pub fn section<C: WorldCell, H: Host, T>(
     cell: &C,
     host: &mut H,
@@ -270,9 +268,8 @@ pub fn section<C: WorldCell, H: Host, T>(
 }
 
 /// `section` of a section the core parses from the configs' `V` (`Parser::Value`): an empty one is
-/// parsed from the row of the `model_configs` slot now, and counted as the PyO3 crate counts a parse
-/// (`config::count_parse`). Configs no row holds (a field assigned whole, or not JSON) are the
-/// host's to read.
+/// parsed from the row of the `model_configs` slot now, and counted (`config::count_parse`).
+/// Configs no row holds (a field assigned whole, or not JSON) are the host's to read.
 pub fn section_value<C: WorldCell, H: Host, T>(
     cell: &C,
     host: &mut H,
@@ -300,8 +297,8 @@ pub fn section_value<C: WorldCell, H: Host, T>(
     }
 }
 
-/// A section as the PyO3 crate's `configs::kept` gave it to a rule (lane P9-1b): its value, its
-/// fault, or the refusal of configs without it.
+/// A section as a rule keeps it (lane P9-1b): its value, its fault, or the refusal of configs
+/// without it.
 pub fn kept_of<T>(section: Section<T>) -> Kept<T> {
     match section {
         Section::Ok(value) => Ok(value),
@@ -334,7 +331,7 @@ pub fn kept_section_value<C: WorldCell, H: Host, T>(
 }
 
 /// `world.model_configs` as a plain dict, read by `read`: the row of the slot while the world holds
-/// the field, else the configs Python holds (`Host::configs_given`); None where they are not a plain
+/// the field, else the configs the host holds (`Host::configs_given`); None where they are not a plain
 /// dict (lane P9-3a: `"facility_geometry" in model_configs`, `model_configs.get("population")`).
 pub fn read_configs<C: WorldCell, H: Host, T>(
     cell: &C,
@@ -359,9 +356,8 @@ pub fn read_configs<C: WorldCell, H: Host, T>(
     })
 }
 
-/// The error a read site raises for a fault of a section Python parses: a refusal its own
-/// `Unsupported`, any other what the parse raises again (policy E14; `configs::raise` of the PyO3
-/// crate, lane P9-3a).
+/// The error a read site raises for a fault of a section the host parses: a refusal its own
+/// `Unsupported`, any other what the parse raises again (`Host::read_again`, lane P9-3a).
 pub fn raise_section<H: Host>(host: &mut H, which: SectionId, fault: &crate::config::Fault) -> H::Error {
     if fault.is_refusal() {
         return Error::unsupported(fault.text.to_string()).into();
@@ -382,8 +378,8 @@ pub fn in_model_state(holding: &Holding, name: &str) -> Result<bool> {
     Ok(holding.keys.contains_key(name))
 }
 
-/// `staff_operations_v1` as the staff's rules take it (the PyO3 crate's `staff_held`, lane
-/// P9-1b): a value that is not a dict is no state (`Absent`), as the rules read it with
+/// `staff_operations_v1` as the staff's rules take it (lane P9-1b): a value that is not a dict is
+/// no state (`Absent`), as the rules read it with
 /// `isinstance(state, dict)`; another dict than the row's is refused where a rule reads it.
 pub fn staff_held<H: Host>(host: &mut H, holding: &Holding) -> std::result::Result<Held, H::Error> {
     const NAME: &str = crate::state::staff_operations::NAME;
@@ -394,9 +390,8 @@ pub fn staff_held<H: Host>(host: &mut H, holding: &Holding) -> std::result::Resu
     Ok(held)
 }
 
-/// `staff_operations_v1` as the staff positions read it (the PyO3 crate's `movement::staff_ops`,
-/// lane P9-1b): its row where the world holds it, none where it holds something that is not a dict,
-/// and the refusal of another dict.
+/// `staff_operations_v1` as the staff positions read it (lane P9-1b): its row where the world holds
+/// it, none where it holds something that is not a dict, and the refusal of another dict.
 pub fn staff_ops<H: Host>(host: &mut H, holding: &Holding) -> std::result::Result<Result<crate::rules::movement::StaffOps>, H::Error> {
     use crate::rules::movement::StaffOps;
     const NAME: &str = crate::state::staff_operations::NAME;
@@ -413,9 +408,8 @@ pub fn staff_ops<H: Host>(host: &mut H, holding: &Holding) -> std::result::Resul
     })
 }
 
-/// What the rules of the staff's operations read of the world's outside (the PyO3 crate's
-/// `Gathered`, lane P9-1b), with the floor plan where `geo` and the formula where `formula`, each kept with
-/// what its read gave.
+/// What the rules of the staff's operations read of the world's outside (lane P9-1b), with the
+/// floor plan where `geo` and the formula where `formula`, each kept with what its read gave.
 pub struct StaffRead<E> {
     staff: Held,
     movement: Held,
@@ -460,7 +454,8 @@ impl<E: From<Error> + crate::host::HostFailure> StaffRead<E> {
     }
 
     /// The core's result, with what reading the floor plan gave where the rule read the plan and
-    /// could not. A formula that could not be read stays `FORMULA_UNREAD`, for the PyO3 crate.
+    /// could not. A formula that could not be read stays `FORMULA_UNREAD`, for the caller to read
+    /// again.
     pub fn finish<T>(&mut self, result: std::result::Result<T, E>) -> std::result::Result<T, E> {
         let Err(error) = result else {
             return result;
@@ -519,10 +514,9 @@ fn filled<H: Host, T>(host: &mut H, configs: Arc<Configs>, which: SectionId, get
     }
 }
 
-/// The model selection (`selected_models(model_configs)`), asked of the host at every read, as the
-/// PyO3 crate's `configs::selection` reads it: the host keeps it for the configs' stamp, unless a test
-/// patched `selected_models`, whose selection serves one read. The selection, and whether it is the
-/// kept one (lane P9-1a).
+/// The model selection (`selected_models(model_configs)`), asked of the host at every read
+/// (`Host::fill_section`): the host keeps it for the configs' stamp, or gives a selection that
+/// serves one read (`Filled::Once`). The selection, and whether it is the kept one (lane P9-1a).
 pub fn selection<C: WorldCell, H: Host>(cell: &C, host: &mut H, holding: &Holding) -> std::result::Result<(Kept<crate::config::Selection>, bool), H::Error> {
     let configs = cell.with(|world| configs_now(world, holding))??;
     let (from, kept) = match host.fill_section(&configs, SectionId::Selection)? {
@@ -536,9 +530,8 @@ pub fn selection<C: WorldCell, H: Host>(cell: &C, host: &mut H, holding: &Holdin
 }
 
 /// `section` of a section the model selection decides (`BodyModels`, `CareOutcome`), read after the
-/// selection (`selection`): where the selection was not the kept one (a test patched
-/// `selected_models`), the section is parsed at every read too, in configs of its own, as the PyO3
-/// crate's `kept_with_selection` parses it (lane P9-1a).
+/// selection (`selection`): where the selection was not the kept one, the section is parsed at
+/// every read too, in configs of its own (lane P9-1a).
 pub fn section_of_selection<C: WorldCell, H: Host, T>(
     cell: &C,
     host: &mut H,
@@ -558,11 +551,11 @@ pub fn section_of_selection<C: WorldCell, H: Host, T>(
     filled(host, configs, which, get)
 }
 
-/// The refusal of a section the configs do not have, as the PyO3 crate's `configs::kept` says it.
+/// The refusal of a section the configs do not have.
 pub const NO_SUCH_SECTION: &str = "the configs have no such section";
 
-/// The refusal of a value of the Run's `Policies` whose read raised (policy E14): the PyO3 crate
-/// reads the attribute again where it meets it, and raises what that raises.
+/// The refusal of a value of the Run's `Policies` whose read raised: the tick reads the attribute
+/// again where it meets it (`Host::read_again`), and raises what that raises.
 pub const POLICY_FAULT: &str = "a policy of the controller raised when the Run read it";
 
 /// A value of the Run's `Policies` as a rule takes it: a refusal is its `Unsupported`; any other
@@ -592,8 +585,7 @@ pub struct NewEvent {
     pub provenance: IndexMap<Arc<str>, V>,
 }
 
-/// `ScheduledEvent(...)` as a row: Unsupported for values the event refuses, whose error is the
-/// Python rule's to raise.
+/// `ScheduledEvent(...)` as a row: Unsupported for values the event refuses.
 #[track_caller]
 pub fn new_event(event: NewEvent) -> Result<EventRow> {
     EventRow {
@@ -626,9 +618,8 @@ pub fn log_record(world: &World, event: &EventRow, minute: i64, status: EventSta
     writer::record(&mut *world.log_mut()?, event, minute, status, detail)
 }
 
-/// A world's queue, log and event counter, for one step of a rule: what the PyO3 crate's
-/// `EventWriter` does over the stores, done over the `World`. `allocate_sequence` and `schedule`
-/// write the row of `id_counters`.
+/// A world's queue, log and event counter, for one step of a rule. `allocate_sequence` and
+/// `schedule` write the row of `id_counters`.
 pub struct Events<'w> {
     world: &'w World,
     duration: i64,
@@ -715,8 +706,8 @@ impl<'w> Events<'w> {
     /// What the dispatcher does to a handled event (`EventDispatcher.settle`), on the world's queue
     /// and log: the pending event of this ID leaves the queue, and its outcome is recorded unless the
     /// log holds a record of its ID already. `event` is the row as the rule read it. Returns the
-    /// serial of the slot taken out, whose Python object the PyO3 crate lets go
-    /// (`QueueStore::forget`), and whether the outcome was recorded.
+    /// serial of the slot taken out, whose view the host lets go (`Host::slots_changed`), and
+    /// whether the outcome was recorded.
     pub fn settle(&self, event: &EventRow, realized_minute: i64, status: EventStatus, detail: Option<&str>) -> WriteResult<Settled> {
         let taken = self.world.queue_mut()?.take_slot(&event.event_id).map(|(serial, _)| serial);
         if self.world.log()?.has_event_id(&event.event_id) {
@@ -786,9 +777,9 @@ pub fn metrics_of(world: &World) -> Result<ShardMut<'_, MetricRow>> {
     world.row_mut::<MetricRow>(METRIC_STATE)
 }
 
-/// `world.metric_state` as the PyO3 crate's `metrics_of` reads it before a kernel adds to it: the
-/// field must still be its slot's tree (`metric_state_held`, read by the PyO3 crate), and the slot
-/// must have its row.
+/// `world.metric_state` as a kernel checks it before it adds to it: the field must still be its
+/// slot's tree (`metric_state_held`, read by the caller from the holding), and the slot must have
+/// its row.
 pub fn check_metric_state(world: &World, metric_state_held: bool) -> Result<()> {
     if world.slots.get(METRIC_STATE).is_some() && !metric_state_held {
         return Err(Error::unsupported("the field holds another dict"));
@@ -882,7 +873,7 @@ pub fn is_toilet(kind: &str) -> bool {
 
 /// `active_facility_outage`: `bool(infrastructure_event_context_ids(world, facility_id))`, of
 /// `model_state.get("infrastructure_v1")`. A state that is not a dict has no outage; one whose
-/// records lack a key raises that `KeyError`, as Python's reads do.
+/// records lack a key raises that `KeyError`, as Python's `record[key]` does.
 #[track_caller]
 pub fn active_outage(infrastructure: Option<&V>, facility_id: &str) -> Result<bool> {
     let Some(state @ V::Map(_)) = infrastructure else {
@@ -964,10 +955,10 @@ pub fn place_in_bed(movement: &mut MovementRow, agent_id: &str, zone_id: &Arc<st
 pub const WRITING_REFUSED: &str = "a kernel refused after it began writing";
 
 /// A write stage's result: nothing may fall back after a write, so a refusal here is a bug to
-/// see (`RuntimeError`). Every other error is what the same operation raises in the Python rule.
+/// see (`RuntimeError`). Every other error goes on as it is.
 pub fn writing<T>(result: Result<T>) -> Result<T> {
     result.map_err(|error| match error {
-        // As the PyO3 crate's `writing` writes `PyErr`'s `Unsupported: reason`.
+        // `Unsupported: reason`, as the refusal's class and text.
         Error::Unsupported(reason) => Error::Runtime(format!("{WRITING_REFUSED}: Unsupported: {reason}")),
         other => other,
     })
@@ -1056,7 +1047,7 @@ fn targets_of(waiting: &V) -> Result<Vec<&Arc<str>>> {
     Ok(targets)
 }
 
-/// `Identifier` of contracts/extensions.py.
+/// `Identifier` of `contracts/extensions.py`.
 #[track_caller]
 fn identifier(text: &str) -> Result<()> {
     if is_stable_id(text) {
@@ -1104,12 +1095,11 @@ fn check_item_for_admission(waiting: &V, zone: &str) -> Result<()> {
     Ok(())
 }
 
-// ---- Namespaces the Python world holds (lane c1) -------------------------------------------------
+// ---- Namespaces the world holds (lane c1) --------------------------------------------------------
 
-/// Whether the Python world holds a namespace's slot, as the PyO3 crate's `held_mirror` of it
-/// answers: a row left behind by a write past `model_state` answers for nothing. The PyO3 crate
-/// reads it before it borrows the world, and a kernel says `Other`'s refusal where it read the
-/// namespace before.
+/// Whether the world holds a namespace's slot (`Holding::held`): a row left behind by a write past
+/// `model_state` answers for nothing. The caller reads it before it borrows the world, and a kernel
+/// says `Other`'s refusal where it reads the namespace.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Held {
     /// `model_state` has no such key.

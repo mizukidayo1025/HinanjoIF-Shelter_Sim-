@@ -1,16 +1,14 @@
-//! The Python-parsed sections and the floor plan of an exported world (#225 lane F2, #214).
+//! The parsed sections and the floor plan of a world's entry (#225 lane F2, #214).
 //!
-//! The exporter writes, for each section whose parser is the host's
-//! (`SectionId::parser() == Parser::Host`), what the PyO3 crate's `PyHost::fill_section` reads from
-//! Python: the model selection, the plan of the end-of-tick check, the parsed `FacilityGeometry`
-//! and `SpatialConstraints` (as JSON, after their contracts), the formulas' IDs, the validated specs
-//! and the values read in Python. `Sections::of_entry` turns each into the core's value as the PyO3
-//! crate does (`native/src/core/configs.rs`, `geometry.rs`, and `rules/after_tick.rs`'s `Plan`),
-//! with the same faults, and `Sections::fill` puts it in the configs when a rule asks the host
-//! (`Host::fill_section`). The sections the core parses from the configs' `V` are not here: the core
-//! parses them from the world's `model_configs` row.
+//! An entry holds each section whose parser is the host's (`SectionId::parser() == Parser::Host`)
+//! as the core's minute-0 builder writes it (`initial::sections`): the model selection, the plan of
+//! the end-of-tick check, the parsed `FacilityGeometry` and `SpatialConstraints` (as JSON, after
+//! their contracts), the formulas' IDs, the validated specs and the values read of the configs.
+//! `Sections::of_entry` turns each into the core's value, with its fault, and `Sections::fill` puts
+//! it in the configs when a rule asks the host (`Host::fill_section`). The sections the core parses
+//! from the configs' `V` are not here: the core parses them from the world's `model_configs` row.
 //!
-//! `Sections::floor_plan` is `Geo::of` of the PyO3 crate on the same world: the facility geometry's
+//! `Sections::floor_plan` is `Geo::of` on the same world: the facility geometry's
 //! plan, the spatial constraints where the configs have them or `model_state` has the overlay, and
 //! the overlay's facility moves and partitions where they have entries. `FloorPlans` keeps the plan
 //! last built and builds it again when the overlay's facility moves or partitions change (its
@@ -55,8 +53,8 @@ macro_rules! read {
     };
 }
 
-/// What the PyO3 crate's `unsupported` gives where a part of a parsed model is read: `fault_of` an
-/// `Unsupported`, which is not a refusal there.
+/// The fault of an `Unsupported` met where a part of a parsed model is read, which is not a
+/// refusal.
 fn unsupported(reason: &str) -> Fault {
     Fault::new(FaultClass::Other(text("sheltersim_native.Unsupported")), reason)
 }
@@ -326,11 +324,12 @@ fn flag(json: &Value) -> Parsed<bool> {
 // ---- Each section, as exported ----------------------------------------------------------------------
 
 /// One section as exported: its value, the fault of its parse or absent (`Section`), or the text of
-/// what the PyO3 crate raises out of `fill_section` instead of keeping a fault (`host_error`).
+/// an error of the parse that is not kept as a fault (`host_error`), which `fill` gives as a
+/// runtime error.
 type Exported<T> = std::result::Result<Section<T>, Arc<str>>;
 
 /// The section `name` of the export, made into the core's value by `read`: a value `read` refuses
-/// is the section's fault, as the PyO3 crate's `read` and `parsed` keep it.
+/// is the section's fault.
 fn exported<T>(sections: &Value, name: &str, read: impl FnOnce(&Value) -> Parsed<T>) -> Result<Exported<T>> {
     let section = sections.get(name).ok_or_else(|| bad(format_args!("the export has no section {name}")))?;
     Ok(if let Some(found) = section.get("value") {
@@ -355,7 +354,7 @@ fn put<T>(lazy: &Lazy<T>, exported: &Exported<T>, which: SectionId) -> Result<()
     }
 }
 
-/// The Python-parsed sections of an exported world (`Parser::Host`), read once, which a host fills
+/// The host-parsed sections of a world's entry (`Parser::Host`), read once, which a host fills
 /// the configs with (`fill`) and builds the floor plan from (`floor_plan`).
 pub struct Sections {
     selection: Exported<Selection>,
@@ -415,7 +414,7 @@ impl Sections {
     /// `Host::fill_section` of a host that owns this world: the section put in the configs (kept
     /// for their stamp, `Filled::Kept`) unless they hold it already. False for a section the core
     /// parses from the configs' `V` itself (`Parser::Value`), which is not exported. An error is
-    /// what the PyO3 crate raises out of `fill_section` for this world.
+    /// the section's `host_error`, as a runtime error.
     pub fn fill(&self, configs: &Configs, which: SectionId) -> Result<bool> {
         match which {
             SectionId::Selection => put(&configs.selection, &self.selection, which)?,

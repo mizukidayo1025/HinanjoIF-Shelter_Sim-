@@ -1,18 +1,15 @@
-//! `_apply_effect` (`experiments/phases/propose.py`): what a decision does to the world before it is
-//! recorded (Issue #152, lane P8 e1, the join of the four P8 lanes).
+//! `_apply_effect` of the propose phase: what a decision does to the world before it is recorded.
 //!
-//! One call plans with nothing changed and then writes. The step has no Python body any more
-//! (segments.py, KERNEL_ONLY_SEGMENTS): what it doesn't take is refused before any write and becomes
-//! KernelRefusal, anything that isn't plainly what the Python step accepted
-//! (docs/rust-port/lanes/m4-service.md).
+//! One call plans with nothing changed and then writes: what it doesn't take, anything that isn't
+//! plainly what the step accepts, is refused before any write (docs/rust-port/lanes/m4-service.md).
 //!
 //! Every rule the step reaches is a function of the core: the bed (`overlay`), the choice of a
 //! facility and the trip (`travel`), the queues (`toilet`, `service`), the support request and its
 //! care receipts (`support`, `care_receipts`), the information model's record of the request, and
-//! the social action's event with its conversation context (`social_dialogue`). The PyO3 crate's
-//! file of the same name reads what only Python holds (the proposal, the managers, the policies,
-//! whether the world holds each namespace, the configs, the floor plan, the Run's router) into
-//! `Inputs`, and makes the Python values of what comes back.
+//! the social action's event with its conversation context (`social_dialogue`). The propose phase
+//! (`rules::tick::propose`) reads what the step takes besides the world (the proposal, the
+//! managers, the policies, whether the world holds each namespace, the configs, the floor plan, the
+//! Run's router) into `Inputs`.
 //!
 //! A person who asks a queue at once (no trip to make, or an independent FIFO at their facility) goes
 //! through the queue's own kernel, which plans and writes in one and refuses before its first write:
@@ -65,11 +62,12 @@ const SOCIAL_PRIORITY: i64 = 35;
 const SOCIAL_POLICY: &str = "event-triggered-social-v2";
 const SOCIAL_SOURCE: &str = "ASM-EVENT-TRIGGERED-SOCIAL-INTERACTIONS-V1";
 
-/// The refusal where the step reads the resource service's manager and reading it raised: the PyO3
-/// crate reads it again there and raises what that raises.
+/// The refusal where the step reads the resource service's manager and reading it raised: the
+/// propose phase reads it again there (`Host::read_again`) and gives what that gives.
 pub const MANAGER_UNREAD: &str = "the resource service's manager raised when it was read";
 /// The refusal where the step reads the information policy's `config.query_threshold` and reading
-/// it raised: the PyO3 crate reads it again there and raises what that raises.
+/// it raised: the propose phase reads it again there (`Host::read_again`) and gives what that
+/// gives.
 pub const THRESHOLD_UNREAD: &str = "the information policy's query threshold raised when it was read";
 /// A `request` set on the manager itself (a test's patch) is not the queue's kernel.
 pub const PATCHED: &str = "the manager's request is another function";
@@ -80,7 +78,7 @@ fn refuse<T>(reason: &'static str) -> Result<T> {
     Err(Error::unsupported(reason))
 }
 
-/// The PyO3 crate did not read what the action reads: a bug of the caller.
+/// The caller did not read what the action reads: a bug of the caller.
 fn missing(what: &str) -> Error {
     Error::Runtime(format!("the inputs of the step hold no {what}"))
 }
@@ -218,8 +216,8 @@ pub struct Walk<'a> {
     pub movement: Held,
     /// The movement section of the configs.
     pub section: &'a Kept<Movement>,
-    /// The floor plan; None where the PyO3 crate could not read it (`PLAN_UNREAD` where the rule
-    /// reads it).
+    /// The floor plan; None where the host could not read it (`PLAN_UNREAD` where the rule reads
+    /// it).
     pub geo: Option<&'a Arc<Geo>>,
 }
 
@@ -354,7 +352,7 @@ fn set_person(world: &World, agent_id: &str, next: i64, still: Option<Activity>)
     Ok(())
 }
 
-/// The floor plan where a rule reads it: `PLAN_UNREAD` where the PyO3 crate could not read it.
+/// The floor plan where a rule reads it: `PLAN_UNREAD` where the host could not read it.
 fn plan_of(geo: Option<&Arc<Geo>>) -> Result<&Geo> {
     match geo {
         Some(geo) => Ok(geo),
@@ -392,9 +390,9 @@ impl ToFacility<'_> {
     }
 }
 
-/// The `reservation_id` of each pending `resource_reserve` event, in the queue's order, as the
-/// Python rule reads them from `pending()`. The PyO3 crate reads the rows of the events Python
-/// scheduled before it calls.
+/// The `reservation_id` of each pending `resource_reserve` event, in the queue's order
+/// (`pending()`). The caller reads the queue's rows through the host (`Host::read_queue_rows`)
+/// first.
 fn pending_reserves(world: &World) -> Result<Vec<Pending>> {
     let queue = world.queue()?;
     let mut found = Vec::new();
@@ -773,7 +771,7 @@ pub fn apply(world: &World, inputs: &Inputs<'_>, proposal: &Proposal) -> WriteRe
     // A capacity wait comes before the queue's own events: `_route` recorded it while the facility
     // was chosen, and its sequence is only reserved. Before a request at once it is written here,
     // so the queue's kernel takes the next sequences. That kernel's refusal then leaves the wait
-    // written, which no Python step could undo; the step has none (segments.py), so it fails.
+    // written, which nothing undoes, so the step fails.
     if let Some((planned, events, _)) = trip_effect.as_mut() {
         if planned.at_once {
             for wait in planned.waits.drain(..) {
@@ -906,7 +904,7 @@ fn query_pressure_is_high(world: &World, information: &Information, agent_id: &s
 /// `InformationSpreadPolicy.record_support_request(state, agent_id=, request_id=, minute=)` on the
 /// row of `information_spread_v1` (an attached tree follows it): the person's heard claims, sorted,
 /// tied to the request, the count, and their query pressure back to 0.0. Nothing is written where
-/// they hold no heard claim. A person with no beliefs is the Python rule's `KeyError`.
+/// they hold no heard claim. A person with no beliefs is a `KeyError` (`Error::Key`).
 pub fn record_support_request(world: &World, held: &Held, agent_id: &str, request_id: &str, minute: i64) -> Result<()> {
     match held {
         Held::Absent => return Err(Error::Runtime("no information state".to_owned())),

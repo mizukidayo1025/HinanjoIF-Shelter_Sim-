@@ -1,15 +1,15 @@
-//! The events of `information_spread_v1` in `events/handlers.py`: a rumor, a correction and a
-//! contact. Each plans from the rows, the event's row and the inputs the PyO3 crate gathered, and
-//! only then writes the namespace's row, where nothing can refuse any more: Unsupported comes before
-//! any change. A tree Python reads follows the row (lane P8-0c). Moved to the core in lane P8 d1.
+//! The events of `information_spread_v1`: a rumor, a correction and a contact. Each plans from the
+//! rows, the event's row and the inputs gathered before (`Gathered`), and only then writes the
+//! namespace's row, where nothing can refuse any more: Unsupported comes before any change.
 //!
-//! A state of another schema than 2 is upgraded by the host where the Python rule upgraded it, after
-//! the model's checks and before the event's (`Host::upgrade_information_state`, policy E11): only a
-//! test writes one in memory, as a save of it is view-only (`LEGACY_SHAPES_TICKABLE`).
+//! A state of another schema than 2 is upgraded by the host, after the model's checks and before
+//! the event's (`Host::upgrade_information_state`, policy E11; the hook's default refuses with
+//! `OLDER_STATE`): only a test writes one in memory, as a save of it is view-only
+//! (`LEGACY_SHAPES_TICKABLE`).
 //!
-//! `InformationSpreadConfig.from_mapping` and `selected_models` stay Python's: they read the
-//! Scenario's contract. The PyO3 crate reads them, kept for the configs' stamp, and raises the
-//! config's error before the event is read, which is where the Python rule raises it.
+//! `InformationSpreadConfig.from_mapping` and `selected_models` are sections the host parses
+//! (`Parser::Host`): `Gathered::read` reads them, kept for the configs' stamp, and the config's
+//! error is raised before the event is read.
 
 use std::sync::Arc;
 
@@ -35,8 +35,8 @@ const MAX_MESSAGES: usize = 1024;
 pub const NOT_ENABLED: &str = "information spread is not enabled for this run";
 /// The refusal of a state of another schema that the host did not upgrade.
 pub const OLDER_STATE: &str = "an older state is upgraded in Python";
-/// The check of the corrupt `model_configs` that a selection which raised gives: the PyO3 crate
-/// raises what `selected_models` raises in its place.
+/// The check of the corrupt `model_configs` that a selection which raised gives: the dispatch reads
+/// the selection again in its place (`Host::read_again`).
 pub const SELECTION_RAISED: &str = "the model selection raised";
 
 /// What the events read outside the world and the event, gathered before the world is borrowed.
@@ -57,7 +57,7 @@ pub const OTHER_DOCUMENT: &str = "the world holds another document than the row'
 /// What the events read outside the world and the event, read by the core through the host (lane
 /// P9-1a): the config and the model selection, kept for the configs' stamp (H2), and whether
 /// `model_state` holds the namespace (H1). The config's fault is raised before the event is read
-/// (the PyO3 crate's, which parses it again, policy E14), so it is kept here as the read gave it.
+/// (by the caller, policy E14), so it is kept here as the read gave it.
 pub struct Gathered {
     pub config: Kept<InformationSpread>,
     pub held: Held,
@@ -90,7 +90,7 @@ pub enum Applied {
 }
 
 /// A value of the config as its read site takes it: a refusal its `Unsupported`, any other fault a
-/// corrupt `model_configs` (`configs::read` of the PyO3 crate).
+/// corrupt `model_configs`.
 #[track_caller]
 fn read<T>(value: Read<T>) -> Result<T> {
     match value {
@@ -254,8 +254,7 @@ fn str_of(value: &V) -> Option<&Arc<str>> {
     }
 }
 
-/// `Enum(value)` of a str enum whose values are `members`: the text, or None where the Python rule
-/// fails.
+/// `Enum(value)` of a str enum whose values are `members`: the text, or None where it fails.
 fn member_of<'a>(value: &'a V, members: &[&str]) -> Option<&'a str> {
     str_of(value).map(|text| &**text).filter(|text| members.contains(text))
 }
@@ -343,9 +342,9 @@ pub fn check_state(world: &World, config: &InformationSpread, held: &Held) -> Re
     }
 }
 
-/// An event's plan and write on the world, after the host upgraded a state of another schema where
-/// the Python rule did: after the model's checks, before the event's. Nothing of the world is
-/// borrowed while the host runs, and the state is read again after it (rule R6).
+/// An event's plan and write on the world, after the host upgraded a state of another schema: after
+/// the model's checks, before the event's. Nothing of the world is borrowed while the host runs,
+/// and the state is read again after it (rule R6).
 fn run<C: WorldCell, H: Host, T>(cell: &C, host: &mut H, inputs: &Inputs<'_>, step: impl Fn(&World) -> Result<T>) -> std::result::Result<T, H::Error> {
     let first = cell.with(|world| -> Result<Option<T>> {
         if !state_ready(world, inputs.config, inputs.held)? {

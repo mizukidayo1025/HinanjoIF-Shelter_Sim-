@@ -1,23 +1,20 @@
-//! The rules of `domain/resources.py` that run in a tick, on the rows of a `World` (moved to the core
-//! in P8b-1): one inventory operation, the KPI columns, and whether a reservation ID was used. Each
-//! reads the event and the row, checks what the Python rule checked, and then writes the row of
-//! `resource_ledger_v1`, whose tree follows the row when the world is given back (lane P8-0c).
+//! The resource rules that run in a tick, on the rows of a `World`: one inventory operation, the
+//! KPI columns, and whether a reservation ID was used. Each reads the event and the row, checks it,
+//! and then writes the row of `resource_ledger_v1`.
 //!
-//! What the Python rule turned down with a `ResourceLedgerError` an operation turns down with the
-//! same text, in the same order of checks, before any change (`Fail::Ledger`): the ledger's handler
-//! and the water and meal service save it inside their own texts. A text that shows a value of the
-//! payload as Python's `repr` (`LedgerFault::Repr`) is finished by the PyO3 crate, which has
-//! Python's `repr`. A state the Python rule's check of the ledger turned down, and IDs
-//! `ScheduledEvent` itself turns down, are Unsupported, which the entry raises as `KernelRefusal`.
+//! An operation the ledger turns down is a `ResourceLedgerError` with its text, in a fixed order of
+//! checks, before any change (`Fail::Ledger`): the ledger's handler and the water and meal service
+//! save it inside their own texts. A text that shows a value of the payload as Python's `repr`
+//! (`LedgerFault::Repr`) is finished by the caller with that `repr` (`service::repr_of`). A state
+//! the check of the ledger turns down, and IDs `ScheduledEvent` itself turns down, are Unsupported.
 //!
-//! The Python rule checked the state after an operation too. Here that follows from the checks
-//! before it: the new record's IDs are checked below, its sources were checked with the account,
-//! each operation keeps `remaining - reserved >= 0` and the reservation total, and the row's minute
+//! The state after an operation needs no check of its own: it follows from the checks before it:
+//! the new record's IDs are checked below, its sources were checked with the account, each
+//! operation keeps `remaining - reserved >= 0` and the reservation total, and the row's minute
 //! order is kept by turning down an older minute (docs/rust-port/lanes/m4-resources.md).
 //!
-//! `world.resources` is not written here: the Python rule gave the world a new dict, and whoever
-//! holds the old one keeps the old values, which a tree that follows its row in place would not
-//! keep. The operation returns the new balance (`Applied`), and the PyO3 crate puts the new dict in.
+//! `world.resources` is not written here: the operation returns the new balance (`Applied`), and
+//! the caller writes it (`Tick::resources_taken`).
 
 use std::sync::Arc;
 
@@ -31,7 +28,7 @@ use crate::world::World;
 pub enum LedgerFault {
     /// The whole text.
     Text(String),
-    /// `f"{prefix} {value!r}"`: the PyO3 crate writes the `repr`.
+    /// `f"{prefix} {value!r}"`: the caller writes the `repr` (`text`).
     Repr(&'static str, V),
 }
 
@@ -69,8 +66,8 @@ fn quoted(id: &str) -> String {
     format!("'{id}'")
 }
 
-/// What an operation did to the world's balance of its resource: the PyO3 crate's new
-/// `world.resources` takes `remaining` for `RESOURCE_IDS[index]`.
+/// What an operation did to the world's balance of its resource: `world.resources` takes
+/// `remaining` for `RESOURCE_IDS[index]` (`Tick::resources_taken`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Applied {
     pub index: usize,
@@ -188,9 +185,8 @@ pub enum OperationArg<'a> {
     Other(String),
 }
 
-/// `apply_resource_operation` of a world whose `model_state` holds the ledger's tree (the PyO3 crate
-/// asks that first, with the Python rule's first error). Its checks are the Python rule's, in its
-/// order, with its texts.
+/// `apply_resource_operation` of a world whose `model_state` holds the ledger's tree (the caller
+/// asks that first). Its checks are made in a fixed order, with their texts.
 pub fn apply_operation(world: &mut World, event: &OperationEvent<'_>, operation: OperationArg<'_>) -> std::result::Result<Applied, Fail> {
     // `validate_resource_ledger_state` of the ledger as it is: what it turns down is Unsupported.
     let ledger_warehouse = {
@@ -303,8 +299,8 @@ pub fn apply_operation(world: &mut World, event: &OperationEvent<'_>, operation:
 }
 
 /// `repr` of a str of printable ASCII without a quote or a backslash, which Python writes in single
-/// quotes as it is; any other is Unsupported. The PyO3 crate hands an unknown operation in as
-/// `OperationArg::Other` with Python's `repr`, so this answers only a caller without Python.
+/// quotes as it is; any other is Unsupported. A caller that has the operation's `repr` hands it in
+/// as `OperationArg::Other`; the handlers hand the str (`OperationArg::Text`).
 fn text_repr(text: &str) -> std::result::Result<String, Fail> {
     if text.bytes().all(|byte| (0x20..0x7f).contains(&byte) && byte != b'\\' && byte != b'\'') {
         Ok(quoted(text))
@@ -313,9 +309,9 @@ fn text_repr(text: &str) -> std::result::Result<String, Fail> {
     }
 }
 
-/// The operation on the row. What the Python rule turned down after its checks of the payload is
-/// its `ResourceLedgerError`, and a state its check of the ledger turned down is Unsupported, both
-/// with nothing changed. Every ID is checked by the caller to be a stable ID.
+/// The operation on the row. What is turned down after the checks of the payload is a
+/// `ResourceLedgerError`, and a state the check of the ledger turns down is Unsupported, both with
+/// nothing changed. Every ID is checked by the caller to be a stable ID.
 pub fn apply_planned(world: &mut World, planned: &Operation<'_>) -> std::result::Result<Applied, Fail> {
     let &Operation { operation: operation_text, warehouse_id, resource_id, index, quantity, beyond, reservation_id, agent_id, source_id, event_id } = planned;
     if let Some(agent) = agent_id {

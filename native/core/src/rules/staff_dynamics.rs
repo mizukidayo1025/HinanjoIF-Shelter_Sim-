@@ -1,13 +1,10 @@
-//! `domain/staff_dynamics.py`: staff shift, rest and fatigue, on the rows of a `World` (lane L10,
-//! `kernel_only`; moved to the core in P8b-1). What they refuse is a KernelRefusal at the Python
-//! entry. The checks of a Scenario's config and of an override stay in Python; the PyO3 crate's
-//! `rules/staff_dynamics.rs` keeps `canonical_staff_dynamics_config` and the state of a world built
-//! from a Scenario (decision 4), and hands in what Python holds: the fatigue formula of the configs
-//! (docs/rust-port/lanes/s-staff-dynamics.md).
+//! Staff shift, rest and fatigue, on the rows of a `World`. The checks of a Scenario's config are
+//! the Scenario's (`scenario_authoring/configs/staff_dynamics.py`, and `validate::staff_dynamics`
+//! of a world); the state of a world built from a Scenario is `initial`'s. The caller hands in the
+//! fatigue formula of the configs (docs/rust-port/lanes/s-staff-dynamics.md).
 //!
 //! `update` plans everything from the rows first, so an Unsupported changes nothing; it then writes
-//! the row of `staff_dynamics_v1` alone, and the tree follows the row when the world is given back
-//! (lane P8-0c). Every other function only reads, or builds a new value.
+//! the row of `staff_dynamics_v1` alone. Every other function only reads, or builds a new value.
 //!
 //! `operational_events_v1` and `staff_operations_v1` are read from their rows. A namespace whose row
 //! a write that did not fit dropped (tainted) is refused: its tree is all there is of it.
@@ -57,9 +54,9 @@ pub fn held_row<'w, T: Row>(world: &'w World, name: &str) -> Result<Held<ShardRe
     world.row::<T>(name).map(Held::Row)
 }
 
-/// The row of a namespace of the world, as a Python rule's `model_state.get(name)` reads it: None
-/// for a name the world does not have (or holds as None), Unsupported for a namespace a write that
-/// did not fit tainted, whose tree the rules can't read here.
+/// The row of a namespace of the world, as `model_state.get(name)` reads it: None for a name the
+/// world does not have (or holds as None), Unsupported for a namespace a write that did not fit
+/// tainted, whose tree the rules can't read here.
 #[track_caller]
 pub fn namespace<'w, T: Row>(world: &'w World, name: &str) -> Result<Option<ShardRef<'w, T>>> {
     match held_row::<T>(world, name)? {
@@ -70,7 +67,7 @@ pub fn namespace<'w, T: Row>(world: &'w World, name: &str) -> Result<Option<Shar
 }
 
 /// A section of `model_configs` as its read site reads it: a refusal keeps its reason, any other
-/// fault is a state no read site lets through (`configs::read` of the PyO3 crate).
+/// fault is a state no read site lets through.
 #[track_caller]
 pub fn config_read<T>(value: Read<T>) -> Result<T> {
     value.map_err(|fault| {
@@ -85,8 +82,8 @@ pub fn config_read<T>(value: Read<T>) -> Result<T> {
 // ---- What the rules read from the rest of the world -------------------------------------------------
 
 /// `state["staff_status"]` of `operational_events_v1`, or None without that namespace (or with None
-/// there): the input of `staff_is_available` in `domain/operational.py`, handed to `f`. The
-/// namespace and its `staff_status` are checked here; a member's record where it is read.
+/// there): the input of `staff_is_available`, handed to `f`. The namespace and its `staff_status`
+/// are checked here; a member's record where it is read.
 pub fn with_staff_status<R>(world: &World, f: impl FnOnce(StaffStatus<'_>) -> Result<R>) -> Result<R> {
     let state = world.slots.try_value(OPERATIONAL)?;
     let status = match state.as_deref() {
@@ -124,7 +121,7 @@ impl StaffStatus<'_> {
     }
 }
 
-/// `_on_shift`. A config of the oldest schema has no windows, and the Python rule raises.
+/// `_on_shift`. A config of the oldest schema has no windows, which is refused.
 pub fn on_shift(config: &ConfigRow, id: &str, minute: i64) -> Result<bool> {
     let Some(windows) = &config.shift_windows_by_staff.0 else {
         return Err(Error::unsupported("the config has no shift windows"));
@@ -171,8 +168,8 @@ struct Parameters {
     minute: i64,
 }
 
-/// One member's next record: the loop body of `update_staff_dynamics`. None when an int leaves
-/// what the kernel holds or a config key the Python rule reads is not there.
+/// One member's next record: the loop body of `update_staff_dynamics`. None when an int leaves what
+/// the kernel holds or a config key the rule reads is not there.
 fn next_record(record: &StaffRecord, working: bool, available_on_shift: bool, maximum: i64, parameters: &Parameters) -> Option<StaffRecord> {
     let mut next = *record;
     if working {
@@ -215,7 +212,7 @@ fn plan(row: &StaffDynamicsRow, members: &[Member], parameters: &Parameters) -> 
             return Err(Error::unsupported("a member has no record"));
         };
         let maximum = member.maximum.unwrap_or(parameters.default_maximum);
-        // In the Python rule's order: _on_shift is only asked of who has no task and is available.
+        // In this order: _on_shift is only asked of who has no task and is available.
         let available_on_shift = !member.working && member.available && on_shift(&row.config, &member.id, parameters.minute)?;
         let Some(next) = next_record(record, member.working, available_on_shift, maximum, parameters) else {
             return Err(Error::unsupported("a value leaves what this kernel holds"));
@@ -288,7 +285,7 @@ pub fn operation_is_idle(world: &World, staff_id: &str, absent: bool) -> Result<
 }
 
 /// `staff_dynamics_is_available` of a world that has the namespace: the operation is read first,
-/// as the Python rule reads it, and the status last. `operations_absent` as `operation_is_idle`.
+/// then the shift, and the status last. `operations_absent` as `operation_is_idle`.
 pub fn is_available_now(world: &World, staff_id: &str, minute: i64, operations_absent: bool) -> Result<bool> {
     let idle = operation_is_idle(world, staff_id, operations_absent)?;
     if !on_shift_now(world, staff_id, minute)? {

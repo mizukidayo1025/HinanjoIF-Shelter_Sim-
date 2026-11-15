@@ -1,27 +1,24 @@
 //! The world of a Scenario at minute 0, built in the core (Issue #249, stage 6 of #132; for the
 //! browser's Scenario screen, #285).
 //!
-//! `entry` takes a Scenario's canonical JSON (`ScenarioSpec.canonical_json()`) and gives the bytes
-//! the Python side writes of the world a Run starts from: `export_world(world, controller)` of the
-//! world `WorldState.from_scenario` made and `OfflineSimulationController` set up (as
-//! `tests/support/core_fixtures.py`'s `run_world` does), written with sorted keys and no spaces
-//! (`scripts/build_browser_sample.py`'s `export.json`). The loader (`crate::load::loaded`) and the
-//! browser's `Simulation` take those bytes as they take Python's.
+//! `entry` takes a Scenario's canonical JSON (`ScenarioSpec.canonical_json()`) and gives the entry
+//! of the world a Run starts from, written with sorted keys and no spaces. The loader
+//! (`crate::load::loaded`) and the browser's `Simulation` take those bytes.
 //!
-//! The core makes the whole entry of any Scenario as Python does (#429): the rows, the event
-//! queue, every namespace (`namespaces`: `WorldState.from_scenario`,
-//! `initialize_simulator_extensions` and `initialize_declared_states`, in Python's order), then
-//! `world.validate()` (`crate::validate::world`); the sections Python's contracts parse
-//! (`sections`); the Run's policies as `RunCore.policies_document` writes what the PyO3 crate read
-//! of the controller (`policies`), its route capacities and its zone neighbors. An error is the
-//! first one Python raises, with its class and text.
+//! The core makes the whole entry of any Scenario (#429): the rows, the event queue, every
+//! namespace (`namespaces`: `WorldState.from_scenario`, `initialize_simulator_extensions` and
+//! `initialize_declared_states`, in this order), then `world.validate()`
+//! (`crate::validate::world`); the sections the host parses (`sections`); the Run's policies
+//! (`policies`), its route capacities and its zone neighbors. An error is the first one met, with
+//! its class and text.
 //!
 //! A new Run's records (`model_versions` and the evidence route's answer) are made in `records`.
 //!
 //! The Scenario is untrusted input: what is not a Scenario's canonical JSON is an error, never a
 //! panic. Like the browser's builder that makes it (#291), this does not run `ScenarioSpec`'s
-//! validation: `tests/unit/core/test_world_export.py` checks the corpus of Scenarios
-//! (`fixtures/initial_corpus.json.xz`) and Scenarios Python refuses to build.
+//! validation: `tests/integration/test_initial_corpus.py` checks the corpus of Scenarios
+//! (`fixtures/initial_corpus.json.xz`) and the Scenarios whose building is refused, against the
+//! entries and errors recorded at #430.
 
 mod namespaces;
 mod policies;
@@ -48,7 +45,7 @@ use crate::value::V;
 use crate::world::{self, Fit, Place, World};
 
 /// The namespaces whose row the core's world holds, then the owned fields (`OWNED_NAMESPACES` and
-/// `OWNED_FIELDS` of `core/state_mirror.py`), in the order a Python world registers their slots.
+/// `OWNED_FIELDS`), in the order the world registers their slots.
 const OWNED_NAMESPACES: [&str; 19] = [
     "psychological_distress_v1",
     "staff_dynamics_v1",

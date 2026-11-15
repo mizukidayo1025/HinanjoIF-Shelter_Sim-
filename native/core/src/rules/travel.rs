@@ -1,24 +1,24 @@
 //! Where a person walks: `_route`, `_schedule_travel`, `_schedule_staff_support_travel`,
-//! `_schedule_return_to_initial_zone`, the choice of a facility (`experiments/phases/propose.py`,
-//! `policies/space.py`), the loads of the edges, and the routers of a Run (lane c6 of Issue #152).
+//! `_schedule_return_to_initial_zone`, the choice of a facility, the loads of the edges, and the
+//! routers of a Run.
 //!
 //! The rules are functions on the `World`. The route graph is the Run's (`Graph`), built from the
-//! world's zone and edge tables at each `_refresh_space` (`routers_of`): rows are the truth (lanes
-//! 6-1, P8-0c), and tables that a value did not fit (`zones_tainted`) are refused, with no graph of
-//! Python to fall back on. Edge capacities count every trip under way (`active_edge_loads`), and a
-//! route a full edge turns down records a capacity wait through the world's writer (`kit::Events`).
-//! A trip writes its task, the person's activity and target, its completion event and the start of
-//! its walk in the row of `movement_v1`.
+//! world's zone and edge tables at each `_refresh_space` (`routers_of`): rows are the truth, and
+//! tables that a value did not fit (`zones_tainted`) are refused, with no other graph to fall back
+//! on. Edge capacities count every trip under way (`active_edge_loads`), and a route a full edge
+//! turns down records a capacity wait through the world's writer (`kit::Events`). A trip writes its
+//! task, the person's activity and target, its completion event and the start of its walk in the
+//! row of `movement_v1`.
 //!
-//! What only Python has comes as an input read by the PyO3 crate before the world is borrowed: the
+//! What the rules take besides the rows comes as an input, read before the world is borrowed: the
 //! Run's graph and capacities, whether `model_state` holds `movement_v1` and `staff_operations_v1`
-//! (`kit::Held`), the movement section (`kit::Kept`), and the floor plan. A plan the PyO3 crate
-//! could not read is None here, and a rule that reads it says `PLAN_UNREAD`, for the PyO3 crate to
-//! raise what the read raised, at the point the rule read the plan before (as lane c4).
+//! (`kit::Held`), the movement section (`kit::Kept`), and the floor plan. A plan the host could not
+//! read is None here, and a rule that reads it says `PLAN_UNREAD`, for the caller to give what the
+//! read gave (`Host::floor_plan` again), at the point the rule reads the plan.
 //!
-//! What is refused is refused before anything is written: the Python rule's texts for a route from
-//! elsewhere and a support trip without its IDs, and Unsupported (a `KernelRefusal` in Python) for an
-//! input outside the rule's contract (docs/rust-port/lanes/m4-service.md).
+//! What is refused is refused before anything is written: the rule's texts for a route from
+//! elsewhere and a support trip without its IDs, and Unsupported for an input outside the rule's
+//! contract (docs/rust-port/lanes/m4-service.md).
 
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, LazyLock};
@@ -62,7 +62,7 @@ fn refuse<T>(reason: &'static str) -> Result<T> {
     Err(Error::unsupported(reason))
 }
 
-/// The floor plan, or `PLAN_UNREAD` where the PyO3 crate could not read it.
+/// The floor plan, or `PLAN_UNREAD` where the host could not read it.
 #[track_caller]
 pub(crate) fn plan(geo: Option<&Arc<Geo>>) -> Result<&Arc<Geo>> {
     geo.ok_or_else(|| Error::unsupported(PLAN_UNREAD))
@@ -197,7 +197,7 @@ fn payload_text(row: &EventRow, name: &str) -> Option<Arc<str>> {
 }
 
 /// The pending events in queue order, each with its due minute. Unsupported where one has no row:
-/// the PyO3 crate reads the rows of the events Python scheduled before it calls.
+/// the caller reads the queue's rows through the host (`Host::read_queue_rows`) first.
 fn pending_rows(world: &World) -> Result<Vec<(i64, Arc<EventRow>)>> {
     let queue = world.queue()?;
     let mut rows = Vec::with_capacity(queue.ordered().len());
@@ -350,7 +350,7 @@ pub fn passage_edge_loads(world: &World, movement: &Held, staff: &Held, minute: 
 #[derive(Clone, Copy)]
 pub struct Routing<'a> {
     pub graph: &'a Graph,
-    /// The floor plan; None where the PyO3 crate could not read it.
+    /// The floor plan; None where the host could not read it.
     pub geo: Option<&'a Arc<Geo>>,
     /// The movement section of the configs (`config::movement`).
     pub movement: &'a Kept<Movement>,
@@ -488,7 +488,7 @@ pub fn route(world: &World, routing: &Routing<'_>, origin: &Arc<str>, destinatio
 // ---- _schedule_travel ---------------------------------------------------------------------------
 
 /// What a trip's start reads beside the world: whether the world holds `movement_v1`, and the floor
-/// plan (None where the PyO3 crate could not read it).
+/// plan (None where the host could not read it).
 #[derive(Clone, Copy)]
 pub struct Walking<'a> {
     pub movement: &'a Held,
@@ -605,9 +605,9 @@ fn routing_source(world: &World) -> Result<Arc<str>> {
     })
 }
 
-/// `_schedule_travel`, changing nothing. None is its False. Its errors, and its refusals, come before
-/// anything is written: the Python rule's texts for a route from elsewhere and a support trip
-/// without its IDs (the Python rule allocated a sequence before the second).
+/// `_schedule_travel`, changing nothing. None is its False. Its errors, and its refusals, come
+/// before anything is written: the rule's texts for a route from elsewhere and a support trip
+/// without its IDs (the second after the trip's sequence is read).
 pub fn plan_travel(world: &World, events: &Events<'_>, walking: Walking<'_>, trip: Trip<'_>) -> Result<Option<PlannedTrip>> {
     let Trip { agent_id, route, points, purpose, facility_id, minute, causation_id, support_request_id, support_staff_id } = trip;
     let is_origin = {
@@ -748,7 +748,7 @@ pub fn plan_travel(world: &World, events: &Events<'_>, walking: Walking<'_>, tri
     Ok(Some(PlannedTrip { agent_id, task_id, task_kind, target_id, minute, due, event, changes }))
 }
 
-/// `_schedule_room_approach` of `events/handlers.py`, changing nothing. None is its False.
+/// `_schedule_room_approach`, changing nothing. None is its False.
 pub fn plan_room_approach(
     world: &World,
     events: &Events<'_>,
@@ -869,7 +869,7 @@ pub fn schedule_travel(world: &World, walking: Walking<'_>, trip: Trip<'_>) -> W
     Ok(true)
 }
 
-/// `_schedule_return_to_initial_zone` of `experiments/phases/dispatch.py`, after a completion event.
+/// `_schedule_return_to_initial_zone` of the dispatch phase, after a completion event.
 pub fn schedule_return(world: &World, routing: &Routing<'_>, walking: Walking<'_>, event: &EventRow) -> WriteResult<()> {
     let Some(agent_id) = payload_text(event, "agent_id") else {
         return Ok(());

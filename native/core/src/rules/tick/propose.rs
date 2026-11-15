@@ -1,11 +1,11 @@
-//! The propose phase (`ProposePhase` of `experiments/phases/propose.py` gives its steps): the view for the
-//! proposals (the update phase's, read again, or a new one, with its audit hash), the proposals of
-//! those due, and for each its observed state, its effect and its record.
+//! The propose phase: the view for the proposals (the update phase's, read again, or a new one,
+//! with its audit hash), the proposals of those due, and for each its observed state, its effect
+//! and its record.
 //!
-//! What the effect reads besides the world is read as the PyO3 entry `_apply_effect` read it
-//! (`native/src/rules/proposals.rs`), by the proposal's action and in its order: what the world
-//! holds, the configs' sections, the floor plan, the Run's people's router, the managers and the
-//! staff service as the Run read them, the information policy's threshold.
+//! What the effect reads besides the world is read by the proposal's action, in a fixed order
+//! (`read_effect`): what the world holds, the configs' sections, the floor plan, the Run's people's
+//! router, the managers and the staff service as the Run read them, the information policy's
+//! threshold.
 
 use std::sync::Arc;
 
@@ -108,7 +108,8 @@ fn due<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R>, data: &V
     behavior::due(data, &scoring, &seed, hash).map_err(|bad| tick.bad(bad))
 }
 
-/// `_observed_state`: a sink in Python, or a writer's, reads the document as a dict.
+/// `_observed_state`: the host's own sink (`DecisionSink::Python`), or a writer's, reads the
+/// document as a dict.
 fn observed<C: WorldCell, H: Host, R: RunCell>(
     tick: &mut Tick<'_, C, H, R>,
     data: &ViewData,
@@ -243,7 +244,7 @@ pub fn graph<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R>) ->
     Ok(Graph { router, capacities })
 }
 
-/// What `_apply_effect` reads besides the world, by the action (`Read::of` of its glue).
+/// What `_apply_effect` reads besides the world, by the action.
 fn read_effect<C: WorldCell, H: Host, R: RunCell>(
     tick: &mut Tick<'_, C, H, R>,
     holding: &Holding,
@@ -306,7 +307,7 @@ fn trips_of<C: WorldCell, H: Host, R: RunCell>(
         |configs| &configs.knowledge_is_limited,
         crate::config::agent_dynamics::knowledge_is_limited,
     )?;
-    // The rows of the events Python scheduled, for the core's reads of the whole queue.
+    // The rows of the pending events the host holds, for the core's reads of the whole queue.
     if graph.capacities.any || resource {
         tick.host.read_queue_rows()?;
     }
@@ -418,9 +419,8 @@ fn apply_effect<C: WorldCell, H: Host, R: RunCell>(
     apply_alone(tick, Proposal { action, agent_id, next_decision_at: outcome.next_decision_at, target_id, observed_state_hash })
 }
 
-/// `_apply_effect` of one proposal, as the PyO3 entry `proposals.apply_effect` runs it: what the
-/// action reads, then its effect (also for the core's tests, Issue #225). A seek's proposal has its
-/// observed state hash.
+/// `_apply_effect` of one proposal: what the action reads, then its effect (also for the core's
+/// tests, Issue #225). A seek's proposal has its observed state hash.
 pub fn apply_alone<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R>, proposal: Proposal) -> std::result::Result<Applied, H::Error> {
     let holding = tick.holding()?;
     if !holding.table {
@@ -443,8 +443,9 @@ pub fn apply_alone<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, 
     proposals::seek_after(tick.cell, tick.host, &inputs, &proposal, sought)
 }
 
-/// `_record_outcome`: the record, then the lifecycle and the memory. A sink in Python records it
-/// through the host (H5), after which the core runs the same rules.
+/// `_record_outcome`: the record, then the lifecycle and the memory. The host's own sink
+/// (`DecisionSink::Python`) records it (`Host::record_decision_python`, H5), after which the core
+/// runs the same rules.
 fn record_outcome<C: WorldCell, H: Host, R: RunCell>(
     tick: &mut Tick<'_, C, H, R>,
     data: &ViewData,

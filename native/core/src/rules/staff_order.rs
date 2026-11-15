@@ -1,15 +1,11 @@
-//! `validate_staff_operation_order` and `order_staff_operation` of `domain/staff_operations.py`: an
-//! operator's order of one routed staff task, as an EffectProgram's `staff_task_order` gives it in the
-//! tick (`effects.rs` `staff_task_order`, in its transaction), on the rows of a `World` (moved to the
-//! core in P8 b2). The PyO3 crate's file of the same name reads what Python holds
-//! (`staff_operation_events::Inputs`) and calls `order_operation`.
+//! An operator's order of one routed staff task, as an EffectProgram's `staff_task_order` gives it
+//! in the tick (`effects.rs` `staff_task_order`, in its transaction), on the rows of a `World`. The
+//! caller reads the inputs (`staff_operation_events::Inputs`) and calls `order_operation`.
 //!
-//! The checks are the Python rule's, in its order, with its texts: each is raised before anything is
-//! written. What the rule does not let Rust decide is Unsupported, before the first write too. The
-//! writes are `order_staff_operation`'s, in its order: the row of `staff_operations_v1`, the task,
-//! the staff member, the events and the staff positions (`staff_operation_events::snapshots`).
-//! `validate_staff_operation_order` stays in Python for `validate_effect_program`, which checks a
-//! program before it is scheduled (docs/rust-port/lanes/l8-texts-events.md).
+//! The checks are made in a fixed order, with their texts: each is raised before anything is
+//! written. What the core does not decide is Unsupported, before the first write too. The writes
+//! are in a fixed order: the row of `staff_operations_v1`, the task, the staff member, the events
+//! and the staff positions (`staff_operation_events::snapshots`).
 
 use std::collections::HashSet;
 use std::sync::Arc;

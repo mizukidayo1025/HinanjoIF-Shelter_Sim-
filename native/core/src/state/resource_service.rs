@@ -1,10 +1,8 @@
-//! `resource_service_v1`: what the staffed water and meal service holds (`domain/resource_service.py`).
-//! `rules/service.rs` writes the row alone, and an attached tree follows it (lane c3 of #152); a
-//! Python write reaches the row through the forwarded writes (docs/rust-port/lanes/m4-service.md).
+//! `resource_service_v1`: what the staffed water and meal service holds. `rules/service.rs` writes
+//! the row alone, and an attached tree follows it (lane c3 of #152;
+//! docs/rust-port/lanes/m4-service.md).
 //!
 //! A value of another type than the rules write taints the namespace, and the rules refuse it.
-//!
-//! The PyO3 crate's `state/resource_service.rs` reads it from Python and holds its validator.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -97,8 +95,8 @@ pub trait ServiceWorld {
 impl ServiceRow {
     /// The rules of a tick's check in `WorldState.validate` (#152; in the core since #250), for a
     /// world of these rows, people and zones, at this minute; `heads` are the heads of the
-    /// independent queues of each facility that has them. True says the Python rules accept; false
-    /// decides nothing.
+    /// independent queues of each facility that has them. True says the whole validation accepts;
+    /// false decides nothing.
     pub fn passes_rules<W: ServiceWorld>(
         &self,
         rows: &Entities,

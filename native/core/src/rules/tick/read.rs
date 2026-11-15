@@ -1,7 +1,6 @@
 //! What the phases' steps read besides the world, through the host and the Run (lane P9-2a): what
 //! the world holds (H1), the configs' sections (H2), the floor plan, the queue's rows (H6), and the
-//! readers shared by several steps. Each reader reads what the step's PyO3 entry read, in its order,
-//! with the same refusals.
+//! readers shared by several steps. Each reader reads in a fixed order, with its refusals.
 
 use std::sync::Arc;
 
@@ -14,11 +13,11 @@ use crate::world::{WorldCell, MODEL_CONFIGS};
 
 use super::{RunCell, Tick};
 
-/// The refusal of a section the configs do not have (`configs::kept` of the PyO3 crate).
+/// The refusal of a section the configs do not have.
 pub const NO_SUCH_SECTION: &str = "the configs have no such section";
 /// `as_readable_dict(model_state)` failed where a step checks it (`body_state_of` of psychology).
 pub const NOT_READABLE: &str = "model_state is not readable";
-/// `exact_dict(model_state)` failed (`exact_dict` of `core/row.rs`).
+/// `model_state` is not a plain dict where a step checks it.
 pub const NOT_PLAIN: &str = "a value is not a plain dict";
 
 /// A section as a `Kept` read: its value, or the fault for the read site.
@@ -61,13 +60,13 @@ impl<C: WorldCell, H: Host, R: RunCell> Tick<'_, C, H, R> {
         }
     }
 
-    /// A section a Python contract parses (H2), filled by the host at its first read.
+    /// A section the host parses (`Parser::Host`, H2), filled by the host at its first read.
     pub fn host_section<T>(&mut self, holding: &Holding, which: SectionId, get: fn(&Configs) -> &Lazy<T>) -> std::result::Result<Kept<T>, H::Error> {
         Ok(kept_of(kit::section(self.cell, self.host, holding, which, get)?))
     }
 
-    /// The error a read site raises for a fault of a section Python parses (`configs::raise`): a
-    /// refusal its own `Unsupported`, any other what the parse raises again (policy E14).
+    /// The error a read site raises for a fault of a section the host parses: a refusal its own
+    /// `Unsupported`, any other what the host's parse gives again (`Host::read_again`, policy E14).
     pub fn raise(&mut self, which: SectionId, fault: &Fault) -> H::Error {
         if fault.is_refusal() {
             return Error::unsupported(fault.text.to_string()).into();
@@ -89,7 +88,7 @@ impl<C: WorldCell, H: Host, R: RunCell> Tick<'_, C, H, R> {
     }
 }
 
-/// The floor plan as the host read it (`Plan` of the PyO3 crate's travel glue).
+/// The floor plan as the host read it.
 pub struct Plan<E>(pub std::result::Result<Arc<Geo>, E>);
 
 impl<E> Plan<E> {

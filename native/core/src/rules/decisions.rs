@@ -1,21 +1,18 @@
-//! Recording a decision with its outcome, the step `_record_outcome` of the propose phase
-//! (`experiments/phases/propose.py`; moved to the core in lane P8 a5): the record, then the action's
-//! lifecycle, then the person's memory, in that order.
+//! Recording a decision with its outcome, the step `_record_outcome` of the propose phase: the
+//! record, then the action's lifecycle, then the person's memory, in that order.
 //!
-//! The record goes where the Run's sink takes it (`Host::decision_sink`): nothing for a silent sink;
-//! the JSON bytes of `_IndexedMetricSink.record_decision` (`decision_bytes`, with the keys in the
-//! order of its dict) for an indexed one; the document of `_decision_document` and the observed
-//! state for `RunArtifactWriter` while its trace is on. Everything that can turn the record down
-//! is read before the host takes it, and what this rule does not write itself (a sink that runs
-//! `record_decision` in Python, an observed state that is not the view's person, a NaN, a large
-//! observed state the sink measures, a tainted store, a household no row reads) is `Sunk::Python`:
-//! the PyO3 crate then calls the sink's own `record_decision` with the Python proposal, and the
-//! rules after it as here.
+//! The record goes where the Run's sink takes it (`Host::decision_sink`): nothing for a silent
+//! sink; the JSON bytes of `_IndexedMetricSink.record_decision` (`decision_bytes`, with the keys in
+//! the order of its dict) for an indexed one; the document of `_decision_document` and the observed
+//! state for `RunArtifactWriter` while its trace is on. Everything that can turn the record down is
+//! read before the host takes it, and what this rule does not write itself (the host's own sink,
+//! `DecisionSink::Python`, an observed state that is not the view's person, a NaN, a large observed
+//! state the sink measures, a tainted store, a household no row reads) is `Sunk::Python`: the host
+//! then records it (`Host::record_decision_python`), and the rules after it run as here.
 //!
 //! The lifecycle and the memory are `action_lifecycle::commit_action` and
 //! `agent_dynamics::remember_decision`, called directly. What they refuse has changed nothing and
-//! is the KernelRefusal of their Python entries (`Error::refused` with `LIFECYCLE` or `MEMORY`), as
-//! when the step called those entries.
+//! is labelled with their rule (`Error::refused` with `LIFECYCLE` or `MEMORY`).
 
 use std::sync::Arc;
 
@@ -33,7 +30,8 @@ use crate::world::{World, WorldCell};
 /// `ActionProposal.trigger` of a scheduled decision.
 pub const TRIGGER: &str = "scheduled_decision";
 /// `len(json.dumps(observed))` is at most twice the length without its spaces, so a shorter one is
-/// within the 16,384 of `record_decision`. A longer one is left to Python, which measures it.
+/// within the 16,384 of `record_decision`. A longer one is left to the host
+/// (`Host::record_decision_python`).
 pub const MAX_OBSERVED_BYTES: usize = 8192;
 /// The label of the KernelRefusal of the lifecycle's rule.
 pub const LIFECYCLE: &str = "action_lifecycle.record_action_proposal";
@@ -80,7 +78,7 @@ impl Recording<'_> {
 pub enum Sunk {
     /// The sink took it (or a silent sink, nothing).
     Recorded,
-    /// Nothing was done: the sink's own `record_decision` takes it, with the Python proposal.
+    /// Nothing was done: the host takes it (`Host::record_decision_python`).
     Python,
 }
 
@@ -323,7 +321,7 @@ fn text(value: &str) -> V {
     V::Str(Arc::from(value))
 }
 
-/// `_decision_document` of `inspection/traces.py`, without the observed state its writer adds last.
+/// `_decision_document`, without the observed state its writer adds last.
 pub fn decision_document(recording: &Recording<'_>, full: bool) -> Result<V> {
     let data = recording.data;
     let proposal = recording.proposal;

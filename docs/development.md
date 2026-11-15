@@ -151,7 +151,7 @@ python benchmarks/wasm_trial_measure.py --bundle sample.shelterproj --pkg wasm-w
 
 分ごとのframeは、分岐ごとに1つ手元に置いたSimulationから作ります。後の分は、手元のSimulationを進めるほうが途中の点から戻すより安いとき（手元の分がその分以前の一番近い点以後か、差が360分以内）は進め、それ以外は`RunReader.seek`で途中の点に戻してから計算します（#251）。再生（`replay-frames`）は手元のSimulationを進めるだけで、戻しません。手元に置くSimulationは2つまでで、置き換えるものは先に解放します（WASMのメモリーは縮まないため）。digestは、Runが持つログのhashの途中の状態に増えた記録だけを足して求めます（上の段落）。
 
-ページを開いただけでは、計算済みの例を取り寄せません（#411）。Workerは起動時に、サイトの例の一覧（`/sample/examples.json`。形は`browser_api.mjs`の`EXAMPLES_FORMAT`）だけを読みます。一覧の各項目は、例の目録（`sample.json`。形は`SAMPLE_FORMAT`）の場所、Project、大きさ、sha256と、取り寄せる前に画面が出す中身（Runと分岐の数、最初のScenarioの自治体・災害・人数・分）です。ホームの「計算済みの例を取得する」が一覧を出し、選ばれた例だけを取り寄せます。取り寄せた例（`scripts/build_browser_sample.py`の1つのファイルを分けたもの）は、各部分と全体のsha256を確かめてから読み込みます（`importProject`）。その間は、選ぶ画面に進み具合を出します。読み込んだ例のsha256は、Projectごとに`projects/`の隣（`site-sample.json`の`examples`。#411の前の形`{sha256, project_id}`も読みます）に残します。サイトが上げ直されて例が変わったとき、または一覧から消えたときは、起動時にその例のProjectを消し、ホームはもう一度取得できるようにします。例はサイトのもので、利用者のシナリオではないためです（#411の前も、例が変わると開いたときに置き換えていました）。`native/wasm/tests/node_browser_api.mjs`は、メモリーの置き場で、記録の答え、保存した点・その間・前に戻る分のtimeline、続く再生の窓のframeが止めずに進めたRunのframeと同じbytesになること（再生の窓では戻さないこと）、Pythonと同じ誤り、未対応の道、`api_answers.mjs`の道をつないだこと、例の部分の確かめと読み込み、例の一覧とsha256の記録の形を確かめます。CIの`ブラウザー版の計算`のjobも動かします。
+ページを開いただけでは、計算済みの例を取り寄せません（#411）。Workerは起動時に、サイトの例の一覧（`/sample/examples.json`。形は`browser_api.mjs`の`EXAMPLES_FORMAT`）だけを読みます。一覧の各項目は、例の目録（`sample.json`。形は`SAMPLE_FORMAT`）の場所、Project、大きさ、sha256と、取り寄せる前に画面が出す中身（Runと分岐の数、最初のScenarioの自治体・災害・人数・分）です。ホームの「計算済みの例を取得する」が一覧を出し、選ばれた例だけを取り寄せます。取り寄せた例（`scripts/build_browser_sample.py`の1つのファイルを分けたもの）は、各部分と全体のsha256を確かめてから読み込みます（`importProject`）。その間は、選ぶ画面に進み具合を出します。読み込んだ例のsha256は、Projectごとに`projects/`の隣（`site-sample.json`の`examples`。#411の前の形`{sha256, project_id}`も読みます）に残します。サイトが上げ直されて例が変わったとき、または一覧から消えたときは、起動時にその例のProjectを消し、ホームはもう一度取得できるようにします。例はサイトのもので、利用者のシナリオではないためです（#411の前も、例が変わると開いたときに置き換えていました）。ホームの一覧で例のRunをすべて削除したときも、その例は取り寄せていないものとして扱い、ホームはもう一度取得できるようにします。取り寄せ直すと、例のProjectに読み込み直します（`browser_api.mjs`の`exampleHeld`、#440）。`native/wasm/tests/node_browser_api.mjs`は、メモリーの置き場で、記録の答え、保存した点・その間・前に戻る分のtimeline、続く再生の窓のframeが止めずに進めたRunのframeと同じbytesになること（再生の窓では戻さないこと）、Pythonと同じ誤り、未対応の道、`api_answers.mjs`の道をつないだこと、例の部分の確かめと読み込み、例の一覧とsha256の記録の形を確かめます。CIの`ブラウザー版の計算`のjobも動かします。
 
 ~~~shell
 node native/wasm/tests/node_browser_api.mjs wasm-pkg
@@ -198,7 +198,7 @@ python scripts/serve_static_site.py ../hinanjo-if-site --port 8000
 
 | 道 | ファイル |
 |---|---|
-| `/` | `index.html`。`demo-v2.html`と同じ頁で、ホームを開きます。取り寄せた例のRun、「計算済みの例を取得する」（#411）、自分のシナリオ、ライセンスの表示へのリンク（#371） |
+| `/` | `index.html`。`demo-v2.html`と同じ頁で、ホームを開きます。保存済みのシナリオ（取り寄せた例と自分のシナリオの1つの一覧、各行に「削除」、#440）、「計算済みの例を取得する」（#411）、ライセンスの表示へのリンク（#371） |
 | `/demo-v2.css`、`/demo-v2*.js`、`/demo-v2-logo.jpg` | 画面のファイル（変えずに写す） |
 | `/admin` | `admin.html`。中継の合言葉を発行・確認・停止する管理の頁（#433、下の「LLMの中継」）。画面からはリンクしません。道は`scripts/build_static_site.py`の`ADMIN_PAGE`だけが決めます |
 | `/LICENSE.txt` | リポジトリーの`LICENSE`（MIT）。`.txt`の2つは先頭にUTF-8のBOMを付けます。Workersは`.txt`を文字コードの指定なしの`text/plain`で返すため、BOMがないとブラウザーが日本語を文字化けさせます（#410） |

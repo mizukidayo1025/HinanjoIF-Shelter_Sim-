@@ -511,6 +511,17 @@ export function markerExamples(marker) {
   return {};
 }
 
+/// Whether the store holds the site's example `example` ({ project_id, sha256 }) as the home can
+/// open it: the marker (`held`, markerExamples) names its bundle, its Project is there and holds
+/// a Run. An example whose Runs were all deleted on the home (#440) is not held: the home offers
+/// to fetch it again, and fetching imports it again over its Project.
+export async function exampleHeld(tree, example, held) {
+  if (held[example.project_id] !== example.sha256) return false;
+  if ((await tree.read([example.project_id, "project.json"])) === null) return false;
+  const runs = JSON.parse(await store.runsResponse(tree, example.project_id)).runs;
+  return runs.length > 0;
+}
+
 /// Makes sure the store holds the site's sample: when the store's marker does not name the
 /// manifest's bundle (or the Project is missing), fetches the parts (`fetchBytes(path)` →
 /// Uint8Array, the path relative to the manifest), checks each and the whole against their sha256,

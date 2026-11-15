@@ -398,3 +398,58 @@ assert.equal($("home-api-enable").hidden, false);
         check=False,
     )
     assert result.returncode == 0, result.stderr
+
+
+def test_the_home_lists_saved_scenarios_with_delete_but_not_the_server_s_example():
+    """「保存済みのシナリオ」 (#440): one list; an example's rows are marked 「例」, and have
+    「削除」 only where the example can be fetched again (the browser version); one's own always."""
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("Node is required for the UI callback regression")
+    source = Path("src/sheltersim/web/static/demo-v2.js").resolve()
+    script = r"""
+import fs from "node:fs";
+import assert from "node:assert/strict";
+const source = fs.readFileSync(process.argv[1], "utf8");
+const body = source.split("  function homeRows(")[1].split("\n  }\n")[0];
+const node = (tag, text, cls) => ({
+  tag, text, cls, children: [], attrs: {},
+  append(...items) { this.children.push(...items); },
+  setAttribute(k, v) { this.attrs[k] = v; },
+  addEventListener(type, fn) { this.click = fn; },
+  querySelector(sel) { return this.children.find((c) => c.tag === sel); },
+});
+const el = (tag, text, cls) => node(tag, text, cls);
+const runNames = (runs) => new Map(runs.map((r) => [r.run_id, `name ${r.run_id}`]));
+const runLink = () => { const a = node("a"); a.append(node("strong", "title")); return a; };
+const deleted = [];
+const action = (label, task) => task();
+const deleteRun = (project, run, name) => deleted.push([project, run, name]);
+const homeRows = eval("(function homeRows(" + body + "\n  })");
+const project = { runs: [{ run_id: "r1" }, { run_id: "r2" }], scenarios: [] };
+const button = (row) => row.children.find((c) => c.tag === "button");
+const strong = (row) => row.children[0].querySelector("strong");
+const tag = (row) => strong(row).children.find((c) => c.cls === "home-tag");
+
+const server = homeRows("sample", project, { example: true, deletable: false });
+assert.equal(server.length, 2);
+assert.equal(tag(server[0]).text, "例");
+assert.equal(button(server[0]), undefined);
+
+const browser = homeRows("sample", project, { example: true, deletable: true });
+assert.equal(button(browser[1]).text, "削除");
+browser[1].children.find((c) => c.tag === "button").click();
+assert.deepEqual(deleted, [["sample", "r2", "name r2"]]);
+
+const own = homeRows("backup-1", project, { example: false, deletable: true });
+assert.equal(tag(own[0]), undefined);
+assert.equal(button(own[0]).attrs["aria-label"], "「name r1」を削除");
+"""
+    result = subprocess.run(
+        [node, "--input-type=module", "-e", script, str(source)],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr

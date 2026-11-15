@@ -12,7 +12,8 @@
 //! `ApplyPlan::fork_checks` checks the branch, the minute and the child; the caller makes the
 //! child (`compute::Procedure::fork`, given the state the preview saw, `ApplyPlan::state_hash`)
 //! and keeps its outcome (`created_outcome`, `failed_outcome`: the Run's
-//! `last_fork`). The answer (`ApplyPlan::answer`) is the server's while its worker forks.
+//! `last_fork`). The answer (`ApplyPlan::answer`) says `running`, as the server's did while a
+//! worker made the child (before #427); the child is made before it now.
 
 use serde_json::{Map, Value};
 

@@ -15,7 +15,7 @@ SHELTERSIM_LLM_MODE=offline sheltersim web \
 
 http://127.0.0.1:8765/ を開くと、ホームが出ます。保存したシナリオを開くか、新しいシナリオを作ります。`/index.html`は、クエリを保ったまま`/`へ302で送ります。前の道（`/demo-v2`、`/demo`、`/admin`）は転送しません（#434）。
 
-Projectは`--runs-dir`の下の`.projects`に保存されます。計算と分岐は、Runごとに別プロセスで動きます。異なるRunは、既定で2つまで同時に計算できます。`--max-parallel-runs N` で変えられます。保存データ（Run、Checkpoint、履歴の索引）は、`.projects`ごとに既定で10 GB（10^9バイト）までです。`--project-storage-gb N`で変えられます。計算1本で、1日分のRun（100人）なら約0.5〜0.9 GBのメモリを使うので、PCのメモリに合わせて決めてください。
+Projectは`--runs-dir`の下の`.projects`に保存されます。計算と分岐は、Runごとに別プロセスで動きます。異なるRunは、既定で2つまで同時に計算できます。`--max-parallel-runs N` で変えられます。保存データ（Runの記録と保存したRun）は、`.projects`ごとに既定で10 GB（10^9バイト）までです。`--project-storage-gb N`で変えられます。計算1本で、1日分のRun（100人）なら約0.5〜0.9 GBのメモリを使うので、PCのメモリに合わせて決めてください。
 
 このserverはローカル用途で、loginを持ちません。別途確認済みのaccess controlがない限りloopbackにbindしてください。
 

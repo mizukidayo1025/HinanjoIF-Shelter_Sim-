@@ -10,7 +10,7 @@
 
 従来の単純な流れは「文章 -> facility_outage等のenum -> handlerまたは拒否」でした。現在の設計は次のとおりです。
 
-文章 -> Opus Event Compiler -> 意味機構の組合せ／型付きEffectProgram -> schema検証 -> 意味・実行可能性・因果経路の検証 -> 仮定とpreviewの説明 -> 明示承認 -> Checkpointから独立Branchを作成し決定的interpreterで適用 -> Agent/施設/空間/社会Policyを実行 -> A/B比較
+文章 -> Opus Event Compiler -> 意味機構の組合せ／型付きEffectProgram -> schema検証 -> 意味・実行可能性・因果経路の検証 -> 仮定とpreviewの説明 -> 明示承認 -> 保存した点から独立Branchを作成し決定的interpreterで適用 -> Agent/施設/空間/社会Policyを実行 -> A/B比較
 
 再現可能な実行には有限のatomic primitive集合が必要ですが、eventの物語や組合せは拡張できます。言い回しごとの専用handlerを増やすのではなく、小さなPolicyで機構を追加します。
 
@@ -26,7 +26,7 @@ EffectProgramは任意Python/JavaScript、shell、dynamic import、LLM提供関�
 
 guardはfield allowlistとeq/ne/gt/gte/lt/lte/and/orだけを使う上限付き型付きASTです。effect数、guard深さ、期間、数値範囲、scope、target数、予定event数、tickあたり作業量に上限を設け、無制限chainを拒否します。モデル状態への効果は既存event schedulerと承認済みdomain handlerを通します。Agentの反応は行動・心理・職員規則と追跡可能な入力から生じる必要があります。
 
-時間変化modifierは安定ID、開始・終了、stacking規則、決定的な期限復元を持ち、Checkpointにはmodifier stackと未実行期限eventを保存します。stress=90のような表示KPIへの直接代入は禁止です。noise等はsource IDのある仮定として導入済みPolicyへ入力できます。複数effectを含むplanは全体を一括事前検証します。無効planの一部だけを元Run/候補Branchへ適用してはいけません。
+時間変化modifierは安定ID、開始・終了、stacking規則、決定的な期限復元を持ち、保存した点にはmodifier stackと未実行期限eventが入ります。stress=90のような表示KPIへの直接代入は禁止です。noise等はsource IDのある仮定として導入済みPolicyへ入力できます。複数effectを含むplanは全体を一括事前検証します。無効planの一部だけを元Run/候補Branchへ適用してはいけません。
 
 ## Event Compilerの段階
 
@@ -35,19 +35,19 @@ guardはfield allowlistとeq/ne/gt/gte/lt/lte/and/orだけを使う上限付き�
 3. **構成:** EffectProgram、確度/support状態、日本語の機構説明、仮定、欠けるPolicy、予想計算時間とAPI費用を返す。未計算の結果を事実のように示さない。
 4. **検証:** target、導入Policy、KPI直接変更の有無、state/capacity/resource不変条件、単位、event schedule、guard複雑度を検証する。不正なら制約付き修正を一度試すか、限界と調整案を示す。
 5. **preview/承認:** 対応action、仮定、対応範囲、限界、approximate用parameterを表示し、利用者の確認を求める。
-6. **Branch作成:** event前のCheckpointから分岐し、compiler/model、prompt hash、承認plan、利用者修正、event記録、modifier stateを保存する。
+6. **Branch作成:** event前の保存した点から分岐し、compiler/model、prompt hash、承認plan、利用者修正、event記録、modifier stateを保存する。
 7. **simulation:** 決定的tick engineが組合せeffectと後段Policyを処理する。previewを観測済みmodel出力と偽らない。
 8. **参照:** compiled AST、検証・修正記録、対象ID、係数仮定、schedule、decision、Run hash、provenance、Provider利用を、Projectの記録とAPI（evidence、audit、利用記録）から参照可能にする。画面での表示は`/demo-v2`へ移す予定です（#376）。
 
 ## 現在のcompiler動作
 
-sheltersim.llm.natural_language.compile_natural_language()がPREPARE段階のentry pointです。ParseRequest、注入されたLLMRouter（または環境設定から作るrouter）、code-owned PrimitiveRegistryを受け取ります。scenario_summary_from_world()は選択Branchの匿名snapshotを作り、現在minute/horizon、Zone・施設ID/容量/占有数、Agent数、勤務可能staff、未着shipment、資源ledger、WorldStateに実際に存在するPolicyを返します。
+介入の文の読み取りは中核の`sheltersim_core::interpret`にあります（#303、#463。#430より前はPythonの`compile_natural_language`でした）。APIキーがないときは`compile_offline`（WASMの`compileInterventionOffline`）が規則で読みます。APIキーのあるサーバーでは、`interpret::Compiling`が作った作業を、設定したrouterへ中核のLLMの口で渡します（`answers::interventions::PreviewPlan::compiling`、[llm-integration.md](llm-integration.md#結果の分析を中核で行う463)）。読み取りに渡す要求（`ParseRequest`）は、文と、選んだBranchのその分の世界の匿名の要約（`summary::scenario_summary`）です。要約は、現在minute/horizon、Zone・施設ID/容量/占有数、Agent数、勤務可能staff、未着shipment、資源ledger、世界に実際に存在するPolicyを持ちます。primitiveの説明とparameter schemaは`native/core/src/interpret/primitives.json`にあります。
 
 compilerはsnapshotとprimitiveのtarget種別・必要Policyを照合します。実行可能operatorとparameter schemaだけをOpus prompt/response schemaへ入れます。現在のregistryはeffect-program.mdに記載されています。set_ambient_noiseとmodify_demand_rateはzone_environment_v1がopt-inされる場合だけ候補です。既存の休息回復とaction選択確率に限った経路です。route cost、群集移動、照明、温度、情報拡散、施設固有需要は未対応です。必要機構がない場合はnot_simulatableとし、別の導入済みprimitiveで根拠ある限定近似ができる場合に限りapproximateにできます。
 
 Provider responseは動的JSON schemaを通し、operator別parameter、target/Policy適合性、数量、施設占有、shipment時刻、期限、全体上限を検証します。意味検証に失敗した場合、同じrouterで制約付き修正を一度試すことがあります。結果はcompiled、clarification_required、not_simulatableです。実行可能DraftPlanには必ず明示承認が必要です。previewは提案した機構の説明であり、観測済み結果ではありません。
 
-routerがoffline、budget超過、rate limit、timeout、response拒否となった場合、認識済みで文脈に合う形式に限り決定的offline parserへfallbackします。それ以外は理由付きnot_simulatableを返します。ただし`SHELTERSIM_LLM_ERROR_POLICY=stop`では、offline mode以外でOpusの案を使えなかった場合にparserへfallbackせず、理由を返して失敗します（Project APIは409 `intervention_compiler_unavailable`、legacy demoは409）。fallback状態、model、prompt/input hash、token、概算費用、cache状態、error種別を表示します。入力は信頼しないデータとし、Provider送信前に連絡先をredactします。compilerはWorldStateを受け取らず変更もしません。適用時はBranchRuntime.apply_effect_program()が意味検証をやり直してから一括scheduleします。
+routerがoffline、budget超過、rate limit、timeout、response拒否となった場合、認識済みで文脈に合う形式に限り決定的offline parserへfallbackします。それ以外は理由付きnot_simulatableを返します。ただし`SHELTERSIM_LLM_ERROR_POLICY=stop`では、offline mode以外でOpusの案を使えなかった場合にparserへfallbackせず、理由を返して失敗します（Project APIは409 `intervention_compiler_unavailable`）。fallback状態、model、prompt/input hash、token、概算費用、cache状態、error種別を表示します。入力は信頼しないデータとし、Provider送信前に連絡先をredactします。compilerは世界を受け取らず、要約だけを読み、何も変えません。適用時は中核の`program::schedule`が確かめをやり直してから一括で予定します。
 
 CIと標準pytestはfake Providerまたはoffline modeだけを使います。21件の日本語promptによるoffline評価はevent-coverage-report.mdに記載しています。導入operatorのcoverageとruntime validationを測るもので、live Providerの精度測定ではありません。
 
@@ -72,8 +72,8 @@ APIキーなしの規則の読み取りでは、日付（`2026-10-14`、`10/13`�
 1. 対応結果のcoverage、時刻・範囲の正確さ、限界表示。
 2. 物理機構や心理予測の捏造がないこと。
 3. 受理した全programがschemaとdomainの事前検証を通ること。
-4. parse/previewで元WorldStateが変わらず、承認適用が一括かつidempotentであること。
-5. no-op branch/replay決定性と、Checkpoint復元後もmodifier期限が一致すること。
+4. parse/previewで元の世界が変わらず、承認適用が一括かつidempotentであること。
+5. no-op branch/replay決定性と、保存した点から戻した後もmodifier期限が一致すること。
 6. 適用effectにeffect_idとevent/LLM compiler provenanceがあり、Branchの記録から確認できること。
 7. model利用不可時に、計算する内容・しない内容を説明し、架空の数値結果を出さないこと。
 

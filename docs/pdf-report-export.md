@@ -69,7 +69,7 @@ POST /api/v1/projects/{project}/runs/{run}/pdf-report
 
 `runs/{run}/pdf-reports/{hash}.json` に独立したschema_version=1の成果物として、
 入力identity、集計projection、AI分析・利用記録、PDFのbase64と検証hashを原子的に保存します。
-既存のProject容量制限を適用します。identityにはBranch順序・head Checkpoint・評価時刻・Scenario hash・
+既存のProject容量制限を適用します。identityにはBranch順序・head（Branchの`checkpoint_hash`）・評価時刻・Scenario hash・
 Opusモデル・プロンプト版・組版版を含めます。同じidentityは再起動後も保存済みPDFをそのまま返します。
 組版だけの再試行では成功済みのOpus応答テープを再利用します。プロセス内の重複生成は直列化します。
 API・意味検証の失敗後に利用者が再試行した場合は、独立した試行IDを付けます。

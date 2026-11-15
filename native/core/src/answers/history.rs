@@ -7,10 +7,11 @@
 //! order; the caller then reads the branch's samples (where the branch has a head,
 //! `HistoryPlan::anchor`) into a `KpiTable`, and `HistoryPlan::answer` writes the page.
 //!
-//! Where the browser differs from the server: `anchor_hash` and the cursor's anchor are the
-//! branch's head (its record's `checkpoint_hash`), `first_indexed_checkpoint_minute` is its fork
-//! minute, only `kind=kpis` is answered (any other kind: `browser_unsupported`), a number of the
-//! query takes ASCII digits only, and a cursor's minute written as 5.0 is taken as 5.
+//! Where it differs from the index the Python server had before #430 (the local and VM versions
+//! answer with these functions too, #449): `anchor_hash` and the cursor's anchor are the branch's
+//! head (its record's `checkpoint_hash`), `first_indexed_checkpoint_minute` is its fork minute,
+//! only `kind=kpis` is answered (any other kind: `browser_unsupported`), a number of the query
+//! takes ASCII digits only, and a cursor's minute written as 5.0 is taken as 5.
 
 use serde_json::Value;
 

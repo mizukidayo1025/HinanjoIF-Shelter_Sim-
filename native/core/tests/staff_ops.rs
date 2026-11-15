@@ -336,7 +336,10 @@ fn a_tainted_namespace_is_refused_before_anything_is_written() {
     let world = world();
     let held = Given::new();
     let (arrive, _) = travelling(&world);
-    world.slots.get(NAME).unwrap().try_borrow_mut().unwrap().misfit("an int sanitation".to_owned());
+    {
+        let mut slot = world.slots.get(NAME).unwrap().try_borrow_mut().unwrap();
+        (slot.row, slot.taint) = (None, Some("an int sanitation".to_owned()));
+    }
     let refused = ops::plan_arrive(&world, &held.inputs(), &arrive);
     assert!(matches!(refused, Err(Error::Unsupported(ref reason)) if reason == "the namespace has no row"));
     assert!(records(&world).is_empty());

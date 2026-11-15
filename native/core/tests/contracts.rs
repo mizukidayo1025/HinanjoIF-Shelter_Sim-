@@ -165,8 +165,12 @@ fn every_contract_has_cases() {
         }
     }
     named.sort();
-    let models: std::collections::BTreeSet<&str> =
-        named.iter().map(|name| contract(name)).filter(|which| !matches!(which, Contract::EffectParameters(_))).map(|which| which.model().1).collect();
+    let models: std::collections::BTreeSet<&str> = named
+        .iter()
+        .map(|name| contract(name))
+        .filter(|which| !matches!(which, Contract::EffectParameters(_)))
+        .map(|which| support::contracts::model_name(&which))
+        .collect();
     assert_eq!(models.len(), 14, "{models:?}");
     assert_eq!(named.iter().filter(|name| matches!(contract(name), Contract::EffectParameters(_))).count(), 11);
 }

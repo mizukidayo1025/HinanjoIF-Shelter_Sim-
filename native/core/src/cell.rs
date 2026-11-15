@@ -166,11 +166,6 @@ impl<T> CowShard<T> {
         std::mem::replace(self.value.get_mut(), value)
     }
 
-    /// The `Arc` it holds, nothing copied.
-    pub fn into_shared(self) -> Arc<T> {
-        self.value.into_inner()
-    }
-
     /// Whether any borrow is alive now.
     pub fn is_borrowed(&self) -> bool {
         self.flag.load(Ordering::Relaxed) != 0

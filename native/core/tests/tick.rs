@@ -21,7 +21,7 @@ use sheltersim_core::host::{Foreign, Phase, NO_PLAN};
 use sheltersim_core::row::IdMap;
 use sheltersim_core::rules::dispatch::RUN_PHASE;
 use sheltersim_core::rules::kit::movement::POLICY_VERSION;
-use sheltersim_core::rules::tick::{self, update, Prior, Seed, Step, Tick, ZoneNeighbors, RUN_TICK};
+use sheltersim_core::rules::tick::{self, update, Prior, Seed, Step, Tick, ZoneNeighbors};
 use sheltersim_core::run::dispatch::{Dispatch, Handler};
 use sheltersim_core::run::{Policies, Run, RunConfig};
 use sheltersim_core::state::movement::MovementRow;
@@ -226,5 +226,4 @@ fn a_phase_that_moves_the_clock_is_the_engine_s_error() {
     cell.with(|world| world.scalars.get_mut().minute_index = Fit::Ok(MINUTE + 1)).unwrap();
     assert_eq!(tick::clock(&tick), Err(Error::Clock));
     assert_eq!(Error::Clock.to_string(), CLOCK);
-    assert_eq!(RUN_TICK, "tick.run_tick");
 }

@@ -5,14 +5,10 @@
 //! (`native/src/core/errors.rs`, `to_py_err`). The texts are saved data: the dispatcher writes
 //! `str(exc)` of an event's outcome to its record as `detail`, which is hashed and shown. So every
 //! text is built here, and a changed text changes saved bytes.
-//!
-//! The builders count for the refusal census (`census`) where the old exits did, at the caller's
-//! line (`#[track_caller]`). A variant built directly is not counted.
 
 use std::borrow::Cow;
 use std::fmt;
 
-use crate::census;
 use crate::mathx::MathError;
 
 /// Which of an event's two expected outcomes.
@@ -84,13 +80,10 @@ pub fn corrupt_text(namespace: &str, check: &str) -> String {
 }
 
 impl Error {
-    /// `Unsupported(reason)`, counted at the caller's line as `Unsupported::new_err` counts it.
-    #[track_caller]
+    /// `Unsupported(reason)`.
     #[inline]
     pub fn unsupported(reason: impl Into<Cow<'static, str>>) -> Self {
-        let reason = reason.into();
-        census::raised(&reason);
-        Error::Unsupported(reason)
+        Error::Unsupported(reason.into())
     }
 
     /// A refusal made an `Error::Refused` that names the kernel; any other error goes on as it is.
@@ -113,46 +106,25 @@ impl Error {
         Error::Outcome(Outcome::Failed, text.into())
     }
 
-    /// `raise ValueError(text)` of a rule, counted at the caller's line.
-    #[track_caller]
+    /// `raise ValueError(text)` of a rule.
     pub fn value_error(text: impl Into<String>) -> Self {
-        let text = text.into();
-        moved(&text);
-        Error::Value(text)
+        Error::Value(text.into())
     }
 
-    /// `raise StateInvariantError(text)` of a rule, counted at the caller's line.
-    #[track_caller]
+    /// `raise StateInvariantError(text)` of a rule.
     pub fn invariant(text: impl Into<String>) -> Self {
-        let text = text.into();
-        moved(&text);
-        Error::Invariant(text)
+        Error::Invariant(text.into())
     }
 
-    /// `raise ResourceLedgerError(text)` of the ledger's operation, counted at the caller's line.
-    #[track_caller]
+    /// `raise ResourceLedgerError(text)` of the ledger's operation.
     pub fn ledger(text: impl Into<String>) -> Self {
-        let text = text.into();
-        moved(&text);
-        Error::Ledger(text)
+        Error::Ledger(text.into())
     }
 
-    /// The one exit for a corrupt state, counted at the caller's line.
-    #[track_caller]
+    /// The one exit for a corrupt state.
     pub fn corrupt(namespace: impl Into<String>, check: impl Into<String>) -> Self {
-        let (namespace, check) = (namespace.into(), check.into());
-        if census::is_on() {
-            moved(&corrupt_text(&namespace, &check));
-        }
-        Error::Corrupt { namespace, check }
+        Error::Corrupt { namespace: namespace.into(), check: check.into() }
     }
-}
-
-#[cold]
-#[inline(never)]
-#[track_caller]
-fn moved(text: &str) {
-    census::moved(text);
 }
 
 impl From<MathError> for Error {

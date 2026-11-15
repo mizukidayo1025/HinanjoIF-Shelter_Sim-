@@ -22,8 +22,9 @@ use std::fs;
 use serde_json::Value;
 use sheltersim_core::model_version::Versions;
 use sheltersim_core::plain::PlainRun;
-use sheltersim_core::run_store::{Fork, ForkOrigin, Head, HeadKind, Journal, RecordKind, RunWriter, Schedule};
+use sheltersim_core::run_store::{Fork, ForkOrigin, Head, HeadKind, Journal, RecordKind, RunWriter, Schedule, Storing};
 
+use crate::compress::COMPRESSION;
 use crate::files::AppendFile;
 use crate::lock::{self, Lease};
 use crate::records::{Branch, ProjectFiles, Record};
@@ -124,6 +125,21 @@ impl ProjectFiles {
             head_minute: head.minute,
             head_hash: hash,
         })
+    }
+
+    /// Starts a branch's stored Run at minute 0 of `start`'s exported world (the browser's `POST
+    /// runs`, scenario_routes.mjs): its "run" line, recording the Run's model versions, and its
+    /// "export" piece; the branch's record at that head, without a status (not computed yet).
+    /// `start.ticks` is not used. `lease` is the branch's writer's.
+    pub fn start_branch(&self, lease: &Lease, project: &str, run: &str, branch: &str, start: &FromStart<'_>) -> Result<Record> {
+        self.require_lease(lease, project, run, branch)?;
+        let versions = versions_of(self.run_record(project, run)?.get("model_versions").unwrap_or(&Value::Null))?;
+        let simulation = plain_run(start.export, start.world)?;
+        let mut writer = StoredRunWriter::create(&self.branch_folder(project, run, branch)?, self.quota()?)?.with_compress(self.compress());
+        let storing = Storing { model_versions: versions, compression: COMPRESSION.to_owned(), save_every: start.save_every };
+        writer.core.start(&simulation, start.export.to_vec(), start.world.map(str::to_owned), &storing)?;
+        let head = writer.flush(None)?.ok_or_else(|| Error::refused("the start wrote no line"))?;
+        self.write_branch(project, run, &Branch { branch_id: branch.to_owned(), checkpoint_hash: Some(head), ..Branch::default() })
     }
 
     /// Computes a branch from its stored Run's start in one go and stores it (the browser's

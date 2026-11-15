@@ -14,7 +14,7 @@ use std::thread;
 
 use sheltersim_core::run_store::HeadKind;
 use sheltersim_store::compute::plain_run;
-use sheltersim_store::records::{Branch, NewRun, ProjectFiles};
+use sheltersim_store::records::{NewRun, ProjectFiles};
 use sheltersim_store::stored::{StoredRun, DATA, JOURNAL};
 
 use crate::support::{data, engine, journal_of, resume, TempDir};
@@ -33,19 +33,9 @@ fn store_with_run(dir: &TempDir) -> ProjectFiles {
         .create_run("p", &NewRun { run_id: "r", scenario_id: "s", scenario_version: 1, seed: 1, model_versions: &engine, evidence: br#"{"schema_version":1}"# })
         .unwrap();
     let lease = files.claim_branch("p", "r", "main").unwrap();
-    let mut writer = sheltersim_store::stored::StoredRunWriter::create(&files.branch_folder("p", "r", "main").unwrap(), files.quota().unwrap()).unwrap();
-    let run = plain_run(&tick, Some("small_replay")).unwrap();
-    let storing = sheltersim_core::run_store::Storing {
-        model_versions: sheltersim_core::model_version::engine_signatures(),
-        compression: "deflate-raw".to_owned(),
-        save_every: 360,
-    };
-    writer.core.start(&run, tick, Some("small_replay".to_owned()), &storing).unwrap();
-    let head = writer.flush(None).unwrap().unwrap();
-    lease.release();
-    files
-        .write_branch("p", "r", &Branch { branch_id: "main".to_owned(), checkpoint_hash: Some(head), status: Some("queued".to_owned()), ..Branch::default() })
-        .unwrap();
+    let start = sheltersim_store::stored::FromStart { export: &tick, world: Some("small_replay"), ticks: 0, save_every: 360 };
+    let record = files.start_branch(&lease, "p", "r", "main", &start).unwrap();
+    assert!(record.get("status").is_none() && record["computed_until"] == 0);
     files
 }
 

@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from sheltersim.domain.models import Mobility
 from sheltersim.experiments.scenario import ScenarioSpec
+from sheltersim.scenario_authoring.configs.models import Mobility
 
 
 def initial_needs_schema(profile_count: int) -> dict[str, Any]:

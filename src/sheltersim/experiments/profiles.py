@@ -10,8 +10,6 @@ from typing import Any, Literal
 
 from pydantic import Field, model_validator
 
-from sheltersim.core.rng import CounterRNG
-from sheltersim.domain.models import Mobility
 from sheltersim.experiments.scenario import (
     ContractModel,
     InitialNeedsSpec,
@@ -20,6 +18,8 @@ from sheltersim.experiments.scenario import (
     ScenarioSpec,
     StableId,
 )
+from sheltersim.scenario_authoring.configs.models import Mobility
+from sheltersim.scenario_authoring.rng import CounterRNG
 
 
 class ProfileTemplate(ContractModel):

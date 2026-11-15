@@ -319,7 +319,7 @@ fn update_social<C: WorldCell, H: Host, R: RunCell>(
     }
     if traced {
         let version = social::policy_version(stress).map_err(|bad| tick.bad(bad))?;
-        social::record_social(tick.host, &planned, &V::Int(tick.minute), &version)?;
+        social::record_social(tick.host, &planned, tick.minute, &version)?;
     }
     let mut finals = Vec::with_capacity(planned.order.len());
     for (&place, &stress) in planned.order.iter().zip(&planned.plan.stresses) {
@@ -362,7 +362,7 @@ fn record_trace<C: WorldCell, H: Host, R: RunCell>(
         },
         Err(fault) => return Err(tick.policy_error(&["psychology"], fault)),
     };
-    let inputs = TraceInputs { source_id: &source_id, policy_version: &V::Str(result.policy_version.clone()), minute: &V::Int(tick.minute) };
+    let inputs = TraceInputs { source_id: &source_id, policy_version: &result.policy_version, minute: tick.minute };
     trace::record_psychology(tick.host, data, traces, &by_agent, &inputs)
 }
 

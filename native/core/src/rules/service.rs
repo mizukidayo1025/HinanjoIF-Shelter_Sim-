@@ -348,8 +348,8 @@ fn operation_payload(warehouse_id: &Arc<str>, resource_id: &Arc<str>, reservatio
 /// The record of `record_queue_transition`, changing nothing: `sequence` is the one it will take.
 pub(crate) fn transition_row(events: &Events<'_>, change: &fifo::Transition<'_>, place: fifo::Place, sequence: i64, minute: i64) -> Result<EventRow> {
     let taken = events.is_realized(&fifo::transition_id(sequence), Some(sequence))?;
-    let payload = fifo::transition_payload(taken, change, place, sequence, minute)?;
-    fifo::transition_event(payload, change.causation_id, sequence, minute)
+    let record = fifo::transition_record(taken, change, place, sequence, minute)?;
+    fifo::transition_event(&record, change.causation_id, sequence, minute)
 }
 
 /// The request of a task the queues hold, with its place in the list it is not removed from.

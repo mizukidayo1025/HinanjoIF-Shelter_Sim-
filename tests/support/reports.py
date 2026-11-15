@@ -1,54 +1,12 @@
-"""The PDF report: a saved Run to report on, grounded prose and its fake Opus router."""
+"""The PDF report (#463): grounded prose and a fake Opus that answers it."""
 
 from __future__ import annotations
 
 import json
-from collections.abc import Callable, Iterator
-from pathlib import Path
+from collections.abc import Callable
 from typing import Any
 
 import pytest
-
-
-@pytest.fixture
-def report_saved_run(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, saved_timeline: Callable[..., Any]
-) -> Iterator[Any]:
-    """A ProjectAPI over Run r of 12 people for 40 minutes, checkpointed every 10 minutes,
-    with a no-op fork and a fork at minute 10 that adds a toilet of capacity 3.
-    """
-    from sheltersim.experiments.branch import AddToiletCommand
-    from sheltersim.experiments.scenario import ScenarioSpec
-    from sheltersim.storage.projects import digest
-    from sheltersim.web.projects import ProjectAPI
-
-    monkeypatch.setenv("SHELTERSIM_LLM_MODE", "offline")
-    source = json.loads(ScenarioSpec.load("fixtures/scenario_100_agents.json").canonical_json())
-    source["duration_minutes"] = 40
-    source["profiles"] = source["profiles"][:12]
-    source["scheduled_events"] = []
-    source["model_configs"]["toilet_service"] = {}
-    scenario = ScenarioSpec.model_validate(source)
-    store, timeline = saved_timeline(tmp_path / "projects", scenario)
-    timeline.advance("main", 40, checkpoint_interval=10)
-    timeline.fork("main", 10, "noop")
-    timeline.advance("noop", 40)
-    source_runtime = timeline.seek("main", 10)
-    child = source_runtime.fork("capacity")
-    child.runtime_state["fork_origin"] = {
-        "branch_id": "main",
-        "minute": 10,
-        "state_hash": digest(source_runtime.world.to_dict()),
-        "checkpoint_hash": source_runtime.checkpoint().checkpoint_hash,
-    }
-    child.apply(AddToiletCommand("extra", "toilet", capacity=3))
-    timeline.record(child, fork_minute=10)
-    timeline.advance("capacity", 40)
-    api = ProjectAPI(store)
-    try:
-        yield api
-    finally:
-        api.close()
 
 
 def _prose_document() -> dict[str, Any]:
@@ -101,51 +59,22 @@ def prose_document() -> Callable[[], dict[str, Any]]:
 
 
 class _ReportProvider:
-    def __init__(self, *, error=False):
+    """A fake Opus: answers `document()` (the grounded prose by default), counting its calls."""
+
+    def __init__(self, document: Callable[[], dict[str, Any]] = _prose_document) -> None:
         self.calls = 0
-        self.error = error
-        self.prompts = []
+        self.document = document
 
     def complete(self, *, model_id, task, **_kwargs):
-        from sheltersim.llm.contracts import LLMProviderError, ProviderResponse
+        from sheltersim.llm.contracts import ProviderResponse
 
         self.calls += 1
-        self.prompts.append(task.input_text)
-        if self.error:
-            raise LLMProviderError("Anthropic API request failed; HTTP 429", status_code=429)
         return ProviderResponse(
-            json.dumps(_prose_document(), ensure_ascii=False), model_id, 200, 500, 1
+            json.dumps(self.document(), ensure_ascii=False), model_id, 200, 500, 1
         )
 
 
 @pytest.fixture
 def report_provider() -> type[_ReportProvider]:
-    """Make a fake Opus provider that answers prose_document, or fails with HTTP 429."""
+    """Make a fake Opus provider that answers prose_document (or the document it is given)."""
     return _ReportProvider
-
-
-def _report_router(provider=None, **kwargs):
-    from sheltersim.llm.cache import ResponseTape
-    from sheltersim.llm.config import LLMMode, LLMSettings
-    from sheltersim.llm.provider import LLMRouter
-
-    settings = LLMSettings(mode=LLMMode.RECORD, api_key="test-only", **kwargs)
-    return LLMRouter(settings, provider=provider or _ReportProvider(), tape=ResponseTape())
-
-
-@pytest.fixture
-def report_router() -> Callable[..., Any]:
-    """Make a recording LLMRouter for report analysis (report_provider by default)."""
-    return _report_router
-
-
-def _install_report_router(api, monkeypatch, provider=None):
-    router = _report_router(provider)
-    monkeypatch.setattr(api.workspace, "analysis_router", lambda *_a, **_kw: router)
-    return router
-
-
-@pytest.fixture
-def install_report_router() -> Callable[..., Any]:
-    """Make a Project workspace use report_router for its analysis; return the router."""
-    return _install_report_router

@@ -580,13 +580,14 @@ def _run(api: Any, store: Any, name: str) -> dict[str, Any]:
     outputs["research_bytes"] = _bytes(answer["research"])
     if not answer["can_start"]:
         return outputs
-    # What the server records for a Run of the Scenario (web/stored_runs.py, #427): its model
-    # versions and its evidence; the world at minute 0 as Python exports it.
-    from sheltersim.contracts.policies import model_signatures
-    from sheltersim.web.stored_runs import run_evidence
+    # What the server records for a Run of the Scenario (web/stored_runs.py, #427): the core's
+    # model versions and evidence; the world at minute 0 as Python exports it.
+    import sheltersim_native
 
-    outputs["model_versions"] = model_signatures(scenario.model_configs)
-    outputs["evidence_bytes"] = _bytes(run_evidence(store, PROJECT_ID, scenario))
+    outputs["model_versions"] = json.loads(sheltersim_native.initial_model_versions(scenario_bytes))
+    outputs["evidence_bytes"] = _bytes(
+        json.loads(sheltersim_native.initial_evidence(scenario_bytes))
+    )
     outputs["export_bytes"] = _export_bytes(ScenarioSpec.from_json(scenario_bytes.decode()))
     return outputs
 

@@ -270,7 +270,7 @@ def test_a_run_computed_with_an_llm_keeps_its_tape_and_a_seek_answers_from_it(tm
         }
     ).encode()
     scenario = with_rumors(generated(evacuees=24, minutes=240, staff_count=1))
-    entry = json.loads(minute_zero_entry(scenario))
+    entry = json.loads(minute_zero_entry(scenario.canonical_json().encode()))
     for agent in entry["world"]["agents"]:
         agent["stress"] = 0.9
     export = json.dumps(entry, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode()

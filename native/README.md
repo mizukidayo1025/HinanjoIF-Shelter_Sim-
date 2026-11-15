@@ -144,8 +144,8 @@ split PR by PR; its last section sums up what is where.
   plan of the export (`load::Sections`, `load::FloorPlans`), the records of the world's log, the
   contracts (E15) answered as the native host's pydantic (`contracts::validate`, #346), the whole-world
   validation (E6) answered by the core's `validate` (#250: all of `WorldState.validate`,
-  `validate_simulator_extensions` and the candidate's wrapping, with Python's classes and texts), no
-  LLM, and the metric samples kept as lines for their digest. Its decision sink is silent unless the
+  `validate_simulator_extensions` and the candidate's wrapping, with Python's classes and texts), the
+  LLM a link it is given or none (below), and the metric samples kept as lines for their digest. Its decision sink is silent unless the
   Run collects its decisions (`PlainRun::collect_decisions`, #368): then it is an indexed sink that
   keeps the JSON bytes the core writes of each decision (`Decision::Indexed`, the rows the native
   path's `_IndexedMetricSink.observations` holds as bytes, with `policy_sources` answered from the
@@ -167,6 +167,27 @@ split PR by PR; its last section sums up what is where.
   core's too: the digests as JSON (`canonical::digests_json`), the EffectProgram's check and
   receipt as JSON, the stored pieces (`log_tables`, `log_block`, `MetricSamples::tables`, ...) and
   a restore taken once (`archive::RestoreOnce`).
+- **The LLM of a tick** (#428): the core asks an LLM through one port, `llm::LlmLink::complete(task)
+  -> reply` (`core/src/llm.rs`), and `PlainRun::set_llm(link, limits)` gives a Run one. The rules
+  that ask are Python's `_prioritize_support_request` and `EventTriggeredSocialPolicy` moved
+  (`core/src/rules/llm_runtime.rs`, called from `PlainHost`'s hooks): they build the prompt (the
+  same canonical JSON as Python's, byte for byte), read the answer against the task's schema (an
+  answer that does not fit is the fallback, `invalid_output`), and write the world: the priorities
+  (`model_state["llm"]`), their own state (`social_runtime_v1`, `support_priority_runtime_v1`) and
+  the `social_interaction` events of the actions chosen. The limits are Python's
+  `SocialRuntimeLimits` and `SupportPriorityLimits` (`llm::Limits`; the tick reads them through
+  `Host::social_limits` instead of the controller's). A link that is `offline` is asked nothing:
+  the world is the Run's without a link, and the social policy records why it did not ask. Each
+  social decision is a decision record (`record_kind` `dialogue`, Python's `SocialDecision.to_dict`)
+  where the Run collects them, and each call an entry of the Run's LLM tape (`llm::tape_entry`, taken
+  with `PlainRun::take_tape`, stored by `RunWriter::take` in `llm_tape` pieces): the call's identity
+  (the task, the versions, the input's hash, the state's hash: the core's digest of the world at the
+  call) and the reply, without the prompt or the model's free text. `llm::Replay` answers from a tape
+  in its order and refuses a call that is not the next or past the end (Python's `RecordedRouter`),
+  or goes on with another link (`ContinuingRouter`): a seek between two saved points computes the
+  ticks after the point from the tape's entries after the point's count, and asks no one. A task and
+  a reply cross the port as JSON (`Task::to_json`, `Reply::from_json`), so that each host links the
+  same way. `core/tests/llm_link.rs` runs them with a fake link.
 - **`PlainRun` for Python** (#368, step 2): `src/rules/plain.rs` is the WASM `Simulation`'s surface
   for Python, `sheltersim_native.rules.plain` (read it with `sheltersim.native.rules("plain")`):
   `PlainRun(entry_json)` and `PlainRun.from_worlds`, `minute`, `duration`, `advance` (a failure is
@@ -292,9 +313,10 @@ split PR by PR; its last section sums up what is where.
   `sample_pieces`, `records`, `check_stored`/`check_raw` and `Verify` (the pieces read back to the
   "end" line's digests). `RunWriter` decides what to store and when (`start`, `same_start`,
   `fork_start`, `take`, `save`, `finish`, `tape`, `after_end` and `turns`; `Schedule` for when a
-  saved point is due), takes the decision records a Run collects (`PlainRun::collect_decisions`;
-  `run_store::records` keeps each piece of them as tokens: its strings in a table, its floats as
-  their bits, read back byte for byte), checks what it stores for private data first
+  saved point is due), takes the decision records a Run collects (`PlainRun::collect_decisions`)
+  and the LLM tape's entries of a Run with a link (`PlainRun::take_tape`, #428), each stored at the
+  next saved point or the end (`run_store::records` keeps each piece of the decision records as
+  tokens: its strings in a table, its floats as their bits, read back byte for byte), checks what it stores for private data first
   (`sensitive::Guard`: Python's `_reject_sensitive_checkpoint_content`, its rule and texts) and
   encodes each line as the browser's `JSON.stringify` wrote it; the host writes each queued item
   (`next`, then `commit_piece` with where it put the compressed bytes, or `commit_line`).

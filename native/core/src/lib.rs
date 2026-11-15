@@ -25,6 +25,7 @@ pub mod initial;
 pub mod interner;
 pub mod interpret;
 pub mod json;
+pub mod llm;
 pub mod load;
 pub mod mathx;
 pub mod model_version;

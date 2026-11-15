@@ -195,7 +195,13 @@ split PR by PR; its last section sums up what is where.
   `part_digests_json`, `metrics_digest`, `metric_count`, `metric_line`, `frame`, `state_digest`,
   `scenario_summary`, `validate_effect_program`, `apply_effect_program`, `collect_decisions`,
   `take_decisions`, `decisions_missed`, the stored pieces, `world_parts`, `saved_point`,
-  `seal_blocks`, and `Restore` with `PlainRun.restore` / `restore_from_worlds`. A `PlainRun` holds
+  `seal_blocks`, and `Restore` with `PlainRun.restore` / `restore_from_worlds`. Its LLM (#428):
+  `set_llm(link, limits=None)` takes a Python object with `offline` and `complete(task: bytes) ->
+  bytes` (`src/core/llm_link.rs`; `sheltersim.llm.link.RouterLink` puts an `LLMRouter` behind it),
+  `set_llm_replay(entries, offline, then=None, limits=None)` answers from a stored tape, and
+  `take_tape` and `llm_calls`; what the link raises stops the tick and is the cause of `advance`'s
+  `RuntimeError`. `tests/integration/test_plain_run_llm.py` checks that the core asks what the Python
+  rules of the native path ask, byte for byte, and reaches the same world. A `PlainRun` holds
   `Rc`s, so it is `unsendable` and runs its ticks holding the GIL; the core keeps its feature
   `parallel`. `tests/integration/test_plain_run.py` runs the worlds of `core_tick.py` through it and
   through `TickEngine` to the same digests, compares its decision records with a Project route's

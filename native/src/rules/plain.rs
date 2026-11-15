@@ -10,6 +10,12 @@
 //! the decisions' records where asked (`collect_decisions`, `take_decisions`), the rows the native
 //! path's `_IndexedMetricSink.observations` holds as bytes.
 //!
+//! An LLM is given as a link (`set_llm`, #428): a Python object with `offline` (a bool, read once)
+//! and `complete(task: bytes) -> bytes`, the JSON of the core's `llm::Task` and `llm::Reply`
+//! (`sheltersim.llm.link.RouterLink` puts Python's `LLMRouter` behind it; `core/llm_link.rs` calls
+//! it). The core's rules ask it during the ticks; an exception it raises stops the tick, and
+//! `advance` raises it as the cause of its `RuntimeError`. `set_llm_replay` answers from a stored tape instead (`llm::Replay`).
+//!
 //! Each method reads its arguments, calls one function of the core and converts what it gives:
 //! bytes as `bytes`, JSON the core wrote as `str`, an error as its Python class
 //! (`core::errors::to_py_err`). `advance` raises `RuntimeError` with the browser's text
@@ -21,15 +27,30 @@ use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
 use sheltersim_core::archive;
+use sheltersim_core::error::Error;
 use sheltersim_core::frame::Request;
+use sheltersim_core::llm::{self, Limits};
 use sheltersim_core::plain;
 
 use crate::core::errors::{to_py_err, OrPy};
+use crate::core::llm_link::{PyLink, Raised, LINK_RAISED};
 
 /// A Run of an exported world without Python.
 #[pyclass(unsendable, module = "sheltersim_native.rules.plain")]
 pub struct PlainRun {
     run: plain::PlainRun,
+    /// What the Python link raised last, the cause `advance` raises.
+    raised: Raised,
+}
+
+impl PlainRun {
+    fn of(run: plain::PlainRun) -> Self {
+        Self { run, raised: Raised::default() }
+    }
+
+    fn limits(limits: Option<&[u8]>) -> PyResult<Limits> {
+        limits.map_or(Ok(Limits::default()), |raw| Limits::from_json(raw).or_py())
+    }
 }
 
 #[pymethods]
@@ -38,14 +59,14 @@ impl PlainRun {
     /// exported world.
     #[new]
     fn new(entry: &[u8]) -> PyResult<Self> {
-        Ok(Self { run: plain::PlainRun::of_json(entry).or_py()? })
+        Ok(Self::of(plain::PlainRun::of_json(entry).or_py()?))
     }
 
     /// The Run of the world `name` of a file of named worlds (`{"worlds": {name: entry}}`, as the
     /// fixtures of `native/core/tests/data/` hold them), from the file's JSON bytes.
     #[staticmethod]
     fn from_worlds(file: &[u8], name: &str) -> PyResult<Self> {
-        Ok(Self { run: plain::PlainRun::of_worlds_json(file, name).or_py()? })
+        Ok(Self::of(plain::PlainRun::of_worlds_json(file, name).or_py()?))
     }
 
     /// The Run at the saved point `restore` was made of, which has read the stored log and samples
@@ -54,14 +75,14 @@ impl PlainRun {
     #[staticmethod]
     fn restore(entry: &[u8], restore: &mut Restore) -> PyResult<Self> {
         let entry = plain::PlainRun::entry_of_json(entry).or_py()?;
-        Ok(Self { run: plain::PlainRun::restore(entry, restore.inner.take().or_py()?).or_py()? })
+        Ok(Self::of(plain::PlainRun::restore(entry, restore.inner.take().or_py()?).or_py()?))
     }
 
     /// `restore` with the world `name` of a file of named worlds as the exported entry.
     #[staticmethod]
     fn restore_from_worlds(file: &[u8], name: &str, restore: &mut Restore) -> PyResult<Self> {
         let entry = plain::PlainRun::entry_of_worlds_json(file, name).or_py()?;
-        Ok(Self { run: plain::PlainRun::restore(entry, restore.inner.take().or_py()?).or_py()? })
+        Ok(Self::of(plain::PlainRun::restore(entry, restore.inner.take().or_py()?).or_py()?))
     }
 
     /// The world's minute: the next tick's.
@@ -78,11 +99,47 @@ impl PlainRun {
     /// or the end-of-tick check's raises RuntimeError (`minute {m}: {step}: {error}`), caused by
     /// that error.
     fn advance(&mut self, py: Python<'_>, ticks: u64) -> PyResult<u64> {
+        self.raised.borrow_mut().take();
         self.run.advance(ticks).map_err(|stopped| {
+            let raised = self.raised.borrow_mut().take();
             let error = PyRuntimeError::new_err(stopped.to_string());
-            error.set_cause(py, Some(to_py_err(stopped.error)));
+            match raised {
+                Some(raised) if matches!(&stopped.error, Error::Runtime(text) if text == LINK_RAISED) => error.set_cause(py, Some(raised)),
+                _ => error.set_cause(py, Some(to_py_err(stopped.error))),
+            }
             error
         })
+    }
+
+    /// Gives the Run an LLM: `link` (`offline`, a bool read now, and `complete(task: bytes) ->
+    /// bytes`), asked within `limits` (the JSON of `llm::Limits`; the model's defaults where None).
+    /// ValueError for limits out of range.
+    #[pyo3(signature = (link, limits=None))]
+    fn set_llm(&mut self, py: Python<'_>, link: Py<PyAny>, limits: Option<&[u8]>) -> PyResult<()> {
+        let link = PyLink::new(py, link, &self.raised)?;
+        self.run.set_llm(Box::new(link), Self::limits(limits)?).or_py()
+    }
+
+    /// Gives the Run an LLM that answers from `entries`, a stored tape's entries from the Run's
+    /// minute on (`llm::Replay`), and past them from `then` (a link as `set_llm` takes) or not at
+    /// all: a replay never asks a provider. `offline` is whether the Run it replays was.
+    #[pyo3(signature = (entries, offline, then=None, limits=None))]
+    fn set_llm_replay(&mut self, py: Python<'_>, entries: Vec<Vec<u8>>, offline: bool, then: Option<Py<PyAny>>, limits: Option<&[u8]>) -> PyResult<()> {
+        let mut replay = llm::Replay::new(&entries, offline).or_py()?;
+        if let Some(link) = then {
+            replay = replay.then(Box::new(PyLink::new(py, link, &self.raised)?));
+        }
+        self.run.set_llm(Box::new(replay), Self::limits(limits)?).or_py()
+    }
+
+    /// The LLM tape's entries since the last call, taken out: the JSON bytes of each, in order.
+    fn take_tape<'py>(&mut self, py: Python<'py>) -> Vec<Bound<'py, PyBytes>> {
+        self.run.take_tape().iter().map(|raw| PyBytes::new(py, raw)).collect()
+    }
+
+    /// How many calls the LLM's link answered since it was given.
+    fn llm_calls(&self) -> u64 {
+        self.run.llm_calls()
     }
 
     /// The digests of the world's parts, as a JSON object in the order of `core_tick.py`'s

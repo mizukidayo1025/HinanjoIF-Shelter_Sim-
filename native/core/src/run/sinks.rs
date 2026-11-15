@@ -33,8 +33,8 @@ pub enum DecisionSink {
     /// `"artifacts"`: `RunArtifactWriter`, which takes the document while its trace is on.
     Artifacts,
     /// No such declaration, another word, or no `artifacts`: the core writes no record, and the
-    /// host is given the decision (`Host::record_decision_python`).
-    Python,
+    /// host is given the decision (`Host::record_host_decision`).
+    Host,
 }
 
 /// `artifacts.trace_level`.
@@ -89,14 +89,14 @@ impl Sinks {
 }
 
 /// `sink_of` of `decisions.rs` without its moment: no `artifacts`, or a class without its own
-/// `decision_sink`, is `DecisionSink::Python`; a declaration that is not exactly a str raises
+/// `decision_sink`, is `DecisionSink::Host`; a declaration that is not exactly a str raises
 /// (`TypeError`).
 fn decision_sink(artifacts: Read<Read<Option<&Arc<Obj>>>>) -> Read<DecisionSink> {
     let Ok(Ok(Some(artifacts))) = artifacts else {
-        return Ok(DecisionSink::Python);
+        return Ok(DecisionSink::Host);
     };
     let Some(kind) = artifacts.class_own.get("decision_sink") else {
-        return Ok(DecisionSink::Python);
+        return Ok(DecisionSink::Host);
     };
     let Held::Value(V::Str(kind)) = kind else {
         return Err(Fault::new(FaultClass::Type, "decision_sink is not a str"));
@@ -105,7 +105,7 @@ fn decision_sink(artifacts: Read<Read<Option<&Arc<Obj>>>>) -> Read<DecisionSink>
         "silent" => DecisionSink::Silent,
         "indexed" => DecisionSink::Indexed,
         "artifacts" => DecisionSink::Artifacts,
-        _ => DecisionSink::Python,
+        _ => DecisionSink::Host,
     })
 }
 

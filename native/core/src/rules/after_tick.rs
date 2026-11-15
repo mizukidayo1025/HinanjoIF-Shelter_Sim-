@@ -12,7 +12,7 @@
 //! namespaces, the effect program's check and the reading of the saved body config are asked
 //! through `Checks`, with the world given back: the check borrows the world twice, before and after
 //! them. The engine answers them with the core's rules (`rules::tick_checks::CoreChecks`, #250); a
-//! test of the check alone answers every one yes (`engine::NoPython`).
+//! test of the check alone answers every one yes (`engine::AllValid`).
 //!
 //! The memo (`Memo`) is the facts of the last check this kernel passed, and lets it skip what is
 //! provably unchanged since: see "What the memo skips" below. A check that refuses leaves the memo

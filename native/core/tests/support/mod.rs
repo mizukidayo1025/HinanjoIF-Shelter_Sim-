@@ -8,7 +8,7 @@
 //! Lane P9-0: its holding is the world's slots' (`Host::holding` gives None) unless a test sets
 //! one; it fills every section of the configs with the values `fill_section` builds here, from
 //! outside the crate (the core-only tick of P10 needs that); it runs no foreign handler; and its
-//! decision sink (`record_decision_python`) writes the call down. A test hook (`on_llm`) runs at
+//! decision sink (`record_host_decision`) writes the call down. A test hook (`on_llm`) runs at
 //! each LLM call, as an LLM hook of a host writes the world.
 
 #![allow(dead_code)]
@@ -77,7 +77,7 @@ pub enum Call {
     Holding,
     FillSection(SectionId),
     Foreign(Arc<str>),
-    DecisionPython { agent: Arc<str>, target: Option<Arc<str>>, next: i64 },
+    HostDecision { agent: Arc<str>, target: Option<Arc<str>>, next: i64 },
     // ---- Lane P9-1a ----
     FindRecord(Arc<str>),
     FloorPlan,
@@ -391,7 +391,7 @@ impl Host for TestHost {
         }
     }
 
-    fn record_decision_python(
+    fn record_host_decision(
         &mut self,
         data: &ViewData,
         proposal: &Proposal,
@@ -399,7 +399,7 @@ impl Host for TestHost {
         next_decision_at: i64,
         _observed: &Observed<'_>,
     ) -> Result<(), Error> {
-        self.calls.push(Call::DecisionPython { agent: data.agents[proposal.index].id.clone(), target: target_id.map(text), next: next_decision_at });
+        self.calls.push(Call::HostDecision { agent: data.agents[proposal.index].id.clone(), target: target_id.map(text), next: next_decision_at });
         Ok(())
     }
 

@@ -213,16 +213,16 @@ fn what_a_read_raised_is_kept_for_the_read_site() {
     assert_eq!(policies.sinks.decision_sink.as_ref().map_err(|fault| fault.class.clone()), Err(FaultClass::Type));
     assert_eq!(policies.sinks.trace_level, Err(Fault::refused(sinks::UNKNOWN_LEVEL)));
 
-    // No artifacts, or a class without its own declaration: the sink is `DecisionSink::Python`.
+    // No artifacts, or a class without its own declaration: the sink is `DecisionSink::Host`.
     let mut found = controller();
     put(&mut found, "artifacts", none());
     let policies = Policies::of(Arc::new(found));
-    assert_eq!(policies.sinks.decision_sink, Ok(DecisionSink::Python));
+    assert_eq!(policies.sinks.decision_sink, Ok(DecisionSink::Host));
     assert_eq!(policies.sinks.trace_level.as_ref().map_err(Fault::is_refusal), Err(false));
     let mut found = controller();
     put(&mut found, "artifacts", Ok(object("tests.helpers", "Sink", vec![("trace_level", Ok(Held::Value(V::Str(text("off")))))])));
     let policies = Policies::of(Arc::new(found));
-    assert_eq!(policies.sinks.decision_sink, Ok(DecisionSink::Python));
+    assert_eq!(policies.sinks.decision_sink, Ok(DecisionSink::Host));
     assert_eq!(policies.sinks.trace_level, Ok(TraceLevel::Off));
 }
 

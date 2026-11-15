@@ -1,6 +1,6 @@
 //! A Run's ticks on a loaded world (#214; shared since Issue #225, lane M7): `run_tick` at the
 //! world's minute with the host, the minute moved on, then the end-of-tick check
-//! (`after_tick::check`, each of its questions answered yes: `NoPython`). The crate's
+//! (`after_tick::check`, each of its questions answered yes: `AllValid`). The crate's
 //! `sheltersim_core::engine` (#244, PR 4-3) does it; these are its calls on a loaded world with the
 //! `TestHost`, which panic where it stops.
 //!
@@ -20,11 +20,11 @@ use super::load::Loaded;
 use super::TestHost;
 
 /// The end-of-tick check's questions, each answered yes (the crate's, #244 PR 4-3).
-pub use sheltersim_core::engine::NoPython;
+pub use sheltersim_core::engine::AllValid;
 
 /// The core's end-of-tick check, with the plan and the sections it reads
 /// (`engine::check_after_tick`).
-pub fn check_after_tick(loaded: &Loaded, host: &mut TestHost, memo: &mut Memo, checks: &mut NoPython) -> std::result::Result<(), Error> {
+pub fn check_after_tick(loaded: &Loaded, host: &mut TestHost, memo: &mut Memo, checks: &mut AllValid) -> std::result::Result<(), Error> {
     engine::check_after_tick(&loaded.cell, host, memo, checks)
 }
 

@@ -109,7 +109,7 @@ fn ticked(cell: &Shard<World>, run: &RefCell<Run>, policies: Arc<Policies>, host
 fn the_tick_begins_the_scratch_dispatches_and_starts_the_update_phase_with_the_movement() {
     let cell = world(MINUTE, vec![event("first", 1)]);
     let (run, policies) = run();
-    run.borrow_mut().scratch.put(Prior::Python { minute: Some(MINUTE) });
+    run.borrow_mut().scratch.put(Prior::Other { minute: Some(MINUTE) });
     let mut host = TestHost::default();
     // The handler sees the scratch of this tick: it began before the dispatch.
     let seen = Rc::new(RefCell::new(Vec::new()));

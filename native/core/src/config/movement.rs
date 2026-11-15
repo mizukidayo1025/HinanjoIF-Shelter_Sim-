@@ -163,7 +163,7 @@ pub struct RouteCapacities {
 }
 
 pub const ROUTE_CONFIG_LACKS_CAPACITIES: &str = "the route config lacks its capacities";
-pub const ROUTE_CONFIG_IS_PYTHON: &str = "the route config is the Python rule's";
+pub const ROUTE_CONFIG_NOT_PLAIN: &str = "the route config is the Python rule's";
 
 impl RouteCapacities {
     /// `exact_dict(model_configs).get("layout_routing")` and `route_capacities_pass` up to the edges.
@@ -178,7 +178,7 @@ impl RouteCapacities {
             return Err(Fault::refused(ROUTE_CONFIG_LACKS_CAPACITIES));
         };
         if config.len() != 4 || !version_is_one || !text_is("source_type", "assumption") || !text_is("source_id", "ASM-A05-ROUTE-EDIT-V1") {
-            return Err(Fault::refused(ROUTE_CONFIG_IS_PYTHON));
+            return Err(Fault::refused(ROUTE_CONFIG_NOT_PLAIN));
         }
         let capacities = map(capacities)?.iter().map(|(edge, capacity)| (edge.clone(), int(capacity))).collect();
         Ok(Some(Self { capacities }))

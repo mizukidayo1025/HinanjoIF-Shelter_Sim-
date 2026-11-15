@@ -41,9 +41,9 @@ use crate::rules::kit::movement::KEY as MOVEMENT;
 use crate::rules::kit::{self, Events, Held};
 use crate::rules::population::{
     self, build_agent, cancels_of, check_admission_paths, check_information, check_queue_rows, check_relationship_keys, doc, equals_int, failed, field,
-    identifier, invalid, is_held, list_of, map_of, optional, optional_identifier, pairs_naming, person_in, plain, presence_is_plain, presence_state, refuse,
-    reset_position, sha_hex, sorted_set, strings, typed_of, v_str, value_of, write_presence, write_room_admission, zone_rows, Built, Doc, Person, Transition,
-    NO_ROW, PRESENCE,
+    identifier, invalid, is_held, list_of, map_of, optional, optional_identifier, pairs_naming, plain, presence_is_plain, presence_state, refuse,
+    reset_position, sha_hex, sorted_set, strings, typed_of, v_str, value_of, write_presence, write_room_admission, zone_rows, Built, Doc, Person,
+    PresenceState, Transition, NO_ROW, PRESENCE,
 };
 use crate::rules::{agent_dynamics, movement, overlay, travel};
 use crate::state::agent_dynamics::{AgentDynamicsRow, AgentMemory, NAME as AGENT_DYNAMICS};
@@ -379,7 +379,7 @@ fn has_presence(world: &World, inputs: &Inputs<'_>) -> Result<bool> {
 fn set_presence(world: &World, inputs: &Inputs<'_>, event: &EventIds, agent_id: &Arc<str>, status: &str, minute: i64, change: &PresenceChange) -> Result<()> {
     let old = {
         let raw = value_of(world, PRESENCE, &inputs.population.namespaces.presence)?.ok_or_else(|| Error::unsupported("the presence left"))?;
-        person_in(&raw.0, agent_id)?
+        PresenceState::of(&raw.0).person(agent_id)?
     };
     let current_household = change.household_id.clone().or_else(|| old.as_ref().and_then(|person| person.household_id.clone()));
     let retained = matches!(status, "temporarily_absent" | "transferred" | "awaiting_admission");
@@ -433,10 +433,10 @@ fn set_presence(world: &World, inputs: &Inputs<'_>, event: &EventIds, agent_id: 
 }
 
 /// The append of `_history` and `admit_pending_returns`, kept to its last `MAX_HISTORY` rows.
-fn append_history(world: &World, row: V) -> Result<()> {
+fn append_history(world: &World, row: &HistoryRow<'_>) -> Result<()> {
     let mut state = lifecycle_mut(world)?;
     let history = list_mut(part_mut(&mut state.0, "history")?)?;
-    history.push(row);
+    history.push(row.value());
     if history.len() > MAX_HISTORY {
         let extra = history.len() - MAX_HISTORY;
         history.drain(..extra);
@@ -503,19 +503,29 @@ struct Moved<'a> {
     to_zone: Option<&'a Arc<str>>,
 }
 
-/// A row of the lifecycle's history.
-fn history_row(event_id: &Arc<str>, moved: Moved<'_>, household: Option<Arc<str>>, sources: &[Arc<str>]) -> V {
-    let Moved { agent_id, action, minute, from_zone, to_zone } = moved;
-    V::Map(doc([
-        ("event_id", V::Str(event_id.clone())),
-        ("agent_id", v_str(agent_id)),
-        ("action", v_str(action)),
-        ("minute", V::Int(minute)),
-        ("from_zone_id", from_zone.map_or(V::Null, |zone| V::Str(zone.clone()))),
-        ("to_zone_id", to_zone.map_or(V::Null, |zone| V::Str(zone.clone()))),
-        ("household_id", optional(&household)),
-        ("source_ids", strings(sources)),
-    ]))
+/// A row of the lifecycle's history: the event, what the person did, their household and the
+/// sources.
+struct HistoryRow<'a> {
+    event_id: &'a Arc<str>,
+    moved: Moved<'a>,
+    household: Option<Arc<str>>,
+    sources: &'a [Arc<str>],
+}
+
+impl HistoryRow<'_> {
+    fn value(&self) -> V {
+        let Moved { agent_id, action, minute, from_zone, to_zone } = self.moved;
+        V::Map(doc([
+            ("event_id", V::Str(self.event_id.clone())),
+            ("agent_id", v_str(agent_id)),
+            ("action", v_str(action)),
+            ("minute", V::Int(minute)),
+            ("from_zone_id", from_zone.map_or(V::Null, |zone| V::Str(zone.clone()))),
+            ("to_zone_id", to_zone.map_or(V::Null, |zone| V::Str(zone.clone()))),
+            ("household_id", optional(&self.household)),
+            ("source_ids", strings(self.sources)),
+        ]))
+    }
 }
 
 /// `_history`: the row, written, and its copy for the receipt.
@@ -524,15 +534,16 @@ fn history(world: &World, inputs: &Inputs<'_>, event: &EventIds, moved: Moved<'_
         Some(household) => Some(household.clone()),
         None => household_of(world, &inputs.population.namespaces.presence, moved.agent_id)?,
     };
-    let row = history_row(&event.event_id, moved, household, &command.sources_with(event));
-    append_history(world, row.clone())?;
-    Ok(row)
+    let sources = command.sources_with(event);
+    let row = HistoryRow { event_id: &event.event_id, moved, household, sources: &sources };
+    append_history(world, &row)?;
+    Ok(row.value())
 }
 
 // ---- `_archive_person` ---------------------------------------------------------------------------
 
 /// `_archive_relationship`: the tie, unless the archive holds one of this namespace and key.
-fn archive_relationship(world: &World, namespace: &str, key: &Arc<str>, value: V) -> Result<()> {
+fn archive_relationship<T: Tree>(world: &World, namespace: &str, key: &Arc<str>, tie: &T) -> Result<()> {
     let pair = population::pair_of(key)?;
     let mut state = lifecycle_mut(world)?;
     let archive = list_mut(part_mut(&mut state.0, "relationship_archive")?)?;
@@ -546,7 +557,7 @@ fn archive_relationship(world: &World, namespace: &str, key: &Arc<str>, value: V
         ("namespace", v_str(namespace)),
         ("pair_key", V::Str(key.clone())),
         ("agent_ids", V::List(pair.iter().map(|part| v_str(part)).collect())),
-        ("value", value),
+        ("value", tie.to_v()),
         ("restore_when_both_active", V::Bool(true)),
     ])));
     Ok(())
@@ -577,10 +588,175 @@ fn all_finite(value: &V) -> bool {
     }
 }
 
+/// `population_lifecycle_v1` as the rules read it, borrowed from its row. Each read refuses what
+/// it refused where the rules read the value.
+#[derive(Clone, Copy)]
+struct LifecycleState<'a>(&'a V);
+
+impl<'a> LifecycleState<'a> {
+    fn of(state: &'a V) -> Self {
+        Self(state)
+    }
+
+    /// `agent_id in state["people"]`.
+    fn retains(self, agent_id: &str) -> Result<bool> {
+        Ok(map_of(field(self.0, "people")?)?.contains_key(agent_id))
+    }
+
+    /// The archive of a retained person, None for none (or one that is not a dict).
+    fn archived(self, agent_id: &str) -> Result<Option<ArchivedPerson<'a>>> {
+        Ok(map_of(field(self.0, "people")?)?.get(agent_id).filter(|snapshot| matches!(snapshot, V::Map(_))).map(ArchivedPerson))
+    }
+
+    /// Each claim kept fits the row it goes back to.
+    fn check_messages(self) -> Result<()> {
+        for message in map_of(field(self.0, "messages")?)?.values() {
+            MessageRow::from_v(message)?;
+        }
+        Ok(())
+    }
+
+    /// Each deferred belief fits the row it goes back to.
+    fn check_deferred_beliefs(self) -> Result<()> {
+        for beliefs in map_of(field(self.0, "deferred_beliefs")?)?.values() {
+            records_from::<BeliefRow>(beliefs)?;
+        }
+        Ok(())
+    }
+
+    /// The ties of `relationship_archive`.
+    fn relationship_archive(self) -> Result<Vec<ArchivedTie<'a>>> {
+        Ok(list_of(field(self.0, "relationship_archive")?)?.iter().map(ArchivedTie).collect())
+    }
+
+    /// Whether no one surely waits: a None, or a dict whose `pending_returns` is there and empty.
+    fn nothing_waiting(self) -> bool {
+        match self.0 {
+            V::Null => true,
+            V::Map(state) => state.get("pending_returns").is_some_and(|value| !value.is_truthy()),
+            _ => false,
+        }
+    }
+}
+
+/// `population_lifecycle_v1` as a rule writes it, borrowed from its row.
+struct LifecycleMut<'a>(&'a mut V);
+
+impl<'a> LifecycleMut<'a> {
+    fn of(state: &'a mut V) -> Self {
+        Self(state)
+    }
+
+    /// `state["deferred_beliefs"].setdefault(agent_id, {})[message_id] = belief`.
+    fn defer_belief(&mut self, agent_id: &Arc<str>, message_id: &Arc<str>, belief: V) -> Result<()> {
+        let deferred = dict_mut(part_mut(self.0, "deferred_beliefs")?)?;
+        let held = deferred.entry(agent_id.clone()).or_insert_with(|| V::Map(IndexMap::new()));
+        dict_mut(held)?.insert(message_id.clone(), belief);
+        Ok(())
+    }
+}
+
+/// A retained person's archive (`state["people"][agent_id]`), borrowed.
+#[derive(Clone, Copy)]
+struct ArchivedPerson<'a>(&'a V);
+
+impl<'a> ArchivedPerson<'a> {
+    fn of(snapshot: &'a V) -> Self {
+        Self(snapshot)
+    }
+
+    /// Whether the person was saved without the record of `agent_dynamics_v1`.
+    fn lacks_dynamics(self) -> Result<bool> {
+        Ok(matches!(field(self.0, "agent_dynamics")?, V::Null))
+    }
+
+    /// The agent the constructors make of the archived one (`restored_agent`), of the world's schema
+    /// (read after the record).
+    fn agent(self, zone_id: &Arc<str>, minute: i64, world: &World) -> Result<Built> {
+        restored_agent(field(self.0, "agent")?, zone_id, minute, world.schema_version()?)
+    }
+
+    /// The person's record of `agent_dynamics_v1`, None where it was saved without one.
+    fn dynamics(self) -> Result<Option<AgentMemory>> {
+        let saved = field(self.0, "agent_dynamics")?;
+        if matches!(saved, V::Null) {
+            return Ok(None);
+        }
+        AgentMemory::from_v(saved).map(Some)
+    }
+
+    /// The person's record of `body_state_v1`, None where it was saved without one.
+    fn body(self) -> Result<Option<BodyRecord>> {
+        let saved = field(self.0, "body_agent")?;
+        if matches!(saved, V::Null) {
+            return Ok(None);
+        }
+        BodyRecord::from_v(saved).map(Some)
+    }
+
+    /// The archived beliefs fit their rows, and the query pressure is a float or nothing.
+    fn check_information(self) -> Result<()> {
+        let saved = field(self.0, "information")?;
+        records_from::<BeliefRow>(field(saved, "beliefs")?)?;
+        match field(saved, "query_pressure")? {
+            pressure if !pressure.is_truthy() => {}
+            V::Float(_) => {}
+            _ => return refuse("an archived query pressure is not a float"),
+        }
+        Ok(())
+    }
+}
+
+/// A tie of `relationship_archive`, borrowed.
+#[derive(Clone, Copy)]
+struct ArchivedTie<'a>(&'a V);
+
+impl<'a> ArchivedTie<'a> {
+    fn of(item: &'a V) -> Self {
+        Self(item)
+    }
+
+    /// The tie fits the row it would go back to, and names two people a dict can look up.
+    fn check(self, namespaces: &population::Namespaces) -> Result<()> {
+        let item = self.0;
+        for id in list_of(field(item, "agent_ids")?)? {
+            if matches!(id, V::List(_) | V::Map(_)) {
+                return refuse("an archived pair holds what a dict can't look up");
+            }
+        }
+        let value = field(item, "value")?;
+        match field(item, "namespace")? {
+            V::Str(name) if &**name == SOCIAL_NETWORK && is_held(&namespaces.social_network) => drop(SocialTie::from_v(value)?),
+            V::Str(name) if &**name == BODY && is_held(&namespaces.body) => drop(BodyTie::from_v(value)?),
+            V::Str(name) if &**name == INFORMATION && is_held(&namespaces.information) => drop(ContactRow::from_v(value)?),
+            V::Str(name) if &**name == SOCIAL_RUNTIME && is_held(&namespaces.social_runtime) => drop(ContactRecord::from_v(value)?),
+            V::Str(_) => {}
+            _ => return refuse("an archived namespace is not a str"),
+        }
+        text(field(item, "pair_key")?)?;
+        Ok(())
+    }
+
+    /// Whether the tie waits: it is restored when both are back, and one of the two is not.
+    fn waits(self, world: &World) -> Result<bool> {
+        // Whether the world has this person: Unsupported for an ID a dict can't look up.
+        let admitted = |id: &V| -> Result<bool> {
+            match id {
+                V::Str(id) => Ok(world.rows()?.agents.contains_key(id)),
+                V::List(_) | V::Map(_) => refuse("an ID a dict can't look up"),
+                _ => Ok(false),
+            }
+        };
+        let ids = list_of(field(self.0, "agent_ids")?)?;
+        let (first, second) = (ids.first().ok_or_else(|| Error::unsupported("no pair"))?, ids.get(1).ok_or_else(|| Error::unsupported("no pair"))?);
+        Ok(field(self.0, "restore_when_both_active")?.is_truthy() && (!admitted(first)? || !admitted(second)?))
+    }
+}
+
 /// `_validate_agent_snapshot` of the record `_agent_record` will make, and the other asks of
 /// `_archive_person`.
-fn check_archive(world: &World, inputs: &Inputs<'_>, state: &V, agent_id: &str) -> Result<()> {
-    if map_of(field(state, "people")?)?.contains_key(agent_id) {
+fn check_archive(world: &World, inputs: &Inputs<'_>, state: LifecycleState<'_>, agent_id: &str) -> Result<()> {
+    if state.retains(agent_id)? {
         return failed("person already has a retained lifecycle archive");
     }
     {
@@ -607,18 +783,12 @@ fn check_archive(world: &World, inputs: &Inputs<'_>, state: &V, agent_id: &str) 
     check_queue_rows(world)
 }
 
-/// `state["deferred_beliefs"].setdefault(agent_id, {})[message_id] = belief`.
-fn defer_belief(state: &mut V, agent_id: &Arc<str>, message_id: &Arc<str>, belief: V) -> Result<()> {
-    let deferred = dict_mut(part_mut(state, "deferred_beliefs")?)?;
-    let held = deferred.entry(agent_id.clone()).or_insert_with(|| V::Map(IndexMap::new()));
-    dict_mut(held)?.insert(message_id.clone(), belief);
-    Ok(())
-}
-
-/// What a person who leaves keeps of the information state: their beliefs and query pressure.
+/// What a person who leaves keeps of the information state: their beliefs and query pressure
+/// (None where the world holds no information state).
+#[derive(Default)]
 struct Information {
-    beliefs: V,
-    query_pressure: V,
+    beliefs: IdMap<BeliefRow>,
+    query_pressure: Option<f64>,
 }
 
 /// The information part of `_archive_person`, of a world that holds the namespace: the person's
@@ -633,7 +803,7 @@ fn archive_information(world: &World, agent_id: &Arc<str>) -> Result<Information
         let query_pressure = info.query_pressure.shift_remove(&**agent_id).unwrap_or(0.0);
         for key in pairs_naming(info.contacts.iter(), agent_id)? {
             let record = info.contacts.shift_remove(&*key).ok_or_else(|| Error::Key(key.to_string()))?;
-            contacts.push((key, record.to_v()));
+            contacts.push((key, record));
         }
         let mut message_ids: Vec<Arc<str>> = info.messages.keys().cloned().collect();
         message_ids.sort_unstable_by(|first, second| first.as_bytes().cmp(second.as_bytes()));
@@ -645,22 +815,22 @@ fn archive_information(world: &World, agent_id: &Arc<str>) -> Result<Information
             let mut deferred = Vec::new();
             for (other, held) in info.beliefs.iter_mut() {
                 if let Some(belief) = held.shift_remove(&*message_id) {
-                    deferred.push((other.clone(), belief.to_v()));
+                    deferred.push((other.clone(), belief));
                 }
             }
-            moved.push((message_id, message.to_v(), deferred));
+            moved.push((message_id, message, deferred));
         }
         info.support_requests.retain(|item| item.agent_id != *agent_id);
-        Information { beliefs: records_v(&beliefs), query_pressure: V::Float(query_pressure) }
+        Information { beliefs, query_pressure: Some(query_pressure) }
     };
-    for (key, value) in contacts {
-        archive_relationship(world, INFORMATION, &key, value)?;
+    for (key, contact) in contacts {
+        archive_relationship(world, INFORMATION, &key, &contact)?;
     }
     let mut state = lifecycle_mut(world)?;
     for (message_id, message, deferred) in moved {
-        dict_mut(part_mut(&mut state.0, "messages")?)?.insert(message_id.clone(), message);
+        dict_mut(part_mut(&mut state.0, "messages")?)?.insert(message_id.clone(), message.to_v());
         for (other, belief) in deferred {
-            defer_belief(&mut state.0, &other, &message_id, belief)?;
+            LifecycleMut::of(&mut state.0).defer_belief(&other, &message_id, belief.to_v())?;
         }
         // The beliefs of those archived before.
         let mut found = Vec::new();
@@ -673,7 +843,7 @@ fn archive_information(world: &World, agent_id: &Arc<str>) -> Result<Information
             }
         }
         for (archived, belief) in found {
-            defer_belief(&mut state.0, &archived, &message_id, belief)?;
+            LifecycleMut::of(&mut state.0).defer_belief(&archived, &message_id, belief)?;
         }
     }
     Ok(information)
@@ -682,7 +852,7 @@ fn archive_information(world: &World, agent_id: &Arc<str>) -> Result<Information
 /// The ties of a map of pairs that name the person, taken out in key order, then archived.
 fn archive_ties<T: Tree>(world: &World, namespace: &str, ties: Vec<(Arc<str>, T)>) -> Result<()> {
     for (key, tie) in ties {
-        archive_relationship(world, namespace, &key, tie.to_v())?;
+        archive_relationship(world, namespace, &key, &tie)?;
     }
     Ok(())
 }
@@ -692,7 +862,7 @@ fn archive_person(world: &World, inputs: &Inputs<'_>, agent_id: &Arc<str>, row: 
     let namespaces = &inputs.population.namespaces;
     let agent = world.rows()?.agents.get(agent_id).cloned().ok_or_else(|| Error::Key(agent_id.to_string()))?;
     release_room(world, inputs, agent_id)?;
-    let mut information = Information { beliefs: V::Map(IndexMap::new()), query_pressure: V::Null };
+    let mut information = Information::default();
     if is_held(&namespaces.information) {
         information = archive_information(world, agent_id)?;
     }
@@ -757,7 +927,7 @@ fn archive_person(world: &World, inputs: &Inputs<'_>, agent_id: &Arc<str>, row: 
         ("agent", agent_record(&agent)),
         ("agent_dynamics", dynamics_record),
         ("body_agent", body_agent),
-        ("information", V::Map(doc([("beliefs", information.beliefs), ("query_pressure", information.query_pressure)]))),
+        ("information", V::Map(doc([("beliefs", records_v(&information.beliefs)), ("query_pressure", information.query_pressure.map_or(V::Null, V::Float))]))),
         ("since_minute", V::Int(row.due_minute)),
         ("source_event_ids", strings(&sorted_set(events))),
     ]));
@@ -899,48 +1069,32 @@ pub fn restored_agent(raw: &V, zone_id: &Arc<str>, minute: i64, schema_version: 
 
 /// What `_restore_person` asks that only the plan answers: the archive, the paths it writes
 /// through, and that each archived value fits the row it goes back to.
-fn check_restore(world: &World, inputs: &Inputs<'_>, state: &V, agent_id: &str, zone: &Arc<str>) -> Result<()> {
-    let Some(snapshot @ V::Map(_)) = map_of(field(state, "people")?)?.get(agent_id) else {
+fn check_restore(world: &World, inputs: &Inputs<'_>, state: LifecycleState<'_>, agent_id: &str, zone: &Arc<str>) -> Result<()> {
+    let Some(snapshot) = state.archived(agent_id)? else {
         return refuse("the retained person is missing");
     };
     let namespaces = &inputs.population.namespaces;
     // `_initial_dynamics` of a person saved without their record.
-    if is_held(&namespaces.agent_dynamics) && matches!(field(snapshot, "agent_dynamics")?, V::Null) {
+    if is_held(&namespaces.agent_dynamics) && snapshot.lacks_dynamics()? {
         agent_dynamics::check_add_agent(world, &inputs.population.policy, &inputs.population.awareness)?;
     }
     check_admission_paths(world, inputs.population, &[zone])?;
     check_writable(inputs)?;
     // What the writes put back into the rows.
-    restored_agent(field(snapshot, "agent")?, zone, 0, world.schema_version()?)?;
+    snapshot.agent(zone, 0, world)?;
     if is_held(&namespaces.agent_dynamics) {
         world.row::<AgentDynamicsRow>(AGENT_DYNAMICS)?;
-        let saved = field(snapshot, "agent_dynamics")?;
-        if !matches!(saved, V::Null) {
-            AgentMemory::from_v(saved)?;
-        }
+        snapshot.dynamics()?;
     }
     if is_held(&namespaces.body) {
         world.row::<BodyRow>(BODY)?;
-        let saved = field(snapshot, "body_agent")?;
-        if !matches!(saved, V::Null) {
-            BodyRecord::from_v(saved)?;
-        }
+        snapshot.body()?;
     }
     if is_held(&namespaces.information) {
         world.row::<InformationRow>(INFORMATION)?;
-        let saved = field(snapshot, "information")?;
-        records_from::<BeliefRow>(field(saved, "beliefs")?)?;
-        match field(saved, "query_pressure")? {
-            pressure if !pressure.is_truthy() => {}
-            V::Float(_) => {}
-            _ => return refuse("an archived query pressure is not a float"),
-        }
-        for message in map_of(field(state, "messages")?)?.values() {
-            MessageRow::from_v(message)?;
-        }
-        for beliefs in map_of(field(state, "deferred_beliefs")?)?.values() {
-            records_from::<BeliefRow>(beliefs)?;
-        }
+        snapshot.check_information()?;
+        state.check_messages()?;
+        state.check_deferred_beliefs()?;
     }
     if is_held(&namespaces.movement) {
         world.row::<MovementRow>(MOVEMENT)?;
@@ -949,24 +1103,9 @@ fn check_restore(world: &World, inputs: &Inputs<'_>, state: &V, agent_id: &str, 
 }
 
 /// Each archived tie fits the row it would go back to, and names two people a dict can look up.
-fn check_archive_ties(inputs: &Inputs<'_>, state: &V) -> Result<()> {
-    let namespaces = &inputs.population.namespaces;
-    for item in list_of(field(state, "relationship_archive")?)? {
-        for id in list_of(field(item, "agent_ids")?)? {
-            if matches!(id, V::List(_) | V::Map(_)) {
-                return refuse("an archived pair holds what a dict can't look up");
-            }
-        }
-        let value = field(item, "value")?;
-        match field(item, "namespace")? {
-            V::Str(name) if &**name == SOCIAL_NETWORK && is_held(&namespaces.social_network) => drop(SocialTie::from_v(value)?),
-            V::Str(name) if &**name == BODY && is_held(&namespaces.body) => drop(BodyTie::from_v(value)?),
-            V::Str(name) if &**name == INFORMATION && is_held(&namespaces.information) => drop(ContactRow::from_v(value)?),
-            V::Str(name) if &**name == SOCIAL_RUNTIME && is_held(&namespaces.social_runtime) => drop(ContactRecord::from_v(value)?),
-            V::Str(_) => {}
-            _ => return refuse("an archived namespace is not a str"),
-        }
-        text(field(item, "pair_key")?)?;
+fn check_archive_ties(inputs: &Inputs<'_>, state: LifecycleState<'_>) -> Result<()> {
+    for tie in state.relationship_archive()? {
+        tie.check(&inputs.population.namespaces)?;
     }
     Ok(())
 }
@@ -986,35 +1125,34 @@ fn restore_person(
         let state = lifecycle_mut(world)?;
         field(field(&state.0, "people")?, agent_id)?.clone()
     };
-    let agent = match restored_agent(field(&snapshot, "agent")?, zone_id, minute, world.schema_version()?)? {
+    let snapshot = ArchivedPerson::of(&snapshot);
+    let agent = match snapshot.agent(zone_id, minute, world)? {
         Built::Row(agent) => agent,
         Built::Raises(error) => return Err(error),
     };
     // At the end of the table, as the Python dict put the person back.
     world.rows_mut()?.agents.insert(agent_id.clone(), *agent);
     if is_held(&namespaces.agent_dynamics) {
-        let saved = field(&snapshot, "agent_dynamics")?;
         // `_initial_dynamics`, of the person just added, for one saved without their record.
-        let mut record = if matches!(saved, V::Null) {
-            let policy = *kit::kept(&inputs.population.policy)?;
-            let awareness = kit::kept(&inputs.population.awareness)?.as_ref();
-            let state = agent_dynamics::create_state(world, policy, awareness)?;
-            state.agents.get(&**agent_id).cloned().ok_or_else(|| Error::Key(agent_id.to_string()))?
-        } else {
-            AgentMemory::from_v(saved)?
+        let mut record = match snapshot.dynamics()? {
+            Some(record) => record,
+            None => {
+                let policy = *kit::kept(&inputs.population.policy)?;
+                let awareness = kit::kept(&inputs.population.awareness)?.as_ref();
+                let state = agent_dynamics::create_state(world, policy, awareness)?;
+                state.agents.get(&**agent_id).cloned().ok_or_else(|| Error::Key(agent_id.to_string()))?
+            }
         };
         record.decision_due_minute = minute;
         world.row_mut::<AgentDynamicsRow>(AGENT_DYNAMICS)?.agents.insert(agent_id.clone(), record);
     }
     if is_held(&namespaces.body) {
-        let saved = field(&snapshot, "body_agent")?;
-        if !matches!(saved, V::Null) {
-            let record = BodyRecord::from_v(saved)?;
+        if let Some(record) = snapshot.body()? {
             world.row_mut::<BodyRow>(BODY)?.agents.insert(agent_id.clone(), record);
         }
     }
     if is_held(&namespaces.information) {
-        restore_information(world, agent_id, field(&snapshot, "information")?)?;
+        restore_information(world, agent_id, snapshot)?;
     }
     if is_held(&namespaces.movement) {
         world.row_mut::<MovementRow>(MOVEMENT)?.journeys.shift_remove(&**agent_id);
@@ -1039,7 +1177,8 @@ fn restore_person(
 
 /// The information part of `_restore_person`: the beliefs in claims still told, the others
 /// deferred, the pressure, and the claims the person started back.
-fn restore_information(world: &World, agent_id: &Arc<str>, saved: &V) -> Result<()> {
+fn restore_information(world: &World, agent_id: &Arc<str>, snapshot: ArchivedPerson<'_>) -> Result<()> {
+    let saved = field(snapshot.0, "information")?;
     let beliefs = map_of(field(saved, "beliefs")?)?;
     let pressure = match field(saved, "query_pressure")? {
         V::Float(pressure) if *pressure != 0.0 => *pressure,
@@ -1082,15 +1221,6 @@ fn restore_information(world: &World, agent_id: &Arc<str>, saved: &V) -> Result<
     Ok(())
 }
 
-/// Whether the world has this person: Unsupported for an ID a dict can't look up.
-fn admitted(world: &World, id: &V) -> Result<bool> {
-    match id {
-        V::Str(id) => Ok(world.rows()?.agents.contains_key(id)),
-        V::List(_) | V::Map(_) => refuse("an ID a dict can't look up"),
-        _ => Ok(false),
-    }
-}
-
 /// `_restore_ready_relationships`: each archived tie whose two people are back, into its namespace
 /// unless the namespace has one of its key.
 fn restore_ready_relationships(world: &World, inputs: &Inputs<'_>) -> Result<()> {
@@ -1102,9 +1232,7 @@ fn restore_ready_relationships(world: &World, inputs: &Inputs<'_>) -> Result<()>
     let total = archive.len();
     let mut remaining = Vec::with_capacity(total);
     for item in archive {
-        let ids = list_of(field(&item, "agent_ids")?)?;
-        let (first, second) = (ids.first().ok_or_else(|| Error::unsupported("no pair"))?, ids.get(1).ok_or_else(|| Error::unsupported("no pair"))?);
-        if field(&item, "restore_when_both_active")?.is_truthy() && (!admitted(world, first)? || !admitted(world, second)?) {
+        if ArchivedTie::of(&item).waits(world)? {
             remaining.push(item);
             continue;
         }
@@ -1537,7 +1665,7 @@ fn plan_relocation(
 
 /// The plan of a command on the world it changes; `reads` are what it reads of the world it came
 /// from.
-fn plan_action(world: &World, inputs: &Inputs<'_>, row: &EventRow, command: &Command, state: &V, reads: &WorldReads) -> Result<Plan> {
+fn plan_action(world: &World, inputs: &Inputs<'_>, row: &EventRow, command: &Command, state: LifecycleState<'_>, reads: &WorldReads) -> Result<Plan> {
     let minute = row.due_minute;
     let presence = presence_state(world, &inputs.population.namespaces.presence)?;
     let first = command.ids.first().cloned().ok_or_else(|| Error::unsupported("no one is selected"))?;
@@ -1559,7 +1687,7 @@ fn plan_action(world: &World, inputs: &Inputs<'_>, row: &EventRow, command: &Com
             if presence {
                 let old = {
                     let raw = value_of(world, PRESENCE, &inputs.population.namespaces.presence)?.ok_or_else(|| Error::unsupported("no presence"))?;
-                    person_in(&raw.0, &first)?
+                    PresenceState::of(&raw.0).person(&first)?
                 };
                 let expected = command.expected_return.or_else(|| old.and_then(|person| person.expected_return_minute));
                 if action == "temporary_exit" && expected.is_some_and(|due| due < minute) {
@@ -1576,12 +1704,12 @@ fn plan_action(world: &World, inputs: &Inputs<'_>, row: &EventRow, command: &Com
             if is_admitted && reads.exits.clone()?.iter().any(|due| *due < minute) {
                 return Ok(Plan::Suppress("return skipped: the person had not left before the return in the same EffectProgram"));
             }
-            if is_admitted || !map_of(field(state, "people")?)?.contains_key(&*first) {
+            if is_admitted || !state.retains(&first)? {
                 return failed("return requires a retained absent person");
             }
             let old = if presence {
                 let raw = value_of(world, PRESENCE, &inputs.population.namespaces.presence)?.ok_or_else(|| Error::unsupported("no presence"))?;
-                person_in(&raw.0, &first)?
+                PresenceState::of(&raw.0).person(&first)?
             } else {
                 None
             };
@@ -1895,7 +2023,7 @@ pub fn presence_action(world: &World, inputs: &Inputs<'_>, row: &EventRow, comma
             return refuse("the lifecycle is not installed");
         };
         let event = EventIds::of(row)?;
-        let plan = plan_action(world, inputs, row, command, &state.0, reads)?;
+        let plan = plan_action(world, inputs, row, command, LifecycleState::of(&state.0), reads)?;
         (event, plan)
     };
     match plan {
@@ -1935,20 +2063,25 @@ struct PendingReturn {
     zone_id: Arc<str>,
 }
 
+/// A pending return the admission takes: the return, the room it takes, and the household and
+/// sources its record names, read where the plan checks them.
+struct Returning {
+    entry: PendingReturn,
+    room: Option<(Arc<str>, Pt)>,
+    household: Option<Arc<str>>,
+    sources: Vec<Arc<str>>,
+}
+
 /// Whether `admit_returns` surely has nothing to do: the world holds no lifecycle, or one whose
 /// `pending_returns` is there and empty.
 pub fn nothing_to_admit(world: &World, lifecycle: &Held) -> Result<bool> {
-    Ok(nothing_waiting(value_of(world, KEY, lifecycle)?.as_deref().map(|row| &row.0)))
+    Ok(nothing_waiting(value_of(world, KEY, lifecycle)?.as_deref().map(|row| LifecycleState::of(&row.0))))
 }
 
 /// Whether the lifecycle surely has no one waiting: absent, None, or a dict whose
 /// `pending_returns` is there and empty.
-fn nothing_waiting(state: Option<&V>) -> bool {
-    match state {
-        None | Some(V::Null) => true,
-        Some(V::Map(state)) => state.get("pending_returns").is_some_and(|value| !value.is_truthy()),
-        Some(_) => false,
-    }
+fn nothing_waiting(state: Option<LifecycleState<'_>>) -> bool {
+    state.is_none_or(LifecycleState::nothing_waiting)
 }
 
 /// `admit_pending_returns`: in (minute, event, person) order, each waiting person whose zone has
@@ -1957,7 +2090,7 @@ fn nothing_waiting(state: Option<&V>) -> bool {
 pub fn admit_returns(world: &World, inputs: &Inputs<'_>, minute: i64) -> Result<Vec<Arc<str>>> {
     let (admit, remaining) = {
         let held = lifecycle_of(world, inputs)?;
-        if nothing_waiting(held.as_deref().map(|row| &row.0)) {
+        if nothing_waiting(held.as_deref().map(|row| LifecycleState::of(&row.0))) {
             return Ok(Vec::new());
         }
         let Some(state) = held.filter(|row| matches!(row.0, V::Map(_))) else {
@@ -1994,19 +2127,23 @@ pub fn admit_returns(world: &World, inputs: &Inputs<'_>, minute: i64) -> Result<
                 remaining.push(entry.item);
                 continue;
             };
-            check_restore(world, inputs, &state.0, &entry.agent_id, &entry.zone_id)?;
+            check_restore(world, inputs, LifecycleState::of(&state.0), &entry.agent_id, &entry.zone_id)?;
             identifier(&entry.event_id)?;
             identifier(&entry.agent_id)?;
             identifier(&entry.zone_id)?;
-            optional_identifier(optional_text(field(&entry.item, "household_id")?)?.as_deref())?;
+            let household = optional_text(field(&entry.item, "household_id")?)?;
+            optional_identifier(household.as_deref())?;
+            let mut sources = Vec::new();
             for source in list_of(field(&entry.item, "source_ids")?)? {
-                identifier(kit::exact_str(source)?)?;
+                let source = kit::exact_str(source)?;
+                identifier(source)?;
+                sources.push(source.clone());
             }
             places.add(&entry.zone_id);
             if let Some((room_id, point)) = &room {
                 places.take_room(inputs, room_id, *point);
             }
-            admit.push((entry, room));
+            admit.push(Returning { entry, room, household, sources });
         }
         if !admit.is_empty() {
             check_information(world, inputs.population)?;
@@ -2019,22 +2156,12 @@ pub fn admit_returns(world: &World, inputs: &Inputs<'_>, minute: i64) -> Result<
     kit::writing(write_returns(world, inputs, minute, admit, remaining))
 }
 
-fn write_returns(
-    world: &World,
-    inputs: &Inputs<'_>,
-    minute: i64,
-    admit: Vec<(PendingReturn, Option<(Arc<str>, Pt)>)>,
-    remaining: Vec<V>,
-) -> Result<Vec<Arc<str>>> {
+fn write_returns(world: &World, inputs: &Inputs<'_>, minute: i64, admit: Vec<Returning>, remaining: Vec<V>) -> Result<Vec<Arc<str>>> {
     let presence = has_presence(world, inputs)?;
     let mut admitted: Vec<Arc<str>> = Vec::with_capacity(admit.len());
-    for (entry, room) in &admit {
+    for Returning { entry, room, household, sources } in &admit {
         restore_person(world, inputs, &entry.agent_id, &entry.zone_id, minute, room.as_ref(), &entry.event_id)?;
-        let household = optional_text(field(&entry.item, "household_id")?)?;
-        let mut sources = Vec::new();
-        for source in list_of(field(&entry.item, "source_ids")?)? {
-            sources.push(text(source)?);
-        }
+        let (household, sources) = (household.clone(), sources.clone());
         if presence {
             let synthetic = EventIds { event_id: entry.event_id.clone(), causation_id: None, source_id: Arc::from(SOURCE_ID) };
             let details = PresenceChange {
@@ -2048,12 +2175,12 @@ fn write_returns(
         }
         append_history(
             world,
-            history_row(
-                &entry.event_id,
-                Moved { agent_id: &entry.agent_id, action: "admitted", minute, from_zone: None, to_zone: Some(&entry.zone_id) },
+            &HistoryRow {
+                event_id: &entry.event_id,
+                moved: Moved { agent_id: &entry.agent_id, action: "admitted", minute, from_zone: None, to_zone: Some(&entry.zone_id) },
                 household,
-                &sources,
-            ),
+                sources: &sources,
+            },
         )?;
         admitted.push(entry.agent_id.clone());
     }
@@ -2083,7 +2210,7 @@ fn check_waiting_returns(world: &World, inputs: &Inputs<'_>) -> Result<()> {
         let (event_id, agent_id, zone_id) = (text(field(item, "event_id")?)?, text(field(item, "agent_id")?)?, text(field(item, "zone_id")?)?);
         places.has_room_for(world, inputs, &zone_id, None)?;
         places.available_room(world, inputs, &zone_id)?;
-        check_restore(world, inputs, &state.0, &agent_id, &zone_id)?;
+        check_restore(world, inputs, LifecycleState::of(&state.0), &agent_id, &zone_id)?;
         identifier(&event_id)?;
         identifier(&agent_id)?;
         identifier(&zone_id)?;
@@ -2186,12 +2313,12 @@ pub fn complete_relocation(world: &World, inputs: &Inputs<'_>, row: &EventRow) -
         }
         append_history(
             world,
-            history_row(
-                &row.event_id,
-                Moved { agent_id: &agent_id, action: "relocated", minute: row.due_minute, from_zone: Some(&from_zone), to_zone: Some(&to_zone) },
+            &HistoryRow {
+                event_id: &row.event_id,
+                moved: Moved { agent_id: &agent_id, action: "relocated", minute: row.due_minute, from_zone: Some(&from_zone), to_zone: Some(&to_zone) },
                 household,
-                &sources,
-            ),
+                sources: &sources,
+            },
         )?;
         let mut state = lifecycle_mut(world)?;
         dict_mut(part_mut(&mut state.0, "pending_relocations")?)?.shift_remove(&*agent_id);

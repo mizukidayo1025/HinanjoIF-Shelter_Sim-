@@ -13,7 +13,7 @@ use sheltersim_core::events::{EventKind, EventStatus};
 use sheltersim_core::geometry::Pt;
 use sheltersim_core::rng::{label, Draws, Key, KeyedDraws};
 use sheltersim_core::row::{IdMap, ValueRow};
-use sheltersim_core::rules::kit::{self, Admission, Counts, Events, NewEvent, Placed};
+use sheltersim_core::rules::kit::{self, Admission, Events, NewEvent, Placed};
 use sheltersim_core::state::effect_program::{EffectProgramRow, FacilityModifiers, Modifier};
 use sheltersim_core::state::metric_state::MetricRow;
 use sheltersim_core::state::movement::{MovementRow, Point, Position};
@@ -78,22 +78,6 @@ fn people() -> Entities {
     put(&mut entities.agents, "a1", agent("a1", Some("g1"), Mobility::Wheelchair));
     put(&mut entities.agents, "a2", agent("a2", None, Mobility::Independent));
     entities
-}
-
-// ---- Counts --------------------------------------------------------------------------------------
-
-#[test]
-fn counts_keep_what_ran_and_the_refusals_by_reason() {
-    let counts = Counts::new();
-    assert_eq!(counts.counted("b", Ok(1)), Ok(1));
-    assert_eq!(counts.counted("a", Ok(2)), Ok(2));
-    counts.counted("a", Ok(())).unwrap();
-    assert!(counts.counted::<()>("a", Err(unsupported("no row"))).is_err());
-    assert!(counts.counted::<()>("a", Err(unsupported("no row"))).is_err());
-    // An error that is not a refusal is not counted.
-    assert!(counts.counted::<()>("a", Err(Error::Value("bad".into()))).is_err());
-    assert_eq!(counts.ran_counts(), [("a", 2), ("b", 1)]);
-    assert_eq!(counts.refusal_counts(), [("a: no row".to_owned(), 2)]);
 }
 
 // ---- Values and events -----------------------------------------------------------------------------

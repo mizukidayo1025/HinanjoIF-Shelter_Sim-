@@ -14,10 +14,6 @@ crate-type = ["rlib"]
 name = "core"
 path = "tests/main.rs"
 
-[[test]]
-name = "effect_guard_dispatch"
-path = "tests/effect_guard_dispatch.rs"
-
 [dependencies]
 # The offline intervention parser's patterns (Issue #303): Python's `re` with lookarounds. Only the
 # Unicode tables its patterns use (case folding, general categories, white space) are built in, to

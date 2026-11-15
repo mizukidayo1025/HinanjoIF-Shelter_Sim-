@@ -37,7 +37,7 @@ use crate::host::{Contract, ErrorClass, Host, HostFailure};
 use crate::row::ValueRow;
 use crate::rules::care_receipts::{self, Made};
 use crate::rules::common_operations::py_eq;
-use crate::rules::kit::{self, Counts, Held, Kept};
+use crate::rules::kit::{self, Held, Kept};
 use crate::rules::movement::{self, StaffOps};
 use crate::rules::overlay::SpaceRecord;
 use crate::rules::{agent_dynamics, overlay, staff_dynamics, staff_operation_events, staff_order};
@@ -74,12 +74,6 @@ const PLACE: &str = "overlay.place_installed_facility";
 const ANNOUNCE: &str = "agent_dynamics.announce_installed_facility";
 const SNAPSHOTS: &str = "movement.staff_position_snapshots";
 const AVAILABLE: &str = "staff_dynamics.is_available";
-
-// ---- What ran and what was refused --------------------------------------------------------------
-
-/// What the effects' rules ran and refused, by label. The core counts the branch of an addition it
-/// ran (`structure.add_staff`).
-pub static COUNTS: Counts = Counts::new();
 
 // ---- Reading -------------------------------------------------------------------------------------
 
@@ -2162,9 +2156,7 @@ pub fn write_add<C: WorldCell, H: Host>(cell: &C, host: &mut H, ins: &AddIn<'_>,
         }
     }
     validate(host)?;
-    let label = if plan.staff { "structure.add_staff" } else { "structure.add_toilet" };
-    COUNTS.ran(label);
-    Ok(label)
+    Ok(if plan.staff { "structure.add_staff" } else { "structure.add_toilet" })
 }
 
 // ---- validate_effect_program_state -------------------------------------------------------------

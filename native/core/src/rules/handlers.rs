@@ -43,7 +43,7 @@ use crate::row::ValueRow;
 use crate::rules::care_receipts::{self, Made};
 use crate::rules::common_operations::{self, py_eq, Found, Receipt, CONTINUITY_EVENT};
 use crate::rules::kit::movement::config_read;
-use crate::rules::kit::{self, Counts, Events, Held};
+use crate::rules::kit::{self, Events, Held};
 use crate::rules::movement::{self, KEY as MOVEMENT};
 use crate::rules::resources::{self, Applied, Fail, LedgerFault, OperationArg, OperationEvent};
 use crate::rules::service::{self, Failure, Manager, Pending};
@@ -76,12 +76,6 @@ pub const SERVICE_UNREAD: &str = "the resource service's manager could not be ma
 /// The refusal of a rule that reads `support_cooldown_minutes`, whose read raised: the dispatcher
 /// reads the section again (`Host::read_again`) and raises what that raised.
 pub const COOLDOWN_UNREAD: &str = "the support cooldown could not be read";
-
-// ---- What ran and what was refused ------------------------------------------------------------------
-
-/// What the handlers ran and refused, by label. The core counts the labels it reaches inside a rule
-/// (`interrupt_for_staff`).
-pub static COUNTS: Counts = Counts::new();
 
 // ---- Reading values ---------------------------------------------------------------------------------
 
@@ -878,23 +872,15 @@ fn pending_reserves(world: &World) -> Result<Vec<Pending>> {
     Ok(found)
 }
 
-/// The resource services the staff member serves, interrupted by the event (`service::interrupt`),
-/// counted under its label.
+/// The resource services the staff member serves, interrupted by the event (`service::interrupt`).
 fn interrupt_service(world: &mut World, inputs: &StaffIn<'_>, staff_id: &str, event: &EventRow) -> service::Outcome<Option<Applied>> {
-    const LABEL: &str = "interrupt_for_staff";
-    let result = match &inputs.service {
+    match &inputs.service {
         Ok(manager) => {
             pending_reserves(world).map_err(Failure::from).and_then(|pending| service::interrupt(world, manager, &pending, staff_id, Some(&event.event_id)))
         }
         Err(Unread::Refused(reason)) => Err(Error::unsupported(reason.clone()).into()),
-        Err(Unread::Raised) => return Err(Error::unsupported(SERVICE_UNREAD).into()),
-    };
-    match &result {
-        Ok(_) => COUNTS.ran(LABEL),
-        Err(Failure::Write(WriteError::Error(Error::Unsupported(reason)))) => COUNTS.refused(LABEL, reason),
-        Err(_) => {}
+        Err(Unread::Raised) => Err(Error::unsupported(SERVICE_UNREAD).into()),
     }
-    result
 }
 
 /// `StaffUnavailabilityHandler`'s rule, on the transaction's world: the restore event, the stop of
@@ -1834,7 +1820,6 @@ where
         // validation with the delay in flight.
         host.validate_candidate(TxnKind::Full, Stage::World)?;
         host.validate_candidate(TxnKind::Full, Stage::Candidate)?;
-        crate::txn::NESTED_RULES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let mark = taken.len();
         cell.with(|world| delivery_delay(world, inputs.operational, &delay_event, taken))??;
         host.slots_changed(&taken[mark..])?;
@@ -2237,16 +2222,6 @@ pub fn infrastructure_after<C: WorldCell, H: Host>(
 // their inputs through the host: an arrival or a departure in a rule transaction, a presence
 // command in its own.
 
-/// Count a result under its label, a refusal by its reason.
-fn counted_by<T, E: HostFailure>(label: &'static str, result: std::result::Result<T, E>) -> std::result::Result<T, E> {
-    match &result {
-        Ok(_) => COUNTS.ran(label),
-        Err(error) if error.class() == crate::host::ErrorClass::Refused => COUNTS.refused(label, &error.text()),
-        Err(_) => {}
-    }
-    result
-}
-
 /// A population rule's refusal as the `Error::Refused` named by its label (`label`).
 fn rule_refusal<E: HostFailure + From<Error>>(label: &'static str, error: E) -> E {
     if error.class() == crate::host::ErrorClass::Refused {
@@ -2270,14 +2245,12 @@ fn wrapped<E: HostFailure + From<Error>>(error: E) -> E {
 pub fn population_event<C: WorldCell, H: Host>(cell: &C, host: &mut H, row: &EventRow) -> std::result::Result<(), H::Error> {
     use crate::rules::{population, population_lifecycle};
     if &*row.event_type == "population_approach_complete" {
-        let done = population::approach_completion(cell, host, row).map_err(|error| rule_refusal("population.apply_arrival_approach_completion", error));
-        return counted_by("population.approach", done);
+        return population::approach_completion(cell, host, row).map_err(|error| rule_refusal("population.apply_arrival_approach_completion", error));
     }
-    let checked = kit::holding(cell, host).and_then(|holding| {
+    let op = kit::holding(cell, host).and_then(|holding| {
         let program = holding.held(PROGRAM, "the world holds another effect_program_v1");
         cell.with(|world| population_checks(world, &program, row)).and_then(|done| done).map_err(H::Error::from)
-    });
-    let op = counted_by("population.checks", checked)?;
+    })?;
     if op == PopulationOp::Presence {
         // Past its checks, this rule's exceptions go on as they are.
         let command = kit::payload(row, "command").cloned().unwrap_or(V::Null);
@@ -2285,9 +2258,8 @@ pub fn population_event<C: WorldCell, H: Host>(cell: &C, host: &mut H, row: &Eve
             .map(drop)
             .map_err(|error| rule_refusal("population_lifecycle.apply_presence_command", error));
     }
-    let changed = crate::txn::rule_kept(cell, host, TxnKind::Full, |cell, host| population_writes(cell, host, row, op));
     // Past the checks a call's exception goes on as the event's own.
-    match counted_by("population.copy", changed)? {
+    match crate::txn::rule_kept(cell, host, TxnKind::Full, |cell, host| population_writes(cell, host, row, op))? {
         Some(deferred) => Err(deferred),
         None => Ok(()),
     }

@@ -13,36 +13,12 @@
 //! in `PlainHost`) and the host's own views, which follow the canonical order and come back on a
 //! rollback. No borrow of the world is held while the host runs (rule R6).
 
-use std::sync::atomic::{AtomicU64, Ordering};
-
 use crate::error::Error;
 pub use crate::host::Host;
 use crate::world::{Snapshot, WorldCell};
 
 /// The text of a transaction begun inside another (`Error::Runtime`).
 pub const NESTED: &str = "a transaction is open on the world already";
-
-/// How many rules ran inside another rule's open transaction in this process (a rule's own start
-/// validates the world and writes it as it is; the outer transaction commits or rolls back): the
-/// rules of `rule` and the delivery delays of a supply route's interruption (`rules::handlers`).
-/// For the gate's counts.
-pub static NESTED_RULES: AtomicU64 = AtomicU64::new(0);
-/// How many rule transactions (`rule`) opened in place, committed and rolled back in this process
-/// (lane P9-1b).
-pub static IN_PLACE: AtomicU64 = AtomicU64::new(0);
-pub static COMMITTED: AtomicU64 = AtomicU64::new(0);
-pub static ROLLED_BACK: AtomicU64 = AtomicU64::new(0);
-
-/// What the rule transactions did in this process, by name: how many ran in place and inside
-/// another, how many committed and rolled back.
-pub fn counts() -> [(&'static str, u64); 4] {
-    [
-        ("in_place", IN_PLACE.load(Ordering::Relaxed)),
-        ("nested", NESTED_RULES.load(Ordering::Relaxed)),
-        ("committed", COMMITTED.load(Ordering::Relaxed)),
-        ("rolled_back", ROLLED_BACK.load(Ordering::Relaxed)),
-    ]
-}
 
 /// Which copy a transaction stands for, which says how its candidate is validated.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -180,27 +156,22 @@ pub fn rule<C: WorldCell, H: Host, T>(
     if cell.with(|world| world.txn_open)? {
         host.validate_candidate(kind, Stage::World)?;
         host.validate_candidate(kind, Stage::Candidate)?;
-        NESTED_RULES.fetch_add(1, Ordering::Relaxed);
         return match body(cell, host)? {
             TxnEnd::Commit(value) | TxnEnd::Rollback(value) => Ok(value),
         };
     }
     host.txn_check()?;
     let txn = Txn::begin(cell, host, kind)?;
-    IN_PLACE.fetch_add(1, Ordering::Relaxed);
     match body(cell, host) {
         Ok(TxnEnd::Commit(value)) => {
-            COMMITTED.fetch_add(1, Ordering::Relaxed);
             txn.commit(cell, host)?;
             Ok(value)
         }
         Ok(TxnEnd::Rollback(value)) => {
-            ROLLED_BACK.fetch_add(1, Ordering::Relaxed);
             txn.rollback(cell, host)?;
             Ok(value)
         }
         Err(error) => {
-            ROLLED_BACK.fetch_add(1, Ordering::Relaxed);
             txn.rollback(cell, host)?;
             Err(error)
         }

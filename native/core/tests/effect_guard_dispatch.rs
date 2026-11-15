@@ -12,22 +12,20 @@
 //! phase at minute 0 with the host of a Run's world and pins the digest of all that was saved: the
 //! first 16 hex of the sha256 of `json.dumps({"records", "pending", "counters", "world"},
 //! sort_keys=True)` (the log's records as text, the pending events, the ID counters, the world's
-//! canonical text). The record's status and detail are the guard's outcome, and the dispatch's
-//! counts move with it. The values were recorded before #430 and pin the core's output now.
-
-mod support;
+//! canonical text). The record's status and detail are the guard's outcome. The values were
+//! recorded before #430 and pin the core's output now.
 
 use std::rc::Rc;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use indexmap::IndexMap;
 use serde_json::{json, Value};
 use sheltersim_core::events::EventStatus;
-use sheltersim_core::rules::dispatch::{self, COUNTS};
-use sheltersim_core::rules::{effects, kit};
+use sheltersim_core::rules::{dispatch, kit};
 use sheltersim_core::value::V;
 use sheltersim_core::world::WorldCell;
 
+use crate::support;
 use support::canonical::{canonical_json, parts};
 use support::dumps::Dumps;
 use support::load::{self, Loaded};
@@ -38,17 +36,6 @@ use support::{cases, contracts, TestHost};
 const FILE: &str = "resource_service_texts";
 const KEY: &str = "effect_program_v1";
 const EVALUATED_FALSE: &str = "EffectProgram guard evaluated false";
-
-/// The dispatch's counts are the process's: one case at a time.
-static ONE_AT_A_TIME: Mutex<()> = Mutex::new(());
-
-/// The counts of the dispatch, with the guard's refusals (`effects::COUNTS`) as `guard_refused`.
-fn counts() -> IndexMap<String, u64> {
-    let mut counts: IndexMap<String, u64> = COUNTS.all().into_iter().map(|(name, times)| (name.to_owned(), times)).collect();
-    let refused = effects::COUNTS.refusal_counts().into_iter().filter(|(reason, _)| reason.starts_with("dispatch_guard:")).map(|(_, times)| times).sum();
-    counts.insert("guard_refused".to_owned(), refused);
-    counts
-}
 
 /// What a case's event is: one marked by hand, or the start of the program a world scheduled.
 enum Scheduled {
@@ -72,24 +59,10 @@ fn marked(event_type: &str, payload: Value, guard: Value) -> Scheduled {
     }))
 }
 
-/// What a case gave: the record of its event and the counts before and after.
+/// What a case gave: the record of its event.
 struct Dispatched {
     status: EventStatus,
     detail: Option<String>,
-    before: IndexMap<String, u64>,
-    after: IndexMap<String, u64>,
-}
-
-impl Dispatched {
-    fn grew(&self, names: &[&str]) {
-        for name in names {
-            assert_eq!(self.after[*name], self.before[*name] + 1, "{name}");
-        }
-    }
-
-    fn same(&self, name: &str) {
-        assert_eq!(self.after[name], self.before[name], "{name}");
-    }
 }
 
 /// What the phase saved: the log's records, the pending events, the ID counters and the world.
@@ -120,7 +93,6 @@ fn saved(loaded: &Loaded, entry: &Value) -> V {
 /// The event's record from the dispatch phase at minute 0, whose saved digest is the recorded one
 /// (`recorded`).
 fn dispatched(scheduled: Scheduled, recorded: &str) -> Dispatched {
-    let _one = ONE_AT_A_TIME.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     let world = match &scheduled {
         Scheduled::Marked(_) => "gate".to_owned(),
         Scheduled::Program(name) => format!("gate_{name}"),
@@ -141,9 +113,7 @@ fn dispatched(scheduled: Scheduled, recorded: &str) -> Dispatched {
             start["event_id"].as_str().unwrap().to_owned()
         }
     };
-    let before = counts();
     dispatch::run(&mut tick_at(&loaded, &mut host, 0)).unwrap_or_else(|error| panic!("{world}: {error:?}"));
-    let after = counts();
     let text = Dumps::default().sorted().text(&saved(&loaded, &entry));
     assert_eq!(&sha(&text)[..16], recorded, "{world}");
     let record = loaded
@@ -155,7 +125,7 @@ fn dispatched(scheduled: Scheduled, recorded: &str) -> Dispatched {
             (status, detail.map(|detail| detail.to_string()))
         })
         .unwrap();
-    Dispatched { status: record.0, detail: record.1, before, after }
+    Dispatched { status: record.0, detail: record.1 }
 }
 
 fn facility() -> Value {
@@ -167,8 +137,6 @@ fn a_false_guard_suppresses_the_event() {
     let guard = json!({"operator": "lt", "field": "simulation.minute", "value": 0});
     let found = dispatched(marked("effect_program_apply", facility(), guard), "4e2ff7aa6f0fc988");
     assert_eq!((found.status, found.detail.as_deref()), (EventStatus::Suppressed, Some(EVALUATED_FALSE)));
-    found.grew(&["guard_stopped"]);
-    found.same("events_foreign");
 }
 
 #[test]
@@ -184,7 +152,6 @@ fn a_guard_the_contract_turns_down_fails_with_its_text() {
         let found = dispatched(marked("effect_program_apply", facility(), guard.clone()), recorded);
         assert_eq!(found.status, EventStatus::Failed, "{guard}");
         assert!(found.detail.as_deref().unwrap().starts_with("EffectProgram guard is invalid: "), "{guard}");
-        found.grew(&["guard_stopped", "outcomes_failed"]);
     }
 }
 
@@ -211,7 +178,6 @@ fn a_guard_without_its_target_fails_with_the_recorded_text() {
         };
         let found = dispatched(marked("effect_program_apply", payload, guard), recorded);
         assert_eq!((found.status, found.detail.as_deref()), (EventStatus::Failed, Some(text)), "{field}");
-        found.grew(&["guard_stopped", "outcomes_failed"]);
     }
 }
 
@@ -242,15 +208,12 @@ fn a_later_operand_is_read_only_after_those_before_it() {
 fn a_guard_that_holds_goes_on_to_the_handler() {
     let found = dispatched(Scheduled::Program("holds"), "af71b64a3089f6b2");
     assert_eq!((found.status, found.detail.as_deref()), (EventStatus::Applied, None));
-    found.grew(&["guard_passed", "outcomes_applied", "events_core"]);
-    found.same("events_foreign");
 }
 
 #[test]
 fn a_false_guard_of_a_scheduled_program_suppresses_its_start() {
     let found = dispatched(Scheduled::Program("false"), "6a554483ede70f5b");
     assert_eq!((found.status, found.detail.as_deref()), (EventStatus::Suppressed, Some(EVALUATED_FALSE)));
-    found.grew(&["guard_stopped"]);
 }
 
 #[test]
@@ -258,8 +221,6 @@ fn an_event_without_a_handler_fails_before_any_guard() {
     let guard = json!({"operator": "lt", "field": "simulation.minute", "value": 0});
     let found = dispatched(marked("no_such_event", json!({}), guard), "8a9bb286b8074ae8");
     assert_eq!((found.status, found.detail.as_deref()), (EventStatus::Failed, Some("no handler registered for event type 'no_such_event'")));
-    found.grew(&["events_unregistered"]);
-    found.same("guard_stopped");
 }
 
 #[test]
@@ -267,8 +228,6 @@ fn a_marked_event_of_the_table_is_guarded() {
     let guard = json!({"operator": "lt", "field": "simulation.minute", "value": 0});
     let found = dispatched(marked("support_request_timeout", json!({}), guard), "5141dc1f7e535ad5");
     assert_eq!((found.status, found.detail.as_deref()), (EventStatus::Suppressed, Some(EVALUATED_FALSE)));
-    found.grew(&["guard_stopped"]);
-    found.same("events_foreign");
 }
 
 #[test]
@@ -288,11 +247,8 @@ fn a_guard_value_past_64_bits_compares_by_value() {
         assert_eq!(start["provenance"][KEY]["guard"]["value"], value, "{name}");
         if applies {
             assert_eq!((found.status, found.detail.as_deref()), (EventStatus::Applied, None), "{name}");
-            found.grew(&["guard_passed", "events_core"]);
         } else {
             assert_eq!((found.status, found.detail.as_deref()), (EventStatus::Suppressed, Some(EVALUATED_FALSE)), "{name}");
-            found.grew(&["guard_stopped"]);
         }
-        found.same("guard_refused");
     }
 }

@@ -1,10 +1,6 @@
 //! The core's tests, in one test binary (Issue #388): each file of this directory is a module of
 //! it, as `cargo test` would otherwise build and link the core into a binary per file. Run one
 //! file's tests with `cargo test -p sheltersim_core --test core <file name>::`.
-//!
-//! `effect_guard_dispatch.rs` stays a binary of its own (`--test effect_guard_dispatch`): it compares
-//! the process's dispatch counts (`rules::dispatch::COUNTS`) before and after each case, and the
-//! other tests, run on other threads of the same process, would move them.
 
 mod support;
 
@@ -27,6 +23,7 @@ mod decisions_run;
 mod dispatch;
 mod dispatch_inputs;
 mod dispatch_rows;
+mod effect_guard_dispatch;
 mod effect_handlers;
 mod effect_kernels;
 mod effect_program_texts;

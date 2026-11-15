@@ -70,6 +70,18 @@ SCREEN_FILES = (
     "demo-v2-clock.js",
     "demo-v2-replay.js",
     "demo-v2-sprites.js",
+    "demo-v2-state.js",
+    "demo-v2-text.js",
+    "demo-v2-api.js",
+    "demo-v2-pages.js",
+    "demo-v2-draw.js",
+    "demo-v2-home.js",
+    "demo-v2-scenario.js",
+    "demo-v2-simulation.js",
+    "demo-v2-people.js",
+    "demo-v2-comparison.js",
+    "demo-v2-report.js",
+    "demo-v2-detail.js",
 )
 # The browser's API: the page's script, the Worker and the modules it imports.
 BROWSER_FILES = (

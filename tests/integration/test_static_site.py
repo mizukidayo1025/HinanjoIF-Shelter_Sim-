@@ -98,6 +98,12 @@ def test_the_site_holds_the_screen_the_browser_api_and_the_sample_in_parts(
         assert (output / name).read_bytes() == (STATIC / name).read_bytes()
     server_html = (STATIC / "demo-v2.html").read_text(encoding="utf-8")
     browser_html = (output / "index.html").read_text(encoding="utf-8")
+    # Every file of the screen the page loads is on the site as it is (the screen is in several
+    # demo-v2-*.js files since #491).
+    loaded = re.findall(r'(?:src|href)="/(demo-v2[^"]*)"', browser_html)
+    assert "demo-v2.js" in loaded and len(loaded) > 10
+    for name in loaded:
+        assert (output / name).read_bytes() == (STATIC / name).read_bytes(), name
     assert not (output / "demo-v2.html").exists()
     added = [line for line in browser_html.splitlines() if line not in server_html.splitlines()]
     assert added == [

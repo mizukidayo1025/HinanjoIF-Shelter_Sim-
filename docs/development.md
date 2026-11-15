@@ -365,8 +365,8 @@ export SHELTERSIM_LLM_MODE=offline
 sheltersim --help
 sheltersim model-catalog --scenario fixtures/scenarios/h00_small_replay.json
 sheltersim prepare --scenario fixtures/scenarios/h00_small_replay.json --freeze --output /tmp/approved.json
-sheltersim run --offline --scenario /tmp/approved.json --output /tmp/sheltersim-run
-sheltersim inspect --run /tmp/sheltersim-run --events
+sheltersim run --offline --scenario /tmp/approved.json --project-id study --run-id first
+sheltersim inspect --project-id study --run-id first --kpis --limit 10
 sheltersim compare --help
 sheltersim project --help
 ~~~

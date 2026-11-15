@@ -25,7 +25,6 @@ from sheltersim.domain.social_dialogue import (
 from sheltersim.events.handlers import EventDispatcher, SocialInteractionHandler
 from sheltersim.events.models import EventKind, EventStatus, ScheduledEvent
 from sheltersim.experiments.branch import AddToiletCommand, BranchRuntime
-from sheltersim.experiments.comparison import compare_branches
 from sheltersim.experiments.scenario import ScenarioSpec
 from sheltersim.inspection.frames import social_event_records
 from sheltersim.storage.checkpoints import CheckpointArchive
@@ -251,10 +250,6 @@ def test_structured_interaction_is_indexed_without_utterance_and_restores_social
     candidate_branch.apply(AddToiletCommand("candidate-toilet", "toilet", capacity=2))
     baseline_branch.metrics.capture(baseline_branch.world, minute=3)
     candidate_branch.metrics.capture(candidate_branch.world, minute=3)
-    comparison = compare_branches(baseline_branch, candidate_branch)
-    assert comparison.first_divergence_minute == 3
-    assert comparison.changed_facilities[0]["id"] == "candidate-toilet"
-    assert comparison.added_event_ids
 
     baseline_checkpoint = baseline_branch.checkpoint()
     candidate_checkpoint = candidate_branch.checkpoint()

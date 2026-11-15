@@ -102,12 +102,13 @@ C は合成条件・モデル仮定です。現時点の心理/行動/社会係�
 `GET /api/v1/projects/{p}/runs/{r}/evidence` も同じ情報を返します。
 
 `sheltersim evaluate-models --scenario <ScenarioSpec> --plan <plan.json>
---output <new-directory>` は明示的に依頼されたオフライン行列を実行します。
+--project-id <project> --output <new-file>` は明示的に依頼されたオフライン行列を、
+Project の Run（`<variant>-seed-<seed>`）として画面と同じ道で計算します。
 plan は schema_version:1、seeds、variants（id/policies/parameters）、metrics。
 parameters は登録済み `psychology.stress_pressure` 等のみを受け付けます。
 全条件で初期プロフィールを固定し、各seedの乱数キーを対応させます。
-各Runの設定・モデル版・scenario/state hash・出典を残し、先頭variantを
-基準に最終tickのKPI差を比較します。既存結果を上書きしません。
+各Runの設定・モデル版・scenario hash・Branchの先頭のhash・出典を残し、先頭variantを
+基準に最終tickのKPI差（指標の記録の最後の行）を比較します。既存のRunや結果を上書きしません。
 
 複数seedの平均差・標本標準偏差・近似95% Student-t区間を記録します。
 単一seedでは区間を出さず不確実とします。この区間は選んだseedによる

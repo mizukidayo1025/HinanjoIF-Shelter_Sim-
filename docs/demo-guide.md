@@ -41,7 +41,7 @@ SHELTERSIM_LLM_MODE=offline sheltersim web --runs-dir /tmp/sheltersim-sample/run
 
 ## CLIのRun
 
-`sheltersim run --output`の成果物（Projectに入らないRun）は、画面では開けません。`sheltersim inspect --run <directory>`で確かめます（[API・CLI](api-reference.md)）。
+`sheltersim run`は、画面と同じ道でProjectにRunを作ります（既定は`runs/.projects`）。`sheltersim web`の`--runs-dir`をその親にすれば、画面で開けます（[API・CLI](api-reference.md)）。
 
 ## 困ったとき
 

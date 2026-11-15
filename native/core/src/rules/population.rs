@@ -1,29 +1,26 @@
-//! `domain/population.py`: who arrives, waits, is admitted and leaves (lane c5 of Issue #152; the
-//! contracts are the docstrings of `domain/population.py`).
+//! The population rules: who arrives, waits, is admitted and leaves (lane c5 of Issue #152).
 //!
 //! The rules are functions on the `World`. `population_dynamics_v1`, `population_presence_v1` and
 //! `geometry_overlay_v1` are `ValueRow` namespaces, the others typed rows: a rule reads and writes
-//! their rows alone, and an attached tree follows the row when the PyO3 crate gives the world back
-//! (lane P8-0c). An admitted person is a new row of `agents` (`Table::insert`), whose Python object
-//! the PyO3 crate makes from the row (lane 6-1): `build_agent` is what the constructors
+//! their rows alone, and an attached tree follows the row (lane P8-0c). An admitted person is a new
+//! row of `agents` (`Table::insert`, lane 6-1): `build_agent` is what the constructors
 //! `AgentProfile`, `InitialNeedProfile`, `NeedState`, `AgentState` and `Mobility` make of a saved
 //! profile, with their `ValueError`s.
 //!
-//! Each rule plans, refusing with `Unsupported` before its first write what no valid input holds
-//! (a `KernelRefusal` in Python), and then writes. A rule that raises its text after some writes
-//! (`_state` making its state, a text of an arrival's item, a completion without its presence)
-//! makes the same writes first. The texts (`EventSuppressed`, `EventApplicationError`, the
-//! validation's `ValueError`s) are saved data and are the Python rules', in their order of checks.
+//! Each rule plans, refusing with `Unsupported` before its first write what no valid input holds (a
+//! `KernelRefusal`), and then writes. A rule that raises its text after some writes (`_state`
+//! making its state, a text of an arrival's item, a completion without its presence) makes the same
+//! writes first. The texts (`EventSuppressed`, `EventApplicationError`, the validation's
+//! `ValueError`s) are saved data, in their order of checks.
 //!
-//! What only Python has comes as an input, read through the host before the world is borrowed
-//! (`Read`, lane P9-3a): whether `model_state` holds each namespace (`kit::Held`), the sections of
-//! the configs (`kit::Kept`), the floor plan (`Geo`, or none: `PLAN_UNREAD` where a rule reads it),
-//! the approach routes of the facility geometry. The pydantic contracts of the inputs
-//! (`PersonTraits`, `DynamicArrivalPersonContext`, `PopulationSpec`; policy E15) go through
-//! `Host::contract`. A new `population_dynamics_v1` is made here and put into `model_state` by the
-//! host before the first write (`Host::start_namespace`: a namespace a Run doesn't have yet has no
-//! slot). The arguments of a population primitive are read from its payload as the Python
-//! handler's call read them (`Given::of_payload`).
+//! What the world's outside holds comes as an input, read through the host before the world is
+//! borrowed (`Read`, lane P9-3a): whether `model_state` holds each namespace (`kit::Held`), the
+//! sections of the configs (`kit::Kept`), the floor plan (`Geo`, or none: `PLAN_UNREAD` where a
+//! rule reads it), the approach routes of the facility geometry. The contracts of the inputs
+//! (`PersonTraits`, `DynamicArrivalPersonContext`, `PopulationSpec`) go through `Host::contract`. A
+//! new `population_dynamics_v1` is made here and put into `model_state` by the host before the
+//! first write (`Host::start_namespace`: a namespace a Run doesn't have yet has no slot). The
+//! arguments of a population primitive are read from its payload (`Given::of_payload`).
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -80,8 +77,8 @@ pub const SUPPORT_KINDS: [&str; 9] = [
     "dependent_assistance",
 ];
 
-/// What a rule says where a pending event it reads has no row: the PyO3 crate makes the rows of
-/// the queue's Python objects and asks again.
+/// What a rule says where a pending event it reads has no row (`Host::read_queue_rows` reads them
+/// first).
 pub const NO_ROW: &str = "a pending event has no row";
 
 const WAITING_HAS_RECORD: &str = "waiting arrival already has a presence record";
@@ -199,7 +196,7 @@ pub fn sha_hex(text: &str) -> String {
     hex(&Sha256::digest(text.as_bytes()))
 }
 
-/// `Identifier` of contracts/extensions.py.
+/// `Identifier` of `contracts/extensions.py`.
 #[track_caller]
 pub fn identifier(text: &str) -> Result<()> {
     if is_stable_id(text) {
@@ -242,7 +239,7 @@ fn names_person(key: &str, agent_id: &str) -> Result<bool> {
     Ok(pair_of(key)?.iter().any(|part| part == agent_id))
 }
 
-// ---- What the PyO3 crate reads for the rules -------------------------------------------------------
+// ---- What the rules read beside the world's rows ---------------------------------------------------
 
 /// Whether `model_state` holds each namespace the rules read.
 #[derive(Clone, Debug)]
@@ -280,7 +277,7 @@ pub struct Inputs {
     /// The agent dynamics' policy and facility awareness, for `add_agent`.
     pub policy: Kept<&'static str>,
     pub awareness: Kept<Option<Awareness>>,
-    /// The floor plan, None where the PyO3 crate did not read it or reading it raised.
+    /// The floor plan, None where it was not read or reading it raised.
     pub geo: Option<Arc<Geo>>,
     /// The approach routes, where a rule reads them.
     pub routes: Option<Routes>,
@@ -353,7 +350,7 @@ fn set_metric(world: &World, name: &str, value: f64) -> Result<()> {
     Ok(())
 }
 
-// ---- The presence ledger: contracts/presence.py as far as a plain document goes ------------------
+// ---- The presence ledger, as far as a plain document goes -------------------------------------------
 
 const RECORD_FIELDS: [&str; 9] = [
     "agent_id",
@@ -992,7 +989,7 @@ impl Places {
         self.occupancy.get(zone_id).copied().unwrap_or(0)
     }
 
-    /// population.py's `_zone_has_room`.
+    /// `_zone_has_room`: whether the zone has room for one more.
     pub fn has_room(&mut self, world: &World, inputs: &Inputs, zone_id: &str) -> Result<bool> {
         let Some(capacity) = self.capacity(world, inputs, zone_id)? else {
             return Ok(true);
@@ -1055,8 +1052,8 @@ const NEED_NAMES: [&str; 4] = ["toilet_urgency", "hunger", "fatigue", "hydration
 /// next_decision_at=minute)` of a saved profile, as `_admit_profile` makes it (`schema_version` is
 /// the world's: v5 has no hydration, which is then 0.0). Unsupported where the constructors raise
 /// another error (a field missing, a key `InitialNeedProfile` does not take), or make an object
-/// whose fields no row holds (an int need level, an ID that is not a str): the Python store would
-/// then taint. A `ValueError` comes first where the constructors raise it first.
+/// whose fields no row holds (an int need level, an ID that is not a str), which would taint the
+/// store. A `ValueError` comes first where the constructors raise it first.
 pub fn build_agent(profile: &V, zone_id: &Arc<str>, minute: i64, schema_version: i64) -> Result<Built> {
     let raw = map_of(profile)?;
     let missing = || Error::unsupported("a saved profile lacks a field");
@@ -1467,7 +1464,7 @@ impl kit::Admission for Checks<'_> {
 
 // ---- `_state` -------------------------------------------------------------------------------------
 
-/// `create_population_dynamics_state`. The contract of the Scenario's population is Python's
+/// `create_population_dynamics_state`. The contract of the Scenario's population is the host's
 /// (`Host::contract`); `config` is `model_configs.get("population")`, None for None.
 fn new_dynamics_state<C: WorldCell, H: Host>(cell: &C, host: &mut H, config: Option<&V>) -> std::result::Result<V, H::Error> {
     let mut traits = Doc::new();
@@ -1551,8 +1548,8 @@ pub enum Overrides {
     Caught,
 }
 
-/// The arguments of `queue_arrivals`, as the PyO3 crate read them: each Err is a refusal raised
-/// where the rule reads that argument.
+/// The arguments of `queue_arrivals`, as the caller read them: each Err is a refusal raised where
+/// the rule reads that argument.
 pub struct ArrivalArgs {
     /// The zone: None for a value no zone has.
     pub zone: Result<Option<Arc<str>>>,
@@ -1600,7 +1597,7 @@ enum Stop {
 
 /// The plan of `queue_arrivals`.
 pub struct ArrivalsPlan {
-    /// A state `_state` made, which the PyO3 crate puts into `model_state` before the writes.
+    /// A state `_state` made, which the host puts into `model_state` before the writes.
     pub new_state: Option<V>,
     /// The rule's text once `_state` ran, raised after that state is in place, before any write.
     pub fails: Option<String>,
@@ -2447,7 +2444,7 @@ fn append_pending(world: &World, item: &NewArrival) -> Result<()> {
     Ok(())
 }
 
-/// The writes of `queue_arrivals`, once the PyO3 crate has put a new state into `model_state`:
+/// The writes of `queue_arrivals`, once the host has put a new state into `model_state`:
 /// how many were admitted, or the rule's text after the writes it makes first.
 pub fn write_arrivals(world: &World, inputs: &Inputs, plan: &ArrivalsPlan) -> Result<i64> {
     if value_of(world, DYNAMICS, &inputs.namespaces.dynamics)?.is_none() {
@@ -2729,7 +2726,7 @@ pub fn schedule_retry(world: &World, held: &Held, row: &EventRow, id_prefix: &st
 
 // ---- `queue_departures` --------------------------------------------------------------------------
 
-/// The arguments of `queue_departures`, as the PyO3 crate read them.
+/// The arguments of `queue_departures`, as the caller read them.
 pub struct DepartureArgs {
     pub zone: Result<Option<Arc<str>>>,
     pub count: Result<Option<i64>>,
@@ -3019,7 +3016,7 @@ pub(crate) fn needs_value(needs: &NeedRow) -> V {
 }
 
 /// The pending events as the departures found them, those already settled, and the serials of the
-/// queue's slots taken out, whose Python objects the PyO3 crate lets go (`QueueStore::forget`).
+/// queue's slots taken out, whose views the host lets go (`Host::slots_changed`).
 struct Cancels<'a> {
     pending: &'a [Arc<EventRow>],
     taken: HashSet<Arc<str>>,
@@ -3113,7 +3110,7 @@ fn write_departure(world: &World, inputs: &Inputs, agent_id: &Arc<str>, row: &Ev
     )
 }
 
-/// The writes of `queue_departures`, once the PyO3 crate has put a new state in: the people leave,
+/// The writes of `queue_departures`, once the host has put a new state in: the people leave,
 /// their pending events are settled, and the counts. Gives the serials of the queue's slots taken
 /// out; `admit_pending` follows.
 pub fn write_departures(world: &World, inputs: &Inputs, row: &EventRow, selected: &[Arc<str>]) -> Result<Vec<u64>> {
@@ -3235,9 +3232,8 @@ fn is_scalar(value: &V) -> bool {
 const SCHEMA: &str = "population_dynamics_v1 has an invalid exact schema";
 const PENDING_INVALID: &str = "population_dynamics_v1 pending arrival is invalid";
 
-/// Whether the core holds what the validation reads as it is (lane P10-1c: the PyO3 crate's check
-/// before `validate`): each namespace absent or its row readable, the tables' rows, and zones that
-/// are not tainted. Where it does not, the validation reads the Python values.
+/// Whether the core holds what the validation reads as it is (lane P10-1c): each namespace absent
+/// or its row readable, the tables' rows, and zones that are not tainted.
 pub fn holds_for_validation(world: &World, dynamics: &Held, presence: &Held) -> bool {
     let readable = |held: &Held, name: &str| matches!(held, Held::Absent) || world.row::<crate::row::ValueRow>(name).is_ok();
     readable(dynamics, DYNAMICS)
@@ -3257,9 +3253,8 @@ pub fn validation_reads_routes(world: &World, held: &Held) -> Result<bool> {
     })
 }
 
-/// What the validation reads of a world: of the core's world (`validate`), or of the Python values
-/// of a world the core does not hold as it is (the PyO3 crate's, for the whole-world validation of
-/// a save or a world whose store is tainted, policy E6).
+/// What the validation reads of a world: of the core's world (`validate`), or of a world's view for
+/// the whole-world validation (`validate::population_dynamics::validate`).
 pub struct Facts<'a> {
     /// `population_dynamics_v1`, None for none.
     pub state: Option<&'a V>,
@@ -3307,10 +3302,9 @@ pub fn validate(world: &World, inputs: &Inputs) -> Result<()> {
     })
 }
 
-/// `validate_population_dynamics_state`: its ValueErrors in its order of checks. Unsupported, a
-/// `KernelRefusal` in Python, for what the Python rule's contracts decided (`PersonContext`,
-/// `PersonTraits`: the plain forms a generated arrival has are read here) and for values of other
-/// types than a run writes.
+/// `validate_population_dynamics_state`: its ValueErrors in its order of checks. Unsupported (a
+/// `KernelRefusal`) for what the contracts `PersonContext` and `PersonTraits` decide (the plain
+/// forms a generated arrival has are read here) and for values of other types than a run writes.
 pub fn validate_facts(facts: &Facts<'_>) -> Result<()> {
     let state = match facts.state {
         None | Some(V::Null) => return Ok(()),
@@ -3606,10 +3600,9 @@ fn check_pending_approach(
 
 // ---- What the rules read through the host (lane P9-3a) ---------------------------------------------
 //
-// The PyO3 crate read these before the world was borrowed (`PopulationIn`); the core now reads them
-// through the host: what the world holds (H1), the configs' sections (H2), the floor plan, the
-// approach routes of `facility_geometry`, the configs' `population`. A rule's entry is then one
-// core call for the dispatch phase and the PyO3 crate's Python entries alike.
+// The core reads these through the host before the world is borrowed: what the world holds, the
+// configs' sections, the floor plan, the approach routes of `facility_geometry`, the configs'
+// `population`. A rule's entry is then one core call.
 
 /// The refusal of a population dynamics state the world holds another value of.
 pub const OTHER_DYNAMICS: &str = "the world holds another population dynamics state";
@@ -3636,8 +3629,8 @@ impl Namespaces {
     }
 }
 
-/// What a read raised, as the plan says it where it reads the value (the PyO3 crate's
-/// `plan_read`): a refusal stays itself, any other error is `the plan read: {type}: {text}`.
+/// What a read raised, as the plan says it where it reads the value: a refusal stays itself, any
+/// other error is `the plan read: {type}: {text}`.
 pub fn plan_read_of<E: HostFailure>(error: &E) -> Error {
     if error.class() == ErrorClass::Refused {
         Error::Unsupported(error.text().into())

@@ -1,12 +1,9 @@
-//! What the queue rules ask of `domain/movement.py` (lane c1 of Issue #152; design-p8.md, section
-//! 3.1: movement and the queues are one strongly connected component). The places of a queue, the
-//! walk to a facility's point, the minutes of a walk in a room, and the plan of a journey's start
-//! as changes of the row of `movement_v1`. The PyO3 crate's `rules/movement.rs` calls these for
-//! its own kernels until its lane moves them, and keeps the tree of an attached namespace in step
-//! itself (`write_tree`); a kernel of the core writes the row alone, which its tree then follows
-//! (lane P8-0c).
+//! What the queue rules ask of the movement rules (lane c1 of Issue #152: movement and the queues
+//! depend on each other). The places of a queue, the walk to a facility's point, the minutes of a
+//! walk in a room, and the plan of a journey's start as changes of the row of `movement_v1`. A
+//! kernel writes the row alone, which its tree then follows (lane P8-0c).
 //!
-//! The errors are the core's, with the texts the PyO3 crate's helpers had.
+//! The errors are the core's.
 
 use std::sync::{Arc, LazyLock};
 
@@ -65,7 +62,7 @@ pub fn refused(reason: &'static str) -> Error {
 }
 
 /// A section's value as a read site takes it: a refusal is its `Unsupported`, said here; any other
-/// fault is a corrupt `model_configs` (`configs::read` of the PyO3 crate).
+/// fault is a corrupt `model_configs`.
 #[track_caller]
 pub fn config_read<T>(value: Read<T>) -> Result<T> {
     match value {

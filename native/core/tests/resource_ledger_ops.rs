@@ -68,8 +68,12 @@ fn exactly(fields: &[(&str, V)]) -> V {
 /// `apply_resource_operation` of an event with this payload, source and ID, and the new balance in
 /// `world.resources` (a new dict in Python, here the row).
 fn operate(cell: &Shard<World>, operation: OperationArg<'_>, payload: &V, source: &V, event_id: &str) -> Result<Applied, Fail> {
-    let event_id = text(event_id);
-    let event = OperationEvent { payload, source_id: source, event_id: &event_id };
+    let source = match source {
+        V::Str(source) => Some(&**source),
+        V::Null => None,
+        other => panic!("not a source: {other:?}"),
+    };
+    let event = OperationEvent { payload, source_id: source, event_id };
     cell.with(|world| {
         let applied = resources::apply_operation(world, &event, operation)?;
         world.row_mut::<IdMap<i64>>(RESOURCES).unwrap().insert(Arc::from(RESOURCE_IDS[applied.index]), applied.remaining);

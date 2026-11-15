@@ -286,29 +286,55 @@ fn schema_of(schema: &Kept<Option<i64>>) -> Result<Option<i64>> {
 
 // ---- domain/temporary_spaces.py -----------------------------------------------------------------
 
+/// A new active space of `temporary_spaces_v1.spaces`, as `register_temporary_space` takes it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SpaceRecord {
+    pub space_id: Arc<str>,
+    pub zone_id: Arc<str>,
+    pub people_capacity: i64,
+    pub sleeping_capacity: i64,
+    pub start_minute: i64,
+    pub end_minute: i64,
+    pub start_event_id: Arc<str>,
+    pub program_id: Arc<str>,
+    pub effect_id: Arc<str>,
+    pub source_ids: Vec<Arc<str>>,
+}
+
+impl SpaceRecord {
+    /// The record as the namespace holds it, its keys in the Python rule's order: active, not
+    /// ended, and of the zone's capacity only.
+    pub fn into_value(self) -> V {
+        doc([
+            ("space_id", V::Str(self.space_id)),
+            ("zone_id", V::Str(self.zone_id)),
+            ("people_capacity", V::Int(self.people_capacity)),
+            ("sleeping_capacity", V::Int(self.sleeping_capacity)),
+            ("start_minute", V::Int(self.start_minute)),
+            ("end_minute", V::Int(self.end_minute)),
+            ("active", V::Bool(true)),
+            ("start_event_id", V::Str(self.start_event_id)),
+            ("end_event_id", V::Null),
+            ("program_id", V::Str(self.program_id)),
+            ("effect_id", V::Str(self.effect_id)),
+            ("source_ids", V::List(self.source_ids.into_iter().map(V::Str).collect())),
+            ("geometry_status", text("zone_only_capacity")),
+        ])
+    }
+}
+
 /// `register_temporary_space`, of a record the caller made.
-pub fn register_space(world: &World, held: &Held, record: V, event_id: &str) -> Result<()> {
+pub fn register_space(world: &World, held: &Held, record: SpaceRecord, event_id: &str) -> Result<()> {
     let Some(state) = state_of(world, SPACES_KEY, held)? else {
         return invalid("temporary_spaces_v1 is not installed");
     };
-    let V::Map(fields) = &record else {
-        return refuse("a value is not a plain dict");
-    };
-    let Some(space_id) = fields.get("space_id") else {
-        return refuse("the record has no space_id");
-    };
-    let space_text = kit::exact_str(space_id)?.clone();
-    let Some(zone_id) = fields.get("zone_id") else {
-        return refuse("the record has no zone_id");
-    };
-    let (space_value, zone_value) = (space_id.clone(), zone_id.clone());
     {
         let spaces = required(&state.0, "spaces")?;
         let history = required(&state.0, "history")?;
         let V::Map(spaces) = spaces else {
             return refuse("a value is not a plain dict");
         };
-        if spaces.contains_key(&*space_text) {
+        if spaces.contains_key(&*record.space_id) {
             return invalid("temporary space ID already exists");
         }
         if spaces.len() >= MAX_SPACES {
@@ -322,14 +348,15 @@ pub fn register_space(world: &World, held: &Held, record: V, event_id: &str) -> 
     let minute = world.minute_index()?;
     let entry = doc([
         ("event_id", text(event_id)),
-        ("space_id", space_value),
-        ("zone_id", zone_value),
+        ("space_id", V::Str(record.space_id.clone())),
+        ("zone_id", V::Str(record.zone_id.clone())),
         ("minute", V::Int(minute)),
         ("transition", text("activated")),
         ("causation_id", V::Null),
     ]);
+    let space_id = record.space_id.clone();
     let mut row = world.row_mut::<ValueRow>(SPACES_KEY)?;
-    dict_mut(required_mut(&mut row.0, "spaces")?)?.insert(space_text, record);
+    dict_mut(required_mut(&mut row.0, "spaces")?)?.insert(space_id, record.into_value());
     append_bounded(list_mut(required_mut(&mut row.0, "history")?)?, entry, MAX_SPACE_HISTORY);
     Ok(())
 }
@@ -725,30 +752,26 @@ pub struct Intake<'a> {
     pub geo: Option<&'a Geo>,
 }
 
-/// `state.get("temporary_rooms", {})` and `state.get("room_admissions", {})` of the overlay, copied.
-struct RoomParts {
-    rooms: V,
-    admissions: V,
+/// `state.get("temporary_rooms", {})` and `state.get("room_admissions", {})` of the overlay.
+struct RoomParts<'a> {
+    rooms: &'a V,
+    admissions: &'a V,
 }
 
-impl RoomParts {
-    /// Of the overlay's row; None for no overlay.
-    fn of_world(world: &World, overlay: &Held) -> Result<Option<Self>> {
-        let Some(state) = state_of(world, OVERLAY_KEY, overlay)? else {
-            return Ok(None);
-        };
-        let V::Map(state) = &state.0 else {
+impl<'a> RoomParts<'a> {
+    /// The parts of the overlay's value, `empty` (an empty map) for a part it lacks.
+    fn of(state: &'a V, empty: &'a V) -> Result<Self> {
+        let V::Map(state) = state else {
             return refuse("a value is not a plain dict");
         };
-        let part = |name: &str| state.get(name).cloned().unwrap_or_else(|| V::Map(IndexMap::new()));
-        Ok(Some(Self { rooms: part("temporary_rooms"), admissions: part("room_admissions") }))
+        Ok(Self { rooms: state.get("temporary_rooms").unwrap_or(empty), admissions: state.get("room_admissions").unwrap_or(empty) })
     }
 }
 
 /// `room_admission_point`, after the admissions a plan has given this far: `(room, point)`, the
 /// point being None in a world that keeps no positions.
-fn admission_point_after(world: &World, intake: &Intake<'_>, state: &RoomParts, room_id: &str, planned: &[(Arc<str>, Option<Pt>)]) -> Result<Option<Pt>> {
-    let rooms = &state.rooms;
+fn admission_point_after(world: &World, intake: &Intake<'_>, state: &RoomParts<'_>, room_id: &str, planned: &[(Arc<str>, Option<Pt>)]) -> Result<Option<Pt>> {
+    let rooms = state.rooms;
     let Some(V::Map(room)) = map_of(rooms)?.get(room_id) else {
         return if map_of(rooms)?.contains_key(room_id) { refuse("a room is another value") } else { Ok(None) };
     };
@@ -764,7 +787,7 @@ fn admission_point_after(world: &World, intake: &Intake<'_>, state: &RoomParts, 
     let (min_x, max_x, min_y, max_y) = (lowest(|point| point.x), highest(|point| point.x), lowest(|point| point.y), highest(|point| point.y));
     let movement = movement_of(world, intake.movement)?;
     let mut occupied = Vec::new();
-    if let V::Map(admissions) = &state.admissions {
+    if let V::Map(admissions) = state.admissions {
         for (agent_id, admission) in admissions {
             let V::Map(admission) = admission else {
                 continue;
@@ -863,10 +886,12 @@ fn admission_point_after(world: &World, intake: &Intake<'_>, state: &RoomParts, 
 
 /// `room_admission_point`.
 pub fn room_admission_point(world: &World, intake: &Intake<'_>, room_id: &str) -> Result<Option<Pt>> {
-    let Some(state) = RoomParts::of_world(world, intake.overlay)? else {
+    let Some(state) = state_of(world, OVERLAY_KEY, intake.overlay)? else {
         return Ok(None);
     };
-    admission_point_after(world, intake, &state, room_id, &[])
+    let empty = V::Map(IndexMap::new());
+    let parts = RoomParts::of(&state.0, &empty)?;
+    admission_point_after(world, intake, &parts, room_id, &[])
 }
 
 /// `available_temporary_room`, after the admissions a plan has given this far, with the point
@@ -875,14 +900,16 @@ pub fn available_room_after(world: &World, intake: &Intake<'_>, zone_id: &str, p
     if !matches!(schema_of(intake.schema)?, Some(3 | 4)) {
         return Ok(None);
     }
-    let Some(state) = RoomParts::of_world(world, intake.overlay)? else {
+    let Some(state) = state_of(world, OVERLAY_KEY, intake.overlay)? else {
         return Ok(None);
     };
-    let mut counts = admission_counts(&state.admissions);
+    let empty = V::Map(IndexMap::new());
+    let parts = RoomParts::of(&state.0, &empty)?;
+    let mut counts = admission_counts(parts.admissions);
     for (room_id, _) in planned {
         *counts.entry(room_id.clone()).or_insert(0) += 1;
     }
-    for (room_id, room) in sorted_rooms(map_of(&state.rooms)?) {
+    for (room_id, room) in sorted_rooms(map_of(parts.rooms)?) {
         let room = map_of(room)?;
         if !matches!(room.get("active"), Some(V::Bool(true))) || !matches!(room.get("zone_id"), Some(V::Str(zone)) if &**zone == zone_id) {
             continue;
@@ -893,7 +920,7 @@ pub fn available_room_after(world: &World, intake: &Intake<'_>, zone_id: &str, p
             _ => return refuse("a room's capacity is not a plain int"),
         };
         if counts.get(room_id).copied().unwrap_or(0) < capacity {
-            if let Some(point) = admission_point_after(world, intake, &state, room_id, planned)? {
+            if let Some(point) = admission_point_after(world, intake, &parts, room_id, planned)? {
                 return Ok(Some((room_id.clone(), point)));
             }
         }
@@ -909,13 +936,12 @@ pub fn admit(world: &World, intake: &Intake<'_>, agent_id: &str, room_id: &str, 
     let Some(admissions) = child(&state.0, "room_admissions")? else {
         return invalid(NOT_AVAILABLE);
     };
-    let V::Map(admissions) = admissions else {
+    if !matches!(admissions, V::Map(_)) {
         return refuse("a value is not a plain dict");
-    };
-    let admissions = V::Map(admissions.clone());
-    let rooms = part(&state.0, "temporary_rooms")?;
-    drop(state);
-    let room = match map_of(&rooms)?.get(room_id) {
+    }
+    let empty = V::Map(IndexMap::new());
+    let rooms = child(&state.0, "temporary_rooms")?.unwrap_or(&empty);
+    let room = match map_of(rooms)?.get(room_id) {
         Some(V::Map(room)) => room,
         None => return invalid(NOT_AVAILABLE),
         Some(_) => return refuse("a room is another value"),
@@ -924,7 +950,7 @@ pub fn admit(world: &World, intake: &Intake<'_>, agent_id: &str, room_id: &str, 
     if !matches!(room.get("active"), Some(V::Bool(true))) || minute < 0 || !known {
         return invalid(NOT_AVAILABLE);
     }
-    let parts = RoomParts { rooms: rooms.clone(), admissions };
+    let parts = RoomParts { rooms, admissions };
     let Some(point) = admission_point_after(world, intake, &parts, room_id, &[])? else {
         return invalid(NOT_AVAILABLE);
     };
@@ -943,6 +969,7 @@ pub fn admit(world: &World, intake: &Intake<'_>, agent_id: &str, room_id: &str, 
         ("event_id", text(event_id)),
         ("source_ids", id_list(sorted_set(names))),
     ]);
+    drop(state);
     let mut row = world.row_mut::<ValueRow>(OVERLAY_KEY)?;
     dict_mut(required_mut(&mut row.0, "room_admissions")?)?.insert(Arc::from(agent_id), record);
     Ok(point)

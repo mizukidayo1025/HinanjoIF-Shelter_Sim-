@@ -562,9 +562,21 @@ fn staff_operation_receipt(view: &View<'_>, record: &Fields, truncated: bool) ->
     Ok(())
 }
 
+/// The fields of a `CareRequestState` the replay makes.
+struct CareFields<'a> {
+    request_id: &'a V,
+    agent_id: &'a V,
+    household_id: &'a V,
+    support_kind: &'a V,
+    status: &'a str,
+    created: &'a V,
+    updated: &'a V,
+    latest: &'a V,
+}
+
 /// `CareRequestState(...)` as the replay makes it, or its `ValidationError`.
-#[allow(clippy::too_many_arguments)]
-fn care_state(request_id: &V, agent_id: &V, household_id: &V, support_kind: &V, status: &str, created: &V, updated: &V, latest: &V) -> Result<Map> {
+fn care_state(fields: CareFields<'_>) -> Result<Map> {
+    let CareFields { request_id, agent_id, household_id, support_kind, status, created, updated, latest } = fields;
     let mut input = Map::new();
     for (name, value) in [
         ("request_id", request_id.clone()),
@@ -649,117 +661,7 @@ pub fn validate(view: &View<'_>) -> Result<()> {
         return value_error("shared_operations_v1 history is over limit or out of time order");
     }
     let log = view.log()?;
-    let mut seen: HashSet<Arc<str>> = HashSet::new();
-    let mut care: IndexMap<Arc<str>, Map> = IndexMap::new();
-    for item in &parsed.history {
-        let event_id: Arc<str> = Arc::from(text(item, "event_id"));
-        if cmp_i64(field(item, "minute"), minute) == Some(Ordering::Greater) || seen.contains(&event_id) {
-            return value_error("shared_operations_v1 history has future, duplicate, or unordered records");
-        }
-        seen.insert(event_id.clone());
-        let found = find(&log, &event_id)?;
-        let linked = found.as_ref().is_some_and(|found| {
-            found.status == EventStatus::Applied
-                && cmp_i64(field(item, "minute"), found.realized_minute) == Some(Ordering::Equal)
-                && &*found.event.event_type == text(item, "event_type")
-                && payload_matches(found, item)
-        });
-        if !linked {
-            return value_error("shared_operations_v1 record must link to a realized applied event");
-        }
-        let event_type = text(item, "event_type");
-        if event_type == "staff_operation_transition" {
-            staff_operation_receipt(view, item, parsed.truncated)?;
-        }
-        if !view.history {
-            continue;
-        }
-        let request_id: Arc<str> = Arc::from(text(item, "request_id"));
-        if event_type == "care_support_transition" {
-            let status = text(item, "status");
-            let created = match care.get(&request_id) {
-                None => {
-                    if status != "requested" && !parsed.truncated {
-                        return value_error("a support request must begin with a requested transition");
-                    }
-                    let saved = match parsed.support_requests.get(&request_id) {
-                        Some(V::Map(saved)) if parsed.truncated => Some(saved),
-                        _ => None,
-                    };
-                    let created = saved.map_or_else(|| field(item, "minute").clone(), |saved| field(saved, "created_minute").clone());
-                    if int_cmp(&created, field(item, "minute")) == Some(Ordering::Greater) {
-                        return value_error("truncated care history has an invalid creation minute");
-                    }
-                    created
-                }
-                Some(prior) => {
-                    if ["agent_id", "household_id", "support_kind"].iter().any(|name| !eq(field(prior, name), field(item, name))) {
-                        return value_error("support request identity changed during its lifecycle");
-                    }
-                    if !transitions(text(prior, "status")).contains(&status) {
-                        return value_error("support lifecycle transition is out of order");
-                    }
-                    field(prior, "created_minute").clone()
-                }
-            };
-            let state = care_state(
-                field(item, "request_id"),
-                field(item, "agent_id"),
-                field(item, "household_id"),
-                field(item, "support_kind"),
-                status,
-                &created,
-                field(item, "minute"),
-                field(item, "event_id"),
-            )?;
-            care.insert(request_id, state);
-        } else if event_type == "staff_support_continuity" {
-            let prior = care.get(&request_id).cloned();
-            let saved = match parsed.support_requests.get(&request_id) {
-                Some(V::Map(saved)) => Some(saved),
-                _ => None,
-            };
-            let status = text(item, "status");
-            let created = match &prior {
-                None => {
-                    if !parsed.truncated || (status == "requeued" && saved.is_none()) {
-                        return value_error("support continuity must follow an active care transition");
-                    }
-                    if let Some(saved) = saved {
-                        if !eq(field(saved, "agent_id"), field(item, "agent_id"))
-                            || !eq(field(saved, "latest_event_id"), field(item, "event_id"))
-                            || text(saved, "status") != "requested"
-                        {
-                            return value_error("truncated support continuity does not match the active request");
-                        }
-                    }
-                    saved.map_or_else(|| field(item, "minute").clone(), |saved| field(saved, "created_minute").clone())
-                }
-                Some(prior) => {
-                    if !matches!(text(prior, "status"), "assigned" | "started") || !eq(field(prior, "agent_id"), field(item, "agent_id")) {
-                        return value_error("support continuity does not follow assigned resident care");
-                    }
-                    field(prior, "created_minute").clone()
-                }
-            };
-            if status == "requeued" {
-                let source = prior.as_ref().or(saved).expect("one of them is there, as checked above");
-                let state = care_state(
-                    field(item, "request_id"),
-                    field(item, "agent_id"),
-                    field(source, "household_id"),
-                    field(source, "support_kind"),
-                    "requested",
-                    &created,
-                    field(item, "minute"),
-                    field(item, "event_id"),
-                )?;
-                care.insert(request_id, state);
-            } else {
-                care.shift_remove(&request_id);
-            }
-        }
-    }
+    let care = replay_history(view, &parsed, &log, minute)?;
     let active_care: IndexMap<&Arc<str>, &Map> = care.iter().filter(|(_, state)| ACTIVE.contains(&text(state, "status"))).collect();
     for (request_id, replayed) in &active_care {
         let same = parsed.support_requests.get(*request_id).is_some_and(|saved| eq(saved, &V::Map((*replayed).clone())));
@@ -796,43 +698,179 @@ pub fn validate(view: &View<'_>) -> Result<()> {
             }
             continue;
         }
-        if !parsed.truncated {
-            return value_error("shared_operations_v1 care request head has no matching history");
+        check_truncated_head(&log, &parsed, request_id, head, head_status)?;
+    }
+    Ok(())
+}
+
+/// The retained history, each record against its realized event, replayed into the care requests'
+/// states (`care`).
+fn replay_history(view: &View<'_>, parsed: &Parsed, log: &EventLog, minute: i64) -> Result<IndexMap<Arc<str>, Map>> {
+    let mut seen: HashSet<Arc<str>> = HashSet::new();
+    let mut care: IndexMap<Arc<str>, Map> = IndexMap::new();
+    for item in &parsed.history {
+        let event_id: Arc<str> = Arc::from(text(item, "event_id"));
+        if cmp_i64(field(item, "minute"), minute) == Some(Ordering::Greater) || seen.contains(&event_id) {
+            return value_error("shared_operations_v1 history has future, duplicate, or unordered records");
         }
-        let record = find(&log, text(head, "latest_event_id"))?;
-        let Some(record) = record.filter(|record| {
-            record.status == EventStatus::Applied
-                && cmp_i64(field(head, "updated_minute"), record.realized_minute) == Some(Ordering::Equal)
-                && matches!(&*record.event.event_type, "care_support_transition" | "staff_support_continuity")
-        }) else {
-            return value_error("truncated care request head has no applied event evidence");
-        };
-        let Some(latest) = receipt(&record.event.payload) else {
-            return value_error("truncated care request head event has an invalid receipt");
-        };
-        let same = |pairs: &[(&str, &str)]| pairs.iter().all(|(mine, theirs)| eq(field(&latest, mine), field(head, theirs)));
-        let matches = match text(&latest, "event_type") {
-            "care_support_transition" => {
-                is_text(field(&latest, "request_id"), request_id)
-                    && same(&[
-                        ("agent_id", "agent_id"),
-                        ("household_id", "household_id"),
-                        ("support_kind", "support_kind"),
-                        ("status", "status"),
-                        ("event_id", "latest_event_id"),
-                    ])
-            }
-            "staff_support_continuity" => {
-                text(&latest, "status") == "requeued"
-                    && is_text(field(&latest, "request_id"), request_id)
-                    && same(&[("agent_id", "agent_id"), ("event_id", "latest_event_id")])
-                    && head_status == "requested"
-            }
-            _ => false,
-        };
-        if !matches || !payload_matches(&record, &latest) {
-            return value_error("truncated care request head disagrees with its applied event");
+        seen.insert(event_id.clone());
+        let found = find(log, &event_id)?;
+        let linked = found.as_ref().is_some_and(|found| {
+            found.status == EventStatus::Applied
+                && cmp_i64(field(item, "minute"), found.realized_minute) == Some(Ordering::Equal)
+                && &*found.event.event_type == text(item, "event_type")
+                && payload_matches(found, item)
+        });
+        if !linked {
+            return value_error("shared_operations_v1 record must link to a realized applied event");
         }
+        let event_type = text(item, "event_type");
+        if event_type == "staff_operation_transition" {
+            staff_operation_receipt(view, item, parsed.truncated)?;
+        }
+        if !view.history {
+            continue;
+        }
+        let request_id: Arc<str> = Arc::from(text(item, "request_id"));
+        if event_type == "care_support_transition" {
+            replay_care_transition(parsed, &mut care, item, request_id)?;
+        } else if event_type == "staff_support_continuity" {
+            replay_continuity(parsed, &mut care, item, request_id)?;
+        }
+    }
+    Ok(care)
+}
+
+/// One `care_support_transition` record: the request's next state after its prior one.
+fn replay_care_transition(parsed: &Parsed, care: &mut IndexMap<Arc<str>, Map>, item: &Fields, request_id: Arc<str>) -> Result<()> {
+    let status = text(item, "status");
+    let created = match care.get(&request_id) {
+        None => {
+            if status != "requested" && !parsed.truncated {
+                return value_error("a support request must begin with a requested transition");
+            }
+            let saved = match parsed.support_requests.get(&request_id) {
+                Some(V::Map(saved)) if parsed.truncated => Some(saved),
+                _ => None,
+            };
+            let created = saved.map_or_else(|| field(item, "minute").clone(), |saved| field(saved, "created_minute").clone());
+            if int_cmp(&created, field(item, "minute")) == Some(Ordering::Greater) {
+                return value_error("truncated care history has an invalid creation minute");
+            }
+            created
+        }
+        Some(prior) => {
+            if ["agent_id", "household_id", "support_kind"].iter().any(|name| !eq(field(prior, name), field(item, name))) {
+                return value_error("support request identity changed during its lifecycle");
+            }
+            if !transitions(text(prior, "status")).contains(&status) {
+                return value_error("support lifecycle transition is out of order");
+            }
+            field(prior, "created_minute").clone()
+        }
+    };
+    let state = care_state(CareFields {
+        request_id: field(item, "request_id"),
+        agent_id: field(item, "agent_id"),
+        household_id: field(item, "household_id"),
+        support_kind: field(item, "support_kind"),
+        status,
+        created: &created,
+        updated: field(item, "minute"),
+        latest: field(item, "event_id"),
+    })?;
+    care.insert(request_id, state);
+    Ok(())
+}
+
+/// One `staff_support_continuity` record: a request requeued after its assigned care, or ended.
+fn replay_continuity(parsed: &Parsed, care: &mut IndexMap<Arc<str>, Map>, item: &Fields, request_id: Arc<str>) -> Result<()> {
+    let prior = care.get(&request_id).cloned();
+    let saved = match parsed.support_requests.get(&request_id) {
+        Some(V::Map(saved)) => Some(saved),
+        _ => None,
+    };
+    let status = text(item, "status");
+    let created = match &prior {
+        None => {
+            if !parsed.truncated || (status == "requeued" && saved.is_none()) {
+                return value_error("support continuity must follow an active care transition");
+            }
+            if let Some(saved) = saved {
+                if !eq(field(saved, "agent_id"), field(item, "agent_id"))
+                    || !eq(field(saved, "latest_event_id"), field(item, "event_id"))
+                    || text(saved, "status") != "requested"
+                {
+                    return value_error("truncated support continuity does not match the active request");
+                }
+            }
+            saved.map_or_else(|| field(item, "minute").clone(), |saved| field(saved, "created_minute").clone())
+        }
+        Some(prior) => {
+            if !matches!(text(prior, "status"), "assigned" | "started") || !eq(field(prior, "agent_id"), field(item, "agent_id")) {
+                return value_error("support continuity does not follow assigned resident care");
+            }
+            field(prior, "created_minute").clone()
+        }
+    };
+    if status == "requeued" {
+        let source = prior.as_ref().or(saved).expect("one of them is there, as checked above");
+        let state = care_state(CareFields {
+            request_id: field(item, "request_id"),
+            agent_id: field(item, "agent_id"),
+            household_id: field(source, "household_id"),
+            support_kind: field(source, "support_kind"),
+            status: "requested",
+            created: &created,
+            updated: field(item, "minute"),
+            latest: field(item, "event_id"),
+        })?;
+        care.insert(request_id, state);
+    } else {
+        care.shift_remove(&request_id);
+    }
+    Ok(())
+}
+
+/// A care request head that the retained history no longer holds (a truncated history): its
+/// latest event is applied, and its receipt matches the head.
+fn check_truncated_head(log: &EventLog, parsed: &Parsed, request_id: &Arc<str>, head: &Map, head_status: &str) -> Result<()> {
+    if !parsed.truncated {
+        return value_error("shared_operations_v1 care request head has no matching history");
+    }
+    let record = find(log, text(head, "latest_event_id"))?;
+    let Some(record) = record.filter(|record| {
+        record.status == EventStatus::Applied
+            && cmp_i64(field(head, "updated_minute"), record.realized_minute) == Some(Ordering::Equal)
+            && matches!(&*record.event.event_type, "care_support_transition" | "staff_support_continuity")
+    }) else {
+        return value_error("truncated care request head has no applied event evidence");
+    };
+    let Some(latest) = receipt(&record.event.payload) else {
+        return value_error("truncated care request head event has an invalid receipt");
+    };
+    let same = |pairs: &[(&str, &str)]| pairs.iter().all(|(mine, theirs)| eq(field(&latest, mine), field(head, theirs)));
+    let matches = match text(&latest, "event_type") {
+        "care_support_transition" => {
+            is_text(field(&latest, "request_id"), request_id)
+                && same(&[
+                    ("agent_id", "agent_id"),
+                    ("household_id", "household_id"),
+                    ("support_kind", "support_kind"),
+                    ("status", "status"),
+                    ("event_id", "latest_event_id"),
+                ])
+        }
+        "staff_support_continuity" => {
+            text(&latest, "status") == "requeued"
+                && is_text(field(&latest, "request_id"), request_id)
+                && same(&[("agent_id", "agent_id"), ("event_id", "latest_event_id")])
+                && head_status == "requested"
+        }
+        _ => false,
+    };
+    if !matches || !payload_matches(&record, &latest) {
+        return value_error("truncated care request head disagrees with its applied event");
     }
     Ok(())
 }

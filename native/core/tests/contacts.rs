@@ -221,7 +221,16 @@ fn a_plan_has_the_bits_of_the_kernel_before() {
     for (name, policy) in [("sparse", Model::Sparse), ("channel", Model::Channel), ("degroot", Model::DeGroot)] {
         let settings = Settings { cooldown_minutes: 5, minimum_contact_minutes: 2, ..settings(policy) };
         let settings = Settings { recovery: 0.001, spread: 0.05, pair_cap: Num::Float(0.05), agent_cap: Num::Float(0.08), ..settings };
-        let plan = social::plan("2026", 10, &settings, &people, &neighbors, &previous.contacts, &previous.agent_cooldown_until, false).unwrap();
+        let plan = social::plan(
+            "2026",
+            10,
+            &settings,
+            &people,
+            &neighbors,
+            social::Before { contacts: &previous.contacts, cooldowns: &previous.agent_cooldown_until },
+            false,
+        )
+        .unwrap();
         let want = &expected[name];
         let bits: Vec<u64> = plan.stresses.iter().map(|stress| stress.to_bits()).collect();
         let want_bits: Vec<u64> = want["stresses"].as_array().unwrap().iter().map(|bits| bits.as_u64().unwrap()).collect();

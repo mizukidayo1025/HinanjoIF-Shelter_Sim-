@@ -22,6 +22,7 @@ use indexmap::IndexMap;
 use crate::canonical;
 use crate::config::movement::Movement;
 use crate::config::{FacilityGeometry, Fault, Section, SectionId, SpatialConstraints};
+use crate::entities::{AgentRow, Entities};
 use crate::error::{Error, Result};
 use crate::events::packed::Unpacked;
 use crate::events::{EventRow, EventStatus};
@@ -849,10 +850,7 @@ fn build(world: &World, reads: &Reads, waits: &Waits, records: &Records, request
     let configs_row = world.slots.try_row::<ValueRow>(MODEL_CONFIGS)?;
     let configs = as_map(&configs_row.0)?;
 
-    let geometry_document = match &reads.geometry {
-        Some(geometry) => Some(geometry.document.as_ref().map_err(|fault| Error::unsupported(fault.text.to_string()))?.clone()),
-        None => None,
-    };
+    let geometry_document = geometry_document(reads)?;
     let overlay = state(world, OVERLAY)?;
     let geometry = match &geometry_document {
         Some(document) => Some(effective_geometry(document, part(overlay.as_ref(), "facility_points").as_ref())?),
@@ -861,13 +859,7 @@ fn build(world: &World, reads: &Reads, waits: &Waits, records: &Records, request
 
     let movement = typed::<MovementRow>(world, MOVEMENT)?;
     let dynamics = state(world, DYNAMICS)?;
-    let traits = match part(dynamics.as_ref(), "profile_traits") {
-        Some(traits) => traits,
-        None => match configs.get("population") {
-            None => V::Map(Map::new()),
-            Some(population) => get(population, "people").cloned().unwrap_or_else(|| V::Map(Map::new())),
-        },
-    };
+    let traits = profile_traits(configs, &dynamics);
     let agent_dynamics = typed::<AgentDynamicsRow>(world, AGENT_DYNAMICS)?;
     let staff_dynamics = typed::<StaffDynamicsRow>(world, STAFF_DYNAMICS)?;
     let information = typed::<InformationRow>(world, INFORMATION)?;
@@ -881,6 +873,189 @@ fn build(world: &World, reads: &Reads, waits: &Waits, records: &Records, request
     let presence = state(world, PRESENCE)?;
 
     let rows = world.rows()?;
+    let (household_of, group_zones) = households(&presence, &rows)?;
+
+    let inputs = PersonInputs {
+        rows: &rows,
+        waits,
+        movement: &movement,
+        geometry: &geometry,
+        traits: &traits,
+        agent_dynamics: &agent_dynamics,
+        information: &information,
+        shared: &shared,
+        care_histories,
+        context_people: &context_people,
+        social_events: &social_events,
+        household_of: &household_of,
+        group_zones: &group_zones,
+    };
+    let (agents, mut people) = agents_and_people(inputs)?;
+
+    let mut kpis = resource_kpis(world, reads, waits, minute)?;
+    let pending: Vec<V> = match part(dynamics.as_ref(), "pending_arrivals") {
+        Some(V::List(pending)) => pending,
+        Some(_) => return Err(Error::unsupported("the pending arrivals are not a list")),
+        None => Vec::new(),
+    };
+    let incoming = incoming_arrivals(reads, geometry.as_ref(), &pending, minute, duration)?;
+    let population = add_population_kpis(&mut kpis, &rows, &pending);
+
+    let events = recent_events(records)?;
+
+    let facilities = facilities_view(world, &rows, &geometry)?;
+
+    let social_network = typed::<SocialNetworkRow>(world, SOCIAL)?;
+    let staff_operations = typed::<StaffOperationsRow>(world, STAFF_OPERATIONS)?;
+    let staff = staff_view(&rows, &movement, &staff_dynamics, &staff_operations)?;
+
+    let (edges, total_edges) = social_edges(&social_network)?;
+
+    let movement_view = movement_section(&movement)?;
+
+    // The zones in the order of the world's dict, with their conditions.
+    let zones = zones_view(world, &rows, configs)?;
+
+    // What the namespaces of the body and of the staff's operations keep.
+    let body = add_body(world, &mut people)?;
+    let presence_view: Map = match &presence {
+        Some(V::Map(presence)) => presence.iter().filter(|(key, _)| &***key != "history").map(|(key, value)| (key.clone(), value.clone())).collect(),
+        Some(_) => return Err(Error::unsupported("the presence state is not a dict")),
+        None => Map::new(),
+    };
+    let sanitation = match &staff_operations {
+        Some(row) => field(&row.zones)?,
+        None => V::Map(Map::new()),
+    };
+    let retained = retained_history(&body, &staff_operations, &shared)?;
+
+    let occupancy_zones = occupancy_zones(world, reads, configs)?;
+    let occupancy = occupancy_view(minute, population, &pending, &occupancy_zones);
+
+    let demand =
+        operational_demand(world, reads, configs, Occupancy { minute, population, pending: pending.len(), zones: occupancy_zones }, shared.as_deref())?;
+    let spatial = effective_spatial(
+        reads.spatial.document.as_deref().ok_or_else(|| Error::unsupported("the host kept no spatial constraints' document"))?,
+        overlay.as_ref(),
+        configs,
+    )?;
+    let no_positions = IdMap::default();
+    let geometry_overlay = overlay_view(world, overlay.as_ref(), movement.as_ref().map_or(&no_positions, |movement| &movement.positions))?;
+
+    // The projections of the declared namespaces (`entity_projections`): only the presence ledger
+    // has one.
+    project_presence(configs, &presence, &context_people, &mut people)?;
+
+    let mut frame = Map::new();
+    let mut put = |name: &str, value: V| {
+        frame.insert(text(name), value);
+    };
+    put("schema_version", V::Int(1));
+    put("run_id", string(request.run_id));
+    put("branch_id", string(request.branch_id));
+    put("minute", V::Int(minute));
+    put("computed_until", V::Int(request.computed_until));
+    put("state_hash", V::Str(state_hash));
+    put("exact", V::Bool(true));
+    put("agents", V::List(agents));
+    if !incoming.is_empty() {
+        put("incoming_arrivals", V::List(incoming));
+    }
+    put("kpis", V::Map(kpis));
+    put("events", V::List(events));
+    put("geometry", geometry.unwrap_or(V::Null));
+    put("people", V::List(people.into_iter().map(V::Map).collect()));
+    put("facilities", V::List(facilities));
+    put("staff", V::List(staff.into_iter().map(V::Map).collect()));
+    put("zones", V::List(zones));
+    let social = social_section(edges, total_edges, social_events);
+    put("social", V::Map(social));
+    put("movement", V::Map(movement_view));
+    put("occupancy", V::Map(occupancy));
+    put("operational_demand", demand);
+    put("spatial_constraints", spatial);
+    put("presence", V::Map(presence_view));
+    put("geometry_overlay", geometry_overlay);
+    put("sanitation", sanitation);
+    let recorded = recorded_history(reads, social_truncated, retained);
+    put("recorded_history", V::Map(recorded));
+    put("pending_arrivals", int(pending.len()));
+    put("kpi_time_semantics", string("state at boundary before this tick"));
+    put("position_limitations", V::List(POSITION_LIMITATIONS.iter().map(|line| string(line)).collect()));
+    Ok(frame)
+}
+
+/// The facility geometry's document, where the host read one.
+fn geometry_document(reads: &Reads) -> Result<Option<Arc<V>>> {
+    let geometry_document = match &reads.geometry {
+        Some(geometry) => Some(geometry.document.as_ref().map_err(|fault| Error::unsupported(fault.text.to_string()))?.clone()),
+        None => None,
+    };
+    Ok(geometry_document)
+}
+
+/// Adds the population, pending-arrival and sleeping-capacity KPIs; returns the population.
+fn add_population_kpis(kpis: &mut Map, rows: &Entities, pending: &[V]) -> usize {
+    let capacity: i64 =
+        rows.zones.iter().filter(|(id, _)| &***id == "sleeping" || id.starts_with("sleeping_")).map(|(_, zone)| zone.capacity.unwrap_or(0)).sum();
+    let population = rows.agents.len();
+    kpis.insert(text("population"), int(population));
+    kpis.insert(text("pending_arrivals"), int(pending.len()));
+    kpis.insert(text("sleeping_capacity"), V::Int(capacity));
+    kpis.insert(text("occupancy_ratio"), if capacity != 0 { V::Float(population as f64 / capacity as f64) } else { V::Null });
+    population
+}
+
+/// What the entries of `agents` and `people` read.
+#[derive(Clone, Copy)]
+struct PersonInputs<'a, 'w> {
+    rows: &'a Entities,
+    waits: &'a Waits,
+    movement: &'a Option<crate::cell::ShardRef<'w, MovementRow>>,
+    geometry: &'a Option<V>,
+    traits: &'a V,
+    agent_dynamics: &'a Option<crate::cell::ShardRef<'w, AgentDynamicsRow>>,
+    information: &'a Option<crate::cell::ShardRef<'w, InformationRow>>,
+    shared: &'a Option<crate::cell::ShardRef<'w, SharedOperationsRow>>,
+    care_histories: &'a BTreeMap<Arc<str>, std::collections::VecDeque<V>>,
+    context_people: &'a Map,
+    social_events: &'a [V],
+    household_of: &'a BTreeMap<Arc<str>, Option<Arc<str>>>,
+    group_zones: &'a BTreeMap<Arc<str>, BTreeSet<Arc<str>>>,
+}
+
+/// The frame's `agents` (positions) and `people`, by ID.
+fn agents_and_people(inputs: PersonInputs<'_, '_>) -> Result<(Vec<V>, Vec<Map>)> {
+    let rows = inputs.rows;
+    let mut ids: Vec<&Arc<str>> = rows.agents.iter().map(|(id, _)| id).collect();
+    ids.sort_by(|first, second| first.as_bytes().cmp(second.as_bytes()));
+    let mut agents = Vec::with_capacity(ids.len());
+    let mut people = Vec::with_capacity(ids.len());
+    for id in &ids {
+        let agent = rows.agents.get(id).ok_or_else(|| Error::Runtime("a person left the table".to_owned()))?;
+        let position = agent_position(inputs, id, agent)?;
+        agents.push(V::Map(position));
+
+        let person = person_entry(inputs, id, agent)?;
+        people.push(person);
+    }
+    Ok((agents, people))
+}
+
+/// Each person's traits: the dynamics' `profile_traits`, else the population config's people.
+fn profile_traits(configs: &Map, dynamics: &Option<V>) -> V {
+    let traits = match part(dynamics.as_ref(), "profile_traits") {
+        Some(traits) => traits,
+        None => match configs.get("population") {
+            None => V::Map(Map::new()),
+            Some(population) => get(population, "people").cloned().unwrap_or_else(|| V::Map(Map::new())),
+        },
+    };
+    traits
+}
+
+/// Each person's household, and the zones each household's people are in.
+fn households(presence: &Option<V>, rows: &Entities) -> Result<(BTreeMap<Arc<str>, Option<Arc<str>>>, BTreeMap<Arc<str>, BTreeSet<Arc<str>>>)> {
     let mut household_of: BTreeMap<Arc<str>, Option<Arc<str>>> = BTreeMap::new();
     let mut group_zones: BTreeMap<Arc<str>, BTreeSet<Arc<str>>> = BTreeMap::new();
     for (id, person) in rows.agents.iter() {
@@ -890,120 +1065,128 @@ fn build(world: &World, reads: &Reads, waits: &Waits, records: &Records, request
         }
         household_of.insert(id.clone(), household);
     }
+    Ok((household_of, group_zones))
+}
 
-    let mut ids: Vec<&Arc<str>> = rows.agents.iter().map(|(id, _)| id).collect();
-    ids.sort_by(|first, second| first.as_bytes().cmp(second.as_bytes()));
-    let mut agents = Vec::with_capacity(ids.len());
-    let mut people = Vec::with_capacity(ids.len());
-    for id in &ids {
-        let agent = rows.agents.get(id).ok_or_else(|| Error::Runtime("a person left the table".to_owned()))?;
-        let record = movement.as_ref().and_then(|movement| movement.positions.get(*id));
-        let zone = rows.zones.get(&agent.zone_id).ok_or_else(|| Error::unsupported("a person in a zone the world does not have"))?;
-        let mut at = record.and_then(|record| record.point).map(|found| Pt { x: found.x, y: found.y });
-        let mut kind: Arc<str> = record.map_or_else(|| text("unavailable"), |record| record.position_kind.clone());
-        if at.is_none() && geometry.is_none() {
-            if let (Some(x), Some(y)) = (zone.display_x, zone.display_y) {
-                at = Some(Pt { x, y });
-                kind = text("display_only");
-            }
+/// A person's entry of `agents`: the movement's position, or the zone's display point where
+/// there is no geometry.
+fn agent_position(inputs: PersonInputs<'_, '_>, id: &&Arc<str>, agent: &AgentRow) -> Result<Map> {
+    let PersonInputs { rows, movement, geometry, .. } = inputs;
+    let record = movement.as_ref().and_then(|movement| movement.positions.get(*id));
+    let zone = rows.zones.get(&agent.zone_id).ok_or_else(|| Error::unsupported("a person in a zone the world does not have"))?;
+    let mut at = record.and_then(|record| record.point).map(|found| Pt { x: found.x, y: found.y });
+    let mut kind: Arc<str> = record.map_or_else(|| text("unavailable"), |record| record.position_kind.clone());
+    if at.is_none() && geometry.is_none() {
+        if let (Some(x), Some(y)) = (zone.display_x, zone.display_y) {
+            at = Some(Pt { x, y });
+            kind = text("display_only");
         }
-        let mut position = Map::new();
-        position.insert(text("agent_id"), V::Str((*id).clone()));
-        position.insert(text("zone_id"), V::Str(record.map_or_else(|| agent.zone_id.clone(), |record| record.zone_id.clone())));
-        position.insert(text("point"), at.map_or(V::Null, point_value));
-        position.insert(text("edge_id"), record.map_or(V::Null, |record| optional(&record.edge_id)));
-        position.insert(text("progress"), V::Float(record.map_or(0.0, |record| record.progress)));
-        position.insert(text("position_kind"), V::Str(kind));
-        agents.push(V::Map(position));
-
-        let mut dialogue: Vec<V> = social_events
-            .iter()
-            .filter(|event| {
-                let acts = matches!(get(event, "actors"), Some(V::List(actors)) if actors.iter().any(|actor| matches!(actor, V::Str(actor) if actor == *id)));
-                acts || (matches!(get(event, "event_type"), Some(V::Str(kind)) if &**kind == "information_correction")
-                    && matches!(get(event, "zone_id"), Some(V::Str(zone)) if *zone == agent.zone_id))
-            })
-            .cloned()
-            .collect();
-        if dialogue.len() > DIALOGUE_LIMIT {
-            dialogue.drain(..dialogue.len() - DIALOGUE_LIMIT);
-        }
-        let household = household_of.get(*id).cloned().flatten();
-        let separated = group_zones.get(household.as_deref().unwrap_or("")).is_some_and(|zones| zones.iter().any(|zone| *zone != agent.zone_id));
-        let mut care_requests = Vec::new();
-        if let Some(shared) = &shared {
-            for (request_id, head) in &shared.support_requests.map {
-                if head.agent_id != **id {
-                    continue;
-                }
-                let V::Map(mut projected) = field(head)? else {
-                    return Err(Error::Runtime("a care request is not a dict".to_owned()));
-                };
-                let support = rows.support_requests.get(request_id);
-                projected.insert(text("assigned_staff_id"), support.map_or(V::Null, |support| optional(&support.assigned_staff_id)));
-                projected.insert(text("runtime_status"), support.map_or(V::Null, |support| string(support.status.text())));
-                if support.is_some() {
-                    let (waited, reasons) = waits.care.get(request_id).ok_or_else(|| Error::Runtime("a care request without its wait".to_owned()))?;
-                    projected.insert(text("waited_minutes"), V::Int(*waited));
-                    projected.insert(text("wait_reason_codes"), V::List(reasons.iter().cloned().map(V::Str).collect()));
-                }
-                care_requests.push(V::Map(projected));
-            }
-        }
-        let beliefs = match information.as_ref().and_then(|information| information.beliefs.get(*id)) {
-            Some(beliefs) => {
-                let mut kept = Map::new();
-                for (key, belief) in beliefs.iter().take(BELIEF_LIMIT) {
-                    kept.insert(key.clone(), field(belief)?);
-                }
-                V::Map(kept)
-            }
-            None => V::Map(Map::new()),
-        };
-        let mut needs = Map::new();
-        needs.insert(text("toilet_urgency"), V::Float(agent.needs.toilet_urgency));
-        needs.insert(text("hunger"), V::Float(agent.needs.hunger));
-        needs.insert(text("fatigue"), V::Float(agent.needs.fatigue));
-        needs.insert(text("hydration_need"), V::Float(agent.needs.hydration_need));
-        let dialogue_status = if dialogue.is_empty() { "no_retained_events" } else { "structured_events_only" };
-        let mut person = Map::new();
-        let mut put = |name: &str, value: V| {
-            person.insert(text(name), value);
-        };
-        put("id", V::Str((*id).clone()));
-        put("group_id", optional(&agent.profile.group_id));
-        put("zone_id", V::Str(agent.zone_id.clone()));
-        put("family_separated", V::Bool(separated));
-        put("activity", string(agent.activity.text()));
-        put("target_id", optional(&agent.target_id));
-        put("stress", V::Float(agent.stress));
-        put("trust", V::Float(agent.trust));
-        put("needs", V::Map(needs));
-        put("mobility", string(agent.profile.mobility.text()));
-        put("support_need", V::Float(agent.profile.support_need));
-        put(
-            "traits",
-            match &traits {
-                V::Map(traits) => traits.get(*id).cloned().unwrap_or(V::Null),
-                _ => return Err(Error::unsupported("the traits are not a dict")),
-            },
-        );
-        put("context", context_people.get(*id).cloned().unwrap_or(V::Null));
-        put("care_requests", V::List(care_requests));
-        put("care_history", V::List(care_histories.get(*id).map_or_else(Vec::new, |history| history.iter().cloned().collect())));
-        put(
-            "decision",
-            match agent_dynamics.as_ref().and_then(|row| row.agents.get(*id)) {
-                Some(memory) => field(memory)?,
-                None => V::Null,
-            },
-        );
-        put("beliefs", beliefs);
-        put("dialogue", V::List(dialogue));
-        put("dialogue_status", string(dialogue_status));
-        people.push(person);
     }
+    let mut position = Map::new();
+    position.insert(text("agent_id"), V::Str((*id).clone()));
+    position.insert(text("zone_id"), V::Str(record.map_or_else(|| agent.zone_id.clone(), |record| record.zone_id.clone())));
+    position.insert(text("point"), at.map_or(V::Null, point_value));
+    position.insert(text("edge_id"), record.map_or(V::Null, |record| optional(&record.edge_id)));
+    position.insert(text("progress"), V::Float(record.map_or(0.0, |record| record.progress)));
+    position.insert(text("position_kind"), V::Str(kind));
+    Ok(position)
+}
 
+/// A person's entry of `people` (before the body and the presence projections are added).
+fn person_entry(inputs: PersonInputs<'_, '_>, id: &&Arc<str>, agent: &AgentRow) -> Result<Map> {
+    let PersonInputs {
+        rows, waits, traits, agent_dynamics, information, shared, care_histories, context_people, social_events, household_of, group_zones, ..
+    } = inputs;
+    let mut dialogue: Vec<V> = social_events
+        .iter()
+        .filter(|event| {
+            let acts = matches!(get(event, "actors"), Some(V::List(actors)) if actors.iter().any(|actor| matches!(actor, V::Str(actor) if actor == *id)));
+            acts || (matches!(get(event, "event_type"), Some(V::Str(kind)) if &**kind == "information_correction")
+                && matches!(get(event, "zone_id"), Some(V::Str(zone)) if *zone == agent.zone_id))
+        })
+        .cloned()
+        .collect();
+    if dialogue.len() > DIALOGUE_LIMIT {
+        dialogue.drain(..dialogue.len() - DIALOGUE_LIMIT);
+    }
+    let household = household_of.get(*id).cloned().flatten();
+    let separated = group_zones.get(household.as_deref().unwrap_or("")).is_some_and(|zones| zones.iter().any(|zone| *zone != agent.zone_id));
+    let mut care_requests = Vec::new();
+    if let Some(shared) = &shared {
+        for (request_id, head) in &shared.support_requests.map {
+            if head.agent_id != **id {
+                continue;
+            }
+            let V::Map(mut projected) = field(head)? else {
+                return Err(Error::Runtime("a care request is not a dict".to_owned()));
+            };
+            let support = rows.support_requests.get(request_id);
+            projected.insert(text("assigned_staff_id"), support.map_or(V::Null, |support| optional(&support.assigned_staff_id)));
+            projected.insert(text("runtime_status"), support.map_or(V::Null, |support| string(support.status.text())));
+            if support.is_some() {
+                let (waited, reasons) = waits.care.get(request_id).ok_or_else(|| Error::Runtime("a care request without its wait".to_owned()))?;
+                projected.insert(text("waited_minutes"), V::Int(*waited));
+                projected.insert(text("wait_reason_codes"), V::List(reasons.iter().cloned().map(V::Str).collect()));
+            }
+            care_requests.push(V::Map(projected));
+        }
+    }
+    let beliefs = match information.as_ref().and_then(|information| information.beliefs.get(*id)) {
+        Some(beliefs) => {
+            let mut kept = Map::new();
+            for (key, belief) in beliefs.iter().take(BELIEF_LIMIT) {
+                kept.insert(key.clone(), field(belief)?);
+            }
+            V::Map(kept)
+        }
+        None => V::Map(Map::new()),
+    };
+    let mut needs = Map::new();
+    needs.insert(text("toilet_urgency"), V::Float(agent.needs.toilet_urgency));
+    needs.insert(text("hunger"), V::Float(agent.needs.hunger));
+    needs.insert(text("fatigue"), V::Float(agent.needs.fatigue));
+    needs.insert(text("hydration_need"), V::Float(agent.needs.hydration_need));
+    let dialogue_status = if dialogue.is_empty() { "no_retained_events" } else { "structured_events_only" };
+    let mut person = Map::new();
+    let mut put = |name: &str, value: V| {
+        person.insert(text(name), value);
+    };
+    put("id", V::Str((*id).clone()));
+    put("group_id", optional(&agent.profile.group_id));
+    put("zone_id", V::Str(agent.zone_id.clone()));
+    put("family_separated", V::Bool(separated));
+    put("activity", string(agent.activity.text()));
+    put("target_id", optional(&agent.target_id));
+    put("stress", V::Float(agent.stress));
+    put("trust", V::Float(agent.trust));
+    put("needs", V::Map(needs));
+    put("mobility", string(agent.profile.mobility.text()));
+    put("support_need", V::Float(agent.profile.support_need));
+    put(
+        "traits",
+        match &traits {
+            V::Map(traits) => traits.get(*id).cloned().unwrap_or(V::Null),
+            _ => return Err(Error::unsupported("the traits are not a dict")),
+        },
+    );
+    put("context", context_people.get(*id).cloned().unwrap_or(V::Null));
+    put("care_requests", V::List(care_requests));
+    put("care_history", V::List(care_histories.get(*id).map_or_else(Vec::new, |history| history.iter().cloned().collect())));
+    put(
+        "decision",
+        match agent_dynamics.as_ref().and_then(|row| row.agents.get(*id)) {
+            Some(memory) => field(memory)?,
+            None => V::Null,
+        },
+    );
+    put("beliefs", beliefs);
+    put("dialogue", V::List(dialogue));
+    put("dialogue_status", string(dialogue_status));
+    Ok(person)
+}
+
+/// The minute's KPIs, with the resource balances where the ledger is held.
+fn resource_kpis(world: &World, reads: &Reads, waits: &Waits, minute: i64) -> Result<Map> {
     let mut kpis = kpis(&waits.sample, minute);
     if !reads.holding.is_absent(LEDGER).map_err(Error::unsupported)? {
         let balances = crate::rules::resources::metric_values(world)?;
@@ -1013,22 +1196,11 @@ fn build(world: &World, reads: &Reads, waits: &Waits, records: &Records, request
             }
         }
     }
-    let pending: Vec<V> = match part(dynamics.as_ref(), "pending_arrivals") {
-        Some(V::List(pending)) => pending,
-        Some(_) => return Err(Error::unsupported("the pending arrivals are not a list")),
-        None => Vec::new(),
-    };
-    let incoming = incoming_arrivals(reads, geometry.as_ref(), &pending, minute, duration)?;
-    let capacity: i64 =
-        rows.zones.iter().filter(|(id, _)| &***id == "sleeping" || id.starts_with("sleeping_")).map(|(_, zone)| zone.capacity.unwrap_or(0)).sum();
-    let population = rows.agents.len();
-    kpis.insert(text("population"), int(population));
-    kpis.insert(text("pending_arrivals"), int(pending.len()));
-    kpis.insert(text("sleeping_capacity"), V::Int(capacity));
-    kpis.insert(text("occupancy_ratio"), if capacity != 0 { V::Float(population as f64 / capacity as f64) } else { V::Null });
+    Ok(kpis)
+}
 
-    let events = recent_events(records)?;
-
+/// The facilities by ID, with their points inside their zones and their service queues.
+fn facilities_view(world: &World, rows: &Entities, geometry: &Option<V>) -> Result<Vec<V>> {
     let zone_polygons: BTreeMap<Arc<str>, Vec<Pt>> = match &geometry {
         Some(geometry) => {
             let mut polygons = BTreeMap::new();
@@ -1064,51 +1236,7 @@ fn build(world: &World, reads: &Reads, waits: &Waits, records: &Records, request
                 at = None;
             }
         }
-        let mut service_queues = Vec::new();
-        if let Some(geometry) = &geometry {
-            for service_point in service_points(geometry)? {
-                if !matches!(get(service_point, "facility_id"), Some(V::Str(facility_id)) if facility_id == *id) {
-                    continue;
-                }
-                let V::Str(queue_id) = item(service_point, "queue_id")? else {
-                    return Err(Error::unsupported("a queue ID is not a str"));
-                };
-                let queue = queues.as_ref().and_then(|queues| queues.queues.get(queue_id));
-                let agents_of = |requests: &[Arc<str>]| -> V {
-                    V::List(
-                        requests
-                            .iter()
-                            .filter_map(|request| queues.as_ref().and_then(|queues| queues.requests.get(request)))
-                            .map(|request| V::Str(request.agent_id.clone()))
-                            .collect(),
-                    )
-                };
-                let ids_of = |requests: &[Arc<str>]| V::List(requests.iter().cloned().map(V::Str).collect());
-                let queued: &[Arc<str>] = queue.map_or(&[], |queue| &queue.queued_request_ids);
-                let active: &[Arc<str>] = queue.map_or(&[], |queue| &queue.active_request_ids);
-                let access = item(service_point, "access")?;
-                let mut found = Map::new();
-                found.insert(text("service_point_id"), item(service_point, "id")?.clone());
-                found.insert(text("queue_id"), V::Str(queue_id.clone()));
-                found.insert(text("point"), point_value(point_of(item(service_point, "point_m")?)?));
-                found.insert(text("queue_agent_ids"), agents_of(queued));
-                found.insert(text("active_agent_ids"), agents_of(active));
-                found.insert(text("queued_request_ids"), ids_of(queued));
-                found.insert(text("active_request_ids"), ids_of(active));
-                found.insert(text("service_capacity_concurrent"), item(service_point, "service_capacity")?.clone());
-                found.insert(text("accessibility"), item(access, "accessibility")?.clone());
-                found.insert(text("required_access_tags"), item(access, "required_access_tags")?.clone());
-                found.insert(text("required_staff_skills"), item(access, "required_staff_skills")?.clone());
-                found.insert(
-                    text("last_stall"),
-                    match queue.and_then(|queue| queue.last_stall.as_ref()) {
-                        Some(stall) => field(stall)?,
-                        None => V::Null,
-                    },
-                );
-                service_queues.push(V::Map(found));
-            }
-        }
+        let service_queues = facility_service_queues(geometry, &queues, id)?;
         let ids_of = |ids: &[Arc<str>]| V::List(ids.iter().cloned().map(V::Str).collect());
         let mut found = Map::new();
         found.insert(text("id"), V::Str(facility.id.clone()));
@@ -1124,9 +1252,66 @@ fn build(world: &World, reads: &Reads, waits: &Waits, records: &Records, request
         found.insert(text("service_queues"), V::List(service_queues));
         facilities.push(V::Map(found));
     }
+    Ok(facilities)
+}
 
-    let social_network = typed::<SocialNetworkRow>(world, SOCIAL)?;
-    let staff_operations = typed::<StaffOperationsRow>(world, STAFF_OPERATIONS)?;
+/// A facility's service points in the geometry, with their queues.
+fn facility_service_queues(geometry: &Option<V>, queues: &Option<crate::cell::ShardRef<'_, QueuesRow>>, id: &&Arc<str>) -> Result<Vec<V>> {
+    let mut service_queues = Vec::new();
+    if let Some(geometry) = &geometry {
+        for service_point in service_points(geometry)? {
+            if !matches!(get(service_point, "facility_id"), Some(V::Str(facility_id)) if facility_id == *id) {
+                continue;
+            }
+            let V::Str(queue_id) = item(service_point, "queue_id")? else {
+                return Err(Error::unsupported("a queue ID is not a str"));
+            };
+            let queue = queues.as_ref().and_then(|queues| queues.queues.get(queue_id));
+            let agents_of = |requests: &[Arc<str>]| -> V {
+                V::List(
+                    requests
+                        .iter()
+                        .filter_map(|request| queues.as_ref().and_then(|queues| queues.requests.get(request)))
+                        .map(|request| V::Str(request.agent_id.clone()))
+                        .collect(),
+                )
+            };
+            let ids_of = |requests: &[Arc<str>]| V::List(requests.iter().cloned().map(V::Str).collect());
+            let queued: &[Arc<str>] = queue.map_or(&[], |queue| &queue.queued_request_ids);
+            let active: &[Arc<str>] = queue.map_or(&[], |queue| &queue.active_request_ids);
+            let access = item(service_point, "access")?;
+            let mut found = Map::new();
+            found.insert(text("service_point_id"), item(service_point, "id")?.clone());
+            found.insert(text("queue_id"), V::Str(queue_id.clone()));
+            found.insert(text("point"), point_value(point_of(item(service_point, "point_m")?)?));
+            found.insert(text("queue_agent_ids"), agents_of(queued));
+            found.insert(text("active_agent_ids"), agents_of(active));
+            found.insert(text("queued_request_ids"), ids_of(queued));
+            found.insert(text("active_request_ids"), ids_of(active));
+            found.insert(text("service_capacity_concurrent"), item(service_point, "service_capacity")?.clone());
+            found.insert(text("accessibility"), item(access, "accessibility")?.clone());
+            found.insert(text("required_access_tags"), item(access, "required_access_tags")?.clone());
+            found.insert(text("required_staff_skills"), item(access, "required_staff_skills")?.clone());
+            found.insert(
+                text("last_stall"),
+                match queue.and_then(|queue| queue.last_stall.as_ref()) {
+                    Some(stall) => field(stall)?,
+                    None => V::Null,
+                },
+            );
+            service_queues.push(V::Map(found));
+        }
+    }
+    Ok(service_queues)
+}
+
+/// The staff by ID, with their positions, dynamics and operations.
+fn staff_view(
+    rows: &Entities,
+    movement: &Option<crate::cell::ShardRef<'_, MovementRow>>,
+    staff_dynamics: &Option<crate::cell::ShardRef<'_, StaffDynamicsRow>>,
+    staff_operations: &Option<crate::cell::ShardRef<'_, StaffOperationsRow>>,
+) -> Result<Vec<Map>> {
     let mut staff_ids: Vec<&Arc<str>> = rows.staff.iter().map(|(id, _)| id).collect();
     staff_ids.sort_by(|first, second| first.as_bytes().cmp(second.as_bytes()));
     let mut staff = Vec::with_capacity(staff_ids.len());
@@ -1160,7 +1345,11 @@ fn build(world: &World, reads: &Reads, waits: &Waits, records: &Records, request
         );
         staff.push(found);
     }
+    Ok(staff)
+}
 
+/// The first relationships by sorted key, and how many there are.
+fn social_edges(social_network: &Option<crate::cell::ShardRef<'_, SocialNetworkRow>>) -> Result<(Vec<V>, usize)> {
     let mut edges = Vec::new();
     let mut total_edges = 0;
     if let Some(network) = &social_network {
@@ -1174,7 +1363,11 @@ fn build(world: &World, reads: &Reads, waits: &Waits, records: &Records, request
             edges.push(V::Map(edge));
         }
     }
+    Ok((edges, total_edges))
+}
 
+/// The frame's `movement`: the edge usage and the active journeys.
+fn movement_section(movement: &Option<crate::cell::ShardRef<'_, MovementRow>>) -> Result<Map> {
     let mut movement_view = Map::new();
     {
         let mut usage = Map::new();
@@ -1201,8 +1394,11 @@ fn build(world: &World, reads: &Reads, waits: &Waits, records: &Records, request
         movement_view.insert(text("journey_count"), int(journey_count));
         movement_view.insert(text("active_journeys"), V::List(journeys));
     }
+    Ok(movement_view)
+}
 
-    // The zones in the order of the world's dict, with their conditions.
+/// The zones in the order of the world's dict, with their conditions.
+fn zones_view(world: &World, rows: &Entities, configs: &Map) -> Result<Vec<V>> {
     let environment = state(world, zone_environment::STATE)?;
     let zone_inputs = ZoneInputs::read(configs, environment.as_ref())?;
     let mut zones = Vec::with_capacity(rows.zones.len());
@@ -1222,8 +1418,11 @@ fn build(world: &World, reads: &Reads, waits: &Waits, records: &Records, request
         entry.insert(text("conditions"), V::Map(conditions));
         zones.push(V::Map(entry));
     }
+    Ok(zones)
+}
 
-    // What the namespaces of the body and of the staff's operations keep.
+/// Adds each person's body record; returns the body namespace's row.
+fn add_body<'w>(world: &'w World, people: &mut [Map]) -> Result<Option<crate::cell::ShardRef<'w, BodyRow>>> {
     let body = typed::<BodyRow>(world, BODY)?;
     for person in people.iter_mut() {
         let Some(V::Str(id)) = person.get("id").cloned() else { continue };
@@ -1233,15 +1432,25 @@ fn build(world: &World, reads: &Reads, waits: &Waits, records: &Records, request
         };
         person.insert(text("body"), found);
     }
-    let presence_view: Map = match &presence {
-        Some(V::Map(presence)) => presence.iter().filter(|(key, _)| &***key != "history").map(|(key, value)| (key.clone(), value.clone())).collect(),
-        Some(_) => return Err(Error::unsupported("the presence state is not a dict")),
-        None => Map::new(),
-    };
-    let sanitation = match &staff_operations {
-        Some(row) => field(&row.zones)?,
-        None => V::Map(Map::new()),
-    };
+    Ok(body)
+}
+
+/// What the frame's `recorded_history` says the histories keep.
+struct Retained {
+    body_count: usize,
+    body_recent: Vec<V>,
+    operations_count: usize,
+    operations_recent: Vec<V>,
+    shared_count: usize,
+}
+
+/// How many records the body, staff-operations and shared-operations histories keep, and the
+/// newest of the first two.
+fn retained_history(
+    body: &Option<crate::cell::ShardRef<'_, BodyRow>>,
+    staff_operations: &Option<crate::cell::ShardRef<'_, StaffOperationsRow>>,
+    shared: &Option<crate::cell::ShardRef<'_, SharedOperationsRow>>,
+) -> Result<Retained> {
     let (body_count, body_recent) = recent_items(body.as_ref().map(|body| &body.history as &dyn crate::row::Items))?;
     let (operations_count, operations_recent) = match &staff_operations {
         Some(row) => {
@@ -1255,8 +1464,11 @@ fn build(world: &World, reads: &Reads, waits: &Waits, records: &Records, request
         None => (0, Vec::new()),
     };
     let shared_count = shared.as_ref().map_or(0, |shared| shared.history.items.len());
+    Ok(Retained { body_count, body_recent, operations_count, operations_recent, shared_count })
+}
 
-    let occupancy_zones = occupancy_zones(world, reads, configs)?;
+/// The frame's `occupancy`.
+fn occupancy_view(minute: i64, population: usize, pending: &[V], occupancy_zones: &Vec<V>) -> Map {
     let mut occupancy = Map::new();
     occupancy.insert(text("schema_version"), V::Int(2));
     occupancy.insert(text("minute"), V::Int(minute));
@@ -1264,18 +1476,12 @@ fn build(world: &World, reads: &Reads, waits: &Waits, records: &Records, request
     occupancy.insert(text("admitted_count"), int(population));
     occupancy.insert(text("waiting_outside_count"), int(pending.len()));
     occupancy.insert(text("zones"), V::List(occupancy_zones.clone()));
+    occupancy
+}
 
-    let demand = operational_demand(world, reads, configs, minute, population, pending.len(), occupancy_zones, shared.as_deref())?;
-    let spatial = effective_spatial(
-        reads.spatial.document.as_deref().ok_or_else(|| Error::unsupported("the host kept no spatial constraints' document"))?,
-        overlay.as_ref(),
-        configs,
-    )?;
-    let no_positions = IdMap::default();
-    let geometry_overlay = overlay_view(world, overlay.as_ref(), movement.as_ref().map_or(&no_positions, |movement| &movement.positions))?;
-
-    // The projections of the declared namespaces (`entity_projections`): only the presence ledger
-    // has one.
+/// Adds each person's context and household, and the presence ledger's projection where the
+/// namespace is declared.
+fn project_presence(configs: &Map, presence: &Option<V>, context_people: &Map, people: &mut [Map]) -> Result<()> {
     let presence_declared =
         configs.get("state_contracts").and_then(|declaration| get(declaration, "namespaces")).is_some_and(|namespaces| get(namespaces, PRESENCE).is_some());
     let presence_people = get(presence.as_ref().unwrap_or(&V::Null), "people").cloned();
@@ -1306,42 +1512,22 @@ fn build(world: &World, reads: &Reads, waits: &Waits, records: &Records, request
             person.insert(text("extensions"), V::Map(extensions));
         }
     }
+    Ok(())
+}
 
-    let mut frame = Map::new();
-    let mut put = |name: &str, value: V| {
-        frame.insert(text(name), value);
-    };
-    put("schema_version", V::Int(1));
-    put("run_id", string(request.run_id));
-    put("branch_id", string(request.branch_id));
-    put("minute", V::Int(minute));
-    put("computed_until", V::Int(request.computed_until));
-    put("state_hash", V::Str(state_hash));
-    put("exact", V::Bool(true));
-    put("agents", V::List(agents));
-    if !incoming.is_empty() {
-        put("incoming_arrivals", V::List(incoming));
-    }
-    put("kpis", V::Map(kpis));
-    put("events", V::List(events));
-    put("geometry", geometry.unwrap_or(V::Null));
-    put("people", V::List(people.into_iter().map(V::Map).collect()));
-    put("facilities", V::List(facilities));
-    put("staff", V::List(staff.into_iter().map(V::Map).collect()));
-    put("zones", V::List(zones));
+/// The frame's `social`.
+fn social_section(edges: Vec<V>, total_edges: usize, social_events: Vec<V>) -> Map {
     let mut social = Map::new();
     social.insert(text("edges"), V::List(edges));
     social.insert(text("total_edges"), int(total_edges));
     social.insert(text("truncated"), V::Bool(total_edges > EDGE_LIMIT));
     social.insert(text("interactions"), V::List(social_events));
-    put("social", V::Map(social));
-    put("movement", V::Map(movement_view));
-    put("occupancy", V::Map(occupancy));
-    put("operational_demand", demand);
-    put("spatial_constraints", spatial);
-    put("presence", V::Map(presence_view));
-    put("geometry_overlay", geometry_overlay);
-    put("sanitation", sanitation);
+    social
+}
+
+/// The frame's `recorded_history`.
+fn recorded_history(reads: &Reads, social_truncated: bool, retained: Retained) -> Map {
+    let Retained { body_count, body_recent, operations_count, operations_recent, shared_count } = retained;
     let mut recorded = Map::new();
     recorded.insert(
         text("decisions"),
@@ -1376,11 +1562,7 @@ fn build(world: &World, reads: &Reads, waits: &Waits, records: &Records, request
             (text("claim_boundary"), string("only event-linked applied transitions are indexed; this does not imply an unrecorded outcome")),
         ])),
     );
-    put("recorded_history", V::Map(recorded));
-    put("pending_arrivals", int(pending.len()));
-    put("kpi_time_semantics", string("state at boundary before this tick"));
-    put("position_limitations", V::List(POSITION_LIMITATIONS.iter().map(|line| string(line)).collect()));
-    Ok(frame)
+    recorded
 }
 
 /// A relationship of `social_network_v1`, as its canonical JSON reads back (`field`, without the
@@ -1526,18 +1708,18 @@ fn incoming_arrivals(reads: &Reads, geometry: Option<&V>, pending: &[V], minute:
     Ok(incoming)
 }
 
-/// `operational_demand_snapshot(world)`, as its contract dumps it.
-#[allow(clippy::too_many_arguments)]
-fn operational_demand(
-    world: &World,
-    reads: &Reads,
-    configs: &Map,
+/// What the demand's snapshot says of the people before the tick: the minute, the people admitted,
+/// the arrivals pending, and the occupancy of the zones.
+struct Occupancy {
     minute: i64,
     population: usize,
     pending: usize,
     zones: Vec<V>,
-    shared: Option<&SharedOperationsRow>,
-) -> Result<V> {
+}
+
+/// `operational_demand_snapshot(world)`, as its contract dumps it.
+fn operational_demand(world: &World, reads: &Reads, configs: &Map, occupancy: Occupancy, shared: Option<&SharedOperationsRow>) -> Result<V> {
+    let Occupancy { minute, population, pending, zones } = occupancy;
     // The Scenario's floor plan, without the overlay's moves, where the configs hold a truthy one.
     let raw_geometry = configs.get("facility_geometry").is_some_and(V::is_truthy);
     let geometry = match (&reads.geometry, raw_geometry) {

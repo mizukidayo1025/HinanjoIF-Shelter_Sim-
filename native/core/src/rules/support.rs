@@ -449,59 +449,8 @@ pub fn complete_support(world: &World, inputs: &Inputs, event: &SupportEvent, ha
     }
     let minute = world.minute_index()?;
     let due = event.due_minute;
-    // The checks of the handler, then of `complete_support_task`, in their order: which one failed.
-    enum Failed {
-        NoTask,
-        NotDue,
-        NotAssigned,
-        NotMatching,
-    }
-    let checked = {
-        let rows = world.rows()?;
-        (|| {
-            let Some(task) = rows.active_tasks.get(task_id) else {
-                return Err(Failed::NoTask);
-            };
-            if task.due_minute != due {
-                return Err(Failed::NotDue);
-            }
-            let Some(request) = rows.support_requests.get(request_id) else {
-                return Err(Failed::NotAssigned);
-            };
-            if request.status != RequestStatus::Assigned {
-                return Err(Failed::NotAssigned);
-            }
-            let (Some(agent), Some(person)) = (rows.agents.get(agent_id), rows.staff.get(staff_id)) else {
-                return Err(Failed::NotMatching);
-            };
-            if &*task.kind != "staff_support"
-                || request.agent_id != *agent_id
-                || request.assigned_staff_id.as_deref() != Some(&**staff_id)
-                || request.task_id.as_deref() != Some(&**task_id)
-                || task.agent_id.as_deref() != Some(&**agent_id)
-                || task.staff_id.as_deref() != Some(&**staff_id)
-                || task.due_minute != minute
-                || person.active_task_id.as_deref() != Some(&**task_id)
-                || (handler.require_colocated && agent.activity != Activity::SeekingHelp)
-                || (handler.require_colocated && agent.zone_id != person.zone_id)
-            {
-                return Err(Failed::NotMatching);
-            }
-            Ok((agent.stress, agent.trust))
-        })()
-    };
-    let (stress, trust) = match checked {
-        Ok(values) => values,
-        Err(Failed::NoTask) => {
-            if cancelled(world, task_id)? {
-                return suppressed(format!("staff support task {} was cancelled", py_repr(task_id)));
-            }
-            return failed("staff completion does not match an active due task");
-        }
-        Err(Failed::NotDue) => return failed("staff completion does not match an active due task"),
-        Err(Failed::NotAssigned) => return failed(format!("support request {} is not assigned", py_repr(request_id))),
-        Err(Failed::NotMatching) => return failed("support completion does not match its assigned task"),
-    };
+    let ids = Ids { request_id, agent_id, staff_id, task_id };
+    let (stress, trust) = completion_checks(world, ids, handler, minute, due)?;
     let Some(until) = minute.checked_add(handler.cooldown_minutes) else {
         return Err(Error::unsupported("a minute out of range"));
     };
@@ -543,40 +492,126 @@ pub fn complete_support(world: &World, inputs: &Inputs, event: &SupportEvent, ha
     }
 
     // Write: `complete_support_task`, then what the care does.
-    {
-        let mut rows = world.rows_mut()?;
-        rows.active_tasks.remove_row(task_id);
-        let Some(row) = rows.staff.get_mut(staff_id) else {
-            return Err(Error::unsupported("no such staff"));
-        };
-        row.work_queue.clear();
-        row.active_task_id = None;
-        row.busy_until = 0;
-        if let Some(request) = rows.support_requests.get_mut(request_id) {
-            request.status = RequestStatus::Resolved;
-            request.resolved_minute = Some(minute);
-            request.cooldown_until = until;
+    write_completion(world, ids, minute, until, &care)?;
+    add_metric(world, RESOLVED_METRIC)?;
+    write_body_records(world, &care, agent_id)?;
+    if let Some(planned) = &transition {
+        events.allocate_sequence().and_then(|sequence| match sequence == planned.row().sequence {
+            true => Ok(()),
+            false => Err(Error::Runtime("the event counter moved after the plan".to_owned())),
+        })?;
+    }
+    Ok(Completion::Done(transition))
+}
+
+/// The IDs of a support's completion: its request, its person, its staff member and its task.
+#[derive(Clone, Copy)]
+struct Ids<'a> {
+    request_id: &'a Arc<str>,
+    agent_id: &'a Arc<str>,
+    staff_id: &'a Arc<str>,
+    task_id: &'a Arc<str>,
+}
+
+/// The checks of the handler, then of `complete_support_task`, in their order: the person's stress
+/// and trust, or the outcome of the first that fails.
+fn completion_checks(world: &World, ids: Ids<'_>, handler: Handler, minute: i64, due: i64) -> Result<(f64, f64)> {
+    let Ids { request_id, agent_id, staff_id, task_id } = ids;
+    // The checks of the handler, then of `complete_support_task`, in their order: which one failed.
+    enum Failed {
+        NoTask,
+        NotDue,
+        NotAssigned,
+        NotMatching,
+    }
+    let checked = {
+        let rows = world.rows()?;
+        (|| {
+            let Some(task) = rows.active_tasks.get(task_id) else {
+                return Err(Failed::NoTask);
+            };
+            if task.due_minute != due {
+                return Err(Failed::NotDue);
+            }
+            let Some(request) = rows.support_requests.get(request_id) else {
+                return Err(Failed::NotAssigned);
+            };
+            if request.status != RequestStatus::Assigned {
+                return Err(Failed::NotAssigned);
+            }
+            let (Some(agent), Some(person)) = (rows.agents.get(agent_id), rows.staff.get(staff_id)) else {
+                return Err(Failed::NotMatching);
+            };
+            if &*task.kind != "staff_support"
+                || request.agent_id != *agent_id
+                || request.assigned_staff_id.as_deref() != Some(&**staff_id)
+                || request.task_id.as_deref() != Some(&**task_id)
+                || task.agent_id.as_deref() != Some(&**agent_id)
+                || task.staff_id.as_deref() != Some(&**staff_id)
+                || task.due_minute != minute
+                || person.active_task_id.as_deref() != Some(&**task_id)
+                || (handler.require_colocated && agent.activity != Activity::SeekingHelp)
+                || (handler.require_colocated && agent.zone_id != person.zone_id)
+            {
+                return Err(Failed::NotMatching);
+            }
+            Ok((agent.stress, agent.trust))
+        })()
+    };
+    match checked {
+        Ok(values) => Ok(values),
+        Err(Failed::NoTask) => {
+            if cancelled(world, task_id)? {
+                return suppressed(format!("staff support task {} was cancelled", py_repr(task_id)));
+            }
+            return failed("staff completion does not match an active due task");
         }
-        set_agent(&mut rows, agent_id, Activity::Idle, None)?;
-        let Some(row) = rows.agents.get_mut(agent_id) else {
-            return Err(Error::unsupported("no such agent"));
-        };
-        row.support_request_id = None;
-        row.support_cooldown_until = until;
-        if let Care::Emotional { stress, trust, .. } = care {
-            row.stress = stress;
-            row.trust = trust;
-        }
-        if let Care::Formula { people } = &care {
-            for person in people {
-                if let (Some(stress), Some(row)) = (person.stress, rows.agents.get_mut(&person.agent_id)) {
-                    row.stress = stress;
-                }
+        Err(Failed::NotDue) => return failed("staff completion does not match an active due task"),
+        Err(Failed::NotAssigned) => return failed(format!("support request {} is not assigned", py_repr(request_id))),
+        Err(Failed::NotMatching) => return failed("support completion does not match its assigned task"),
+    }
+}
+
+/// `complete_support_task`'s writes and the care's stress and trust: the task gone, the staff member
+/// free, the request resolved, and the person idle in their cooldown.
+fn write_completion(world: &World, ids: Ids<'_>, minute: i64, until: i64, care: &Care) -> Result<()> {
+    let Ids { request_id, agent_id, staff_id, task_id } = ids;
+    let mut rows = world.rows_mut()?;
+    rows.active_tasks.remove_row(task_id);
+    let Some(row) = rows.staff.get_mut(staff_id) else {
+        return Err(Error::unsupported("no such staff"));
+    };
+    row.work_queue.clear();
+    row.active_task_id = None;
+    row.busy_until = 0;
+    if let Some(request) = rows.support_requests.get_mut(request_id) {
+        request.status = RequestStatus::Resolved;
+        request.resolved_minute = Some(minute);
+        request.cooldown_until = until;
+    }
+    set_agent(&mut rows, agent_id, Activity::Idle, None)?;
+    let Some(row) = rows.agents.get_mut(agent_id) else {
+        return Err(Error::unsupported("no such agent"));
+    };
+    row.support_request_id = None;
+    row.support_cooldown_until = until;
+    if let Care::Emotional { stress, trust, .. } = *care {
+        row.stress = stress;
+        row.trust = trust;
+    }
+    if let Care::Formula { people } = care {
+        for person in people {
+            if let (Some(stress), Some(row)) = (person.stress, rows.agents.get_mut(&person.agent_id)) {
+                row.stress = stress;
             }
         }
     }
-    add_metric(world, RESOLVED_METRIC)?;
-    let records: Vec<(&Arc<str>, BodyRecord)> = match &care {
+    Ok(())
+}
+
+/// The body records the care changed, written.
+fn write_body_records(world: &World, care: &Care, agent_id: &Arc<str>) -> Result<()> {
+    let records: Vec<(&Arc<str>, BodyRecord)> = match care {
         Care::None => Vec::new(),
         Care::Formula { people } => people.iter().map(|person| (&person.agent_id, person.record)).collect(),
         Care::Emotional { record, .. } | Care::Hygiene { record } => vec![(agent_id, *record)],
@@ -590,13 +625,7 @@ pub fn complete_support(world: &World, inputs: &Inputs, event: &SupportEvent, ha
             *record = next;
         }
     }
-    if let Some(planned) = &transition {
-        events.allocate_sequence().and_then(|sequence| match sequence == planned.row().sequence {
-            true => Ok(()),
-            false => Err(Error::Runtime("the event counter moved after the plan".to_owned())),
-        })?;
-    }
-    Ok(Completion::Done(transition))
+    Ok(())
 }
 
 /// `task_id in world.model_state["operational_events_v1"]["cancelled_staff_task_ids"]`, where the
@@ -795,27 +824,8 @@ fn formula_care(
 ) -> Result<(Care, (&'static str, V), Vec<Arc<str>>)> {
     let hygiene = kind == "hygiene_support";
     let typed = formula_read(formula.deltas(kind, agent_id))?;
-    let mut relational: Vec<(Arc<str>, Vec<(&'static str, f64)>)> = Vec::new();
-    let mut sources = Vec::new();
-    if kind == "caregiver_assistance" {
-        for dependent in care_dependents(world, agent_id, household_id)? {
-            let deltas = formula_read(formula.deltas("caregiver_assistance", &dependent))?;
-            if !deltas.is_empty() {
-                relational.push((dependent, deltas));
-            }
-        }
-        let mut identities = vec![agent_id.clone()];
-        identities.extend(relational.iter().map(|(id, _)| id.clone()));
-        for identity in identities {
-            if let Some(V::Map(context)) = person_context(world, &identity)? {
-                if let Some(listed) = context.get("source_ids") {
-                    sources.extend(python_str_items(listed)?);
-                }
-            }
-        }
-        sources.sort_unstable();
-        sources.dedup();
-    }
+    let (relational, sources) =
+        if kind == "caregiver_assistance" { caregiver_dependents(world, formula, agent_id, household_id)? } else { (Vec::new(), Vec::new()) };
     let mut source_ids = vec![Arc::from(STAFF_SUPPORT_SOURCE)];
     source_ids.extend(sources);
     let measured_kind = hygiene || !typed.is_empty();
@@ -889,47 +899,21 @@ fn formula_care(
         outcome_source = true;
     } else if !typed.is_empty() {
         for (field, delta) in &typed {
-            if *field == "stress" {
-                stresses[0] = py_min(1.0, py_max(0.0, stresses[0] + delta));
-            } else {
-                let next = py_min(1.0, py_max(0.0, body_field(&people[0].record, field)? + delta));
-                set_body_field(&mut people[0].record, field, next)?;
-            }
+            apply_delta(&mut stresses, &mut people, 0, field, *delta)?;
         }
         outcome_source = true;
     }
     for (dependent, deltas) in &relational {
         let index = index_of(dependent);
         for (field, delta) in deltas {
-            if *field == "stress" {
-                stresses[index] = py_min(1.0, py_max(0.0, stresses[index] + delta));
-            } else {
-                let next = py_min(1.0, py_max(0.0, body_field(&people[index].record, field)? + delta));
-                set_body_field(&mut people[index].record, field, next)?;
-            }
+            apply_delta(&mut stresses, &mut people, index, field, *delta)?;
         }
         outcome_source = true;
     }
     if !measured_kind && relational.is_empty() {
         return Ok((Care::None, not_measured(), source_ids));
     }
-    let mut changes = Vec::with_capacity(before.len());
-    let mut changed = false;
-    for (is_stress, index, field) in &before {
-        let id = &order[*index];
-        let (kind_name, path, was, now) = if *is_stress {
-            (AGENT, "stress".to_owned(), original_stresses[*index], stresses[*index])
-        } else if *field == "hygiene_need" {
-            (MODEL_STATE, "body_state_v1.agents.hygiene_need".to_owned(), originals[*index].hygiene_need, people[*index].record.hygiene_need)
-        } else {
-            (MODEL_STATE, format!("body_state_v1.agents.{field}"), body_field(&originals[*index], field)?, body_field(&people[*index].record, field)?)
-        };
-        if !was.is_finite() || !now.is_finite() {
-            return Err(Error::unsupported("a value is not finite"));
-        }
-        changed |= was != now;
-        changes.push(change(kind_name, id, &path, was, now));
-    }
+    let (changes, changed) = recorded_changes(&before, &order, (&originals, &people), (&original_stresses, &stresses))?;
     if changes.len() > 32 {
         return Err(Error::unsupported("more changes than a receipt holds"));
     }
@@ -944,6 +928,78 @@ fn formula_care(
     }
     Ok((Care::Formula { people }, (if changed { "observed_change" } else { "observed_no_change" }, V::List(changes)), source_ids))
 }
+
+/// The dependents of a caregiver's assistance with the deltas the formula gives each (those with
+/// none left out), and the sources of the person's and the dependents' contexts, sorted and once.
+fn caregiver_dependents(
+    world: &World,
+    formula: &CareOutcome,
+    agent_id: &Arc<str>,
+    household_id: Option<&str>,
+) -> Result<(Vec<(Arc<str>, Deltas)>, Vec<Arc<str>>)> {
+    let mut relational: Vec<(Arc<str>, Deltas)> = Vec::new();
+    let mut sources = Vec::new();
+    for dependent in care_dependents(world, agent_id, household_id)? {
+        let deltas = formula_read(formula.deltas("caregiver_assistance", &dependent))?;
+        if !deltas.is_empty() {
+            relational.push((dependent, deltas));
+        }
+    }
+    let mut identities = vec![agent_id.clone()];
+    identities.extend(relational.iter().map(|(id, _)| id.clone()));
+    for identity in identities {
+        if let Some(V::Map(context)) = person_context(world, &identity)? {
+            if let Some(listed) = context.get("source_ids") {
+                sources.extend(python_str_items(listed)?);
+            }
+        }
+    }
+    sources.sort_unstable();
+    sources.dedup();
+    Ok((relational, sources))
+}
+
+/// A delta of the formula on a person: to their stress or a field of their body, within 0 and 1.
+fn apply_delta(stresses: &mut [f64], people: &mut [CaredPerson], index: usize, field: &str, delta: f64) -> Result<()> {
+    if field == "stress" {
+        stresses[index] = py_min(1.0, py_max(0.0, stresses[index] + delta));
+    } else {
+        let next = py_min(1.0, py_max(0.0, body_field(&people[index].record, field)? + delta));
+        set_body_field(&mut people[index].record, field, next)?;
+    }
+    Ok(())
+}
+
+/// The receipt's changes of what the Python rule recorded before (kind, person, field), from the
+/// records and stresses before and after, and whether any changed.
+fn recorded_changes(
+    before: &[(bool, usize, &'static str)],
+    order: &[Arc<str>],
+    (originals, people): (&[BodyRecord], &[CaredPerson]),
+    (original_stresses, stresses): (&[f64], &[f64]),
+) -> Result<(Vec<V>, bool)> {
+    let mut changes = Vec::with_capacity(before.len());
+    let mut changed = false;
+    for (is_stress, index, field) in before {
+        let id = &order[*index];
+        let (kind_name, path, was, now) = if *is_stress {
+            (AGENT, "stress".to_owned(), original_stresses[*index], stresses[*index])
+        } else if *field == "hygiene_need" {
+            (MODEL_STATE, "body_state_v1.agents.hygiene_need".to_owned(), originals[*index].hygiene_need, people[*index].record.hygiene_need)
+        } else {
+            (MODEL_STATE, format!("body_state_v1.agents.{field}"), body_field(&originals[*index], field)?, body_field(&people[*index].record, field)?)
+        };
+        if !was.is_finite() || !now.is_finite() {
+            return Err(Error::unsupported("a value is not finite"));
+        }
+        changed |= was != now;
+        changes.push(change(kind_name, id, &path, was, now));
+    }
+    Ok((changes, changed))
+}
+
+/// The deltas of a care formula: each field with its change.
+type Deltas = Vec<(&'static str, f64)>;
 
 // ---- A request, for `seek_help` and `seek_information` -----------------------------------------------
 

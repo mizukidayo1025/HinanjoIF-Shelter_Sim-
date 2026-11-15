@@ -177,8 +177,8 @@ fn selection(model: &str) -> Kept<Selection> {
 const PLAIN: &str = "information-spread-v1";
 const AWARE: &str = "evidence-aware-rumor-v1";
 
-#[allow(clippy::too_many_arguments)]
-fn event(id: &str, kind: EventKind, due: i64, event_type: &str, payload: V, source: Option<&str>, causation: Option<&str>, provenance: V) -> EventRow {
+/// An event of sequence 1 with no source, cause or provenance; the callers set the ones they have.
+fn event(id: &str, kind: EventKind, due: i64, event_type: &str, payload: V) -> EventRow {
     EventRow {
         event_id: text(id),
         kind,
@@ -187,15 +187,15 @@ fn event(id: &str, kind: EventKind, due: i64, event_type: &str, payload: V, sour
         sequence: 1,
         event_type: text(event_type),
         payload,
-        source_id: source.map(text),
-        causation_id: causation.map(text),
-        provenance,
+        source_id: None,
+        causation_id: None,
+        provenance: map(&[]),
     }
 }
 
 fn rumor_event(id: &str, message: &str, truth: &str, origin: &str) -> EventRow {
     let payload = map(&[("message_id", string(message)), ("truth_status", string(truth)), ("origin_agent_id", string(origin))]);
-    event(id, EventKind::Exogenous, 10, "information_rumor", payload, Some("trusted"), None, map(&[]))
+    EventRow { source_id: Some(text("trusted")), ..event(id, EventKind::Exogenous, 10, "information_rumor", payload) }
 }
 
 /// Run f on a shard of the world and give the world back.
@@ -313,7 +313,11 @@ fn a_rumor_s_texts_come_in_the_python_rule_s_order() {
 
 fn correction_event(message: &str, zone: &str, belief: &str, causation: &str) -> EventRow {
     let payload = map(&[("message_id", string(message)), ("zone_id", string(zone)), ("belief", string(belief))]);
-    event("ev-c1", EventKind::Exogenous, 12, "information_correction", payload, Some("trusted"), Some(causation), map(&[]))
+    EventRow {
+        source_id: Some(text("trusted")),
+        causation_id: Some(text(causation)),
+        ..event("ev-c1", EventKind::Exogenous, 12, "information_correction", payload)
+    }
 }
 
 #[test]
@@ -384,7 +388,12 @@ fn contact_event(sender: &str, recipient: &str, belief: &str, basis: &str, minut
         ("policy_version", string(PLAIN)),
         ("transmission_probability", V::Float(0.5)),
     ]);
-    event("ev-k1", EventKind::Endogenous, 10, "information_contact_update", payload, Some("trusted"), Some("ev-r1"), provenance)
+    EventRow {
+        source_id: Some(text("trusted")),
+        causation_id: Some(text("ev-r1")),
+        provenance,
+        ..event("ev-k1", EventKind::Endogenous, 10, "information_contact_update", payload)
+    }
 }
 
 #[test]
@@ -623,7 +632,12 @@ const SOCIAL_SOURCE: &str = "ASM-EVENT-TRIGGERED-SOCIAL-INTERACTIONS-V1";
 
 fn social_event(payload: V) -> EventRow {
     let provenance = map(&[("source_id", string(SOCIAL_SOURCE)), ("source_type", string("assumption")), ("policy_version", string("social-v1"))]);
-    event("ev-s1", EventKind::Endogenous, 10, "social_interaction", payload, Some("social-v1"), Some("ev-k0"), provenance)
+    EventRow {
+        source_id: Some(text("social-v1")),
+        causation_id: Some(text("ev-k0")),
+        provenance,
+        ..event("ev-s1", EventKind::Endogenous, 10, "social_interaction", payload)
+    }
 }
 
 fn action(kind: &str, actor: &str, participant: &str, act: &str, topic: &str) -> V {

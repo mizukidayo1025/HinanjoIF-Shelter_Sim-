@@ -34,6 +34,10 @@ const MARKER_FIELDS: [&str; 9] =
 const STACK_FIELDS: [&str; 2] = ["baseline_working_units", "modifiers"];
 const ENTRY_FIELDS: [&str; 6] = ["modifier_id", "program_id", "effect_id", "working_units", "start_minute", "sequence"];
 
+/// `known_effects`: (program, effect) -> the program's record.
+type Known<'a> = IndexMap<(Arc<str>, Arc<str>), &'a Map>;
+/// `scheduled_events`: event -> program.
+type Scheduled = IndexMap<Arc<str>, Arc<str>>;
 type Map = IndexMap<Arc<str>, V>;
 
 fn value_error(text: &str) -> Error {
@@ -162,8 +166,15 @@ pub fn validate(view: &View<'_>) -> Result<()> {
     if !view.history {
         return Ok(());
     }
+    let (known, scheduled) = check_programs(programs)?;
+    check_events(view, &by_id, &known, &scheduled)?;
+    check_active(view, active, &known)
+}
+
+/// Each program's record, with the effects it registers and the events it schedules.
+fn check_programs(programs: &Map) -> Result<(Known<'_>, Scheduled)> {
     // known_effects: (program, effect) -> the program's record; scheduled_events: event -> program.
-    let mut known: IndexMap<(Arc<str>, Arc<str>), &Map> = IndexMap::new();
+    let mut known: Known = IndexMap::new();
     let mut scheduled: IndexMap<Arc<str>, Arc<str>> = IndexMap::new();
     for (program_id, program) in programs {
         let program = match program {
@@ -231,10 +242,16 @@ pub fn validate(view: &View<'_>) -> Result<()> {
             scheduled.insert(event_id.clone(), program_id.clone());
         }
     }
+    Ok((known, scheduled))
+}
+
+/// The scheduled events against their programs, and each event with a marker against its
+/// program's effect.
+fn check_events(view: &View<'_>, by_id: &EventsById<'_>, known: &Known<'_>, scheduled: &Scheduled) -> Result<()> {
     // Events without a marker pass the loop below unread.
     let mut events: Vec<Arc<EventRow>> = by_id.pending()?;
     events.extend(logged_with_marker(view)?.into_iter().map(Arc::new));
-    for (event_id, program_id) in &scheduled {
+    for (event_id, program_id) in scheduled {
         let Some(event) = by_id.get(event_id)? else {
             return Err(value_error("effect program references an unknown scheduled or realized event"));
         };
@@ -302,6 +319,11 @@ pub fn validate(view: &View<'_>) -> Result<()> {
             return Err(value_error("EffectProgram event type does not match its registered operator"));
         }
     }
+    Ok(())
+}
+
+/// The active facility modifiers: each stack against its facility and the known effects.
+fn check_active(view: &View<'_>, active: &Map, known: &Known<'_>) -> Result<()> {
     let rows = view.rows()?;
     for (facility_id, record) in active {
         let (Some(facility), V::Map(record)) = (rows.facilities.get(facility_id), record) else {

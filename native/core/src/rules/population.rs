@@ -661,19 +661,21 @@ fn check_presence_ids(event_id: &str, agent_id: &str, zone: Option<&str>, househ
     identifier(source_id)
 }
 
-/// `_record_presence_transition`. The plan checked the ledger and the IDs.
-#[allow(clippy::too_many_arguments)]
-fn record_presence_transition(
-    world: &World,
-    inputs: &Inputs,
-    agent_id: &Arc<str>,
-    event_id: &Arc<str>,
+/// A transition of a person's presence: who, by which event at which minute, the action, the zone
+/// and the household it names (None: the person's own), and its source.
+struct PresenceChange<'a> {
+    agent_id: &'a Arc<str>,
+    event_id: &'a Arc<str>,
     minute: i64,
     action: &'static str,
-    zone_id: Option<&Arc<str>>,
+    zone_id: Option<&'a Arc<str>>,
     household_id: Option<Arc<str>>,
-    source_id: &str,
-) -> Result<()> {
+    source_id: &'a str,
+}
+
+/// `_record_presence_transition`. The plan checked the ledger and the IDs.
+fn record_presence_transition(world: &World, inputs: &Inputs, change: PresenceChange<'_>) -> Result<()> {
+    let PresenceChange { agent_id, event_id, minute, action, zone_id, household_id, source_id } = change;
     let previous = {
         let Some(raw) = value_of(world, PRESENCE, &inputs.namespaces.presence)?.filter(|row| matches!(row.0, V::Map(_))) else {
             return Ok(());
@@ -1128,7 +1130,11 @@ fn write_admission(world: &World, inputs: &Inputs, admission: &Admission, minute
     };
     let action = if status.as_deref() == Some("awaiting_admission") { "admitted" } else { "arrived" };
     let (household, source) = household_and_source(item)?;
-    record_presence_transition(world, inputs, &agent_id, &event_text, minute, action, Some(zone_id), household, &source)?;
+    record_presence_transition(
+        world,
+        inputs,
+        PresenceChange { agent_id: &agent_id, event_id: &event_text, minute, action, zone_id: Some(zone_id), household_id: household, source_id: &source },
+    )?;
     Ok(agent_id)
 }
 
@@ -1757,32 +1763,7 @@ fn plan_arrivals_in(world: &World, inputs: &Inputs, row: &EventRow, new_state: O
     let held = value_of(world, DYNAMICS, &inputs.namespaces.dynamics)?;
     let (reserved, fails) = {
         let state = state_in(&new_state, &held)?;
-        let pending = list_of(field(state, "pending_arrivals")?)?;
-        let pending_count = pending.len() as i64;
-        let agents = world.rows()?.agents.len() as i64;
-        let mut known: HashSet<Arc<str>> = HashSet::new();
-        for id in list_of(field(state, "initial_agent_ids")?)? {
-            known.insert(text(id)?);
-        }
-        let traits_map = map_of(field(state, "profile_traits")?)?;
-        known.extend(traits_map.keys().cloned());
-        let fails = if pending_count + count > MAX_PENDING_ARRIVALS {
-            Some("population arrival exceeds the pending capacity bound")
-        } else if agents + pending_count + count > 10_000 {
-            Some("population arrival exceeds the 10000-resident runtime bound")
-        } else if known.len() as i64 + count > 10_000 {
-            Some("population arrival exceeds the 10000-profile history bound")
-        } else {
-            None
-        };
-        let mut reserved: HashSet<Arc<str>> = world.rows()?.agents.iter().map(|(id, _)| id.clone()).collect();
-        if fails.is_none() {
-            for item in pending {
-                reserved.insert(text(field(field(item, "profile")?, "id")?)?);
-            }
-            reserved.extend(traits_map.keys().cloned());
-        }
-        (reserved, fails)
+        reserved_ids(world, state, count)?
     };
     drop(held);
     if let Some(text) = fails {
@@ -1799,75 +1780,27 @@ fn plan_arrivals_in(world: &World, inputs: &Inputs, row: &EventRow, new_state: O
     let event_digest = &event_digest[..20];
     let context_source = row.source_id.clone().unwrap_or_else(|| Arc::from(SOURCE_ID));
     let mut prepared = Vec::with_capacity(count as usize);
+    let base = ArrivalBase {
+        row,
+        zone: &zone,
+        alternates: &alternates,
+        route: &route,
+        household_size,
+        mobility,
+        language: &language,
+        care_by_index: &care_by_index,
+        hydrated,
+        event_digest,
+        seed_value: &seed_value,
+        context_source: &context_source,
+    };
     for index in 0..count {
         let digest = sha_hex(&format!("{}\0{}\0{index}", seed.text, row.event_id));
-        let byte = |start: usize| -> i64 { i64::from_str_radix(&digest[start..start + 2], 16).unwrap_or(0) };
         let agent_id: Arc<str> = Arc::from(format!("arrival-{}", &digest[..28]));
         if !reserved.insert(agent_id.clone()) {
             return Ok(fails_after_state(new_state, "population arrival generated a duplicate stable ID"));
         }
-        let group_id: Arc<str> = Arc::from(format!("household-{event_digest}-{:03}", index / household_size));
-        let age_years = 5 + byte(0) % 79;
-        let role = if age_years < 18 {
-            "child"
-        } else if age_years >= 75 {
-            "dependent"
-        } else if household_size == 1 {
-            "alone"
-        } else {
-            "adult"
-        };
-        let traits = V::Map(doc([
-            ("age_years", V::Int(age_years)),
-            ("household_id", V::Str(group_id.clone())),
-            ("household_role", v_str(role)),
-            ("languages", V::List(vec![V::Str(language.clone())])),
-            ("accessibility_needs", V::List(Vec::new())),
-            ("medical_support", V::Bool(false)),
-            ("source_ids", V::List(Vec::new())),
-        ]));
-        let level = |start: usize| -> f64 { byte(start) as f64 / 255.0 * 0.35 };
-        let mut initial = doc([("toilet_urgency", V::Float(level(2))), ("hunger", V::Float(level(4))), ("fatigue", V::Float(level(6)))]);
-        if hydrated {
-            initial.insert(Arc::from("hydration_need"), V::Float(level(8)));
-        }
-        let profile = V::Map(doc([
-            ("id", V::Str(agent_id.clone())),
-            ("group_id", V::Str(group_id.clone())),
-            ("initial_zone_id", V::Str(zone.clone())),
-            ("mobility", v_str(mobility)),
-            ("support_need", V::Float(byte(10) as f64 / 255.0 * 0.5)),
-            ("stress_sensitivity", V::Float(byte(12) as f64 / 255.0)),
-            ("rng_key", V::Str(Arc::from(format!("arrival:{}", &digest[..24])))),
-            ("initial_needs", V::Map(initial)),
-            (
-                "provenance",
-                V::Map(doc([
-                    ("source_type", v_str("assumption")),
-                    ("source_id", v_str(SOURCE_ID)),
-                    ("event_id", V::Str(row.event_id.clone())),
-                    ("seed", seed_value.clone()),
-                ])),
-            ),
-        ]));
-        let care_needs = care_by_index.get(&index).cloned().unwrap_or_default();
-        let mut item = doc([
-            ("profile", profile),
-            ("traits", traits),
-            ("member_index", V::Int(index)),
-            ("care_support_needs", strings(&care_needs)),
-            ("context_source_id", V::Str(context_source.clone())),
-            ("zone_id", V::Str(zone.clone())),
-            ("admission_zone_ids", strings(&alternates)),
-            ("created_minute", V::Int(row.due_minute)),
-            ("event_id", V::Str(row.event_id.clone())),
-        ]);
-        if let Some(route) = &route {
-            item.insert(Arc::from("approach_route_id"), V::Str(route.route_id.clone()));
-            item.insert(Arc::from("approach_started_minute"), V::Int(row.due_minute));
-            item.insert(Arc::from("approach_due_minute"), V::Int(row.due_minute + route.travel_minutes));
-        }
-        prepared.push(Prepared { item, agent_id, household: group_id, role, care_needs, source: context_source.clone(), completion: None, admission: None });
+        prepared.push(arrival(&base, index, &digest, agent_id));
     }
     let contexts = generated_context(&prepared)?;
     let presence = presence_state(world, &inputs.namespaces.presence)?;
@@ -1922,18 +1855,7 @@ fn plan_arrivals_in(world: &World, inputs: &Inputs, row: &EventRow, new_state: O
             check_waiting_ids(item)?;
             continue;
         }
-        let mut decision = None;
-        for candidate in &zone_list {
-            if places.has_room(world, inputs, candidate)? {
-                decision = Some((candidate.clone(), None));
-                break;
-            }
-            if let Some(found) = places.available_room(world, inputs, candidate)? {
-                decision = Some((candidate.clone(), Some(found)));
-                break;
-            }
-        }
-        match decision {
+        match first_place(&mut places, world, inputs, &zone_list)? {
             Some((target, room)) => {
                 check_presence_ids(&row.event_id, &item.agent_id, Some(&target), Some(&item.household), SOURCE_ID)?;
                 places.add(&target);
@@ -1962,14 +1884,7 @@ fn plan_arrivals_in(world: &World, inputs: &Inputs, row: &EventRow, new_state: O
         let zones: Vec<&str> = zone_list.iter().map(|zone| &**zone).collect();
         check_admission_paths(world, inputs, &zones)?;
     }
-    let summary = V::Map(doc([
-        ("event_id", V::Str(row.event_id.clone())),
-        ("zone_id", V::Str(zone.clone())),
-        ("requested_count", V::Int(count)),
-        ("admitted_count", V::Int(admitted)),
-        ("waiting_count", V::Int(count - admitted)),
-        ("minute", V::Int(row.due_minute)),
-    ]));
+    let summary = arrivals_summary(row, &zone, count, admitted);
     Ok(ArrivalsPlan {
         new_state,
         fails: None,
@@ -1984,6 +1899,156 @@ fn plan_arrivals_in(world: &World, inputs: &Inputs, row: &EventRow, new_state: O
         admitted,
         failure,
     })
+}
+
+/// The IDs an arrival may not take (the people's, the pending arrivals' and the profiles') and the
+/// bound the arrivals would pass, if any; the pending and profile IDs only within the bounds.
+fn reserved_ids(world: &World, state: &V, count: i64) -> Result<(HashSet<Arc<str>>, Option<&'static str>)> {
+    let pending = list_of(field(state, "pending_arrivals")?)?;
+    let pending_count = pending.len() as i64;
+    let agents = world.rows()?.agents.len() as i64;
+    let mut known: HashSet<Arc<str>> = HashSet::new();
+    for id in list_of(field(state, "initial_agent_ids")?)? {
+        known.insert(text(id)?);
+    }
+    let traits_map = map_of(field(state, "profile_traits")?)?;
+    known.extend(traits_map.keys().cloned());
+    let fails = if pending_count + count > MAX_PENDING_ARRIVALS {
+        Some("population arrival exceeds the pending capacity bound")
+    } else if agents + pending_count + count > 10_000 {
+        Some("population arrival exceeds the 10000-resident runtime bound")
+    } else if known.len() as i64 + count > 10_000 {
+        Some("population arrival exceeds the 10000-profile history bound")
+    } else {
+        None
+    };
+    let mut reserved: HashSet<Arc<str>> = world.rows()?.agents.iter().map(|(id, _)| id.clone()).collect();
+    if fails.is_none() {
+        for item in pending {
+            reserved.insert(text(field(field(item, "profile")?, "id")?)?);
+        }
+        reserved.extend(traits_map.keys().cloned());
+    }
+    Ok((reserved, fails))
+}
+
+/// Where an arrival is admitted: the zone, and the ID and point of a temporary room it takes.
+type AdmittedAt = (Arc<str>, Option<(Arc<str>, Pt)>);
+
+/// The first of the zones with room for one more, or with a free room of a temporary room (its ID and
+/// point), in the zones' order: None for none.
+fn first_place(places: &mut Places, world: &World, inputs: &Inputs, zone_list: &[Arc<str>]) -> Result<Option<AdmittedAt>> {
+    let mut decision = None;
+    for candidate in zone_list {
+        if places.has_room(world, inputs, candidate)? {
+            decision = Some((candidate.clone(), None));
+            break;
+        }
+        if let Some(found) = places.available_room(world, inputs, candidate)? {
+            decision = Some((candidate.clone(), Some(found)));
+            break;
+        }
+    }
+    Ok(decision)
+}
+
+/// The summary of an event's arrivals.
+fn arrivals_summary(row: &EventRow, zone: &Arc<str>, count: i64, admitted: i64) -> V {
+    V::Map(doc([
+        ("event_id", V::Str(row.event_id.clone())),
+        ("zone_id", V::Str(zone.clone())),
+        ("requested_count", V::Int(count)),
+        ("admitted_count", V::Int(admitted)),
+        ("waiting_count", V::Int(count - admitted)),
+        ("minute", V::Int(row.due_minute)),
+    ]))
+}
+
+/// What every arrival of an event shares: the event, what its checks found, whether the needs are
+/// hydrated (schema 6), the event's digest, the seed, and the source of the care context.
+#[derive(Clone, Copy)]
+struct ArrivalBase<'a> {
+    row: &'a EventRow,
+    zone: &'a Arc<str>,
+    alternates: &'a [Arc<str>],
+    route: &'a Option<Approach>,
+    household_size: i64,
+    mobility: &'static str,
+    language: &'a Arc<str>,
+    care_by_index: &'a HashMap<i64, Vec<Arc<str>>>,
+    hydrated: bool,
+    event_digest: &'a str,
+    seed_value: &'a V,
+    context_source: &'a Arc<str>,
+}
+
+/// The arrival of this index, of this digest and ID: its profile, traits and pending item.
+fn arrival(base: &ArrivalBase<'_>, index: i64, digest: &str, agent_id: Arc<str>) -> Prepared {
+    let ArrivalBase { row, zone, alternates, route, household_size, mobility, language, care_by_index, hydrated, event_digest, seed_value, context_source } =
+        *base;
+    let byte = |start: usize| -> i64 { i64::from_str_radix(&digest[start..start + 2], 16).unwrap_or(0) };
+    let group_id: Arc<str> = Arc::from(format!("household-{event_digest}-{:03}", index / household_size));
+    let age_years = 5 + byte(0) % 79;
+    let role = if age_years < 18 {
+        "child"
+    } else if age_years >= 75 {
+        "dependent"
+    } else if household_size == 1 {
+        "alone"
+    } else {
+        "adult"
+    };
+    let traits = V::Map(doc([
+        ("age_years", V::Int(age_years)),
+        ("household_id", V::Str(group_id.clone())),
+        ("household_role", v_str(role)),
+        ("languages", V::List(vec![V::Str(language.clone())])),
+        ("accessibility_needs", V::List(Vec::new())),
+        ("medical_support", V::Bool(false)),
+        ("source_ids", V::List(Vec::new())),
+    ]));
+    let level = |start: usize| -> f64 { byte(start) as f64 / 255.0 * 0.35 };
+    let mut initial = doc([("toilet_urgency", V::Float(level(2))), ("hunger", V::Float(level(4))), ("fatigue", V::Float(level(6)))]);
+    if hydrated {
+        initial.insert(Arc::from("hydration_need"), V::Float(level(8)));
+    }
+    let profile = V::Map(doc([
+        ("id", V::Str(agent_id.clone())),
+        ("group_id", V::Str(group_id.clone())),
+        ("initial_zone_id", V::Str(zone.clone())),
+        ("mobility", v_str(mobility)),
+        ("support_need", V::Float(byte(10) as f64 / 255.0 * 0.5)),
+        ("stress_sensitivity", V::Float(byte(12) as f64 / 255.0)),
+        ("rng_key", V::Str(Arc::from(format!("arrival:{}", &digest[..24])))),
+        ("initial_needs", V::Map(initial)),
+        (
+            "provenance",
+            V::Map(doc([
+                ("source_type", v_str("assumption")),
+                ("source_id", v_str(SOURCE_ID)),
+                ("event_id", V::Str(row.event_id.clone())),
+                ("seed", seed_value.clone()),
+            ])),
+        ),
+    ]));
+    let care_needs = care_by_index.get(&index).cloned().unwrap_or_default();
+    let mut item = doc([
+        ("profile", profile),
+        ("traits", traits),
+        ("member_index", V::Int(index)),
+        ("care_support_needs", strings(&care_needs)),
+        ("context_source_id", V::Str(context_source.clone())),
+        ("zone_id", V::Str(zone.clone())),
+        ("admission_zone_ids", strings(&alternates)),
+        ("created_minute", V::Int(row.due_minute)),
+        ("event_id", V::Str(row.event_id.clone())),
+    ]);
+    if let Some(route) = &route {
+        item.insert(Arc::from("approach_route_id"), V::Str(route.route_id.clone()));
+        item.insert(Arc::from("approach_started_minute"), V::Int(row.due_minute));
+        item.insert(Arc::from("approach_due_minute"), V::Int(row.due_minute + route.travel_minutes));
+    }
+    Prepared { item, agent_id, household: group_id, role, care_needs, source: context_source.clone(), completion: None, admission: None }
 }
 
 /// A completion event, or the text the rule stops with and where.
@@ -2763,7 +2828,19 @@ fn write_departure(world: &World, inputs: &Inputs, agent_id: &Arc<str>, row: &Ev
         movement.positions.shift_remove(&**agent_id);
     }
     world.rows_mut()?.agents.remove_row(agent_id);
-    record_presence_transition(world, inputs, agent_id, &row.event_id, row.due_minute, "departed", None, None, SOURCE_ID)
+    record_presence_transition(
+        world,
+        inputs,
+        PresenceChange {
+            agent_id,
+            event_id: &row.event_id,
+            minute: row.due_minute,
+            action: "departed",
+            zone_id: None,
+            household_id: None,
+            source_id: SOURCE_ID,
+        },
+    )
 }
 
 /// The writes of `queue_departures`, once the PyO3 crate has put a new state in: the people leave,
@@ -3095,140 +3172,164 @@ fn check_pending_items(facts: &Facts<'_>, pending: &[V], contexts: &Doc) -> Resu
             return invalid(PENDING_INVALID);
         }
         if let Some(value) = fields.get("admission_zone_ids") {
-            let V::List(ids) = value else {
-                return invalid(PENDING_INVALID);
-            };
-            let mut unique = HashSet::new();
-            for id in ids {
-                let V::Str(id) = id else {
-                    return invalid(PENDING_INVALID);
-                };
-                unique.insert(id);
-            }
-            if unique.len() != ids.len() {
-                return invalid(PENDING_INVALID);
-            }
-            #[allow(clippy::iter_over_hash_type, reason = "only checks membership, with one text for any id")]
-            for id in unique {
-                if !(facts.zone_known)(id)? {
-                    return invalid(PENDING_INVALID);
-                }
-            }
+            check_admission_zones(facts, value)?;
         }
         if has_context > 0 {
-            let good = matches!(fields.get("member_index"), Some(V::Int(index)) if (0..MAX_ARRIVALS_PER_EVENT).contains(index))
-                && matches!(fields.get("context_source_id"), Some(V::Str(_)));
-            let Some(V::List(needs)) = fields.get("care_support_needs") else {
-                return invalid("population_dynamics_v1 pending context is invalid");
-            };
-            let mut unique = HashSet::new();
-            if !good || needs.iter().any(|need| !matches!(need, V::Str(_)) || !unique.insert(format!("{need:?}"))) {
-                return invalid("population_dynamics_v1 pending context is invalid");
-            }
-            let saved = contexts.get(agent_id).and_then(|context| match context {
-                V::Map(context) => context.get("care_support_needs"),
-                _ => None,
-            });
-            let same = match saved {
-                None => needs.is_empty(),
-                Some(V::List(saved)) => saved == needs,
-                Some(_) => return refuse("saved care needs are not a list"),
-            };
-            if !same {
-                return invalid("pending care context disagrees with its persisted profile context");
-            }
+            check_pending_context(fields, agent_id, contexts)?;
         }
         if has_approach > 0 {
-            const TIMING: &str = "pending arrival approach route/timing is invalid";
-            let routes = match facts.routes {
-                Some(Ok(routes)) => routes,
-                Some(Err(fault)) => return Err(fault.refusal.clone()),
-                None => return refuse("the approach routes were not read"),
-            };
-            let route_value = fields.get("approach_route_id").ok_or_else(|| Error::unsupported("no route"))?;
-            let mut found = None;
-            if let V::Str(route_id) = route_value {
-                for route in routes.iter() {
-                    if route.route_id == *route_id {
-                        found = Some(route);
-                    }
-                }
-            } else if !is_scalar(route_value) {
-                return refuse("a route ID is not hashable");
-            }
-            let (Some(route), Some(V::Int(started)), Some(V::Int(due))) = (found, fields.get("approach_started_minute"), fields.get("approach_due_minute"))
-            else {
-                return invalid(TIMING);
-            };
-            match fields.get("created_minute") {
-                Some(V::Int(created)) if created == started => {}
-                Some(V::Int(_) | V::Null | V::Str(_) | V::List(_) | V::Map(_)) => return invalid(TIMING),
-                _ => return refuse("a created minute is not an int"),
-            }
-            if due <= started {
-                return invalid(TIMING);
-            }
-            let zone = match zone_value {
-                V::Str(zone) => zone,
-                _ => return refuse("a zone ID is not a str"),
-            };
-            let travel = route.travel_minutes.clone().map_err(|fault| Error::unsupported(fault.text.to_string()))?;
-            if route.destination_zone_id != *zone || *due != started + travel {
-                return invalid("pending arrival approach disagrees with its route contract");
-            }
-            let finished = match fields.get("approach_completed_minute") {
-                None | Some(V::Null) => None,
-                Some(V::Int(minute)) if minute >= due && *minute <= minute_index => Some(*minute),
-                Some(_) => return invalid("pending arrival approach completion minute is invalid"),
-            };
-            let completion_id = match fields.get("approach_completion_event_id") {
-                None | Some(V::Null) => None,
-                Some(value) => Some(value),
-            };
-            if finished.is_none() && *due < duration {
-                const MISSING: &str = "pending arrival approach completion event is missing";
-                let Some(completion_id) = completion_id else {
-                    return invalid(MISSING);
-                };
-                // `event.event_id == completion_event_id` of a value of another type is false.
-                let V::Str(completion_id) = completion_id else {
-                    return invalid(MISSING);
-                };
-                let Some(event) = (facts.event)(completion_id)? else {
-                    return invalid(MISSING);
-                };
-                if &*event.event_type != "population_approach_complete" {
-                    return invalid(MISSING);
-                }
-                if event.due_minute != *due
-                    || !matches!(kit::payload(&event, "agent_id"), Some(V::Str(id)) if id == agent_id)
-                    || kit::payload(&event, "route_id") != Some(route_value)
-                {
-                    return invalid("pending arrival approach completion event disagrees");
-                }
-            } else if finished.is_none() && completion_id.is_some() {
-                return invalid("out-of-horizon arrival approach has a completion event");
-            } else if finished.is_some() && completion_id.is_some() {
-                return invalid("completed arrival approach retains a pending event");
-            }
-            if let Some(people) = people {
-                let V::Map(people) = people else {
-                    return refuse("the presence's people are not a dict");
-                };
-                let expected = if finished.is_none() { "approaching" } else { "awaiting_admission" };
-                match people.get(&**agent_id).filter(|person| person.is_truthy()) {
-                    None => {}
-                    Some(V::Map(person)) => {
-                        if !matches!(person.get("status"), Some(V::Str(status)) if &**status == expected) {
-                            return invalid("arrival approach disagrees with population presence");
-                        }
-                    }
-                    Some(_) => return refuse("a presence record is not a dict"),
-                }
-            }
+            check_pending_approach(facts, fields, (zone_value, agent_id), people, (minute_index, duration))?;
         }
         seen.insert(agent_id);
         traits_are_plain(fields.get("traits").ok_or_else(|| Error::unsupported("no traits"))?)?;
+    }
+    Ok(())
+}
+
+/// The alternate admission zones of a pending arrival: a list of unique known zone IDs.
+fn check_admission_zones(facts: &Facts<'_>, value: &V) -> Result<()> {
+    let V::List(ids) = value else {
+        return invalid(PENDING_INVALID);
+    };
+    let mut unique = HashSet::new();
+    for id in ids {
+        let V::Str(id) = id else {
+            return invalid(PENDING_INVALID);
+        };
+        unique.insert(id);
+    }
+    if unique.len() != ids.len() {
+        return invalid(PENDING_INVALID);
+    }
+    #[allow(clippy::iter_over_hash_type, reason = "only checks membership, with one text for any id")]
+    for id in unique {
+        if !(facts.zone_known)(id)? {
+            return invalid(PENDING_INVALID);
+        }
+    }
+    Ok(())
+}
+
+/// The care context of a pending arrival: its fields, and its care needs those of the saved context.
+fn check_pending_context(fields: &Doc, agent_id: &Arc<str>, contexts: &Doc) -> Result<()> {
+    let good = matches!(fields.get("member_index"), Some(V::Int(index)) if (0..MAX_ARRIVALS_PER_EVENT).contains(index))
+        && matches!(fields.get("context_source_id"), Some(V::Str(_)));
+    let Some(V::List(needs)) = fields.get("care_support_needs") else {
+        return invalid("population_dynamics_v1 pending context is invalid");
+    };
+    let mut unique = HashSet::new();
+    if !good || needs.iter().any(|need| !matches!(need, V::Str(_)) || !unique.insert(format!("{need:?}"))) {
+        return invalid("population_dynamics_v1 pending context is invalid");
+    }
+    let saved = contexts.get(agent_id).and_then(|context| match context {
+        V::Map(context) => context.get("care_support_needs"),
+        _ => None,
+    });
+    let same = match saved {
+        None => needs.is_empty(),
+        Some(V::List(saved)) => saved == needs,
+        Some(_) => return refuse("saved care needs are not a list"),
+    };
+    if !same {
+        return invalid("pending care context disagrees with its persisted profile context");
+    }
+    Ok(())
+}
+
+/// The approach of a pending arrival (of `(zone_value, agent_id)`): its route and timing, its
+/// completion event, and the person's presence; `(minute_index, duration)` are the Run's.
+fn check_pending_approach(
+    facts: &Facts<'_>,
+    fields: &Doc,
+    (zone_value, agent_id): (&V, &Arc<str>),
+    people: Option<&V>,
+    (minute_index, duration): (i64, i64),
+) -> Result<()> {
+    const TIMING: &str = "pending arrival approach route/timing is invalid";
+    let routes = match facts.routes {
+        Some(Ok(routes)) => routes,
+        Some(Err(fault)) => return Err(fault.refusal.clone()),
+        None => return refuse("the approach routes were not read"),
+    };
+    let route_value = fields.get("approach_route_id").ok_or_else(|| Error::unsupported("no route"))?;
+    let mut found = None;
+    if let V::Str(route_id) = route_value {
+        for route in routes.iter() {
+            if route.route_id == *route_id {
+                found = Some(route);
+            }
+        }
+    } else if !is_scalar(route_value) {
+        return refuse("a route ID is not hashable");
+    }
+    let (Some(route), Some(V::Int(started)), Some(V::Int(due))) = (found, fields.get("approach_started_minute"), fields.get("approach_due_minute")) else {
+        return invalid(TIMING);
+    };
+    match fields.get("created_minute") {
+        Some(V::Int(created)) if created == started => {}
+        Some(V::Int(_) | V::Null | V::Str(_) | V::List(_) | V::Map(_)) => return invalid(TIMING),
+        _ => return refuse("a created minute is not an int"),
+    }
+    if due <= started {
+        return invalid(TIMING);
+    }
+    let zone = match zone_value {
+        V::Str(zone) => zone,
+        _ => return refuse("a zone ID is not a str"),
+    };
+    let travel = route.travel_minutes.clone().map_err(|fault| Error::unsupported(fault.text.to_string()))?;
+    if route.destination_zone_id != *zone || *due != started + travel {
+        return invalid("pending arrival approach disagrees with its route contract");
+    }
+    let finished = match fields.get("approach_completed_minute") {
+        None | Some(V::Null) => None,
+        Some(V::Int(minute)) if minute >= due && *minute <= minute_index => Some(*minute),
+        Some(_) => return invalid("pending arrival approach completion minute is invalid"),
+    };
+    let completion_id = match fields.get("approach_completion_event_id") {
+        None | Some(V::Null) => None,
+        Some(value) => Some(value),
+    };
+    if finished.is_none() && *due < duration {
+        const MISSING: &str = "pending arrival approach completion event is missing";
+        let Some(completion_id) = completion_id else {
+            return invalid(MISSING);
+        };
+        // `event.event_id == completion_event_id` of a value of another type is false.
+        let V::Str(completion_id) = completion_id else {
+            return invalid(MISSING);
+        };
+        let Some(event) = (facts.event)(completion_id)? else {
+            return invalid(MISSING);
+        };
+        if &*event.event_type != "population_approach_complete" {
+            return invalid(MISSING);
+        }
+        if event.due_minute != *due
+            || !matches!(kit::payload(&event, "agent_id"), Some(V::Str(id)) if id == agent_id)
+            || kit::payload(&event, "route_id") != Some(route_value)
+        {
+            return invalid("pending arrival approach completion event disagrees");
+        }
+    } else if finished.is_none() && completion_id.is_some() {
+        return invalid("out-of-horizon arrival approach has a completion event");
+    } else if finished.is_some() && completion_id.is_some() {
+        return invalid("completed arrival approach retains a pending event");
+    }
+    if let Some(people) = people {
+        let V::Map(people) = people else {
+            return refuse("the presence's people are not a dict");
+        };
+        let expected = if finished.is_none() { "approaching" } else { "awaiting_admission" };
+        match people.get(&**agent_id).filter(|person| person.is_truthy()) {
+            None => {}
+            Some(V::Map(person)) => {
+                if !matches!(person.get("status"), Some(V::Str(status)) if &**status == expected) {
+                    return invalid("arrival approach disagrees with population presence");
+                }
+            }
+            Some(_) => return refuse("a presence record is not a dict"),
+        }
     }
     Ok(())
 }

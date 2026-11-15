@@ -28,13 +28,14 @@ use crate::events::{is_stable_id, EventKind, EventRow};
 use crate::host::{Host, Trace, TraceLevel};
 use crate::mathx::{expm1, py_max, py_min};
 use crate::rng::{label, Key, KeyedDraws};
+use crate::row::IdMap;
 use crate::rules::kit::Events;
 use crate::rules::psychology::{Bad, PolicyFault};
 use crate::rules::trace::SUMMARY_ITEMS;
 use crate::rules::world_view::{group_of, presence_people, Household};
 use crate::run::held::{Held, Obj, NOT_AN_OBJECT};
 use crate::run::information::{Information, Model};
-use crate::state::information::{belief_rank, ContactRow, InformationRow, NAME, SCHEMA_VERSION};
+use crate::state::information::{belief_rank, BeliefRow, ContactRow, InformationRow, NAME, SCHEMA_VERSION};
 use crate::value::V;
 use crate::world::World;
 
@@ -365,12 +366,15 @@ fn plan_rows(
     let quoted = quoted_ids(&id_texts);
     let members = zone_members(&zone_texts);
 
-    let mut contacts: Vec<(Arc<str>, ContactRow)> = Vec::with_capacity(row.contacts.len());
-    let mut attempts = row.counters.contact_attempts;
-    let mut proposals = Vec::new();
-    let mut traces = Vec::new();
-    let mut planned: Vec<(usize, &str)> = Vec::new();
+    let mut out = Planned {
+        contacts: Vec::with_capacity(row.contacts.len()),
+        attempts: row.counters.contact_attempts,
+        proposals: Vec::new(),
+        traces: Vec::new(),
+        planned: Vec::new(),
+    };
     let mut selected = Vec::new();
+    let reading = Reading { inputs, row, draws, people: &people, current: &current, quoted: &quoted };
     for (me, person) in people.iter().enumerate() {
         let zone = person.zone;
         let mut buckets = Vec::new();
@@ -384,115 +388,10 @@ fn plan_rows(
         let mut head = key_head(label::INFORMATION_CONTACT_PARTNER, minute, &quoted[me]);
         select_contacts(draws, &mut head, me, &buckets, settings.maximum_contacts, false, &mut selected);
         for &(source, drawn_basis) in &selected {
-            let sender = &people[source];
-            let basis = if person.group.is_some() && person.group == sender.group { Basis::Family } else { drawn_basis };
-            let key = pair_key(&quoted[me], &quoted[source])?;
-            let contact_minutes = match row.contacts.get(key.as_str()) {
-                Some(previous) if previous.last_seen_minute == minute - 1 => match previous.consecutive_minutes.checked_add(1) {
-                    Some(minutes) if (minutes as u64) < 1 << 53 => minutes,
-                    _ => return unsupported("a contact's minutes do not fit"),
-                },
-                _ => 1,
-            };
-            contacts.push((Arc::from(key), ContactRow { last_seen_minute: minute, consecutive_minutes: contact_minutes }));
-            attempts = match attempts.checked_add(1) {
-                Some(attempts) => attempts,
-                None => return unsupported("the contact counter does not fit"),
-            };
-
-            let trace = |message, belief, probability, selected, message_source, causation| ContactTrace {
-                sender: source,
-                recipient: me,
-                basis: basis_name(basis),
-                minutes: contact_minutes,
-                message,
-                belief,
-                probability,
-                selected,
-                source: message_source,
-                causation,
-            };
-
-            // The transferable claim first by rank, then age, then ID, as in the Python min().
-            let sender_records = &row.beliefs[sender.beliefs];
-            let sender_current = &current[sender.beliefs];
-            let recipient_records = &row.beliefs[person.beliefs];
-            let recipient_current = &current[person.beliefs];
-            let mut best: Option<(usize, i64)> = None;
-            for (place, (message_id, _)) in sender_records.iter().enumerate() {
-                let rank = sender_current[place].rank;
-                let receiver_rank = recipient_records.get_index_of(&**message_id).map_or(0, |index| recipient_current[index].rank);
-                if rank <= receiver_rank {
-                    continue;
-                }
-                let time = row.messages[&**message_id].time;
-                let better = match best {
-                    None => true,
-                    Some((other, other_time)) => {
-                        let other_id = sender_records.get_index(other).map_or("", |(id, _)| &**id);
-                        (std::cmp::Reverse(rank), time, message_id.as_bytes())
-                            < (std::cmp::Reverse(sender_current[other].rank), other_time, other_id.as_bytes())
-                    }
-                };
-                if better {
-                    best = Some((place, time));
-                }
-            }
-            let Some((place, _)) = best else {
-                if recording {
-                    traces.push(trace(None, None, 0.0, false, None, None));
-                }
-                continue;
-            };
-            let Some((message_id, record)) = sender_records.get_index(place) else {
-                return unsupported("a belief left the row");
-            };
-            let belief = sender_current[place];
-            let message = &row.messages[&**message_id];
-            if contact_minutes < settings.minimum_contact_minutes {
-                if recording {
-                    traces.push(trace(
-                        Some(message_id.clone()),
-                        Some(Arc::from(belief.status)),
-                        0.0,
-                        false,
-                        Some(message.source_id.clone()),
-                        Some(record.last_event_id.clone()),
-                    ));
-                }
-                continue;
-            }
-            let propensity = transmission_probability(settings, inputs.model, person.trust, basis, contact_minutes, belief.rank == 2)?;
-            let probability = py_min(1.0, propensity * sharing_factor(settings, inputs.model, belief.share, sender.stress));
-            let mut key = Key::labelled(label::INFORMATION_CONTACT_TRANSFER);
-            key.int(minute).quoted(&quoted[me]).quoted(&quoted[source]).text(message_id).text(belief.status);
-            let transfers = key.draw(draws) < probability;
-            if recording {
-                traces.push(trace(
-                    Some(message_id.clone()),
-                    Some(Arc::from(belief.status)),
-                    probability,
-                    transfers,
-                    Some(message.source_id.clone()),
-                    Some(record.last_event_id.clone()),
-                ));
-            }
-            if transfers && !planned.contains(&(me, &**message_id)) {
-                planned.push((me, message_id));
-                proposals.push(Proposal {
-                    message: message_id.clone(),
-                    sender: source,
-                    recipient: me,
-                    belief: Arc::from(belief.status),
-                    basis: basis_name(basis),
-                    minutes: contact_minutes,
-                    probability,
-                    source: message.source_id.clone(),
-                    causation: record.last_event_id.clone(),
-                });
-            }
+            plan_contact(reading, &mut out, me, person, source, drawn_basis)?;
         }
     }
+    let Planned { contacts, attempts, mut proposals, traces, .. } = out;
     // People are in ID order, so their places sort as their IDs do.
     proposals.sort_by(|a, b| (a.recipient, a.sender, a.message.as_bytes()).cmp(&(b.recipient, b.sender, b.message.as_bytes())));
     Ok(Plan {
@@ -504,6 +403,157 @@ fn plan_rows(
         proposals,
         traces,
     })
+}
+
+/// What `plan_rows` makes of the contacts: the contacts' rows, the attempts' counter, the transfers
+/// proposed, the traces, and which recipient is to get which claim.
+struct Planned<'a> {
+    contacts: Vec<(Arc<str>, ContactRow)>,
+    attempts: i64,
+    proposals: Vec<Proposal>,
+    traces: Vec<ContactTrace>,
+    planned: Vec<(usize, &'a str)>,
+}
+
+/// What `plan_rows` reads for each contact.
+#[derive(Clone, Copy)]
+struct Reading<'a> {
+    inputs: &'a Inputs<'a>,
+    row: &'a InformationRow,
+    draws: &'a KeyedDraws,
+    people: &'a [Person<'a>],
+    current: &'a [Vec<Current<'a>>],
+    quoted: &'a [Vec<u8>],
+}
+
+/// One contact of `plan_rows`: `person`, at `me`, meets the sender at `source`. The contact is
+/// counted, and the claim the sender passes on, if any, may transfer.
+fn plan_contact<'a>(reading: Reading<'a>, out: &mut Planned<'a>, me: usize, person: &Person<'_>, source: usize, drawn_basis: Basis) -> Result<()> {
+    let Reading { inputs, row, draws, people, current, quoted } = reading;
+    let Planned { contacts, attempts, proposals, traces, planned } = out;
+    let recording = inputs.recording;
+    let settings = inputs.settings;
+    let minute = inputs.minute;
+    let sender = &people[source];
+    let basis = if person.group.is_some() && person.group == sender.group { Basis::Family } else { drawn_basis };
+    let key = pair_key(&quoted[me], &quoted[source])?;
+    let contact_minutes = match row.contacts.get(key.as_str()) {
+        Some(previous) if previous.last_seen_minute == minute - 1 => match previous.consecutive_minutes.checked_add(1) {
+            Some(minutes) if (minutes as u64) < 1 << 53 => minutes,
+            _ => return unsupported("a contact's minutes do not fit"),
+        },
+        _ => 1,
+    };
+    contacts.push((Arc::from(key), ContactRow { last_seen_minute: minute, consecutive_minutes: contact_minutes }));
+    *attempts = match attempts.checked_add(1) {
+        Some(attempts) => attempts,
+        None => return unsupported("the contact counter does not fit"),
+    };
+
+    let trace = |message, belief, probability, selected, message_source, causation| ContactTrace {
+        sender: source,
+        recipient: me,
+        basis: basis_name(basis),
+        minutes: contact_minutes,
+        message,
+        belief,
+        probability,
+        selected,
+        source: message_source,
+        causation,
+    };
+
+    // The transferable claim first by rank, then age, then ID, as in the Python min().
+    let sender_records = &row.beliefs[sender.beliefs];
+    let sender_current = &current[sender.beliefs];
+    let recipient_records = &row.beliefs[person.beliefs];
+    let recipient_current = &current[person.beliefs];
+    let best = best_claim(row, sender_records, sender_current, recipient_records, recipient_current);
+    let Some((place, _)) = best else {
+        if recording {
+            traces.push(trace(None, None, 0.0, false, None, None));
+        }
+        return Ok(());
+    };
+    let Some((message_id, record)) = sender_records.get_index(place) else {
+        return unsupported("a belief left the row");
+    };
+    let belief = sender_current[place];
+    let message = &row.messages[&**message_id];
+    if contact_minutes < settings.minimum_contact_minutes {
+        if recording {
+            traces.push(trace(
+                Some(message_id.clone()),
+                Some(Arc::from(belief.status)),
+                0.0,
+                false,
+                Some(message.source_id.clone()),
+                Some(record.last_event_id.clone()),
+            ));
+        }
+        return Ok(());
+    }
+    let propensity = transmission_probability(settings, inputs.model, person.trust, basis, contact_minutes, belief.rank == 2)?;
+    let probability = py_min(1.0, propensity * sharing_factor(settings, inputs.model, belief.share, sender.stress));
+    let mut key = Key::labelled(label::INFORMATION_CONTACT_TRANSFER);
+    key.int(minute).quoted(&quoted[me]).quoted(&quoted[source]).text(message_id).text(belief.status);
+    let transfers = key.draw(draws) < probability;
+    if recording {
+        traces.push(trace(
+            Some(message_id.clone()),
+            Some(Arc::from(belief.status)),
+            probability,
+            transfers,
+            Some(message.source_id.clone()),
+            Some(record.last_event_id.clone()),
+        ));
+    }
+    if transfers && !planned.contains(&(me, &**message_id)) {
+        planned.push((me, message_id));
+        proposals.push(Proposal {
+            message: message_id.clone(),
+            sender: source,
+            recipient: me,
+            belief: Arc::from(belief.status),
+            basis: basis_name(basis),
+            minutes: contact_minutes,
+            probability,
+            source: message.source_id.clone(),
+            causation: record.last_event_id.clone(),
+        });
+    }
+    Ok(())
+}
+
+/// The claim a sender passes on: the transferable one first by rank, then age, then ID. The result
+/// is its place in the sender's records, and its time.
+fn best_claim(
+    row: &InformationRow,
+    sender_records: &IdMap<BeliefRow>,
+    sender_current: &[Current<'_>],
+    recipient_records: &IdMap<BeliefRow>,
+    recipient_current: &[Current<'_>],
+) -> Option<(usize, i64)> {
+    let mut best: Option<(usize, i64)> = None;
+    for (place, (message_id, _)) in sender_records.iter().enumerate() {
+        let rank = sender_current[place].rank;
+        let receiver_rank = recipient_records.get_index_of(&**message_id).map_or(0, |index| recipient_current[index].rank);
+        if rank <= receiver_rank {
+            continue;
+        }
+        let time = row.messages[&**message_id].time;
+        let better = match best {
+            None => true,
+            Some((other, other_time)) => {
+                let other_id = sender_records.get_index(other).map_or("", |(id, _)| &**id);
+                (std::cmp::Reverse(rank), time, message_id.as_bytes()) < (std::cmp::Reverse(sender_current[other].rank), other_time, other_id.as_bytes())
+            }
+        };
+        if better {
+            best = Some((place, time));
+        }
+    }
+    best
 }
 
 /// The plan of the minute from the rows, changing nothing: the presence ledger's households, the
@@ -585,18 +635,19 @@ fn contact_event(proposal: &Proposal, plan: &Plan, model: Model, due_minute: i64
     provenance.insert(Arc::from("source_id"), text("ASM-INFORMATION-SPREAD-V1"));
     provenance.insert(Arc::from("policy_version"), text(version(model)));
     provenance.insert(Arc::from("transmission_probability"), V::Float(proposal.probability));
-    EventRow::new(
-        Arc::from(format!("information-contact-{sequence}")),
-        EventKind::Endogenous,
+    EventRow {
+        event_id: Arc::from(format!("information-contact-{sequence}")),
+        kind: EventKind::Endogenous,
         due_minute,
-        40,
+        priority: 40,
         sequence,
-        Arc::from("information_contact_update"),
-        payload,
-        Some(proposal.source.clone()),
-        Some(proposal.causation.clone()),
-        provenance,
-    )
+        event_type: Arc::from("information_contact_update"),
+        payload: V::Map(payload),
+        source_id: Some(proposal.source.clone()),
+        causation_id: Some(proposal.causation.clone()),
+        provenance: V::Map(provenance),
+    }
+    .checked()
 }
 
 /// `_sample_information_contacts` of the sample phase, with a model: the plan of the minute, its

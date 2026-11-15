@@ -598,21 +598,51 @@ fn plan_leave(world: &World, call: &LeaveCall<'_>, person: &Leaving, sequence: i
     provenance.insert(Arc::from("source_id"), text(NEED_WEIGHTED_SOURCE));
     provenance.insert(Arc::from("policy_version"), text(NEED_WEIGHTED_ID));
     provenance.insert(Arc::from("transition"), text("abandon_queue_then_retry"));
-    let Some(abandon) = EventRow::new(
-        abandon_id.clone(),
-        EventKind::Endogenous,
-        minute,
-        0,
+    let Some(abandon) = EventRow {
+        event_id: abandon_id.clone(),
+        kind: EventKind::Endogenous,
+        due_minute: minute,
+        priority: 0,
         sequence,
-        Arc::from("facility_queue_abandon"),
-        payload,
-        Some(Arc::from(NEED_WEIGHTED_SOURCE)),
-        Some(person.task_id.clone()),
-        provenance,
-    ) else {
+        event_type: Arc::from("facility_queue_abandon"),
+        payload: V::Map(payload),
+        source_id: Some(Arc::from(NEED_WEIGHTED_SOURCE)),
+        causation_id: Some(person.task_id.clone()),
+        provenance: V::Map(provenance),
+    }
+    .checked() else {
         return Err(Error::unsupported("the event's values are not what an event takes"));
     };
     let mut next = sequence + 1;
+    let leaver = Leaver { world, call, events: &events, person };
+    let transition = abandoned_transition(leaver, leave, next)?;
+    if transition.is_some() {
+        next += 1;
+    }
+    let walk = match points.filter(|_| minutes > 0) {
+        None => None,
+        Some(points) => Some(abandon_walk(leaver, &points, (minutes, due), next, &abandon_id)?),
+    };
+    if walk.is_some() {
+        next += 1;
+    }
+    Ok(Some(LeavePlan { abandon, transition, walk, sequences: next - sequence }))
+}
+
+/// What the plan of one person's leaving reads: the world, the call, the event log, and the person.
+#[derive(Clone, Copy)]
+struct Leaver<'a> {
+    world: &'a World,
+    call: &'a LeaveCall<'a>,
+    events: &'a Events<'a>,
+    person: &'a Leaving,
+}
+
+/// `finish_service`'s request of the person's independent queue and its `abandoned` record, which
+/// takes `next`; None for a person in no independent queue.
+fn abandoned_transition(leaver: Leaver<'_>, leave: &LeaveInputs<'_>, next: i64) -> Result<Option<(QueueRequest, EventRow)>> {
+    let Leaver { world, call, events, person } = leaver;
+    let minute = call.minute;
     let transition = match call.queue_id {
         None => None,
         Some(queue_id) => {
@@ -644,85 +674,86 @@ fn plan_leave(world: &World, call: &LeaveCall<'_>, person: &Leaving, sequence: i
                         minute,
                     )?;
                     let row = fifo::transition_event(payload, Some(&person.task_id), next, minute)?;
-                    next += 1;
                     Some((request, row))
                 }
             }
         }
     };
-    let walk = match points.filter(|_| minutes > 0) {
-        None => None,
-        Some(points) => {
-            let task_id: Arc<str> = Arc::from(format!("queue-abandon-travel-{next}"));
-            let event_id: Arc<str> = Arc::from(format!("queue-abandon-arrival-{next}"));
-            if events.is_taken(&event_id, Some(next))? {
-                return Err(Error::unsupported("the event's identity is taken"));
-            }
-            if points.iter().any(|point| !usable(point.x, point.y)) {
-                return Err(Error::unsupported("a route point is not a usable point"));
-            }
-            let Some(row) = movement_row(world, movement)? else {
-                return Err(Error::unsupported("a walk without the floor plan"));
-            };
-            let rows = world.rows()?;
-            let Some(agent) = rows.agents.get(&person.agent_id) else {
-                return Err(Error::unsupported("no such agent"));
-            };
-            let zone = agent.zone_id.clone();
-            let mut payload = IndexMap::with_capacity(9);
-            payload.insert(Arc::from("agent_id"), V::Str(person.agent_id.clone()));
-            payload.insert(Arc::from("task_id"), V::Str(task_id.clone()));
-            payload.insert(Arc::from("purpose"), text("queue_abandon"));
-            payload.insert(Arc::from("destination_zone_id"), V::Str(zone.clone()));
-            payload.insert(Arc::from("origin_zone_id"), V::Str(zone.clone()));
-            payload.insert(Arc::from("route_zone_ids"), V::List(vec![V::Str(zone.clone()), V::Str(zone.clone())]));
-            payload.insert(Arc::from("route_edge_ids"), V::List(Vec::new()));
-            payload.insert(Arc::from("travel_minutes"), V::Int(minutes));
-            payload.insert(Arc::from("start_minute"), V::Int(minute));
-            let mut provenance = IndexMap::with_capacity(4);
-            provenance.insert(Arc::from("source_type"), text("assumption"));
-            provenance.insert(Arc::from("source_id"), text(NEED_WEIGHTED_SOURCE));
-            provenance.insert(Arc::from("policy_version"), text(NEED_WEIGHTED_ID));
-            provenance.insert(Arc::from("movement"), text("in_room_return_to_zone_anchor"));
-            let Some(event) = EventRow::new(
-                event_id.clone(),
-                EventKind::Completion,
-                due,
-                0,
-                next,
-                Arc::from("agent_travel_complete"),
-                payload,
-                Some(task_id.clone()),
-                Some(abandon_id.clone()),
-                provenance,
-            ) else {
-                return Err(Error::unsupported("the event's values are not what an event takes"));
-            };
-            let journey = Journey {
-                event_id: event_id.clone(),
-                task_id: task_id.clone(),
-                purpose: Arc::from("queue_abandon"),
-                facility_id: None,
-                destination_zone_id: zone.clone(),
-                route_zone_ids: vec![zone.clone(), zone.clone()],
-                route_edge_ids: Vec::new(),
-                route_points: points.iter().map(|point| Point { x: point.x, y: point.y }).collect(),
-                started_minute: minute,
-                due_minute: due,
-                queue_id: None,
-                support_request_id: None,
-                support_staff_id: None,
-            };
-            let changes = start_on_path(
-                &row,
-                &rows,
-                Start { agent_id: &person.agent_id, journey, origin: &zone, points: &points, edge_ids: &[], started: minute, duration: minutes },
-            )?;
-            next += 1;
-            Some(LeaveWalk { task_id, destination: zone, due, event, changes })
-        }
+    Ok(transition)
+}
+
+/// The walk back to the middle of the zone along `points`, over `(minutes, due)`, whose arrival
+/// takes `next`.
+fn abandon_walk(leaver: Leaver<'_>, points: &Arc<[Pt]>, (minutes, due): (i64, i64), next: i64, abandon_id: &Arc<str>) -> Result<LeaveWalk> {
+    let Leaver { world, call, events, person } = leaver;
+    let (minute, movement) = (call.minute, &call.prepare.movement);
+    let task_id: Arc<str> = Arc::from(format!("queue-abandon-travel-{next}"));
+    let event_id: Arc<str> = Arc::from(format!("queue-abandon-arrival-{next}"));
+    if events.is_taken(&event_id, Some(next))? {
+        return Err(Error::unsupported("the event's identity is taken"));
+    }
+    if points.iter().any(|point| !usable(point.x, point.y)) {
+        return Err(Error::unsupported("a route point is not a usable point"));
+    }
+    let Some(row) = movement_row(world, movement)? else {
+        return Err(Error::unsupported("a walk without the floor plan"));
     };
-    Ok(Some(LeavePlan { abandon, transition, walk, sequences: next - sequence }))
+    let rows = world.rows()?;
+    let Some(agent) = rows.agents.get(&person.agent_id) else {
+        return Err(Error::unsupported("no such agent"));
+    };
+    let zone = agent.zone_id.clone();
+    let mut payload = IndexMap::with_capacity(9);
+    payload.insert(Arc::from("agent_id"), V::Str(person.agent_id.clone()));
+    payload.insert(Arc::from("task_id"), V::Str(task_id.clone()));
+    payload.insert(Arc::from("purpose"), text("queue_abandon"));
+    payload.insert(Arc::from("destination_zone_id"), V::Str(zone.clone()));
+    payload.insert(Arc::from("origin_zone_id"), V::Str(zone.clone()));
+    payload.insert(Arc::from("route_zone_ids"), V::List(vec![V::Str(zone.clone()), V::Str(zone.clone())]));
+    payload.insert(Arc::from("route_edge_ids"), V::List(Vec::new()));
+    payload.insert(Arc::from("travel_minutes"), V::Int(minutes));
+    payload.insert(Arc::from("start_minute"), V::Int(minute));
+    let mut provenance = IndexMap::with_capacity(4);
+    provenance.insert(Arc::from("source_type"), text("assumption"));
+    provenance.insert(Arc::from("source_id"), text(NEED_WEIGHTED_SOURCE));
+    provenance.insert(Arc::from("policy_version"), text(NEED_WEIGHTED_ID));
+    provenance.insert(Arc::from("movement"), text("in_room_return_to_zone_anchor"));
+    let Some(event) = EventRow {
+        event_id: event_id.clone(),
+        kind: EventKind::Completion,
+        due_minute: due,
+        priority: 0,
+        sequence: next,
+        event_type: Arc::from("agent_travel_complete"),
+        payload: V::Map(payload),
+        source_id: Some(task_id.clone()),
+        causation_id: Some(abandon_id.clone()),
+        provenance: V::Map(provenance),
+    }
+    .checked() else {
+        return Err(Error::unsupported("the event's values are not what an event takes"));
+    };
+    let journey = Journey {
+        event_id: event_id.clone(),
+        task_id: task_id.clone(),
+        purpose: Arc::from("queue_abandon"),
+        facility_id: None,
+        destination_zone_id: zone.clone(),
+        route_zone_ids: vec![zone.clone(), zone.clone()],
+        route_edge_ids: Vec::new(),
+        route_points: points.iter().map(|point| Point { x: point.x, y: point.y }).collect(),
+        started_minute: minute,
+        due_minute: due,
+        queue_id: None,
+        support_request_id: None,
+        support_staff_id: None,
+    };
+    let changes = start_on_path(
+        &row,
+        &rows,
+        Start { agent_id: &person.agent_id, journey, origin: &zone, points: &points, edge_ids: &[], started: minute, duration: minutes },
+    )?;
+    Ok(LeaveWalk { task_id, destination: zone, due, event, changes })
 }
 
 /// `start_movement` of a walk along a path of points.
@@ -956,18 +987,19 @@ pub fn plan_trip(
     provenance.insert(Arc::from("queue_phase"), text(phase));
     provenance.insert(Arc::from("queue_requested_at"), V::Int(task.start_minute));
     provenance.insert(Arc::from("fifo_position"), V::Int(fifo_position as i64));
-    let Some(event) = EventRow::new(
-        event_id.clone(),
-        EventKind::Completion,
-        due,
-        0,
+    let Some(event) = EventRow {
+        event_id: event_id.clone(),
+        kind: EventKind::Completion,
+        due_minute: due,
+        priority: 0,
         sequence,
-        Arc::from("agent_travel_complete"),
-        payload,
-        Some(task.id.clone()),
-        Some(task.id.clone()),
-        provenance,
-    ) else {
+        event_type: Arc::from("agent_travel_complete"),
+        payload: V::Map(payload),
+        source_id: Some(task.id.clone()),
+        causation_id: Some(task.id.clone()),
+        provenance: V::Map(provenance),
+    }
+    .checked() else {
         return Err(Error::unsupported("the event's values are not what an event takes"));
     };
     if taken {

@@ -13,7 +13,7 @@ use sheltersim_core::config::{Fault, FaultClass, Selection};
 use sheltersim_core::entities::{Activity, AgentRow, EdgeRow, Entities, Mobility, NeedRow, ProfileRow, RequestRow, RequestStatus, Table, ZoneRow};
 use sheltersim_core::error::{Error, Outcome};
 use sheltersim_core::events::{EventKind, EventRow, EventStatus};
-use sheltersim_core::host::{Contract, Decision, DecisionSink, Host, Llm, Phase, Stage, Trace, TraceLevel, TxnKind};
+use sheltersim_core::host::{Contract, Host, Llm, Phase, Stage, Trace, TraceLevel, TxnKind};
 use sheltersim_core::rng::Draws;
 use sheltersim_core::row::{IdMap, Row};
 use sheltersim_core::rules::common_operations::Logged;
@@ -513,12 +513,6 @@ impl Host for Upgrader<'_> {
         Ok(())
     }
     fn capture_metric(&mut self, _sample: &MetricSample, _minute: i64) -> Result<(), Error> {
-        Ok(())
-    }
-    fn decision_sink(&self) -> Result<DecisionSink, Error> {
-        Ok(DecisionSink::Silent)
-    }
-    fn decision(&mut self, _decision: Decision) -> Result<(), Error> {
         Ok(())
     }
     fn trace_level(&self) -> Result<TraceLevel, Error> {

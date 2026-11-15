@@ -7,9 +7,8 @@
 //!
 //! Lane P9-0: its holding is the world's slots' (`Host::holding` gives None) unless a test sets
 //! one; it fills every section of the configs with the values `fill_section` builds here, from
-//! outside the crate (the core-only tick of P10 needs that); it runs no foreign handler; and its
-//! decision sink (`record_host_decision`) writes the call down. A test hook (`on_llm`) runs at
-//! each LLM call, as an LLM hook of a host writes the world.
+//! outside the crate (the core-only tick of P10 needs that); and it runs no foreign handler. A test
+//! hook (`on_llm`) runs at each LLM call, as an LLM hook of a host writes the world.
 
 #![allow(dead_code)]
 
@@ -44,12 +43,9 @@ use sheltersim_core::config::{agent_dynamics, Configs, FacilityGeometry, Fault, 
 use sheltersim_core::error::Error;
 use sheltersim_core::events::EventRow;
 use sheltersim_core::geometry::Geo;
-use sheltersim_core::host::{Contract, Decision, DecisionSink, Foreign, Holding, Host, Llm, Part, Phase, Stage, Trace, TraceLevel, TxnKind, NO_FOREIGN};
-use sheltersim_core::rules::behavior::Proposal;
+use sheltersim_core::host::{Contract, Foreign, Holding, Host, Llm, Part, Phase, Stage, Trace, TraceLevel, TxnKind, NO_FOREIGN};
 use sheltersim_core::rules::common_operations::Logged;
-use sheltersim_core::rules::decisions::Observed;
 use sheltersim_core::rules::metrics::MetricSample;
-use sheltersim_core::rules::world_view::ViewData;
 use sheltersim_core::stamp::Stamp;
 use sheltersim_core::value::V;
 use sheltersim_core::world::{Snapshot, World};
@@ -86,7 +82,6 @@ pub enum Call {
     Cooperation { initiator: Arc<str>, participant: Arc<str>, trigger: Arc<str> },
     InformationReaction { agent: Arc<str>, participant: Arc<str>, message: Arc<str>, trigger: Arc<str> },
     Metric(MetricSample, i64),
-    Decision(Decision),
     Trace(Trace),
     Phase(Phase, bool),
     SpaceRefreshed,
@@ -95,7 +90,6 @@ pub enum Call {
     Holding,
     FillSection(SectionId),
     Foreign(Arc<str>),
-    HostDecision { agent: Arc<str>, target: Option<Arc<str>>, next: i64 },
     // ---- Lane P9-1a ----
     FindRecord(Arc<str>),
     FloorPlan,
@@ -108,12 +102,9 @@ pub enum Call {
 pub struct TestHost {
     pub calls: Vec<Call>,
     pub llm: Llm,
-    pub sink: DecisionSink,
     pub level: TraceLevel,
     /// The draws `draw` gives, in turn; none means it refuses as every host but a test's does.
     pub draws: Vec<f64>,
-    /// What `decision_source` answers (lane P8 a5).
-    pub source: Option<Option<Arc<str>>>,
     /// What `holding` answers; None: the world's slots answer (lane P9-0).
     pub holding: Option<Arc<Holding>>,
     /// Run at each LLM call (`consider_*`, `prioritize_support_request`), as an LLM hook of a host
@@ -150,10 +141,8 @@ impl Default for TestHost {
         Self {
             calls: Vec::new(),
             llm: Llm::default(),
-            sink: DecisionSink::Silent,
             level: TraceLevel::Off,
             draws: Vec::new(),
-            source: Some(None),
             holding: None,
             on_llm: None,
             records: IndexMap::new(),
@@ -391,19 +380,6 @@ impl Host for TestHost {
         Ok(())
     }
 
-    fn decision_sink(&self) -> Result<DecisionSink, Error> {
-        Ok(self.sink)
-    }
-
-    fn decision(&mut self, decision: Decision) -> Result<(), Error> {
-        self.calls.push(Call::Decision(decision));
-        Ok(())
-    }
-
-    fn decision_source(&mut self, _policy_version: &str) -> Result<Option<Option<Arc<str>>>, Error> {
-        Ok(self.source.clone())
-    }
-
     fn trace_level(&self) -> Result<TraceLevel, Error> {
         Ok(self.level)
     }
@@ -477,18 +453,6 @@ impl Host for TestHost {
         }
     }
 
-    fn record_host_decision(
-        &mut self,
-        data: &ViewData,
-        proposal: &Proposal,
-        target_id: Option<&str>,
-        next_decision_at: i64,
-        _observed: &Observed<'_>,
-    ) -> Result<(), Error> {
-        self.calls.push(Call::HostDecision { agent: data.agents[proposal.index].id.clone(), target: target_id.map(text), next: next_decision_at });
-        Ok(())
-    }
-
     fn draw(&mut self, parts: &[Part]) -> Result<f64, Error> {
         self.calls.push(Call::Draw(parts.to_vec()));
         if self.draws.is_empty() {
@@ -546,14 +510,6 @@ impl Host for Refusing {
     }
 
     fn capture_metric(&mut self, _sample: &MetricSample, _minute: i64) -> Result<(), Error> {
-        Ok(())
-    }
-
-    fn decision_sink(&self) -> Result<DecisionSink, Error> {
-        Ok(DecisionSink::Silent)
-    }
-
-    fn decision(&mut self, _decision: Decision) -> Result<(), Error> {
         Ok(())
     }
 

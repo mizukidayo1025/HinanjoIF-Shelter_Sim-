@@ -3,10 +3,9 @@
 //! The world is the one of `psychology.rs` at the last minute of a day, with everyone idle and due,
 //! a third person in the hall and two zone demand modifiers. `data/decisions.json` holds, for three
 //! policies, each proposal's action, target, next decision, draw and probabilities (as
-//! `float.hex`), its candidates with their trigger texts and the draw's key, and the bytes of its
-//! indexed record. The values were recorded before #430 and pin the core's output now.
-
-use crate::support;
+//! `float.hex`), its candidates and the draw's key. It also holds the candidates' trigger texts and
+//! each decision's indexed record, which the core no longer writes (#556). The values were
+//! recorded before #430 and pin the core's output now.
 
 use std::sync::Arc;
 
@@ -18,11 +17,10 @@ use sheltersim_core::entities::{Activity, AgentRow, FacilityRow, Mobility, NeedR
 use sheltersim_core::error::Error;
 use sheltersim_core::events::log::EventLog;
 use sheltersim_core::events::queue::Queue;
-use sheltersim_core::host::{Decision, DecisionSink, TraceLevel};
 use sheltersim_core::row::{IdMap, Row, ValueRow};
 use sheltersim_core::rules::action_lifecycle::ActiveActions;
-use sheltersim_core::rules::behavior::{self as behavior, g, Got, Proposal};
-use sheltersim_core::rules::decisions::{self as decisions, Observed, Recording, Sunk, LIFECYCLE, MEMORY};
+use sheltersim_core::rules::behavior::{self as behavior, Got, Proposal};
+use sheltersim_core::rules::decisions::{self as decisions, Recording, LIFECYCLE, MEMORY};
 use sheltersim_core::rules::psychology::Bad;
 use sheltersim_core::rules::world_view::{self as view, Inputs, ViewCache, ViewData};
 use sheltersim_core::run::behavior::{Behavior, OTHER_POLICY, OTHER_RUNNER, OTHER_SCORER};
@@ -33,7 +31,6 @@ use sheltersim_core::state::metric_state::MetricRow;
 use sheltersim_core::state::psychological_distress::{AgentRecord, DistressRow};
 use sheltersim_core::value::V;
 use sheltersim_core::world::{Fit, Place, World, WorldCell, ID_COUNTERS, METRIC_STATE, MODEL_CONFIGS};
-use support::{Call, TestHost};
 
 const MINUTE: i64 = 1439;
 /// The seed of the world's draws: 7.
@@ -429,7 +426,7 @@ fn refusal<T: std::fmt::Debug>(got: Got<T>) -> String {
 // ---- The tests -----------------------------------------------------------------------------------
 
 #[test]
-fn the_proposals_and_records_are_the_recorded_ones() {
+fn the_proposals_are_the_recorded_ones() {
     let expected = expected();
     for name in ["utility", "sleep", "priority"] {
         let entry = &expected[name];
@@ -441,23 +438,13 @@ fn the_proposals_and_records_are_the_recorded_ones() {
         let proposals = behavior::due(&data, &scoring, SEED, state_hash).map_err(|_| "a refusal").unwrap().unwrap();
         let wanted = entry["proposals"].as_array().unwrap();
         assert_eq!(proposals.len(), wanted.len(), "{name}");
-        let cell = Shard::new(world);
         for (proposal, wanted) in proposals.iter().zip(wanted) {
             let outcome = &proposal.outcome;
             let agent = &data.agents[proposal.index];
             let candidates: Vec<Value> = outcome
                 .candidates
                 .iter()
-                .map(|item| {
-                    json!([
-                        item.action.value(),
-                        item.eligible,
-                        proposal.trigger_of(&data, item).unwrap(),
-                        hex(item.utility),
-                        item.priority,
-                        hex(item.probability)
-                    ])
-                })
+                .map(|item| json!([item.action.value(), item.eligible, hex(item.utility), item.priority, hex(item.probability)]))
                 .collect();
             let key: Vec<Value> = proposal
                 .rng_key(&data)
@@ -478,27 +465,19 @@ fn the_proposals_and_records_are_the_recorded_ones() {
                 "policy_version": &*proposal.common.policy_version,
                 "candidates": candidates,
             });
-            for field in ["agent_id", "action", "choice", "selected", "next", "target", "rng_key", "policy_version", "candidates"] {
+            for field in ["agent_id", "action", "choice", "selected", "next", "target", "rng_key", "policy_version"] {
                 assert_eq!(found[field], wanted[field], "{name}: {} {field}", agent.id);
             }
-
-            // The indexed record, uncommitted, with the sink's source of the utility policy alone.
-            let source = (name == "utility").then(|| text("SRC-U"));
-            let mut host = TestHost { sink: DecisionSink::Indexed, source: Some(source), ..TestHost::default() };
-            let observed = Observed::Row { data: &data, index: proposal.index };
-            let target = outcome.target.map(|target| &*data.agents[target].id);
-            let recording = Recording {
-                data: &data,
-                proposal,
-                target_id: target,
-                next_decision_at: outcome.next_decision_at,
-                committed: false,
-                observed: &observed,
-                remembers: false,
-            };
-            assert_eq!(decisions::record(&cell, &mut host, &recording), Ok(Sunk::Recorded));
-            let [Call::Decision(Decision::Indexed(raw))] = &host.calls[..] else { panic!("{:?}", host.calls) };
-            assert_eq!(std::str::from_utf8(raw).unwrap(), wanted["record"].as_str().unwrap(), "{name}: {}", agent.id);
+            // The recorded candidates without their trigger texts (the third item).
+            let recorded: Vec<Value> = wanted["candidates"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|item| {
+                    Value::Array(item.as_array().unwrap().iter().enumerate().filter(|(place, _)| *place != 2).map(|(_, value)| value.clone()).collect())
+                })
+                .collect();
+            assert_eq!(found["candidates"], Value::Array(recorded), "{name}: {} candidates", agent.id);
         }
     }
 }
@@ -560,25 +539,6 @@ fn the_policy_is_read_with_the_refusals_and_order_of_the_kernel() {
     assert!(due(&data, &utility(scorer_fields(&[("temperature", V::Bool(true))]))).map_err(|_| "refused").unwrap().is_none());
 }
 
-#[test]
-fn the_trigger_texts_format_numbers_as_python_s_g() {
-    for (number, text) in [
-        (0.25, "0.25"),
-        (1.0, "1"),
-        (0.7, "0.7"),
-        (1.1, "1.1"),
-        (1e-5, "1e-05"),
-        (1234567.0, "1.23457e+06"),
-        (123456.0, "123456"),
-        (-0.0, "-0"),
-        (f64::INFINITY, "inf"),
-        (f64::NEG_INFINITY, "-inf"),
-        (f64::NAN, "nan"),
-    ] {
-        assert_eq!(g(number), text, "{number}");
-    }
-}
-
 /// The first proposal of the utility policy, and the world.
 fn first_proposal() -> (Shard<World>, ViewData, Proposal) {
     let world = world();
@@ -587,148 +547,34 @@ fn first_proposal() -> (Shard<World>, ViewData, Proposal) {
     (Shard::new(world), data, proposal)
 }
 
-fn recording<'a>(data: &'a ViewData, proposal: &'a Proposal, observed: &'a Observed<'a>) -> Recording<'a> {
-    Recording { data, proposal, target_id: Some("X"), next_decision_at: MINUTE + 15, committed: false, observed, remembers: false }
+fn recording<'a>(data: &'a ViewData, proposal: &'a Proposal) -> Recording<'a> {
+    Recording { data, proposal, target_id: Some("X"), next_decision_at: MINUTE + 15, committed: false, remembers: false }
+}
+
+/// The outcome's two steps (`decisions::commit` and `decisions::remember`, in that order in the
+/// propose phase).
+fn outcome(cell: &Shard<World>, active: &mut ActiveActions, recording: &Recording<'_>) -> Result<(), Error> {
+    cell.with(|world| decisions::commit(world, active, recording)).unwrap().map_err(|error| Error::refused(LIFECYCLE, error))?;
+    cell.with(|world| decisions::remember(world, recording)).unwrap().map_err(|error| Error::refused(MEMORY, error))
 }
 
 #[test]
-fn the_record_goes_where_the_sink_takes_it() {
+fn the_lifecycle_and_the_memory_change_nothing_unless_asked() {
     let (cell, data, proposal) = first_proposal();
-    let row = Observed::Row { data: &data, index: proposal.index };
-    let plain = Observed::Value(V::Null);
-    let other = Observed::Other;
-    let run = |sink: DecisionSink, level: TraceLevel, source: Option<Option<Arc<str>>>, observed: &Observed<'_>| {
-        let mut host = TestHost { sink, level, source, ..TestHost::default() };
-        let sunk = decisions::record(&cell, &mut host, &recording(&data, &proposal, observed)).unwrap();
-        (sunk, host.calls)
-    };
-    assert_eq!(run(DecisionSink::Silent, TraceLevel::Off, Some(None), &row), (Sunk::Recorded, vec![]));
-    assert_eq!(run(DecisionSink::Host, TraceLevel::Off, Some(None), &row), (Sunk::Host, vec![]));
-    // The indexed record needs the view's person, and a source the bytes can write.
-    assert_eq!(run(DecisionSink::Indexed, TraceLevel::Off, Some(None), &plain), (Sunk::Host, vec![]));
-    assert_eq!(run(DecisionSink::Indexed, TraceLevel::Off, None, &row), (Sunk::Host, vec![]));
-    let (sunk, calls) = run(DecisionSink::Indexed, TraceLevel::Off, Some(None), &row);
-    assert_eq!(sunk, Sunk::Recorded);
-    let [Call::Decision(Decision::Indexed(raw))] = &calls[..] else { panic!() };
-    let record: Value = serde_json::from_slice(raw).unwrap();
-    assert_eq!((&record["source_id"], &record["target_id"], &record["next_decision_at"]), (&Value::Null, &json!("X"), &json!(MINUTE + 15)));
-    assert_eq!(record["observed_state"], serde_json::from_slice::<Value>(&behavior::observed_value(&data, proposal.index).to_json().unwrap()).unwrap());
-
-    // A trace's writer takes the document and the observed state; candidates only in full.
-    assert_eq!(run(DecisionSink::Artifacts, TraceLevel::Full, Some(None), &other), (Sunk::Host, vec![]));
-    for (level, observed) in [(TraceLevel::Summary, &plain), (TraceLevel::Full, &row)] {
-        let (sunk, calls) = run(DecisionSink::Artifacts, level, Some(None), observed);
-        assert_eq!(sunk, Sunk::Recorded);
-        let [Call::Decision(Decision::Document { document, observed: kept })] = &calls[..] else { panic!() };
-        let V::Map(document) = document else { panic!() };
-        let mut keys: Vec<&str> = document.keys().map(|key| &**key).collect();
-        let full = level == TraceLevel::Full;
-        assert_eq!(keys.last() == Some(&"candidates"), full);
-        if full {
-            keys.pop();
-            assert_eq!(*kept, behavior::observed_value(&data, proposal.index));
-        } else {
-            assert_eq!(*kept, V::Null);
-        }
-        assert_eq!(
-            keys,
-            [
-                "minute_index",
-                "agent_id",
-                "action",
-                "target_id",
-                "observed_state_hash",
-                "trigger",
-                "selected_action",
-                "selected_probability",
-                "choice_value",
-                "rng_key",
-                "next_decision_at",
-                "policy_version",
-                "source_type",
-                "source_id"
-            ]
-        );
-        assert_eq!(document["source_id"], V::Str(text("ASM-UTILITY-BEHAVIOR-V1")));
-    }
-
-    // What the bytes do not write is the sink's own: a long observed state, a NaN, a person gone.
-    let long = {
-        let mut long = data.clone();
-        long.agents[proposal.index].target_id = Some(text(&"x".repeat(9000)));
-        long
-    };
-    let long_row = Observed::Row { data: &long, index: proposal.index };
-    assert_eq!(run(DecisionSink::Indexed, TraceLevel::Off, Some(None), &long_row), (Sunk::Host, vec![]));
-    let nan = {
-        let mut nan = data.clone();
-        nan.agents[proposal.index].stress = f64::NAN;
-        nan
-    };
-    let nan_row = Observed::Row { data: &nan, index: proposal.index };
-    assert_eq!(run(DecisionSink::Indexed, TraceLevel::Off, Some(None), &nan_row), (Sunk::Host, vec![]));
-}
-
-#[test]
-fn the_household_is_read_as_the_sink_reads_it() {
-    let (cell, data, proposal) = first_proposal();
-    let id = data.agents[proposal.index].id.to_string();
-    assert_eq!(id, "A1");
-    let observed = Observed::Row { data: &data, index: proposal.index };
-    let household = |presence: Option<Value>| {
-        cell.with(|world| {
-            let slot = world.slots.get("population_presence_v1").unwrap();
-            slot.try_borrow_mut().unwrap().row = presence.map(|presence| Box::new(ValueRow(v(&presence))) as Box<dyn Row>);
-        })
-        .unwrap();
-        let mut host = TestHost { sink: DecisionSink::Indexed, ..TestHost::default() };
-        match decisions::record(&cell, &mut host, &recording(&data, &proposal, &observed)).unwrap() {
-            Sunk::Host => None,
-            Sunk::Recorded => {
-                let [Call::Decision(Decision::Indexed(raw))] = &host.calls[..] else { panic!() };
-                Some(serde_json::from_slice::<Value>(raw).unwrap()["household_id"].clone())
-            }
-        }
-    };
-    // A1 has no group of its profile.
-    assert_eq!(household(Some(json!({"people": {"A1": {"household_id": "h1"}}}))), Some(json!("h1")));
-    assert_eq!(household(Some(json!({"people": {"A1": {"household_id": null}}}))), Some(Value::Null));
-    assert_eq!(household(Some(json!({"people": {}}))), Some(Value::Null));
-    assert_eq!(household(Some(json!({}))), Some(Value::Null));
-    assert_eq!(household(Some(json!({"people": {"A1": "not a dict"}}))), Some(Value::Null));
-    assert_eq!(household(Some(json!("not a dict"))), Some(Value::Null));
-    assert_eq!(household(None), Some(Value::Null));
-    assert_eq!(household(Some(json!({"people": ["a list"]}))), None);
-    assert_eq!(household(Some(json!({"people": {"A1": {"household_id": 3}}}))), None);
-}
-
-#[test]
-fn the_lifecycle_and_the_memory_are_called_after_the_record() {
-    let (cell, data, proposal) = first_proposal();
-    let observed = Observed::Row { data: &data, index: proposal.index };
     let mut active = ActiveActions::default();
-    let mut host = TestHost::default();
-    // Nothing committed and no memory: only the record.
-    assert_eq!(decisions::record_outcome(&cell, &mut host, &mut active, &recording(&data, &proposal, &observed)), Ok(Sunk::Recorded));
-    // What the rules refuse is an `Error::Refused`, after the record: the world keeps no event
-    // queue for the lifecycle, and no `agent_dynamics_v1` for the memory.
-    let committing = Recording { committed: true, ..recording(&data, &proposal, &observed) };
-    let mut indexed = TestHost { sink: DecisionSink::Indexed, ..TestHost::default() };
-    assert_eq!(
-        decisions::record_outcome(&cell, &mut indexed, &mut active, &committing),
-        Err(Error::Refused { label: LIFECYCLE.to_owned(), reason: "the event queue is not in Rust".into() })
-    );
-    assert_eq!(indexed.calls.len(), 1);
+    // Nothing committed and no memory: nothing is done.
+    assert_eq!(outcome(&cell, &mut active, &recording(&data, &proposal)), Ok(()));
     assert!(active.is_empty());
-    let remembering = Recording { remembers: true, ..recording(&data, &proposal, &observed) };
-    match decisions::record_outcome(&cell, &mut host, &mut active, &remembering) {
+    // What the rules refuse is an `Error::Refused`: the world keeps no event queue for the
+    // lifecycle, and no `agent_dynamics_v1` for the memory.
+    let committing = Recording { committed: true, ..recording(&data, &proposal) };
+    assert_eq!(outcome(&cell, &mut active, &committing), Err(Error::Refused { label: LIFECYCLE.to_owned(), reason: "the event queue is not in Rust".into() }));
+    assert!(active.is_empty());
+    let remembering = Recording { remembers: true, ..recording(&data, &proposal) };
+    match outcome(&cell, &mut active, &remembering) {
         Err(Error::Refused { label, .. }) => assert_eq!(label, MEMORY),
         other => panic!("{other:?}"),
     }
-    // A `DecisionSink::Host` sink: nothing is done here.
-    let mut host_sink = TestHost { sink: DecisionSink::Host, ..TestHost::default() };
-    assert_eq!(decisions::record_outcome(&cell, &mut host_sink, &mut active, &committing), Ok(Sunk::Host));
-    assert!(host_sink.calls.is_empty() && active.is_empty());
 
     // With the queue, the log and the event counter, the action starts with its receipt.
     let mut world = world();
@@ -738,7 +584,7 @@ fn the_lifecycle_and_the_memory_are_called_after_the_record() {
     world.hold_queue(Arc::new(Queue::new()));
     world.hold_log(Arc::new(EventLog::new()));
     let cell = Shard::new(world);
-    assert_eq!(decisions::record_outcome(&cell, &mut host, &mut active, &committing), Ok(Sunk::Recorded));
+    assert_eq!(outcome(&cell, &mut active, &committing), Ok(()));
     assert!(active.contains("A1"));
     let receipt = cell
         .with(|world| {
@@ -754,36 +600,4 @@ fn the_lifecycle_and_the_memory_are_called_after_the_record() {
         (&json!("action-5"), &json!(proposal.outcome.action.value()), &json!("started"))
     );
     assert_eq!(payload["target_id"], json!("X"));
-}
-
-#[test]
-fn the_observed_state_has_the_keys_of_the_snapshot() {
-    let world = world();
-    let data = view_of(&world);
-    let index = data.index_of("A1").unwrap();
-    let observed = behavior::observed_value(&data, index);
-    let V::Map(map) = &observed else { panic!() };
-    assert_eq!(
-        map.keys().map(|key| &**key).collect::<Vec<_>>(),
-        [
-            "agent_id",
-            "zone_id",
-            "activity",
-            "target_id",
-            "needs",
-            "psychological",
-            "sanitation_level",
-            "stress",
-            "trust",
-            "queue",
-            "support",
-            "zone_environment"
-        ]
-    );
-    // The bytes of the indexed record are the same document, with the keys in its order.
-    let mut written = sheltersim_core::json::Encoder::default();
-    decisions::write_observed(&mut written, &data, index).unwrap();
-    let parsed: Value = serde_json::from_slice(&written.out).unwrap();
-    assert_eq!(parsed, serde_json::from_slice::<Value>(&observed.to_json().unwrap()).unwrap());
-    assert!(written.out.starts_with(br#"{"agent_id":"A1","zone_id":"room","activity":"idle","target_id":null,"needs":{"toilet_urgency":0.0,"#));
 }

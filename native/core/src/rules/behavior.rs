@@ -1,6 +1,6 @@
 //! The decisions of the propose phase with `UtilityBehaviorPolicy` and `PriorityRuleBehaviorPolicy`
 //! (their settings are the Run's policies, `run::behavior`), reading the core's view
-//! (`rules/world_view.rs`), and the observed state of a decision.
+//! (`rules/world_view.rs`).
 //!
 //! The policy is what the Run read of `controller.decisions` (`run::behavior`, once per
 //! controller): `scoring_of` asks for the runner, policy and scorer of the classes the rule knows,
@@ -15,10 +15,8 @@
 //! values.
 //!
 //! `score` and `candidates_of` hold the coefficients of `UtilityBehaviorPolicy`, in a fixed order
-//! of operations (the floats' rounding depends on it). The trigger texts format the policy's
-//! numbers as `format(x, "g")` does (`g`).
+//! of operations (the floats' rounding depends on it).
 
-use std::borrow::Cow;
 use std::sync::Arc;
 
 use crate::config::Fault;
@@ -30,7 +28,6 @@ use crate::rules::psychology::{Bad, PolicyFault};
 use crate::rules::world_view::{DemandModifier, ViewAgent, ViewData};
 use crate::run::behavior::{Behavior, Rule, POLICY_PATH, SCORER_PATH};
 use crate::run::held::{Held, Obj};
-use crate::text::g_text;
 use crate::value::V;
 
 /// A result whose failure is a refusal or a read of the policy to raise again.
@@ -643,91 +640,11 @@ fn compute(frozen: &Frozen<'_>, index: usize, temperature: f64, base_minutes: i6
     })
 }
 
-// ---- The trigger texts ---------------------------------------------------------------------------
-
-/// `format(value, "g")` of a float, a NaN and an infinity too.
-pub fn g(value: f64) -> String {
-    if value.is_nan() {
-        return "nan".to_owned();
-    }
-    if value.is_infinite() {
-        return if value > 0.0 { "inf" } else { "-inf" }.to_owned();
-    }
-    // `g_text` refuses only what is not finite.
-    g_text(value).unwrap_or_default()
-}
-
-/// The trigger text of each action, made once a call that has someone due.
-#[derive(Clone, Debug, PartialEq)]
-pub struct Triggers {
-    texts: [Option<Cow<'static, str>>; 11],
-}
-
-impl Triggers {
-    /// `query_threshold` when the information query is on; the hydration and hunger thresholds when
-    /// the resource service is.
-    fn new(query_threshold: Option<f64>, resource_thresholds: Option<(f64, f64)>) -> Self {
-        let mut texts: [Option<Cow<'static, str>>; 11] = Default::default();
-        let mut set = |action: Action, text: Cow<'static, str>| texts[action as usize] = Some(text);
-        set(Action::Wait, Cow::Borrowed("always"));
-        set(Action::RequestToilet, Cow::Borrowed("toilet_urgency>=0.25 or hygiene_need>=0.5"));
-        set(Action::Rest, Cow::Borrowed("fatigue>=0.25 or hunger>=0.70 or stress>=0.50"));
-        set(Action::Sleep, Cow::Borrowed("fatigue>=0.65 or sleep_debt_minutes>=240 or individual_sleep_window"));
-        match query_threshold {
-            Some(threshold) => set(
-                Action::SeekHelp,
-                Cow::Owned(format!(
-                    "support_need>=0.25 and maximum need/stress>=0.50, or information query pressure \
-                     >={} or uncertainty>=0.65; no_open_support_request and support_cooldown_elapsed",
-                    g(threshold)
-                )),
-            ),
-            None => set(
-                Action::SeekHelp,
-                Cow::Borrowed(
-                    "support_need>=0.25 and maximum need/stress>=0.50 and no_open_support_request and \
-                     support_cooldown_elapsed",
-                ),
-            ),
-        }
-        set(Action::SeekInformation, Cow::Borrowed("information_query_pressure>=threshold or uncertainty>=0.65"));
-        set(Action::Socialize, Cow::Borrowed("at least one co-located person is available"));
-        set(Action::CareFamily, Cow::Borrowed("co-located family or care-linked person has an unmet need"));
-        set(Action::HelpOthers, Cow::Borrowed("co-located person has substantially higher immediate need or stress"));
-        if let Some((hydration, hunger)) = resource_thresholds {
-            set(Action::FetchWater, Cow::Owned(format!("hydration_need>={}", g(hydration))));
-            set(Action::CollectMeal, Cow::Owned(format!("hunger>={} or individual_meal_window", g(hunger))));
-        }
-        Self { texts }
-    }
-
-    /// The trigger text of an action's demand.
-    pub fn of(&self, action: Action, modifier: Option<&DemandModifier>) -> Result<Cow<'_, str>> {
-        let Some(trigger) = &self.texts[action as usize] else {
-            return Err(Error::unsupported("an action has no trigger"));
-        };
-        let Some(modifier) = modifier else {
-            return Ok(Cow::Borrowed(trigger));
-        };
-        let mut text = format!(
-            "{trigger}; experimental zone action multiplier x{}; events={}; assumptions={}",
-            g(modifier.probability_multiplier),
-            modifier.modifier_event_ids.join(","),
-            modifier.assumption_ids.join(","),
-        );
-        if modifier.duration_multiplier != 1.0 {
-            text.push_str(&format!("; decision interval x{}", g(modifier.duration_multiplier)));
-        }
-        Ok(Cow::Owned(text))
-    }
-}
-
 // ---- The proposals -------------------------------------------------------------------------------
 
 /// What all the proposals of one call share.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Common {
-    pub triggers: Triggers,
     /// The view's `state_hash`.
     pub state_hash: Arc<str>,
     /// The scorer's `policy_version`, in the key of the draw.
@@ -762,12 +679,6 @@ impl Proposal {
             key.push(Ok("priority-tie-break"));
         }
         key
-    }
-
-    /// The trigger of a candidate, with the person's zone's modifier of its action.
-    pub fn trigger_of(&self, data: &ViewData, candidate: &Scored) -> Result<String> {
-        let modifiers = &data.zone_of(&data.agents[self.index]).demand_modifiers;
-        Ok(self.common.triggers.of(candidate.action, demand_of(modifiers, candidate.action))?.into_owned())
     }
 }
 
@@ -823,10 +734,6 @@ pub fn due(data: &ViewData, scoring: &Scoring<'_>, seed: &str, state_hash: Arc<s
     };
     let draws = KeyedDraws::new(seed);
     let frozen = Frozen::new(data, &settings, &draws).map_err(Error::unsupported)?;
-    let triggers = Triggers::new(
-        settings.query_enabled().then_some(settings.query_threshold),
-        (settings.resource_service && data.resource_service_enabled).then_some((settings.hydration_threshold, settings.hunger_threshold)),
-    );
 
     let mut outcomes = Vec::new();
     for (index, agent) in data.agents.iter().enumerate() {
@@ -844,107 +751,6 @@ pub fn due(data: &ViewData, scoring: &Scoring<'_>, seed: &str, state_hash: Arc<s
         let outcome = compute(&frozen, index, temperature, interval).map_err(Error::unsupported)?;
         outcomes.push((index, outcome));
     }
-    let common = Arc::new(Common { triggers, state_hash, scorer_version: scorer_version.clone(), policy_version: policy_version.clone() });
+    let common = Arc::new(Common { state_hash, scorer_version: scorer_version.clone(), policy_version: policy_version.clone() });
     Ok(Some(outcomes.into_iter().map(|(index, outcome)| Proposal { index, outcome, common: common.clone() }).collect()))
-}
-
-// ---- The observed state --------------------------------------------------------------------------
-
-fn text_value(text: &Option<Arc<str>>) -> V {
-    match text {
-        Some(text) => V::Str(text.clone()),
-        None => V::Null,
-    }
-}
-
-fn text_list(items: &[Arc<str>]) -> V {
-    V::List(items.iter().map(|item| V::Str(item.clone())).collect())
-}
-
-/// `RequestStatus.value`.
-pub fn status_text(status: RequestStatus) -> &'static str {
-    match status {
-        RequestStatus::Pending => "pending",
-        RequestStatus::Assigned => "assigned",
-        RequestStatus::Resolved => "resolved",
-        RequestStatus::Unresolved => "unresolved",
-    }
-}
-
-/// What a decision records it observed of the person, with its keys in a fixed order.
-/// `rules/decisions.rs` writes the same document as JSON bytes.
-pub fn observed_value(data: &ViewData, index: usize) -> V {
-    let agent = &data.agents[index];
-    let zone = data.zone_of(agent);
-    let map = |entries: Vec<(&str, V)>| V::Map(entries.into_iter().map(|(key, value)| (Arc::from(key), value)).collect());
-    let mut needs = vec![
-        ("toilet_urgency", V::Float(agent.needs.toilet_urgency)),
-        ("hunger", V::Float(agent.needs.hunger)),
-        ("fatigue", V::Float(agent.needs.fatigue)),
-        ("hygiene_need", V::Float(agent.body.hygiene_need)),
-    ];
-    if data.resource_service_enabled {
-        needs.push(("hydration_need", V::Float(agent.needs.hydration_need)));
-    }
-    let body = &agent.body;
-    let psychological = vec![
-        ("sleep_debt_minutes", V::Float(body.sleep_debt_minutes)),
-        ("uncertainty", V::Float(body.uncertainty)),
-        ("reassurance", V::Float(body.reassurance)),
-        ("discontent", V::Float(body.discontent)),
-        ("positive_affect", V::Float(body.positive_affect)),
-        ("negative_affect", V::Float(body.negative_affect)),
-    ];
-    let queue = vec![
-        ("task_id", text_value(&agent.queue_task_id)),
-        ("kind", text_value(&agent.queue_kind)),
-        ("target_id", text_value(&agent.queue_target_id)),
-        ("wait_minutes", V::Int(agent.queue_wait_minutes)),
-    ];
-    let support = vec![
-        ("request_id", text_value(&agent.support_request_id)),
-        ("status", agent.support_request_status.map_or(V::Null, |status| V::Str(Arc::from(status_text(status))))),
-        ("assigned_staff_id", text_value(&agent.support_assigned_staff_id)),
-        ("wait_minutes", V::Int(agent.support_wait_minutes)),
-        ("cooldown_remaining_minutes", V::Int(agent.support_cooldown_remaining_minutes)),
-    ];
-    let mut snapshot = vec![
-        ("agent_id", V::Str(agent.id.clone())),
-        ("zone_id", V::Str(zone.id.clone())),
-        ("activity", V::Str(Arc::from(agent.activity.text()))),
-        ("target_id", text_value(&agent.target_id)),
-        ("needs", map(needs)),
-        ("psychological", map(psychological)),
-        ("sanitation_level", V::Float(zone.sanitation_level)),
-        ("stress", V::Float(agent.stress)),
-        ("trust", V::Float(agent.trust)),
-        ("queue", map(queue)),
-        ("support", map(support)),
-    ];
-    if !zone.zone_environment_modifier_event_ids.is_empty() || !zone.demand_modifiers.is_empty() {
-        let modifiers = zone
-            .demand_modifiers
-            .iter()
-            .map(|item| {
-                map(vec![
-                    ("action", V::Str(item.action.clone())),
-                    ("probability_multiplier", V::Float(item.probability_multiplier)),
-                    ("duration_multiplier", V::Float(item.duration_multiplier)),
-                    ("event_ids", text_list(&item.modifier_event_ids)),
-                    ("assumption_ids", text_list(&item.assumption_ids)),
-                ])
-            })
-            .collect();
-        snapshot.push((
-            "zone_environment",
-            map(vec![
-                ("ambient_noise_level", V::Float(zone.ambient_noise_level)),
-                ("rest_efficiency_multiplier", V::Float(zone.rest_efficiency_multiplier)),
-                ("modifier_event_ids", text_list(&zone.zone_environment_modifier_event_ids)),
-                ("assumption_ids", text_list(&zone.zone_environment_assumption_ids)),
-                ("demand_modifiers", V::List(modifiers)),
-            ]),
-        ));
-    }
-    map(snapshot)
 }

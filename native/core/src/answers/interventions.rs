@@ -20,7 +20,7 @@ use serde_json::{Map, Value};
 use super::records::{branch_of, is_id, Record, RunFiles};
 use super::{check_fields, js_integer, post_document, sha256_hex, string, write_value, Answer, Failure, Obj, Refusal};
 use crate::error::Error;
-use crate::interpret::{compile_offline, document_redacts, merge_objects};
+use crate::interpret::{compile_offline, document_redacts, merge_objects, Compiling};
 use crate::plain::PlainRun;
 use crate::program::EffectProgram;
 
@@ -86,9 +86,8 @@ impl PreviewPlan {
         Ok(())
     }
 
-    /// The answer, of the branch's Run at the minute, and the draft to keep (its bytes, None where
-    /// the compiler gave no plan): `preview_id` the draft's id (a uuid4's hex, random).
-    pub fn answer(&self, run: &mut PlainRun, preview_id: &str) -> Answer<(Vec<u8>, Option<Vec<u8>>)> {
+    /// The compiler's request of the branch's Run at the minute (a `ParseRequest`'s JSON).
+    fn request(&self, run: &mut PlainRun) -> Answer<Vec<u8>> {
         self.check_typed()?;
         let summary = run.scenario_summary()?;
         let mut request = b"{\"branch_id\":".to_vec();
@@ -98,11 +97,45 @@ impl PreviewPlan {
         request.extend_from_slice(format!(",\"selected_minute\":{},\"text\":", self.minute).as_bytes());
         write_value(&mut request, self.text.as_ref().unwrap_or(&Value::Null));
         request.push(b'}');
+        Ok(request)
+    }
+
+    /// The answer, of the branch's Run at the minute, and the draft to keep (its bytes, None where
+    /// the compiler gave no plan): `preview_id` the draft's id (a uuid4's hex, random).
+    pub fn answer(&self, run: &mut PlainRun, preview_id: &str) -> Answer<(Vec<u8>, Option<Vec<u8>>)> {
+        let request = self.request(run)?;
         let compiled = match compile_offline(&request) {
             Ok(compiled) => compiled,
             Err(Error::Value(_)) => return Err(Refusal::invalid_request().into()),
             Err(error) => return Err(error.into()),
         };
+        self.answer_compiled(run, preview_id, &compiled)
+    }
+
+    /// The text read by an LLM (#463, `interpret::Compiling`), of the branch's Run at the minute;
+    /// `stop` whether the router's error policy stops instead of falling back. The caller hands
+    /// its tasks to the link (`Compiling::task_json`, then each `Step::Ask`) until it is done, then
+    /// answers with `answer_compiled`; None where no operator the core runs is eligible
+    /// (`answer`'s, without an LLM).
+    pub fn compiling(&self, run: &mut PlainRun, stop: bool) -> Answer<Option<Compiling>> {
+        let request = self.request(run)?;
+        match Compiling::new(&request, stop) {
+            Ok(compiling) => Ok(compiling),
+            Err(Error::Value(_)) => Err(Refusal::invalid_request().into()),
+            Err(error) => Err(error.into()),
+        }
+    }
+
+    /// The compiler's refusal under a stop policy (`InterventionCompilerUnavailable`): 409.
+    pub fn unavailable(reason: &str) -> Failure {
+        Refusal::storage_with(reason, "intervention_compiler_unavailable").into()
+    }
+
+    /// The answer and the draft of the compiler's result (`compile_offline`'s, or the one
+    /// `Compiling` gave): the program read and dumped by the core's contract and checked on the
+    /// branch's Run.
+    pub fn answer_compiled(&self, run: &mut PlainRun, preview_id: &str, compiled: &[u8]) -> Answer<(Vec<u8>, Option<Vec<u8>>)> {
+        let compiled = compiled.to_vec();
         let result: Value = serde_json::from_slice(&compiled).map_err(|error| Failure::Error(Error::Value(error.to_string())))?;
         let plan = match (result.get("status").and_then(Value::as_str), result.get("draft_plan")) {
             (Some("compiled"), Some(Value::Object(plan))) => plan,

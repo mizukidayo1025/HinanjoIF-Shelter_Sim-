@@ -579,6 +579,12 @@ fn primitive(op: &str) -> Option<Primitive> {
     Some(Primitive { target_kinds, units, policies, timed })
 }
 
+/// Whether the core checks and schedules effects of the operator: the six the offline reading of a
+/// text makes. The intervention compiler offers an LLM only these (#463).
+pub fn supports(op: &str) -> bool {
+    primitive(op).is_some()
+}
+
 /// The parameters of an effect, as its model reads them; `Unsupported` where the model refuses
 /// them (the issue would hold pydantic's text).
 #[derive(Default)]

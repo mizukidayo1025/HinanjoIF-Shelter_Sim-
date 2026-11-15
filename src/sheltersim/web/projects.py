@@ -334,7 +334,18 @@ class ProjectAPI:
                 files.conversation_pieces(project_id, run_id, branch_id)
             )
         if action == "llm-status":
-            return core.llm_status_answer(query, project_id, run_id, branch_id, branch)
+            from sheltersim.web.stored_runs import llm_settings
+
+            offline = core.llm_status_answer(query, project_id, run_id, branch_id, branch)
+            saved = llm_settings(self.store, project_id, run_id)
+            if saved is None or saved["mode"] == "offline":
+                return offline
+            # A Run computed with an LLM: the outcomes of the calls its stored tape holds.
+            stored = json.loads(offline)["checkpoint_hash"] is not None
+            tape = files.reader(project_id, run_id, branch_id).records("llm_tape") if stored else []
+            return core.llm_run_status_answer(
+                query, project_id, run_id, branch_id, branch, saved["mode"], tape
+            )
         if action == "history":
             plan = core.history_plan(query, project_id, run_id, branch_id, branch)
             return plan.answer(self.kpi_table(project_id, run_id, branch_id, plan))

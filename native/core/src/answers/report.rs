@@ -7,13 +7,15 @@
 //! before, or that there is none yet); where it gives None, the caller restores the branch's Run
 //! at its last minute and `build_report` makes the report, which the caller keeps.
 
-use serde_json::{Map, Value};
+use serde_json::{json, Map, Value};
 
+use super::asking;
 use super::query::no_query;
 use super::records::RunFiles;
 use super::{js_safe_integer, list, sha256_hex, string, write_value, Answer, Failure, Obj};
 use crate::error::Error;
 use crate::history::review_metrics;
+use crate::llm::{Task, RUN_REVIEW};
 use crate::plain::PlainRun;
 use crate::world::WorldCell;
 
@@ -222,9 +224,18 @@ fn integer_json(value: &Value) -> Answer<Vec<u8>> {
     }
 }
 
-/// The report of the Run `run` at its last minute (`finish_review` with the offline router) and
-/// the Scenario's JSON bytes, for the branch `branch_id`: its JSON.
-pub fn build_report(run: &PlainRun, scenario: &[u8], branch_id: &str) -> Answer {
+/// The evidence of a review (`build_review_evidence`) of the Run at its last minute: the canonical
+/// JSON of its parts, and the prompt's.
+struct Evidence {
+    /// `{"metrics", "events", "assumptions", "comparison_deltas", "event_id_by_ref", "generated_minute"}`.
+    evidence: Vec<u8>,
+    prompt: Vec<u8>,
+    input_hash: String,
+    minute: i64,
+    state_hash: String,
+}
+
+fn review_evidence(run: &PlainRun, scenario: &[u8]) -> Answer<Evidence> {
     let samples = &run.host.samples;
     let count = samples.len();
     let (metrics, generated_minute) = match count.checked_sub(1) {
@@ -298,15 +309,339 @@ pub fn build_report(run: &PlainRun, scenario: &[u8], branch_id: &str) -> Answer 
     let mut evidence = Obj::new();
     evidence.raw("metrics", metrics).raw("events", events).raw("assumptions", assumptions).raw("comparison_deltas", b"{}".to_vec());
     evidence.object("event_id_by_ref", event_id_by_ref).raw("generated_minute", generated_minute);
+    Ok(Evidence { evidence: evidence.finish(), prompt, input_hash, minute: run.minute()?, state_hash: run.state_digest()? })
+}
+
+const EMPTY_REVIEW: [&str; 5] = ["observed", "event_observations", "assumptions", "hypotheses", "recommendations"];
+
+fn empty_review() -> Vec<u8> {
     let mut empty = Obj::new();
-    for name in ["observed", "event_observations", "assumptions", "hypotheses", "recommendations"] {
+    for name in EMPTY_REVIEW {
         empty.raw(name, b"[]".to_vec());
     }
-    let mut review = Obj::new();
-    review.int("schema_version", 1).str("status", "rule_fallback").str("prompt_version", "evidence-review-v1").str("input_hash", &input_hash);
-    review.object("evidence", evidence).object("review", empty).null("validation_issue");
+    empty.finish()
+}
+
+/// The report's JSON: the review's `status`, its markdown, the review's record (`ReviewResult`).
+fn report_json(branch_id: &str, evidence: &Evidence, status: &str, markdown: &str, review: Vec<u8>, issue: Option<&str>) -> Vec<u8> {
+    let mut result = Obj::new();
+    result.int("schema_version", 1).str("status", status).str("prompt_version", "evidence-review-v1").str("input_hash", &evidence.input_hash);
+    result.raw("evidence", evidence.evidence.clone()).raw("review", review).opt_str("validation_issue", issue);
     let mut report = Obj::new();
-    report.int("schema_version", 1).str("branch_id", branch_id).int("minute", run.minute()?).str("state_hash", &run.state_digest()?);
-    report.str("status", "rule_fallback").str("markdown", FALLBACK_MARKDOWN).object("review", review);
-    Ok(report.finish())
+    report.int("schema_version", 1).str("branch_id", branch_id).int("minute", evidence.minute).str("state_hash", &evidence.state_hash);
+    report.str("status", status).str("markdown", markdown).object("review", result);
+    report.finish()
+}
+
+/// The report of the Run `run` at its last minute (`finish_review` with the offline router) and
+/// the Scenario's JSON bytes, for the branch `branch_id`: its JSON.
+pub fn build_report(run: &PlainRun, scenario: &[u8], branch_id: &str) -> Answer {
+    let evidence = review_evidence(run, scenario)?;
+    Ok(report_json(branch_id, &evidence, "rule_fallback", FALLBACK_MARKDOWN, empty_review(), None))
+}
+
+/// The review of a completed branch asked of an LLM (#463, `generate_evidence_review`): the task
+/// of the Run `run` at its last minute and the Scenario's JSON bytes; `Reviewing::report` reads
+/// the link's reply into the report the server keeps.
+pub fn review(run: &PlainRun, scenario: &[u8], branch_id: &str) -> Answer<Reviewing> {
+    let evidence = review_evidence(run, scenario)?;
+    let parsed: Value = serde_json::from_slice(&evidence.evidence).map_err(|error| Failure::Error(Error::Value(error.to_string())))?;
+    let prompt: Value = serde_json::from_slice(&evidence.prompt).map_err(|error| Failure::Error(Error::Value(error.to_string())))?;
+    let metric_ids: Vec<String> = parsed["metrics"].as_object().map(|metrics| metrics.keys().cloned().collect()).unwrap_or_default();
+    let event_refs: Vec<String> = parsed["events"]
+        .as_array()
+        .map(|events| events.iter().filter_map(|event| event["event_ref"].as_str().map(str::to_owned)).collect())
+        .unwrap_or_default();
+    let assumptions: Vec<String> =
+        parsed["assumptions"].as_array().map(|items| items.iter().filter_map(|item| item.as_str().map(str::to_owned)).collect()).unwrap_or_default();
+    let schema = review_schema(&metric_ids, &event_refs, &assumptions);
+    let state_hash = sha256_hex(&evidence.evidence);
+    let mut task = asking::review_task(RUN_REVIEW, "evidence-review-v1", 1, &prompt, state_hash, &schema, &String::from_utf8_lossy(&empty_review()), 2048)?;
+    // The prompt as the offline report records its hash.
+    task.input_text = String::from_utf8_lossy(&evidence.prompt).into_owned();
+    Ok(Reviewing { branch_id: branch_id.to_owned(), evidence, parsed, task })
+}
+
+/// A review asked of an LLM.
+pub struct Reviewing {
+    branch_id: String,
+    evidence: Evidence,
+    parsed: Value,
+    task: Task,
+}
+
+impl Reviewing {
+    /// The task's JSON, for the link.
+    pub fn task_json(&self) -> Answer {
+        asking::task_json(&self.task)
+    }
+
+    /// The report of the link's reply (`llm::Reply`'s JSON; None where the call failed): the
+    /// review's codes where they fit the evidence (`validated`), the empty review where they do
+    /// not (`rejected`, with the issue) or where the link fell back (`rule_fallback`); its
+    /// markdown rendered from the evidence and fixed vocabulary only.
+    pub fn report(&self, reply: Option<&[u8]>) -> Answer {
+        let read = match reply {
+            Some(raw) => Some(asking::read_reply(&self.task, raw)?),
+            None => None,
+        };
+        let Some(answer) = read.and_then(|read| read.answer) else {
+            return Ok(report_json(&self.branch_id, &self.evidence, "rule_fallback", FALLBACK_MARKDOWN, empty_review(), None));
+        };
+        if let Some(issue) = validation_issue(&answer, &self.parsed) {
+            let markdown = render_markdown("rejected", Some(&issue), &json!({}), &self.parsed);
+            return Ok(report_json(&self.branch_id, &self.evidence, "rejected", &markdown, empty_review(), Some(&issue)));
+        }
+        let markdown = render_markdown("validated", None, &answer, &self.parsed);
+        Ok(report_json(&self.branch_id, &self.evidence, "validated", &markdown, asking::canonical(&answer).into_bytes(), None))
+    }
+}
+
+const HYPOTHESES: [(&str, &str); 5] = [
+    ("branch_effect_is_descriptive", "The branch difference is descriptive and needs repeated-seed study."),
+    ("capacity_may_contribute_to_wait", "Capacity may contribute to observed queue or wait values."),
+    ("event_may_explain_metric_change", "A recorded event may be relevant to a metric difference."),
+    ("staff_load_may_affect_support", "Staff load may affect support throughput."),
+    ("stress_pattern_needs_validation", "The stress pattern needs validation against suitable data."),
+];
+const RECOMMENDATIONS: [(&str, &str); 5] = [
+    ("calibrate_with_aggregate_data", "Calibrate assumptions only with suitable aggregate operational data."),
+    ("compare_capacity_intervention", "Compare a capacity intervention against the same baseline conditions."),
+    ("inspect_event_chain", "Inspect the cited event chain and its downstream state changes."),
+    ("repeat_across_seeds", "Repeat the paired comparison across multiple seeds."),
+    ("review_branch_differences", "Review the paired branch differences before drawing conclusions."),
+];
+const ASSUMPTION_LABELS: [(&str, &str); 26] = [
+    ("ASM-SYNTHETIC-PROFILES-V1", "Synthetic profile distributions are assumptions."),
+    ("ASM-SIMPLE-PSYCHOLOGY-RATES-V1", "Psychology rates are uncalibrated assumptions."),
+    ("ASM-H04-CAUSAL-STRESS-V1", "Causal stress coefficients are bounded, uncalibrated assumptions."),
+    ("ASM-UTILITY-BEHAVIOR-V1", "Behavior thresholds and utilities are rule assumptions."),
+    ("ASM-CORE-MODEL-SUITE-V2", "Core model suite v2 is an internal uncalibrated operator combination."),
+    ("ASM-SLEEP-AWARE-BEHAVIOR-V2", "Sleep-debt utility normalization is an uncalibrated behavioral assumption."),
+    ("ASM-PRIORITY-RULE-BEHAVIOR-V1", "Priority-rule action selection and shared utilities are uncalibrated assumptions."),
+    ("ASM-TOILET-SERVICE-DURATION-V1", "Toilet service duration bounds are assumptions."),
+    ("ASM-DAY3-TOILET-OUTAGE-V1", "Day 3 outage timing and scale are a synthetic stress test."),
+    ("ASM-SPACE-AND-STAFF-CAPACITY-V1", "Zone, staff and facility counts are illustrative inputs."),
+    ("ASM-SOCIAL-PROPAGATION-V1", "Social propagation coefficients are experimental assumptions."),
+    ("ASM-INFORMATION-SPREAD-V1", "Information contact and inquiry coefficients are uncalibrated experimental assumptions."),
+    ("ASM-STAFF-SUPPORT-LIFECYCLE-V1", "Staff support durations and cooldowns are uncalibrated assumptions."),
+    ("ASM-ZONE-ROUTING-V1", "Route selection is deterministic; fixture travel minutes are illustrative."),
+    ("ASM-EVENT-TRIGGERED-SOCIAL-LIMITS-V1", "Stress trigger, cooldown and daily caps bound optional LLM proposals."),
+    ("ASM-SUPPORT-PRIORITY-LIMITS-V1", "Stress trigger and daily cap bound optional LLM support-priority requests."),
+    ("ASM-EVENT-TRIGGERED-SOCIAL-INTERACTIONS-V1", "Typed complaint, cooperation and information-verification effects are uncalibrated."),
+    ("ASM-SYNTHETIC-ZONE-DISPLAY-V1", "Fallback map coordinates are presentation-only synthetic layout."),
+    ("ASM-H02-RESOURCE-SERVICE-V1", "Resource service durations, quantities, need effects, thresholds, and utilities are assumptions."),
+    ("ASM-H02-TEST-INITIAL-STOCK-V1", "H02 initial stock quantities are synthetic software test inputs."),
+    ("ASM-H02-QUEUE-STALLS-V1", "Resource service queue stall reasons and retry order are software contracts."),
+    ("ASM-H03-OPERATIONAL-EVENTS-V1", "Operational event schedules and outages are synthetic, uncalibrated assumptions."),
+    ("ASM-H05-OPERATIONAL-CAPACITY-V1", "H05 facility, staffing and population capacities are illustrative inputs."),
+    ("ASM-H05-OPERATIONAL-STOCK-V1", "H05 initial and delivered stock amounts are synthetic scenario quantities."),
+    ("ASM-H05-OPERATIONAL-SCHEDULE-V1", "H05 event times and schedules are synthetic assumptions, not measured timelines."),
+    ("ASM-H05-INTERVENTION-V1", "H05 interventions are simulated settings and do not estimate real-world effects."),
+];
+
+fn label(table: &[(&str, &'static str)], key: &str) -> &'static str {
+    table.iter().find(|(name, _)| *name == key).map_or("", |(_, label)| *label)
+}
+
+/// `_review_schema(evidence)`.
+fn review_schema(metric_ids: &[String], event_refs: &[String], assumptions: &[String]) -> Value {
+    let refs = |values: &[String]| json!({"type": "array", "items": {"type": "string", "enum": values}});
+    let mut classes: Vec<&str> = EVENT_TYPE_ALIASES.iter().map(|(_, class)| *class).chain(["failure", "suppressed", "other"]).collect();
+    classes.sort_unstable();
+    classes.dedup();
+    let cited = |key: &str, names: Vec<&str>| {
+        json!({
+            "type": "array",
+            "maxItems": 3,
+            "items": {
+                "type": "object",
+                "properties": {
+                    key: {"type": "string", "enum": names},
+                    "metric_ids": refs(metric_ids),
+                    "event_refs": refs(event_refs),
+                    "assumption_ids": refs(assumptions),
+                },
+                "required": [key, "metric_ids", "event_refs", "assumption_ids"],
+                "additionalProperties": false,
+            },
+        })
+    };
+    json!({
+        "type": "object",
+        "properties": {
+            "observed": {
+                "type": "array",
+                "maxItems": 8,
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "metric_id": {"type": "string", "enum": metric_ids},
+                        "direction": {"type": "string", "enum": ["zero", "nonzero", "increase", "decrease", "unchanged"]},
+                    },
+                    "required": ["metric_id", "direction"],
+                    "additionalProperties": false,
+                },
+            },
+            "event_observations": {
+                "type": "array",
+                "maxItems": 8,
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "event_ref": {"type": "string", "enum": event_refs},
+                        "classification": {"type": "string", "enum": classes},
+                    },
+                    "required": ["event_ref", "classification"],
+                    "additionalProperties": false,
+                },
+            },
+            "assumptions": {"type": "array", "items": {"type": "string", "enum": assumptions}},
+            "hypotheses": cited("hypothesis", HYPOTHESES.iter().map(|(name, _)| *name).collect()),
+            "recommendations": cited("action", RECOMMENDATIONS.iter().map(|(name, _)| *name).collect()),
+        },
+        "required": ["observed", "event_observations", "assumptions", "hypotheses", "recommendations"],
+        "additionalProperties": false,
+    })
+}
+
+fn items<'v>(value: &'v Value, key: &str) -> &'v [Value] {
+    value.get(key).and_then(Value::as_array).map(Vec::as_slice).unwrap_or(&[])
+}
+
+/// `_validate_review(review, evidence)`: the issue, or None where the codes fit the evidence.
+fn validation_issue(review: &Value, evidence: &Value) -> Option<String> {
+    for item in items(review, "observed") {
+        let metric = item["metric_id"].as_str().unwrap_or_default();
+        let value = evidence["metrics"].get(metric).and_then(super::js_number).unwrap_or(f64::NAN);
+        match item["direction"].as_str().unwrap_or_default() {
+            "zero" if value != 0.0 => return Some(format!("metric direction mismatch for {metric}")),
+            "nonzero" if value == 0.0 => return Some(format!("metric direction mismatch for {metric}")),
+            // The server's reviews have no paired comparison: a direction against one has no fact.
+            "increase" | "decrease" | "unchanged" => return Some(format!("metric {metric} has no paired comparison fact")),
+            _ => {}
+        }
+    }
+    for item in items(review, "event_observations") {
+        let reference = item["event_ref"].as_str().unwrap_or_default();
+        let recorded = items(evidence, "events").iter().find(|event| event["event_ref"].as_str() == Some(reference));
+        if recorded.and_then(|event| event["classification"].as_str()) != item["classification"].as_str() {
+            return Some(format!("event classification mismatch for {reference}"));
+        }
+    }
+    for item in items(review, "hypotheses").iter().chain(items(review, "recommendations")) {
+        if items(item, "metric_ids").is_empty() && items(item, "event_refs").is_empty() && items(item, "assumption_ids").is_empty() {
+            return Some("hypothesis or recommendation has no cited evidence".to_owned());
+        }
+    }
+    None
+}
+
+/// Python's `format(value, "g")`.
+pub fn python_g(value: f64) -> String {
+    if value.is_nan() {
+        return "nan".to_owned();
+    }
+    if value.is_infinite() {
+        return if value > 0.0 { "inf".to_owned() } else { "-inf".to_owned() };
+    }
+    if value == 0.0 {
+        return if value.is_sign_negative() { "-0".to_owned() } else { "0".to_owned() };
+    }
+    let scientific = format!("{value:.5e}");
+    let (mantissa, exponent) = scientific.split_once('e').expect("an exponent");
+    let exponent: i32 = exponent.parse().expect("an exponent's digits");
+    let trim = |text: &str| -> String {
+        if text.contains('.') {
+            text.trim_end_matches('0').trim_end_matches('.').to_owned()
+        } else {
+            text.to_owned()
+        }
+    };
+    if (-4..6).contains(&exponent) {
+        trim(&format!("{value:.*}", (5 - exponent) as usize))
+    } else {
+        format!("{}e{}{:02}", trim(mantissa), if exponent < 0 { '-' } else { '+' }, exponent.abs())
+    }
+}
+
+/// `render_review_markdown(result)`: fixed vocabulary and the evidence's facts, no text of the
+/// model's.
+fn render_markdown(status: &str, issue: Option<&str>, review: &Value, evidence: &Value) -> String {
+    let mut lines: Vec<String> = vec!["# Evidence-bound Opus review".to_owned(), String::new(), format!("- Status: `{status}`")];
+    if status == "rejected" {
+        lines.push(String::new());
+        lines.push("The structured review was rejected because it did not match the supplied evidence.".to_owned());
+        lines.push(format!("Validation issue: `{}`", issue.unwrap_or("None")));
+    }
+    let alias = |reference: &str| evidence["event_id_by_ref"].get(reference).and_then(Value::as_str).map(str::to_owned);
+    lines.extend([String::new(), "## Observed evidence".to_owned(), String::new()]);
+    let observed = items(review, "observed");
+    let events = items(review, "event_observations");
+    if observed.is_empty() {
+        lines.push("No structured observations were returned.".to_owned());
+    }
+    for item in observed {
+        let metric = item["metric_id"].as_str().unwrap_or_default();
+        let value = evidence["metrics"].get(metric).and_then(super::js_number).unwrap_or(f64::NAN);
+        lines.push(format!("- `{metric}` is {} in the final snapshot ({}).", item["direction"].as_str().unwrap_or_default(), python_g(value)));
+    }
+    for item in events {
+        let reference = item["event_ref"].as_str().unwrap_or_default();
+        let Some(event) = items(evidence, "events").iter().find(|event| event["event_ref"].as_str() == Some(reference)) else { continue };
+        let mut minute = Vec::new();
+        super::write_value(&mut minute, &event["minute"]);
+        lines.push(format!(
+            "- `{}` at minute {} is recorded as `{}` ({}).",
+            alias(reference).unwrap_or_default(),
+            String::from_utf8_lossy(&minute),
+            event["classification"].as_str().unwrap_or_default(),
+            event["status"].as_str().unwrap_or_default()
+        ));
+    }
+    lines.extend([String::new(), "## Assumptions".to_owned(), String::new()]);
+    let assumptions = items(review, "assumptions");
+    if assumptions.is_empty() {
+        lines.push("No assumption references were selected.".to_owned());
+    }
+    for id in assumptions {
+        let id = id.as_str().unwrap_or_default();
+        lines.push(format!("- `{id}`: {}", label(&ASSUMPTION_LABELS, id)));
+    }
+    let references = |item: &Value| -> String {
+        let mut citations: Vec<String> = items(item, "metric_ids").iter().filter_map(Value::as_str).map(|metric| format!("`{metric}`")).collect();
+        citations.extend(
+            items(item, "event_refs").iter().filter_map(Value::as_str).filter_map(|reference| alias(reference)).map(|event| format!("event `{event}`")),
+        );
+        citations.extend(items(item, "assumption_ids").iter().filter_map(Value::as_str).map(|id| format!("assumption `{id}`")));
+        if citations.is_empty() {
+            String::new()
+        } else {
+            format!(" Evidence: {}.", citations.join(", "))
+        }
+    };
+    lines.extend([String::new(), "## Hypotheses".to_owned(), String::new()]);
+    let hypotheses = items(review, "hypotheses");
+    if hypotheses.is_empty() {
+        lines.push("No hypotheses were selected.".to_owned());
+    }
+    for item in hypotheses {
+        lines.push(format!("- {}{}", label(&HYPOTHESES, item["hypothesis"].as_str().unwrap_or_default()), references(item)));
+    }
+    lines.extend([String::new(), "## Recommendations".to_owned(), String::new()]);
+    let recommendations = items(review, "recommendations");
+    if recommendations.is_empty() {
+        lines.push("No recommendations were selected.".to_owned());
+    }
+    for item in recommendations {
+        lines.push(format!("- {}{}", label(&RECOMMENDATIONS, item["action"].as_str().unwrap_or_default()), references(item)));
+    }
+    lines.extend([
+        String::new(),
+        "## Limitations".to_owned(),
+        String::new(),
+        "This review summarizes recorded synthetic simulation outputs. It does not establish real-world safety, behavior, or causal effects.".to_owned(),
+        String::new(),
+    ]);
+    lines.join("\n")
 }

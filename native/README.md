@@ -398,6 +398,19 @@ the split of the first two PR by PR; its last section sums up what is where.
   `wasm/tests/node_browser_api.mjs`, `node_api_answers.mjs` and `node_project_store.mjs` check the
   browser's answers; `tests/integration/test_project_answers.py` asks the same of PyO3 against
   the Python server's answers in `core/tests/data/api_answers.json`.
+- **The answers made with an LLM** (#463): a question about a branch's results
+  (`questions::QuestionPlan::ask` builds the evidence packet and the task, `Asking::answer` reads
+  the link's reply against the schema and the evidence), the review of a completed branch
+  (`report::review`, `Reviewing::report`), the reading of an intervention's text
+  (`interpret::Compiling`, through `interventions::PreviewPlan::compiling` and `answer_compiled`:
+  the operators the core runs only, one repair, the rules where no plan is accepted) and the
+  llm-status of a Run computed with an LLM (`routes::llm_run_status_answer`, from its stored
+  tape). Each is steps around the port of `llm.rs` (`answers::asking`): the core gives the task's
+  JSON, the caller hands it to its link and gives the reply's JSON back, so a link that answers
+  later (the browser's relay) can serve the same task. `llm::check_answer` reads the schema subset
+  Python's `validate_task_output` reads. `core/tests/llm_answers.rs` checks the reading;
+  `tests/integration/test_llm_answers.py` asks through the Project API with a fake Provider and
+  replays the Run's analysis tape.
 - **The KPI history, report and LLM status in the browser** (#266): `history::KpiTable` reads a
   stored Run's metric samples back and pages them as the Python history index pages
   `kind=kpis` (`history::kpi_row` writes a row as canonical JSON); a sample of a world with a

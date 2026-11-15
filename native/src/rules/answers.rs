@@ -16,6 +16,7 @@ use pyo3::prelude::*;
 use pyo3::types::PyBytes;
 use sheltersim_core::answers::{frames, history, interventions, questions, records, report, routes, Failure, Refusal};
 use sheltersim_core::history::KpiTable;
+use sheltersim_core::interpret::Step;
 
 use crate::core::errors::{to_py_err, OrPy};
 
@@ -457,6 +458,50 @@ impl PyPreviewPlan {
         let (answer, draft) = self.plan.answer(run.core_mut(), preview_id).map_err(failed)?;
         Ok((PyBytes::new(py, &answer), draft.map(|draft| PyBytes::new(py, &draft))))
     }
+
+    /// The text read by an LLM (#463): the compiler's steps (`Compiling`), or None where no
+    /// operator the core runs is eligible (`answer` then); `stop` whether the router stops instead
+    /// of falling back.
+    fn compiling(&self, run: &mut crate::rules::plain::PlainRun, stop: bool) -> PyResult<Option<PyCompiling>> {
+        Ok(self.plan.compiling(run.core_mut(), stop).map_err(failed)?.map(|compiling| PyCompiling { compiling }))
+    }
+
+    /// The answer and the draft of the compiler's result (what `Compiling.read` gave as done).
+    fn answer_compiled<'py>(
+        &self,
+        py: Python<'py>,
+        run: &mut crate::rules::plain::PlainRun,
+        preview_id: &str,
+        compiled: &[u8],
+    ) -> PyResult<(Bound<'py, PyBytes>, Option<Bound<'py, PyBytes>>)> {
+        let (answer, draft) = self.plan.answer_compiled(run.core_mut(), preview_id, compiled).map_err(failed)?;
+        Ok((PyBytes::new(py, &answer), draft.map(|draft| PyBytes::new(py, &draft))))
+    }
+}
+
+/// An intervention's text read by an LLM (`interpret::Compiling`): `task()` the first task's JSON,
+/// then `read(reply)` of each reply (None where the call failed): `("ask", task)` to hand to the
+/// link next, `("done", result)` the compiler's result for `PreviewPlan.answer_compiled`; under a
+/// stop policy without a plan it raises the refusal (409 `intervention_compiler_unavailable`).
+#[pyclass(name = "Compiling", module = "sheltersim_native.rules.answers", unsendable)]
+pub struct PyCompiling {
+    compiling: sheltersim_core::interpret::Compiling,
+}
+
+#[pymethods]
+impl PyCompiling {
+    fn task<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyBytes>> {
+        Ok(PyBytes::new(py, &self.compiling.task_json().or_py()?))
+    }
+
+    #[pyo3(signature = (reply))]
+    fn read<'py>(&mut self, py: Python<'py>, reply: Option<Vec<u8>>) -> PyResult<(&'static str, Bound<'py, PyBytes>)> {
+        match self.compiling.read(reply.as_deref()).or_py()? {
+            Step::Ask(task) => Ok(("ask", PyBytes::new(py, &task))),
+            Step::Done(result) => Ok(("done", PyBytes::new(py, &result))),
+            Step::Unavailable(reason) => Err(failed(interventions::PreviewPlan::unavailable(&reason))),
+        }
+    }
 }
 
 /// `POST …/intervention-apply`, its first checks: the draft's id, whose draft the caller reads.
@@ -574,12 +619,86 @@ impl PyQuestionPlan {
         let (answer, turn) = self.plan.answer(random, turn_id);
         (PyBytes::new(py, &answer), PyBytes::new(py, &turn))
     }
+
+    /// The question asked of an LLM (#463, `questions::QuestionPlan::ask`): the branch's frame at
+    /// `minute`, the comparison's answer (or None), the Run's `evidence.json` (or None), its
+    /// Scenario, the branch's "conversations" pieces (decompressed) and `random` as `answer`'s.
+    #[pyo3(signature = (frame, comparison, evidence, scenario, turns, random))]
+    fn ask(&self, frame: &[u8], comparison: Option<Vec<u8>>, evidence: Option<Vec<u8>>, scenario: &[u8], turns: Vec<Vec<u8>>, random: &str) -> PyResult<PyAsking> {
+        let pieces: Vec<&[u8]> = turns.iter().map(Vec::as_slice).collect();
+        Ok(PyAsking { asking: self.plan.ask(frame, comparison.as_deref(), evidence.as_deref(), scenario, &pieces, random).map_err(failed)? })
+    }
+}
+
+/// A question asked of an LLM: `task()`, the task's JSON for the link (`RouterLink.complete`),
+/// then `answer(reply, mode, turn_id)` of the link's reply (None where the call failed).
+#[pyclass(name = "Asking", module = "sheltersim_native.rules.answers")]
+pub struct PyAsking {
+    asking: questions::Asking,
+}
+
+#[pymethods]
+impl PyAsking {
+    fn task<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyBytes>> {
+        bytes(py, self.asking.task_json())
+    }
+
+    #[pyo3(signature = (reply, mode, turn_id))]
+    fn answer<'py>(&self, py: Python<'py>, reply: Option<Vec<u8>>, mode: &str, turn_id: &str) -> PyResult<(Bound<'py, PyBytes>, Bound<'py, PyBytes>)> {
+        let (answer, turn) = self.asking.answer(reply.as_deref(), mode, turn_id).map_err(failed)?;
+        Ok((PyBytes::new(py, &answer), PyBytes::new(py, &turn)))
+    }
+}
+
+/// The review of a completed branch asked of an LLM (#463, `report::review`): `task()`, then
+/// `report(reply)` of the link's reply (None where the call failed), the report to keep.
+#[pyclass(name = "Reviewing", module = "sheltersim_native.rules.answers")]
+pub struct PyReviewing {
+    reviewing: report::Reviewing,
+}
+
+#[pymethods]
+impl PyReviewing {
+    fn task<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyBytes>> {
+        bytes(py, self.reviewing.task_json())
+    }
+
+    #[pyo3(signature = (reply))]
+    fn report<'py>(&self, py: Python<'py>, reply: Option<Vec<u8>>) -> PyResult<Bound<'py, PyBytes>> {
+        bytes(py, self.reviewing.report(reply.as_deref()))
+    }
+}
+
+/// The review of a Run at its last minute asked of an LLM, for the Scenario's JSON bytes and the
+/// branch `branch_id`.
+#[pyfunction]
+fn review(run: &crate::rules::plain::PlainRun, scenario: &[u8], branch_id: &str) -> PyResult<PyReviewing> {
+    Ok(PyReviewing { reviewing: report::review(run.core(), scenario, branch_id).map_err(failed)? })
+}
+
+/// `GET …/branches/{branch}/llm-status` of a Run computed with an LLM: its mode (`llm.json`) and
+/// its stored tape's entries (`records("llm_tape")`).
+#[pyfunction]
+#[pyo3(signature = (query, project_id, run_id, branch_id, branch, mode, tape))]
+#[allow(clippy::too_many_arguments)]
+fn llm_run_status_answer<'py>(
+    py: Python<'py>,
+    query: &str,
+    project_id: &str,
+    run_id: &str,
+    branch_id: &str,
+    branch: Option<Vec<u8>>,
+    mode: &str,
+    tape: Vec<Vec<u8>>,
+) -> PyResult<Bound<'py, PyBytes>> {
+    bytes(py, routes::llm_run_status_answer(query, project_id, run_id, branch_id, branch.as_deref(), mode, &tape))
 }
 
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyPreviewPlan>()?;
     m.add_class::<PyApplyPlan>()?;
     m.add_class::<PyQuestionPlan>()?;
+    m.add_class::<PyCompiling>()?;
     m.add_function(wrap_pyfunction!(comparison_range, m)?)?;
     m.add_function(wrap_pyfunction!(preview_plan, m)?)?;
     m.add_function(wrap_pyfunction!(apply_draft_id, m)?)?;
@@ -600,6 +719,10 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(history_plan, m)?)?;
     m.add_function(wrap_pyfunction!(report_answer, m)?)?;
     m.add_function(wrap_pyfunction!(build_report, m)?)?;
+    m.add_class::<PyAsking>()?;
+    m.add_class::<PyReviewing>()?;
+    m.add_function(wrap_pyfunction!(review, m)?)?;
+    m.add_function(wrap_pyfunction!(llm_run_status_answer, m)?)?;
     m.add("Refused", m.py().get_type::<Refused>())?;
     m.add_function(wrap_pyfunction!(is_artifact_id, m)?)?;
     m.add_function(wrap_pyfunction!(projects_answer, m)?)?;

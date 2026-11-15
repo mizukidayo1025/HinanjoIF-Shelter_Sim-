@@ -12,8 +12,11 @@
 //! The primitives' descriptions and parameter schemas are Python's, written by
 //! `native/core/tools/interpret_tables.py` into `primitives.json`.
 
+mod asked;
 mod parse;
 mod text;
+
+pub use asked::{Compiling, Step};
 
 use std::collections::BTreeSet;
 use std::sync::{Arc, OnceLock};
@@ -807,30 +810,10 @@ fn offline_result(request: &Request, parsed: Parsed, eligible: &[&Primitive], fa
 pub fn compile_offline(request: &[u8]) -> Result<Vec<u8>> {
     let request = read_request(request)?;
     let summary = &request.summary;
-    let policies: BTreeSet<&str> = summary.available_policies.iter().map(String::as_str).collect();
-    let eligible: Vec<&Primitive> = primitives()?
-        .iter()
-        .filter(|item| item.required_policies.iter().all(|policy| policies.contains(policy.as_str())))
-        .filter(|item| item.target_kinds.iter().any(|kind| !summary.ids(kind).is_empty()))
-        .collect();
+    let eligible = eligible(summary, |_| true)?;
     let schema = output_schema(summary, &eligible)?;
-    let prompt_hash = sha256_text(&canonical(&obj([
-        ("instructions", s(COMPILER_INSTRUCTIONS)),
-        ("prompt_version", s(OPUS_COMPILER_PROMPT_VERSION)),
-        ("output_schema", schema),
-    ]))?);
-    let target_ids = V::Map(TARGET_KINDS.iter().map(|kind| (Arc::from(*kind), strs(summary.ids(kind)))).collect());
-    let payload = obj([
-        ("task", s(TASK)),
-        ("instructions", s(COMPILER_INSTRUCTIONS)),
-        ("population_geometry_rules", strs(&POPULATION_GEOMETRY_RULES)),
-        ("untrusted_narrative", s(&sanitize(&request.text)?)),
-        ("branch", obj([("branch_id", s(&request.branch_id)), ("selected_minute", V::Int(request.selected_minute))])),
-        ("scenario", request.summary_value.clone()),
-        ("target_ids_by_kind", target_ids),
-        ("installed_primitives", V::List(eligible.iter().map(|item| item.description.clone()).collect())),
-    ]);
-    let payload_text = canonical(&payload)?;
+    let prompt_hash = prompt_hash(&schema)?;
+    let payload_text = canonical(&payload(&request, &eligible)?)?;
     let parsed = parse::parse(&request.text, &request.branch_id, request.selected_minute, summary)?;
     let (input_hash, fallback_used, reason) = if eligible.is_empty() {
         (sha256_text(&payload_text), false, NO_PRIMITIVE_REASON)
@@ -853,7 +836,49 @@ pub fn compile_offline(request: &[u8]) -> Result<Vec<u8>> {
         ("cache_hit", V::Bool(false)),
         ("error_kind", V::Null),
     ]);
-    let result = obj([
+    canonical(&answer_value(answer, usage))
+}
+
+/// The primitives the summary's policies and targets allow (`_eligible_primitive_specs`), of
+/// those `keep` takes.
+fn eligible(summary: &Summary, keep: impl Fn(&str) -> bool) -> Result<Vec<&'static Primitive>> {
+    let policies: BTreeSet<&str> = summary.available_policies.iter().map(String::as_str).collect();
+    Ok(primitives()?
+        .iter()
+        .filter(|item| keep(&item.op))
+        .filter(|item| item.required_policies.iter().all(|policy| policies.contains(policy.as_str())))
+        .filter(|item| item.target_kinds.iter().any(|kind| !summary.ids(kind).is_empty()))
+        .collect())
+}
+
+/// The sha256 of the instructions, the prompt's version and the output schema.
+fn prompt_hash(schema: &V) -> Result<String> {
+    Ok(sha256_text(&canonical(&obj([
+        ("instructions", s(COMPILER_INSTRUCTIONS)),
+        ("prompt_version", s(OPUS_COMPILER_PROMPT_VERSION)),
+        ("output_schema", schema.clone()),
+    ]))?))
+}
+
+/// `_compiler_payload`: what the compiler asks Opus with.
+fn payload(request: &Request, eligible: &[&Primitive]) -> Result<V> {
+    let summary = &request.summary;
+    let target_ids = V::Map(TARGET_KINDS.iter().map(|kind| (Arc::from(*kind), strs(summary.ids(kind)))).collect());
+    Ok(obj([
+        ("task", s(TASK)),
+        ("instructions", s(COMPILER_INSTRUCTIONS)),
+        ("population_geometry_rules", strs(&POPULATION_GEOMETRY_RULES)),
+        ("untrusted_narrative", s(&sanitize(&request.text)?)),
+        ("branch", obj([("branch_id", s(&request.branch_id)), ("selected_minute", V::Int(request.selected_minute))])),
+        ("scenario", request.summary_value.clone()),
+        ("target_ids_by_kind", target_ids),
+        ("installed_primitives", V::List(eligible.iter().map(|item| item.description.clone()).collect())),
+    ]))
+}
+
+/// The `CompilerResult` dump of an answer and its usage.
+fn answer_value(answer: Answer, usage: V) -> V {
+    obj([
         ("status", s(answer.status)),
         ("support_mode", s(answer.support_mode)),
         ("draft_plan", answer.plan.unwrap_or(V::Null)),
@@ -864,8 +889,7 @@ pub fn compile_offline(request: &[u8]) -> Result<Vec<u8>> {
         ("preview_notice", s(PREVIEW_NOTICE)),
         ("fallback_used", V::Bool(answer.fallback_used)),
         ("usage", usage),
-    ]);
-    canonical(&result)
+    ])
 }
 
 // ---- What the routes around the compiler need (#306, #308) -------------------------------------
@@ -990,4 +1014,60 @@ pub fn kpi_differences(base: &[u8], other: &[u8]) -> Result<Vec<u8>> {
         metrics.insert(key.clone(), difference);
     }
     canonical(&V::Map(metrics))
+}
+
+// ---- What the answers made with an LLM need (#463) ---------------------------------------------
+
+/// Python's `re.search(pattern, text)`: whether the pattern (Python's syntax) is found. A JSON
+/// schema's `pattern` (`validate_task_output`).
+pub fn python_search(pattern: &str, text: &str) -> Result<bool> {
+    text::found(&text::compile(pattern, false)?, text)
+}
+
+/// `_sanitize_narrative(text)` (src/sheltersim/llm/natural_language.py): NFKC, control
+/// characters blanked, e-mail addresses and phone numbers redacted, at most 4000 characters.
+pub fn narrative(raw: &str) -> Result<String> {
+    sanitize(raw)
+}
+
+/// Python's `text.strip()`.
+pub fn py_strip(raw: &str) -> &str {
+    text::strip(raw)
+}
+
+/// Whether `_REDACT_ENTITY` (src/sheltersim/web/results_chat.py) finds an entity's name or id in
+/// the text: an LLM's explanation must not name one.
+pub fn names_entity(raw: &str) -> Result<bool> {
+    text::found(REDACT_ENTITY.get()?, raw)
+}
+
+static ALIAS: text::Pattern = text::Pattern::new(r"\bS([1-9][0-9]?)\b", false);
+
+/// The evidence alias a question names (`re.search(r"\bS([1-9][0-9]?)\b", question)`), or None.
+pub fn named_alias(question: &str) -> Result<Option<String>> {
+    Ok(text::search(ALIAS.get()?, question)?.and_then(|found| found.get(1).map(|digits| format!("S{}", digits.as_str()))))
+}
+
+/// Whether the question names the field `field` as a word of its own
+/// (`(?<![A-Za-z0-9_])field(?![A-Za-z0-9_])`).
+pub fn names_field(question: &str, field: &str) -> bool {
+    let word = |c: char| c.is_ascii_alphanumeric() || c == '_';
+    question.match_indices(field).any(|(at, found)| {
+        let before = question[..at].chars().next_back();
+        let after = question[at + found.len()..].chars().next();
+        !before.is_some_and(word) && !after.is_some_and(word)
+    })
+}
+
+static PDF_UNSUPPORTED: text::Pattern = text::Pattern::new(
+    r"[\d０-９%％]|[〇零一二三四五六七八九十百千万億兆]+(?:人|名|分|時間|日|件|基|台|倍|割|点|回|食|リットル|度)|[「」『』]|原因である|原因です|起因する|証明|実証|必ず|確実に|改善した|改善しました|悪化した|悪化しました|発生した|発生しました|効果がある|効果があります|解消する|解消します|保証|反映されていません|モデル化されていません|考慮されていません|運営側の働きかけがない",
+    false,
+);
+static JAPANESE: text::Pattern = text::Pattern::new(r"[ぁ-んァ-ン一-龥]", false);
+
+/// Whether a PDF analysis's paragraph says what the program prints instead (`_UNSUPPORTED` of
+/// src/sheltersim/llm/pdf_analysis.py: a quantity, a quote, a causal or effect assertion), or
+/// holds no Japanese.
+pub fn pdf_prose_refused(raw: &str) -> Result<bool> {
+    Ok(text::found(PDF_UNSUPPORTED.get()?, raw)? || !text::found(JAPANESE.get()?, raw)?)
 }

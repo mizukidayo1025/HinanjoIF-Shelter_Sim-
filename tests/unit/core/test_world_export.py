@@ -15,16 +15,22 @@ from typing import Any
 
 import pytest
 from support.core_initial import (
-    TABLE_REQUESTS,
+    SCREEN_REQUESTS,
     entry_text,
     evidence_answer,
     minute_zero_entry,
     scenario_of,
 )
-from support.initial_corpus import entry_bytes, load_corpus
+from support.initial_corpus import (
+    entry_bytes,
+    error_text,
+    evidence_bytes,
+    load_corpus,
+    versions_bytes,
+)
 
 from sheltersim.core.world import WorldState
-from sheltersim.core.world_export import configs_fingerprint, export_world
+from sheltersim.core.world_export import export_world
 
 # The sections the host parses (`SectionId::parser() == Parser::Host`), by their `Configs` field.
 HOST_SECTIONS = {
@@ -86,6 +92,34 @@ def test_the_core_builds_the_entry_python_exports_of_any_corpus_scenario(index: 
     assert hashlib.sha256(made).hexdigest() == case["entry_sha256"]
     assert len(made) == case["entry_bytes"]
     assert made == entry_bytes(ScenarioSpec.model_validate_json(case["scenario"]))
+
+
+@pytest.mark.parametrize("index", range(len(CORPUS)))
+def test_the_core_records_a_new_run_of_any_corpus_scenario_as_python(index: int) -> None:
+    """`initial::model_versions` and `initial::evidence` of a Scenario of the corpus are Python's
+    `model_signatures` and the evidence route's answer for a new Run of it (#301, #429), and the
+    digests recorded with the case."""
+    import sheltersim_native
+
+    from sheltersim.experiments.scenario import ScenarioSpec
+
+    case = CORPUS[index]
+    raw = case["scenario"].encode()
+    scenario = ScenarioSpec.model_validate_json(raw)
+    versions = sheltersim_native.initial_model_versions(raw).encode()
+
+    assert hashlib.sha256(versions).hexdigest() == case["model_versions_sha256"]
+    assert versions == versions_bytes(scenario)
+    if "evidence_error" in case:
+        with pytest.raises(Exception) as python:
+            evidence_bytes(scenario)
+        with pytest.raises(Exception) as core:
+            sheltersim_native.initial_evidence(raw)
+        assert error_text(core.value) == error_text(python.value) == case["evidence_error"]
+        return
+    evidence = sheltersim_native.initial_evidence(raw)
+    assert hashlib.sha256(evidence).hexdigest() == case["evidence_sha256"]
+    assert evidence == evidence_bytes(scenario)
 
 
 def _rich_case() -> dict[str, Any]:
@@ -151,19 +185,19 @@ def test_the_core_raises_python_s_error_for_a_world_python_refuses(name: str) ->
     assert str(core.value) == str(python.value)
 
 
-@pytest.mark.parametrize("name", sorted(TABLE_REQUESTS))
+@pytest.mark.parametrize("name", sorted(SCREEN_REQUESTS))
 def test_the_core_builds_the_minute_zero_entry_python_exports(name: str) -> None:
     """`sheltersim_core::initial::entry` of a generated Scenario's canonical JSON is the bytes of
     `export_world` of its world at minute 0, set up for a Run (the screen's requests, #249)."""
     import sheltersim_native
 
-    scenario = scenario_of(TABLE_REQUESTS[name])
+    scenario = scenario_of(SCREEN_REQUESTS[name])
     made = sheltersim_native.initial_entry(scenario.canonical_json().encode())
 
     assert made == entry_text(minute_zero_entry(scenario))
 
 
-@pytest.mark.parametrize("name", sorted(TABLE_REQUESTS))
+@pytest.mark.parametrize("name", sorted(SCREEN_REQUESTS))
 def test_the_core_records_a_new_run_s_model_versions_and_evidence_as_python(name: str) -> None:
     """`initial::model_versions` and `initial::evidence` of a generated Scenario are Python's
     `model_signatures` and the evidence route's answer for a new Run of it (#301)."""
@@ -171,7 +205,7 @@ def test_the_core_records_a_new_run_s_model_versions_and_evidence_as_python(name
 
     from sheltersim.contracts.policies import model_signatures
 
-    scenario = scenario_of(TABLE_REQUESTS[name])
+    scenario = scenario_of(SCREEN_REQUESTS[name])
     raw = scenario.canonical_json().encode()
 
     versions = json.loads(sheltersim_native.initial_model_versions(raw))
@@ -194,30 +228,9 @@ def test_the_evidence_template_is_the_server_s_answer(tmp_path: Any) -> None:
     assert json.loads(json.dumps(answer)) == evidence_answer(scenario)
 
 
-def test_the_core_refuses_records_its_table_lacks_and_what_is_not_a_scenario() -> None:
-    """A new Run's records of a fingerprint the table lacks are Unsupported (its world is built);
-    bytes that are no Scenario are a ValueError."""
+def test_what_is_not_a_scenario_is_a_value_error() -> None:
     import sheltersim_native
 
-    from sheltersim.native import Unsupported
-
-    document = json.loads(scenario_of({"evacuees": 3}).canonical_json())
-    document["model_configs"]["behavior"]["temperature"] = 0.3
-    raw = json.dumps(document).encode()
-    with pytest.raises(Unsupported, match="fingerprint"):
-        sheltersim_native.initial_model_versions(raw)
-    assert sheltersim_native.initial_entry(raw)
     for raw in (b"", b"[]", b"{}", b'{"seed": "1"}', b"\xff"):
         with pytest.raises(ValueError):
             sheltersim_native.initial_entry(raw)
-
-
-def test_the_fingerprint_keeps_only_that_the_data_configs_are_there() -> None:
-    first = json.loads(scenario_of({"evacuees": 3}).canonical_json())["model_configs"]
-    second = json.loads(scenario_of({"evacuees": 20, "gross_area_m2": 900.0}).canonical_json())
-    second_configs = second["model_configs"]
-
-    assert first["facility_geometry"] != second_configs["facility_geometry"]
-    assert configs_fingerprint(first) == configs_fingerprint(second_configs)
-    del second_configs["population_context"]
-    assert configs_fingerprint(first) != configs_fingerprint(second_configs)

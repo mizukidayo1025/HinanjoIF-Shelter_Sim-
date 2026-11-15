@@ -438,13 +438,13 @@ the split of the first two PR by PR; its last section sums up what is where.
   `core/tests/initial.rs` and `wasm/tests/node_initial.mjs` check
   `core/tests/data/initial_worlds.json`, and `tests/unit/core/test_world_export.py` checks
   `initial::entry` on every Scenario of `fixtures/initial_corpus.json.xz` (one per configuration
-  the offline tests use; `benchmarks/initial_corpus.py` records it). A new Run's records come
-  from `initial/table.json` (#301), keyed by `initial::fingerprint` of the configs without their
-  data (`DATA_CONFIGS`; `tests/support/core_initial.py` writes it): `initial::model_versions`
-  (`model_signatures`, with the floor plan's service-point signature computed) and
-  `initial::evidence` (the evidence route's answer, with the Scenario's sources, assumptions and
-  research limits); in WASM `modelVersions` and `runEvidence`. Configs the table lacks are
-  `Unsupported` there.
+  the offline tests use; `benchmarks/initial_corpus.py` records it). A new Run's records are made
+  for any Scenario too (#301, #429): `initial::model_versions` (`model_signatures`) and
+  `initial::evidence` (the evidence route's answer), in WASM `modelVersions` and `runEvidence`;
+  what they read of the installed code (the operator and model catalog, the evidence's catalogs,
+  sources and texts) is `initial/records.json`, which `tests/support/core_initial.py` writes
+  (`initial_records`). In PyO3, `sheltersim_native.initial_entry` gives the entry's bytes and
+  `PlainRun.from_scenario` starts a Run from it.
 - **Out of the core** (decision 4): restoring a Checkpoint stays in Python and the wrapper. The whole-world validation texts (E6) and the pydantic
   contracts (E15) stay Python behind `Host` in the native host; a host without Python answers both
   with the core's `validate` (#250, the rules ported so far) and `contracts::validate` (#346).

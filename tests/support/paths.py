@@ -27,9 +27,9 @@ BENCHMARKS = FIXTURES.parent / "benchmarks"
 # The fixtures of the core's tests without Python (native/core/tests/, #152, #225), which
 # support/core_fixtures.py writes.
 CORE_TEST_DATA = FIXTURES.parent / "native" / "core" / "tests" / "data"
-# The table the core's minute-0 builder reads (native/core/src/initial/, #249), which
-# support/core_initial.py writes.
-INITIAL_TABLE = FIXTURES.parent / "native" / "core" / "src" / "initial" / "table.json"
+# What a new Run's records read of the installed code (native/core/src/initial/, #301, #429),
+# which support/core_initial.py writes.
+INITIAL_RECORDS = FIXTURES.parent / "native" / "core" / "src" / "initial" / "records.json"
 VALIDATE_CATALOG = FIXTURES.parent / "native" / "core" / "src" / "validate" / "catalog.json"
 # The Scenarios the core's minute-0 builder is checked on (#429), which
 # benchmarks/initial_corpus.py records.

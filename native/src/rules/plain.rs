@@ -3,7 +3,8 @@
 //! so that the local and VM versions can run their ticks on the same host as the browser.
 //!
 //! `PlainRun` reads an export's JSON bytes (what `sheltersim.core.world_export.export_world` writes,
-//! serialized as `scripts/build_browser_sample.py` does) or one world of a file of named worlds,
+//! serialized as `scripts/build_browser_sample.py` does), a Scenario's canonical JSON, whose
+//! minute-0 world the core builds (`from_scenario`, #429), or one world of a file of named worlds,
 //! runs ticks (`advance`), and gives the digests, the metric samples, the frame, the scenario
 //! summary, the EffectProgram's check and schedule, the pieces a Run stores and its saved points;
 //! `Restore` builds a Run again at a saved point from the stored log and samples. It also collects
@@ -70,6 +71,15 @@ impl PlainRun {
     #[new]
     fn new(entry: &[u8]) -> PyResult<Self> {
         Ok(Self::of_run(plain::PlainRun::of_json(entry).or_py()?))
+    }
+
+    /// The Run of a Scenario from minute 0, from its canonical JSON: the entry the core builds of
+    /// its world (`sheltersim_core::initial::entry`, #429), which `sheltersim_native.initial_entry`
+    /// gives as bytes. A Scenario Python refuses to build raises Python's error.
+    #[staticmethod]
+    fn from_scenario(scenario: &[u8]) -> PyResult<Self> {
+        let entry = sheltersim_core::initial::entry(scenario).or_py()?;
+        Ok(Self::of_run(plain::PlainRun::of_json(&entry).or_py()?))
     }
 
     /// The Run of the world `name` of a file of named worlds (`{"worlds": {name: entry}}`, as the

@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Any
 
 from sheltersim.core.world_export import export_world
-from support.paths import CORE_TEST_DATA, INITIAL_TABLE, VALIDATE_CATALOG
+from support.paths import CORE_TEST_DATA, INITIAL_RECORDS, VALIDATE_CATALOG
 
 # Each fixture file under native/core/tests/data/ (its stem) and the function that builds its
 # document, as "module:function". A lane adds a file here and its builder in a support module.
@@ -68,8 +68,9 @@ FIXTURES: dict[str, str] = {
     "research_cases": "support.core_research:research_cases_fixture",
     "programs": "support.core_programs:programs_fixture",
     "initial_worlds": "support.core_initial:initial_worlds_fixture",
-    # Not a test's data: the table the core's minute-0 builder reads (#249), at its own path.
-    "initial_table": "support.core_initial:initial_table",
+    # Not a test's data: what a new Run's records read of the installed code (#301, #429), at its
+    # own path.
+    "initial_records": "support.core_initial:initial_records",
     "scenario_builder": "support.core_scenario_builder:scenario_builder_fixture",
     # The whole world's validation (#250): the valid worlds, and a file of cases per area.
     "validate_worlds": "support.core_validate:validate_worlds_fixture",
@@ -99,9 +100,9 @@ FIXTURES: dict[str, str] = {
     "validate_catalog": "support.core_validate:validate_catalog",
 }
 # The fixtures whose file is not under native/core/tests/data/.
-PATHS: dict[str, Path] = {"initial_table": INITIAL_TABLE, "validate_catalog": VALIDATE_CATALOG}
+PATHS: dict[str, Path] = {"initial_records": INITIAL_RECORDS, "validate_catalog": VALIDATE_CATALOG}
 # The fixtures the core's build embeds (`include_str!`), written without spaces.
-COMPACT = frozenset({"initial_table", "validate_catalog"})
+COMPACT = frozenset({"initial_records", "validate_catalog"})
 
 # ---- The registry ------------------------------------------------------------------------------
 

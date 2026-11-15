@@ -213,7 +213,8 @@ fn scenario_text_parse(text: &str) -> PyResult<String> {
 }
 
 /// The core's entry of a Scenario's world at minute 0, from the Scenario's canonical JSON
-/// (`sheltersim_core::initial::entry`, #249): what `export_world` writes of it, for the tests.
+/// (`sheltersim_core::initial::entry`, #249, #429): what `export_world(world, controller)` writes of
+/// it, which `PlainRun` and the stored Runs start from.
 #[pyfunction]
 fn initial_entry<'py>(py: Python<'py>, scenario: &[u8]) -> PyResult<Bound<'py, PyBytes>> {
     let bytes = sheltersim_core::initial::entry(scenario).or_py()?;
@@ -221,7 +222,7 @@ fn initial_entry<'py>(py: Python<'py>, scenario: &[u8]) -> PyResult<Bound<'py, P
 }
 
 /// The core's `model_versions` of a new Run of a Scenario (`sheltersim_core::initial::model_versions`,
-/// #301), as canonical JSON, for the tests.
+/// #301, #429), as canonical JSON.
 #[pyfunction]
 fn initial_model_versions(scenario: &[u8]) -> PyResult<String> {
     let bytes = sheltersim_core::initial::model_versions(scenario).or_py()?.to_json().or_py()?;

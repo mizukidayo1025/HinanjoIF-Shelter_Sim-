@@ -351,7 +351,7 @@ fn social_defaults() -> Vec<(&'static str, V)> {
 }
 
 /// `SocialPropagationParameters.from_mapping(document, source_id=source)`.
-fn social_parameters(document: Option<&V>, source: &str) -> Result<Vec<(&'static str, V)>> {
+pub(crate) fn social_parameters(document: Option<&V>, source: &str) -> Result<Vec<(&'static str, V)>> {
     let mut parameters = social_defaults();
     let document = match document {
         None | Some(V::Null) => return Ok(parameters),

@@ -7,7 +7,7 @@
 //! or `ProjectStoreError` again; any other error is the core's text (a stored Run of an older
 //! format is a refusal already, 409 `stored_run_outdated`).
 
-use sheltersim_core::answers::{self, records, routes, Failure};
+use sheltersim_core::answers::{self, frames, records, routes, Failure};
 use wasm_bindgen::prelude::*;
 
 use crate::{KpiHistory, Simulation};
@@ -47,6 +47,18 @@ impl Files {
 
     pub fn add(&mut self, name: &str, bytes: Vec<u8>) {
         self.files.push((name.to_owned(), bytes));
+    }
+
+    /// A file of text (a frame's JSON as JS holds it).
+    #[wasm_bindgen(js_name = addText)]
+    pub fn add_text(&mut self, name: &str, text: &str) {
+        self.files.push((name.to_owned(), text.as_bytes().to_vec()));
+    }
+}
+
+impl Files {
+    fn raws(&self) -> Vec<&[u8]> {
+        self.files.iter().map(|(_, bytes)| bytes.as_slice()).collect()
     }
 }
 
@@ -166,8 +178,7 @@ pub fn llm_status_answer(query: &str, project_id: &str, run_id: &str, branch_id:
 /// "conversations" pieces, decompressed, in the order of its journal.
 #[wasm_bindgen(js_name = conversationsAnswer)]
 pub fn conversations_answer(pieces: &Files) -> Result<String, JsError> {
-    let raws: Vec<&[u8]> = pieces.files.iter().map(|(_, bytes)| bytes.as_slice()).collect();
-    answer(routes::conversations_answer(&raws))
+    answer(routes::conversations_answer(&pieces.raws()))
 }
 
 /// `POST runs/{run}/pdf-report`: always a refusal (`routes::pdf_report_answer`).
@@ -232,4 +243,152 @@ impl Simulation {
     pub fn report(&self, scenario: &[u8], branch_id: &str) -> Result<String, JsError> {
         answer(answers::report::build_report(&self.run, scenario, branch_id))
     }
+}
+
+fn records_json(records: &[records::Record]) -> String {
+    let items: Vec<Vec<u8>> = records.iter().map(records::record_json).collect();
+    String::from_utf8_lossy(&answers::list(items)).into_owned()
+}
+
+/// `GET …/branches/{branch}/timeline?minute=`, its checks (`minute` the query's value): JSON,
+/// `{"minute", "record"}`: the minute whose frame is the answer and the branch's record.
+#[wasm_bindgen(js_name = timelinePlan)]
+pub fn timeline_plan(minute: &str, project_id: &str, run_id: &str, files: &RunFiles, branch_id: &str) -> Result<String, JsError> {
+    let (record, minute) = frames::timeline_plan(minute, project_id, run_id, &files.inner, branch_id).map_err(failed)?;
+    Ok(format!("{{\"minute\":{minute},\"record\":{}}}", String::from_utf8_lossy(&records::record_json(&record))))
+}
+
+/// `GET runs/{run}/compare?branch_ids=&minute=` (`frames::ComparePlan`): its checks, then the
+/// branches' journals (`receipts`), then their frames (`answer`).
+#[wasm_bindgen]
+pub struct ComparePlan {
+    plan: frames::ComparePlan,
+    comparison: Option<frames::Comparison>,
+}
+
+#[wasm_bindgen(js_name = comparePlan)]
+pub fn compare_plan(query: &str, project_id: &str, run_id: &str, files: &RunFiles) -> Result<ComparePlan, JsError> {
+    Ok(ComparePlan { plan: frames::ComparePlan::new(query, project_id, run_id, &files.inner).map_err(failed)?, comparison: None })
+}
+
+#[wasm_bindgen]
+impl ComparePlan {
+    #[wasm_bindgen(js_name = branchIds)]
+    pub fn branch_ids(&self) -> Vec<String> {
+        self.plan.branch_ids.clone()
+    }
+
+    pub fn minute(&self) -> f64 {
+        self.plan.minute as f64
+    }
+
+    /// The branches' records, as a JSON list in the order of `branchIds`.
+    #[wasm_bindgen(js_name = recordsJson)]
+    pub fn records_json(&self) -> String {
+        records_json(&self.plan.records)
+    }
+
+    /// Reads the branches' fork receipts: `journals` each branch's `journal.jsonl` (empty where it
+    /// has none), in the order of `branchIds`.
+    pub fn receipts(&mut self, journals: &Files) -> Result<(), JsError> {
+        let comparison = frames::Comparison::new(self.plan.branch_ids.clone(), self.plan.common_range, &journals.raws()).map_err(failed)?;
+        self.comparison = Some(comparison);
+        Ok(())
+    }
+
+    /// The answer of the branches' frames (JSON texts, in the order of `branchIds`), after
+    /// `receipts`.
+    pub fn answer(&self, run_id: &str, frames: &Files) -> Result<String, JsError> {
+        let comparison = self.comparison.as_ref().ok_or_else(|| JsError::new("the receipts are not read"))?;
+        answer(comparison.answer(run_id, self.plan.minute, &frames.raws()))
+    }
+}
+
+/// `GET runs/{run}/replay-frames?branch_ids=&start=&end=` (`frames::ReplayPlan`): its checks;
+/// for two branches, their journals (`receipts`) and each minute's comparison (`compare`); then
+/// the answer of the samples.
+#[wasm_bindgen]
+pub struct ReplayPlan {
+    plan: frames::ReplayPlan,
+    comparison: Option<frames::Comparison>,
+}
+
+#[wasm_bindgen(js_name = replayPlan)]
+pub fn replay_plan(query: &str, project_id: &str, run_id: &str, files: &RunFiles) -> Result<ReplayPlan, JsError> {
+    Ok(ReplayPlan { plan: frames::ReplayPlan::new(query, project_id, run_id, &files.inner).map_err(failed)?, comparison: None })
+}
+
+#[wasm_bindgen]
+impl ReplayPlan {
+    #[wasm_bindgen(js_name = branchIds)]
+    pub fn branch_ids(&self) -> Vec<String> {
+        self.plan.branch_ids.clone()
+    }
+
+    pub fn start(&self) -> f64 {
+        self.plan.start as f64
+    }
+
+    pub fn end(&self) -> f64 {
+        self.plan.end as f64
+    }
+
+    /// The branches' records, as a JSON list in the order of `branchIds`.
+    #[wasm_bindgen(js_name = recordsJson)]
+    pub fn records_json(&self) -> String {
+        records_json(&self.plan.records)
+    }
+
+    /// For two branches: the comparison's checks (the Run's records again) and the branches' fork
+    /// receipts (`journals`, as `ComparePlan.receipts` takes them).
+    pub fn receipts(&mut self, project_id: &str, run_id: &str, files: &RunFiles, journals: &Files) -> Result<(), JsError> {
+        let range = self.plan.comparison_range(project_id, run_id, &files.inner).map_err(failed)?;
+        self.comparison = Some(frames::Comparison::new(self.plan.branch_ids.clone(), range, &journals.raws()).map_err(failed)?);
+        Ok(())
+    }
+
+    /// For two branches: the comparison of their frames at `minute`, after `receipts`.
+    pub fn compare(&self, run_id: &str, minute: f64, frames: &Files) -> Result<String, JsError> {
+        let comparison = self.comparison.as_ref().ok_or_else(|| JsError::new("the receipts are not read"))?;
+        answer(comparison.answer(run_id, minute as i64, &frames.raws()))
+    }
+
+    /// The answer of the samples (a branch's frames, or the comparisons), one for each minute.
+    pub fn answer(&self, samples: &Files) -> Result<String, JsError> {
+        text(self.plan.answer(&samples.raws()))
+    }
+}
+
+/// How the model versions of a branch's stored Run compare with the core's (`frames::model_view`):
+/// JSON `{"recorded", "installed", "status"}` (the status as `modelStatus` writes it), or
+/// undefined for a branch without a stored Run or whose journal cannot be read. `journal` is the
+/// branch's `journal.jsonl`, `scenario` the Run's Scenario.
+#[wasm_bindgen(js_name = branchModelView)]
+pub fn branch_model_view(journal: &[u8], scenario: &[u8]) -> Result<Option<String>, JsError> {
+    let view = frames::model_view(journal, scenario).map_err(failed)?;
+    Ok(view.map(|(recorded, installed, status)| {
+        format!(
+            "{{\"installed\":{},\"recorded\":{},\"status\":{}}}",
+            crate::versions_json(&installed),
+            crate::versions_json(&recorded),
+            crate::status_json(&status)
+        )
+    }))
+}
+
+/// The checks of comparing branches at a minute (`frames::comparison_range`): `branch_ids` the ids, `minute` an integer (undefined for any other value). The common range.
+#[wasm_bindgen(js_name = comparisonRange)]
+pub fn comparison_range(branch_ids: Vec<String>, minute: Option<f64>, project_id: &str, run_id: &str, files: &RunFiles) -> Result<Vec<f64>, JsError> {
+    let (lower, upper) = frames::comparison_range(&branch_ids, minute, project_id, run_id, &files.inner).map_err(failed)?;
+    Ok(vec![lower as f64, upper as f64])
+}
+
+/// Reads the fork receipts of branches' journals (`frames::fork_receipt`), as a comparison does:
+/// an error for a journal it cannot read.
+#[wasm_bindgen(js_name = forkReceipts)]
+pub fn fork_receipts(journals: &Files) -> Result<(), JsError> {
+    for journal in journals.raws() {
+        frames::fork_receipt(journal).map_err(failed)?;
+    }
+    Ok(())
 }

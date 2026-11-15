@@ -324,8 +324,11 @@ split PR by PR; its last section sums up what is where.
   computed minutes), `llm-status`, `conversations`, `pdf-report` and `delete`
   (`answers::routes`), the KPI history (`answers::history`: `HistoryPlan` checks the query and
   the cursor, the caller reads the branch's samples into a `KpiTable`, the plan writes the page)
-  and the offline report (`answers::report`: what is kept, or `build_report` of the Run at its
-  last minute), with the server's checks in its order and its refusals (`Refusal`: the
+  the offline report (`answers::report`: what is kept, or `build_report` of the Run at its
+  last minute), and the answers made of frames (`answers::frames`: `timeline_plan`, `ReplayPlan`,
+  `ComparePlan` give the minutes and branches whose frames the caller makes, `Comparison` reads
+  the branches' fork receipts from their journals and writes a comparison; `model_view`,
+  `require_current_model` and `view_frame` are the rule of a Run of other model versions), with the server's checks in its order and its refusals (`Refusal`: the
   HTTP status, the text, the code; `Failure` adds the core's errors, a stored Run of an older
   format being 409 `stored_run_outdated`). Reading the files, decompressing, locks, routing and
   computing stay with the caller. The browser calls them through `wasm/src/answers.rs` (a

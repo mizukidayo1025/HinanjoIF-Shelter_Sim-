@@ -14,7 +14,7 @@ use pyo3::create_exception;
 use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
-use sheltersim_core::answers::{history, records, report, routes, Failure};
+use sheltersim_core::answers::{frames, history, records, report, routes, Failure};
 use sheltersim_core::history::KpiTable;
 
 use crate::core::errors::{to_py_err, OrPy};
@@ -235,7 +235,190 @@ fn build_report<'py>(py: Python<'py>, run: &crate::rules::plain::PlainRun, scena
     bytes(py, report::build_report(run.core(), scenario, branch_id))
 }
 
+
+fn records_json(records: &[records::Record]) -> Vec<u8> {
+    sheltersim_core::answers::list(records.iter().map(records::record_json))
+}
+
+/// A fork receipt from Python: `(branch_id, minute, state_hash, checkpoint_hash)`.
+type ReceiptTuple = (String, i64, String, Option<String>);
+
+fn receipts_of(receipts: Vec<Option<ReceiptTuple>>) -> Vec<Option<frames::Receipt>> {
+    receipts
+        .into_iter()
+        .map(|receipt| receipt.map(|(branch_id, minute, state_hash, checkpoint_hash)| frames::Receipt { branch_id, minute, state_hash, checkpoint_hash }))
+        .collect()
+}
+
+/// `GET …/branches/{branch}/timeline?minute=`, its checks (`minute` the query's value): the
+/// branch's record (JSON) and the minute whose frame is the answer.
+#[pyfunction]
+#[pyo3(signature = (minute, project_id, run_id, run, branches, branch_id))]
+fn timeline_plan<'py>(
+    py: Python<'py>,
+    minute: &str,
+    project_id: &str,
+    run_id: &str,
+    run: Option<Vec<u8>>,
+    branches: Branches,
+    branch_id: &str,
+) -> PyResult<(Bound<'py, PyBytes>, i64)> {
+    let (record, minute) = frames::timeline_plan(minute, project_id, run_id, &run_files(run, branches), branch_id).map_err(failed)?;
+    Ok((PyBytes::new(py, &records::record_json(&record)), minute))
+}
+
+/// `GET runs/{run}/compare?branch_ids=&minute=` (`frames::ComparePlan`): its checks
+/// (`compare_plan`), then the branches' fork receipts (`receipts` of their journals, or
+/// `receipts_of` those read already), then the answer of their frames.
+#[pyclass(name = "ComparePlan", module = "sheltersim_native.rules.answers")]
+pub struct PyComparePlan {
+    plan: frames::ComparePlan,
+    comparison: Option<frames::Comparison>,
+}
+
+#[pyfunction]
+#[pyo3(signature = (query, project_id, run_id, run, branches))]
+fn compare_plan(query: &str, project_id: &str, run_id: &str, run: Option<Vec<u8>>, branches: Branches) -> PyResult<PyComparePlan> {
+    Ok(PyComparePlan { plan: frames::ComparePlan::new(query, project_id, run_id, &run_files(run, branches)).map_err(failed)?, comparison: None })
+}
+
+#[pymethods]
+impl PyComparePlan {
+    #[getter]
+    fn branch_ids(&self) -> Vec<String> {
+        self.plan.branch_ids.clone()
+    }
+
+    #[getter]
+    fn minute(&self) -> i64 {
+        self.plan.minute
+    }
+
+    /// The branches' records, as a JSON list in the order of `branch_ids`.
+    fn records_json<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
+        PyBytes::new(py, &records_json(&self.plan.records))
+    }
+
+    /// The branches' journals (`journal.jsonl`, empty where there is none), in their order.
+    fn receipts(&mut self, journals: Vec<Vec<u8>>) -> PyResult<()> {
+        let raws: Vec<&[u8]> = journals.iter().map(Vec::as_slice).collect();
+        self.comparison = Some(frames::Comparison::new(self.plan.branch_ids.clone(), self.plan.common_range, &raws).map_err(failed)?);
+        Ok(())
+    }
+
+    /// The branches' fork receipts read already: `(branch_id, minute, state_hash,
+    /// checkpoint_hash)` or None, in their order.
+    fn receipts_of(&mut self, receipts: Vec<Option<ReceiptTuple>>) {
+        self.comparison = Some(frames::Comparison::of_receipts(self.plan.branch_ids.clone(), self.plan.common_range, receipts_of(receipts)));
+    }
+
+    /// The answer of the branches' frames (JSON bytes, in the order of `branch_ids`).
+    fn answer<'py>(&self, py: Python<'py>, run_id: &str, frames: Vec<Vec<u8>>) -> PyResult<Bound<'py, PyBytes>> {
+        let comparison = self.comparison.as_ref().ok_or_else(|| pyo3::exceptions::PyRuntimeError::new_err("the receipts are not read"))?;
+        let raws: Vec<&[u8]> = frames.iter().map(Vec::as_slice).collect();
+        bytes(py, comparison.answer(run_id, self.plan.minute, &raws))
+    }
+}
+
+/// `GET runs/{run}/replay-frames?branch_ids=&start=&end=` (`frames::ReplayPlan`): its checks; for
+/// two branches, their receipts and each minute's comparison (`compare`); then the answer.
+#[pyclass(name = "ReplayPlan", module = "sheltersim_native.rules.answers")]
+pub struct PyReplayPlan {
+    plan: frames::ReplayPlan,
+    comparison: Option<frames::Comparison>,
+}
+
+#[pyfunction]
+#[pyo3(signature = (query, project_id, run_id, run, branches))]
+fn replay_plan(query: &str, project_id: &str, run_id: &str, run: Option<Vec<u8>>, branches: Branches) -> PyResult<PyReplayPlan> {
+    Ok(PyReplayPlan { plan: frames::ReplayPlan::new(query, project_id, run_id, &run_files(run, branches)).map_err(failed)?, comparison: None })
+}
+
+#[pymethods]
+impl PyReplayPlan {
+    #[getter]
+    fn branch_ids(&self) -> Vec<String> {
+        self.plan.branch_ids.clone()
+    }
+
+    #[getter]
+    fn start(&self) -> i64 {
+        self.plan.start
+    }
+
+    #[getter]
+    fn end(&self) -> i64 {
+        self.plan.end
+    }
+
+    /// The branches' records, as a JSON list in the order of `branch_ids`.
+    fn records_json<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
+        PyBytes::new(py, &records_json(&self.plan.records))
+    }
+
+    /// For two branches: the comparison's checks (the Run's records) and their journals.
+    #[pyo3(signature = (project_id, run_id, run, branches, journals))]
+    fn receipts(&mut self, project_id: &str, run_id: &str, run: Option<Vec<u8>>, branches: Branches, journals: Vec<Vec<u8>>) -> PyResult<()> {
+        let range = self.plan.comparison_range(project_id, run_id, &run_files(run, branches)).map_err(failed)?;
+        let raws: Vec<&[u8]> = journals.iter().map(Vec::as_slice).collect();
+        self.comparison = Some(frames::Comparison::new(self.plan.branch_ids.clone(), range, &raws).map_err(failed)?);
+        Ok(())
+    }
+
+    /// For two branches: the comparison's checks and their fork receipts read already.
+    #[pyo3(signature = (project_id, run_id, run, branches, receipts))]
+    fn receipts_of(&mut self, project_id: &str, run_id: &str, run: Option<Vec<u8>>, branches: Branches, receipts: Vec<Option<ReceiptTuple>>) -> PyResult<()> {
+        let range = self.plan.comparison_range(project_id, run_id, &run_files(run, branches)).map_err(failed)?;
+        self.comparison = Some(frames::Comparison::of_receipts(self.plan.branch_ids.clone(), range, receipts_of(receipts)));
+        Ok(())
+    }
+
+    /// For two branches: the comparison of their frames at `minute`.
+    fn compare<'py>(&self, py: Python<'py>, run_id: &str, minute: i64, frames: Vec<Vec<u8>>) -> PyResult<Bound<'py, PyBytes>> {
+        let comparison = self.comparison.as_ref().ok_or_else(|| pyo3::exceptions::PyRuntimeError::new_err("the receipts are not read"))?;
+        let raws: Vec<&[u8]> = frames.iter().map(Vec::as_slice).collect();
+        bytes(py, comparison.answer(run_id, minute, &raws))
+    }
+
+    /// The answer of the samples (frames, or comparisons), one for each minute.
+    fn answer<'py>(&self, py: Python<'py>, samples: Vec<Vec<u8>>) -> Bound<'py, PyBytes> {
+        let raws: Vec<&[u8]> = samples.iter().map(Vec::as_slice).collect();
+        PyBytes::new(py, &self.plan.answer(&raws))
+    }
+}
+
+/// Python's `_require_current_model` of a branch: its `journal.jsonl` and the Run's Scenario.
+#[pyfunction]
+fn require_current_model(journal: &[u8], scenario: &[u8]) -> PyResult<()> {
+    frames::require_current_model(journal, scenario).map_err(failed)
+}
+
+/// Whether the branch's stored Run is view-only (computed with other model versions than the
+/// core's); false for a branch without a stored Run.
+#[pyfunction]
+fn view_only(journal: &[u8], scenario: &[u8]) -> PyResult<bool> {
+    Ok(matches!(frames::model_view(journal, scenario).map_err(failed)?, Some((_, _, status)) if !status.current()))
+}
+
+/// The frame of a view-only Run (`frames::view_frame`): the frame of its saved point at or before
+/// the minute asked for, with the fields the answer adds.
+#[pyfunction]
+fn view_frame<'py>(py: Python<'py>, frame: &[u8], journal: &[u8], scenario: &[u8], saved_minute: i64, requested_minute: i64) -> PyResult<Bound<'py, PyBytes>> {
+    let Some((_, _, status)) = frames::model_view(journal, scenario).map_err(failed)? else {
+        return Err(pyo3::exceptions::PyValueError::new_err("the branch has no stored Run"));
+    };
+    bytes(py, frames::view_frame(frame, &status, saved_minute, requested_minute))
+}
+
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_class::<PyComparePlan>()?;
+    m.add_class::<PyReplayPlan>()?;
+    m.add_function(wrap_pyfunction!(timeline_plan, m)?)?;
+    m.add_function(wrap_pyfunction!(compare_plan, m)?)?;
+    m.add_function(wrap_pyfunction!(replay_plan, m)?)?;
+    m.add_function(wrap_pyfunction!(require_current_model, m)?)?;
+    m.add_function(wrap_pyfunction!(view_only, m)?)?;
+    m.add_function(wrap_pyfunction!(view_frame, m)?)?;
     m.add_class::<PyKpiTable>()?;
     m.add_class::<PyHistoryPlan>()?;
     m.add_function(wrap_pyfunction!(history_plan, m)?)?;

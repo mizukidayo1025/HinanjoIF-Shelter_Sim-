@@ -18,6 +18,7 @@ from typing import Any
 
 import pytest
 from support.core_api_answers import normalize
+from support.core_interventions import mask
 from support.paths import CORE_TEST_DATA
 
 from sheltersim import native
@@ -302,3 +303,161 @@ def test_the_report_is_the_server_s(fixture_run: Any) -> None:
     waiting = json.loads(branch)
     waiting["status"] = "paused"
     assert ANSWERS.report_answer("", *ids, _record(waiting), None) == b'{"status":"not_generated"}'
+
+
+# ---- Frames: timeline, replay-frames and compare (native/core/tests/data/interventions.json) ----
+
+INTERVENTIONS = json.loads((CORE_TEST_DATA / "interventions.json").read_text(encoding="utf-8"))
+HEADS = {"main": "a" * 64, INTERVENTIONS["run"]["child"]: "b" * 64}
+
+
+def _fork_files() -> tuple[bytes, list[tuple[str, bytes]]]:
+    """The records of the interventions' Run: `main` and its child, both at the end."""
+    run = INTERVENTIONS["run"]
+    record = {
+        "schema_version": 1,
+        "project_id": run["project_id"],
+        "scenario_id": "s",
+        "scenario_version": 1,
+        "scenario_hash": "0" * 64,
+        "run_id": run["run_id"],
+        "seed": run["seed"],
+        "model_versions": run["model_versions"],
+        "status": "completed",
+        "archived": False,
+    }
+
+    def branch(branch_id: str, parent: str | None, fork: int) -> bytes:
+        return _record(
+            {
+                "schema_version": 1,
+                "run_id": run["run_id"],
+                "branch_id": branch_id,
+                "parent_branch_id": parent,
+                "fork_minute": fork,
+                "computed_until": run["minutes"],
+                "checkpoint_hash": HEADS[branch_id],
+                "status": "completed",
+            }
+        )
+
+    child = run["child"]
+    return _record(record), [
+        ("main", branch("main", None, 0)),
+        (child, branch(child, "main", run["fork_minute"])),
+    ]
+
+
+@pytest.fixture(scope="module")
+def fork_frames() -> tuple[dict[str, dict[int, bytes]], tuple[str, int, str, str]]:
+    """The frames of `main` and of the child at the minutes the cases ask for, made from Runs
+    without Python: the child is `main` at the fork's minute with the approved program applied,
+    as the browser's and the server's fork make it. Also the child's fork receipt."""
+    run = INTERVENTIONS["run"]
+    applied = next(
+        case
+        for case in INTERVENTIONS["cases"]
+        if case["route"] == "apply" and case["status"] == 200
+    )
+    approved = applied["document"]["approved_program_hash"]
+    previews = [
+        json.loads(case["text"])
+        for case in INTERVENTIONS["cases"]
+        if case["route"] == "preview" and case.get("text")
+    ]
+    program = next(
+        preview["program"]
+        for preview in previews
+        if preview.get("approved_program_hash") == approved
+    )
+    program_text = json.dumps(
+        program, sort_keys=True, ensure_ascii=False, separators=(",", ":")
+    ).encode()
+    assert hashlib.sha256(program_text).hexdigest() == approved
+    raw = (CORE_TEST_DATA / "interventions.json").read_bytes()
+    plain = native.rules("plain").PlainRun
+    runs = {
+        "main": plain.from_worlds(raw, "interventions"),
+        run["child"]: plain.from_worlds(raw, "interventions"),
+    }
+    fork = run["fork_minute"]
+    for each in runs.values():
+        assert each.advance(fork) == fork
+    origin = runs[run["child"]].state_digest()
+    runs[run["child"]].apply_effect_program(program_text)
+    wanted = {fork, 420, 421, run["minutes"], *range(418, 426), *range(476, run["minutes"] + 1)}
+    frames: dict[str, dict[int, bytes]] = {name: {} for name in runs}
+    for minute in range(fork, run["minutes"] + 1):
+        for name, each in runs.items():
+            if each.minute() < minute:
+                assert each.advance(1) == 1
+            if minute in wanted:
+                frames[name][minute] = each.frame(run["run_id"], name, run["minutes"])
+    return frames, ("main", fork, origin, "c" * 64)
+
+
+def _masked(body: bytes) -> str:
+    return mask(body.decode(), HEADS)
+
+
+def test_compare_replay_and_timeline_are_the_server_s(fork_frames: Any) -> None:
+    frames, receipt = fork_frames
+    run, branches = _fork_files()
+    info = INTERVENTIONS["run"]
+    ids = (info["project_id"], info["run_id"])
+    receipts = {"main": None, info["child"]: receipt}
+
+    def refused_or(call: Any) -> tuple[int, Any]:
+        try:
+            return 200, call()
+        except ANSWERS.Refused as refused:
+            return refused.args[0], refused.args[3].decode()
+
+    checked = 0
+    for case in INTERVENTIONS["cases"]:
+        route = case["route"]
+        if route == "compare":
+            if (
+                case.get("body")
+                == '{"code":"storage_conflict","error":"unknown project route or query"}'
+            ):
+                continue  # the route's own refusal of another query, before the answer
+            status, plan = refused_or(
+                lambda: ANSWERS.compare_plan(case["query"], *ids, run, branches)
+            )
+            if status == 200:
+                plan.receipts_of([receipts[id] for id in plan.branch_ids])
+                plan_frames = [frames[id][plan.minute] for id in plan.branch_ids]
+                body = _masked(plan.answer(info["run_id"], plan_frames))
+                assert hashlib.sha256(body.encode()).hexdigest() == case["sha256"], case["name"]
+            else:
+                assert (status, plan) == (case["status"], case["body"]), case["name"]
+        elif route == "replay-frames":
+            status, plan = refused_or(
+                lambda: ANSWERS.replay_plan(case["query"], *ids, run, branches)
+            )
+            if status != 200:
+                assert (status, plan) == (case["status"], case["body"]), case["name"]
+                continue
+            plan.receipts_of(*ids, run, branches, [receipts[id] for id in plan.branch_ids])
+            samples = [
+                plan.compare(info["run_id"], minute, [frames[id][minute] for id in plan.branch_ids])
+                for minute in range(plan.start, plan.end + 1)
+            ]
+            body = _masked(plan.answer(samples))
+            assert hashlib.sha256(body.encode()).hexdigest() == case["sha256"], case["name"]
+        elif route == "timeline":
+            _, minute = ANSWERS.timeline_plan(
+                str(case["minute"]), *ids, run, branches, info["child"]
+            )
+            body = _masked(frames[info["child"]][minute])
+            assert hashlib.sha256(body.encode()).hexdigest() == case["sha256"], case["name"]
+        else:
+            continue
+        checked += 1
+    assert checked >= 15
+    status, body = refused_or(lambda: ANSWERS.timeline_plan("x", *ids, run, branches, "main"))
+    assert (status, body) == (
+        409,
+        '{"code":"storage_conflict","error":"minute must be an integer"}',
+    )

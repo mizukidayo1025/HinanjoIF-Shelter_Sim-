@@ -262,7 +262,7 @@ fn versions_of(json: &str) -> Result<model_version::Versions, JsError> {
     model_version::versions_of_json(json.as_bytes()).map_err(js_error)
 }
 
-fn versions_json(versions: &model_version::Versions) -> String {
+pub(crate) fn versions_json(versions: &model_version::Versions) -> String {
     let mut encoder = Encoder::with_capacity(256);
     encoder.out.push(b'{');
     for (index, (key, value)) in versions.iter().enumerate() {
@@ -295,6 +295,11 @@ pub fn model_status(recorded: &str, installed: Option<String>) -> Result<String,
         Some(installed) => model_version::ModelStatus::of(&recorded, &versions_of(&installed)?),
         None => model_version::ModelStatus::unreadable(&recorded),
     };
+    Ok(status_json(&status))
+}
+
+/// `modelStatus`'s JSON of a status.
+pub(crate) fn status_json(status: &model_version::ModelStatus) -> String {
     let mut encoder = Encoder::with_capacity(512);
     encoder.out.extend_from_slice(b"{\"current\":");
     encoder.bool(status.current());
@@ -322,7 +327,7 @@ pub fn model_status(recorded: &str, installed: Option<String>) -> Result<String,
         encoder.string(&status.error_text());
     }
     encoder.out.push(b'}');
-    Ok(String::from_utf8_lossy(&encoder.out).into_owned())
+    String::from_utf8_lossy(&encoder.out).into_owned()
 }
 
 /// The fields an answer of a Run of other model versions adds (`ModelStatus::describe_json`, D2),

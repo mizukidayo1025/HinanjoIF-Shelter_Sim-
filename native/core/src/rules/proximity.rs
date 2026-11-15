@@ -122,23 +122,44 @@ fn pairs_within(points: &[Placed], radius: f64, limit: usize) -> Result<Vec<(f64
     Ok(candidates)
 }
 
+/// What the sampler reads of the policy's config: how near two people are in contact, and how many
+/// pairs a sample keeps.
+#[derive(Clone, Copy, Debug)]
+struct SampleConfig {
+    radius: f64,
+    limit: usize,
+}
+
+impl SampleConfig {
+    /// The config's `max_distance_m` and `max_pairs_per_sample`, checked in that order.
+    fn read(policy_config: &V) -> Result<Self> {
+        let radius = match item(policy_config, "max_distance_m")? {
+            V::Float(number) => *number,
+            V::Int(number) => *number as f64,
+            V::Big(_) => return refuse("the proximity radius is too large"),
+            _ => return refuse("the proximity radius is not a number"),
+        };
+        if !(radius.is_finite() && radius > 0.0) {
+            return refuse("the proximity radius is not positive");
+        }
+        let limit = match item(policy_config, "max_pairs_per_sample")? {
+            V::Int(limit) if *limit >= 0 => *limit as usize,
+            V::Int(_) | V::Big(_) => return refuse("the proximity limit is out of range"),
+            _ => return refuse("the proximity limit is not an int"),
+        };
+        Ok(Self { radius, limit })
+    }
+}
+
 /// What `policy.sample(world)` finds, given the policy's config: `points`, and the pairs. `movement`
 /// says whether the world holds `movement_v1`.
 pub fn sample(world: &World, policy_config: &V, movement: &Held) -> Result<(Vec<Placed>, Vec<(f64, usize, usize)>)> {
-    let radius = match item(policy_config, "max_distance_m")? {
-        V::Float(number) => *number,
-        V::Int(number) => *number as f64,
-        V::Big(_) => return refuse("the proximity radius is too large"),
-        _ => return refuse("the proximity radius is not a number"),
-    };
-    if !(radius.is_finite() && radius > 0.0) {
-        return refuse("the proximity radius is not positive");
-    }
-    let limit = match item(policy_config, "max_pairs_per_sample")? {
-        V::Int(limit) if *limit >= 0 => *limit as usize,
-        V::Int(_) | V::Big(_) => return refuse("the proximity limit is out of range"),
-        _ => return refuse("the proximity limit is not an int"),
-    };
+    sample_with(world, SampleConfig::read(policy_config)?, movement)
+}
+
+/// `sample` of a config read.
+fn sample_with(world: &World, config: SampleConfig, movement: &Held) -> Result<(Vec<Placed>, Vec<(f64, usize, usize)>)> {
+    let SampleConfig { radius, limit } = config;
     let placed = placed(world, movement)?;
     let rows = world.rows()?;
     if rows.zones_tainted().is_some() {
@@ -213,8 +234,8 @@ pub fn sample_contacts(world: &World, proximity: &Proximity, minute: i64, moveme
     let Some(policy) = kit::policy(proximity.policy.as_ref())? else {
         return Err(Error::unsupported("another proximity policy").into());
     };
-    let policy_config = kit::policy(policy.value("config"))?;
-    let (points, pairs) = sample(world, policy_config, movement)?;
+    let config = SampleConfig::read(kit::policy(policy.value("config"))?)?;
+    let (points, pairs) = sample_with(world, config, movement)?;
     let source: Arc<str> = Arc::from(SOURCE_ID);
     for (distance, first, second) in pairs {
         let (first, second) = (&points[first], &points[second]);

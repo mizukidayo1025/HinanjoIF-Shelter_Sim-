@@ -57,7 +57,7 @@ use crate::state::social_network::{Relationship, SocialNetworkRow, NAME as SOCIA
 use crate::state::social_propagation::{SocialRow, NAME as SOCIAL_RUNTIME};
 use crate::text::py_repr;
 use crate::value::V;
-use crate::world::{World, WorldCell};
+use crate::world::{Seed, World, WorldCell};
 
 pub use crate::rules::kit::{DYNAMICS, POPULATION_SOURCE_ID as SOURCE_ID, PRESENCE};
 pub use crate::rules::overlay::{OVERLAY_KEY as OVERLAY, PLAN_UNREAD, SPACES_KEY as SPACES};
@@ -1460,7 +1460,7 @@ pub struct ArrivalArgs {
 /// A prepared arrival.
 #[derive(Clone)]
 struct Prepared {
-    item: Doc,
+    item: NewArrival,
     agent_id: Arc<str>,
     household: Arc<str>,
     role: &'static str,
@@ -1489,8 +1489,8 @@ pub struct ArrivalsPlan {
     pub fails: Option<String>,
     zone: Arc<str>,
     prepared: Vec<Prepared>,
-    contexts: Vec<(Arc<str>, V)>,
-    summary: V,
+    contexts: Vec<(Arc<str>, GeneratedContext)>,
+    summary: ArrivalSummary,
     event_id: Arc<str>,
     due_minute: i64,
     approaching: bool,
@@ -1508,7 +1508,8 @@ fn fails_after_state(new_state: Option<V>, text: impl Into<String>) -> ArrivalsP
         zone: Arc::from(""),
         prepared: Vec::new(),
         contexts: Vec::new(),
-        summary: V::Null,
+        // Never written: the rule raises its text before its writes.
+        summary: ArrivalSummary { event_id: Arc::from(""), zone_id: Arc::from(""), requested: 0, admitted: 0, minute: 0 },
         event_id: Arc::from(""),
         due_minute: 0,
         approaching: false,
@@ -1518,8 +1519,50 @@ fn fails_after_state(new_state: Option<V>, text: impl Into<String>) -> ArrivalsP
     }
 }
 
+/// A context `_generated_arrival_context` makes of an arrival.
+#[derive(Clone)]
+struct GeneratedContext {
+    household_id: Arc<str>,
+    caregiver_ids: Vec<Arc<str>>,
+    /// Those a caregiver cares for: None for anyone else.
+    care_for_ids: Option<Vec<Arc<str>>>,
+    requires_review: bool,
+    role: Option<&'static str>,
+    guardian_status: Option<&'static str>,
+    care_support_needs: Vec<Arc<str>>,
+    source_ids: Vec<Arc<str>>,
+}
+
+impl GeneratedContext {
+    /// `model_dump(exclude_defaults, exclude_none)`: the fields set, in the contract's order.
+    fn value(&self) -> V {
+        let mut context = doc([("household_id", V::Str(self.household_id.clone()))]);
+        if !self.caregiver_ids.is_empty() {
+            context.insert(Arc::from("caregiver_ids"), strings(&self.caregiver_ids));
+        }
+        if let Some(care_for) = &self.care_for_ids {
+            context.insert(Arc::from("care_for_ids"), strings(care_for));
+        }
+        if self.requires_review {
+            context.insert(Arc::from("requires_review"), V::Bool(true));
+            context.insert(Arc::from("review_reasons"), V::List(vec![v_str("synthetic_arrival_care_relationship_requires_review")]));
+        }
+        if let Some(name) = self.role {
+            context.insert(Arc::from("roles"), V::List(vec![v_str(name)]));
+        }
+        if let Some(status) = self.guardian_status {
+            context.insert(Arc::from("guardian_status"), v_str(status));
+        }
+        if !self.care_support_needs.is_empty() {
+            context.insert(Arc::from("care_support_needs"), strings(&self.care_support_needs));
+        }
+        context.insert(Arc::from("source_ids"), strings(&self.source_ids));
+        V::Map(context)
+    }
+}
+
 /// `_generated_arrival_context`: the same fields as `model_dump(exclude_defaults, exclude_none)`.
-fn generated_context(items: &[Prepared]) -> Result<Vec<(Arc<str>, V)>> {
+fn generated_context(items: &[Prepared]) -> Result<Vec<(Arc<str>, GeneratedContext)>> {
     let mut households: Vec<(&str, Vec<&Prepared>)> = Vec::new();
     for item in items {
         match households.iter_mut().find(|(name, _)| *name == &*item.household) {
@@ -1529,7 +1572,7 @@ fn generated_context(items: &[Prepared]) -> Result<Vec<(Arc<str>, V)>> {
     }
     households.sort_by(|first, second| first.0.as_bytes().cmp(second.0.as_bytes()));
     let mut contexts = Vec::with_capacity(items.len());
-    for (household, mut members) in households {
+    for (_, mut members) in households {
         members.sort_by(|first, second| first.agent_id.as_bytes().cmp(second.agent_id.as_bytes()));
         let caregiver = members.iter().find(|item| item.role == "adult").map(|item| item.agent_id.clone());
         let mut care_for: Vec<Arc<str>> = Vec::new();
@@ -1555,32 +1598,22 @@ fn generated_context(items: &[Prepared]) -> Result<Vec<(Arc<str>, V)>> {
                     _ => None,
                 }
             };
-            let mut context = doc([("household_id", v_str(household))]);
-            if !caregiver_ids.is_empty() {
-                context.insert(Arc::from("caregiver_ids"), strings(&caregiver_ids));
-            }
-            if is_caregiver && !care_for.is_empty() {
-                context.insert(Arc::from("care_for_ids"), strings(&care_for));
-            }
-            if requires_review {
-                context.insert(Arc::from("requires_review"), V::Bool(true));
-                context.insert(Arc::from("review_reasons"), V::List(vec![v_str("synthetic_arrival_care_relationship_requires_review")]));
-            }
-            if let Some(name) = role_name {
-                context.insert(Arc::from("roles"), V::List(vec![v_str(name)]));
-            }
-            if item.role == "child" {
-                context.insert(Arc::from("guardian_status"), v_str(if caregiver_ids.is_empty() { "unaccompanied" } else { "accompanied" }));
-            }
-            if !item.care_needs.is_empty() {
-                context.insert(Arc::from("care_support_needs"), strings(&item.care_needs));
-            }
+            let guardian_status = (item.role == "child").then_some(if caregiver_ids.is_empty() { "unaccompanied" } else { "accompanied" });
             let sources = sorted_set(vec![Arc::from(SOURCE_ID), item.source.clone()]);
             for source in &sources {
                 identifier(source)?;
             }
-            context.insert(Arc::from("source_ids"), strings(&sources));
-            contexts.push((item.agent_id.clone(), V::Map(context)));
+            let context = GeneratedContext {
+                household_id: item.household.clone(),
+                caregiver_ids,
+                care_for_ids: (is_caregiver && !care_for.is_empty()).then(|| care_for.clone()),
+                requires_review,
+                role: role_name,
+                guardian_status,
+                care_support_needs: item.care_needs.clone(),
+                source_ids: sources,
+            };
+            contexts.push((item.agent_id.clone(), context));
         }
     }
     Ok(contexts)
@@ -1773,7 +1806,6 @@ fn plan_arrivals_in(world: &World, inputs: &Inputs, row: &EventRow, new_state: O
     identifier(&row.event_id)?;
     // `f"{world.seed}"` and the int itself: a seed of any size, past 64 bits too.
     let seed = world.scalars()?.seed()?.clone();
-    let seed_value = seed.small.map_or_else(|| V::Big(Box::from(&*seed.text)), V::Int);
     let schema_version = world.schema_version()?;
     let hydrated = schema_version == 6;
     let event_digest = sha_hex(&row.event_id);
@@ -1791,7 +1823,7 @@ fn plan_arrivals_in(world: &World, inputs: &Inputs, row: &EventRow, new_state: O
         care_by_index: &care_by_index,
         hydrated,
         event_digest,
-        seed_value: &seed_value,
+        seed: &seed,
         context_source: &context_source,
     };
     for index in 0..count {
@@ -1839,7 +1871,7 @@ fn plan_arrivals_in(world: &World, inputs: &Inputs, row: &EventRow, new_state: O
                 match plan_completion(world, inputs, row, item, route, due, sequence)? {
                     Ok(completion) => {
                         sequence += 1;
-                        item.item.insert(Arc::from("approach_completion_event_id"), V::Str(completion.event_id.clone()));
+                        item.item.completion_event_id = Some(completion.event_id.clone());
                         item.completion = Some(completion);
                     }
                     Err((stop, text)) => {
@@ -1867,7 +1899,7 @@ fn plan_arrivals_in(world: &World, inputs: &Inputs, row: &EventRow, new_state: O
                     }
                 }
                 admitted += 1;
-                let document = V::Map(item.item.clone());
+                let document = item.item.value();
                 let agent = build_agent(field(&document, "profile")?, &target, row.due_minute, schema_version)?;
                 item.admission = Some(Admission { item: document, zone: target, room, agent });
             }
@@ -1952,16 +1984,155 @@ fn first_place(places: &mut Places, world: &World, inputs: &Inputs, zone_list: &
     Ok(decision)
 }
 
+/// The summary of an event's arrivals, which `arrivals` keeps.
+struct ArrivalSummary {
+    event_id: Arc<str>,
+    zone_id: Arc<str>,
+    requested: i64,
+    admitted: i64,
+    minute: i64,
+}
+
+impl ArrivalSummary {
+    fn value(&self) -> V {
+        V::Map(doc([
+            ("event_id", V::Str(self.event_id.clone())),
+            ("zone_id", V::Str(self.zone_id.clone())),
+            ("requested_count", V::Int(self.requested)),
+            ("admitted_count", V::Int(self.admitted)),
+            ("waiting_count", V::Int(self.requested - self.admitted)),
+            ("minute", V::Int(self.minute)),
+        ]))
+    }
+}
+
 /// The summary of an event's arrivals.
-fn arrivals_summary(row: &EventRow, zone: &Arc<str>, count: i64, admitted: i64) -> V {
-    V::Map(doc([
-        ("event_id", V::Str(row.event_id.clone())),
-        ("zone_id", V::Str(zone.clone())),
-        ("requested_count", V::Int(count)),
-        ("admitted_count", V::Int(admitted)),
-        ("waiting_count", V::Int(count - admitted)),
-        ("minute", V::Int(row.due_minute)),
-    ]))
+fn arrivals_summary(row: &EventRow, zone: &Arc<str>, count: i64, admitted: i64) -> ArrivalSummary {
+    ArrivalSummary { event_id: row.event_id.clone(), zone_id: zone.clone(), requested: count, admitted, minute: row.due_minute }
+}
+
+/// The profile of an arrival, as `AgentProfile` saves it.
+#[derive(Clone)]
+struct NewProfile {
+    id: Arc<str>,
+    group_id: Arc<str>,
+    initial_zone_id: Arc<str>,
+    mobility: &'static str,
+    support_need: f64,
+    stress_sensitivity: f64,
+    rng_key: Arc<str>,
+    toilet_urgency: f64,
+    hunger: f64,
+    fatigue: f64,
+    /// Of a world whose needs are hydrated (schema 6).
+    hydration_need: Option<f64>,
+    /// The arrival's event, in the provenance.
+    event_id: Arc<str>,
+    /// The world's seed, in the provenance: an int of any size.
+    seed: Seed,
+}
+
+impl NewProfile {
+    fn value(&self) -> V {
+        let mut initial = doc([("toilet_urgency", V::Float(self.toilet_urgency)), ("hunger", V::Float(self.hunger)), ("fatigue", V::Float(self.fatigue))]);
+        if let Some(hydration) = self.hydration_need {
+            initial.insert(Arc::from("hydration_need"), V::Float(hydration));
+        }
+        let seed = self.seed.small.map_or_else(|| V::Big(Box::from(&*self.seed.text)), V::Int);
+        V::Map(doc([
+            ("id", V::Str(self.id.clone())),
+            ("group_id", V::Str(self.group_id.clone())),
+            ("initial_zone_id", V::Str(self.initial_zone_id.clone())),
+            ("mobility", v_str(self.mobility)),
+            ("support_need", V::Float(self.support_need)),
+            ("stress_sensitivity", V::Float(self.stress_sensitivity)),
+            ("rng_key", V::Str(self.rng_key.clone())),
+            ("initial_needs", V::Map(initial)),
+            (
+                "provenance",
+                V::Map(doc([
+                    ("source_type", v_str("assumption")),
+                    ("source_id", v_str(SOURCE_ID)),
+                    ("event_id", V::Str(self.event_id.clone())),
+                    ("seed", seed),
+                ])),
+            ),
+        ]))
+    }
+}
+
+/// The traits of an arrival, as `PersonTraits` saves them.
+#[derive(Clone)]
+struct NewTraits {
+    age_years: i64,
+    household_id: Arc<str>,
+    household_role: &'static str,
+    language: Arc<str>,
+}
+
+impl NewTraits {
+    fn value(&self) -> V {
+        V::Map(doc([
+            ("age_years", V::Int(self.age_years)),
+            ("household_id", V::Str(self.household_id.clone())),
+            ("household_role", v_str(self.household_role)),
+            ("languages", V::List(vec![V::Str(self.language.clone())])),
+            ("accessibility_needs", V::List(Vec::new())),
+            ("medical_support", V::Bool(false)),
+            ("source_ids", V::List(Vec::new())),
+        ]))
+    }
+}
+
+/// The approach of an arrival on a route: its route and its minutes.
+#[derive(Clone)]
+struct NewApproach {
+    route_id: Arc<str>,
+    started_minute: i64,
+    due_minute: i64,
+}
+
+/// A pending arrival an event makes, as `pending_arrivals` keeps it.
+#[derive(Clone)]
+struct NewArrival {
+    profile: NewProfile,
+    traits: NewTraits,
+    member_index: i64,
+    care_support_needs: Vec<Arc<str>>,
+    context_source_id: Arc<str>,
+    zone_id: Arc<str>,
+    admission_zone_ids: Vec<Arc<str>>,
+    created_minute: i64,
+    event_id: Arc<str>,
+    approach: Option<NewApproach>,
+    /// The approach's completion event, once the plan has it.
+    completion_event_id: Option<Arc<str>>,
+}
+
+impl NewArrival {
+    /// The item, with its fields in the order the rule set them.
+    fn value(&self) -> V {
+        let mut item = doc([
+            ("profile", self.profile.value()),
+            ("traits", self.traits.value()),
+            ("member_index", V::Int(self.member_index)),
+            ("care_support_needs", strings(&self.care_support_needs)),
+            ("context_source_id", V::Str(self.context_source_id.clone())),
+            ("zone_id", V::Str(self.zone_id.clone())),
+            ("admission_zone_ids", strings(&self.admission_zone_ids)),
+            ("created_minute", V::Int(self.created_minute)),
+            ("event_id", V::Str(self.event_id.clone())),
+        ]);
+        if let Some(approach) = &self.approach {
+            item.insert(Arc::from("approach_route_id"), V::Str(approach.route_id.clone()));
+            item.insert(Arc::from("approach_started_minute"), V::Int(approach.started_minute));
+            item.insert(Arc::from("approach_due_minute"), V::Int(approach.due_minute));
+        }
+        if let Some(event_id) = &self.completion_event_id {
+            item.insert(Arc::from("approach_completion_event_id"), V::Str(event_id.clone()));
+        }
+        V::Map(item)
+    }
 }
 
 /// What every arrival of an event shares: the event, what its checks found, whether the needs are
@@ -1978,14 +2149,13 @@ struct ArrivalBase<'a> {
     care_by_index: &'a HashMap<i64, Vec<Arc<str>>>,
     hydrated: bool,
     event_digest: &'a str,
-    seed_value: &'a V,
+    seed: &'a Seed,
     context_source: &'a Arc<str>,
 }
 
 /// The arrival of this index, of this digest and ID: its profile, traits and pending item.
 fn arrival(base: &ArrivalBase<'_>, index: i64, digest: &str, agent_id: Arc<str>) -> Prepared {
-    let ArrivalBase { row, zone, alternates, route, household_size, mobility, language, care_by_index, hydrated, event_digest, seed_value, context_source } =
-        *base;
+    let ArrivalBase { row, zone, alternates, route, household_size, mobility, language, care_by_index, hydrated, event_digest, seed, context_source } = *base;
     let byte = |start: usize| -> i64 { i64::from_str_radix(&digest[start..start + 2], 16).unwrap_or(0) };
     let group_id: Arc<str> = Arc::from(format!("household-{event_digest}-{:03}", index / household_size));
     let age_years = 5 + byte(0) % 79;
@@ -1998,56 +2168,42 @@ fn arrival(base: &ArrivalBase<'_>, index: i64, digest: &str, agent_id: Arc<str>)
     } else {
         "adult"
     };
-    let traits = V::Map(doc([
-        ("age_years", V::Int(age_years)),
-        ("household_id", V::Str(group_id.clone())),
-        ("household_role", v_str(role)),
-        ("languages", V::List(vec![V::Str(language.clone())])),
-        ("accessibility_needs", V::List(Vec::new())),
-        ("medical_support", V::Bool(false)),
-        ("source_ids", V::List(Vec::new())),
-    ]));
+    let traits = NewTraits { age_years, household_id: group_id.clone(), household_role: role, language: language.clone() };
     let level = |start: usize| -> f64 { byte(start) as f64 / 255.0 * 0.35 };
-    let mut initial = doc([("toilet_urgency", V::Float(level(2))), ("hunger", V::Float(level(4))), ("fatigue", V::Float(level(6)))]);
-    if hydrated {
-        initial.insert(Arc::from("hydration_need"), V::Float(level(8)));
-    }
-    let profile = V::Map(doc([
-        ("id", V::Str(agent_id.clone())),
-        ("group_id", V::Str(group_id.clone())),
-        ("initial_zone_id", V::Str(zone.clone())),
-        ("mobility", v_str(mobility)),
-        ("support_need", V::Float(byte(10) as f64 / 255.0 * 0.5)),
-        ("stress_sensitivity", V::Float(byte(12) as f64 / 255.0)),
-        ("rng_key", V::Str(Arc::from(format!("arrival:{}", &digest[..24])))),
-        ("initial_needs", V::Map(initial)),
-        (
-            "provenance",
-            V::Map(doc([
-                ("source_type", v_str("assumption")),
-                ("source_id", v_str(SOURCE_ID)),
-                ("event_id", V::Str(row.event_id.clone())),
-                ("seed", seed_value.clone()),
-            ])),
-        ),
-    ]));
+    let profile = NewProfile {
+        id: agent_id.clone(),
+        group_id: group_id.clone(),
+        initial_zone_id: zone.clone(),
+        mobility,
+        toilet_urgency: level(2),
+        hunger: level(4),
+        fatigue: level(6),
+        hydration_need: hydrated.then(|| level(8)),
+        support_need: byte(10) as f64 / 255.0 * 0.5,
+        stress_sensitivity: byte(12) as f64 / 255.0,
+        rng_key: Arc::from(format!("arrival:{}", &digest[..24])),
+        event_id: row.event_id.clone(),
+        seed: seed.clone(),
+    };
     let care_needs = care_by_index.get(&index).cloned().unwrap_or_default();
-    let mut item = doc([
-        ("profile", profile),
-        ("traits", traits),
-        ("member_index", V::Int(index)),
-        ("care_support_needs", strings(&care_needs)),
-        ("context_source_id", V::Str(context_source.clone())),
-        ("zone_id", V::Str(zone.clone())),
-        ("admission_zone_ids", strings(&alternates)),
-        ("created_minute", V::Int(row.due_minute)),
-        ("event_id", V::Str(row.event_id.clone())),
-    ]);
-    if let Some(route) = &route {
-        item.insert(Arc::from("approach_route_id"), V::Str(route.route_id.clone()));
-        item.insert(Arc::from("approach_started_minute"), V::Int(row.due_minute));
-        item.insert(Arc::from("approach_due_minute"), V::Int(row.due_minute + route.travel_minutes));
-    }
+    let approach = route.as_ref().map(|route| NewApproach {
+        route_id: route.route_id.clone(),
+        started_minute: row.due_minute,
+        due_minute: row.due_minute + route.travel_minutes,
+    });
+    let item = NewArrival {
+        profile,
+        traits,
+        member_index: index,
+        care_support_needs: care_needs.clone(),
+        context_source_id: context_source.clone(),
+        zone_id: zone.clone(),
+        admission_zone_ids: alternates.to_vec(),
+        created_minute: row.due_minute,
+        event_id: row.event_id.clone(),
+        approach,
+        completion_event_id: None,
+    };
     Prepared { item, agent_id, household: group_id, role, care_needs, source: context_source.clone(), completion: None, admission: None }
 }
 
@@ -2061,16 +2217,23 @@ fn adds_evacuees(effects: Option<&EffectProgramRow>, program_id: &str, effect_id
     })
 }
 
+/// `payload.get(key)` of an arrival, a str or None (absent counts as None); None for another value.
+fn optional_payload_text(arrival: &EventRow, key: &str) -> Option<Option<Arc<str>>> {
+    match kit::payload(arrival, key) {
+        None | Some(V::Null) => Some(None),
+        Some(V::Str(text)) => Some(Some(text.clone())),
+        Some(_) => None,
+    }
+}
+
 /// `_schedule_arrival_approach_completion`, as a row, or the text it stops with and where.
 fn plan_completion(world: &World, inputs: &Inputs, arrival: &EventRow, item: &Prepared, route: &Approach, due: i64, sequence: i64) -> Result<Completion> {
-    let program_id = kit::payload(arrival, "program_id").cloned().unwrap_or(V::Null);
-    let effect_id = kit::payload(arrival, "effect_id").cloned().unwrap_or(V::Null);
-    if !matches!(program_id, V::Str(_) | V::Null) || !matches!(effect_id, V::Str(_) | V::Null) {
+    let (Some(program_id), Some(effect_id)) = (optional_payload_text(arrival, "program_id"), optional_payload_text(arrival, "effect_id")) else {
         return refuse("a program's IDs are something else");
-    }
+    };
     // `world.model_state.get("effect_program_v1", {}).get("programs", {}).get(program_id)`.
     let approved = match (&program_id, &effect_id) {
-        (V::Str(program_id), V::Str(effect_id)) => {
+        (Some(program_id), Some(effect_id)) => {
             let effects = typed_of::<EffectProgramRow>(world, EFFECT_PROGRAM, &inputs.namespaces.effect_program)?;
             adds_evacuees(effects.as_deref(), program_id, effect_id)
         }
@@ -2095,12 +2258,12 @@ fn plan_completion(world: &World, inputs: &Inputs, arrival: &EventRow, item: &Pr
         sequence,
         event_type: Arc::from("population_approach_complete"),
         payload: doc([
-            ("program_id", program_id),
-            ("effect_id", effect_id),
+            ("program_id", optional(&program_id)),
+            ("effect_id", optional(&effect_id)),
             ("agent_id", V::Str(item.agent_id.clone())),
             ("arrival_event_id", V::Str(arrival.event_id.clone())),
             ("route_id", V::Str(route.route_id.clone())),
-            ("zone_id", item.item.get("zone_id").cloned().unwrap_or(V::Null)),
+            ("zone_id", V::Str(item.item.zone_id.clone())),
         ]),
         source_id: Some(source),
         causation_id: Some(arrival.event_id.clone()),
@@ -2164,9 +2327,9 @@ pub(crate) fn plain(error: WriteError) -> Error {
     }
 }
 
-fn append_pending(world: &World, item: &Doc) -> Result<()> {
+fn append_pending(world: &World, item: &NewArrival) -> Result<()> {
     let mut row = world.row_mut::<ValueRow>(DYNAMICS)?;
-    list_mut(field_mut(&mut row.0, "pending_arrivals")?)?.push(V::Map(item.clone()));
+    list_mut(field_mut(&mut row.0, "pending_arrivals")?)?.push(item.value());
     Ok(())
 }
 
@@ -2181,7 +2344,7 @@ pub fn write_arrivals(world: &World, inputs: &Inputs, plan: &ArrivalsPlan) -> Re
         let state = map_mut(&mut row.0)?;
         let contexts = map_mut(state.entry(Arc::from("profile_context")).or_insert_with(|| V::Map(Doc::new())))?;
         for (agent_id, context) in &plan.contexts {
-            contexts.insert(agent_id.clone(), context.clone());
+            contexts.insert(agent_id.clone(), context.value());
         }
     }
     let events = Events::of(world)?;
@@ -2189,9 +2352,8 @@ pub fn write_arrivals(world: &World, inputs: &Inputs, plan: &ArrivalsPlan) -> Re
         // The rule's text stops its writes at this item, at this point.
         let stops_at = |at: Stop| plan.failure.filter(|(place, stop, _)| *place == index && *stop == at).map(|(_, _, text)| text);
         {
-            let traits = prepared.item.get("traits").ok_or_else(|| Error::Runtime("an item lost its traits".to_owned()))?;
             let mut row = world.row_mut::<ValueRow>(DYNAMICS)?;
-            map_mut(field_mut(&mut row.0, "profile_traits")?)?.insert(prepared.agent_id.clone(), traits.clone());
+            map_mut(field_mut(&mut row.0, "profile_traits")?)?.insert(prepared.agent_id.clone(), prepared.item.traits.value());
         }
         if plan.approaching {
             if let Some(text) = stops_at(Stop::BeforeSequence) {
@@ -2227,7 +2389,7 @@ pub fn write_arrivals(world: &World, inputs: &Inputs, plan: &ArrivalsPlan) -> Re
     }
     let waiting = {
         let mut row = world.row_mut::<ValueRow>(DYNAMICS)?;
-        list_mut(field_mut(&mut row.0, "arrivals")?)?.push(plan.summary.clone());
+        list_mut(field_mut(&mut row.0, "arrivals")?)?.push(plan.summary.value());
         list_of(field(&row.0, "pending_arrivals")?)?.len()
     };
     add_metric(world, "population_arrival_count", plan.admitted as usize)?;
@@ -2670,8 +2832,20 @@ pub(crate) fn pairs_naming<'a, T: 'a>(keys: impl Iterator<Item = (&'a Arc<str>, 
     Ok(found)
 }
 
+/// A tie of `social_network_v1` a departure keeps: its pair and its record.
+struct DepartedTie {
+    pair: [String; 2],
+    record: Relationship,
+}
+
+impl DepartedTie {
+    fn value(&self) -> V {
+        V::Map(doc([("pair", V::List(self.pair.iter().map(|part| v_str(part)).collect())), ("record", relationship_value(&self.record))]))
+    }
+}
+
 /// `remove_agent` of social_network: the ties, popped in key order, as the departure keeps them.
-fn remove_social_relationships(world: &World, inputs: &Inputs, agent_id: &str) -> Result<Vec<V>> {
+fn remove_social_relationships(world: &World, inputs: &Inputs, agent_id: &str) -> Result<Vec<DepartedTie>> {
     let keys = match typed_of::<SocialNetworkRow>(world, SOCIAL_NETWORK, &inputs.namespaces.social_network)? {
         None => return Ok(Vec::new()),
         Some(network) => pairs_naming(network.relationships.map.iter(), agent_id)?,
@@ -2684,7 +2858,7 @@ fn remove_social_relationships(world: &World, inputs: &Inputs, agent_id: &str) -
     for key in keys {
         let pair = pair_of(&key)?;
         let record = network.relationships.map.shift_remove(&*key).ok_or_else(|| Error::Key(key.to_string()))?;
-        archived.push(V::Map(doc([("pair", V::List(pair.iter().map(|part| v_str(part)).collect())), ("record", relationship_value(&record))])));
+        archived.push(DepartedTie { pair, record });
     }
     Ok(archived)
 }
@@ -2775,7 +2949,7 @@ fn write_departure(world: &World, inputs: &Inputs, agent_id: &Arc<str>, row: &Ev
         ("profile", profile_record(&agent)),
         ("traits", traits),
         ("needs", needs_value(&agent.needs)),
-        ("relationships", V::List(relationships)),
+        ("relationships", V::List(relationships.iter().map(DepartedTie::value).collect())),
     ]));
     {
         let mut state = world.row_mut::<ValueRow>(DYNAMICS)?;

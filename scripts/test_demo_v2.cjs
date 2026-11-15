@@ -136,7 +136,7 @@ async function main() {
     await page.locator("#seek").fill("5");
     await page.locator("#seek").dispatchEvent("change");
     await idle();
-    assert((await page.locator("#clock").innerText()).includes("00:05"));
+    assert((await page.locator("#seek-label").innerText()).includes("00:05"));
     const parentBefore = (
       await request(`${root}/branches/main/timeline?minute=5`)
     ).state_hash;

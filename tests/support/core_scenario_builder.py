@@ -73,7 +73,11 @@ CONSTANT_CONFIGS = (
 
 def builder_constants() -> dict[str, Any]:
     """What the core's builder holds as constants."""
-    from sheltersim.contracts.policies import CORE_MODEL_SUITE_MODELS, CORE_MODEL_SUITE_V2
+    from sheltersim.contracts.policies import (
+        CORE_MODEL_SUITE_MODELS,
+        CORE_MODEL_SUITE_V2,
+        model_catalog,
+    )
     from sheltersim.domain.agent_dynamics import (
         INSTALLED_FACILITY_ANNOUNCEMENT_SOURCE_ID,
         ORIENTATION_FACILITY_KINDS,
@@ -99,14 +103,13 @@ def builder_constants() -> dict[str, Any]:
     )
     from sheltersim.experiments.scenario import TOILET_SERVICE_SOURCE_ID, ScenarioSpec
     from sheltersim.policies.psychology import IntegratedDistressLifeStatePolicy
-    from sheltersim.policies.queueing import NeedWeightedPhysicalQueuePolicy
-    from sheltersim.policies.relationships import DistanceDurationRepeatTrustPolicy
     from sheltersim.region.conditions import (
         RESOURCE_SERVICE_ASSUMPTION_ID,
         STANDARD_PROVISIONING_SOURCE_ID,
     )
     from sheltersim.region.population import OPERATOR_POPULATION_SOURCE_ID
 
+    catalog = model_catalog()
     request = InitialScenarioRequest(municipality="合成市", disaster="地震", evacuees=3)
     scenario = InitialScenarioBuilder().build(request).scenario
     validated = json.loads(
@@ -141,8 +144,12 @@ def builder_constants() -> dict[str, Any]:
             "CORE_MODEL_SUITE_SOURCE_ID": CORE_MODEL_SUITE_SOURCE_ID,
             "CORE_MODEL_SUITE_V2": CORE_MODEL_SUITE_V2,
             "SLEEP_DEBT_BALANCE_SOURCE_ID": SLEEP_DEBT_BALANCE_SOURCE_ID,
-            "NEED_WEIGHTED_QUEUE_SOURCE_ID": NeedWeightedPhysicalQueuePolicy.source_id,
-            "DISTANCE_TRUST_SOURCE_ID": DistanceDurationRepeatTrustPolicy.source_id,
+            "NEED_WEIGHTED_QUEUE_SOURCE_ID": catalog["need-weighted-physical-queue-v1"][
+                "assumption_source_id"
+            ],
+            "DISTANCE_TRUST_SOURCE_ID": catalog["distance-duration-repeat-trust-v1"][
+                "assumption_source_id"
+            ],
         },
         "orientation_facility_kinds": sorted(ORIENTATION_FACILITY_KINDS),
     }

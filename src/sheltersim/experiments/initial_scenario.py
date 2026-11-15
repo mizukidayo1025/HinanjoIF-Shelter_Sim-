@@ -1106,15 +1106,6 @@ class InitialScenarioBuilder:
                 ),
             }
         )
-        from sheltersim.policies.queueing import (
-            NeedWeightedPhysicalQueuePolicy,
-            StrictFIFOQueuePolicy,
-        )
-        from sheltersim.policies.relationships import (
-            DistanceDurationRepeatTrustPolicy,
-            DurationOnlyTrustPolicy,
-        )
-
         selected_policy_sources = {
             "utility-softmax-v1": (
                 "ASM-UTILITY-BEHAVIOR-V1",
@@ -1128,20 +1119,20 @@ class InitialScenarioBuilder:
                 "ASM-PRIORITY-RULE-BEHAVIOR-V1",
                 "Priority-rule Agent behavior",
             ),
-            NeedWeightedPhysicalQueuePolicy.model_id: (
-                NeedWeightedPhysicalQueuePolicy.source_id,
+            "need-weighted-physical-queue-v1": (
+                "ASM-NEED-WEIGHTED-PHYSICAL-QUEUE-V1",
                 "Facility queue priority and abandonment",
             ),
-            StrictFIFOQueuePolicy.model_id: (
-                StrictFIFOQueuePolicy.source_id,
+            "strict-fifo-queue-v1": (
+                "ASM-STRICT-FIFO-QUEUE-V1",
                 "Strict FIFO facility queue",
             ),
-            DistanceDurationRepeatTrustPolicy.model_id: (
-                DistanceDurationRepeatTrustPolicy.source_id,
+            "distance-duration-repeat-trust-v1": (
+                "ASM-DISTANCE-DURATION-REPEAT-TRUST-V1",
                 "Distance and repeated-contact relationship trust",
             ),
-            DurationOnlyTrustPolicy.model_id: (
-                DurationOnlyTrustPolicy.source_id,
+            "duration-contact-trust-v1": (
+                "ASM-DURATION-CONTACT-TRUST-V1",
                 "Duration-only relationship trust",
             ),
             "body-feedback-complete-v1": (
@@ -1954,9 +1945,9 @@ def _apply_selected_policy_parameter_overrides(
             model_configs["information_spread"]
         ).to_dict()
     if "facility_queues" in touched_sections:
-        from sheltersim.policies.queueing import create_queue_policy
+        from sheltersim.policies.queueing import check_facility_queue_config
 
-        create_queue_policy(model_configs)
+        check_facility_queue_config(model_configs)
     return tuple(applied)
 
 

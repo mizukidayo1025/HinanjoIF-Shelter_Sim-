@@ -252,18 +252,19 @@ fn inputs(population: &population::Inputs) -> Inputs<'_> {
 }
 
 fn event(id: &str) -> EventRow {
-    EventRow::new(
-        text(id),
-        EventKind::Intervention,
-        7,
-        0,
-        3,
-        text("effect_program_population"),
-        IndexMap::new(),
-        Some(text("SRC-COMMAND")),
-        None,
-        IndexMap::new(),
-    )
+    EventRow {
+        event_id: text(id),
+        kind: EventKind::Intervention,
+        due_minute: 7,
+        priority: 0,
+        sequence: 3,
+        event_type: text("effect_program_population"),
+        payload: V::Map(IndexMap::new()),
+        source_id: Some(text("SRC-COMMAND")),
+        causation_id: None,
+        provenance: V::Map(IndexMap::new()),
+    }
+    .checked()
     .unwrap()
 }
 
@@ -424,9 +425,20 @@ fn a_busy_person_s_exit_waits_and_a_return_needs_someone_away() {
 #[test]
 fn a_command_s_minute_and_its_expected_return_are_checked_first() {
     let world = world();
-    let late =
-        EventRow::new(text("ev"), EventKind::Intervention, 8, 0, 3, text("effect_program_population"), IndexMap::new(), Some(text("S")), None, IndexMap::new())
-            .unwrap();
+    let late = EventRow {
+        event_id: text("ev"),
+        kind: EventKind::Intervention,
+        due_minute: 8,
+        priority: 0,
+        sequence: 3,
+        event_type: text("effect_program_population"),
+        payload: V::Map(IndexMap::new()),
+        source_id: Some(text("S")),
+        causation_id: None,
+        provenance: V::Map(IndexMap::new()),
+    }
+    .checked()
+    .unwrap();
     assert_eq!(lifecycle::check_command(&world, &late, None), Err(Error::failed("population command minute must match the current event boundary")));
     assert_eq!(lifecycle::check_command(&world, &event("ev"), Some(6)), Err(Error::failed("expected return minute precedes the departure event")));
     let mut retried = event("ev");
@@ -570,7 +582,20 @@ fn walk(task: &str, purpose: &str, destination: &str) -> EventRow {
         .into_iter()
         .map(|(key, value)| (text(key), value))
         .collect();
-    EventRow::new(text("walk-1"), EventKind::Completion, 7, 0, 4, text("agent_travel_complete"), payload, None, None, IndexMap::new()).unwrap()
+    EventRow {
+        event_id: text("walk-1"),
+        kind: EventKind::Completion,
+        due_minute: 7,
+        priority: 0,
+        sequence: 4,
+        event_type: text("agent_travel_complete"),
+        payload: V::Map(payload),
+        source_id: None,
+        causation_id: None,
+        provenance: V::Map(IndexMap::new()),
+    }
+    .checked()
+    .unwrap()
 }
 
 fn travel_inputs() -> travel::Inputs<'static> {

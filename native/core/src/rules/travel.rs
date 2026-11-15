@@ -710,18 +710,19 @@ pub fn plan_travel(world: &World, events: &Events<'_>, walking: Walking<'_>, tri
     provenance.insert(names.source_type.clone(), V::Str(names.assumption.clone()));
     provenance.insert(names.source_id.clone(), V::Str(source));
     provenance.insert(names.policy_version.clone(), V::Str(names.routing_policy.clone()));
-    let Some(event) = EventRow::new(
-        event_id.clone(),
-        EventKind::Completion,
-        due,
-        0,
+    let Some(event) = EventRow {
+        event_id: event_id.clone(),
+        kind: EventKind::Completion,
+        due_minute: due,
+        priority: 0,
         sequence,
-        names.event_type.clone(),
-        payload,
-        Some(task_id.clone()),
+        event_type: names.event_type.clone(),
+        payload: V::Map(payload),
+        source_id: Some(task_id.clone()),
         causation_id,
-        provenance,
-    ) else {
+        provenance: V::Map(provenance),
+    }
+    .checked() else {
         return refuse("the event's values are not what an event takes");
     };
     let journey = Journey {
@@ -793,18 +794,19 @@ pub fn plan_room_approach(
     provenance.insert(names.source_type.clone(), V::Str(names.assumption.clone()));
     provenance.insert(names.source_id.clone(), V::Str(Arc::from(APPROACH_SOURCE)));
     provenance.insert(names.policy_version.clone(), V::Str(Arc::from(APPROACH_POLICY)));
-    let Some(event) = EventRow::new(
-        event_id.clone(),
-        EventKind::Completion,
-        due,
-        0,
+    let Some(event) = EventRow {
+        event_id: event_id.clone(),
+        kind: EventKind::Completion,
+        due_minute: due,
+        priority: 0,
         sequence,
-        names.event_type.clone(),
-        payload,
-        Some(Arc::from(APPROACH_EVENT_SOURCE)),
-        None,
-        provenance,
-    ) else {
+        event_type: names.event_type.clone(),
+        payload: V::Map(payload),
+        source_id: Some(Arc::from(APPROACH_EVENT_SOURCE)),
+        causation_id: None,
+        provenance: V::Map(provenance),
+    }
+    .checked() else {
         return refuse("the event's values are not what an event takes");
     };
     let journey = Journey {

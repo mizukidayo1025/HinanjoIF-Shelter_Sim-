@@ -58,8 +58,20 @@ fn split_json_array_cuts_at_top_level_commas() {
 fn row(event_id: &str, due: i64, priority: i64, sequence: i64) -> EventRow {
     let mut payload = IndexMap::new();
     payload.insert(Arc::from("agent_id"), V::Str(Arc::from("a-1")));
-    EventRow::new(Arc::from(event_id), EventKind::Endogenous, due, priority, sequence, Arc::from("test_event"), payload, None, None, IndexMap::new())
-        .expect("a valid row")
+    EventRow {
+        event_id: Arc::from(event_id),
+        kind: EventKind::Endogenous,
+        due_minute: due,
+        priority,
+        sequence,
+        event_type: Arc::from("test_event"),
+        payload: V::Map(payload),
+        source_id: None,
+        causation_id: None,
+        provenance: V::Map(IndexMap::new()),
+    }
+    .checked()
+    .expect("a valid row")
 }
 
 #[test]

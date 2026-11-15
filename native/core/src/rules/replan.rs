@@ -473,17 +473,18 @@ fn reschedule_event(support: SupportIds<'_>, service_minutes: i64, due: i64, seq
     provenance.insert(Arc::from("source_id"), V::Str(Arc::from(STAFF_SUPPORT_SOURCE)));
     provenance.insert(Arc::from("policy_version"), V::Str(policy.clone()));
     provenance.insert(Arc::from("rescheduled_after_route_change"), V::Bool(true));
-    EventRow::new(
-        Arc::from(format!("staff-support-complete-{sequence}")),
-        EventKind::Completion,
-        due,
-        0,
+    EventRow {
+        event_id: Arc::from(format!("staff-support-complete-{sequence}")),
+        kind: EventKind::Completion,
+        due_minute: due,
+        priority: 0,
         sequence,
-        Arc::from("staff_support_complete"),
-        payload,
-        Some(task_id.clone()),
-        Some(journey.event_id.clone()),
-        provenance,
-    )
+        event_type: Arc::from("staff_support_complete"),
+        payload: V::Map(payload),
+        source_id: Some(task_id.clone()),
+        causation_id: Some(journey.event_id.clone()),
+        provenance: V::Map(provenance),
+    }
+    .checked()
     .ok_or_else(|| Error::unsupported("the event's values are not what an event takes"))
 }

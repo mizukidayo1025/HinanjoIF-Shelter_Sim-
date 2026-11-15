@@ -319,7 +319,20 @@ fn a_run_reads_its_dispatcher_or_refuses() {
 
 #[test]
 fn a_host_without_python_runs_no_foreign_handler() {
-    let event = EventRow::new(text("E1"), EventKind::Exogenous, 3, 0, 1, text("probe"), IndexMap::new(), None, None, IndexMap::new()).unwrap();
+    let event = EventRow {
+        event_id: text("E1"),
+        kind: EventKind::Exogenous,
+        due_minute: 3,
+        priority: 0,
+        sequence: 1,
+        event_type: text("probe"),
+        payload: V::Map(IndexMap::new()),
+        source_id: None,
+        causation_id: None,
+        provenance: V::Map(IndexMap::new()),
+    }
+    .checked()
+    .unwrap();
     let mut host = TestHost::default();
     assert_eq!(host.apply_foreign(&event), Err(Error::Unsupported(NO_FOREIGN.into())));
     assert_eq!(host.calls, [Call::Foreign(text("probe"))]);

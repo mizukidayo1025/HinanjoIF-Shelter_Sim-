@@ -285,13 +285,13 @@ impl Source {
         Ok(source)
     }
 
-    fn provenance(&self, action: V) -> IndexMap<Arc<str>, V> {
+    fn provenance(&self, action: Arc<str>) -> IndexMap<Arc<str>, V> {
         let names = &*NAMES;
         let mut provenance = IndexMap::with_capacity(5);
         provenance.insert(names.source_type.clone(), V::Str(self.source_type.clone()));
         provenance.insert(names.source_id.clone(), V::Str(self.source_id.clone()));
         provenance.insert(names.policy_version.clone(), V::Str(self.policy_version.clone()));
-        provenance.insert(names.action.clone(), action);
+        provenance.insert(names.action.clone(), V::Str(action));
         provenance
     }
 }
@@ -317,7 +317,7 @@ fn audit_row(
         }
         sequence = sequence.checked_add(1).ok_or_else(|| Error::unsupported("a sequence past 64 bits"))?;
     };
-    let provenance = source.provenance(V::Str(Arc::from(operation)));
+    let provenance = source.provenance(Arc::from(operation));
     EventRow {
         event_id,
         kind: EventKind::Endogenous,
@@ -883,7 +883,7 @@ fn ledger_of(world: &World, manager: &Manager<'_>, index: usize, task_id: &Arc<s
 /// The provenance of the service's completion, with its minutes and its queue where it has one.
 fn completion_provenance(source: &Source, service_minutes: i64, queue_id: Option<&str>) -> IndexMap<Arc<str>, V> {
     let names = &*NAMES;
-    let mut provenance = source.provenance(V::Str(names.service_scheduled.clone()));
+    let mut provenance = source.provenance(names.service_scheduled.clone());
     provenance.insert(names.service_minutes.clone(), V::Int(service_minutes));
     if let Some(queue_name) = queue_id {
         provenance.insert(Arc::from("queue_id"), V::Str(Arc::from(queue_name)));
@@ -1987,7 +1987,7 @@ pub fn interrupt(world: &mut World, manager: &Manager<'_>, pending: &[Pending], 
         return Err(Error::unsupported("the event's identity is taken").into());
     }
     let source = Source::of(manager)?;
-    let mut provenance = source.provenance(V::Str(Arc::from("staff_interrupted")));
+    let mut provenance = source.provenance(Arc::from("staff_interrupted"));
     provenance.insert(NAMES.staff_id.clone(), V::Str(Arc::from(staff_id)));
     let mut payload = IndexMap::with_capacity(2);
     payload.insert(NAMES.task_id.clone(), V::Str(task_id.clone()));

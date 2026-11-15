@@ -19,7 +19,7 @@
 //! let through.
 //!
 //! Nothing here reads LLM output: what a program may do was validated before it was scheduled, by
-//! `validate_effect_program`, which is not touched (docs/rust-port/lanes/m6-effects.md).
+//! the program's checks (`program::validate`) (docs/rust-port/lanes/m6-effects.md).
 
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -637,7 +637,7 @@ fn guard_target(world: &World, ins: &GuardIn<'_>, row: &EventRow) -> Result<Opti
     }
 }
 
-/// The value a leaf reads, or the text `_evaluate_guard_node` raises for a target it can't find.
+/// The value a leaf reads, or the text the guard's evaluation raises for a target it can't find.
 fn guard_field(world: &World, ins: &GuardIn<'_>, row: &EventRow, field: GuardField) -> Result<Judged<Actual>> {
     let payload = map_of(&row.payload)?;
     let target = guard_target(world, ins, row)?;
@@ -728,7 +728,7 @@ enum Decided {
     Contract(V),
 }
 
-/// `should_apply_effect_guard` of an event's row, read on the world.
+/// The guard's answer for an event's row (`guard`), read on the world.
 fn guard_decides(world: &World, ins: &GuardIn<'_>, row: &EventRow) -> Result<Decided> {
     let Some(marker) = marker_of(row)? else {
         return Ok(Decided::Judged(Ok(true)));
@@ -744,10 +744,10 @@ fn guard_decides(world: &World, ins: &GuardIn<'_>, row: &EventRow) -> Result<Dec
     }
 }
 
-/// `should_apply_effect_guard`: the guard's answer, or the `EventApplicationError` of a guard it can't
-/// read. A guard the contract turns down is worded by the contract (`GuardExpression`, policy E15):
-/// "EffectProgram guard is invalid: ..." with its ValueError's text. One the contract takes is a
-/// refusal (an int past 64 bits).
+/// Whether an event's guard lets it apply: the guard's answer, or the `EventApplicationError` of a
+/// guard it can't read. A guard the contract turns down is worded by the contract
+/// (`GuardExpression`, policy E15): "EffectProgram guard is invalid: ..." with its ValueError's
+/// text. One the contract takes is a refusal (an int past 64 bits).
 pub fn guard<C: WorldCell, H: Host>(cell: &C, host: &mut H, ins: &GuardIn<'_>, row: &EventRow) -> std::result::Result<bool, H::Error> {
     let decided = cell.with(|world| guard_decides(world, ins, row))??;
     match decided {
@@ -761,7 +761,7 @@ pub fn guard<C: WorldCell, H: Host>(cell: &C, host: &mut H, ins: &GuardIn<'_>, r
     }
 }
 
-/// `effect_event_guard_or_suppress`: false suppresses, a guard that fails raises its own text.
+/// The guard of an event: false suppresses, a guard that fails raises its own text.
 pub fn guard_or_suppress<C: WorldCell, H: Host>(cell: &C, host: &mut H, ins: &GuardIn<'_>, row: &EventRow) -> std::result::Result<(), H::Error> {
     if guard(cell, host, ins, row)? {
         Ok(())
@@ -772,13 +772,13 @@ pub fn guard_or_suppress<C: WorldCell, H: Host>(cell: &C, host: &mut H, ins: &Gu
 
 // ---- What other modules ask ----------------------------------------------------------------------
 
-/// `has_active_facility_modifier`.
+/// Whether an active EffectProgram modifier targets the facility.
 pub fn has_active_modifier(world: &World, program: &Held, facility_id: &str) -> Result<bool> {
     program_state(world, program, |state| Ok(kit::has_active_modifier(state, facility_id)))
 }
 
-/// `has_pending_facility_modifier`: whether a pending `effect_program_apply` or `_expire` event
-/// targets the facility. `PENDING_UNREAD` for a pending event without its row.
+/// Whether a pending `effect_program_apply` or `_expire` event targets the facility.
+/// `PENDING_UNREAD` for a pending event without its row.
 pub fn has_pending_modifier(world: &World, facility_id: &str) -> Result<bool> {
     for event in pending_rows(world)? {
         if !matches!(&*event.event_type, "effect_program_apply" | "effect_program_expire") {
@@ -791,7 +791,7 @@ pub fn has_pending_modifier(world: &World, facility_id: &str) -> Result<bool> {
     Ok(false)
 }
 
-/// `active_facility_outage`: `bool(infrastructure_event_context_ids(world, facility_id))`.
+/// Whether an outage of the facility is active (`kit::active_outage`).
 pub fn active_outage(world: &World, infrastructure: &Held, facility_id: &str) -> Result<bool> {
     let state = state_value(world, INFRASTRUCTURE, infrastructure)?;
     kit::active_outage(state.as_ref(), facility_id)
@@ -1562,7 +1562,7 @@ fn program_lists_effect(world: &World, program: &Held, payload: &Doc) -> Result<
 
 // ---- staff_task_order ----
 
-/// A staff task order that passed its checks: `order_staff_operation`'s arguments.
+/// A staff task order that passed its checks: what `staff_order::order_operation` takes.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TaskOrder {
     staff_id: Arc<str>,
@@ -1601,8 +1601,8 @@ pub fn plan_task_order<C: WorldCell, H: Host>(cell: &C, host: &mut H, ins: &Stru
     })
 }
 
-/// `order_staff_operation` on the transaction's world (its checks raise before any change), and the
-/// world's check.
+/// The task order (`staff_order::order_operation`) on the transaction's world (its checks raise
+/// before any change), and the world's check.
 pub fn write_task_order<C: WorldCell, H: Host>(
     cell: &C,
     host: &mut H,
@@ -1637,7 +1637,7 @@ pub struct Handoff {
     pub event_id: Arc<str>,
 }
 
-/// `_staff_has_task_skill`.
+/// Whether the staff member has the skill of the task kind.
 fn has_task_skill(skills: &Skills, task_kind: Option<&str>) -> bool {
     let wanted: [&str; 2] = match task_kind {
         Some("cleaning") => ["cleaning", "sanitation"],
@@ -1855,8 +1855,8 @@ fn handoff_writes(world: &World, ins: &HandoffIn<'_>, plan: &Handoff, taken: &mu
     Ok(())
 }
 
-/// `make_staff_handoff_record(...)[0]` once the handoff is committed, or None without the shared
-/// contract.
+/// The receipt of the handoff (`care_receipts::handoff_record`) once it is committed, or None
+/// without the shared contract.
 pub fn handoff_receipt(world: &World, shared: bool, plan: &Handoff, sources: Vec<Arc<str>>) -> Result<Option<Made>> {
     if !shared {
         return Ok(None);
@@ -2056,7 +2056,7 @@ pub struct AddIn<'a> {
     pub operations: &'a Held,
     pub movement: &'a Held,
     pub overlay: &'a Held,
-    /// The overlay's schema version, for `installed_facility_placement_enabled`.
+    /// The overlay's schema version, for `overlay::placement_enabled`.
     pub overlay_schema: &'a Kept<Option<i64>>,
     /// The agents' dynamics policy, for `announce_installed_facility`.
     pub policy: &'a Kept<&'static str>,
@@ -2106,7 +2106,7 @@ fn add_one_staff(world: &mut World, ins: &AddIn<'_>, staff_id: &str, zone_id: &A
 }
 
 /// A new one-place toilet: its row, and whether it is to be placed on the floor plan
-/// (`installed_facility_placement_enabled`).
+/// (`overlay::placement_enabled`).
 fn add_one_toilet(world: &World, ins: &AddIn<'_>, plan: &Add, facility_id: &str) -> Result<bool> {
     if world.rows()?.facilities.contains_key(facility_id) {
         return Err(Error::failed("generated toilet ID already exists"));
@@ -2192,7 +2192,7 @@ pub fn write_add<C: WorldCell, H: Host>(cell: &C, host: &mut H, ins: &AddIn<'_>,
 
 // ---- validate_effect_program_state -------------------------------------------------------------
 
-/// `DEFAULT_PRIMITIVE_REGISTRY`, which a test compares with this list.
+/// The operators of the primitive registry, which a test counts (`tests/effects.rs`).
 pub const OPERATORS: [&str; 27] = [
     "move_facility",
     "transfer_equipment",
@@ -2223,7 +2223,7 @@ pub const OPERATORS: [&str; 27] = [
     "set_temperature",
 ];
 
-/// `EFFECT_EVENT_TYPES[phase].get(op)`.
+/// The event type of an operator at a phase (`start` or `expiry`), if it has one.
 pub fn expected_event_type(phase: &str, op: &str) -> Option<&'static str> {
     Some(match (phase, op) {
         ("start", "set_facility_availability" | "facility_outage") => "effect_program_apply",
@@ -2752,9 +2752,9 @@ pub fn role_event<C: WorldCell, H: Host>(cell: &C, host: &mut H, row: &EventRow)
     })
 }
 
-/// `add_staff` and `add_toilets` of `EffectProgramStructureHandler.apply`: the label of the branch.
-/// The staff positions read the plan, then the staff's operations, in their own call: what either
-/// read gave is that call's refusal where the additions need the positions.
+/// The `add_staff` and `add_toilet` branches of `EffectProgramStructureHandler.apply`: the label of
+/// the branch. The staff positions read the plan, then the staff's operations, in their own call:
+/// what either read gave is that call's refusal where the additions need the positions.
 pub fn add_event<C: WorldCell, H: Host>(cell: &C, host: &mut H, row: &EventRow) -> std::result::Result<&'static str, H::Error> {
     let program = kit::holding(cell, host)?.held(MARKER, PROGRAM_OTHER);
     let plan = cell.with(|world| plan_add(world, &program, row))??;

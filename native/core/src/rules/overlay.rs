@@ -54,12 +54,13 @@ const POLICY_SPACES: &str = "typed-temporary-capacity-v1";
 const POLICY_OVERLAY: &str = "bounded-runtime-geometry-v1";
 const PLACEMENT_SOURCE: &str = "ASM-INSTALLED-FACILITY-PLACEMENT-V1";
 const INTAKE_SOURCE: &str = "ASM-TEMPORARY-ROOM-INTAKE-V1";
-/// `INSTALLED_FACILITY_MIN_SEPARATION_M`, `MAX_INSTALLED_FACILITY_GRID_GROWTH`.
+/// The least distance between installed facilities, in metres, and how far the placement's grid may
+/// grow.
 const MIN_SEPARATION: f64 = 0.6;
 const GRID_GROWTH: usize = 16;
 const MAX_BED_ROUTES: usize = 256;
 const MAX_ADMISSION_POINTS: usize = 256;
-/// `reserve_sleep_bed`: how near another person stands to be using a bed, in metres.
+/// A bed's reservation (`plan_bed`): how near another person stands to be using a bed, in metres.
 const BED_RADIUS: f64 = 0.75;
 /// `room_admission_point`: the grid of candidates and how near a resident stands to take a point.
 const ADMISSION_STEP: f64 = 0.75;
@@ -227,7 +228,7 @@ fn hex_of(value: &str) -> String {
     out
 }
 
-/// `_bed_target_id`.
+/// The target ID of a room's bed.
 pub fn bed_target_id(room_id: &str, bed_index: i64) -> String {
     format!("bed-{}", hex_of(&format!("{room_id}:{bed_index}")))
 }
@@ -359,7 +360,7 @@ pub fn register_space(world: &World, held: &Held, record: SpaceRecord, event_id:
     Ok(())
 }
 
-/// `expire_temporary_space`: whether the space was active.
+/// A temporary space expired: whether the space was active.
 pub fn expire_space(world: &World, held: &Held, space_id: &str, event_id: &str, causation_id: Option<&str>) -> Result<bool> {
     let Some(state) = state_of(world, SPACES_KEY, held)? else {
         return invalid("temporary_spaces_v1 is not installed");
@@ -398,7 +399,8 @@ pub fn expire_space(world: &World, held: &Held, space_id: &str, event_id: &str, 
     Ok(true)
 }
 
-/// `validate_temporary_spaces_state`: true only for what the whole validation passes.
+/// The check of the temporary spaces (`validate::temporary_spaces`): true only for what the whole
+/// validation passes.
 pub fn validate_spaces(world: &World, held: &Held) -> Result<bool> {
     let Some(state) = state_of(world, SPACES_KEY, held)? else {
         return Ok(true);
@@ -407,7 +409,7 @@ pub fn validate_spaces(world: &World, held: &Held) -> Result<bool> {
     spaces_pass(&state.0, &rows)
 }
 
-/// The rules of `validate_temporary_spaces_state` on the namespace as a `V`.
+/// The rules of the temporary spaces' check on the namespace as a `V`.
 fn spaces_pass(state: &V, rows: &Entities) -> Result<bool> {
     let state = map_of(state)?;
     let (Some(V::Map(spaces)), Some(V::List(history))) = (state.get("spaces"), state.get("history")) else {
@@ -664,8 +666,8 @@ pub fn incoming_travelers(world: &World, zone_id: &str, excluding: Option<&str>)
 
 // ---- Beds and intake ----------------------------------------------------------------------------
 
-/// `release_sleep_bed` (`part` "bed_reservations") and `release_temporary_room_admission`
-/// ("room_admissions"): whether the person held one. `agent_id` is None for an ID that is not a str.
+/// A bed's reservation (`part` "bed_reservations") or a room's admission ("room_admissions")
+/// released: whether the person held one. `agent_id` is None for an ID that is not a str.
 pub fn release(world: &World, overlay: &Held, part: &str, agent_id: Option<&str>) -> Result<bool> {
     let Some(state) = state_of(world, OVERLAY_KEY, overlay)? else {
         return Ok(false);
@@ -688,7 +690,7 @@ pub fn release(world: &World, overlay: &Held, part: &str, agent_id: Option<&str>
     Ok(removed.is_some_and(|value| value != V::Null))
 }
 
-/// `{room_id: count}` of the room admissions, as `available_temporary_room` and `capacity_metrics`.
+/// `{room_id: count}` of the room admissions, as `available_room_after` and `capacity` count them.
 fn admission_counts(admissions: &V) -> HashMap<Arc<str>, i64> {
     let mut counts = HashMap::new();
     if let V::Map(admissions) = admissions {
@@ -859,8 +861,8 @@ pub fn room_admission_point(world: &World, intake: &Intake<'_>, room_id: &str) -
     admission_point_after(world, intake, &parts, room_id, &[])
 }
 
-/// `available_temporary_room`, after the admissions a plan has given this far, with the point
-/// `admit_to_temporary_room` then gives.
+/// The temporary room open to one more person in the zone, after the admissions a plan has given
+/// this far, with the point `admit` then gives.
 pub fn available_room_after(world: &World, intake: &Intake<'_>, zone_id: &str, planned: &[(Arc<str>, Option<Pt>)]) -> Result<Option<(Arc<str>, Pt)>> {
     if !matches!(schema_of(intake.schema)?, Some(3 | 4)) {
         return Ok(None);
@@ -893,7 +895,7 @@ pub fn available_room_after(world: &World, intake: &Intake<'_>, zone_id: &str, p
     Ok(None)
 }
 
-/// `admit_to_temporary_room`: the person's point in the room.
+/// A person admitted to a temporary room: the person's point in the room.
 pub fn admit(world: &World, intake: &Intake<'_>, agent_id: &str, room_id: &str, minute: i64, event_id: &str) -> Result<Pt> {
     let Some(state) = state_of(world, OVERLAY_KEY, intake.overlay)? else {
         return invalid(NOT_AVAILABLE);
@@ -940,7 +942,7 @@ pub fn admit(world: &World, intake: &Intake<'_>, agent_id: &str, room_id: &str, 
     Ok(point)
 }
 
-/// What `reserve_sleep_bed` finds, written or not.
+/// What a bed's reservation (`plan_bed`) finds, written or not.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Bed {
     pub room_id: Arc<str>,
@@ -954,7 +956,7 @@ pub struct Bed {
     pub is_new: bool,
 }
 
-/// What `reserve_sleep_bed` reads beside the world's rows.
+/// What a bed's reservation (`plan_bed`) reads beside the world's rows.
 pub struct Beds<'a> {
     pub overlay: &'a Held,
     pub movement: &'a Held,
@@ -964,7 +966,7 @@ pub struct Beds<'a> {
     pub geo: Option<&'a Geo>,
 }
 
-/// `reserve_sleep_bed`, writing only the empty reservations of a state saved before beds were
+/// A bed's reservation, writing only the empty reservations of a state saved before beds were
 /// reserved: None for no bed.
 pub fn plan_bed(world: &World, beds: &Beds<'_>, agent_id: &str) -> Result<Option<Bed>> {
     let Some(state) = state_of(world, OVERLAY_KEY, beds.overlay)? else {
@@ -1174,8 +1176,9 @@ pub fn write_bed(world: &World, overlay: &Held, agent_id: &str, bed: &Bed) -> Re
 
 // ---- Facilities installed during a Run ----------------------------------------------------------
 
-/// `installed_facility_placement_enabled`: schema 4, and an overlay state that is a dict: the
-/// namespace the world holds (a detached overlay is one). Another value is refused (lane P8 d3).
+/// Whether installed facilities are placed on the floor plan: schema 4, and an overlay state that
+/// is a dict: the namespace the world holds (a detached overlay is one). Another value is refused
+/// (lane P8 d3).
 pub fn placement_enabled(schema: &Kept<Option<i64>>, overlay: &Held) -> Result<bool> {
     if schema_of(schema)? != Some(4) {
         return Ok(false);
@@ -1201,7 +1204,7 @@ fn grid_point(polygon: &[Pt], index: usize, count: usize) -> Pt {
     Pt { x: min_x + (max_x - min_x) * x_fraction, y: min_y + (max_y - min_y) * y_fraction }
 }
 
-/// `installed_facility_point`.
+/// The point of an installed facility, if it has one.
 pub fn installed_point(world: &World, overlay: &Held, geo: Option<&Geo>, facility_id: &str) -> Result<Option<Pt>> {
     let rows = world.rows()?;
     let geo = plan(geo)?;
@@ -1389,7 +1392,7 @@ fn polygons_overlap(left: &[Pt], right: &[Pt]) -> bool {
     sides(left).any(|(a, b)| sides(right).any(|(c, d)| segments_meet(a, b, c, d)))
 }
 
-/// `_validate_partition_polygon`, `_validate_room_polygon`: whether the polygon passes.
+/// The checks of a partition's and a room's polygon: whether the polygon passes.
 fn inside_zone(zone: &[Pt], polygon: &[Pt]) -> bool {
     valid_simple(polygon) && polygon.iter().all(|point| point_in_polygon(*point, zone)) && sides(polygon).all(|(a, b)| segment_inside_polygon(a, b, zone))
 }
@@ -1484,7 +1487,7 @@ fn walkable_at(geo: &Geo, zone_id: &str, point: Pt) -> Result<bool> {
     Ok(geo.room_route(zone_id, Some(point), point, "independent").map_err(Error::unsupported)?.is_some())
 }
 
-/// `_validate_facility_room_clearance`.
+/// A facility's point is clear of the temporary rooms.
 fn clear_of_rooms(geo: &Geo, rooms: &Doc, facility_id: &str, zone_id: &str, point: Pt) -> Result<()> {
     let layout = layout_of_plan(geo)?;
     let constraints = constraints_of_plan(geo)?;
@@ -1541,7 +1544,7 @@ fn facility_is_free(world: &World, change: &Change<'_>, target: &str, busy: &str
     Ok(found)
 }
 
-/// `_zones_are_connected`.
+/// Whether the two zones are connected by the edges.
 fn zones_connected(edges: &HashMap<Arc<str>, Edge>, source: &str, destination: &str) -> bool {
     if source == destination {
         return false;
@@ -1568,7 +1571,7 @@ fn zones_connected(edges: &HashMap<Arc<str>, Edge>, source: &str, destination: &
     false
 }
 
-/// `_require_service_staff_in_zone`.
+/// A service facility needs its staff in the zone.
 fn service_staff_in_zone(world: &World, change: &Change<'_>, geo: &Geo, facility_id: &str, kind: &str, zone_id: &str) -> Result<()> {
     let water = match kind {
         "water_station" => true,
@@ -1706,8 +1709,8 @@ fn change_is_possible<'g>(world: &World, change: &Change<'g>) -> Result<&'g Geo>
     Ok(geo)
 }
 
-/// `validate_geometry_change`: the contract's dump of the parameters when the change may be applied.
-/// The contract's own error (policy E15) comes as the host gives it.
+/// The checks of a geometry change: the contract's dump of the parameters when the change may be
+/// applied. The contract's own error (policy E15) comes as the host gives it.
 pub fn check_change<C: WorldCell, H: Host>(
     cell: &C,
     host: &mut H,
@@ -1939,7 +1942,7 @@ fn check_set_partition(check: OpCheck<'_>) -> Result<()> {
     if end_minute.is_none() {
         return invalid("expiry_required: partitions require an explicit bounded end");
     }
-    // `_validate_partition_polygon`.
+    // The partition's polygon.
     if !valid_simple(&polygon) || polygon.iter().any(|point| !point_in_polygon(*point, &zone.polygon)) {
         return invalid("area_invalid: partition requires a simple positive-area polygon inside its zone");
     }
@@ -2021,7 +2024,7 @@ fn check_temporary_room(check: OpCheck<'_>) -> Result<()> {
     let Some(zone) = layout.zones.get(target) else {
         return invalid("target_missing: temporary room zone has no surveyed polygon");
     };
-    // `_validate_room_polygon`.
+    // The room's polygon.
     if !valid_simple(&polygon) {
         return invalid("area_invalid: temporary room polygon must be simple and nondegenerate");
     }
@@ -2459,8 +2462,8 @@ fn stamped_is_good(row: &Doc) -> Result<i64> {
     Ok(minute)
 }
 
-/// `validate_geometry_overlay_state`: `_GeometryOverlayState` for what it takes as it is, and the
-/// rule's checks after it. Ok only for what the whole validation passes.
+/// The check of `geometry_overlay_v1` (`validate::geometry_overlay`): the state's contract for what
+/// it takes as it is, and the rule's checks after it. Ok only for what the whole validation passes.
 pub fn check_overlay(world: &World, overlay: &Held, geo: Option<&Geo>) -> Result<()> {
     let Some(value) = state_of(world, OVERLAY_KEY, overlay)? else {
         return Ok(());

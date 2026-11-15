@@ -2,8 +2,7 @@
 //! what it finds (`sample_contacts`).
 //!
 //! The controller's config and policy are the Run's (`run::proximity::Proximity`, read when the
-//! controller starts; a test that puts another policy on the controller reads them again with
-//! `refresh_policies`). The positions come from the row of `movement_v1`: a namespace the world does
+//! controller starts). The positions come from the row of `movement_v1`: a namespace the world does
 //! not hold has nobody placed, and a row a value did not fit is refused (there is no tree to read
 //! instead). A coordinate whose cell does not fit an i64 says Unsupported, as `math.floor` gives an
 //! exact int of any size; validation does not bound coordinates, but no floor plan reaches them.
@@ -188,8 +187,8 @@ fn point_value(point: &Placed) -> V {
     V::Map(map)
 }
 
-/// The head of `_sample_proximity_contacts`, which reads no world: the minute to sample, or None for
-/// no config or a minute off its interval. `minute` is None for a minute that is not an int.
+/// The head of `sample_contacts`, which reads no world: the minute to sample, or None for no config
+/// or a minute off its interval. `minute` is None for a minute that is not an int.
 pub fn when(proximity: &Proximity, minute: Option<i64>) -> Result<Option<i64>> {
     let config = kit::policy(proximity.config.as_ref())?;
     if matches!(config, V::Null) {
@@ -210,8 +209,8 @@ pub fn when(proximity: &Proximity, minute: Option<i64>) -> Result<Option<i64>> {
     Ok(Some(minute))
 }
 
-/// `_sample_proximity_contacts` at a minute `when` gave: a `proximity_contact_update` for each pair,
-/// due at the next minute. `movement` says whether the world holds `movement_v1`.
+/// The proximity contacts sampled at a minute `when` gave: a `proximity_contact_update` for each
+/// pair, due at the next minute. `movement` says whether the world holds `movement_v1`.
 pub fn sample_contacts(world: &World, proximity: &Proximity, minute: i64, movement: &Held) -> WriteResult<()> {
     let config = kit::policy(proximity.config.as_ref())?;
     let events = Events::of(world)?;

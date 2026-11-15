@@ -1,14 +1,15 @@
-//! Recording a decision with its outcome, the step `_record_outcome` of the propose phase: the
+//! Recording a decision with its outcome, the step `record_outcome` of the propose phase: the
 //! record, then the action's lifecycle, then the person's memory, in that order.
 //!
 //! The record goes where the Run's sink takes it (`Host::decision_sink`): nothing for a silent
-//! sink; the JSON bytes of `_IndexedMetricSink.record_decision` (`decision_bytes`, with the keys in
-//! the order of its dict) for an indexed one; the document of `_decision_document` and the observed
-//! state for `RunArtifactWriter` while its trace is on. Everything that can turn the record down is
-//! read before the host takes it, and what this rule does not write itself (the host's own sink,
-//! `DecisionSink::Host`, an observed state that is not the view's person, a NaN, a large observed
-//! state the sink measures, a tainted store, a household no row reads) is `Sunk::Host`: the host
-//! then records it (`Host::record_host_decision`), and the rules after it run as here.
+//! sink; the JSON bytes of the record (`decision_bytes`, with the keys in a fixed order) for an
+//! indexed one (`DecisionSink::Indexed`); the document of `decision_document` and the observed
+//! state for an artifacts sink (`DecisionSink::Artifacts`) while its trace is on. Everything that
+//! can turn the record down is read before the host takes it, and what this rule does not write
+//! itself (the host's own sink, `DecisionSink::Host`, an observed state that is not the view's
+//! person, a NaN, a large observed state the sink measures, a tainted store, a household no row
+//! reads) is `Sunk::Host`: the host then records it (`Host::record_host_decision`), and the rules
+//! after it run as here.
 //!
 //! The lifecycle and the memory are `action_lifecycle::commit_action` and
 //! `agent_dynamics::remember_decision`, called directly. What they refuse has changed nothing and
@@ -30,7 +31,7 @@ use crate::world::{World, WorldCell};
 /// `ActionProposal.trigger` of a scheduled decision.
 pub const TRIGGER: &str = "scheduled_decision";
 /// `len(json.dumps(observed))` is at most twice the length without its spaces, so a shorter one is
-/// within the 16,384 of `record_decision`. A longer one is left to the host
+/// within the sinks' limit of 16,384. A longer one is left to the host
 /// (`Host::record_host_decision`).
 pub const MAX_OBSERVED_BYTES: usize = 8192;
 /// The label of the refusal of the lifecycle's rule.
@@ -41,15 +42,15 @@ pub const MEMORY: &str = "agent_dynamics.record_proposal";
 /// What a decision observed (`observed_state` of the step).
 #[derive(Clone)]
 pub enum Observed<'a> {
-    /// `_agent_view_snapshot` of a person of a view, not yet made.
+    /// What a decision observed of a person of a view (`behavior::observed_value`), not yet made.
     Row { data: &'a ViewData, index: usize },
     /// A plain value (a dict, or None).
     Value(V),
-    /// Anything else, which only the sink's own `record_decision` takes.
+    /// Anything else, which only the host's own sink takes.
     Other,
 }
 
-/// A decision and its outcome, as `_record_outcome` takes them.
+/// A decision and its outcome, as `record_outcome` takes them.
 pub struct Recording<'a> {
     /// The view the proposal was made from.
     pub data: &'a ViewData,
@@ -109,7 +110,8 @@ macro_rules! key {
     };
 }
 
-/// `_agent_view_snapshot` as JSON, with its keys in that function's order (`observed_value`).
+/// What a decision observed of a person (`behavior::observed_value`) as JSON, with its keys in the
+/// same order.
 pub fn write_observed(out: &mut Encoder, data: &ViewData, index: usize) -> Result<()> {
     let agent = &data.agents[index];
     let zone = data.zone_of(agent);
@@ -202,9 +204,10 @@ pub fn write_observed(out: &mut Encoder, data: &ViewData, index: usize) -> Resul
     Ok(())
 }
 
-/// `current_household_id` as the indexed sink writes it: the household of the person's record in
-/// `population_presence_v1` (None for none), or the profile's group without a dict there or with a
-/// record that is not one. A value no row reads is refused (the sink's rule then refuses it).
+/// The person's current household as the indexed sink writes it: the household of the person's
+/// record in `population_presence_v1` (None for none), or the profile's group without a dict there
+/// or with a record that is not one. A value no row reads is refused (the sink's rule then refuses
+/// it).
 fn household(world: &World, agent_id: &str, group_id: Option<&Arc<str>>) -> Result<Option<Arc<str>>> {
     let presence = world.slots.try_value(PRESENCE)?;
     let Some(V::Map(presence)) = presence.as_deref() else {
@@ -229,13 +232,13 @@ fn household(world: &World, agent_id: &str, group_id: Option<&Arc<str>>) -> Resu
     }
 }
 
-/// What `_IndexedMetricSink.record_decision` keeps of a decision that the view does not hold: the
-/// person's zone and household now, and the sink's source of the policy.
+/// What an indexed sink keeps of a decision that the view does not hold: the person's zone and
+/// household now, and the sink's source of the policy.
 pub struct DecisionRecord<'a> {
     pub recording: &'a Recording<'a>,
     pub zone_id: Arc<str>,
     pub household_id: Option<Arc<str>>,
-    /// `policy_sources.get(policy_version)`.
+    /// The sink's source of the policy version (`Host::decision_source`).
     pub source_id: Option<Arc<str>>,
 }
 
@@ -253,8 +256,8 @@ pub fn decision_record<'a>(world: &World, recording: &'a Recording<'a>, source_i
     Ok(DecisionRecord { recording, zone_id, household_id, source_id })
 }
 
-/// What `_IndexedMetricSink.record_decision` appends, as JSON with the keys in that order, with the
-/// observed state of `data`'s person `index`.
+/// What an indexed sink appends, as JSON with the keys in that order, with the observed state of
+/// `data`'s person `index`.
 pub fn decision_bytes(record: &DecisionRecord<'_>, data: &ViewData, index: usize) -> Result<Vec<u8>> {
     let recording = record.recording;
     let proposal = recording.proposal;
@@ -321,7 +324,7 @@ fn text(value: &str) -> V {
     V::Str(Arc::from(value))
 }
 
-/// `_decision_document`, without the observed state its writer adds last.
+/// The decision's document, without the observed state its writer adds last.
 pub fn decision_document(recording: &Recording<'_>, full: bool) -> Result<V> {
     let data = recording.data;
     let proposal = recording.proposal;
@@ -452,7 +455,8 @@ pub fn remember(world: &World, recording: &Recording<'_>) -> Result<()> {
     agent_dynamics::remember_decision(world, &decision)
 }
 
-/// `_record_outcome`: the record, the lifecycle and the memory. `Sunk::Host` has done nothing.
+/// Records a decision's outcome: the record, the lifecycle and the memory. `Sunk::Host` has done
+/// nothing.
 pub fn record_outcome<C: WorldCell, H: Host>(
     cell: &C,
     host: &mut H,

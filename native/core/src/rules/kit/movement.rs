@@ -22,7 +22,8 @@ pub use crate::config::movement::{EXACT_INT, MOVEMENT_SOURCE_ID, POLICY_VERSION}
 /// The key of `movement_v1` in `model_state`.
 pub const KEY: &str = "movement_v1";
 
-// `_queue_slot_position`'s spacing and `facility_approach_route`'s clearance, in metres.
+// The spacing of a queue's slots (`queue_slot_in`) and the clearance of an approach
+// (`approach_point`), in metres.
 const SPACING_INDEPENDENT: f64 = 0.6;
 const SPACING_ASSISTED: f64 = 0.9;
 const SPACING_WHEELCHAIR: f64 = 1.0;
@@ -50,7 +51,7 @@ pub fn position_point(position: Option<&Position>) -> Option<Pt> {
     position.and_then(|position| position.point).map(|point| Pt { x: point.x, y: point.y })
 }
 
-/// `_position_record`, with its kind.
+/// A person's position record, with its kind.
 pub fn record(zone_id: Arc<str>, point: Option<Pt>, position_kind: Arc<str>, edge_id: Option<Arc<str>>, progress: f64) -> Position {
     Position { zone_id, point: point.map(|point| Point { x: point.x, y: point.y }), edge_id, progress, position_kind }
 }
@@ -74,8 +75,8 @@ pub fn config_read<T>(value: Read<T>) -> Result<T> {
 
 // ---- Queue slots and the walk to a facility --------------------------------------------------
 
-/// `_queue_slot_position`: the slot first free of the people ahead as they stand now, with a real
-/// route from where the person is. Of a facility's own queue, or of an independent one when
+/// A person's slot in a queue: the slot first free of the people ahead as they stand now, with a
+/// real route from where the person is. Of a facility's own queue, or of an independent one when
 /// `independent` gives its people and its signed point if it has one.
 pub fn queue_slot_in(
     geo: &Geo,
@@ -151,7 +152,8 @@ pub fn queue_slot_in(
     Ok(None)
 }
 
-/// `in_room_travel_minutes` of a path of this length, for a person standing in `agent_zone`.
+/// The minutes of a walk in a room along a path of this length, for a person standing in
+/// `agent_zone`.
 pub fn room_minutes(model: &Read<MovementModel>, geo: &Geo, rows: &Entities, agent_zone: &str, mobility: &str, length: f64) -> Result<i64> {
     let Some(layout) = &geo.layout else {
         return Err(Error::unsupported("no floor plan"));
@@ -187,9 +189,9 @@ fn is_shorter(first: (f64, &[Pt]), second: (f64, &[Pt])) -> bool {
     first.1.len() < second.1.len()
 }
 
-/// `facility_approach_route` in a placed world, to a facility's own point, or to a surveyed service
-/// point when one is given: then no point beside a footprint. The route's minutes and its path, or
-/// None for no route. Says Unsupported without a floor plan.
+/// The approach to a facility in a placed world, to the facility's own point, or to a surveyed
+/// service point when one is given: then no point beside a footprint. The route's minutes and its
+/// path, or None for no route. Says Unsupported without a floor plan.
 pub fn approach_point(
     geo: &Geo,
     row: &MovementRow,
@@ -331,7 +333,7 @@ impl Changes {
     }
 }
 
-/// `_state`'s records for the people who have none.
+/// The position records of the people who have none.
 pub fn missing_positions(row: &MovementRow, rows: &Entities, changes: &mut Changes) {
     for (id, agent) in rows.agents.iter() {
         if !row.positions.contains_key(&**id) {
@@ -347,7 +349,7 @@ pub fn start_progress(row: &MovementRow, started: i64, duration: i64) -> (bool, 
     (elapsed != 0, py_min(1.0, elapsed as f64 / duration as f64))
 }
 
-/// A journey to start: what `start_movement` and the trips of `travel.rs` give.
+/// A journey to start: what `movement::start` and the trips of `travel.rs` give.
 pub struct Start<'a> {
     pub agent_id: &'a Arc<str>,
     pub journey: Journey,
@@ -358,9 +360,9 @@ pub struct Start<'a> {
     pub duration: i64,
 }
 
-/// `start_movement`'s writes as a plan. `off_path` is the point where the path has no points: on
-/// the first edge at the progress `start_progress` gives (0.0 before a minute is walked), or the
-/// origin zone's centre without an edge; the caller reads it.
+/// The writes of a journey's start (`movement::start`) as a plan. `off_path` is the point where the
+/// path has no points: on the first edge at the progress `start_progress` gives (0.0 before a
+/// minute is walked), or the origin zone's centre without an edge; the caller reads it.
 pub fn plan_start(row: &MovementRow, rows: &Entities, start: Start<'_>, off_path: Option<Pt>) -> Result<Changes> {
     let Start { agent_id, journey, origin, points, edge_ids, started, duration } = start;
     let mut changes = Changes::default();

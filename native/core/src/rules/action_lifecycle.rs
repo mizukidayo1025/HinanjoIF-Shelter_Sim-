@@ -261,20 +261,21 @@ fn fits_chars(value: Option<&str>, limit: usize) -> bool {
     value.is_none_or(|text| text.chars().nth(limit).is_none())
 }
 
+/// A transition of an action: its kind, the minute, the reason, the activity it leaves the person
+/// in, and the event that caused it.
+#[derive(Clone, Copy)]
+struct Transition<'a> {
+    transition: &'a str,
+    minute: i64,
+    reason_code: &'a str,
+    activity: Option<&'a str>,
+    causation_id: Option<&'a str>,
+}
+
 /// What the event of `_append_transition` is; Unsupported where `_is_plain_receipt` is false, or
 /// where the event or the log would refuse it.
-#[allow(clippy::too_many_arguments)]
-fn receipt(
-    events: &Events<'_>,
-    action: &ActiveAction,
-    transition: &str,
-    minute: i64,
-    reason_code: &str,
-    activity: Option<&str>,
-    causation_id: Option<&str>,
-    sequence: i64,
-    current: Option<&Needs>,
-) -> Result<Receipt> {
+fn receipt(events: &Events<'_>, action: &ActiveAction, change: Transition<'_>, sequence: i64, current: Option<&Needs>) -> Result<Receipt> {
+    let Transition { transition, minute, reason_code, activity, causation_id } = change;
     let plain = 0 <= action.start_minute
         && action.start_minute <= minute
         && !reason_code.is_empty()
@@ -402,7 +403,13 @@ pub fn commit_action(world: &World, active: &mut ActiveActions, proposal: &Propo
             if current.continued {
                 return Ok(());
             }
-            receipts.push(receipt(&events, current, "continued", minute, proposal.trigger, activity, None, first, Some(&agent.needs))?);
+            receipts.push(receipt(
+                &events,
+                current,
+                Transition { transition: "continued", minute, reason_code: proposal.trigger, activity, causation_id: None },
+                first,
+                Some(&agent.needs),
+            )?);
             commit(&events, receipts)?;
             if let Some(current) = active.rows.get_mut(proposal.agent_id) {
                 current.continued = true;
@@ -410,7 +417,13 @@ pub fn commit_action(world: &World, active: &mut ActiveActions, proposal: &Propo
             return Ok(());
         }
         let status = completion_status(world, current, &agent.needs)?;
-        receipts.push(receipt(&events, current, status, minute, "superseded_by_new_applied_action", activity, None, first, Some(&agent.needs))?);
+        receipts.push(receipt(
+            &events,
+            current,
+            Transition { transition: status, minute, reason_code: "superseded_by_new_applied_action", activity, causation_id: None },
+            first,
+            Some(&agent.needs),
+        )?);
     }
     let sequence = first + receipts.len() as i64;
     let mut start_needs = IdMap::with_capacity_and_hasher(6, Default::default());
@@ -430,7 +443,13 @@ pub fn commit_action(world: &World, active: &mut ActiveActions, proposal: &Propo
         model_source_id: WORDS.model_source.clone(),
         continued: false,
     };
-    receipts.push(receipt(&events, &started, "started", minute, proposal.trigger, activity, None, sequence, Some(&agent.needs))?);
+    receipts.push(receipt(
+        &events,
+        &started,
+        Transition { transition: "started", minute, reason_code: proposal.trigger, activity, causation_id: None },
+        sequence,
+        Some(&agent.needs),
+    )?);
     commit(&events, receipts)?;
     // The old action goes and the new one is the dict's last key, as pop and insert leave it.
     active.rows.shift_remove(proposal.agent_id);
@@ -537,11 +556,13 @@ pub fn complete_for_event(world: &World, active: &mut ActiveActions, event: &End
     let planned = receipt(
         &events,
         current,
-        status,
-        minute,
-        event_type,
-        agent.as_ref().map(|agent| agent.activity),
-        Some(event.event_id),
+        Transition {
+            transition: status,
+            minute,
+            reason_code: event_type,
+            activity: agent.as_ref().map(|agent| agent.activity),
+            causation_id: Some(event.event_id),
+        },
         sequence,
         agent.as_ref().map(|agent| &agent.needs),
     )?;
@@ -622,7 +643,13 @@ pub fn population_exit(world: &World, active: &mut ActiveActions, event_id: &str
             continue;
         };
         let agent = agent_of(world, agent_id)?;
-        receipts.push(receipt(&events, current, "interrupted", minute, reason, None, Some(event_id), sequence, agent.as_ref().map(|agent| &agent.needs))?);
+        receipts.push(receipt(
+            &events,
+            current,
+            Transition { transition: "interrupted", minute, reason_code: reason, activity: None, causation_id: Some(event_id) },
+            sequence,
+            agent.as_ref().map(|agent| &agent.needs),
+        )?);
         closed.push(agent_id);
         sequence += 1;
     }
@@ -650,11 +677,13 @@ pub fn finalize(world: &World, active: &mut ActiveActions, minute: i64) -> Resul
         receipts.push(receipt(
             &events,
             current,
-            status,
-            minute,
-            "simulation_end_right_censor",
-            agent.as_ref().map(|agent| agent.activity),
-            None,
+            Transition {
+                transition: status,
+                minute,
+                reason_code: "simulation_end_right_censor",
+                activity: agent.as_ref().map(|agent| agent.activity),
+                causation_id: None,
+            },
             first + index as i64,
             agent.as_ref().map(|agent| &agent.needs),
         )?);

@@ -160,6 +160,17 @@ impl Affect {
     }
 }
 
+/// A contact a relationship records: its minute, kind and topic, how long it lasted, and how far
+/// apart the two were.
+#[derive(Clone, Copy)]
+struct Contact<'a> {
+    minute: i64,
+    kind: &'a Arc<str>,
+    topic: Option<&'a Arc<str>>,
+    duration: f64,
+    distance_m: Option<f64>,
+}
+
 #[derive(Clone, Copy)]
 enum TrustPolicy {
     DistanceDurationRepeat { distance_scale_m: f64, repeat_contact_bonus: f64 },
@@ -168,6 +179,8 @@ enum TrustPolicy {
 
 impl TrustPolicy {
     /// `update_trust` of the operators. The arguments are the rule's, in its units.
+    // Kept with its eight numbers (#493): a pure computation of the model's operator, whose
+    // arguments are the operator's own, each in its own unit; a struct would only rename them.
     #[allow(clippy::too_many_arguments)]
     fn update_trust(
         self,
@@ -434,17 +447,8 @@ impl Planner<'_> {
     }
 
     /// `_record_relationship`, with an event ID, which every event has.
-    #[allow(clippy::too_many_arguments)]
-    fn record_relationship(
-        &mut self,
-        recipient: &Arc<str>,
-        sender: &Arc<str>,
-        minute: i64,
-        kind: &Arc<str>,
-        topic: Option<&Arc<str>>,
-        duration: f64,
-        distance_m: Option<f64>,
-    ) -> Result<()> {
+    fn record_relationship(&mut self, recipient: &Arc<str>, sender: &Arc<str>, contact: Contact<'_>) -> Result<()> {
+        let Contact { minute, kind, topic, duration, distance_m } = contact;
         let Some(key) = pair_key(recipient, sender) else {
             return Err(Error::unsupported("an ID is not plain"));
         };
@@ -577,8 +581,16 @@ impl Planner<'_> {
             Action::Nothing => {}
             Action::Proximity { first, second, observed_minute, distance, duration } => {
                 let kind: Arc<str> = Arc::from("observed_proximity_contact");
-                self.record_relationship(first, second, *observed_minute, &kind, None, *duration, *distance)?;
-                self.record_relationship(second, first, *observed_minute, &kind, None, *duration, *distance)?;
+                self.record_relationship(
+                    first,
+                    second,
+                    Contact { minute: *observed_minute, kind: &kind, topic: None, duration: *duration, distance_m: *distance },
+                )?;
+                self.record_relationship(
+                    second,
+                    first,
+                    Contact { minute: *observed_minute, kind: &kind, topic: None, duration: *duration, distance_m: *distance },
+                )?;
             }
             Action::Contact { sender, recipient, topic, duration } => {
                 let source = self.record(sender)?;
@@ -592,7 +604,11 @@ impl Planner<'_> {
                 let kind: Arc<str> = Arc::from("information_contact");
                 transfers.push((recipient.clone(), sender.clone(), kind.clone(), Self::transfer_deltas(&before, &target)));
                 let distance = contact_distance(self.positions, recipient, sender);
-                self.record_relationship(recipient, sender, self.event.minute, &kind, topic.as_ref(), *duration, distance)?;
+                self.record_relationship(
+                    recipient,
+                    sender,
+                    Contact { minute: self.event.minute, kind: &kind, topic: topic.as_ref(), duration: *duration, distance_m: distance },
+                )?;
             }
             Action::Social { kind, actor, participant, topic, duration } => match kind {
                 Interaction::None => {}
@@ -615,9 +631,17 @@ impl Planner<'_> {
                         transfers.push((actor.clone(), agent_id.clone(), name.clone(), Self::transfer_deltas(&before, &record)));
                     }
                     let distance = contact_distance(self.positions, actor, participant);
-                    self.record_relationship(actor, participant, self.event.minute, &name, topic.as_ref(), *duration, distance)?;
+                    self.record_relationship(
+                        actor,
+                        participant,
+                        Contact { minute: self.event.minute, kind: &name, topic: topic.as_ref(), duration: *duration, distance_m: distance },
+                    )?;
                     let distance = contact_distance(self.positions, participant, actor);
-                    self.record_relationship(participant, actor, self.event.minute, &name, topic.as_ref(), *duration, distance)?;
+                    self.record_relationship(
+                        participant,
+                        actor,
+                        Contact { minute: self.event.minute, kind: &name, topic: topic.as_ref(), duration: *duration, distance_m: distance },
+                    )?;
                 }
                 Interaction::Transfer { kind, include_uncertainty } => {
                     let Some(participant) = participant else {
@@ -637,7 +661,11 @@ impl Planner<'_> {
                     self.store(participant, target);
                     transfers.push((actor.clone(), participant.clone(), kind.clone(), Self::transfer_deltas(&before, &target)));
                     let distance = contact_distance(self.positions, participant, actor);
-                    self.record_relationship(participant, actor, self.event.minute, kind, topic.as_ref(), *duration, distance)?;
+                    self.record_relationship(
+                        participant,
+                        actor,
+                        Contact { minute: self.event.minute, kind, topic: topic.as_ref(), duration: *duration, distance_m: distance },
+                    )?;
                 }
                 Interaction::ComplaintResponse => {
                     let before = self.record(actor)?;

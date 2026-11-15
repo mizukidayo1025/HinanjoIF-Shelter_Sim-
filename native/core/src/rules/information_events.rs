@@ -157,7 +157,6 @@ pub fn acceptance_probability(config: &InformationSpread, trust: f64, reliabilit
 }
 
 /// A correction's acceptance as the rules draw it: `ids` are the key's parts after the minute.
-#[allow(clippy::too_many_arguments)]
 pub fn accepts(world: &World, config: &InformationSpread, label: &str, trust: f64, source_id: &str, minute: i64, ids: &[&str]) -> Result<bool> {
     let chance = acceptance_probability(config, trust, reliability_of(config, source_id)?)?;
     Ok(Draws::of_world(world)?.random(label, minute, ids) < chance)
@@ -199,18 +198,20 @@ struct Flags {
     last_correction_accepted: bool,
 }
 
-/// A new belief record, as `AgentInformationState.to_dict` lists it.
-#[allow(clippy::too_many_arguments)]
-fn belief(
-    message_id: &Arc<str>,
+/// What a new belief record says it heard: the belief, its source, the contact's minute and event,
+/// and the strength and propensity to share it.
+struct Heard {
     belief: Arc<str>,
     source: Arc<str>,
     last_contact: i64,
     last_event_id: Arc<str>,
     belief_strength: f64,
     share_propensity: f64,
-    flags: Flags,
-) -> BeliefRow {
+}
+
+/// A new belief record, as `AgentInformationState.to_dict` lists it.
+fn belief(message_id: &Arc<str>, heard: Heard, flags: Flags) -> BeliefRow {
+    let Heard { belief, source, last_contact, last_event_id, belief_strength, share_propensity } = heard;
     BeliefRow {
         message_id: message_id.clone(),
         belief,
@@ -424,7 +425,18 @@ fn rumor_in(world: &World, inputs: &Inputs<'_>, event: &EventRow) -> Result<()> 
         ever_forgotten: false,
         last_correction_accepted: false,
     };
-    let record = belief(message_id, Arc::from("heard"), origin.clone(), due, event.event_id.clone(), strength, 0.5, flags);
+    let record = belief(
+        message_id,
+        Heard {
+            belief: Arc::from("heard"),
+            source: origin.clone(),
+            last_contact: due,
+            last_event_id: event.event_id.clone(),
+            belief_strength: strength,
+            share_propensity: 0.5,
+        },
+        flags,
+    );
     let next = py_min(1.0, pressure + read(config.query_pressure_per_claim.clone())?);
     let mut row = world.row_mut::<InformationRow>(NAME)?;
     row.messages.insert(message_id.clone(), message);
@@ -538,7 +550,18 @@ fn correction_in(world: &World, inputs: &Inputs<'_>, event: &EventRow) -> Result
                 last_correction_accepted: accepted,
             };
             let share = previous.as_ref().map_or(0.5, |prior| prior.share_propensity);
-            let record = belief(message_id, status, source.clone(), due, event.event_id.clone(), strength, share, flags);
+            let record = belief(
+                message_id,
+                Heard {
+                    belief: status,
+                    source: source.clone(),
+                    last_contact: due,
+                    last_event_id: event.event_id.clone(),
+                    belief_strength: strength,
+                    share_propensity: share,
+                },
+                flags,
+            );
             if !is_valid(&record) {
                 return Err(Error::unsupported("a belief for the Python rule to judge"));
             }
@@ -740,7 +763,18 @@ fn contact_in(world: &World, inputs: &Inputs<'_>, event: &EventRow) -> Result<Ap
         last_correction_accepted: if correcting { accepted } else { previous.as_ref().is_some_and(|prior| prior.last_correction_accepted) },
     };
     let share = previous.as_ref().map_or(0.5, |prior| prior.share_propensity);
-    let record = belief(message_id, status, sender_id.clone(), due, event.event_id.clone(), written_strength, share, flags);
+    let record = belief(
+        message_id,
+        Heard {
+            belief: status,
+            source: sender_id.clone(),
+            last_contact: due,
+            last_event_id: event.event_id.clone(),
+            belief_strength: written_strength,
+            share_propensity: share,
+        },
+        flags,
+    );
     if !is_valid(&record) {
         return Err(Error::unsupported("a belief for the Python rule to judge"));
     }

@@ -587,7 +587,7 @@ fn assign_work(
         }
         let mut person = free.iter().copied().find(|index| qualifies(&workers[*index], &open.kind));
         if person.is_none() && open.priority > 0 {
-            person = preempt_worker(world, inputs, service, travel, events, &workers, &open, at, duration, taken)?;
+            person = preempt_worker(Assigning { world, inputs, service, travel, events }, &workers, &open, at, duration, taken)?;
             if let Some(index) = person {
                 free.push(index);
             }
@@ -715,20 +715,20 @@ fn assign_work(
     Ok(assigned)
 }
 
+/// What the assignment of the pending requests reads and writes besides the plan: the world, the
+/// inputs, the support service, the routes of the travel, and the event log.
+#[derive(Clone, Copy)]
+struct Assigning<'a> {
+    world: &'a World,
+    inputs: &'a Inputs<'a>,
+    service: &'a Service,
+    travel: Option<&'a Travel<'a>>,
+    events: &'a Events<'a>,
+}
+
 /// `_preempt_background_staff`: frees one qualified routed worker for an urgent request.
-#[allow(clippy::too_many_arguments)]
-fn preempt_worker(
-    world: &World,
-    inputs: &Inputs<'_>,
-    service: &Service,
-    travel: Option<&Travel<'_>>,
-    events: &Events<'_>,
-    workers: &[Worker],
-    open: &Open,
-    at: i64,
-    duration: i64,
-    taken: &mut Vec<u64>,
-) -> WriteResult<Option<usize>> {
+fn preempt_worker(assigning: Assigning<'_>, workers: &[Worker], open: &Open, at: i64, duration: i64, taken: &mut Vec<u64>) -> WriteResult<Option<usize>> {
+    let Assigning { world, inputs, service, travel, events } = assigning;
     // `model_state.get(NAME)`: no preemption without the namespace.
     let Some(phases) = inputs.operations_row(world)?.map(|row| row.staff.iter().map(|(id, record)| (id.clone(), record.phase)).collect::<FxHashMap<_, _>>())
     else {
@@ -1058,21 +1058,28 @@ impl OpenWaits {
     }
 }
 
+/// What `routed_reasons` reads of a pending request: whether its person exists, the person's ID,
+/// and the minute and the reason of its last attempt to assign it.
+#[derive(Clone, Copy)]
+struct Waiting<'a> {
+    agent_exists: bool,
+    agent_id: &'a str,
+    last_attempt: Option<i64>,
+    last_reason: Option<&'a Arc<str>>,
+}
+
 /// `support_wait_reason_codes` of a pending request whose kind has free staff, past its routes:
 /// None where its routes are to be read and `routes` is None.
-#[allow(clippy::too_many_arguments)]
 fn routed_reasons(
     world: &World,
     staff: &Inputs<'_>,
     routes: Option<&WaitRoutes<'_>>,
     reads: &mut Option<RouteReads>,
     wait: &KindWait,
-    agent_exists: bool,
-    agent_id: &str,
-    last_attempt: Option<i64>,
-    last_reason: Option<&Arc<str>>,
+    waiting: Waiting<'_>,
     sample: i64,
 ) -> Result<Option<Vec<Arc<str>>>> {
+    let Waiting { agent_exists, agent_id, last_attempt, last_reason } = waiting;
     let (route_reasons, feasible) = if agent_exists {
         let Some(routes) = routes else {
             return Ok(None);
@@ -1170,7 +1177,15 @@ pub fn open_waits(
                 if waits[index].destinations.is_empty() {
                     WaitReason::OfKind(index)
                 } else {
-                    match routed_reasons(world, staff, routes, &mut reads, &waits[index], agent_exists, &agent, last_attempt, last_reason.as_ref(), sample)? {
+                    match routed_reasons(
+                        world,
+                        staff,
+                        routes,
+                        &mut reads,
+                        &waits[index],
+                        Waiting { agent_exists, agent_id: &agent, last_attempt, last_reason: last_reason.as_ref() },
+                        sample,
+                    )? {
                         Some(reasons) => WaitReason::Routed(reasons),
                         None => return Ok(None),
                     }

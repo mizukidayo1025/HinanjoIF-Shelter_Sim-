@@ -16,6 +16,7 @@ mod basics;
 mod behavior_rows;
 mod body_state_rows;
 mod care_support;
+mod compute;
 mod config;
 mod config_movement_queues;
 mod config_sections;

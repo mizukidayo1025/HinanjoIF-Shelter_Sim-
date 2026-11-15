@@ -11,6 +11,7 @@ pub mod canonical;
 pub mod cell;
 pub mod census;
 pub mod checkpoint;
+pub mod compute;
 pub mod config;
 pub mod contacts;
 pub mod contracts;

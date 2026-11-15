@@ -1,41 +1,296 @@
-//! Computing a branch into its folder, as the browser does (`native/wasm/js/compute.mjs`,
-//! `interventions.mjs`, `project_store.mjs`'s `computeBranch` and `keepTurn`), for a writer that
-//! holds the branch's lease (`ProjectFiles::claim_branch`).
+//! The core's computing procedure (`sheltersim_core::compute`, #476) done with a store's files: the
+//! steps a `Procedure` gives are done here (the records with `ProjectFiles`; a branch's stored Run
+//! with its folder's two files, each piece compressed, appended and flushed to the disk before its
+//! line, each line flushed before the next; the store's limit checked before each write; the locks
+//! of the branches' writers), and what they read or where they wrote is given back. The procedure
+//! decides everything else, as it does for the browser (`js/procedure.mjs`), so both write the same
+//! lines, pieces (before compression) and records.
 //!
-//! A branch's head. A branch's record (`computed_until`, `checkpoint_hash`) names a line of its
-//! stored Run's journal the Run can be read back at and gone on from: the "export" line (minute 0),
-//! a "saved" line, or the "end" line; `checkpoint_hash` is that line's head hash. The record is
-//! written after the line is flushed, so the record is the commit: lines after the head are a
-//! computation that did not reach its next head, and going on cuts them off first, unless a branch
-//! forked from it reads them (the core refuses that cut).
+//! A branch is written by the one writer holding its lease (`ProjectFiles::claim_branch`): each
+//! procedure that writes a branch's stored Run checks the lease first. After a step fails the host
+//! refuses to go on: the journal may end with a line cut short, which reading ignores and going on
+//! from the branch's head cuts off.
 //!
-//! Going on (`ProjectFiles::go_on`, compute.mjs's `start`): the branch cut back to its head and
-//! restored there. Then `Computation::chunk` computes at most a
-//! chunk of ticks, not past the next saved point or the target, stores the blocks sealed since, and
-//! at every `save_every` minutes, at the target and at the clock's end stores a saved point and
-//! moves the branch's record to it (`running` until the computation ends; at the end the "world"
-//! and "end" lines too). `Computation::stop` ends it early with a saved point where it got to. The
+//! Going on (`ProjectFiles::go_on`) gives a `Computation`: `advance` runs a chunk's ticks without
+//! the files (outside the store's transaction, which the Run's LLM link may take, #465), `store`
+//! does the chunk's steps (under it), `stop` ends it early with a saved point where it got to. The
 //! caller sets the final status of the branch and the Run (`Computation::end`).
 
-use std::fs;
+use std::collections::HashMap;
+use std::fs::{self, File};
+use std::path::PathBuf;
 
 use serde_json::Value;
+use sheltersim_core::answers::Failure;
+use sheltersim_core::compute::{BranchRecord, Given, Lineage, Procedure, Start, Step, Where};
 use sheltersim_core::model_version::Versions;
 use sheltersim_core::plain::PlainRun;
-use sheltersim_core::run_store::{Fork, ForkOrigin, Head, HeadKind, Journal, RecordKind, RunWriter, Schedule, Storing};
+use sheltersim_core::run_store::RecordKind;
 
-use crate::compress::COMPRESSION;
-use crate::files::AppendFile;
+use crate::compress::{inflate_raw, Compress};
+use crate::files::{read_at, read_if_there, sync_dir, AppendFile};
 use crate::lock::{self, Lease};
-use crate::records::{Branch, ProjectFiles, Record};
-use crate::stored::{python_stored, read_journal, run_and_store, FromStart, Stored, StoredRun, StoredRunWriter, DATA, JOURNAL};
+use crate::quota::Quota;
+use crate::records::{record_bytes, Branch, ProjectFiles, Record};
+use crate::stored::{python_stored, read_journal, FromStart, Sizes, Stored, StoredRun, DATA, JOURNAL};
 use crate::{Error, Result};
 
-/// The status of a branch and its Run while a computation goes on.
-pub const RUNNING: &str = "running";
+pub use sheltersim_core::compute::{plain_run, ForkRequest, RUNNING};
 
-fn text<'a>(record: &'a Record, key: &str) -> Option<&'a str> {
-    record.get(key).and_then(Value::as_str)
+impl From<Failure> for Error {
+    fn from(failure: Failure) -> Self {
+        match failure {
+            Failure::Refused(refusal) => Error::Refused(refusal.error),
+            Failure::Error(error) => Error::Core(error),
+        }
+    }
+}
+
+fn branch_of(record: &BranchRecord) -> Branch {
+    Branch {
+        branch_id: record.branch_id.clone(),
+        parent_branch_id: record.parent_branch_id.clone(),
+        fork_minute: record.fork_minute,
+        computed_until: record.computed_until,
+        checkpoint_hash: record.checkpoint_hash.clone(),
+        status: record.status.clone(),
+    }
+}
+
+/// Where a host's branches are: a store's folders, or one folder of a stored Run without records.
+enum Folders {
+    Store(ProjectFiles),
+    One(PathBuf),
+}
+
+/// The files a procedure's steps are done with: the branches' folders (and a store's records), the
+/// limit, the compressor, the files open and the locks taken.
+pub struct Host {
+    folders: Folders,
+    quota: Quota,
+    compress: Compress,
+    writing: HashMap<PathBuf, AppendFile>,
+    reading: HashMap<PathBuf, File>,
+    locks: HashMap<PathBuf, Lease>,
+    failed: bool,
+    /// What was written of each kind of piece.
+    pub sizes: Sizes,
+}
+
+impl Host {
+    /// The host of a store's procedures, its limit measured now.
+    pub fn of_store(files: &ProjectFiles) -> Result<Self> {
+        Ok(Self::new(Folders::Store(files.clone()), files.quota()?, files.compress()))
+    }
+
+    /// The host of the stored Run in `folder`, which keeps no records.
+    pub fn of_folder(folder: PathBuf, quota: Quota, compress: Compress) -> Self {
+        Self::new(Folders::One(folder), quota, compress)
+    }
+
+    fn new(folders: Folders, quota: Quota, compress: Compress) -> Self {
+        Self { folders, quota, compress, writing: HashMap::new(), reading: HashMap::new(), locks: HashMap::new(), failed: false, sizes: Sizes::default() }
+    }
+
+    fn files(&self) -> Result<&ProjectFiles> {
+        match &self.folders {
+            Folders::Store(files) => Ok(files),
+            Folders::One(_) => Err(Error::refused("a stored Run without a store keeps no records")),
+        }
+    }
+
+    fn folder(&self, at: &Where) -> Result<PathBuf> {
+        match &self.folders {
+            Folders::Store(files) => files.branch_folder(&at.project, &at.run, &at.branch),
+            Folders::One(folder) => Ok(folder.clone()),
+        }
+    }
+
+    fn lock_path(&self, at: &Where) -> Result<PathBuf> {
+        self.files()?.layout().branch_file(&at.project, &at.run, &at.branch, "worker-lock")
+    }
+
+    /// Does the procedure's steps up to its next `Step::Compute` or `Step::Done`, which it gives.
+    pub fn execute(&mut self, procedure: &mut Procedure) -> Result<Step> {
+        if self.failed {
+            return Err(Error::refused("the stored Run's writer stopped at a write that failed"));
+        }
+        loop {
+            let step = procedure.next()?;
+            if matches!(step, Step::Compute | Step::Done) {
+                return Ok(step);
+            }
+            let given = match self.take(&step, procedure) {
+                Ok(given) => given,
+                Err(_) if procedure.may_fail() => Given::Failed,
+                Err(error) => {
+                    self.failed = true;
+                    return Err(error);
+                }
+            };
+            procedure.give(given)?;
+        }
+    }
+
+    /// Does one step: what it read, or where it wrote.
+    fn take(&mut self, step: &Step, procedure: &Procedure) -> Result<Given> {
+        Ok(match step {
+            Step::RunRecord { project, run } => Given::Text(Some(record_bytes(&self.files()?.run_record(project, run)?))),
+            Step::BranchRecord { at, optional } => {
+                let files = self.files()?;
+                if *optional {
+                    let path = files.layout().branch_file(&at.project, &at.run, &at.branch, "branch.json")?;
+                    Given::Text(if path.is_file() { Some(fs::read(&path)?) } else { None })
+                } else {
+                    Given::Text(Some(record_bytes(&files.branch_record(&at.project, &at.run, &at.branch)?)))
+                }
+            }
+            Step::Branches { project, run } => Given::Texts(self.files()?.branches(project, run)?.iter().map(record_bytes).collect()),
+            Step::Projects => Given::Ids(self.files()?.projects()?.iter().filter_map(|record| record.get("project_id")?.as_str().map(str::to_owned)).collect()),
+            Step::Runs { project } => Given::Ids(self.files()?.run_ids(project)?),
+            Step::Journal(at) => {
+                let folder = self.folder(at)?;
+                let bytes = read_if_there(&folder.join(JOURNAL))?;
+                if bytes.is_none() && python_stored(&folder) {
+                    // A branch of a Run the Python server stored before #427: of an older format.
+                    read_journal(&folder)?;
+                }
+                Given::Text(bytes)
+            }
+            Step::Piece { at, stored } => {
+                let path = self.folder(at)?.join(DATA);
+                let bytes = match self.writing.get(&path) {
+                    Some(file) => file.read_at(stored.offset, stored.length)?,
+                    None => {
+                        if !self.reading.contains_key(&path) {
+                            let file = File::open(&path)?;
+                            self.reading.insert(path.clone(), file);
+                        }
+                        read_at(&self.reading[&path], stored.offset, stored.length)?
+                    }
+                };
+                if bytes.len() as u64 != stored.length {
+                    return Err(Error::refused("data.pack ends before the piece"));
+                }
+                Given::Text(Some(inflate_raw(&bytes, stored.raw_length)?))
+            }
+            Step::Create(at) => {
+                let folder = self.folder(at)?;
+                fs::create_dir_all(&folder)?;
+                for name in [DATA, JOURNAL] {
+                    let path = folder.join(name);
+                    self.reading.remove(&path);
+                    let file = AppendFile::open(&path, true)?;
+                    self.writing.insert(path, file);
+                }
+                sync_dir(&folder)?;
+                Given::Nothing
+            }
+            Step::Truncate { at, journal, data } => {
+                self.file(at, JOURNAL)?.truncate(*journal)?;
+                if let Some(data) = data {
+                    self.file(at, DATA)?.truncate(*data)?;
+                }
+                Given::Nothing
+            }
+            Step::WritePiece { at, kind } => {
+                let raw = procedure.raw();
+                let stored = (self.compress)(raw);
+                self.sizes.add(kind, raw.len() as u64, stored.len() as u64);
+                self.quota.reserve(stored.len() as u64)?;
+                let file = self.file(at, DATA)?;
+                let offset = file.append(&stored)?;
+                file.sync()?;
+                Given::Place { offset, length: stored.len() as u64 }
+            }
+            Step::AppendLine(at) => {
+                let line = procedure.line();
+                self.quota.reserve(line.len() as u64)?;
+                let file = self.file(at, JOURNAL)?;
+                file.append(line)?;
+                file.sync()?;
+                Given::Nothing
+            }
+            Step::WriteBranch { project, run, record } => {
+                self.files()?.write_branch(project, run, &branch_of(record))?;
+                Given::Nothing
+            }
+            Step::SetStatus { at, status } => {
+                self.files()?.set_branch_status(&at.project, &at.run, &at.branch, status, None)?;
+                Given::Nothing
+            }
+            Step::SetRunStatus { project, run, status } => {
+                self.files()?.set_run_status(project, run, status)?;
+                Given::Nothing
+            }
+            Step::TryLock(at) => {
+                let path = self.lock_path(at)?;
+                match lock::try_lock(&path)? {
+                    Some(lease) => {
+                        self.locks.insert(path, lease);
+                        Given::Lock(true)
+                    }
+                    None => Given::Lock(false),
+                }
+            }
+            Step::Unlock(at) => {
+                if let Some(lease) = self.locks.remove(&self.lock_path(at)?) {
+                    lease.release();
+                }
+                Given::Nothing
+            }
+            Step::Compute | Step::Done => unreachable!("the procedure's own steps"),
+        })
+    }
+
+    /// A file of a branch's stored Run open to write, opened once.
+    fn file(&mut self, at: &Where, name: &str) -> Result<&mut AppendFile> {
+        let path = self.folder(at)?.join(name);
+        if !self.writing.contains_key(&path) {
+            self.reading.remove(&path);
+            let file = AppendFile::open(&path, false)?;
+            self.writing.insert(path.clone(), file);
+        }
+        Ok(self.writing.get_mut(&path).expect("opened above"))
+    }
+}
+
+/// Does a procedure that does not compute to its end.
+fn finish(host: &mut Host, procedure: &mut Procedure) -> Result<()> {
+    match host.execute(procedure)? {
+        Step::Done => Ok(()),
+        _ => Err(Error::refused("the procedure asks for a computation")),
+    }
+}
+
+/// Computes a procedure from the start to its end, `ticks` at a time.
+fn compute_to_end(host: &mut Host, procedure: &mut Procedure, ticks: u64) -> Result<()> {
+    while host.execute(procedure)? == Step::Compute {
+        procedure.advance(ticks)?;
+    }
+    Ok(())
+}
+
+fn start_of(start: &FromStart<'_>) -> Start {
+    Start { export: start.export.to_vec(), world: start.world.map(str::to_owned), save_every: start.save_every }
+}
+
+/// What a computation from the start stored: the "end" line's head hash, the minute reached, the
+/// sizes.
+fn stored_of(host: &mut Host, procedure: &Procedure) -> Result<Stored> {
+    let minute = procedure.run().ok_or_else(|| Error::refused("the computation made no Run"))?.minute()?;
+    let head = procedure.last_head().ok_or_else(|| Error::refused("the end wrote no line"))?.to_owned();
+    Ok(Stored { head, minute, sizes: std::mem::take(&mut host.sizes) })
+}
+
+/// Runs `start` for its whole clock and stores it in `folder` as it goes (`Procedure::from_start`
+/// without a record), with its saved points, its "run" line recording
+/// `model_versions` (the browser's `runAndStore`).
+pub fn run_and_store(folder: PathBuf, start: &FromStart<'_>, model_versions: Versions, quota: Quota, compress: Compress) -> Result<Stored> {
+    let mut host = Host::of_folder(folder, quota, compress);
+    let mut procedure = Procedure::from_start(Where::default(), start_of(start), Some(model_versions), None);
+    compute_to_end(&mut host, &mut procedure, start.ticks)?;
+    stored_of(&mut host, &procedure)
 }
 
 impl ProjectFiles {
@@ -52,190 +307,71 @@ impl ProjectFiles {
         StoredRun::open(&self.branch_folder(project, run, branch)?, &|parent| self.branch_folder(project, run, parent))
     }
 
-    /// The latest line of a branch's stored Run that a branch forked from it reads its pieces up to
-    /// (each child's base), or None where none is forked from it (compute.mjs's `forkedThrough`).
-    pub fn kept_through(&self, project: &str, run: &str, branch: &str) -> Result<Option<usize>> {
-        let mut latest: Option<usize> = None;
-        for record in self.branches(project, run)? {
-            if text(&record, "parent_branch_id") != Some(branch) {
-                continue;
-            }
-            let child = text(&record, "branch_id").ok_or_else(|| Error::refused(crate::layout::INVALID_ID))?;
-            let path = self.layout().branch_file(project, run, child, JOURNAL)?;
-            let bytes = match fs::read(&path) {
-                Ok(bytes) if !bytes.is_empty() => bytes,
-                Ok(_) => continue,
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
-                Err(error) => return Err(error.into()),
-            };
-            if let Some(fork) = Journal::parse(&bytes)?.fork() {
-                let base = fork.base.line as usize;
-                latest = Some(latest.map_or(base, |latest| latest.max(base)));
-            }
-        }
-        Ok(latest)
-    }
-
-    /// Cuts a branch's stored Run back to the head `hash`: the journal's lines after it, then the
-    /// bytes of data.pack no line up to it points at; refused where a branch forked from it reads
-    /// its lines up to `kept_through`, past the head. The head and the core's writer after it.
-    fn cut_to_head(&self, project: &str, run: &str, branch: &str, hash: &str) -> Result<(Head, RunWriter)> {
-        let kept_through = self.kept_through(project, run, branch)?;
-        let folder = self.branch_folder(project, run, branch)?;
-        if python_stored(&folder) && !folder.join(JOURNAL).exists() {
-            read_journal(&folder)?;
-        }
-        let mut journal_file = AppendFile::open(&folder.join(JOURNAL), false)?;
-        let mut data_file = AppendFile::open(&folder.join(DATA), false)?;
-        let journal = Journal::parse(&journal_file.read_all()?)?;
-        let cut = journal.cut(hash, kept_through)?;
-        journal_file.truncate(cut.journal_end)?;
-        data_file.truncate(cut.data_end)?;
-        Ok((cut.head, RunWriter::after(&journal, cut.head.index)?))
-    }
-
-    /// Goes on with a branch from its record's head toward `target` (compute.mjs's `start`): its
+    /// Goes on with a branch from its record's head toward `target` (`Procedure::go_on`): its
     /// stored Run cut back to the head and restored there. `lease` is the branch's writer's.
     pub fn go_on(&self, lease: &Lease, project: &str, run: &str, branch: &str, target: i64) -> Result<Computation> {
         self.require_lease(lease, project, run, branch)?;
-        let record = self.branch_record(project, run, branch)?;
-        let record = Branch::of_record(&record)?;
-        let hash = record.checkpoint_hash.clone().ok_or_else(|| Error::refused("branch has no computed minutes"))?;
-        let computed = record.computed_until.unwrap_or(record.fork_minute);
-        let (head, core) = self.cut_to_head(project, run, branch, &hash)?;
-        let mut reader = self.reader(project, run, branch)?;
-        let duration = reader.journal().duration()?;
-        if !(computed < target && target <= duration) {
-            return Err(Error::refused("target minute must be in the uncomputed remaining range"));
+        let mut host = Host::of_store(self)?;
+        let mut procedure = Procedure::go_on(Where::new(project, run, branch), target);
+        if host.execute(&mut procedure)? != Step::Compute {
+            return Err(Error::refused("the computation did not start"));
         }
-        let save_every = reader.journal().run()?.save_every;
-        let sought = reader.seek(head.minute)?;
-        drop(reader);
-        if head.kind == HeadKind::Saved && !(sought.run.minute()? == head.minute && sought.from == head.minute && core.fits(&sought.run)?) {
-            return Err(Error::refused("the Run restored at the branch's head does not hold what its stored Run holds there"));
-        }
-        let folder = self.branch_folder(project, run, branch)?;
-        let writer = StoredRunWriter::append(&folder, core, self.quota()?)?.with_compress(self.compress());
-        Ok(Computation {
-            project: project.to_owned(),
-            run_id: run.to_owned(),
-            record,
-            run: sought.run,
-            writer,
-            duration,
-            save_every,
-            target,
-            head_minute: head.minute,
-            head_hash: hash,
-        })
+        Ok(Computation { host, procedure })
     }
 
     /// Starts a branch's stored Run at minute 0 of `start`'s exported world (the browser's `POST
-    /// runs`, scenario_routes.mjs): its "run" line, recording the Run's model versions, and its
-    /// "export" piece; the branch's record at that head, without a status (not computed yet).
-    /// `start.ticks` is not used. `lease` is the branch's writer's.
+    /// runs`, `Procedure::start`): its "run" line, recording the Run's model versions, and its
+    /// "export" piece; the branch's record at that head, without a status. `start.ticks` is not
+    /// used. `lease` is the branch's writer's.
     pub fn start_branch(&self, lease: &Lease, project: &str, run: &str, branch: &str, start: &FromStart<'_>) -> Result<Record> {
         self.require_lease(lease, project, run, branch)?;
-        let versions = versions_of(self.run_record(project, run)?.get("model_versions").unwrap_or(&Value::Null))?;
-        let simulation = plain_run(start.export, start.world)?;
-        let mut writer = StoredRunWriter::create(&self.branch_folder(project, run, branch)?, self.quota()?)?.with_compress(self.compress());
-        let storing = Storing { model_versions: versions, compression: COMPRESSION.to_owned(), save_every: start.save_every };
-        writer.core.start(&simulation, start.export.to_vec(), start.world.map(str::to_owned), &storing)?;
-        let head = writer.flush(None)?.ok_or_else(|| Error::refused("the start wrote no line"))?;
-        self.write_branch(project, run, &Branch { branch_id: branch.to_owned(), checkpoint_hash: Some(head), ..Branch::default() })
+        let mut host = Host::of_store(self)?;
+        finish(&mut host, &mut Procedure::start(Where::new(project, run, branch), start_of(start)))?;
+        self.branch_record(project, run, branch)
     }
 
     /// Computes a branch from its stored Run's start in one go and stores it (the browser's
-    /// `computeBranch`): `running` while it computes, then computed to the minute the Run reached,
-    /// its head the "end" line, `completed` (or `failed`, and the error, where it fails).
+    /// `computeBranch`, `Procedure::from_start`): `running` while it computes, then computed to the
+    /// minute the Run reached, its head the "end" line, `completed` (or `failed`, and the error,
+    /// where it fails).
     pub fn compute_branch(&self, lease: &Lease, project: &str, run: &str, branch: &str, start: &FromStart<'_>) -> Result<(Record, Stored)> {
         self.require_lease(lease, project, run, branch)?;
-        let versions = versions_of(self.run_record(project, run)?.get("model_versions").unwrap_or(&Value::Null))?;
-        let mut record = Branch { branch_id: branch.to_owned(), status: Some(RUNNING.to_owned()), ..Branch::default() };
-        self.write_branch(project, run, &record)?;
-        let stored = match run_and_store(&self.branch_folder(project, run, branch)?, start, versions, self.quota()?, self.compress()) {
-            Ok(stored) => stored,
-            Err(error) => {
-                record.status = Some("failed".to_owned());
-                self.write_branch(project, run, &record)?;
-                return Err(error);
+        let mut host = Host::of_store(self)?;
+        let mut procedure = Procedure::from_start(Where::new(project, run, branch), start_of(start), None, Some(Lineage::default()));
+        if let Err(error) = compute_to_end(&mut host, &mut procedure, start.ticks) {
+            if procedure.fail() {
+                host.failed = false;
+                finish(&mut host, &mut procedure)?;
             }
-        };
-        let duration = read_journal(&self.branch_folder(project, run, branch)?)?.duration()?;
-        record.computed_until = Some(stored.minute);
-        record.checkpoint_hash = Some(stored.head.clone());
-        record.status = Some(if stored.minute >= duration { "completed" } else { "paused" }.to_owned());
-        Ok((self.write_branch(project, run, &record)?, stored))
+            return Err(error);
+        }
+        let stored = stored_of(&mut host, &procedure)?;
+        Ok((self.branch_record(project, run, branch)?, stored))
     }
 
-    /// Makes the branch `fork.child` of `fork.parent` at `fork.minute` (interventions.mjs's `fork`):
-    /// the parent at the minute, checked against `fork.state_hash` (the state the preview saw) where
-    /// given, the program applied, and the child's stored Run and record (`paused` at the minute).
-    /// The child's stored Run reads the parent's pieces up to the line the parent's world was
-    /// restored from, and stores the rest from there. `lease` is the child's writer's.
-    pub fn fork(&self, lease: &Lease, project: &str, run: &str, fork: &ForkRequest<'_>) -> Result<Forked> {
-        self.require_lease(lease, project, run, fork.child)?;
-        if self.layout().branch_file(project, run, fork.child, "branch.json")?.is_file() {
-            return Err(Error::refused("child branch already exists"));
-        }
-        let parent = self.branch_record(project, run, fork.parent)?;
-        let mut reader = self.reader(project, run, fork.parent)?;
-        let mut sought = reader.seek(fork.minute)?;
-        let origin = sought.run.state_digest()?;
-        if fork.state_hash.is_some_and(|wanted| wanted != origin) {
-            return Err(Error::refused("source state changed; preview the intervention again"));
-        }
-        let receipt = sought.run.apply_effect_program_json(fork.program.as_bytes())?;
-        let folder = self.branch_folder(project, run, fork.child)?;
-        let mut writer = StoredRunWriter::create(&folder, self.quota()?)?.with_compress(self.compress());
-        writer.core.fork_start(
-            reader.journal(),
-            sought.base,
-            Fork {
-                parent_branch_id: fork.parent.to_owned(),
-                minute: fork.minute,
-                origin: ForkOrigin {
-                    branch_id: fork.parent.to_owned(),
-                    minute: fork.minute,
-                    state_hash: origin,
-                    checkpoint_hash: text(&parent, "checkpoint_hash").map(str::to_owned),
-                },
-                program: fork.program.to_owned(),
-                approved_program_hash: fork.approved_program_hash.to_owned(),
-                receipt: receipt.clone(),
-            },
-        )?;
-        writer.flush(None)?;
-        let head = writer.save(&mut sought.run)?;
-        let record = self.write_branch(
-            project,
-            run,
-            &Branch {
-                branch_id: fork.child.to_owned(),
-                parent_branch_id: Some(fork.parent.to_owned()),
-                fork_minute: fork.minute,
-                computed_until: Some(fork.minute),
-                checkpoint_hash: Some(head),
-                status: Some("paused".to_owned()),
-            },
-        )?;
-        Ok(Forked { record, receipt, state_hash: sought.run.state_digest()? })
+    /// Makes the branch `fork.child` of `fork.parent` at `fork.minute` (`Procedure::fork`): the
+    /// parent at the minute, checked against `fork.state_hash` where given, the program applied,
+    /// and the child's stored Run and record (`paused` at the minute). `lease` is the child's
+    /// writer's.
+    pub fn fork(&self, lease: &Lease, project: &str, run: &str, fork: &ForkRequest) -> Result<Forked> {
+        self.require_lease(lease, project, run, &fork.child)?;
+        let mut host = Host::of_store(self)?;
+        let mut procedure = Procedure::fork(project, run, fork.clone());
+        finish(&mut host, &mut procedure)?;
+        Ok(Forked {
+            record: self.branch_record(project, run, &fork.child)?,
+            receipt: procedure.receipt().to_owned(),
+            state_hash: procedure.state_hash().to_owned(),
+        })
     }
 
     /// Keeps a question's turn (its JSON text) in a branch's stored Run computed to its end, after
-    /// its "end" line (the browser's `keepTurn`): the branch's head stays. A line a writer left cut
-    /// short after the last whole one is cut off first. `lease` is the branch's writer's.
+    /// its "end" line (`Procedure::keep_turn`): the branch's head stays. `lease` is the branch's
+    /// writer's.
     pub fn keep_turn(&self, lease: &Lease, project: &str, run: &str, branch: &str, turn: &[u8]) -> Result<()> {
         self.require_lease(lease, project, run, branch)?;
-        let folder = self.branch_folder(project, run, branch)?;
-        let mut journal_file = AppendFile::open(&folder.join(JOURNAL), false)?;
-        let journal = Journal::parse(&journal_file.read_all()?)?;
-        let mut core = RunWriter::after_end(&journal)?;
-        journal_file.truncate(journal.entries().last().map_or(0, |entry| entry.end))?;
-        drop(journal_file);
-        core.turns(&[turn.to_vec()])?;
-        StoredRunWriter::append(&folder, core, self.quota()?)?.with_compress(self.compress()).flush(None)?;
-        Ok(())
+        let mut host = Host::of_store(self)?;
+        finish(&mut host, &mut Procedure::keep_turn(Where::new(project, run, branch), turn.to_vec()))
     }
 
     /// The questions and answers kept in a branch's stored Run, oldest first; at most the last
@@ -261,46 +397,14 @@ impl ProjectFiles {
     }
 
     /// The branches left `running` that no writer holds (their lock is free) become `interrupted`,
-    /// with their Runs, as the Python server's start does (`recover_interrupted`); their heads stay.
-    /// Each is taken under its lock. Returns them as `(project, run, branch)`.
+    /// with their Runs, as the Python server's start does (`Procedure::recover`); their heads stay.
+    /// Returns them as `(project, run, branch)`.
     pub fn recover_interrupted(&self) -> Result<Vec<(String, String, String)>> {
-        let mut recovered = Vec::new();
-        for project in self.projects()? {
-            let Some(project) = text(&project, "project_id").map(str::to_owned) else { continue };
-            for run in self.run_ids(&project)? {
-                let Ok(branches) = self.branches(&project, &run) else { continue };
-                for branch in branches {
-                    if text(&branch, "status") != Some(RUNNING) {
-                        continue;
-                    }
-                    let Some(id) = text(&branch, "branch_id").map(str::to_owned) else { continue };
-                    let Some(lease) = lock::try_lock(&self.layout().branch_file(&project, &run, &id, "worker-lock")?)? else { continue };
-                    let mut record = Branch::of_record(&self.branch_record(&project, &run, &id)?)?;
-                    if record.status.as_deref() == Some(RUNNING) {
-                        record.status = Some("interrupted".to_owned());
-                        self.write_branch(&project, &run, &record)?;
-                        self.set_run_status(&project, &run, "interrupted")?;
-                        recovered.push((project.clone(), run.clone(), id));
-                    }
-                    lease.release();
-                }
-            }
-        }
-        Ok(recovered)
+        let mut host = Host::of_store(self)?;
+        let mut procedure = Procedure::recover();
+        finish(&mut host, &mut procedure)?;
+        Ok(procedure.recovered().iter().map(|at| (at.project.clone(), at.run.clone(), at.branch.clone())).collect())
     }
-}
-
-/// A fork to make (`ProjectFiles::fork`).
-#[derive(Clone, Debug)]
-pub struct ForkRequest<'a> {
-    pub parent: &'a str,
-    pub child: &'a str,
-    pub minute: i64,
-    /// The EffectProgram's JSON text, as approved.
-    pub program: &'a str,
-    pub approved_program_hash: &'a str,
-    /// The state the preview saw: the fork is refused where the parent's is not this at the minute.
-    pub state_hash: Option<&'a str>,
 }
 
 /// A fork made: the child's record, the program's receipt (its JSON text), and the child's state
@@ -312,49 +416,49 @@ pub struct Forked {
     pub state_hash: String,
 }
 
-/// A branch being computed (`ProjectFiles::go_on`).
+/// A branch being computed (`ProjectFiles::go_on`): its procedure and the files it writes.
 pub struct Computation {
-    project: String,
-    run_id: String,
-    record: Branch,
-    /// The Run where the computation got to.
-    pub run: PlainRun,
-    writer: StoredRunWriter,
-    duration: i64,
-    save_every: u64,
-    target: i64,
-    head_minute: i64,
-    head_hash: String,
+    host: Host,
+    procedure: Procedure,
 }
 
 impl Computation {
     /// The branch's id.
     pub fn branch(&self) -> &str {
-        &self.record.branch_id
+        &self.procedure.at().branch
     }
 
     pub fn target(&self) -> i64 {
-        self.target
+        self.procedure.target()
     }
 
     pub fn duration(&self) -> i64 {
-        self.duration
+        self.procedure.duration()
     }
 
     /// The branch's head now: its minute and hash.
     pub fn head(&self) -> (i64, &str) {
-        (self.head_minute, &self.head_hash)
+        self.procedure.head()
     }
 
-    /// The writer, with its figures.
-    pub fn writer(&self) -> &StoredRunWriter {
-        &self.writer
+    /// The Run where the computation got to.
+    pub fn run(&self) -> &PlainRun {
+        self.procedure.run().expect("the Run of a computation")
     }
 
-    /// One chunk (compute.mjs's `chunk`): at most `ticks` ticks, not past the next saved point or
-    /// the target, then the blocks sealed since stored, and at a saved point, the target or the
-    /// clock's end the branch's new head. The computation's status once it ends (`completed` at the
-    /// clock's end, `paused` at the target), else None. `advance` then `store`.
+    pub fn run_mut(&mut self) -> &mut PlainRun {
+        self.procedure.run_mut().expect("the Run of a computation")
+    }
+
+    /// What was written of each kind of piece.
+    pub fn sizes(&self) -> &Sizes {
+        &self.host.sizes
+    }
+
+    /// One chunk: at most `ticks` ticks, not past the next saved point or the target, then the
+    /// blocks sealed since stored, and at a saved point, the target or the clock's end the
+    /// branch's new head. The computation's status once it ends (`completed` at the clock's end,
+    /// `paused` at the target), else None. `advance` then `store`.
     pub fn chunk(&mut self, files: &ProjectFiles, ticks: u64) -> Result<Option<&'static str>> {
         self.advance(ticks)?;
         self.store(files)
@@ -364,72 +468,36 @@ impl Computation {
     /// target. The caller need not hold the store's transaction for them, and should not where the
     /// Run's LLM link takes it (the server's usage ledger, #465).
     pub fn advance(&mut self, ticks: u64) -> Result<()> {
-        let schedule = Schedule { every: self.save_every };
-        let step = schedule.step(self.run.minute()?, ticks.max(1), Some(self.target));
-        let ran = self.run.advance(step).map_err(|stopped| Error::refused(stopped.to_string()))?;
-        if ran != step {
-            return Err(Error::refused(format!("the Run stopped at minute {}", self.run.minute()?)));
-        }
+        self.procedure.advance(ticks)?;
         Ok(())
     }
 
     /// A chunk's files, under the store's transaction: the blocks sealed since stored, and at a
     /// saved point, the target or the clock's end the branch's new head. The computation's status
-    /// once it ends, else None.
-    pub fn store(&mut self, files: &ProjectFiles) -> Result<Option<&'static str>> {
-        let schedule = Schedule { every: self.save_every };
-        let minute = self.run.minute()?;
-        self.writer.take(&mut self.run, false)?;
-        if minute == self.duration {
-            self.writer.save(&mut self.run)?;
-            let head = self.writer.finish(&mut self.run)?;
-            self.commit(files, minute, head)?;
-            return Ok(Some("completed"));
-        }
-        if minute == self.target || schedule.is_point(minute) {
-            let head = self.writer.save(&mut self.run)?;
-            self.commit(files, minute, head)?;
-        }
-        Ok((minute == self.target).then_some("paused"))
+    /// once it ends, else None. The files are the store's the computation was started in.
+    pub fn store(&mut self, _files: &ProjectFiles) -> Result<Option<&'static str>> {
+        Ok(match self.host.execute(&mut self.procedure)? {
+            Step::Done => self.procedure.status(),
+            _ => None,
+        })
     }
 
     /// Ends the computation where it got to (a cancel): a saved point there, where it is past the
     /// head. Its status.
     pub fn stop(&mut self, files: &ProjectFiles) -> Result<&'static str> {
-        let minute = self.run.minute()?;
-        if minute > self.head_minute {
-            let head = self.writer.save(&mut self.run)?;
-            self.commit(files, minute, head)?;
-        }
-        Ok(if minute == self.duration { "completed" } else { "paused" })
-    }
-
-    /// Moves the branch's head to the line of the head hash `head` at `minute`.
-    fn commit(&mut self, files: &ProjectFiles, minute: i64, head: String) -> Result<()> {
-        let record = Branch { computed_until: Some(minute), checkpoint_hash: Some(head.clone()), status: Some(RUNNING.to_owned()), ..self.record.clone() };
-        files.write_branch(&self.project, &self.run_id, &record)?;
-        self.head_minute = minute;
-        self.head_hash = head;
-        Ok(())
+        self.procedure.stop()?;
+        self.store(files)?.ok_or_else(|| Error::refused("the stopped computation did not end"))
     }
 
     /// Writes the final `status` to the branch's record (at its head), and the Run's: `running`
     /// while another of its branches computes, else `status` (`ProjectFiles::set_branch_status`).
     pub fn end(self, files: &ProjectFiles, status: &str) -> Result<Record> {
-        files.set_branch_status(&self.project, &self.run_id, &self.record.branch_id, status, None)
+        let at = self.procedure.at();
+        files.set_branch_status(&at.project, &at.run, &at.branch, status, None)
     }
 }
 
 /// The model versions of a JSON object of strings (a Run record's `model_versions`).
 pub fn versions_of(value: &Value) -> Result<Versions> {
     Ok(sheltersim_core::model_version::versions_of_json(value.to_string().as_bytes())?)
-}
-
-/// A Run of the exported world `export` from minute 0 (for a Run without one stored yet): the
-/// browser's `Simulation`.
-pub fn plain_run(export: &[u8], world: Option<&str>) -> Result<PlainRun> {
-    Ok(match world {
-        Some(name) => PlainRun::of_worlds_json(export, name)?,
-        None => PlainRun::of_json(export)?,
-    })
 }

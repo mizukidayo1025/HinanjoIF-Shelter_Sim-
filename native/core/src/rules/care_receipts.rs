@@ -1,18 +1,18 @@
-//! `domain/care_receipts.py`: a transition that has happened, as its event and its receipt, on the
-//! rows of a `World` (moved to the core in P8b-1; docs/rust-port/lanes/m6-handlers.md).
+//! A transition that has happened, as its event and its receipt, on the rows of a `World`
+//! (docs/rust-port/lanes/m6-handlers.md).
 //!
 //! A care transition plans with nothing changed and then writes: its applied record goes to the
 //! world's EventLog and its receipt to the row of `shared_operations_v1`. The other receipts (a
 //! facility's recovery, a staff handoff, a support continuity, a staff operation) are made here as
-//! the event and the detail of their applied record, which the PyO3 crate hands to the dispatcher
-//! as Python's record. No pydantic model is made: a receipt a kernel builds is checked against its
-//! contract's fields here, and one the contract would turn down is refused (policy E15; the Python
-//! `make_*_record` that took it before are gone, as no Run reached them).
+//! the event and the detail of their applied record (`Made`), which the effect that made them
+//! records (`rules::effects`). No pydantic model is made: a receipt a kernel builds is checked
+//! against its contract's fields here, and one the contract would turn down is refused (policy
+//! E15).
 //!
 //! `ingest_applied_shared_operation_records` reads each receipt from its event's payload with
 //! `Receipt::of` (the Rust check of `OperationHistoryRecord`) and records it with
-//! `common_operations::record_shared_operation`; its loop is the PyO3 crate's, which looks up the
-//! records each receipt needs.
+//! `common_operations::record_shared_operation`. `ingest_applied` does it for one record, looking
+//! up the records the receipt needs through the host (`Host::find_record`).
 
 use std::sync::Arc;
 
@@ -359,7 +359,7 @@ fn made(event: Event<'_>) -> Result<Made> {
     Ok(Made { event: row, minute: event.minute, detail: event.detail })
 }
 
-/// The sequence and the minute of a new receipt, in the order the Python rule read them.
+/// The sequence and the minute of a new receipt, the sequence allocated first.
 fn minute_and_sequence(world: &World) -> Result<(i64, i64)> {
     let sequence = allocate_sequence(world)?;
     Ok((world.minute_index()?, sequence))

@@ -1,13 +1,10 @@
-//! `domain/social_network.py`: what an applied event records in `social_network_v1`
-//! (docs/rust-port/lanes/m3-social-network.md). `observe_event` has no Python body left
-//! (`kernel_only`): it skips what the Python rule skipped and raises its ValueError at the bound
-//! itself. Unsupported, a `KernelRefusal` in Python, is left for what no applied event holds: an ID
-//! with a character JSON escapes, a tainted namespace, a count past i64. Moved to the core in lane
-//! P8 a2.
+//! What an applied event records in `social_network_v1`
+//! (docs/rust-port/lanes/m3-social-network.md). `observe_event` skips what it does not record and
+//! gives a ValueError at the bound (`BOUND_REACHED`). Unsupported is left for what no applied event
+//! holds: an ID with a character JSON escapes, a tainted namespace, a count past i64.
 //!
 //! `observe_event` reads the event's row and `body_state_v1` first, which may give Unsupported, and
-//! only then writes the row of `social_network_v1`, where nothing can refuse any more. A tree Python
-//! reads follows the row (lane P8-0c).
+//! only then writes the row of `social_network_v1`, where nothing can refuse any more.
 
 use std::sync::Arc;
 
@@ -32,7 +29,7 @@ const ACTOR_RELIEF_SHARE: f64 = 0.25;
 /// `body_state_v1.config.get("social_action_affect_transfer", 0.02)`.
 const DEFAULT_TRANSFER: f64 = 0.02;
 
-/// The text of the bound, a `ValueError` of the Python rule.
+/// The text of the bound, a `ValueError`.
 pub const BOUND_REACHED: &str = "social_network_v1 reached the configured relationship bound";
 
 /// The event types the rule records; any other changes nothing.
@@ -97,7 +94,7 @@ fn body_trust(body: Option<&BodyRow>, key: &str) -> Option<Option<f64>> {
     body?.relationships.map.get(key).map(|record| record.trust)
 }
 
-/// One record's change: `(recipient, source)`, in the order of the Python rule.
+/// One record's change: `(recipient, source)`, in the order they are recorded.
 struct RecordWrite {
     key: String,
     /// `record_contact` and `record_observed_contact` count a contact.
@@ -138,8 +135,8 @@ impl NetworkWrite {
     }
 
     fn apply(&self, world: &World) -> Result<()> {
-        // Says Unsupported for a tainted namespace. The Python rule's ValueError at the bound comes
-        // before anything is written here; the Python rule wrote the records before that one.
+        // Says Unsupported for a tainted namespace. The ValueError at the bound comes before
+        // anything is written, so none of the records is written.
         {
             let row = world.row::<SocialNetworkRow>(NAME)?;
             let relationships = &row.relationships.map;
@@ -220,8 +217,8 @@ fn body_of(world: &World) -> Result<Option<crate::cell::ShardRef<'_, BodyRow>>> 
 pub struct ObservedContacts(NetworkWrite);
 
 impl ObservedContacts {
-    /// The writes, as the Python rule wrote them: its ValueError at the bound, and Unsupported only
-    /// if the row changed since the check.
+    /// The writes: a ValueError at the bound, and Unsupported only if the row changed since the
+    /// check.
     pub fn apply(&self, world: &World) -> Result<()> {
         self.0.apply(world)
     }
@@ -229,8 +226,8 @@ impl ObservedContacts {
 
 /// `record_observed_contact` of each (recipient, source), for the social propagation step, checked
 /// before the step writes its own namespace: Unsupported for a pair of one person or with an ID
-/// JSON escapes, for a namespace without its row, and for a count past what is safe. The bound is
-/// the Python rule's ValueError, which `apply` raises after the step's own writes, as before.
+/// JSON escapes, for a namespace without its row, and for a count past what is safe. The bound is a
+/// ValueError, which `apply` raises after the step's own writes.
 pub fn observed_contacts(world: &World, pairs: &[(&str, &str)], minute: i64) -> Result<ObservedContacts> {
     let mut records = Vec::with_capacity(pairs.len());
     for (recipient, source) in pairs {
@@ -285,9 +282,10 @@ fn int_field(value: Option<&V>) -> Result<Option<i64>> {
     }
 }
 
-/// `observe_event` of an event of this type and payload: its contact or interaction, recorded, and the body's trust copied.
-/// What the Python rule skipped is skipped: an ID that is not a str, a minute that is not an int,
-/// one person with themselves. Nothing is written before an error or Unsupported is known.
+/// `observe_event` of an event of this type and payload: its contact or interaction, recorded, and
+/// the body's trust copied. What is not recorded is skipped: an ID that is not a str, a minute that
+/// is not an int, one person with themselves. Nothing is written before an error or Unsupported is
+/// known.
 pub fn observe_event(world: &World, event_type: &str, payload: &V, minute: i64) -> Result<()> {
     let event = payload;
     if !observes_event(event_type) {

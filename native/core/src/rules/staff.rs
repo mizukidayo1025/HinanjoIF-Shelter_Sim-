@@ -1,24 +1,22 @@
-//! `domain/staff.py` and `domain/staff_operations.py` on the rows of a `World` (moved to the core
-//! in P8 b3): the support requests' assignment (`StaffService.assign_pending`), the complaints that
-//! come due (`_consider_due_complaints`), what the metrics read of each open request
-//! (`_support_wait_snapshot`), the sanitation of the zones (`update_staff_operations`), the routed
-//! tasks (`assign_staff_operations`) and their relief at a shift's boundary
-//! (`schedule_staff_operation_relief`). The PyO3 crate's file of the same name reads what Python
-//! holds (whether `model_state` holds each namespace, the floor plan, the sections of the configs,
-//! the service's parameters, the router a caller gave) and calls these.
+//! The staff rules on the rows of a `World`: the support requests' assignment
+//! (`StaffService.assign_pending`), the complaints that come due (`_consider_due_complaints`), what
+//! the metrics read of each open request (`_support_wait_snapshot`), the sanitation of the zones
+//! (`update_staff_operations`), the routed tasks (`assign_staff_operations`) and their relief at a
+//! shift's boundary (`schedule_staff_operation_relief`). The arbitrate and metrics phases
+//! (`rules::tick`) read what these take besides the world (whether `model_state` holds each
+//! namespace, the floor plan, the sections of the configs, the service's parameters, the Run's
+//! router) and call them.
 //!
 //! Each plans with nothing changed and then writes: the entities, `staff_operations_v1`,
-//! `metric_state`, the event counter, the queue and the log are written as their rows (the objects
-//! and an attached tree follow them when the world is given back, lanes 6-1 and P8-0c).
+//! `metric_state`, the event counter, the queue and the log are written as their rows.
 //!
 //! The service's route and trip are the controller's own `_route` and
 //! `_schedule_staff_support_travel`, which are the core's `travel::route` and
-//! `travel::schedule_travel`: they are called directly, in the order the Python rule called them
-//! (a route records its capacity waits, a trip schedules its event), and their refusal is the
-//! `KernelRefusal` their steps raised (`ROUTE`, `SCHEDULE`). Another route resolver or travel
-//! scheduler than the controller's own is refused before anything is written. The decision on a
-//! complaint is the policy's, through `Host::consider_complaint_response`, with the world given
-//! back during the call (rule R6).
+//! `travel::schedule_travel`: they are called directly, in a fixed order (a route records its
+//! capacity waits, a trip schedules its event), and their refusal is labelled with their steps
+//! (`ROUTE`, `SCHEDULE`). Another route resolver or travel scheduler than the controller's own is
+//! refused before anything is written. The decision on a complaint is the policy's, through
+//! `Host::consider_complaint_response`, with the world given back during the call (rule R6).
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::sync::Arc;
@@ -102,11 +100,11 @@ fn required_skills(kind: &str) -> &'static [&'static str] {
     }
 }
 
-// ---- What the rules read of the Python world -----------------------------------------------------
+// ---- What the rules read besides the rows -------------------------------------------------------
 
-/// What the staff rules read of the Python world, read by the PyO3 crate before it borrows the
-/// world. Each namespace is `Absent` where `model_state` has no such key or None there, and `Other`
-/// where it holds another document than the row's, which a rule refuses where it reads it.
+/// What the staff rules read besides the rows, read before the world is borrowed. Each namespace is
+/// `Absent` where `model_state` has no such key or None there, and `Other` where it holds another
+/// document than the row's, which a rule refuses where it reads it.
 pub struct Inputs<'a> {
     /// `staff_operations_v1`.
     pub operations: &'a Held,
@@ -357,7 +355,7 @@ struct Open {
     same_minute: bool,
 }
 
-/// The minute's exposure of the plain case, summed as the Python rule sums it.
+/// The minute's exposure of the plain case, summed in a fixed order.
 struct Exposure {
     no_qualified: f64,
     busy: f64,
@@ -910,14 +908,14 @@ fn kind_wait(workers: &[Worker], kind: &Arc<str>, sample: i64) -> KindWait {
     KindWait { kind: kind.clone(), qualified, blockers, destinations: destinations.into_iter().collect() }
 }
 
-/// What the routes of a wait read beside the world, read by the PyO3 crate only where a request's
-/// kind has free staff (`open_waits` returns None without them).
+/// What the routes of a wait read beside the world, read only where a request's kind has free staff
+/// (`open_waits` returns None without them).
 #[derive(Clone, Copy)]
 pub struct WaitRoutes<'a> {
     /// `staff_operations_v1` as the edge loads read it (`travel::active_edge_loads`); the queue's
     /// rows are read before.
     pub loads_staff: &'a Held,
-    /// The floor plan; None where the PyO3 crate could not read it.
+    /// The floor plan; None where the host could not read it.
     pub geo: Option<&'a Arc<Geo>>,
     /// The movement section of the configs (`config::movement`).
     pub movement: &'a Kept<Movement>,
@@ -1259,9 +1257,9 @@ fn zone_override(config: Option<Entries<'_>>, table: &str, zone: &str, name: &st
     }
 }
 
-/// `load * rate * elapsed` of `update_staff_operations`, from the left, as the float Python takes
-/// off the sanitation. `canonical_staff_operations_config` takes an int rate too (0 or 1 in its
-/// range): its product is an int, exact, which the float subtraction then reads as its float.
+/// `load * rate * elapsed` of `update_staff_operations`, from the left, as the float taken off the
+/// sanitation. `canonical_staff_operations_config` takes an int rate too (0 or 1 in its range): its
+/// product is an int, exact, which the float subtraction then reads as its float.
 fn used_sanitation(rate: Number, load: i64, elapsed: i64) -> Result<f64> {
     match rate {
         Number::Float(rate) => Ok(load as f64 * rate * elapsed as f64),
@@ -1609,7 +1607,7 @@ fn ranks_above(first: (f64, f64, &OpenTask), second: (f64, f64, &OpenTask)) -> b
 /// What `assign_staff_operations` reads only where a free worker has a task to take.
 #[derive(Clone, Copy)]
 pub struct Routed<'a> {
-    /// The staff's router: the Run's, or the graph of the `SpaceRouter` a Python caller gave.
+    /// The staff's router: the Run's (`Which::Staff`).
     pub router: &'a Router,
     /// Whether the world holds `movement_v1` and `staff_operations_v1`, as the passages' loads read
     /// them (`travel::passage_edge_loads`).
@@ -1838,7 +1836,7 @@ struct PlannedRelief {
 }
 
 /// `event.payload.get("task_id")` of each `staff_operation_relief` in the queue: the tasks already
-/// handed. The PyO3 crate reads the rows of the events Python scheduled before it calls.
+/// handed. The caller reads the queue's rows through the host (`Host::read_queue_rows`) first.
 fn handed_tasks(world: &World) -> Result<HashSet<Arc<str>>> {
     let queue = world.queue()?;
     let mut handed = HashSet::new();

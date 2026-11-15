@@ -1,27 +1,22 @@
-//! Each person's psychology in the update phase (lane P8 a3): the new values of a minute (the five
-//! built-in models of `policies/psychology.py` and `BoundedStressPolicy` of
-//! `policies/alternatives.py`), the distress monitor (`domain/distress_monitor.py`), the long-term
-//! distress (`domain/psychological_state.py`) and writing the new values. The entity fields come
-//! from the rows, and the zone's conditions, the body record, the group and what a person heard
-//! from the core's view (`rules/world_view.rs`).
+//! Each person's psychology in the update phase: the new values of a minute (the five built-in
+//! models and `BoundedStressPolicy`), the distress monitor, the long-term distress and writing the
+//! new values. The entity fields come from the rows, and the zone's conditions, the body record,
+//! the group and what a person heard from the core's view (`rules/world_view.rs`).
 //!
 //! The model and its rates are what the Run read of `controller.psychology` (`run::psychology`,
 //! read once per controller): `model_of`, `params`, `keeps_long_term` and `long_term_of` turn them
-//! into the rules' numbers with the refusals of the kernel before. A read that raised in Python is
-//! a `PolicyFault` with the path it was read by, which the PyO3 crate raises again by reading that
-//! path (policy E14).
+//! into the rules' numbers with their refusals. A read that failed is a `PolicyFault` with the path
+//! it was read by, which `Tick::policy_error` turns into the error (policy E14).
 //!
-//! These steps have no Python rule left (lane L10): the Python of `explain_update`,
-//! `deltas_without_traces`, `update_psychological_state`, `record_distress_monitor_tick` and
-//! `apply_state_deltas` that the comments below name was deleted, and the rules keep its results bit
-//! for bit. A step changes nothing until it knows its checks pass: everything is computed from the
-//! rows first, and any value the deleted rules turned down, or that the rules do not handle, is
-//! Unsupported. Then the plan is written to the rows; their attached trees follow when the world is
-//! given back (lane P8-0c). Every float operation keeps the order of the Python expression.
+//! The comments below name the steps by their model names (`explain_update`,
+//! `deltas_without_traces`, `update_psychological_state`, `record_distress_monitor_tick`,
+//! `apply_state_deltas`). A step changes nothing until it knows its checks pass: everything is
+//! computed from the rows first, and any value the checks turn down, or that the rules do not
+//! handle, is Unsupported. Then the plan is written to the rows. Every float operation keeps a
+//! fixed order (the rounding depends on it).
 //!
 //! What a minute gives (`PsychologyResult`: a `Delta` per person and, with a trace, the `Traces`)
-//! is a value of the tick, which a Run keeps in its `Scratch`. The PyO3 crate makes the Python
-//! `AgentStateDelta`s of it at the edge, for the Python steps that still take them.
+//! is a value of the tick, which a Run keeps in its `Scratch`.
 
 use std::sync::Arc;
 
@@ -60,8 +55,8 @@ fn unsupported<T>(reason: &'static str) -> Result<T> {
 
 // ---- What the Run read of the policy -------------------------------------------------------------
 
-/// A read of `controller.psychology` that raised in Python, or that the Run did not make: the PyO3
-/// crate reads `path` from the controller again and raises what that raises (policy E14).
+/// A read of `controller.psychology` that failed, or that the Run did not make: the host reads
+/// `path` from the controller again (`Tick::policy_error`, policy E14).
 #[derive(Clone, Debug)]
 pub struct PolicyFault {
     pub path: Vec<&'static str>,
@@ -128,7 +123,7 @@ fn value_of<'a>(object: &'a Obj, path: &[&'static str]) -> Got<Option<&'a V>> {
     })
 }
 
-/// An exact float the Python check `validate_unit_interval` passes.
+/// An exact float the check `validate_unit_interval` passes.
 fn unit_float(value: &V) -> Result<f64> {
     unit_value(exact_float(value)?)
 }
@@ -289,7 +284,7 @@ fn plan_monitor(metrics: &MetricRow, people: &[Person<'_>], threshold: f64) -> R
         let mut values = [0.0; 5];
         for (place, suffix) in MONITOR_SUFFIXES.iter().enumerate() {
             if let Some(value) = metrics.get(metric_key(&mut buffer, person.id, suffix)) {
-                // Not finite or negative, and NaN fails the comparison: the Python rule raises.
+                // Not finite or negative, and NaN fails the comparison: refused.
                 if !(0.0 <= *value && *value < f64::INFINITY) {
                     return unsupported("a monitor value is negative or not finite");
                 }
@@ -385,7 +380,7 @@ pub fn long_term_of(psychology: &Psychology) -> Got<LongTerm<'_>> {
     Ok(LongTerm { parameters, baselines })
 }
 
-/// The day's end value of D: `next_long_term_distress` in `domain/psychological_state.py`.
+/// The day's end value of D: `next_long_term_distress`.
 #[inline]
 pub fn next_long_term_distress(record: &AgentRecord, parameters: &LongTermParameters) -> f64 {
     let observed = record.daily_observed_minutes as f64;
@@ -513,9 +508,9 @@ fn write_long_term(row: &mut DistressRow, people: &[Person<'_>], minute: i64, pl
 /// `world.metric_state` holds its slot's tree (a field assigned whole does not). Nothing is written
 /// unless every check passes.
 pub fn update_long_term(world: &World, long_term: &LongTerm<'_>, finals: &[(&str, f64)], minute: i64, metric_state_held: bool) -> Result<()> {
-    // `previous_by_agent` and `current_by_agent` of the Python step, or Unsupported if the Python
-    // rules would do anything but read them: their keys differ, or a value is out of bounds. The
-    // previous values are the rows': nothing has written a person since the view was made.
+    // `previous_by_agent` and `current_by_agent` of the step, or Unsupported if the rules would do
+    // anything but read them: their keys differ, or a value is out of bounds. The previous values
+    // are the rows': nothing has written a person since the view was made.
     let mut people: Vec<Person<'_>> = finals.iter().map(|&(id, current)| Person { id, previous: 0.0, current }).collect();
     {
         let rows = world.rows()?;
@@ -828,8 +823,8 @@ fn mean_reverting_terms(value: f64, baseline: f64, kappa: f64) -> Result<(f64, f
     Ok((natural, -mathx::expm1(-kappa * 1.0)? / kappa))
 }
 
-/// One person's next minute. A math function raises as Python did. Every float operation
-/// keeps the order of `policies/psychology.py`, and `py_max`/`py_min` return the first on a tie.
+/// One person's next minute. A math function fails as Python's `math` does (`mathx`). Every float
+/// operation keeps a fixed order, and `py_max`/`py_min` return the first on a tie.
 fn step(model: Model, rates: &Rates, body: Option<&BodyRates>, a: &Input, mut stages: Option<&mut Stages>) -> Result<Next> {
     let SimpleTerms {
         fatigue_delta,
@@ -1079,14 +1074,14 @@ struct Stages {
     multiplier: f64,
     /// The life-state models.
     family_pressure: f64,
-    /// The int `discontent_stress_rate` of a separated family, as Python keeps it.
+    /// The int `discontent_stress_rate` of a separated family, kept as an int.
     family_pressure_int: bool,
     feedback: f64,
     information_feedback: f64,
 }
 
-/// `AgentPsychologyTrace` of `explain_update`, on what `step` found. Every float operation keeps the
-/// order of the Python expression, and each field stays what the stage that last replaces it says.
+/// `AgentPsychologyTrace` of `explain_update`, on what `step` found. Every float operation keeps
+/// the same order as `step`, and each field stays what the stage that last replaces it says.
 fn person_trace(model: Model, rates: &Rates, a: &Input, next: &Next, stages: &Stages, index: usize) -> PersonTrace {
     let s = stages;
     let before = a.stress;
@@ -1233,7 +1228,7 @@ fn within_bounds(next: &Next) -> bool {
 
 /// A person's fields that only the view has.
 struct ViewPerson {
-    /// `group_id`, for the life-state models; an empty one is left to Python.
+    /// `group_id`, for the life-state models; an empty one is refused.
     group: Option<Arc<str>>,
     rest_efficiency: f64,
     environmental_per_minute: f64,
@@ -1442,7 +1437,7 @@ pub fn update(world: &World, view: &ViewData, params: &Params<'_>, minute: i64, 
     let mut stages = Stages::default();
     for (index, ((input, trust), agent)) in inputs.iter().zip(&trusts).zip(&view.agents).enumerate() {
         let next = step(model, &params.rates, params.body.as_ref(), input, traced.then_some(&mut stages))?;
-        // Values outside AgentStateDelta's bounds raise in its Python checks.
+        // Values outside AgentStateDelta's bounds fail its checks.
         if !within_bounds(&next) {
             return unsupported("a new value is out of bounds");
         }

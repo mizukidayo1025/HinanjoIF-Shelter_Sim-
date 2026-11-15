@@ -1,15 +1,10 @@
-//! The trace documents of a Run, with their shape unchanged (docs/rust-port/step4-plan.md, D1;
-//! lane P8 a3): those the Python rules wrote with `AgentPsychologyTrace.to_dict` and
-//! `PsychologyUpdateResult.trace_document` (`policies/psychology.py`) and
-//! `SocialPropagationResult.trace_document` (`policies/social.py`), which lane L10 deleted.
-//! `_record_psychology_trace` of the update phase is here too (`record_psychology`). A trace does not
-//! feed back into the state and draws nothing.
+//! The trace documents of a Run, with their shape unchanged (docs/rust-port/step4-plan.md, D1):
+//! `AgentPsychologyTrace.to_dict`, `PsychologyUpdateResult.trace_document` and
+//! `SocialPropagationResult.trace_document`. `_record_psychology_trace` of the update phase is here
+//! too (`record_psychology`). A trace does not feed back into the state and draws nothing.
 //!
-//! A document is a `V` with the keys of the Python dict in their order, and it goes to the Run's
-//! sink through `Host::trace`. The writer stays in Python (`inspection/traces.py`): it holds the
-//! files, the spool, and `_sanitize`, which is not a rule of the model and stays the one place that
-//! redacts what a Run writes. So each document is the same Python dict once the host makes it, and
-//! the writer gives the same bytes.
+//! A document is a `V` with its keys in a fixed order, and it goes to the Run's sink through
+//! `Host::trace`; the host writes it or drops it (`PlainHost` keeps none).
 //!
 //! The kernels keep what a document needs in plain rows (`Traces`, `SocialContact`), and make the
 //! document only when a sink takes it.
@@ -30,7 +25,7 @@ use crate::value::V;
 /// How many a summary document keeps of each list.
 pub const SUMMARY_ITEMS: usize = 20;
 
-/// A map of a document, filled in the order of the Python dict.
+/// A map of a document, its keys in the order they are set.
 struct Doc(IndexMap<Arc<str>, V>);
 
 impl Doc {
@@ -112,8 +107,8 @@ pub struct PersonTrace {
     pub information_uncertainty_stress: f64,
     /// `life_state_before` and `life_state_after`, of the life-state models.
     pub life_state: Option<(LifeStateTrace, LifeStateTrace)>,
-    /// Whether `family_separation_pressure` there is the int `discontent_stress_rate` of the
-    /// config (a separated family), which Python keeps as an int.
+    /// Whether `family_separation_pressure` there is the int `discontent_stress_rate` of the config
+    /// (a separated family), which the document keeps as an int.
     pub family_pressure_int: bool,
     pub components: Vec<(&'static str, f64)>,
     pub raw_stress_delta: f64,
@@ -383,8 +378,8 @@ fn total(values: impl Iterator<Item = f64>) -> Result<f64> {
     py_fsum(&values).ok_or_else(|| Error::unsupported("a total of the trace is not finite"))
 }
 
-/// What `_record_psychology_trace` reads besides the rows: the model's `source_id` as the Python
-/// value it was, the result's `policy_version` and the minute.
+/// What `_record_psychology_trace` reads besides the rows: the model's `source_id` as the policy's
+/// value, the result's `policy_version` and the minute.
 pub struct TraceInputs<'a> {
     pub source_id: &'a V,
     pub policy_version: &'a str,
@@ -499,7 +494,7 @@ pub struct SocialContact {
     pub minutes: i64,
     pub cooldown_remaining: i64,
     pub difference: f64,
-    /// An int where the Python rule's `min` returned an int cap (see rules/social_propagation.rs).
+    /// An int where `min` returned an int cap (see rules/social_propagation.rs).
     pub contribution: Num,
     pub weight: f64,
     pub aggregate_rate: f64,
@@ -518,7 +513,7 @@ fn social_basis(basis: Basis) -> &'static str {
 }
 
 /// `SocialPropagationResult.trace_document`, with the bounded sample of contacts it has always had.
-/// `policy_version` is the Python value the document holds.
+/// `policy_version` is the policy's value, which the document holds as it is.
 pub fn social_document(minute: i64, policy_version: &V, ids: &[&str], contacts: &[SocialContact], contributing: i64, total_added: f64) -> V {
     let contact_of = |contact: &SocialContact| -> V {
         let mut item = Doc::with_capacity(12);

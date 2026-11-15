@@ -1,9 +1,7 @@
-//! `domain/common_operations.py`: `record_shared_operation`, on the rows of a `World` (moved to the
-//! core in P8b-1). The plan makes every check of the Python rule, in its order, and raises its
-//! `ValueError` with its text before it changes anything (docs/rust-port/lanes/m4-staff.md); the
-//! writes go to the row of `shared_operations_v1`, whose tree follows the row when the world is
-//! given back (lane P8-0c). What only a state the rule's own checks never let through reaches is
-//! Unsupported, which the entry raises as `KernelRefusal`.
+//! `record_shared_operation`, on the rows of a `World`. The plan makes every check, in a fixed
+//! order, and returns its `ValueError` with its text before it changes anything
+//! (docs/rust-port/lanes/m4-staff.md); the writes go to the row of `shared_operations_v1`. What
+//! only a state the rule's own checks never let through reaches is Unsupported.
 //!
 //! The receipts are typed here (`Receipt`). A receipt is data a kernel built, so the contracts of
 //! `contracts/operations.py` that read it (`OperationHistoryRecord`, `NumericStateChange`,
@@ -13,8 +11,9 @@
 //! a float), is refused; inside `SharedOperationsState` a receipt the contract turns down is the
 //! rule's `ValueError`, as it was.
 //!
-//! The events of the receipts come from the EventLog, whose records the core keeps as bytes; the
-//! PyO3 crate looks up the records a receipt needs (`needed_records`) and hands them in (`Found`).
+//! The events of the receipts come from the EventLog, whose records the core keeps as bytes;
+//! `record_through` looks up the records a receipt needs (`needed_records`) through the host
+//! (`Host::find_record`) and hands them in (`Found`).
 
 use std::sync::Arc;
 
@@ -752,8 +751,8 @@ pub struct Logged {
     pub event: EventRow,
 }
 
-/// The records a receipt's rule reads, by event ID (None: no such record), looked up by the PyO3
-/// crate for `needed_records`.
+/// The records a receipt's rule reads, by event ID (None: no such record), looked up for
+/// `needed_records` (`record_through`).
 #[derive(Default)]
 pub struct Found(pub Vec<(Arc<str>, Option<Logged>)>);
 
@@ -820,8 +819,7 @@ pub fn is_recorded(world: &World, event_id: &str, recent: bool, minute: i64) -> 
 }
 
 /// `record_shared_operation(world, receipt)`, of a world whose `model_state` holds the namespace's
-/// tree (the PyO3 crate asks that first, with the Python rule's first error), with the records of
-/// `needed_records`.
+/// tree (`check_held` asks that first), with the records of `needed_records`.
 pub fn record_shared_operation(world: &mut World, receipt: &Receipt, found: &Found) -> Result<()> {
     match receipt {
         Receipt::Care(care) => record_care(world, care, found),
@@ -1301,14 +1299,13 @@ pub fn write_record(world: &mut World, care: &CareReceipt, document: &V, plan: P
 
 // ---- The rule through the host (lane P9-1a) --------------------------------------------------------
 
-/// The Python rule's error of a world without the namespace.
+/// The rule's error of a world without the namespace.
 pub const NOT_SELECTED: &str = "shared_operations_v1 must be selected in the immutable Scenario";
 /// The refusal of a namespace the world holds another dict of than the row's.
 pub const OTHER_DOCUMENT: &str = "the world holds another document than the row's";
 
-/// The Python rule's first check, as the host's `Holding` answers it: `model_state` holds the
-/// namespace's tree (or its detached row). Another dict is refused; anything else is the rule's
-/// `ValueError`.
+/// The rule's first check, as the host's `Holding` answers it: `model_state` holds the namespace's
+/// tree (or its detached row). Another dict is refused; anything else is the rule's `ValueError`.
 pub fn check_held(holding: &Holding) -> Result<()> {
     if !holding.table {
         return Err(Error::unsupported(TABLE_NOT_PLAIN));

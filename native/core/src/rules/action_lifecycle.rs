@@ -1,6 +1,4 @@
-//! `domain/action_lifecycle.py`: lifecycle receipts of autonomous actions (docs/rust-port/lanes/
-//! f-action-lifecycle.md). Its rules are these kernels alone (`kernel_only`). Moved to the core in
-//! lane P8 a2.
+//! Lifecycle receipts of autonomous actions (docs/rust-port/lanes/f-action-lifecycle.md).
 //!
 //! `ActiveActions` holds the open action of each agent as rows. The controller keeps it, and it is
 //! not saved: a restored Run makes it again from the event log (`active_action_index`).

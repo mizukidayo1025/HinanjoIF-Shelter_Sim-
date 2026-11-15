@@ -1,12 +1,12 @@
-//! The rules that ask an LLM during a tick, moved from Python (#428): a pending support request's
-//! queue priority (`_prioritize_support_request` of `experiments/phases/propose.py`) and the
-//! event-triggered social policy (`EventTriggeredSocialPolicy` of `llm/runtime.py`: a support
-//! request's response, a long-waiting complaint's, a cooperation, an information reaction).
+//! The rules that ask an LLM during a tick (in the core since #428): a pending support request's
+//! queue priority (`_prioritize_support_request` of the propose phase) and the event-triggered
+//! social policy (`EventTriggeredSocialPolicy`: a support request's response, a long-waiting
+//! complaint's, a cooperation, an information reaction).
 //!
-//! The rules read and write the world as the Python ones did, and ask through a host's
-//! `LlmLink` (`crate::llm`), which only passes the task on: the prompt, the check of the answer and
-//! what the answer does are here. A host with a link calls them from its hooks
-//! (`Host::prioritize_support_request`, `Host::consider_*`; `PlainHost`, `plain.rs`).
+//! The rules read and write the world, and ask through a host's `LlmLink` (`crate::llm`), which
+//! only passes the task on: the prompt, the check of the answer and what the answer does are here.
+//! A host with a link calls them from its hooks (`Host::prioritize_support_request`,
+//! `Host::consider_*`; `PlainHost`, `plain.rs`).
 //!
 //! What they write:
 //! - `model_state["support_priority_runtime_v1"]`: the attempts by day and the skips by reason of
@@ -21,14 +21,11 @@
 //!
 //! Offline (a link without an API key), nothing is asked and nothing of the world is written: the
 //! priority returns at once, and the social policy records why it did not ask (`offline_rule_mode`
-//! or a check before it), as Python's do. A Run offline is the Run without a link, but for these
-//! records.
+//! or a check before it). A Run offline is the Run without a link, but for these records.
 //!
-//! The prompts are Python's data, written as canonical JSON (keys sorted, no spaces), so their
-//! bytes are Python's. The state's hash a task carries is the core's digest of the world at the
-//! call (`canonical::state_digest_with`), not Python's: a response tape recorded on the Python
-//! path (a Checkpoint's) does not replay here. The world after the ticks is the Python path's with
-//! the same answers.
+//! The prompts are data written as canonical JSON (keys sorted, no spaces). The state's hash a task
+//! carries is the core's digest of the world at the call (`canonical::state_digest_with`): a
+//! response tape recorded before #428 (a Checkpoint's) does not replay here.
 
 use std::sync::Arc;
 

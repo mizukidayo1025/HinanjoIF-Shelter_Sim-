@@ -1,9 +1,6 @@
-//! `domain/social_dialogue.py`: the participants' modeled state a social event carries. Both
-//! kernels only read and build, and raise the Python rules' ValueError texts themselves (their Python
-//! bodies are gone: `kernel_only`). Moved to the core in lane P8 a2: a context is a `V` here, which
-//! the PyO3 crate reads from the event's frozen payload or the caller's mapping.
-//!
-//! `virtual_dialogue_example` stays in Python: it runs when a history is read, not in a tick.
+//! The participants' modeled state a social event carries. Both kernels only read and build, and
+//! return the ValueError texts (`Error::value_error`) themselves. A context is a `V`, read from the
+//! event's frozen payload or the caller's mapping.
 
 use std::sync::{Arc, LazyLock};
 
@@ -123,7 +120,7 @@ static NAMES: LazyLock<ContextNames> = LazyLock::new(|| ContextNames {
     affect_names: AFFECT.map(Arc::from),
 });
 
-/// The context of a capture, in the keys' order of the Python rule.
+/// The context of a capture, its keys in a fixed order.
 fn context_of(ids: &[&str], capture: &Capture) -> V {
     let names = &*NAMES;
     let mut participants = IndexMap::with_capacity(ids.len());
@@ -184,11 +181,10 @@ pub fn context_value(world: &World, first: &str, second: &str) -> Result<V> {
     Ok(context_of(&ids, &capture))
 }
 
-// ---- The Python rule's verdict on any context -----------------------------------------------------
+// ---- The verdict on any context -----------------------------------------------------------------
 //
 // `SocialInteractionHandler` words a ValueError of `validate_social_state_context` as its own saved
-// text, so this decides as the Python rule does, in its order of checks, for any JSON value an
-// event's payload holds.
+// text, so this decides in a fixed order of checks, for any JSON value an event's payload holds.
 
 /// `set(mapping) == set(names)`, of distinct names.
 fn keys_are(mapping: &IndexMap<Arc<str>, V>, names: &[&str]) -> bool {

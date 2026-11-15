@@ -1,10 +1,7 @@
-//! `domain/agent_dynamics.py`: decision memory and facility awareness. Its rules are these kernels
-//! alone (lane L10, `kernel_only`), and what they refuse is a KernelRefusal there
-//! (docs/rust-port/lanes/f-action-lifecycle.md). Moved to the core in lane P8 a2.
+//! Decision memory and facility awareness (docs/rust-port/lanes/f-action-lifecycle.md).
 //!
-//! Each kernel reads the rows of the world and the config sections the PyO3 crate read for it
-//! (`kit::Kept`), computes, and writes the row of `agent_dynamics_v1` alone: its tree, if Python
-//! reads one, follows the row when the world is given back (lane P8-0c).
+//! Each kernel reads the rows of the world and the config sections the host read for it
+//! (`kit::Kept`), computes, and writes the row of `agent_dynamics_v1` alone.
 
 use std::collections::BTreeSet;
 use std::sync::Arc;
@@ -32,15 +29,14 @@ pub struct Decision<'a> {
     pub trigger: Option<&'a str>,
 }
 
-/// An ID the PyO3 crate read: None for a value that is not an exact str, refused where the Python
-/// rule would first use it.
+/// An ID as read: None for a value that is not an exact str, refused where the rule first uses it.
 #[track_caller]
 fn id_of(id: Option<&str>) -> Result<&str> {
     id.ok_or_else(|| Error::unsupported("a value is not a str"))
 }
 
 /// `record_proposal`: the agent's record takes the decision; an agent without a record has none.
-/// Unsupported without the namespace's row, for the Python rule to create it.
+/// Unsupported without the namespace's row.
 pub fn remember_decision(world: &World, decision: &Decision<'_>) -> Result<()> {
     if !world.row::<AgentDynamicsRow>(NAME)?.agents.contains_key(decision.agent_id) {
         return Ok(());
@@ -123,7 +119,8 @@ pub fn add_agent(world: &World, agent_id: Option<&str>, policy: &Kept<&'static s
         return Ok(());
     }
     let id = id_of(agent_id)?;
-    // Python asks these only once the agent is there, so a bad config with no agent is no error.
+    // The configs are asked only once the agent is there, so a bad config with no agent is no
+    // error.
     if world.rows()?.agents.get(id).is_none() {
         return Ok(());
     }
@@ -162,7 +159,7 @@ pub fn learn_facility(world: &World, agent_id: Option<&str>, facility_id: Option
     if !world.row::<AgentDynamicsRow>(NAME)?.agents.contains_key(agent_id) {
         return Ok(());
     }
-    // Asked after the record, as the Python rule does, so a bad config with no record is no error.
+    // Asked after the record, so a bad config with no record is no error.
     let discover = kit::kept(awareness)?.as_ref().is_some_and(|awareness| awareness.discover);
     let mut discovered: Vec<Arc<str>> = vec![Arc::from(facility_id)];
     if discover {

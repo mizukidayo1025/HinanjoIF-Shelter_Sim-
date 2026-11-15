@@ -1,16 +1,13 @@
-//! `record_social_event` of `domain/body_state.py`, with the affect operators of
-//! `policies/affect.py` and the trust operators of `policies/relationships.py`
-//! (docs/rust-port/lanes/m3-body-state.md). The Python rule's body is gone (`kernel_only`). Moved to
-//! the core in lane P8 a2.
+//! `record_social_event`, with the affect operators and the trust operators
+//! (docs/rust-port/lanes/m3-body-state.md).
 //!
 //! One event is one plan: the plan is computed from the rows and the event's row, and only then is
-//! anything written, so an Unsupported changes nothing. It is a `KernelRefusal` in Python, left for
-//! what no applied event or valid state holds: an ID or a distance of another type, a person
-//! without a body record, a relationship without trust, a tainted namespace, a model this kernel
-//! doesn't know.
+//! anything written, so an Unsupported changes nothing. It is left for what no applied event or
+//! valid state holds: an ID or a distance of another type, a person without a body record, a
+//! relationship without trust, a tainted namespace, a model this kernel doesn't know.
 //!
-//! The rule writes the row of `body_state_v1` alone; a tree Python reads follows it (lane P8-0c).
-//! Each history item is its canonical JSON, as the row holds it.
+//! The rule writes the row of `body_state_v1` alone. Each history item is its canonical JSON, as
+//! the row holds it.
 
 use std::sync::Arc;
 
@@ -37,7 +34,7 @@ const MOVEMENT: &str = "movement_v1";
 /// Larger than this a float's ceil may not fit the row's int.
 const LARGEST_DURATION: f64 = 9e15;
 
-/// What the rule reads of an applied event: its row's fields, or those of an object Python made.
+/// What the rule reads of an applied event: its row's fields.
 pub struct SocialEvent<'a> {
     pub event_id: &'a str,
     pub event_type: &'a str,
@@ -75,7 +72,7 @@ pub fn namespace_absent<C: WorldCell, H: Host>(cell: &C, host: &mut H) -> std::r
 
 /// What the rule reads of the configs, read through the host (H2, lane P9-1a): the model selection,
 /// whose refusal and error are this rule's own refusals, and the operators it selects, whose fault
-/// is raised where the rule reads them (by the PyO3 crate, which parses again, policy E14).
+/// is raised where the rule reads them (`Host::read_again`, policy E14).
 pub struct Inputs {
     pub selection: Arc<Selection>,
     pub models: kit::Kept<BodyModels>,
@@ -254,8 +251,8 @@ impl Item {
         }
     }
 
-    /// An ID the rule looks up in `world.agents`. None and a number are simply not there; what can
-    /// raise there is left to Python, and so is an ID of another type than a str, kept simple.
+    /// An ID the rule looks up in `world.agents`. None and a number are simply not there; an ID of
+    /// another type than a str is refused, kept simple.
     #[track_caller]
     fn id(&self) -> Result<Option<Arc<str>>> {
         match self {
@@ -385,7 +382,7 @@ fn sorted_pair(first: &Arc<str>, second: &Arc<str>) -> Vec<Arc<str>> {
 }
 
 fn pair_key(first: &str, second: &str) -> Option<Arc<str>> {
-    // `ordered_pair_key`, for IDs that JSON writes as they are; the rest are Python's.
+    // `ordered_pair_key`, for IDs that JSON writes as they are; the rest are refused.
     let plain = |id: &str| id.bytes().all(|byte| byte.is_ascii_graphic() && byte != b'"' && byte != b'\\');
     (plain(first) && plain(second)).then(|| Arc::from(format!("[\"{first}\",\"{second}\"]")))
 }
@@ -545,7 +542,7 @@ impl Planner<'_> {
     }
 
     /// One item of `transfers`, from `_body_deltas` and the loop at the end of the rule. The two
-    /// lists of the Python rule keep their order: an item here is added after the relationships'.
+    /// lists keep their order: an item here is added after the relationships'.
     fn transfer_deltas(before: &BodyRecord, after: &BodyRecord) -> Deltas {
         let mut deltas: Deltas = Vec::new();
         // The fields in sorted order, as `sorted(set(before) & set(after))` has them.
@@ -754,7 +751,7 @@ fn correction_actors(world: &World, event: &SocialEvent<'_>, selection: &Selecti
         .collect())
 }
 
-/// What the event asks of the rule, or Unsupported for what is Python's to decide.
+/// What the event asks of the rule, or Unsupported for what it does not decide.
 fn action_of(world: &World, event: &SocialEvent<'_>, selection: &Selection, minute: i64) -> Result<(Action, EventFacts)> {
     let contact_minutes = Item::read(event, "contact_minutes")?;
     let (message, topic_id) = (Item::read(event, "message_id")?, Item::read(event, "topic_id")?);
@@ -843,8 +840,8 @@ fn action_of(world: &World, event: &SocialEvent<'_>, selection: &Selection, minu
     Ok((action, facts))
 }
 
-/// The item's document, in the order of the Python rule's keys, as its canonical JSON. A value
-/// canonical JSON refuses is refused here.
+/// The item's document, its keys in a fixed order, as its canonical JSON. A value canonical JSON
+/// refuses is refused here.
 fn item_bytes(item: &PlannedItem, event: &SocialEvent<'_>) -> Result<Box<[u8]>> {
     let text = |value: &str| V::Str(Arc::from(value));
     let mut document = IndexMap::with_capacity(7);
@@ -868,8 +865,8 @@ fn item_bytes(item: &PlannedItem, event: &SocialEvent<'_>) -> Result<Box<[u8]>> 
 
 // ---- The kernel -----------------------------------------------------------------------------------
 
-/// `record_social_event` of an applied event. `selection` and `models` are what the PyO3 crate read
-/// of the configs (`selected_models`, the operators), after it found the namespace present.
+/// `record_social_event` of an applied event. `selection` and `models` are what the caller read of
+/// the configs (`selected_models`, the operators, `Inputs`), after it found the namespace present.
 pub fn record_social_event(world: &World, event: &SocialEvent<'_>, minute: i64, selection: &Selection, models: &BodyModels) -> Result<()> {
     if kit::namespace_absent(world, NAME)? || !records_event(event.event_type) {
         return Ok(());

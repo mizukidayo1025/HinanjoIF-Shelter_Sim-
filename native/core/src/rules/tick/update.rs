@@ -1,10 +1,9 @@
-//! The update phase (`UpdatePhase` of `experiments/phases/update.py` gives its steps): movement, the view,
-//! each person's psychology, the social model, the psychology trace, the long-term distress, the new
-//! values, and the view handed on to the propose phase (`Run.scratch`, decision D4).
+//! The update phase: movement, the view, each person's psychology, the social model, the psychology
+//! trace, the long-term distress, the new values, and the view handed on to the propose phase
+//! (`Run.scratch`, decision D4).
 //!
-//! The steps pass the core's values to each other (the view's data, the deltas), where the PyO3
-//! entries made Python objects between them; what those entries checked of the objects is checked
-//! here where it can fail on the core's values (a stress within 0..1).
+//! The steps pass the core's values to each other (the view's data, the deltas); what the values
+//! must hold is checked here where it can fail (a stress within 0..1).
 
 use std::sync::Arc;
 

@@ -1,13 +1,12 @@
-//! The KPI columns of a minute (`MetricSnapshot` of `experiments/metrics.py`), read from the rows of
-//! a `World`. The pilot of the kernels that move to the core (Issue #152, lane 5-4): a pure function
-//! over `&World`, with what is still Python's handed in by the PyO3 crate (`rules/metrics.rs` of
-//! `native/src`), which also makes the Python values of the result.
+//! The KPI columns of a minute (`MetricSnapshot`), read from the rows of a `World`: a pure function
+//! over `&World`, with what it reads besides the rows handed in by the metrics phase
+//! (`rules::tick::metrics`).
 //!
-//! Handed in, because Python holds it or computes it:
-//! - what the staff rules read of the Python world (`staff::Inputs`), and the routes' inputs where
+//! Handed in, because the host holds it or it is read through the host:
+//! - what the staff rules read besides the rows (`staff::Inputs`), and the routes' inputs where
 //!   a wait's routes are read (`staff::WaitRoutes`): the open requests' waits and reasons are the
-//!   staff rules' `open_waits` over the rows (lane P8 b4), and `sample` answers None where they
-//!   need the routes, which the PyO3 crate then reads before it calls again;
+//!   staff rules' `open_waits` over the rows, and `sample` answers None where they need the
+//!   routes, which the metrics phase then reads before it calls again;
 //! - which requests: the ones a caller listed, or those `world.unsettled_support_requests()` gives,
 //!   which the memo of the last end-of-tick check knows (`after_tick::Memo`) or else all;
 //! - whether `world.metric_state` holds its slot's tree (a field assigned whole doesn't).
@@ -15,15 +14,14 @@
 //! `capture` is the metrics phase of a tick: the sample, given to the host's sink
 //! (`Host::capture_metric`), which makes the `MetricSnapshot` at the edge.
 //!
-//! A facility kind is folded here with the core's `str.casefold` (`text::casefold`, P8-0a), which
-//! before was Python's for a kind that isn't ASCII. The realized events of the minute come from the world's log (`World::log`, lane 6-5), which is
-//! Unsupported while the world's EventLog is not held there.
+//! A facility kind is folded here with the core's `str.casefold` (`text::casefold`). The realized
+//! events of the minute come from the world's log (`World::log`), which is Unsupported while the
+//! world's EventLog is not held there.
 //!
-//! The sums go over `world.agents` in insertion order with `py_sum`, so every float has the bits of
-//! the Python rule. The ID lists and the JSON are written by byte order, which is the code point
-//! order of Python's `sorted` and of `canonical_json`. The errors are refusals (`Unsupported`) with
-//! the texts the PyO3 kernel had: a tainted row, a staff queue naming no task (a KeyError of the
-//! Python rule).
+//! The sums go over `world.agents` in insertion order with `py_sum`, so every float keeps its bits.
+//! The ID lists and the JSON are written by byte order, which is the code point order of Python's
+//! `sorted` and of `canonical_json`. The errors are refusals (`Unsupported`) with their texts: a
+//! tainted row, a staff queue naming no task.
 
 use std::sync::Arc;
 
@@ -73,7 +71,7 @@ pub struct Inputs<'a> {
     /// The minute sampled, the world's.
     pub sample: i64,
     pub requests: Requests<'a>,
-    /// What the staff rules read of the Python world; its `metric_state_held` is the sample's too.
+    /// What the staff rules read besides the rows; its `metric_state_held` is the sample's too.
     pub staff: &'a staff::Inputs<'a>,
     /// The routes' inputs, where a wait's routes are read: None for a first call.
     pub routes: Option<&'a WaitRoutes<'a>>,
@@ -144,7 +142,7 @@ fn write_key(out: &mut Vec<u8>, key: &str, first: bool) {
 }
 
 /// `support_wait_by_agent`, by agent: a later request of the same agent replaces an earlier one, as
-/// in the dict the Python rule fills.
+/// in a dict filled in order.
 fn write_waits(out: &mut Vec<u8>, waits: &[OpenWait<'_>]) {
     let mut order: Vec<usize> = (0..waits.len()).collect();
     order.sort_by(|first, second| waits[*first].agent.as_bytes().cmp(waits[*second].agent.as_bytes()));
@@ -325,7 +323,7 @@ pub const KPI_WAITS: [(&str, &str, &str, &str); 2] = [
 /// reserved amounts, then the waits and stalls of `metric_state`.
 pub struct KpiRows {
     /// The means of `toilet_urgency`, `hunger` and `hydration_need` over `world.agents` in their
-    /// order (`py_sum`), or None for no one (the Python rule's mean divides by zero).
+    /// order (`py_sum`), or None for no one (a mean of no one divides by zero).
     pub means: Option<[f64; 3]>,
     /// The water and meal queues' lengths, then their active services.
     pub queues: [usize; 4],

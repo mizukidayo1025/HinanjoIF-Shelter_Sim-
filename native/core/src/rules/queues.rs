@@ -1,20 +1,18 @@
-//! The physical queues of a facility: `prepare_facility_queue` (`domain/queueing.py`) and what
-//! `domain/movement.py` does for them (lane c1 of Issue #152). The Python rules are gone
-//! (`kernel_only`): the kernels raise the rules' ValueError texts themselves
-//! (docs/rust-port/lanes/m4-queues.md).
+//! The physical queues of a facility: `prepare_facility_queue` and the movement it leads to. The
+//! kernels return the rules' ValueError texts themselves (`Error::value_error`;
+//! docs/rust-port/lanes/m4-queues.md).
 //!
 //! Each kernel is one call on the world borrowed whole: it plans, with nothing changed, and then
 //! writes the rows (the entities, `movement_v1`, `facility_queues_v1`, `resource_service_v1`,
-//! `metric_state`, the event queue and log). The trees of attached namespaces follow the rows
-//! when the PyO3 crate gives the world back (lane P8-0c). The caller's loop is Python, and nobody
-//! else moves between its calls, so the order of the people served is the order of those calls, as
-//! in the Python rules.
+//! `metric_state`, the event queue and log). The caller's loop is the arbitrate phase's
+//! (`rules::tick::arbitrate`), and nobody else moves between its calls, so the order of the people
+//! served is the order of those calls.
 //!
-//! What the PyO3 crate hands in: the queue policy and the movement model of the configs, the floor
-//! plan (`Geo`), whether the Python world holds the namespaces and `metric_state` (`Held`), and the
-//! `repr` of a facility kind the rule turns down.
+//! What the caller hands in: the queue policy and the movement model of the configs, the floor plan
+//! (`Geo`), whether `model_state` holds the namespaces and `metric_state` (`Held`), and the `repr`
+//! of a facility kind the rule turns down.
 //!
-//! What goes to Python, before anything is written: anything not plainly what the Python rule accepts.
+//! What is Unsupported, before anything is written: anything not plainly what the rule accepts.
 
 use std::collections::{BTreeMap, HashSet};
 use std::sync::Arc;
@@ -68,7 +66,7 @@ pub struct Fifo {
 }
 
 impl Fifo {
-    /// The queue of the row. A queue it doesn't have is the Python rule's error.
+    /// The queue of the row. A queue it doesn't have is Unsupported.
     pub fn of(row: &QueuesRow, geo: &Geo, queue_id: &str) -> Result<Self> {
         let Some(queue) = row.queues.get(queue_id) else {
             return Err(Error::unsupported("no such queue"));
@@ -1095,7 +1093,7 @@ pub fn slot_route(geo: &Geo, row: &MovementRow, rows: &Entities, model: &Read<Mo
 }
 
 /// What the walking kernels take besides the world: the floor plan and the movement model of the
-/// configs, and whether the Python world holds the namespaces and `metric_state`.
+/// configs, and whether `model_state` holds the namespaces and `metric_state`.
 pub struct Walk<'a> {
     pub geo: &'a Geo,
     pub model: &'a Read<MovementModel>,

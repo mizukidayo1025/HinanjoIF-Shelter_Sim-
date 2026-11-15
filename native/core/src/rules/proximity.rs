@@ -1,6 +1,5 @@
-//! The sampling of `DistanceSampledProximityPolicy` (`policies/proximity.py`) and the step that
-//! schedules what it finds, `_sample_proximity_contacts` (`experiments/phases/sample.py`) (lane c6 of
-//! Issue #152).
+//! The sampling of `DistanceSampledProximityPolicy` and the step of the sample phase that schedules
+//! what it finds (`sample_contacts`).
 //!
 //! The controller's config and policy are the Run's (`run::proximity::Proximity`, read when the
 //! controller starts; a test that puts another policy on the controller reads them again with
@@ -167,7 +166,7 @@ fn sample_with(world: &World, config: SampleConfig, movement: &Held) -> Result<(
     }
     let mut points = Vec::with_capacity(placed.len());
     for point in placed {
-        // The checks in the order of the Python rule's `or`; none has an effect.
+        // The checks in a fixed order; none has an effect.
         if !point.x.is_finite() || !point.y.is_finite() {
             continue;
         }

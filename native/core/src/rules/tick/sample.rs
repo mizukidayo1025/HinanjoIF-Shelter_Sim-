@@ -1,5 +1,5 @@
-//! The sample phase (`SamplePhase` of `experiments/phases/sample.py` gives its steps): the information
-//! contacts of the minute, then the proximity contacts where the controller has their config.
+//! The sample phase: the information contacts of the minute, then the proximity contacts where the
+//! controller has their config.
 
 use crate::error::Error;
 use crate::host::{Again, Host, TraceLevel};

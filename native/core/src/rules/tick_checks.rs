@@ -1,20 +1,16 @@
-//! The questions of the end-of-tick check (`rules::after_tick::Checks`) answered by the core, for a
-//! world without Python (#250): `CoreChecks`. The native path answers them with the validators
-//! Python registers (`state_mirror._RUST_VALIDATORS`, `body_state._ROWS_VALID`,
-//! `common_operations._TICK_VALID`, `effects.validate_state`, `tick_validation.body_config_ids`),
-//! which are the PyO3 crate's glue around the core's rules; here the same rules read the core's
-//! world: the slots' rows, the entity rows, the queue's rows and the log.
+//! The questions of the end-of-tick check (`rules::after_tick::Checks`) answered by the core
+//! (#250): `CoreChecks`. The rules read the core's world: the slots' rows, the entity rows, the
+//! queue's rows and the log.
 //!
-//! Each answer is yes only where the namespace's Python validator passes. Anything the core does
-//! not hold as the rules read it (a namespace held as another row than its own, a tainted table, a
-//! floor plan the host cannot give) is a no or a refusal, and the check then leaves the tick to the
-//! whole validation (`validate::world`), which passes or gives Python's error. So a no never
-//! changes an answer; it only costs time.
+//! Each answer is yes only where the namespace's validator passes. Anything the core does not hold
+//! as the rules read it (a namespace held as another row than its own, a tainted table, a floor
+//! plan the host cannot give) is a no or a refusal, and the check then leaves the tick to the whole
+//! validation (`validate::world`), which passes or gives its error. So a no never changes an
+//! answer; it only costs time.
 //!
-//! Where the PyO3 crate reads a Python object instead of a row (the staff operations' active
-//! records read the task, staff and edge objects and the pending events; the shared operations
-//! read the log's records through `EventLog.find`), the rule is the same and reads the core's
-//! rows; the rules on the namespaces' own rows are one function each, which both call.
+//! The staff operations' active records read the task, staff and edge rows and the pending events;
+//! the shared operations read the log's records. The rules on the namespaces' own rows are one
+//! function each, on the row (`ServiceRow::passes_rules`, ...).
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -244,7 +240,7 @@ fn absent(world: &World, held: &Held, name: &str) -> Result<bool> {
 
 /// `f` on the row of a slot as its type, borrowed mutably without a write: what the rule keeps in
 /// the row (which relationships it has checked) is no change of the state, so the slot keeps its
-/// stamp and its tree, as the PyO3 crate's `with_row`.
+/// stamp and its tree.
 fn untouched<T: Row, R>(world: &World, name: &str, f: impl FnOnce(&mut T) -> R) -> Result<R> {
     let slot = world.slots.get(name).ok_or_else(|| Error::unsupported("the namespace is not owned"))?;
     let mut slot = slot.try_borrow_mut()?;
@@ -260,8 +256,8 @@ fn population_dynamics(world: &World, held: &Held) -> Result<bool> {
     })
 }
 
-/// What `ServiceRow::passes_rules` reads of a world without Python: the people here or archived by
-/// the lifecycle state, and the zones.
+/// What `ServiceRow::passes_rules` reads of the world: the people here or archived by the lifecycle
+/// state, and the zones.
 struct Known<'a> {
     rows: &'a Entities,
     archived: Option<HashSet<Arc<str>>>,
@@ -595,9 +591,8 @@ impl<C: WorldCell, H: Host> Checks for CoreChecks<'_, C, H> {
 }
 
 /// After the whole validation without the event history passed where the kernel's check refused:
-/// what the Python rules tell the rows when they pass (`_tell_the_row_they_passed` of
-/// `domain/common_operations.py`, `recent_passed`), so the next check reads the receipts they
-/// read as checked.
+/// what the rows are told when they pass (`recent_passed`), so the next check reads the receipts
+/// they read as checked.
 pub fn validation_passed(world: &World) -> Result<()> {
     if world.slots.get(shared_operations::NAME).is_none() {
         return Ok(());

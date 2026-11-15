@@ -1,26 +1,23 @@
-//! The social model's step of the update phase: `_social_propagation` in
-//! `experiments/phases/update.py`, with the rules of `StressPropagationPolicy` and
-//! `ExpressivenessChannelOpennessPolicy` (`policies/social.py`) and `DeGrootContactPolicy`
-//! (`policies/alternatives.py`), whose Python bodies lane L10 deleted. Moved to the core in lane
-//! P8 a4.
+//! The social model's step of the update phase (`_social_propagation`), with the rules of
+//! `StressPropagationPolicy`, `ExpressivenessChannelOpennessPolicy` and `DeGrootContactPolicy`.
 //!
 //! The step takes the psychology deltas of the minute (`Delta`, lane a3) and gives the deltas after
 //! the social model, in ID order. It changes nothing until it knows its checks pass: `update` plans
-//! everything from the rows, and any value the deleted rules turned down, or that this step does
-//! not handle, is Unsupported. Then the plan goes to the row of `social_propagation_v1` (its
-//! attached tree follows the row when the world is given back, lane P8-0c) and to
+//! everything from the rows, and any value the model turns down, or that this step does not handle,
+//! is Unsupported. Then the plan goes to the row of `social_propagation_v1` and to
 //! `social_network_v1` (`record_observed_contacts`, whose refusals are checked before the first
-//! write). Every float operation keeps the order of the Python expression.
+//! write). Every float operation keeps a fixed order (the rounding depends on it).
 //!
 //! The policy and its parameters are what the Run read of `controller.stress_policy`
-//! (`run::stress`); a read that raised in Python is a `PolicyFault`, which the PyO3 crate raises
-//! again (policy E14). Stress, zones and sensitivities come from the entity rows. The group comes
-//! from the core's view (`rules/world_view.rs`): a person's household in `population_presence_v1`
-//! overrides `profile.group_id` there. The trace's document goes to the host (`Host::trace`).
+//! (`run::stress`); a read that failed is a `PolicyFault`, which `Tick::policy_error` turns into
+//! the error (policy E14). Stress, zones and sensitivities come from the entity rows. The group
+//! comes from the core's view (`rules/world_view.rs`): a person's household in
+//! `population_presence_v1` overrides `profile.group_id` there. The trace's document goes to the
+//! host (`Host::trace`).
 //!
-//! The first tick of a Run makes the namespace, which the core cannot add to `model_state`: `update`
-//! then plans from the empty state and writes nothing, and the PyO3 crate stores the empty
-//! namespace before it calls `write`.
+//! The first tick of a Run makes the namespace: `update` then plans from the empty state and writes
+//! nothing, and the update phase starts the empty namespace (`World::start_namespace`,
+//! `Host::start_namespace`) before it calls `write`.
 
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
@@ -232,7 +229,7 @@ pub struct Person<'a> {
 pub struct Plan {
     /// The new stress of each person.
     pub stresses: Vec<f64>,
-    /// The new contacts, in the order of Python's new dict.
+    /// The new contacts, in the order they are made.
     pub contacts: IdMap<ContactRecord>,
     /// The new cooldowns, sorted, or None if the row has these already.
     pub cooldowns: Option<IdMap<i64>>,
@@ -295,7 +292,7 @@ struct Shared<'a> {
 /// One person's part of the plan, which `plan` applies in the people's order.
 struct PersonPlan {
     stress: f64,
-    /// The new contacts of this recipient, in the order of Python's new dict.
+    /// The new contacts of this recipient, in the order they are made.
     contacts: Vec<(String, ContactRecord)>,
     /// (recipient, source) of what the step records in `social_network_v1`.
     observed: Vec<(usize, usize)>,
@@ -303,7 +300,7 @@ struct PersonPlan {
     cooldown: Option<i64>,
     /// The trace's contacts of this recipient, sorted by source.
     trace_contacts: Vec<SocialContact>,
-    /// What goes to the trace's total, in the order the Python rule adds it.
+    /// What goes to the trace's total, in the order it is added.
     added: Vec<f64>,
     contributing: i64,
 }
@@ -409,7 +406,7 @@ fn plan_person(shared: &Shared<'_>, me: usize) -> Result<PersonPlan> {
         Model::Channel => plan_channel(recipient, &mut out, &mut lasting, &minutes_of, &mut cooldown, &mut set_cooldown)?,
         Model::DeGroot => plan_degroot(recipient, &mut out, &mut lasting, &minutes_of),
     };
-    // `replace` of the Python rule checks the value it stores.
+    // `replace` checks the value it stores.
     if !(0.0..=1.0).contains(&stress) {
         return unsupported("a new stress is outside 0..1");
     }
@@ -629,9 +626,9 @@ fn channel_stress(
         })
         .collect();
     let weight_total = py_fsum(&weights).ok_or_else(|| Error::unsupported("weights are not finite"))?;
-    // Weights are products of factors in 0..1, so a total of 0 means every contribution is 0:
-    // no shift, and `details` keep no weights, so the trace has each contact as one without a
-    // share, as the Python rule has it (#87, 元 #301).
+    // Weights are products of factors in 0..1, so a total of 0 means every contribution is 0: no
+    // shift, and `details` keep no weights, so the trace has each contact as one without a share
+    // (#87, 元 #301).
     let mut shift = Num::Float(0.0);
     if weight_total > 0.0 {
         let gamma = py_min(1.0, settings.spread * weight_total);
@@ -681,9 +678,9 @@ fn degroot_stress(settings: &Settings, people: &[Person<'_>], person: &Person<'_
 
 // ---- The step ------------------------------------------------------------------------------------
 
-/// `controller.zone_neighbors` as the PyO3 crate read it: by zone, the neighbors as strs or the
-/// refusal of that zone's value, which the step raises only for a zone somebody is in; or the
-/// refusal of a table that is not a dict.
+/// `controller.zone_neighbors` as the Run read it: by zone, the neighbors as strs or the refusal of
+/// that zone's value, which the step raises only for a zone somebody is in; or the refusal of a
+/// table that is not a dict.
 pub type Neighbors = std::result::Result<HashMap<String, std::result::Result<Vec<String>, &'static str>>, &'static str>;
 
 /// What the step reads besides the rows.
@@ -711,7 +708,7 @@ pub struct Planned {
     /// The plan; its contacts and cooldowns are taken out when it is written.
     pub plan: Plan,
     observed: Option<ObservedContacts>,
-    /// The namespace is not in `model_state`: the PyO3 crate stores the empty one, then calls
+    /// The namespace is not in `model_state`: the update phase starts the empty one, then calls
     /// `write`. False once written.
     pub first_use: bool,
     written: bool,
@@ -773,7 +770,7 @@ pub fn update(world: &World, inputs: &Inputs<'_>) -> Result<Planned> {
     }
     let id_of = |item: &(usize, Option<&str>, f64)| deltas[item.0].agent_id.as_bytes();
     if !found.windows(2).all(|pair| id_of(&pair[0]) < id_of(&pair[1])) {
-        // Deltas come sorted. The Python rules sort them, except DeGroot's, which keeps their order.
+        // Deltas come sorted. The models sort them, except DeGroot's, which keeps their order.
         if settings.policy == Model::DeGroot {
             return unsupported("the deltas are not in id order");
         }
@@ -857,7 +854,7 @@ pub fn update(world: &World, inputs: &Inputs<'_>) -> Result<Planned> {
 }
 
 /// The writes of a plan: the row of `social_propagation_v1`, which must be in `model_state` now,
-/// then what the step records in `social_network_v1`, in the order the Python step wrote them.
+/// then what the step records in `social_network_v1`, in the plan's order.
 pub fn write(world: &World, planned: &mut Planned) -> Result<()> {
     if planned.written {
         return Err(Error::Runtime("the plan is written already".to_owned()));

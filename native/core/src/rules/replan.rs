@@ -1,19 +1,19 @@
-//! `_replan_journeys` of `experiments/phases/update.py`: the people whose route changed under them,
-//! in the order the walk returned them (lane c6 of Issue #152).
+//! `_replan_journeys` of the update phase: the people whose route changed under them, in the order
+//! the walk returned them.
 //!
 //! Each person is two steps. Their old trip stops (`stop`), and then a new route is planned from
 //! where that left them (`second_step`), reading what the stop wrote: their zone, and that nobody
 //! counts them as on the way. A refusal before the first stop says Unsupported, with nothing
-//! changed; past it, a stop is written, and the PyO3 crate makes a refusal a RuntimeError. See
+//! changed; past it, a stop is written, and a refusal fails the tick. See
 //! docs/rust-port/lanes/l3-movement.md.
 //!
 //! The old trip's event and a support's previous completion leave the world's queue through the
 //! world's writer (`kit::Events::settle`), which gives back the serials of the slots it took out
-//! for the PyO3 crate to let their Python objects go. A support whose staff the person can no
-//! longer reach ends in a continuity receipt, written to the log here; projecting it into
-//! `shared_operations_v1` reads the EventLog's records as Python holds them, so `second_step` hands
-//! it back (`Second::Continuity`) and the PyO3 crate projects it, finishes the walk and counts the
-//! replan (`after_continuity`), in the order the Python rule did.
+//! for the host (`Host::slots_changed`). A support whose staff the person can no longer reach ends
+//! in a continuity receipt, written to the log here; projecting it into `shared_operations_v1`
+//! reads the log's records through the host (`Host::find_record`), so `second_step` hands it back
+//! (`Second::Continuity`) and the update phase (`rules::tick::update`) projects it, finishes the
+//! walk and counts the replan (`after_continuity`), in that order.
 
 use std::sync::Arc;
 
@@ -108,7 +108,7 @@ pub fn stop(world: &World, agent_id: &Arc<str>, journey: &Journey, minute: i64) 
     Ok(taken)
 }
 
-/// What the second step leaves for the PyO3 crate.
+/// What the second step leaves for the update phase.
 pub enum Second {
     /// Done: the serials of the queue's slots it took out.
     Done(Vec<u64>),
@@ -271,7 +271,7 @@ impl Step<'_, '_> {
     fn staff_support(&self, agent_id: &Arc<str>, journey: &Journey) -> WriteResult<Support> {
         let world = self.world;
         let minute = self.minute;
-        // The texts of the Python rule, which a Run's error keeps.
+        // The texts a Run's error keeps.
         let lost = || Error::value_error("replanned resident trip lost its assigned support task");
         let Some(request_id) = journey.support_request_id.clone() else {
             return Err(lost().into());
@@ -386,8 +386,7 @@ struct Found {
     timeout: i64,
 }
 
-/// The support a replanned trip is to, as its request assigns it; the Python rule's ValueError for
-/// a support lost.
+/// The support a replanned trip is to, as its request assigns it; a ValueError for a support lost.
 fn assigned_support(world: &World, request_id: &Arc<str>) -> Result<Found> {
     let lost = || Error::value_error("replanned resident trip lost its assigned support task");
     let rows = world.rows()?;

@@ -6,13 +6,14 @@
 //! 1. where it stands now: gone from the queue (skipped), the same row, or another row of its ID,
 //!    which runs only if it is the same event by value (`current is event or current.to_dict() ==
 //!    event.to_dict()`: numbers by value, `1 == 1.0`, `-0.0 == 0.0`, maps in any order);
-//! 2. its handler (`Policies.dispatch`, read by the PyO3 crate and checked by identity at each
-//!    phase): none is `FAILED` with Python's text; a known class runs here (`HandlerKind`), and any
-//!    other is the host's (`Host::apply_foreign`, H4);
+//! 2. its handler (`Policies.dispatch`, read when the controller started): none is `FAILED` with
+//!    the dispatcher's text; a known class runs here (`HandlerKind`), and any other is the host's
+//!    (`Host::apply_foreign`, H4);
 //! 3. the EffectProgram's guard first, for an event with its marker;
 //! 4. the record of a contact or an interaction (`record_social_event`, `observe_event`);
 //! 5. the settle: the event leaves the queue and its record is appended, or, where the handler
-//!    wrote its own, the two are compared through `Host::find_record` (Python's `ValueError`);
+//!    wrote its own, the two are compared through `Host::find_record` (a `ValueError`,
+//!    `RECORD_DISAGREES`);
 //! 6. the handler's follow-up records, compared or appended, and the shared receipts among them.
 //!
 //! Then, for the events that applied: the actions they end, a population exit, what a walk taught
@@ -22,9 +23,8 @@
 //! (`consider_cooperation`, `consider_information_reaction`, decision D5).
 //!
 //! An event's expected outcome is its record's status and `str(exc)`. A refusal of a handler's
-//! kernel is the `KernelRefusal` of the handler's `kernel_only` entry (`Error::Refused`), as the
-//! Python dispatcher raised it; any other error ends the phase as it is. No borrow of the world,
-//! and no lock of the Run, is held while the host runs (rule R6).
+//! kernel is labelled with the handler's kernel (`Error::Refused`); any other error ends the phase
+//! as it is. No borrow of the world, and no lock of the Run, is held while the host runs (rule R6).
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -53,8 +53,7 @@ use crate::world::WorldCell;
 
 macro_rules! counters {
     ($($name:ident),* $(,)?) => {
-        /// What the phase did in this process, for the gate and the tests (`stats` of the PyO3
-        /// crate's `dispatch`).
+        /// What the phase did in this process, for the gate and the tests.
         pub struct Counters { $(pub $name: AtomicU64),* }
 
         /// The counts of the phase.
@@ -120,8 +119,8 @@ fn count(counter: &AtomicU64) {
 
 // ---- Texts ------------------------------------------------------------------------------------------
 
-/// The refusal of a due event its row cannot hold (H6 of design-p9.md: the PyO3 crate reads the rows
-/// of the events Python scheduled before the phase).
+/// The refusal of a due event its row cannot hold (H6 of design-p9.md: the rows of the pending
+/// events the host holds are read through `Host::read_queue_rows`).
 pub const NO_ROW: &str = "an event a row cannot hold";
 /// `ValueError` of `EventDispatcher.settle`.
 pub const RECORD_DISAGREES: &str = "transactional event record disagrees with its dispatch result";
@@ -293,9 +292,8 @@ pub struct Dispatched {
 
 // ---- The phase -----------------------------------------------------------------------------------------
 
-/// `_run_dispatch_phase` at the tick's minute. The caller (the PyO3 crate's `run_phase` and the tick
-/// driver) checked what Python holds before the first event (policy E10): the dispatcher's class,
-/// the world's stores, the minute.
+/// `_run_dispatch_phase` at the tick's minute, the first phase of the tick
+/// (`rules::tick::run_phases`).
 pub fn run<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R>) -> std::result::Result<(), H::Error>
 where
     H::Error: From<WriteError>,
@@ -328,12 +326,11 @@ where
 /// snapshot, at `tick.minute`. None where it left the queue, or the queue's event of its ID is no
 /// longer equal to it (`current.to_dict() != event.to_dict()`, `same_event`). Else its handler, by
 /// the dispatcher's own table (`tick.policies.dispatch`, every handler the host's: `apply_foreign`
-/// calls its `apply`, as the Python method did), after the EffectProgram's guard; no handler is the
-/// FAILED outcome. An applied contact or interaction is recorded (`record_social_event`,
-/// `observe_event`); the event is settled; and the handler's records are compared with the log's or
-/// appended. None of the controller's steps after an event run here (the receipts of shared
-/// operations, the completions of actions, the movement), as the Python method ran none. Returns the
-/// IDs of the records, the event's first.
+/// calls its `apply`), after the EffectProgram's guard; no handler is the FAILED outcome. An
+/// applied contact or interaction is recorded (`record_social_event`, `observe_event`); the event
+/// is settled; and the handler's records are compared with the log's or appended. None of the
+/// controller's steps after an event run here (the receipts of shared operations, the completions
+/// of actions, the movement). Returns the IDs of the records, the event's first.
 pub fn one_alone<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R>, row: &EventRow) -> std::result::Result<Option<Vec<Arc<str>>>, H::Error>
 where
     H::Error: From<WriteError>,
@@ -341,7 +338,7 @@ where
     let now = match current(tick, &row.event_id)? {
         None => return Ok(None),
         Some(Some(now)) => now,
-        // A Python handler or hook scheduled it: its row is read now.
+        // The host scheduled it (a foreign handler or a hook): its row is read now.
         Some(None) => {
             tick.host.read_queue_rows()?;
             current(tick, &row.event_id)?.flatten().ok_or_else(|| Error::unsupported(NO_ROW))?
@@ -407,11 +404,10 @@ pub fn settle_alone<C: WorldCell, H: Host, R: RunCell>(
     settle(tick, row, status, detail)
 }
 
-/// `handler.apply(world, event)` of a handler the core runs, called alone as the PyO3 crate's
-/// entry of its kind calls it: the kernel `apply_native` runs for the dispatcher, with no guard, no
-/// settle, no record appended and no count (for the core's tests, Issue #225). None where it
-/// applied; else the outcome it raised, its status and `str(exc)`. A refusal is the handler's, as
-/// the dispatcher labels it.
+/// `handler.apply(world, event)` of a handler the core runs, called alone: the kernel
+/// `apply_native` runs for the dispatcher, with no guard, no settle, no record appended and no
+/// count (for the core's tests, Issue #225). None where it applied; else the outcome it raised, its
+/// status and `str(exc)`. A refusal is the handler's, as the dispatcher labels it.
 pub fn apply_alone<C: WorldCell, H: Host, R: RunCell>(
     tick: &mut Tick<'_, C, H, R>,
     native: &Native,
@@ -424,8 +420,8 @@ where
 }
 
 /// `apply_alone`, with what the handler made where it applied: the records it returns, and its care
-/// receipt, planned with its sequence taken (the record the PyO3 entry of a staff member's support
-/// returns), which the dispatcher would append (for the core's tests, Issue #225).
+/// receipt, planned with its sequence taken (a staff member's support makes one), which the
+/// dispatcher would append (for the core's tests, Issue #225).
 pub fn apply_alone_made<C: WorldCell, H: Host, R: RunCell>(
     tick: &mut Tick<'_, C, H, R>,
     native: &Native,
@@ -469,7 +465,7 @@ where
             count(&COUNTS.events_replaced);
             let now = match now {
                 Some(now) => now,
-                // A Python handler or hook scheduled it: its row is read now.
+                // The host scheduled it (a foreign handler or a hook): its row is read now.
                 None => {
                     tick.host.read_queue_rows()?;
                     current(tick, event_id)?.flatten().ok_or_else(|| Error::unsupported(NO_ROW))?
@@ -618,7 +614,7 @@ fn social_records<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R
     Ok(())
 }
 
-/// The payload's values of these keys, as `payload_fields` of the PyO3 crate reads them.
+/// The payload's values of these keys that the payload has, in the keys' order.
 fn payload_fields(row: &EventRow, keys: &[&str]) -> V {
     let mut fields = indexmap::IndexMap::with_capacity(keys.len());
     if let V::Map(payload) = &row.payload {
@@ -1058,8 +1054,9 @@ fn status_of(outcome: Outcome) -> EventStatus {
     }
 }
 
-/// A refusal the core said where the rule reads what only a Python read gives (`reason`): what that
-/// read raises, read again now (policy E14); a read that raises nothing leaves the refusal.
+/// A refusal the core said where the rule reads a section only the host parses (`reason`): what
+/// that read raises, read again now (`Host::read_again`, policy E14); a read that raises nothing
+/// leaves the refusal.
 fn read_again<T, C: WorldCell, H: Host, R: RunCell>(
     tick: &mut Tick<'_, C, H, R>,
     result: std::result::Result<T, H::Error>,
@@ -1181,8 +1178,8 @@ fn stop_and_suppress<C: WorldCell, H: Host, R: RunCell>(
 
 /// `ToiletServiceCompletionHandler.apply`: the release, then, where `after_complete` is the
 /// controller's own step, the walk home (`_schedule_return_to_initial_zone`), whose refusal is that
-/// step's `KernelRefusal`. What the walk home reads is read before the release, as the PyO3 crate
-/// read it; what that read raised is the walk home's error, after the release.
+/// step's refusal. What the walk home reads is read before the release; what that read raised is
+/// the walk home's error, after the release.
 fn toilet_completion<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R>, native: &Native, row: &EventRow) -> std::result::Result<Handled, H::Error>
 where
     H::Error: From<WriteError>,
@@ -1210,7 +1207,7 @@ where
     Ok(Handled::applied())
 }
 
-/// What the walk home reads besides the world (`travel::Home` of the PyO3 crate).
+/// What the walk home reads besides the world.
 struct Home<E> {
     graph: crate::rules::travel::Graph,
     plan: crate::rules::tick::read::Plan<E>,
@@ -1245,7 +1242,7 @@ where
         _ => None,
     };
     let resource_service = native.handler.object("resource_service").map(|manager| manager.is_some()).unwrap_or(false);
-    // The pending events are read as rows (`population::with_rows` of the PyO3 crate).
+    // The pending events are read as rows.
     tick.host.read_queue_rows()?;
     let lifecycle = relocation.as_ref().map(population_lifecycle::Read::inputs);
     let inputs = read_walk.inputs(resource_service, lifecycle.as_ref());

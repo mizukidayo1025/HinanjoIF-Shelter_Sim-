@@ -1,15 +1,14 @@
-//! The rule of `SocialInteractionHandler` in `events/handlers.py`. Nearly every social event is a
-//! social action between two people (`reassurance_exchange`, `family_care`, `voluntary_support`):
-//! it reads the event's row, the entity rows, `body_state_v1` and `population_presence_v1`,
-//! computes, and writes the outcome to the entity rows, whose objects follow when the world is given
-//! back. It calls no Python and draws nothing. The other types of interaction (`complaint_response`,
-//! `cooperation`, `information_reaction`, an untyped event) are rare and come at the end; they read
-//! the same rows, and the record of the contact they answer, which the PyO3 crate looks up in the
-//! EventLog (`Inputs::trigger`). Moved to the core in lane P8 d1.
+//! The rule of `SocialInteractionHandler`. Nearly every social event is a social action between two
+//! people (`reassurance_exchange`, `family_care`, `voluntary_support`): it reads the event's row,
+//! the entity rows, `body_state_v1` and `population_presence_v1`, computes, and writes the outcome
+//! to the entity rows. It calls no host and draws nothing. The other types of interaction
+//! (`complaint_response`, `cooperation`, `information_reaction`, an untyped event) are rare and
+//! come at the end; they read the same rows, and the record of the contact they answer, looked up
+//! in the EventLog through the host (`Inputs::trigger`, `Host::find_record`).
 //!
-//! An event that does not apply gets the Python rule's text, which is saved as the event's `detail`,
-//! from the Python rule's first failing check (docs/rust-port/lanes/l8-texts-events.md). Unsupported
-//! comes before any change, for what Rust cannot decide as Python does; it is a `KernelRefusal`.
+//! An event that does not apply gets the text of its first failing check, which is saved as the
+//! event's `detail` (docs/rust-port/lanes/l8-texts-events.md). Unsupported comes before any change,
+//! for what the rule does not decide.
 //!
 //! The values of the payload are the event row's `V`s, compared as Python compares a JSON value
 //! with a str: a value of another type equals no str. A mapping used as a key raises Python's
@@ -83,7 +82,7 @@ pub fn apply<C: WorldCell, H: Host>(cell: &C, host: &mut H, event: &EventRow) ->
     Ok(cell.with(|world| apply_event(world, event, &inputs))??)
 }
 
-/// The type of interaction of an event's payload, for the PyO3 crate to know which inputs it reads:
+/// The type of interaction of an event's payload, for the caller to know which inputs it reads:
 /// `payload.get("interaction_type")` when it is a str.
 pub fn interaction_type(event: &EventRow) -> Option<&str> {
     match kit::payload(event, "interaction_type") {
@@ -243,7 +242,7 @@ pub fn apply_event(world: &World, event: &EventRow, inputs: &Inputs) -> Result<S
     }
 
     // The reason code, then the Agent: here only that it is a str. The rows say below whether it is
-    // known; a text the Python rule gives after that check asks `agent_is_known` first.
+    // known; a text given after that check asks `agent_is_known` first.
     let Some(reason) = kit::mapping_get(payload, "reason_short")?.filter(|value| !matches!(value, V::Null)) else {
         return failure(NO_REASON);
     };
@@ -375,8 +374,8 @@ fn write_pair(world: &World, interaction: &str, actor_id: &str, participant_id: 
 
 // ---- The other social events -------------------------------------------------------------------------
 //
-// Each is rare and checks in the Python rule's order with Python's comparisons, so each text comes
-// where the Python rule's does.
+// Each is rare and checks in a fixed order with Python's comparisons, so each text comes where it
+// has always come.
 
 const REASSURANCE_STRESS: f64 = 0.03;
 const REASSURANCE_TRUST: f64 = 0.01;

@@ -1,4 +1,4 @@
-//! The format of a stored Run (`run_store`, format v5 of #368): the journals the browser writes
+//! The format of a stored Run (`run_store`, format v6 of #478): the journals the browser writes
 //! (`tests/data/stored_runs/`, written by `native/wasm/tests/node_stored_runs.mjs`, which checks
 //! that the browser still writes them) read back, each line encoded again to its bytes; the lines
 //! of the format and the ones it refuses (an older format among them: compute it again); lines cut
@@ -118,10 +118,6 @@ fn each_stored_run_is_of_this_format_and_says_how_it_was_computed_and_stored() {
     let line = fork.fork().unwrap();
     assert_eq!((line.minute, line.origin.branch_id.as_str(), line.origin.minute, line.base.minute), (400, "main", 400, 360));
     assert!(journal("no_points").saved_points().is_empty());
-    // The browser's Runs collect their decisions: each saved line counts the records stored before it.
-    let computed = journal("computed");
-    let counts: Vec<u64> = computed.saved_points().iter().map(|index| computed.saved(*index).unwrap().counts.decisions).collect();
-    assert!(counts.windows(2).all(|pair| pair[0] <= pair[1]) && counts.last() > Some(&0), "{counts:?}");
 }
 
 #[test]
@@ -223,7 +219,16 @@ fn a_whole_line_that_is_not_a_line_of_the_format_is_an_error() {
             ),
             "a saved point of version 1",
         ),
-        (after(1, &json(end)), "an end line whose counts are not the records stored"),
+        (after(1, &json(end)), "an end line that does not follow the world"),
+        (
+            after(
+                end - 1,
+                &edited("from_zero", end, |line| {
+                    line.insert("tape".into(), 1.into());
+                }),
+            ),
+            "an end line whose counts are not the records stored",
+        ),
         (
             after(
                 block - 1,
@@ -522,12 +527,10 @@ fn chain_raw<'a>(chain: &Chain, levels: &[&'a Files], position: usize) -> &'a [u
     levels[at.level].raw[at.index].as_deref().unwrap()
 }
 
-/// `runAndStore` of tick_core's `small_replay`, 50 ticks at a time, saved every `every` minutes,
-/// its decisions collected.
+/// `runAndStore` of tick_core's `small_replay`, 50 ticks at a time, saved every `every` minutes.
 fn run_and_store(every: u64, compress: fn(&[u8]) -> Vec<u8>) -> Files {
     let export = data("tick_core.json");
     let mut run = PlainRun::of_worlds_json(&export, "small_replay").unwrap();
-    run.collect_decisions(true);
     let schedule = Schedule { every };
     let duration = run.duration().unwrap();
     let mut files = Files::new(compress);
@@ -590,8 +593,7 @@ fn the_writer_writes_the_stored_runs_of_the_browser_again() {
         assert_eq!(result.saved_points, journal.saved_points().len() as u64);
         let end = journal.end().unwrap();
         assert_eq!((result.records, result.samples, &result.metrics), (end.records, end.samples, &end.metrics));
-        assert_eq!((result.decisions, result.conversations, result.tape), (end.counts.decisions, 0, 0));
-        assert!(end.counts.decisions > 0, "{name}");
+        assert_eq!((result.conversations, result.tape), (0, 0));
         assert_eq!(result.parts.as_ref().unwrap().len(), end.parts.len());
 
         // A piece that is not its bytes is an error.
@@ -635,8 +637,7 @@ fn a_fork_writes_its_own_pieces_after_its_parents_base_and_reads_back_through_it
     let parent_journal = parent.journal();
     let chain = Chain::new(parent_journal.clone()).unwrap();
     assert!(chain.complete());
-    // The parent at minute 400: its saved point at 360 restored, 40 ticks computed, the decisions
-    // collected from there.
+    // The parent at minute 400: its saved point at 360 restored, 40 ticks computed.
     let seek = chain.seek(400).unwrap();
     assert_eq!((seek.from_minute, seek.base), (360, seek.from.unwrap()));
     let mut restore = Restore::new(parent.raw[seek.base].as_deref().unwrap()).unwrap();
@@ -647,7 +648,6 @@ fn a_fork_writes_its_own_pieces_after_its_parents_base_and_reads_back_through_it
     }
     let entry = PlainRun::entry_of_worlds_json(&data("tick_core.json"), "small_replay").unwrap();
     let mut run = PlainRun::restore(entry, restore).unwrap();
-    run.collect_decisions(true);
     run.advance(40).unwrap();
     // A fork without a program: the Run goes on as the parent's did.
     let fork = Fork {
@@ -681,11 +681,10 @@ fn a_fork_writes_its_own_pieces_after_its_parents_base_and_reads_back_through_it
     writer.finish(&mut run).unwrap();
     files.flush(&mut writer);
     let child = files.journal();
-    // Its own pieces: no exported world, no block or decision record of its parent's.
+    // Its own pieces: no exported world, no block of its parent's.
     assert!(child.find("export").is_none());
     let base = child.fork().unwrap().base.clone();
     assert_eq!(child.state_at(1).unwrap(), base.state);
-    assert!(base.state.counts.decisions > 0);
     assert!(files.data.len() < parent.data.len(), "{} of {}", files.data.len(), parent.data.len());
     // Read back through the parent, to the parent's own digests at the end.
     let mut chain = Chain::new(child.clone()).unwrap();
@@ -694,13 +693,6 @@ fn a_fork_writes_its_own_pieces_after_its_parents_base_and_reads_back_through_it
     assert!(result.complete && result.verified, "{:?}", result.mismatches);
     let (child_end, parent_end) = (child.end().unwrap(), parent_journal.end().unwrap());
     assert_eq!((&child_end.parts, &child_end.metrics, child_end.records), (&parent_end.parts, &parent_end.metrics, parent_end.records));
-    assert_eq!(child_end.counts.decisions, parent_end.counts.decisions);
-    assert_eq!(result.decisions, parent_end.counts.decisions);
-    // The decision records the chain holds are the parent's.
-    let texts = |chain: &Chain, levels: &[&Files]| -> Vec<Vec<u8>> {
-        chain.records(RecordKind::Decisions).unwrap().into_iter().flat_map(|position| records::read(chain_raw(chain, levels, position)).unwrap()).collect()
-    };
-    assert_eq!(texts(&chain, &[&parent, &files]), texts(&Chain::new(parent_journal.clone()).unwrap(), &[&parent]));
     // The parent cannot be cut back before the fork's base.
     let saved = parent_journal.saved_points();
     assert!(parent_journal.cut(&parent_journal.entries()[saved[0]].head, Some(base.line as usize)).is_ok());
@@ -708,43 +700,26 @@ fn a_fork_writes_its_own_pieces_after_its_parents_base_and_reads_back_through_it
 }
 
 #[test]
-fn the_decision_records_are_stored_packed_and_read_back_byte_for_byte() {
-    let export = data("tick_core.json");
-    let mut run = PlainRun::of_worlds_json(&export, "small_replay").unwrap();
-    run.collect_decisions(true);
-    run.advance(1440).unwrap();
-    let decisions = run.take_decisions();
-    assert!(decisions.len() > 50, "{}", decisions.len());
-    let mut tokens = records::Tokens::new();
-    for record in &decisions {
-        tokens.push_json(record).unwrap();
-    }
-    assert_eq!(tokens.count(), decisions.len() as u64);
-    let bytes = tokens.finish();
-    let joined: usize = decisions.iter().map(Vec::len).sum();
-    assert!(bytes.len() < joined / 2, "{} of {joined}", bytes.len());
-    assert_eq!(records::read(&bytes).unwrap(), decisions);
-    assert_eq!(records::count(&bytes).unwrap(), decisions.len() as u64);
-    // As texts, as they are.
-    let texts = records::texts(&decisions);
-    assert_eq!(records::read(&texts).unwrap(), decisions);
-    // Any JSON without spaces reads back as it was written; anything else is refused, and the
-    // records before it stay.
-    let mut tokens = records::Tokens::new();
-    let kept = [&br#"{"a":1.50,"a":-0,"b":"\u0041\/","c":[1e5,12345678901234567890,true,null,{}]}"#[..], br#"[]"#, b"-1.0"];
-    for record in kept {
-        tokens.push_json(record).unwrap();
-    }
-    for other in [&br#"{"a": 1}"#[..], br#"[1,]"#, b"nul", br#""a"#, br#"{"a":1}x"#, b"\"\x01\"", br#""\q""#, b"\xff"] {
-        assert!(tokens.push_json(other).is_err(), "{}", String::from_utf8_lossy(other));
-    }
-    assert_eq!(records::read(&tokens.finish()).unwrap(), kept.map(<[u8]>::to_vec));
-    // Bytes that are not a records piece are an error, never a panic.
+fn records_are_stored_as_texts_and_read_back_byte_for_byte() {
+    let texts = vec![
+        br#"{"question":"q1","turn_id":"t-1"}"#.to_vec(),
+        br#"{"a":1.50,"b":"\u0041\/"}"#.to_vec(),
+        b"[]".to_vec(),
+        "{\"q\":\"\u{3042}\"}".as_bytes().to_vec(),
+    ];
+    let bytes = records::texts(&texts);
+    assert_eq!(records::read(&bytes).unwrap(), texts);
+    assert_eq!(records::count(&bytes).unwrap(), texts.len() as u64);
+    // Bytes that are not a records piece are an error, never a panic: cut short, with bytes after
+    // the records, of another encoding (1 was the tokens of the decision records of format v5), a
+    // record that is not UTF-8.
     for end in [0, 1, 2, bytes.len() / 2, bytes.len() - 1] {
         assert!(records::read(&bytes[..end]).is_err(), "cut at {end}");
     }
     assert!(records::read(&[bytes.clone(), vec![0]].concat()).is_err());
+    assert!(records::read(&[1, 0]).is_err());
     assert!(records::read(&[7, 0]).is_err());
+    assert!(records::read(&[0, 1, 1, 0xff]).is_err());
 }
 
 #[test]

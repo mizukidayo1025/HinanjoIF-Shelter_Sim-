@@ -1,11 +1,10 @@
 // A Run in the browser stored as it is computed, and read back (Issue #252, PR 6-5), with saved
 // points to seek to a minute (Issue #251).
 //
-// The format is the core's (`sheltersim_core::run_store`, format v5 of #368; its module
+// The format is the core's (`sheltersim_core::run_store`, format v6 of #478; its module
 // documentation says what a Run's folder holds): which pieces are written and when, the journal's
-// lines, the heads, where a seek starts and what it reads, the checks of each piece, the decision
-// records a Run collects, the check of private data, and the chain of a fork's Run and its parents'
-// it reads pieces of. This file is the host's side: it opens the files (a backend), compresses each
+// lines, the heads, where a seek starts and what it reads, the checks of each piece, the check of
+// private data, and the chain of a fork's Run and its parents' it reads pieces of. This file is the host's side: it opens the files (a backend), compresses each
 // piece with CompressionStream("deflate-raw") before writing it and decompresses it after reading it,
 // and passes the bytes to the core through WASM (`RunWriter`, `Journal`, `Chain`, `VerifyRun`,
 // `Restore`). A piece is written to data.pack and flushed before its journal line is, and each line
@@ -22,7 +21,7 @@
 // savedPointDue).
 
 /// The format written and read (the core's `run_store::FORMAT`).
-export const FORMAT = "sheltersim-run-v5";
+export const FORMAT = "sheltersim-run-v6";
 /// The compression of the pieces, which the "run" line names.
 export const COMPRESSION = "deflate-raw";
 /// The code of the core's error for a Run stored in an older format: compute it again.
@@ -170,7 +169,7 @@ export class RunWriter {
     return this.core.lastHead();
   }
 
-  /// The decision records `simulation` collected, the tables' new entries and the newly sealed
+  /// The LLM tape's entries `simulation` kept, the tables' new entries and the newly sealed
   /// blocks (every block when `last`) of the log and the samples. Call it between calls to
   /// `advance`.
   async take(simulation, last) {
@@ -178,8 +177,8 @@ export class RunWriter {
     return this.flush();
   }
 
-  /// A saved point of `simulation` now (#251): the blocks are sealed and stored and the decision
-  /// records written first, so it can be restored, and gone on from, at once. Call it between calls
+  /// A saved point of `simulation` now (#251): the blocks are sealed and stored and the tape's
+  /// entries written first, so it can be restored, and gone on from, at once. Call it between calls
   /// to `advance`. `saveMs` counts its time, its compression and writing included.
   async save(simulation) {
     const started = performance.now();
@@ -189,7 +188,7 @@ export class RunWriter {
     return head;
   }
 
-  /// The last pieces of a Run stored to its end: the decision records left, the world at its last
+  /// The last pieces of a Run stored to its end: the tape's entries left, the world at its last
   /// minute without its log, and the "end" line with the digests the Run gave. Returns the "end"
   /// line and its head hash.
   async finish(simulation) {
@@ -210,7 +209,7 @@ const engineVersions = (wasm) => JSON.parse(wasm.engineSignatures());
 
 /// Runs the exported world `exportBytes` (or the world `world` of a file of named worlds, as the
 /// fixtures hold them) for its whole clock, `ticks` ticks per call to `advance`, and stores it in
-/// `backend` as it goes, with its decision records, a saved point every `saveEvery` minutes and at
+/// `backend` as it goes, with a saved point every `saveEvery` minutes and at
 /// the end, its "run" line recording `modelVersions`. `progress(minute, duration)` is called after
 /// each call. Returns what the Run gave and what storing it took.
 export async function runAndStore({ wasm, exportBytes, world = null, backend, ticks = 1440, saveEvery = SAVE_EVERY, modelVersions = null, progress = () => {} }) {
@@ -218,7 +217,6 @@ export async function runAndStore({ wasm, exportBytes, world = null, backend, ti
   const writer = await RunWriter.create(wasm, backend);
   const simulation = world === null ? new wasm.Simulation(exportBytes) : wasm.Simulation.fromWorlds(exportBytes, world);
   try {
-    simulation.collectDecisions(true);
     const duration = simulation.duration();
     writer.core.start(simulation, exportBytes, world, saveEvery, JSON.stringify(modelVersions ?? engineVersions(wasm)), COMPRESSION);
     await writer.flush();
@@ -442,8 +440,8 @@ export class RunReader {
     return raw;
   }
 
-  /// The JSON texts of the records of `kind` ("decisions", "conversations", "llm_tape"), parsed:
-  /// the decision records and the tape's from the Run's start, the turns of the branch itself.
+  /// The JSON texts of the records of `kind` ("conversations", "llm_tape"), parsed: the tape's
+  /// from the Run's start, the turns of the branch itself.
   async records(kind) {
     const records = [];
     for (const raw of await this.rawRecords(kind)) records.push(...JSON.parse(this.wasm.recordsJson(raw)));
@@ -465,11 +463,10 @@ export class RunReader {
 
   /// The Run at `minute` (an integer from the fork's minute to the duration): restored from the
   /// nearest saved point at or before it, or from the exported world when there is none, then
-  /// computed to it; collecting its decision records from where it was restored with `decisions`
-  /// (a fork made there stores them). Returns { simulation, from, base, restoreMs, recomputeMs }: a
+  /// computed to it. Returns { simulation, from, base, restoreMs, recomputeMs }: a
   /// `Simulation` the caller frees, the minute it was computed from, the branch's line it was
   /// restored from, and the time restoring and computing took.
-  async seek(minute, { decisions = false } = {}) {
+  async seek(minute) {
     const { wasm, chain } = this;
     const [point, base, , from] = chain.seek(minute);
     const started = performance.now();
@@ -496,7 +493,6 @@ export class RunReader {
     }
     const restored = performance.now();
     try {
-      if (decisions) simulation.collectDecisions(true);
       const ticks = minute - simulation.minute();
       if (ticks < 0 || simulation.advance(ticks) !== ticks) throw new Error(`the Run does not reach minute ${minute}`);
     } catch (error) {

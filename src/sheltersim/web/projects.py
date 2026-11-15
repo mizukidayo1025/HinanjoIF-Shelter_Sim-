@@ -1,5 +1,5 @@
 """The Project API of the local and VM versions: the screen's routes under /api/v1/projects,
-answered from the stored Runs of format v5 as the browser answers them (#427).
+answered from the stored Runs of format v6 as the browser answers them (#427).
 
 The records and each branch's stored Run are in the browser's folders
 (native/wasm/js/project_store.mjs), written and read by the store in Rust
@@ -31,8 +31,10 @@ from __future__ import annotations
 import json
 import threading
 import time
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import parse_qs, urlencode
 
@@ -174,15 +176,18 @@ class ProjectAPI:
         worker: str = "thread",
         max_jobs: int = 1,
         keep: int = 2,
+        clock: Callable[[], datetime] = lambda: datetime.now(UTC),
     ) -> None:
         """worker="process" computes each branch in its own process (the server, #48), up to
         max_jobs at once, across Runs and their branches; "thread" computes one branch at a time
-        on a thread of this process (tests and CLI). `keep` Runs are kept at a minute."""
+        on a thread of this process (tests and CLI). `keep` Runs are kept at a minute. `clock`
+        gives a new Run its creation time (#447; the browser's `now`)."""
         if worker not in {"thread", "process"}:
             raise ValueError("worker must be 'thread' or 'process'")
         if type(max_jobs) is not int or max_jobs < 1:
             raise ValueError("max_jobs must be a positive integer")
         self.store = store
+        self._clock = clock
         self.files = project_files(store)
         if recover:
             with self.files.transaction():
@@ -494,7 +499,7 @@ class ProjectAPI:
         minute 0 (the browser's `ScenarioRoutes.runs`); a Run of the same Scenario revision that
         is there already is answered as it is."""
         from sheltersim.llm.config import LLMMode, LLMSettings
-        from sheltersim.web.stored_runs import start_run
+        from sheltersim.web.stored_runs import created_at_of, start_run
 
         fields(
             document,
@@ -532,6 +537,7 @@ class ProjectAPI:
                 document["scenario_id"],
                 document["scenario_version"],
                 llm=llm,
+                created_at=created_at_of(self._clock()),
             )
             if llm is not None and llm["mode"] != "offline" and document.get("usage_account_id"):
                 from sheltersim.llm.accounting import usage_limits

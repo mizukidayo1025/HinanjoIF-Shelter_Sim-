@@ -66,7 +66,7 @@ def evidence_of(task: Any) -> list[dict[str, Any]]:
 @pytest.fixture(scope="module")
 def completed_api(tmp_path_factory, generated_previews, saved_project):
     """A ProjectAPI over Run r of the generated Scenario, its branch main computed to the end
-    without an LLM (format v5)."""
+    without an LLM (format v6)."""
     preview = generated_previews(duration_days=END / 1440)
     scenario = ScenarioSpec.model_validate(copy.deepcopy(preview["scenario"]))
     with pytest.MonkeyPatch.context() as monkeypatch:

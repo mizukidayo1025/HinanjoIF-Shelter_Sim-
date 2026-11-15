@@ -6,7 +6,7 @@ use std::collections::VecDeque;
 use super::journal::{
     Base, Encoded, EndLine, ForkLine, ForkOrigin, Journal, Line, Piece, PieceLine, RecordKind, RunLine, SavedLine, State, Stored, Storing, Tables,
 };
-use super::records::{self, Tokens};
+use super::records;
 use crate::archive::{self, SAVED_POINT_VERSION};
 use crate::checkpoint::sha256_hex;
 use crate::error::{Error, Result};
@@ -88,14 +88,13 @@ pub struct Fork {
 ///
 /// What it queues has passed the check of private data (`sensitive::Guard`, #368 decision 5): the
 /// exported world, each saved point's world, the world at the end, the log's records, the metric
-/// samples, the decision records and the LLM tape's entries. A check that fails is the call's
+/// samples and the LLM tape's entries. A check that fails is the call's
 /// error, and nothing of that call is queued.
 #[derive(Clone, Debug, Default)]
 pub struct RunWriter {
     state: State,
     queue: VecDeque<Pending>,
     saved: Vec<SavedLine>,
-    decisions: Tokens,
     /// The LLM tape's entries taken and not queued yet (`PlainRun::take_tape`, #428).
     tape: Vec<Vec<u8>>,
     guard: Guard,
@@ -222,20 +221,14 @@ impl RunWriter {
         self.queue.push_back(Pending::Piece { piece, raw, sha256 });
     }
 
-    /// Takes the decision records `run` collected since the last call (`PlainRun::take_decisions`;
-    /// none where it does not collect them) and the LLM tape's entries (`PlainRun::take_tape`; none
+    /// Takes the LLM tape's entries `run` kept since the last call (`PlainRun::take_tape`; none
     /// without an LLM), and queues the tables' new entries and the newly sealed blocks (every block
-    /// when `last`) of the log and of the samples of `run`. Call it between two ticks. The decision
-    /// records and the tape's entries wait for the next saved point or the end (`save`, `finish`),
-    /// and go into one piece of each there.
+    /// when `last`) of the log and of the samples of `run`. Call it between two ticks. The tape's
+    /// entries wait for the next saved point or the end (`save`, `finish`), and go into one piece
+    /// there.
     pub fn take(&mut self, run: &mut PlainRun, last: bool) -> Result<()> {
-        let decisions = run.take_decisions();
         let tape = run.take_tape();
-        let refs: Vec<&[u8]> = decisions.iter().chain(&tape).map(Vec::as_slice).collect();
-        self.guard.check(&refs)?;
-        for record in &decisions {
-            self.decisions.push_json(record)?;
-        }
+        self.guard.check(&tape.iter().map(Vec::as_slice).collect::<Vec<_>>())?;
         self.tape.extend(tape);
         let log_end = Self::end(run.log_block_counts()?, last);
         let sample_end = Self::end(run.host.samples.block_counts(), last);
@@ -280,21 +273,14 @@ impl RunWriter {
         (if last { blocks } else { sealed }) as u64
     }
 
-    /// Queues the decision records and the tape's entries taken since the last pieces of them, as
-    /// one piece of each.
-    fn queue_decisions(&mut self) -> Result<()> {
-        let count = self.decisions.count();
-        if count > 0 {
-            let raw = std::mem::take(&mut self.decisions).finish();
-            RecordKind::Decisions.add(&mut self.state.counts, count)?;
-            self.piece(Piece::Records { kind: RecordKind::Decisions, count }, raw);
-        }
+    /// Queues the tape's entries taken since the last piece of them, as one piece.
+    fn queue_tape(&mut self) -> Result<()> {
         let tape = std::mem::take(&mut self.tape);
         self.tape(&tape)
     }
 
     /// Queues a saved point of `run` now (#251), between two ticks: the blocks are sealed first and
-    /// stored, and the decision records taken, so that everything the point needs is stored before
+    /// stored, and the tape's entries taken, so that everything the point needs is stored before
     /// its line (#267; always, #368 decision 2): the point can be restored, and gone on from, at
     /// once.
     pub fn save(&mut self, run: &mut PlainRun) -> Result<()> {
@@ -302,7 +288,7 @@ impl RunWriter {
         self.take(run, false)?;
         let point = run.saved_point()?;
         self.guard.check(&archive::world_part_jsons(&point.world)?)?;
-        self.queue_decisions()?;
+        self.queue_tape()?;
         let saved = SavedLine {
             minute: point.minute,
             records: point.records,
@@ -319,7 +305,7 @@ impl RunWriter {
         Ok(())
     }
 
-    /// Queues the last pieces of a Run stored to its end: the decision records not stored yet, the
+    /// Queues the last pieces of a Run stored to its end: the tape's entries not stored yet, the
     /// world at its last minute without its log, and the "end" line with the digests the Run gave.
     /// Call it after every block is taken (`take` with `last`). An error where a record of the log
     /// is not packed (the stored blocks would not hold the whole log), or a block is not stored.
@@ -330,7 +316,7 @@ impl RunWriter {
         self.take(run, true)?;
         let world = run.world_parts()?;
         self.guard.check(&archive::world_part_jsons(&world)?)?;
-        self.queue_decisions()?;
+        self.queue_tape()?;
         let end = EndLine {
             minute: run.minute()?,
             records: run.log_records()? as u64,

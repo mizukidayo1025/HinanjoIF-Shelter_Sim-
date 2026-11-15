@@ -7,7 +7,8 @@
 //!   v<n>.json               {schema_version, scenario_id, scenario_version, scenario_hash, approved}
 //!   v<n>.scenario.json      the Scenario's canonical JSON as Python wrote it; its sha256 is the hash
 //!   run.json                {schema_version, project_id, scenario_id, scenario_version,
-//!                            scenario_hash, run_id, seed, model_versions, status, archived}
+//!                            scenario_hash, run_id, seed, model_versions, status, archived,
+//!                            created_at}; schema version 2 (#447), 1 without created_at
 //!   evidence.json           evidence_context(scenario) as Python wrote it
 //!   branch.json             {schema_version, run_id, branch_id, parent_branch_id, fork_minute,
 //!                            computed_until, checkpoint_hash, status}; no status before the
@@ -27,6 +28,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde_json::{Map, Value};
+use sheltersim_core::answers::records::is_created_at;
 use sheltersim_core::checkpoint::sha256_hex;
 
 use crate::compress::{deflate_raw, Compress};
@@ -96,6 +98,23 @@ pub fn parse_record(bytes: &[u8]) -> Result<Record> {
     }
 }
 
+/// The schema version of the Run records the store writes: 2 adds `created_at` (#447).
+pub const RUN_SCHEMA_VERSION: i64 = 2;
+
+/// A Run's record of `bytes` (`run.json`): schema version 1, or 2 with its `created_at`.
+pub fn parse_run_record(bytes: &[u8]) -> Result<Record> {
+    let value: Value = std::str::from_utf8(bytes).ok().and_then(|text| serde_json::from_str(text).ok()).ok_or_else(|| Error::refused(MISSING))?;
+    let version = value.get("schema_version").and_then(Value::as_i64);
+    match value {
+        Value::Object(map) if version == Some(1) => Ok(map),
+        Value::Object(map) if version == Some(RUN_SCHEMA_VERSION) => match map.get("created_at").and_then(Value::as_str) {
+            Some(created) if is_created_at(created) => Ok(map),
+            _ => Err(Error::refused(MISSING)),
+        },
+        _ => Err(Error::refused(UNSUPPORTED)),
+    }
+}
+
 /// A branch's record as a writer gives it (`writeBranch`'s argument): the fork's minute 0 and the
 /// computed minute the fork's by default; no status for a branch not computed yet.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -136,6 +155,8 @@ pub struct NewRun<'a> {
     pub model_versions: &'a Value,
     /// The JSON of `evidence_context(scenario)`, as Python wrote it.
     pub evidence: &'a [u8],
+    /// When the Run is created, UTC to the second (`YYYY-MM-DDTHH:MM:SSZ`): the caller's clock.
+    pub created_at: &'a str,
 }
 
 const MAX_SAFE: i64 = 9_007_199_254_740_991;
@@ -412,9 +433,12 @@ impl ProjectFiles {
             Value::Object(versions) if versions.values().all(Value::is_string) => {}
             _ => return Err(Error::refused("invalid model versions")),
         }
+        if !is_created_at(run.created_at) {
+            return Err(Error::refused("invalid creation time"));
+        }
         let path = self.layout.run_file(project, run.run_id, "run.json")?;
         if let Some(old) = read_if_there(&path)? {
-            let old = parse_record(&old)?;
+            let old = parse_run_record(&old)?;
             if old.get("scenario_id").and_then(Value::as_str) != Some(run.scenario_id)
                 || old.get("scenario_version").and_then(Value::as_i64) != Some(run.scenario_version)
             {
@@ -425,7 +449,7 @@ impl ProjectFiles {
         parse_record(run.evidence)?;
         self.write_file(&self.layout.run_file(project, run.run_id, "evidence.json")?, run.evidence)?;
         let record = object([
-            ("schema_version", 1.into()),
+            ("schema_version", RUN_SCHEMA_VERSION.into()),
             ("project_id", project.into()),
             ("scenario_id", run.scenario_id.into()),
             ("scenario_version", run.scenario_version.into()),
@@ -435,6 +459,7 @@ impl ProjectFiles {
             ("model_versions", run.model_versions.clone()),
             ("status", "queued".into()),
             ("archived", false.into()),
+            ("created_at", run.created_at.into()),
         ]);
         self.write_file(&path, &record_bytes(&record))?;
         Ok(record)
@@ -442,7 +467,7 @@ impl ProjectFiles {
 
     /// A Run's record.
     pub fn run_record(&self, project: &str, run: &str) -> Result<Record> {
-        self.read_record(&self.layout.run_file(project, run, "run.json")?)
+        parse_run_record(&read_if_there(&self.layout.run_file(project, run, "run.json")?)?.ok_or_else(|| Error::refused(MISSING))?)
     }
 
     /// The ids of a Project's Runs (the folders with a record), sorted.
@@ -462,7 +487,7 @@ impl ProjectFiles {
             return Err(Error::refused("unsupported run status"));
         }
         let path = self.layout.run_file(project, run, "run.json")?;
-        let mut record = self.read_record(&path)?;
+        let mut record = self.run_record(project, run)?;
         record.insert("status".to_owned(), status.into());
         self.write_file(&path, &record_bytes(&record))?;
         Ok(record)

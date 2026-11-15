@@ -284,7 +284,7 @@ fn stored_of(host: &mut Host, procedure: &Procedure) -> Result<Stored> {
 }
 
 /// Runs `start` for its whole clock and stores it in `folder` as it goes (`Procedure::from_start`
-/// without a record), with its decision records and saved points, its "run" line recording
+/// without a record), with its saved points, its "run" line recording
 /// `model_versions` (the browser's `runAndStore`).
 pub fn run_and_store(folder: PathBuf, start: &FromStart<'_>, model_versions: Versions, quota: Quota, compress: Compress) -> Result<Stored> {
     let mut host = Host::of_folder(folder, quota, compress);

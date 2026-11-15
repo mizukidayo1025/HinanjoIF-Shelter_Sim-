@@ -12,7 +12,7 @@
 //! - `go_on` (resume): the branch cut back to the head its record names (the lines after it, then
 //!   the bytes of data.pack no line up to it points at; refused where a branch forked from it reads
 //!   past the head), its stored Run's chain opened (a fork's parents' journals), and the Run
-//!   restored there collecting its decision records (`seek`). Then, while it says `Step::Compute`,
+//!   restored there (`seek`). Then, while it says `Step::Compute`,
 //!   the host either runs a chunk of ticks (`advance`: at most the ticks it is given, not past the
 //!   next saved point or the target) or ends it early (`stop`); the steps after each store the
 //!   blocks sealed since, and at every `save_every` minutes, at the target and at the clock's end a
@@ -1352,7 +1352,7 @@ impl Procedure {
 
     /// The seek of the stored Run read (`StoredRun::seek_with` of the store, `RunReader.seek` of the
     /// browser): the nearest saved point at or before the minute restored with the stored log and
-    /// samples, or the exported world at minute 0, collecting its decision records; the ticks to the
+    /// samples, or the exported world at minute 0; the ticks to the
     /// minute answered from the LLM tape where the Run kept one.
     fn seek_step(&mut self, then: Then, seeking: Seeking, given: Option<Given>) -> Answer<Option<Step>> {
         let raw = Self::text(given)?.ok_or_else(|| error("a piece read is given its bytes"))?;
@@ -1409,9 +1409,8 @@ impl Procedure {
         self.restored(then)
     }
 
-    /// The Run restored: its decision records collected, then the tape read.
+    /// The Run restored: then the tape read.
     fn restored(&mut self, then: Then) -> Answer<Option<Step>> {
-        self.run_ref().collect_decisions(true);
         self.tape_positions = self.chain().records(RecordKind::Tape)?;
         self.tape.clear();
         self.next_tape(then, 0)
@@ -1477,11 +1476,10 @@ impl Procedure {
         Ok(Some(Step::Create(self.at.clone())))
     }
 
-    /// The Run from minute 0, collecting its decision records, and its branch's files made.
+    /// The Run from minute 0, and its branch's files made.
     fn from_create(&mut self) -> Answer<Option<Step>> {
         let start = self.start.as_ref().expect("a start");
-        let mut run = plain_run(&start.export, start.world.as_deref())?;
-        run.collect_decisions(true);
+        let run = plain_run(&start.export, start.world.as_deref())?;
         self.duration = run.duration()?;
         self.save_every = start.save_every;
         self.run = Some(run);

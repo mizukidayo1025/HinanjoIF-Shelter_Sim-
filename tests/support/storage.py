@@ -46,7 +46,7 @@ def _saved_project(tmp_path: Path, scenario: Any = None) -> Any:
 @pytest.fixture(scope="session")
 def saved_project() -> Callable[..., Any]:
     """Open a store at a folder with project p and Run r, its branch `main` stored at minute 0
-    in format v5 (the server's Run since #427); return the ProjectStore.
+    in format v6 (the server's Run since #427); return the ProjectStore.
 
     The Run is of scenario_100_agents unless a ScenarioSpec is passed."""
     return _saved_project

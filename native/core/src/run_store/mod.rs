@@ -1,5 +1,5 @@
 //! The format of a stored Run (#252, #251, #266, #306; moved from the browser's
-//! `js/run_store.mjs` by #368, format v5 by #368): the journal's lines, what a writer stores and
+//! `js/run_store.mjs` by #368, format v5 by #368, v6 by #478): the journal's lines, what a writer stores and
 //! when, and what a reader reads of it. The core does no I/O and compresses nothing: a host (the
 //! browser's `run_store.mjs`; later Python) opens the files, compresses each piece before it writes
 //! it and decompresses it after it reads it, and passes the bytes in.
@@ -15,7 +15,7 @@
 //! which reading checks (`Journal::check_raw`): compressed bytes may differ between compressors,
 //! the bytes they hold may not.
 //!
-//! Format "sheltersim-run-v5" (#368) is the only one read. Its lines, in the order they are written
+//! Format "sheltersim-run-v6" (#478) is the only one read. Its lines, in the order they are written
 //! (`RunWriter`):
 //!   run           first: the format, `engine_version` (`model_version::ENGINE_VERSION` of the
 //!                 writer), the `model_versions` the Run is computed with, the host's
@@ -31,8 +31,7 @@
 //!   log_tables    the log's string and shape tables' new entries (`Packer::write_tables`)
 //!   log_block     a sealed block of the packed log (`EventLog::packed_store`), by its index
 //!   sample_tables, sample_block   the same of the metric samples (`MetricSamples::store`)
-//!   decisions, conversations, llm_tape   append-only records (`records`, decision 4): the
-//!                 decision records the Run collected (`PlainRun::take_decisions`), the branch's
+//!   conversations, llm_tape   append-only records (`records`, decision 4): the branch's
 //!                 question turns (after the "end" line: the questions are about a Run computed to
 //!                 its end), the LLM's calls (`PlainRun::take_tape`, #428: `llm::tape_entry`, which
 //!                 `llm::Replay` answers from when ticks are computed again). The line holds
@@ -40,7 +39,7 @@
 //!   saved         a saved point (#251): the Run at a minute (`archive::SavedPoint`: the world without
 //!                 its log and the counts of records and samples up to then), every `save_every`
 //!                 minutes and at the end. Its line holds the minute, the counts of records,
-//!                 samples, decisions, turns and tape entries, the point's version, and the log's and
+//!                 samples, turns and tape entries, the point's version, and the log's and
 //!                 samples' blocks; the blocks are always sealed before a saved point (decision 2),
 //!                 so the counts are what is stored before it
 //!   world         the world at the last minute without its log (`archive::world_parts`)
@@ -48,8 +47,10 @@
 //! `Journal::parse` keeps what the Run has stored after each line (`State`) and refuses a line
 //! that does not follow it, and keys the format does not have.
 //!
-//! A Run of an older format ("sheltersim-browser-run-v1" to "-v4") is not read: its "run" line is
-//! the error `stored_run_outdated` (`outdated`), and the Run is computed again (decision 7).
+//! A Run of an older format ("sheltersim-browser-run-v1" to "-v4", "sheltersim-run-v5") is not
+//! read: its "run" line is the error `stored_run_outdated` (`outdated`), and the Run is computed
+//! again (decision 7). v5 also stored the records of the decisions (the old local version's
+//! `_IndexedMetricSink`), which nothing read; v6 has no such piece (#478).
 //!
 //! The log and the samples are only appended to, so a saved point holds no copy of them: seeking
 //! (`Chain::seek`) restores the nearest saved point at or before the minute from it and the stored
@@ -92,9 +93,10 @@ pub const DATA: &str = "data.pack";
 /// Minutes between saved points by default: 6 hours (#263).
 pub const SAVE_EVERY: u64 = 360;
 /// The format written and read.
-pub const FORMAT: &str = "sheltersim-run-v5";
+pub const FORMAT: &str = "sheltersim-run-v6";
 /// The formats before it, which are not read (#368, decision 7).
-pub const OUTDATED_FORMATS: [&str; 4] = ["sheltersim-browser-run-v1", "sheltersim-browser-run-v2", "sheltersim-browser-run-v3", "sheltersim-browser-run-v4"];
+pub const OUTDATED_FORMATS: [&str; 5] =
+    ["sheltersim-browser-run-v1", "sheltersim-browser-run-v2", "sheltersim-browser-run-v3", "sheltersim-browser-run-v4", "sheltersim-run-v5"];
 /// The code of the error of a Run of an older format.
 pub const OUTDATED_CODE: &str = "stored_run_outdated";
 

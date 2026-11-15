@@ -111,7 +111,15 @@ pub fn make_browser_runs(root: &Path, files: ProjectFiles) -> Made {
     files.save_scenario("p1", &scenario, &sha256_hex(&scenario)).unwrap();
     let engine = engine();
     let evidence = br#"{"schema_version":1}"#;
-    let sample = NewRun { run_id: "r-sample", scenario_id: "trial", scenario_version: 1, seed: 7, model_versions: &engine, evidence };
+    let sample = NewRun {
+        run_id: "r-sample",
+        scenario_id: "trial",
+        scenario_version: 1,
+        seed: 7,
+        model_versions: &engine,
+        evidence,
+        created_at: "2026-11-15T01:30:00Z",
+    };
     files.create_run("p1", &sample).unwrap();
     let lease = files.claim_branch("p1", "r-sample", "main").unwrap();
     let start = FromStart { export: &tick, world: Some("small_replay"), ticks: 120, save_every: 360 };
@@ -130,8 +138,15 @@ pub fn make_browser_runs(root: &Path, files: ProjectFiles) -> Made {
     drop(writer);
     let source_record = files.run_record("p1", "r-sample").unwrap();
     let evidence = files.evidence_bytes("p1", "r-sample").unwrap();
-    let run =
-        NewRun { run_id: compute, scenario_id: "trial", scenario_version: 1, seed: 7, model_versions: &source_record["model_versions"], evidence: &evidence };
+    let run = NewRun {
+        run_id: compute,
+        scenario_id: "trial",
+        scenario_version: 1,
+        seed: 7,
+        model_versions: &source_record["model_versions"],
+        evidence: &evidence,
+        created_at: "2026-11-15T01:30:00Z",
+    };
     files.create_run("p1", &run).unwrap();
     let main = Branch { branch_id: "main".to_owned(), checkpoint_hash: Some(head), status: Some("queued".to_owned()), ..Branch::default() };
     files.write_branch("p1", compute, &main).unwrap();
@@ -155,6 +170,7 @@ pub fn make_browser_runs(root: &Path, files: ProjectFiles) -> Made {
         seed: meta["seed"].as_i64().unwrap(),
         model_versions: &meta["model_versions"],
         evidence: br#"{"schema_version":1}"#,
+        created_at: "2026-11-15T01:30:00Z",
     };
     files.create_run(project, &run).unwrap();
     let lease = files.claim_branch(project, run_id, "main").unwrap();

@@ -329,7 +329,7 @@ def single(scenario_of: Callable[[], Any]) -> Callable[[Path], Outcome]:
 def project_run(directory: Path, scenario: Any, minutes: int) -> Any:
     """The route of the screen: the Project API's worker computes `scenario` up to `minutes` as
     Project "p", Run "r", Branch "main" of a store in `directory`, into its stored Run of format
-    v5 (#427). The Run read back from the store at `minutes`."""
+    v6 (#427, #478). The Run read back from the store at `minutes`."""
     from sheltersim.web.stored_runs import save_scenario
 
     store = ProjectStore(directory)

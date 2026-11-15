@@ -1,7 +1,7 @@
 """The files of a stored Run on a disk, from Python (`sheltersim_native.rules.run_files`, #426).
 
 The store (`native/store`) writes and reads the browser's folders: the records, a branch's
-`journal.jsonl` and `data.pack` of format v5, computed from its head in chunks. A holder of a
+`journal.jsonl` and `data.pack` of format v6, computed from its head in chunks. A holder of a
 branch's lock keeps others out, in this process and in another. A writer process killed while it
 holds its branch leaves the lock free and its record at its last head; a line it left cut short
 is not read, and going on from the head cuts it off and reaches the Run computed straight through.
@@ -33,6 +33,7 @@ PLAIN = native.rules("plain")
 TICK = (CORE_TEST_DATA / "tick_core.json").read_bytes()
 WORLD = "small_replay"
 VERSIONS = json.dumps({"engine:model": "test"})
+CREATED = "2026-11-15T01:30:00Z"
 BRANCH_BUSY = "^run_worker_busy: another process writes this branch$"
 
 
@@ -44,7 +45,7 @@ def _store(root: Path) -> FILES.ProjectFiles:
     files.create_project("p")
     scenario = json.dumps({"duration_minutes": duration, "id": "s", "seed": 1}).encode()
     files.save_scenario("p", scenario, hashlib.sha256(scenario).hexdigest())
-    files.create_run("p", "r", "s", 1, 1, VERSIONS, b'{"schema_version":1}')
+    files.create_run("p", "r", "s", 1, 1, VERSIONS, b'{"schema_version":1}', CREATED)
     with files.claim_branch("p", "r", "main") as lease:
         files.start_branch(lease, "p", "r", "main", TICK, WORLD)
     return files
@@ -66,7 +67,10 @@ def test_a_branch_is_computed_from_its_head_and_read_back(tmp_path):
         assert _compute(files, lease, 700) == "paused"
     record = json.loads(files.branch_record("p", "r", "main"))
     assert (record["computed_until"], record["status"]) == (700, "paused")
-    assert json.loads(files.run_record("p", "r"))["status"] == "paused"
+    run_record = json.loads(files.run_record("p", "r"))
+    assert run_record["status"] == "paused"
+    # The record keeps the creation time it was given (#447), its status set or not.
+    assert (run_record["schema_version"], run_record["created_at"]) == (2, CREATED)
 
     reader = files.reader("p", "r", "main")
     heads = json.loads(reader.heads_json())
@@ -76,7 +80,6 @@ def test_a_branch_is_computed_from_its_head_and_read_back(tmp_path):
     assert not reader.torn() and reader.save_every() == FILES.SAVE_EVERY
     assert json.loads(reader.model_versions_json()) == json.loads(VERSIONS)
     assert reader.export_bytes() == TICK
-    assert reader.records("decisions")
     verified = json.loads(reader.verify_json())
     assert verified["mismatches"] == [] and not verified["complete"]
     # A seek restores the saved point at 360 and computes on: the world of the Run straight through.
@@ -277,7 +280,7 @@ def test_a_run_computed_with_an_llm_keeps_its_tape_and_a_seek_answers_from_it(tm
     files.create_project("p")
     text = json.dumps({"duration_minutes": 240, "id": "s", "seed": 1}).encode()
     files.save_scenario("p", text, hashlib.sha256(text).hexdigest())
-    files.create_run("p", "r", "s", 1, 1, VERSIONS, b'{"schema_version":1}')
+    files.create_run("p", "r", "s", 1, 1, VERSIONS, b'{"schema_version":1}', CREATED)
     with files.claim_branch("p", "r", "main") as lease:
         files.start_branch(lease, "p", "r", "main", export, save_every=60)
         computation = files.go_on(lease, "p", "r", "main", 240)
@@ -318,7 +321,7 @@ def test_a_run_whose_llm_calls_are_accounted_computes_without_waiting_for_its_ow
     files.create_project("p")
     text = json.dumps({"duration_minutes": 120, "id": "s", "seed": 1}).encode()
     files.save_scenario("p", text, hashlib.sha256(text).hexdigest())
-    files.create_run("p", "r", "s", 1, 1, VERSIONS, b'{"schema_version":1}')
+    files.create_run("p", "r", "s", 1, 1, VERSIONS, b'{"schema_version":1}', CREATED)
     with files.claim_branch("p", "r", "main") as lease:
         files.start_branch(lease, "p", "r", "main", export, save_every=60)
     llm = {"schema_version": 1, "mode": "record", "execution_purpose": None}

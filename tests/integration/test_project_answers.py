@@ -172,6 +172,33 @@ def test_the_records_answers_are_the_records_as_they_are() -> None:
     assert _refused(ANSWERS.branch_of, "sample", "r", run, branches, "nope")[0] == 409
 
 
+def test_a_run_record_of_either_schema_version_is_answered_as_it_is() -> None:
+    """`run.json` of schema version 2 adds the Run's creation time (#447); one of version 1,
+    written before, has none and is answered as it is. Version 2 without a creation time of the
+    store's form, and another version, are refused."""
+    run, branches = _fixture_run()
+    old = json.loads(run)
+    new = _record({**old, "schema_version": 2, "created_at": "2026-11-15T01:30:00Z"})
+    for record in (run, new):
+        assert json.loads(ANSWERS.run_answer("sample", "r", record, branches)) == {
+            **json.loads(record),
+            "branches": [json.loads(branches[0][1])],
+        }
+    for broken in (
+        {**old, "schema_version": 2},
+        {**old, "schema_version": 2, "created_at": "2026-11-15 10:30"},
+    ):
+        assert _refused(ANSWERS.run_answer, "sample", "r", _record(broken), branches)[1] == (
+            '{"code":"storage_conflict","error":"saved artifact is missing or corrupt"}'
+        )
+    assert (
+        "migration required"
+        in _refused(
+            ANSWERS.run_answer, "sample", "r", _record({**old, "schema_version": 3}), branches
+        )[1]
+    )
+
+
 def _conversations_piece(turns: list[bytes]) -> bytes:
     """A "conversations" piece of the texts' encoding: 0, the count, then each length and text."""
 

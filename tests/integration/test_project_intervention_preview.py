@@ -1,5 +1,5 @@
 """A Project's intervention preview reads the text with the offline rules on the Branch at a
-minute, and an approved preview forks the Branch without changing it (format v5, #427).
+minute, and an approved preview forks the Branch without changing it (format v6, #427).
 
 The preview-and-apply tests took over from the older demo's natural-language tests (#137;
 the demo went with the older screens in #376), as in

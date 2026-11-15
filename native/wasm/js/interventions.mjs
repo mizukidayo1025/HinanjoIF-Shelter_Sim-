@@ -11,7 +11,7 @@
 //       approved, child_id}
 //       the draft's checks, then ProjectAPI.fork as the server's process worker answers it:
 //       {"status": "running", "branch_id": child, "minute": m}. The child is made at once (the
-//       branch at the minute, the program applied, the child's stored Run written: format v5 of
+//       branch at the minute, the program applied, the child's stored Run written: format v6 of
 //       run_store.mjs, which reads the parent's pieces up to the saved point the fork's world was
 //       restored from, its base) and the outcome is the Run's `last_fork` (GET runs/{run}), as the
 //       server's is once its worker ends: {"status": "created", "branch_id", "minute",
@@ -114,7 +114,7 @@ export async function interventionApply(api, projectId, runId, branchId, body) {
 /// `TimelineStore.fork`: the parent at the minute, checked against the state the preview saw, the
 /// program applied, and the child's stored Run and record. The child's stored Run reads the
 /// parent's pieces up to the line the parent's world was restored from (its base), and stores the
-/// rest from there: the records and decision records to the fork's minute, and a saved point there,
+/// rest from there: the records to the fork's minute, and a saved point there,
 /// after the program was applied. Returns `last_fork` (the core's JSON).
 async function fork(api, projectId, runId, parent, plan) {
   const { wasm, tree } = api;
@@ -124,7 +124,7 @@ async function fork(api, projectId, runId, parent, plan) {
   api.freeLive();
   const reader = await store.branchReader(wasm, tree, projectId, runId, parent.branch_id);
   try {
-    const { simulation, base } = await reader.seek(minute, { decisions: true });
+    const { simulation, base } = await reader.seek(minute);
     try {
       const origin = simulation.stateDigest();
       store.answered(() => plan.checkOrigin(origin));

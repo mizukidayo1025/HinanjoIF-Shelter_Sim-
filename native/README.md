@@ -53,7 +53,7 @@ each one carries `#[rustfmt::skip]`.
 - **`src/` (`sheltersim_native`)**: the thin PyO3 wrapper. Each entry reads its arguments, calls the
   core and converts the result:
   - `rules.plain`: `PlainRun` (a Run of an entry or of a Scenario, its ticks, digests, frame,
-    EffectProgram, saved points, LLM link, decisions) and `Restore`.
+    EffectProgram, saved points, LLM link) and `Restore`.
   - `rules.run_files`: the stored Runs' files (`ProjectFiles`, `Lease`, `StoredRun`,
     `Computation`).
   - `rules.answers`: the answers of the Project routes, as the browser's, and the answers made

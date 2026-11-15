@@ -207,7 +207,7 @@ struct Proposal {
     causation: Arc<str>,
 }
 
-/// One contact of `InformationContactTrace`, for its trace document and the bit comparison.
+/// One contact of the trace, for its trace document and the bit comparison.
 pub struct ContactTrace {
     pub sender: usize,
     pub recipient: usize,
@@ -249,8 +249,8 @@ fn basis_name(basis: Basis) -> &'static str {
     }
 }
 
-/// `InformationSpreadPolicy._transmission_probability`, and its override in
-/// `HazardInformationPolicy`.
+/// The probability that a contact passes a message on, with the hazard model's own rule
+/// (`HazardInformationPolicy`'s).
 pub fn transmission_probability(settings: &Settings, model: Model, trust: f64, basis: Basis, contact_minutes: i64, correction: bool) -> Result<f64> {
     let duration_factor = py_min(1.0, contact_minutes as f64 / settings.duration_scale);
     let trust_factor = 1.0 + settings.trust_sensitivity * (2.0 * trust - 1.0);
@@ -267,7 +267,7 @@ pub fn transmission_probability(settings: &Settings, model: Model, trust: f64, b
     Ok(-expm1(-propensity)?)
 }
 
-/// `_sender_sharing_factor`.
+/// How much the sender shares, from its willingness to share and its stress.
 fn sharing_factor(settings: &Settings, model: Model, share: f64, stress: f64) -> f64 {
     if model != Model::EvidenceAware {
         return 1.0;
@@ -599,7 +599,8 @@ fn write(world: &World, plan: &Plan) -> Result<()> {
     Ok(())
 }
 
-/// What `ScheduledEvent._check` raises for a contact whose row `contact_event` refuses, in its order.
+/// What a scheduled event's checks raise for a contact whose row `contact_event` refuses, in their
+/// order.
 fn refused_contact_event(proposal: &Proposal, due_minute: i64, sequence: i64) -> Error {
     Error::Value(
         if !is_stable_id(&proposal.source) {
@@ -617,7 +618,7 @@ fn refused_contact_event(proposal: &Proposal, due_minute: i64, sequence: i64) ->
     )
 }
 
-/// The event of `_schedule_information_contact`, with the keys in its order.
+/// The event of a scheduled contact, with the keys in a fixed order.
 fn contact_event(proposal: &Proposal, plan: &Plan, model: Model, due_minute: i64, sequence: i64) -> Option<EventRow> {
     let text = |value: &str| V::Str(Arc::from(value));
     let mut payload = IndexMap::with_capacity(6);
@@ -647,15 +648,15 @@ fn contact_event(proposal: &Proposal, plan: &Plan, model: Model, due_minute: i64
     .checked()
 }
 
-/// `_sample_information_contacts` of the sample phase, with a model: the plan of the minute, its
-/// writes, then each transfer scheduled for the next minute (`_schedule_information_contact`). The
-/// plan is returned for the trace.
+/// The information contacts of the sample phase (`tick::sample`), with a model: the plan of the
+/// minute, its writes, then each transfer scheduled for the next minute (`contact_event`). The plan
+/// is returned for the trace.
 pub fn sample(world: &World, inputs: &Inputs<'_>) -> WriteResult<Plan> {
     let events = Events::of(world)?;
     let plan = plan(world, inputs)?;
     write(world, &plan)?;
     for proposal in &plan.proposals {
-        // `_schedule_information_contact`.
+        // Each transfer scheduled for the next minute.
         let due_minute = inputs.minute + 1;
         if due_minute >= events.duration() {
             continue;
@@ -683,8 +684,8 @@ fn optional(text: &Option<Arc<str>>) -> V {
     text.as_ref().map_or(V::Null, |text| V::Str(text.clone()))
 }
 
-/// `InformationSpreadResult.trace_document`: every contact with a full trace, 20 with a summary,
-/// sorted by recipient, sender and message.
+/// The trace's document of the minute: every contact with a full trace, 20 with a summary, sorted
+/// by recipient, sender and message.
 pub fn information_document(plan: &Plan, model: Model, minute: i64, level: TraceLevel) -> V {
     let kept = if level == TraceLevel::Full { plan.traces.len() } else { plan.traces.len().min(SUMMARY_ITEMS) };
     // The sort of `InformationSpreadPolicy.update`, which is stable.

@@ -7,8 +7,8 @@
 //!   a wait's routes are read (`staff::WaitRoutes`): the open requests' waits and reasons are the
 //!   staff rules' `open_waits` over the rows, and `sample` answers None where they need the
 //!   routes, which the metrics phase then reads before it calls again;
-//! - which requests: the ones a caller listed, or those `world.unsettled_support_requests()` gives,
-//!   which the memo of the last end-of-tick check knows (`after_tick::Memo`) or else all;
+//! - which requests: the ones a caller listed, or the ones that may be open, which the memo of the
+//!   last end-of-tick check knows (`after_tick::Memo::unsettled_requests`) or else all;
 //! - whether `world.metric_state` holds its slot's tree (a field assigned whole doesn't).
 //!
 //! `capture` is the metrics phase of a tick: the sample, given to the host's sink
@@ -42,15 +42,15 @@ pub const EXPOSURE_SEMANTICS: &str = "per-minute observed request exposure by bl
 /// The owned world field the counters are read from.
 pub use crate::world::METRIC_STATE;
 
-/// What the metrics read of one open (pending or assigned) support request, in the order of
-/// `world.unsettled_support_requests()`.
+/// What the metrics read of one open (pending or assigned) support request, in the order of the
+/// requests (`Requests`).
 #[derive(Clone, Debug)]
 struct OpenWait<'a> {
     pub agent: &'a str,
     pub request_id: &'a str,
-    /// `support_waited_minutes` at the sample minute.
+    /// The minutes the request has waited at the sample minute.
     pub waited: i64,
-    /// `support_wait_reason_codes`, in their order.
+    /// The reasons of the wait (`staff::open_waits`), in their order.
     pub reasons: Vec<&'a str>,
     /// Pending, and no staff member has the skills its kind needs.
     pub without_qualified_staff: bool,
@@ -59,10 +59,10 @@ struct OpenWait<'a> {
 /// The support requests a sample reads.
 #[derive(Clone, Copy)]
 pub enum Requests<'a> {
-    /// These, in this order (a caller's list of `MetricSnapshot.from_world`).
+    /// These, in this order (a caller's list).
     Given(&'a [Arc<str>]),
-    /// `world.unsettled_support_requests()`: what the memo of the world's last end-of-tick check
-    /// says may be open, or else all of them, in the order of the table.
+    /// The requests that may be open: what the memo of the world's last end-of-tick check says, or
+    /// else all of them, in the order of the table.
     Unsettled(Option<&'a Memo>),
 }
 
@@ -97,7 +97,7 @@ pub fn capture<C: WorldCell, H: Host>(cell: &C, host: &mut H, inputs: &Inputs<'_
     Ok(Captured::Taken)
 }
 
-/// The fields of `MetricSnapshot` after its `minute_index`, in the order of the dataclass.
+/// The fields of `MetricSnapshot` after its `minute_index`, in the order of its columns.
 #[derive(Clone, Debug, PartialEq)]
 pub struct MetricSample {
     pub toilet_queue_length: usize,
@@ -166,8 +166,9 @@ fn write_waits(out: &mut Vec<u8>, waits: &[OpenWait<'_>]) {
     out.push(b'}');
 }
 
-/// `MetricSnapshot.from_world` after its `minute_index`, for a sample minute that is the world's:
-/// None where the waits need their routes and `inputs.routes` is None. It only reads.
+/// The metric sample of the world (`MetricSnapshot` after its `minute_index`), for a sample minute
+/// that is the world's: None where the waits need their routes and `inputs.routes` is None. It only
+/// reads.
 pub fn sample(world: &World, inputs: &Inputs<'_>) -> Result<Option<MetricSample>> {
     let sample = inputs.sample;
     let all: Vec<Arc<str>>;
@@ -309,7 +310,8 @@ pub fn sample(world: &World, inputs: &Inputs<'_>) -> Result<Option<MetricSample>
     }))
 }
 
-// ---- `operational_kpi_values` (lane P10-1c) ---------------------------------------------------------
+// ---- The operational KPI values (lane P10-1c)
+// -------------------------------------------------------
 
 /// The names of a service's waits in `metric_state`: the count, the total, the mean and the
 /// longest.
@@ -318,7 +320,7 @@ pub const KPI_WAITS: [(&str, &str, &str, &str); 2] = [
     ("meal_service_wait_count", "meal_service_wait_total_minutes", "meal_service_wait_mean_minutes", "meal_service_wait_max_minutes"),
 ];
 
-/// What `operational_kpi_values` reads of the rows, each part with what its read refused, in the
+/// What the operational KPI values read of the rows, each part with what its read refused, in the
 /// order the rule reads them: the people's needs and the facilities' queues, then the ledger's
 /// reserved amounts, then the waits and stalls of `metric_state`.
 pub struct KpiRows {
@@ -333,7 +335,7 @@ pub struct KpiRows {
     pub metrics: Result<([(f64, f64, f64); 2], f64, f64)>,
 }
 
-/// `operational_kpi_values`' reads of the rows. `ledger` is whether the world holds the ledger's
+/// The operational KPI values' reads of the rows. `ledger` is whether the world holds the ledger's
 /// namespace, and `metric_state_held` whether `world.metric_state` is its slot's tree.
 pub fn kpi_rows(world: &World, ledger: &crate::rules::kit::Held, metric_state_held: bool) -> Result<KpiRows> {
     use crate::rules::kit::Held;

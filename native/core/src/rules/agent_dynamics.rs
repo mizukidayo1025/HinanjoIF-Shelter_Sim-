@@ -53,7 +53,7 @@ pub fn remember_decision(world: &World, decision: &Decision<'_>) -> Result<()> {
     Ok(())
 }
 
-/// `agent_knows_facility`: always true while knowledge is not limited; false without the
+/// Whether an agent knows a facility: always true while knowledge is not limited; false without the
 /// namespace.
 pub fn knows_facility(world: &World, limited: &Kept<bool>, agent_id: Option<&str>, facility_id: Option<&str>) -> Result<bool> {
     if !*kit::kept(limited)? {
@@ -69,7 +69,7 @@ pub fn knows_facility(world: &World, limited: &Kept<bool>, agent_id: Option<&str
 
 // ---- What a new agent knows ---------------------------------------------------------------------
 
-/// `_new_agent_dynamics_record`.
+/// The memory record of a new agent.
 fn new_memory(rows: &Entities, agent: &AgentRow, oriented: bool, awareness: Option<&Awareness>) -> AgentMemory {
     let mut known: BTreeSet<Arc<str>> = rows
         .facilities
@@ -90,7 +90,7 @@ fn new_memory(rows: &Entities, agent: &AgentRow, oriented: bool, awareness: Opti
     }
 }
 
-/// `create_agent_dynamics_state`: a record for each agent, in ID order.
+/// The new `agent_dynamics_v1` state: a record for each agent, in ID order.
 pub fn create_state(world: &World, policy: &'static str, awareness: Option<&Awareness>) -> Result<AgentDynamicsRow> {
     let rows = world.rows()?;
     let mut ids: Vec<Arc<str>> = rows.agents.iter().map(|(id, _)| id.clone()).collect();

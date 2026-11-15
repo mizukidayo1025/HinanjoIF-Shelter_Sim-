@@ -1,15 +1,16 @@
-//! `record_shared_operation`, on the rows of a `World`. The plan makes every check, in a fixed
-//! order, and returns its `ValueError` with its text before it changes anything
-//! (docs/rust-port/lanes/m4-staff.md); the writes go to the row of `shared_operations_v1`. What
-//! only a state the rule's own checks never let through reaches is Unsupported.
+//! Recording a shared operation's receipt (`record_shared_operation`), on the rows of a `World`.
+//! The plan makes every check, in a fixed order, and returns its `ValueError` with its text before
+//! it changes anything (docs/rust-port/lanes/m4-staff.md); the writes go to the row of
+//! `shared_operations_v1`. What only a state the rule's own checks never let through reaches is
+//! Unsupported.
 //!
-//! The receipts are typed here (`Receipt`). A receipt is data a kernel built, so the contracts of
-//! `contracts/operations.py` that read it (`OperationHistoryRecord`, `NumericStateChange`,
-//! `SharedOperationsState`) are Rust checks (policy E15): `Receipt::check` takes what the contract
-//! takes and gives what `model_dump(mode="json")` gives (`Receipt::document`). What the contract
-//! turns down, or what this check cannot tell (a value the contract would coerce, such as a str for
-//! a float), is refused; inside `SharedOperationsState` a receipt the contract turns down is the
-//! rule's `ValueError`, as it was.
+//! The receipts are typed here (`Receipt`). A receipt is data a kernel built, so the contracts that
+//! read it (a history record of `shared_operations_v1`, its numeric state changes, and the state
+//! itself; pydantic models of the Python rules that #430 removed) are Rust checks (policy E15):
+//! `Receipt::check` takes what the contract took and gives its `model_dump(mode="json")`
+//! (`Receipt::document`). What the contract turned down, or what this check cannot tell (a value
+//! the contract would coerce, such as a str for a float), is refused; inside the state a receipt
+//! the contract turns down is the rule's `ValueError`, as it was.
 //!
 //! The events of the receipts come from the EventLog, whose records the core keeps as bytes;
 //! `record_through` looks up the records a receipt needs (`needed_records`) through the host
@@ -46,7 +47,7 @@ pub const CONTINUITY_EVENT: &str = "staff_support_continuity";
 pub const HANDOFF_EVENT: &str = "staff_handoff";
 pub const RECOVERY_EVENT: &str = "facility_recovery_transition";
 pub const OPERATION_EVENT: &str = "staff_operation_transition";
-/// The event types whose receipts `ingest_applied_shared_operation_records` records.
+/// The event types whose receipts the ingest of applied records (`rules::dispatch`) records.
 pub const RECEIPT_EVENTS: [&str; 5] = [CARE_EVENT, CONTINUITY_EVENT, RECOVERY_EVENT, HANDOFF_EVENT, OPERATION_EVENT];
 
 // ---- Values -------------------------------------------------------------------------------------------
@@ -414,7 +415,7 @@ pub struct OperationReceipt {
     pub source_ids: Vec<Arc<str>>,
 }
 
-/// `OperationHistoryRecord`: a receipt of `shared_operations_v1`'s history.
+/// A receipt of `shared_operations_v1`'s history.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Receipt {
     Care(CareReceipt),
@@ -429,7 +430,7 @@ fn any_change(changes: &[Change]) -> bool {
 }
 
 impl Receipt {
-    /// `TypeAdapter(OperationHistoryRecord).validate_python(value)`, by its `event_type`.
+    /// The receipt's contract on `value`, by its `event_type`.
     pub fn check(value: &V) -> Checked<Self> {
         let mut fields = Fields::of(value)?;
         let receipt = match fields.required("event_type")? {
@@ -602,7 +603,7 @@ impl CareReceipt {
             causation_id: fields.optional_identifier("causation_id")?,
             source_ids: fields.identifiers("source_ids")?,
         };
-        // `result_evidence_matches_transition`.
+        // The evidence of the result matches the transition.
         let (observation, changes) = (&*receipt.outcome_observation, &receipt.state_changes);
         let valid = if receipt.status == CareStatus::Completed {
             match observation {
@@ -636,7 +637,7 @@ impl ContinuityReceipt {
             causation_id: fields.identifier("causation_id")?,
             source_ids: fields.identifiers("source_ids")?,
         };
-        // `only_support_continuity_is_recorded`.
+        // Only a support's continuity is recorded.
         if receipt.event_id == receipt.causation_id {
             return Err(Verdict::Invalid);
         }
@@ -659,7 +660,7 @@ impl HandoffReceipt {
             causation_id: fields.optional_identifier("causation_id")?,
             source_ids: fields.identifiers("source_ids")?,
         };
-        // `status_matches_assignment`.
+        // The status matches the assignment.
         if (&*receipt.status == "reassigned") != receipt.replacement_staff_id.is_some()
             || receipt.replacement_staff_id.as_ref() == Some(&receipt.previous_staff_id)
         {
@@ -684,7 +685,7 @@ impl RecoveryReceipt {
             source_ids: fields.identifiers("source_ids")?,
             causation_id: fields.optional_identifier("causation_id")?,
         };
-        // `recovery_record_changes_capacity`.
+        // A recovery record changes the capacity.
         if matches!(&*receipt.status, "degraded" | "outage" | "restored") && receipt.working_units == receipt.previous_working_units {
             return Err(Verdict::Invalid);
         }
@@ -716,7 +717,7 @@ impl OperationReceipt {
             causation_id: fields.identifier("causation_id")?,
             source_ids: fields.identifiers("source_ids")?,
         };
-        // `completion_evidence_is_consistent`.
+        // The evidence of the completion is consistent.
         let sampled = receipt.state_changes.len() as i64;
         let total = receipt.total_state_change_count;
         let changed = any_change(&receipt.state_changes);
@@ -878,7 +879,7 @@ fn record_other(world: &mut World, receipt: &Receipt, found: &Found) -> Result<(
         (row.history.items.len() + 1 > MAX_HISTORY, row.history_truncated, prior)
     };
     let common = receipt.document();
-    // `_event_payload_matches`.
+    // The event's payload matches the receipt.
     let mut expected = common.clone();
     let event = &logged.event;
     if let (Receipt::Continuity(continuity), V::Map(payload), V::Map(expected)) = (receipt, &event.payload, &mut expected) {
@@ -1046,7 +1047,8 @@ fn check_handoff(world: &World, receipt: &HandoffReceipt) -> Result<()> {
     Err(Error::value_error(refused))
 }
 
-/// `_validate_staff_operation_receipt`, on the retained completions of `staff_operations_v1`.
+/// The check of a staff operation's receipt against the retained completions of
+/// `staff_operations_v1`.
 fn check_staff_operation(world: &World, receipt: &OperationReceipt, history_truncated: bool) -> Result<()> {
     let operations = namespace::<StaffOperationsRow>(world, OPERATIONS)?;
     let history = operations.as_ref().map_or(&[][..], |row| &row.history[..]);
@@ -1087,8 +1089,8 @@ fn row_value(row: &dyn Row) -> Result<V> {
     json_value(&encoder.out)
 }
 
-/// The value at `parts` under `value`, as `_validate_observed_state_changes` walks to it: a dict by
-/// its keys; anything else has no such attribute.
+/// The value at `parts` under `value`, as `check_changes` walks to it: a dict by its keys; anything
+/// else has no such attribute.
 fn walk<'a>(value: Option<&'a V>, parts: &[&str]) -> Option<&'a V> {
     let mut current = value;
     for part in parts {
@@ -1100,7 +1102,7 @@ fn walk<'a>(value: Option<&'a V>, parts: &[&str]) -> Option<&'a V> {
     current
 }
 
-/// What the receipt's one state change reads now, as `_validate_observed_state_changes` walks to it.
+/// What the receipt's one state change reads now, as `check_changes` walks to it.
 fn observed(world: &World, kind: &str, entity: &str, field_path: &str) -> Result<Option<V>> {
     let parts: Vec<&str> = field_path.split('.').collect();
     let item = |map: &V| -> Result<Option<V>> {
@@ -1174,7 +1176,7 @@ fn observed(world: &World, kind: &str, entity: &str, field_path: &str) -> Result
     }
 }
 
-/// `_validate_observed_state_changes`: each change's after-value is what the world holds now.
+/// The observed state changes: each change's after-value is what the world holds now.
 pub fn check_changes(world: &World, changes: &[Change]) -> Result<()> {
     for change in changes {
         let same = match observed(world, &change.entity_kind, &change.entity_id, &change.field_path)? {
@@ -1197,7 +1199,7 @@ pub fn check_changes(world: &World, changes: &[Change]) -> Result<()> {
 
 // ---- A care receipt a kernel appends ------------------------------------------------------------------
 
-/// `_CARE_TRANSITIONS`.
+/// Whether a care status may follow `prior` (None before the first).
 fn transition_is_allowed(prior: Option<CareStatus>, next: CareStatus) -> bool {
     match prior {
         None => next == CareStatus::Requested,

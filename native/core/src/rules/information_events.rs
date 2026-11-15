@@ -4,10 +4,9 @@
 //!
 //! A state of another schema than 2 is upgraded by the host, after the model's checks and before
 //! the event's (`Host::upgrade_information_state`, policy E11; the hook's default refuses with
-//! `OLDER_STATE`): only a test writes one in memory, as a save of it is view-only
-//! (`LEGACY_SHAPES_TICKABLE`).
+//! `OLDER_STATE`): only a test writes one in memory, as a save of it is view-only.
 //!
-//! `InformationSpreadConfig.from_mapping` and `selected_models` are sections the host parses
+//! The information spread's config and the selected models are sections the host parses
 //! (`Parser::Host`): `Gathered::read` reads them, kept for the configs' stamp, and the config's
 //! error is raised before the event is read.
 
@@ -125,8 +124,8 @@ fn reliability_of(config: &InformationSpread, source_id: &str) -> Result<f64> {
     read(config.reliability(source_id))
 }
 
-/// `_sample_claim_belief_strength`: `CounterRNG(world.seed)` keyed by the minute, the person and the
-/// message, which do not depend on the order events are made in (model version 2).
+/// The strength of a belief in a claim: the world seed's counter draws keyed by the minute, the
+/// person and the message, which do not depend on the order events are made in (model version 2).
 pub fn sample_strength(world: &World, config: &InformationSpread, agent_id: &str, source_id: &str, minute: i64, message_id: &str) -> Result<f64> {
     let reliability = reliability_of(config, source_id)?;
     let trust = trust_of(world, agent_id)?;
@@ -162,7 +161,7 @@ pub fn accepts(world: &World, config: &InformationSpread, label: &str, trust: f6
     Ok(Draws::of_world(world)?.random(label, minute, ids) < chance)
 }
 
-/// `_claim_is_misbelieved`.
+/// Whether a claim of this truth is believed wrongly at this strength.
 fn misbelieved(truth: &str, strength: f64) -> bool {
     (truth == "true" && strength < 0.5) || (truth == "false" && strength > 0.5)
 }
@@ -332,7 +331,7 @@ fn state_ready(world: &World, config: &InformationSpread, held: &Held) -> Result
     Ok(slot.row::<InformationRow>()?.schema_version == SCHEMA_VERSION)
 }
 
-/// `_information_runtime_state`'s checks of the model and its state, for the configs' tests: the
+/// The checks of the model and its state before an event reads them, for the configs' tests: the
 /// failure of a model that is off, the refusal of a state the host would have to upgrade.
 pub fn check_state(world: &World, config: &InformationSpread, held: &Held) -> Result<()> {
     if state_ready(world, config, held)? {
@@ -595,7 +594,7 @@ fn correction_in(world: &World, inputs: &Inputs<'_>, event: &EventRow) -> Result
 
 // ---- InformationContactHandler ---------------------------------------------------------------------------
 
-/// `_current_information_contact_basis` of two known people, or None.
+/// The basis of a contact between two known people now, or None.
 fn contact_basis(world: &World, sender: &str, recipient: &str) -> Result<Option<&'static str>> {
     let same_zone = {
         let rows = world.rows()?;

@@ -216,7 +216,7 @@ await refusal("/cancel", { branch_id: "main", extra: 1 }, 409, "request fields d
   await store.writeBranch(tree, PROJECT, RUN, { ...before, status: "running" });
   await store.setRunStatus(tree, PROJECT, RUN, "running");
   await refusal("/cancel", {}, 409, "run_worker_busy: cancellation must reach the owning worker", "run_worker_busy");
-  check((await compute.recoverInterrupted({ tree, branchLock: lockSet.branchLock })).length === 0, "a branch another tab computes was called interrupted");
+  check((await compute.recoverInterrupted({ wasm, tree, branchLock: lockSet.branchLock })).length === 0, "a branch another tab computes was called interrupted");
   lockSet.held.delete(name);
   await store.writeBranch(tree, PROJECT, RUN, before);
   await store.setRunStatus(tree, PROJECT, RUN, "queued");
@@ -299,7 +299,7 @@ let stoppedAt;
   lockSet.dropAll();
   halted = false;
   browser = new api.BrowserApi({ wasm, tree, branchLock: lockSet.branchLock, chunkTicks, pause });
-  const recovered = await compute.recoverInterrupted({ tree, branchLock: lockSet.branchLock });
+  const recovered = await compute.recoverInterrupted({ wasm, tree, branchLock: lockSet.branchLock });
   check(recovered.join() === `${PROJECT}/${RUN}/main`, `recovered: ${recovered}`);
   const run = JSON.parse((await get("")).body);
   const [main] = run.branches;

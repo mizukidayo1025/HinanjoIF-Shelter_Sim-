@@ -16,9 +16,15 @@
 // flush() and close(), all synchronous. A fork's Run reads its parent's pieces: a reader is given
 // `parent(branchId)`, which gives the backend of a branch of the same Run.
 //
+// The computing procedure (going on from a branch's head in chunks, a fork, a question's turn, the
+// start, the recovery of an interrupted branch, a Run computed from minute 0: #476) is the core's
+// (`sheltersim_core::compute`, WASM's `Procedure`): it gives the steps, and `StepHost` does them
+// with these files (and the store's records, js/project_store.mjs's `stepHost`), as the local and VM
+// servers do them with theirs (`sheltersim_store::compute`).
+//
 // `wasm` is the module wasm-bindgen made of sheltersim_wasm (any target): its Simulation,
-// RunWriter, Journal, Chain, VerifyRun, Restore and the saved points' schedule (savedPointStep,
-// savedPointDue).
+// RunWriter, Procedure, Journal, Chain, VerifyRun, Restore and the saved points' schedule
+// (savedPointStep, savedPointDue).
 
 /// The format written and read (the core's `run_store::FORMAT`).
 export const FORMAT = "sheltersim-run-v6";
@@ -207,48 +213,273 @@ export class RunWriter {
 /// The model versions a Run records where its caller gives none: the engine's items.
 const engineVersions = (wasm) => JSON.parse(wasm.engineSignatures());
 
-/// Runs the exported world `exportBytes` (or the world `world` of a file of named worlds, as the
-/// fixtures hold them) for its whole clock, `ticks` ticks per call to `advance`, and stores it in
-/// `backend` as it goes, with a saved point every `saveEvery` minutes and at
-/// the end, its "run" line recording `modelVersions`. `progress(minute, duration)` is called after
-/// each call. Returns what the Run gave and what storing it took.
-export async function runAndStore({ wasm, exportBytes, world = null, backend, ticks = 1440, saveEvery = SAVE_EVERY, modelVersions = null, progress = () => {} }) {
-  if (!Number.isInteger(saveEvery) || saveEvery < 0) throw new Error(`saveEvery is not a count of minutes: ${saveEvery}`);
-  const writer = await RunWriter.create(wasm, backend);
-  const simulation = world === null ? new wasm.Simulation(exportBytes) : wasm.Simulation.fromWorlds(exportBytes, world);
-  try {
-    const duration = simulation.duration();
-    writer.core.start(simulation, exportBytes, world, saveEvery, JSON.stringify(modelVersions ?? engineVersions(wasm)), COMPRESSION);
-    await writer.flush();
-    let tickMs = 0;
-    for (;;) {
-      const step = wasm.savedPointStep(simulation.minute(), ticks, saveEvery, undefined);
-      const started = performance.now();
-      const ran = simulation.advance(step);
-      tickMs += performance.now() - started;
-      progress(simulation.minute(), duration);
-      await writer.take(simulation, false);
-      if (ran < step) break;
-      if (wasm.savedPointDue(simulation.minute(), duration, saveEvery)) await writer.save(simulation);
+/// What the message of a refusal of the core starts with (native/wasm/src/answers.rs).
+export const CORE_REFUSED = "answer_refused ";
+
+/// A refusal the core threw, as `{ status, error, code }`; null for another error.
+export function coreRefusal(error) {
+  const message = String(error?.message ?? "");
+  return message.startsWith(CORE_REFUSED) ? JSON.parse(message.slice(CORE_REFUSED.length)) : null;
+}
+
+/// Does the steps of the core's computing procedure (WASM's `Procedure`, #476) with the browser's
+/// files: a branch's journal and data.pack (a piece compressed, appended to data.pack and flushed,
+/// then its line appended to the journal and flushed), the store's records (`records`,
+/// js/project_store.mjs's `stepRecords`; none for a stored Run in a backend of its own), the
+/// branches' locks (`branchLock(name)` gives a release, or null where another holds it), and
+/// gives back what each read or where it wrote. `folder(project, run, branch)` gives a branch's
+/// backend. The files a call opens are closed when it returns: a file has one access handle at a
+/// time in OPFS, and a read between the chunks of a computation opens its own. `refused(message,
+/// code)` makes the error of a refusal of the core; `onRecord(record, procedure)` is called after
+/// a branch's record is written.
+export class StepHost {
+  constructor({ wasm, folder, records = null, branchLock = null, lockName = null, refused = (message) => new Error(message), onRecord = null }) {
+    this.wasm = wasm;
+    this.folder = folder;
+    this.records = records;
+    this.branchLock = branchLock;
+    this.lockName = lockName;
+    this.refused = refused;
+    this.onRecord = onRecord;
+    // name -> release, of the locks taken
+    this.locks = new Map();
+    this.failed = false;
+    this.sizes = {};
+    this.compressMs = 0;
+    this.writeMs = 0;
+    // Whether the last call wrote a saved point.
+    this.saving = false;
+    this.lastLine = null;
+  }
+
+  /// Runs a call of the procedure; a refusal it throws becomes `refused`'s error.
+  call(call) {
+    try {
+      return call();
+    } catch (error) {
+      const refusal = coreRefusal(error);
+      if (refusal !== null) throw this.refused(refusal.error, refusal.code);
+      throw error;
     }
-    await writer.take(simulation, true);
-    if (saveEvery > 0) await writer.save(simulation);
-    const { end } = await writer.finish(simulation);
+  }
+
+  /// Does the procedure's steps up to its next "compute" or "done", which it returns.
+  async execute(procedure) {
+    if (this.failed) throw new Error("the stored Run's writer stopped at a write that failed");
+    const open = new Map();
+    this.saving = false;
+    let done = false;
+    try {
+      for (;;) {
+        const step = JSON.parse(this.call(() => procedure.next()));
+        if (step.do === "compute" || step.do === "done") {
+          done = step.do === "done";
+          return step.do;
+        }
+        try {
+          await this.take(step, procedure, open);
+        } catch (error) {
+          if (!procedure.mayFail()) {
+            this.failed = true;
+            throw error;
+          }
+          this.call(() => procedure.giveFailed());
+        }
+      }
+    } finally {
+      for (const file of open.values()) file.close();
+      if (done || this.failed) this.releaseLocks();
+    }
+  }
+
+  /// Does a procedure that ends without computing.
+  async finish(procedure) {
+    if ((await this.execute(procedure)) !== "done") throw new Error("the procedure asks for a computation");
+  }
+
+  releaseLocks() {
+    for (const release of this.locks.values()) release();
+    this.locks.clear();
+  }
+
+  /// A file of a branch, open for the rest of the call.
+  async file(open, step, name, options = {}) {
+    const key = `${step.project}/${step.run}/${step.branch}/${name}`;
+    if (!open.has(key)) {
+      const backend = await this.folder(step.project, step.run, step.branch);
+      open.set(key, await backend.open(name, options));
+    }
+    return open.get(key);
+  }
+
+  /// Does one step and gives back what it read or where it wrote.
+  async take(step, procedure, open) {
+    const records = this.records;
+    const json = (value) => encoder.encode(JSON.stringify(value));
+    switch (step.do) {
+      case "run_record": {
+        const record = await records.runRecord(step.project, step.run);
+        return this.call(() => procedure.giveText(json(record)));
+      }
+      case "branch_record": {
+        const bytes = step.optional ? await records.branchFile(step.project, step.run, step.branch, "branch.json") : json(await records.branchRecord(step.project, step.run, step.branch));
+        return this.call(() => procedure.giveText(bytes ?? undefined));
+      }
+      case "branches": {
+        const listed = await records.branches(step.project, step.run);
+        return this.call(() => procedure.giveRecords(JSON.stringify(listed)));
+      }
+      case "projects": {
+        const ids = (await records.projects()).map((project) => project.project_id);
+        return this.call(() => procedure.giveIds(JSON.stringify(ids)));
+      }
+      case "runs": {
+        const ids = await records.runIds(step.project);
+        return this.call(() => procedure.giveIds(JSON.stringify(ids)));
+      }
+      case "journal": {
+        // Read through the file where this call has it open; else without making it.
+        const key = `${step.project}/${step.run}/${step.branch}/${JOURNAL}`;
+        const file = open.get(key);
+        const bytes = file ? file.read(0, file.size()) : records ? await records.branchFile(step.project, step.run, step.branch, JOURNAL) : null;
+        return this.call(() => procedure.giveText(bytes ?? undefined));
+      }
+      case "piece": {
+        const file = await this.file(open, step, DATA);
+        const stored = file.read(step.offset, step.length);
+        if (stored.length !== step.length) throw new Error("data.pack ends before the piece");
+        const raw = await inflateRaw(stored);
+        return this.call(() => procedure.giveText(raw));
+      }
+      case "create": {
+        for (const name of [DATA, JOURNAL]) {
+          const key = `${step.project}/${step.run}/${step.branch}/${name}`;
+          open.get(key)?.close();
+          open.delete(key);
+          await this.file(open, step, name, { truncate: true });
+        }
+        return this.call(() => procedure.done());
+      }
+      case "truncate": {
+        for (const [name, size] of [[JOURNAL, step.journal], [DATA, step.data]]) {
+          if (size === null) continue;
+          const file = await this.file(open, step, name);
+          if (file.size() > size) {
+            file.truncate(size);
+            file.flush();
+          }
+        }
+        return this.call(() => procedure.done());
+      }
+      case "write_piece": {
+        const raw = procedure.raw();
+        let started = performance.now();
+        const stored = await deflateRaw(raw);
+        this.compressMs += performance.now() - started;
+        const size = (this.sizes[step.kind] ??= { pieces: 0, raw: 0, stored: 0 });
+        size.pieces += 1;
+        size.raw += raw.length;
+        size.stored += stored.length;
+        if (step.kind === "saved") this.saving = true;
+        const file = await this.file(open, step, DATA);
+        started = performance.now();
+        const offset = file.size();
+        file.write(stored, offset);
+        file.flush();
+        this.writeMs += performance.now() - started;
+        return this.call(() => procedure.givePlace(offset, stored.length));
+      }
+      case "append_line": {
+        const line = procedure.line();
+        const file = await this.file(open, step, JOURNAL);
+        const started = performance.now();
+        file.write(line, file.size());
+        file.flush();
+        this.writeMs += performance.now() - started;
+        this.lastLine = line;
+        return this.call(() => procedure.done());
+      }
+      case "write_branch": {
+        await records.writeBranch(step.project, step.run, step.record);
+        this.onRecord?.(step.record, procedure);
+        return this.call(() => procedure.done());
+      }
+      case "set_status":
+        await records.setStatus(step.project, step.run, step.branch, step.status);
+        return this.call(() => procedure.done());
+      case "set_run_status":
+        await records.setRunStatus(step.project, step.run, step.status);
+        return this.call(() => procedure.done());
+      case "try_lock": {
+        const name = this.lockName(step.project, step.run, step.branch);
+        const release = await this.branchLock(name);
+        if (release) this.locks.set(name, release);
+        return this.call(() => procedure.giveLock(Boolean(release)));
+      }
+      case "unlock": {
+        const name = this.lockName(step.project, step.run, step.branch);
+        this.locks.get(name)?.();
+        this.locks.delete(name);
+        return this.call(() => procedure.done());
+      }
+      default:
+        throw new Error(`a step this host does not take: ${step.do}`);
+    }
+  }
+}
+
+/// Runs a procedure that computes from minute 0 (`Procedure.fromStart`) to its end with `host`,
+/// `ticks` ticks per chunk, `progress(minute, duration)` after each; then frees it. Returns what
+/// the Run gave and what storing it took. After an error, the steps that mark its branch failed
+/// are done, then the error is thrown.
+export async function computeFromStart({ wasm, host, procedure, ticks = 1440, progress = () => {} }) {
+  let tickMs = 0;
+  let saveMs = 0;
+  try {
+    for (;;) {
+      const started = performance.now();
+      const at = await host.execute(procedure);
+      if (host.saving) saveMs += performance.now() - started;
+      if (at === "done") break;
+      const ticking = performance.now();
+      host.call(() => procedure.advance(ticks));
+      tickMs += performance.now() - ticking;
+      progress(procedure.minute(), procedure.duration());
+    }
     return {
-      end,
-      digests: JSON.parse(simulation.digests_json()),
+      end: lineObject(procedure.lastLine()),
+      digests: JSON.parse(procedure.digestsJson()),
       tickMs,
-      compressMs: writer.compressMs,
-      writeMs: writer.writeMs,
-      saveMs: writer.saveMs,
-      saved: writer.saved,
-      sizes: writer.sizes,
+      compressMs: host.compressMs,
+      writeMs: host.writeMs,
+      saveMs,
+      saved: JSON.parse(procedure.savedJson()),
+      sizes: host.sizes,
       memoryBytes: wasm.memoryBytes(),
     };
+  } catch (error) {
+    if (procedure.fail()) {
+      host.failed = false;
+      await host.finish(procedure);
+    }
+    throw error;
   } finally {
-    simulation.free();
-    writer.close();
+    procedure.free();
   }
+}
+
+/// Runs the exported world `exportBytes` (or the world `world` of a file of named worlds, as the
+/// fixtures hold them) for its whole clock, `ticks` ticks per chunk, and stores it in `backend` as
+/// it goes (the core's `Procedure.fromStart`), with a saved point every
+/// `saveEvery` minutes and at the end, its "run" line recording `modelVersions`.
+/// `progress(minute, duration)` is called after each chunk. Returns what the Run gave and what
+/// storing it took.
+export async function runAndStore({ wasm, exportBytes, world = null, backend, ticks = 1440, saveEvery = SAVE_EVERY, modelVersions = null, progress = () => {} }) {
+  if (!Number.isInteger(saveEvery) || saveEvery < 0) throw new Error(`saveEvery is not a count of minutes: ${saveEvery}`);
+  const host = new StepHost({ wasm, folder: async () => backend });
+  const versions = JSON.stringify(modelVersions ?? engineVersions(wasm));
+  const procedure = host.call(() => wasm.Procedure.fromStart("", "", "", exportBytes, world ?? undefined, saveEvery, versions, false, undefined, 0));
+  return computeFromStart({ wasm, host, procedure, ticks, progress });
 }
 
 /// The journal's lines up to the first that is cut short or does not match its sha256, as

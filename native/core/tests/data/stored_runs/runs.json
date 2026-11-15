@@ -14,6 +14,11 @@
     "data_bytes": 802581,
     "data_sha256": "9b4507768e6a53c0003bcf7c56f9f5c4f170438c9e6a6b21f6f7a77578da9a5e"
   },
+  "stopped": {
+    "journal_sha256": "3e1ae86513129ccec31a0f4fa34b7dddae8c27f08552888137244385f728f4f1",
+    "data_bytes": 799544,
+    "data_sha256": "78d6a37a6f54061d0c03fb141c566b52c26c0d9f3ac41e1bb90ee2cd5b105f7c"
+  },
   "fork_parent": {
     "journal_sha256": "6260a368824b09a41a15e8a025f05c427405e0db856ee0730fdbf358fe3cb788",
     "data_bytes": 1890886,

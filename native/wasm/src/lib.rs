@@ -28,6 +28,7 @@ use sheltersim_core::{archive, checkpoint, frame, history, model_version, run_st
 use wasm_bindgen::prelude::*;
 
 mod answers;
+mod compute;
 
 fn js_error(error: Error) -> JsError {
     JsError::new(&error.to_string())
@@ -780,33 +781,38 @@ impl RunWriter {
     /// The saved points' lines committed, as a JSON list of their fields.
     #[wasm_bindgen(js_name = savedJson)]
     pub fn saved_json(&self) -> String {
-        let mut encoder = Encoder::with_capacity(256);
-        encoder.out.push(b'[');
-        for (index, saved) in self.inner.saved().iter().enumerate() {
-            if index > 0 {
-                encoder.out.push(b',');
-            }
-            encoder.out.push(b'{');
-            let fields = [
-                ("records", saved.records),
-                ("samples", saved.samples),
-                ("point_version", saved.point_version),
-                ("log_blocks", saved.log_blocks),
-                ("sample_blocks", saved.sample_blocks),
-            ];
-            encoder.out.extend_from_slice(b"\"minute\":");
-            encoder.int(saved.minute);
-            for (name, value) in fields {
-                encoder.out.push(b',');
-                encoder.string(name);
-                encoder.out.push(b':');
-                encoder.int(value as i64);
-            }
-            encoder.out.push(b'}');
-        }
-        encoder.out.push(b']');
-        String::from_utf8_lossy(&encoder.out).into_owned()
+        saved_json(self.inner.saved())
     }
+}
+
+/// Saved points' lines as a JSON list of their fields.
+fn saved_json(saved: &[run_store::SavedLine]) -> String {
+    let mut encoder = Encoder::with_capacity(256);
+    encoder.out.push(b'[');
+    for (index, saved) in saved.iter().enumerate() {
+        if index > 0 {
+            encoder.out.push(b',');
+        }
+        encoder.out.push(b'{');
+        let fields = [
+            ("records", saved.records),
+            ("samples", saved.samples),
+            ("point_version", saved.point_version),
+            ("log_blocks", saved.log_blocks),
+            ("sample_blocks", saved.sample_blocks),
+        ];
+        encoder.out.extend_from_slice(b"\"minute\":");
+        encoder.int(saved.minute);
+        for (name, value) in fields {
+            encoder.out.push(b',');
+            encoder.string(name);
+            encoder.out.push(b':');
+            encoder.int(value as i64);
+        }
+        encoder.out.push(b'}');
+    }
+    encoder.out.push(b']');
+    String::from_utf8_lossy(&encoder.out).into_owned()
 }
 
 impl Default for RunWriter {

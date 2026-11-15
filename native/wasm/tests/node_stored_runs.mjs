@@ -24,9 +24,14 @@
 //   fork         a branch made by an intervention (js/interventions.mjs) on fork_parent at minute
 //                400, computed to the end: it reads fork_parent's pieces up to its saved point at
 //                360 and stores its own from there
+//   stopped      another Run to compute beside `computed` (#476): stopped after two chunks (a saved
+//                point where it got to), then left `running` with a line cut short after its head
+//                as a page closed in the middle leaves it, recovered as `interrupted`, computed on
+//                to the end (the line cut off first), and a question's turn kept after its end
 // Each Run also reads back to its digests (`readAndVerify`). The records of the two Projects
 // (`computed`'s and the forks') are kept too, in records.json by path: the native store
-// (native/store, #426) writes the same records for the same Runs.
+// (native/store, #426) writes the same records for the same Runs. Both write them through the
+// core's computing procedure (`sheltersim_core::compute`, #476).
 
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -46,6 +51,9 @@ const data = join(here, "..", "..", "core", "tests", "data");
 const out = join(data, "stored_runs");
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
+// The line a page closed in the middle left cut short, and the question's turn kept (`stopped`).
+const TORN = '{"kind":"log_block","offset":1';
+const TURN = '{"answer":"a","question":"q"}';
 // The model versions the fixtures' Runs record: the engine's items.
 const engine = JSON.parse(wasm.engineSignatures());
 
@@ -91,6 +99,7 @@ globalThis.CompressionStream = class extends TransformStream {
 const store = await import(join(here, "..", "js", "project_store.mjs"));
 const runs = await import(join(here, "..", "js", "run_store.mjs"));
 const api = await import(join(here, "..", "js", "browser_api.mjs"));
+const compute = await import(join(here, "..", "js", "compute.mjs"));
 const { COMPUTE_RUN, makeComputeRun } = await import(join(here, "compute_run.mjs"));
 
 let failures = 0;
@@ -148,6 +157,50 @@ for (const [name, saveEvery] of [["from_zero", 360], ["no_points", 0]]) {
   await verified("computed", backend);
   const folder = ["p1", "runs", COMPUTE_RUN, "branches", "main"];
   made.set("computed", { journal: decoder.decode(await tree.read([...folder, "journal.jsonl"])), data: await tree.read([...folder, "data.pack"]) });
+
+  // stopped: stopped after two chunks (the fourth pause before a task of the computation asks it
+  // to stop), interrupted with a line cut short after its head, recovered, computed to the end,
+  // and a question's turn kept.
+  const STOPPED = "run-stopped";
+  await makeComputeRun({ wasm, tree, projectId: "p1", runId: STOPPED });
+  let pauses = 0;
+  const stopping = new api.BrowserApi({
+    wasm,
+    tree,
+    chunkTicks: 60,
+    pause: () => {
+      pauses += 1;
+      if (pauses === 4) for (const job of stopping.computing.jobs.values()) job.cancel = true;
+      return Promise.resolve();
+    },
+  });
+  const at = `/api/v1/projects/p1/runs/${STOPPED}`;
+  const resume = async (browser) => {
+    const answer = await browser.answer({ method: "POST", path: `${at}/resume`, body: JSON.stringify({ branch_id: "main", target_minute: duration }) });
+    check(answer.status === 200, `stopped: resume: ${answer.body}`);
+    for (const job of [...browser.computing.jobs.values()]) await job.finished;
+  };
+  await resume(stopping);
+  stopping.close();
+  const paused = await store.branchRecord(tree, "p1", STOPPED, "main");
+  check(paused.status === "paused" && paused.computed_until === 120, `stopped: ${JSON.stringify(paused)}`);
+  const stoppedBackend = await store.branchBackend(tree, "p1", STOPPED, "main");
+  const journalFile = await stoppedBackend.open("journal.jsonl");
+  journalFile.write(encoder.encode(TORN), journalFile.size());
+  journalFile.close();
+  await store.writeBranch(tree, "p1", STOPPED, { ...paused, status: "running" });
+  await store.setRunStatus(tree, "p1", STOPPED, "running");
+  const recovered = await compute.recoverInterrupted({ wasm, tree, branchLock: async () => () => {} });
+  check(recovered.join() === `p1/${STOPPED}/main`, `stopped: recovered ${recovered}`);
+  const going = new api.BrowserApi({ wasm, tree, chunkTicks: 60 });
+  await resume(going);
+  going.close();
+  await store.keepTurn(wasm, tree, "p1", STOPPED, "main", encoder.encode(TURN));
+  const ended = await store.branchRecord(tree, "p1", STOPPED, "main");
+  check(ended.status === "completed" && ended.computed_until === duration, `stopped: ${JSON.stringify(ended)}`);
+  await verified("stopped", stoppedBackend);
+  const stoppedFolder = ["p1", "runs", STOPPED, "branches", "main"];
+  made.set("stopped", { journal: decoder.decode(await tree.read([...stoppedFolder, "journal.jsonl"])), data: await tree.read([...stoppedFolder, "data.pack"]) });
 }
 
 // fork: a branch made by an intervention at minute 400, computed to the end.

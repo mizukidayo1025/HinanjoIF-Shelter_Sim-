@@ -853,12 +853,6 @@ pub fn zone_has_room(world: &World, inputs: &Inputs, zone_id: &str) -> Result<bo
     Places::of(world)?.has_room(world, inputs, zone_id)
 }
 
-/// `_choose_admission_target`: the zone, and the room if one is taken.
-pub fn choose_admission_target(world: &World, inputs: &Inputs, item: &V) -> Result<Option<(Arc<str>, Option<Arc<str>>)>> {
-    let mut places = Places::of(world)?;
-    Ok(choose_target(world, inputs, &mut places, item)?.map(|(zone, room)| (zone, room.map(|(room_id, _)| room_id))))
-}
-
 // ---- The agent the constructors make -------------------------------------------------------------
 
 /// What the constructors make of a saved profile: the agent's row, or the `ValueError` they raise

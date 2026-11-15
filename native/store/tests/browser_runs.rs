@@ -1,4 +1,4 @@
-//! The browser and the store write the same Runs (Issue #426): the five stored Runs of
+//! The browser and the store write the same Runs (Issue #426): the six stored Runs of
 //! `native/wasm/tests/node_stored_runs.mjs` made again through the store's files, locks and records.
 //!
 //! - With the fixtures' compressor (deflate's stored blocks, the same bytes everywhere), each
@@ -20,7 +20,7 @@ use sheltersim_store::stored::{StoredRun, DATA, JOURNAL};
 
 use crate::support::{data, data_fixture, journal_fixture, journal_of, make_browser_runs, TempDir};
 
-const NAMES: [&str; 5] = ["from_zero", "no_points", "computed", "fork_parent", "fork"];
+const NAMES: [&str; 6] = ["from_zero", "no_points", "computed", "stopped", "fork_parent", "fork"];
 
 /// The records of `records.json`, by path under the store's root.
 fn record_fixtures() -> Vec<(String, String)> {

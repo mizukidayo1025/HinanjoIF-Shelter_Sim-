@@ -57,7 +57,7 @@ pub fn engine() -> Value {
     serde_json::to_value(engine_signatures()).unwrap()
 }
 
-/// The folders of the browser's five stored Runs, as `node_stored_runs.mjs` names them, made again
+/// The folders of the browser's six stored Runs, as `node_stored_runs.mjs` names them, made again
 /// in `root` through the store.
 pub struct Made {
     #[allow(dead_code)]
@@ -88,9 +88,58 @@ pub fn resume(files: &ProjectFiles, project: &str, run: &str, branch: &str, targ
     status
 }
 
+/// The line a page closed in the middle left cut short, and the question's turn kept, of the Run
+/// `stopped` (as `node_stored_runs.mjs` writes them).
+const TORN: &str = r#"{"kind":"log_block","offset":1"#;
+const TURN: &str = r#"{"answer":"a","question":"q"}"#;
+
+/// Computes `branch` from its head toward `target` as the browser's `resume`, stopped (a cancel)
+/// after `chunks` chunks of `ticks`: the branch and the Run `running`, then the status it ends with.
+pub fn stop_after(files: &ProjectFiles, project: &str, run: &str, branch: &str, target: i64, ticks: u64, chunks: usize) -> &'static str {
+    let lease = files.claim_branch(project, run, branch).unwrap();
+    let record = Branch::of_record(&files.branch_record(project, run, branch).unwrap()).unwrap();
+    files.write_branch(project, run, &Branch { status: Some("running".to_owned()), ..record }).unwrap();
+    files.set_run_status(project, run, "running").unwrap();
+    let mut computation: Computation = files.go_on(&lease, project, run, branch, target).unwrap();
+    for _ in 0..chunks {
+        assert_eq!(computation.chunk(files, ticks).unwrap(), None);
+    }
+    let status = computation.stop(files).unwrap();
+    computation.end(files, status).unwrap();
+    status
+}
+
+/// A Run to compute beside `r-sample` of `p1` (compute_run.mjs): the sample's "run" line and
+/// "export" piece, copied, and its records, `queued` at minute 0.
+fn make_compute_run(files: &ProjectFiles, run_id: &str) {
+    let source = files.reader("p1", "r-sample", "main").unwrap();
+    let export = source.journal().find("export").unwrap();
+    let compressed = source.compressed(export).unwrap();
+    let mut writer =
+        StoredRunWriter::create(&files.branch_folder("p1", run_id, "main").unwrap(), files.quota().unwrap()).unwrap().with_compress(files.compress());
+    writer.core.same_start(source.journal()).unwrap();
+    let head = writer.flush(Some(&compressed)).unwrap().unwrap();
+    drop(writer);
+    let source_record = files.run_record("p1", "r-sample").unwrap();
+    let evidence = files.evidence_bytes("p1", "r-sample").unwrap();
+    let run = NewRun {
+        run_id,
+        scenario_id: "trial",
+        scenario_version: 1,
+        seed: 7,
+        model_versions: &source_record["model_versions"],
+        evidence: &evidence,
+        created_at: "2026-11-15T01:30:00Z",
+    };
+    files.create_run("p1", &run).unwrap();
+    let main = Branch { branch_id: "main".to_owned(), checkpoint_hash: Some(head), status: Some("queued".to_owned()), ..Branch::default() };
+    files.write_branch("p1", run_id, &main).unwrap();
+}
+
 /// The browser's stored Runs made again: from_zero and no_points (`runAndStore` in a folder of
 /// their own), computed (a Run of the sample's exported world computed in chunks to a target and
-/// on to the end) and fork_parent and fork (a branch made by an intervention and computed to the
+/// on to the end; stopped, the same stopped, interrupted, recovered, computed on and a turn kept)
+/// and fork_parent and fork (a branch made by an intervention and computed to the
 /// end), with the store's compressor.
 pub fn make_browser_runs(root: &Path, files: ProjectFiles) -> Made {
     use sheltersim_store::stored::{run_and_store, FromStart};
@@ -128,31 +177,29 @@ pub fn make_browser_runs(root: &Path, files: ProjectFiles) -> Made {
     files.set_run_status("p1", "r-sample", "completed").unwrap();
     // The Run to compute (compute_run.mjs): the sample's "run" line and "export" piece, copied.
     let compute = "run-browser-compute";
-    let source = files.reader("p1", "r-sample", "main").unwrap();
-    let export = source.journal().find("export").unwrap();
-    let compressed = source.compressed(export).unwrap();
-    let mut writer =
-        StoredRunWriter::create(&files.branch_folder("p1", compute, "main").unwrap(), files.quota().unwrap()).unwrap().with_compress(files.compress());
-    writer.core.same_start(source.journal()).unwrap();
-    let head = writer.flush(Some(&compressed)).unwrap().unwrap();
-    drop(writer);
-    let source_record = files.run_record("p1", "r-sample").unwrap();
-    let evidence = files.evidence_bytes("p1", "r-sample").unwrap();
-    let run = NewRun {
-        run_id: compute,
-        scenario_id: "trial",
-        scenario_version: 1,
-        seed: 7,
-        model_versions: &source_record["model_versions"],
-        evidence: &evidence,
-        created_at: "2026-11-15T01:30:00Z",
-    };
-    files.create_run("p1", &run).unwrap();
-    let main = Branch { branch_id: "main".to_owned(), checkpoint_hash: Some(head), status: Some("queued".to_owned()), ..Branch::default() };
-    files.write_branch("p1", compute, &main).unwrap();
+    make_compute_run(&files, compute);
     assert_eq!(resume(&files, "p1", compute, "main", 360 + 140, 60), "paused");
     assert_eq!(resume(&files, "p1", compute, "main", duration, 60), "completed");
     folders.push(("computed", files.branch_folder("p1", compute, "main").unwrap()));
+
+    // stopped: stopped after two chunks, interrupted with a line cut short after its head,
+    // recovered, computed to the end, and a question's turn kept.
+    let stopped = "run-stopped";
+    make_compute_run(&files, stopped);
+    assert_eq!(stop_after(&files, "p1", stopped, "main", duration, 60, 2), "paused");
+    let folder = files.branch_folder("p1", stopped, "main").unwrap();
+    let mut journal = fs::OpenOptions::new().append(true).open(folder.join("journal.jsonl")).unwrap();
+    std::io::Write::write_all(&mut journal, TORN.as_bytes()).unwrap();
+    drop(journal);
+    let record = Branch::of_record(&files.branch_record("p1", stopped, "main").unwrap()).unwrap();
+    files.write_branch("p1", stopped, &Branch { status: Some("running".to_owned()), ..record }).unwrap();
+    files.set_run_status("p1", stopped, "running").unwrap();
+    assert_eq!(files.recover_interrupted().unwrap(), [("p1".to_owned(), stopped.to_owned(), "main".to_owned())]);
+    assert_eq!(resume(&files, "p1", stopped, "main", duration, 60), "completed");
+    let lease = files.claim_branch("p1", stopped, "main").unwrap();
+    files.keep_turn(&lease, "p1", stopped, "main", TURN.as_bytes()).unwrap();
+    lease.release();
+    folders.push(("stopped", folder));
 
     // fork_parent and fork: interventions.json's world, its branch `main` computed to the end, and a
     // branch made at minute 400 with the fixture's program, computed to the end.

@@ -630,11 +630,206 @@ pub(crate) fn presence_state(world: &World, held: &Held) -> Result<bool> {
     }
 }
 
-/// The record of a person in the ledger, if any.
-pub(crate) fn person_in(presence: &V, agent_id: &str) -> Result<Option<Person>> {
-    match kit::get(field(presence, "people")?, agent_id)? {
-        V::Null => Ok(None),
-        found => Person::parse(found).map(Some),
+/// `population_presence_v1` as the rules read it, borrowed from its row: a dict, whose checks are
+/// the reader's (`presence_state`).
+#[derive(Clone, Copy)]
+pub(crate) struct PresenceState<'a>(&'a V);
+
+impl<'a> PresenceState<'a> {
+    pub(crate) fn of(state: &'a V) -> Self {
+        Self(state)
+    }
+
+    /// The record of a person in the ledger, if any.
+    pub(crate) fn person(self, agent_id: &str) -> Result<Option<Person>> {
+        match kit::get(field(self.0, "people")?, agent_id)? {
+            V::Null => Ok(None),
+            found => Person::parse(found).map(Some),
+        }
+    }
+
+    /// `agent_id in raw["people"]`.
+    fn has_person(self, agent_id: &str) -> Result<bool> {
+        Ok(map_of(field(self.0, "people")?)?.contains_key(agent_id))
+    }
+}
+
+/// `population_dynamics_v1` as the rules read it, borrowed from its row or from a state a plan
+/// made. Each read refuses what it refused where the rules read the value.
+#[derive(Clone, Copy)]
+pub(crate) struct DynamicsState<'a>(&'a V);
+
+impl<'a> DynamicsState<'a> {
+    pub(crate) fn of(state: &'a V) -> Self {
+        Self(state)
+    }
+
+    /// `state["pending_arrivals"]`, a list.
+    fn pending(self) -> Result<Vec<PendingItem<'a>>> {
+        Ok(list_of(field(self.0, "pending_arrivals")?)?.iter().map(PendingItem).collect())
+    }
+
+    /// `state["pending_arrivals"]` when it holds anyone (None for a falsy value), a list.
+    fn waiting(self) -> Result<Option<Vec<PendingItem<'a>>>> {
+        let pending = field(self.0, "pending_arrivals")?;
+        if !pending.is_truthy() {
+            return Ok(None);
+        }
+        Ok(Some(list_of(pending)?.iter().map(PendingItem).collect()))
+    }
+
+    /// `state["initial_agent_ids"]`, each a str.
+    fn initial_ids(self) -> Result<Vec<Arc<str>>> {
+        list_of(field(self.0, "initial_agent_ids")?)?.iter().map(text).collect()
+    }
+
+    /// The IDs of `state["profile_traits"]`, a dict.
+    fn trait_ids(self) -> Result<Vec<Arc<str>>> {
+        Ok(map_of(field(self.0, "profile_traits")?)?.keys().cloned().collect())
+    }
+
+    /// The summaries of `state["arrivals"]` (those with `requested_count`): their index, event and
+    /// requested count.
+    fn summaries(self) -> Result<Vec<(usize, Arc<str>, i64)>> {
+        let mut summaries = Vec::new();
+        for (index, record) in list_of(field(self.0, "arrivals")?)?.iter().enumerate() {
+            if !has(record, "requested_count")? {
+                continue;
+            }
+            let requested = kit::exact_int(field(record, "requested_count")?)?;
+            let event_id = text(field(record, "event_id")?)?;
+            summaries.push((index, event_id, requested));
+        }
+        Ok(summaries)
+    }
+
+    /// `_arrival_minute`.
+    fn arrival_minute(self, agent_id: &str) -> Result<i64> {
+        for record in list_of(field(self.0, "arrivals")?)? {
+            if equals_text(kit::get(record, "agent_id")?, agent_id) {
+                let fields = map_of(record)?;
+                let value = match fields.get("admitted_minute") {
+                    Some(value) => value,
+                    None => fields.get("created_minute").unwrap_or(&V::Int(0)),
+                };
+                return kit::exact_int(value);
+            }
+        }
+        Ok(0)
+    }
+}
+
+/// An arrival of `pending_arrivals`, as the rules read it, borrowed from its state.
+#[derive(Clone, Copy)]
+pub(crate) struct PendingItem<'a>(&'a V);
+
+impl<'a> PendingItem<'a> {
+    pub(crate) fn of(item: &'a V) -> Self {
+        Self(item)
+    }
+
+    /// A copy of the item, to keep past the state's borrow.
+    fn to_value(self) -> V {
+        self.0.clone()
+    }
+
+    /// `item["created_minute"]`, an int.
+    fn created_minute(self) -> Result<i64> {
+        kit::exact_int(field(self.0, "created_minute")?)
+    }
+
+    /// `item["event_id"]`, a str.
+    fn event_id(self) -> Result<Arc<str>> {
+        text(field(self.0, "event_id")?)
+    }
+
+    /// `item["profile"]["id"]`, a str.
+    fn agent_id(self) -> Result<Arc<str>> {
+        text(field(field(self.0, "profile")?, "id")?)
+    }
+
+    /// Whether the arrival is on its approach: a route, and no completion yet.
+    fn approaching(self) -> Result<bool> {
+        Ok(has(self.0, "approach_route_id")? && matches!(kit::get(self.0, "approach_completed_minute")?, V::Null))
+    }
+
+    /// The zone the arrival asked for, then its alternate admission zones.
+    fn zones(self) -> Result<Vec<Arc<str>>> {
+        let mut zones = vec![text(field(self.0, "zone_id")?)?];
+        match map_of(self.0)?.get("admission_zone_ids") {
+            None => {}
+            Some(V::List(alternates)) => {
+                for zone in alternates {
+                    zones.push(text(zone)?);
+                }
+            }
+            Some(_) => return refuse("the admission zones are not a list"),
+        }
+        Ok(zones)
+    }
+
+    /// The arrival's household (its traits') and source (its profile's provenance).
+    fn household_and_source(self) -> Result<(Option<Arc<str>>, Arc<str>)> {
+        let household = match kit::get(self.0, "traits")? {
+            traits @ V::Map(_) => kit::optional_text(kit::get(traits, "household_id")?)?.cloned(),
+            _ => None,
+        };
+        let profile = field(self.0, "profile")?;
+        let source = match map_of(profile)?.get("provenance") {
+            None => Arc::from(SOURCE_ID),
+            Some(V::Map(provenance)) => match provenance.get("source_id") {
+                None => Arc::from(SOURCE_ID),
+                Some(source) => text(source)?,
+            },
+            Some(_) => return refuse("a provenance is not a plain dict"),
+        };
+        Ok((household, source))
+    }
+
+    /// What the plan asks of a person about to be admitted.
+    fn check_for_admission(self, zone: &str) -> Result<()> {
+        let raw = field(self.0, "profile")?;
+        let agent_id = text(field(raw, "id")?)?;
+        let event_id = text(field(self.0, "event_id")?)?;
+        let (household, source) = self.household_and_source()?;
+        let group = kit::optional_text(field(raw, "group_id")?)?.cloned();
+        check_presence_ids(&event_id, &agent_id, Some(zone), household.as_deref().or(group.as_deref()), &source)?;
+        kit::exact_int(field(self.0, "created_minute")?)?;
+        if let Some(route) = map_of(self.0)?.get("approach_route_id") {
+            text(route)?;
+        }
+        Ok(())
+    }
+
+    /// The agent the constructors make of the saved profile (`build_agent`).
+    fn agent(self, zone_id: &Arc<str>, minute: i64, schema_version: i64) -> Result<Built> {
+        build_agent(field(self.0, "profile")?, zone_id, minute, schema_version)
+    }
+
+    /// The record of `arrivals` of the person admitted: the item's event, zone, minutes and route,
+    /// as they are.
+    fn admitted_record(self, agent_id: &Arc<str>, zone_id: &Arc<str>, room: Option<&Arc<str>>, minute: i64) -> Result<Doc> {
+        let item = self.0;
+        let mut record = doc([
+            ("event_id", field(item, "event_id")?.clone()),
+            ("agent_id", V::Str(agent_id.clone())),
+            ("zone_id", V::Str(zone_id.clone())),
+            ("preferred_zone_id", field(item, "zone_id")?.clone()),
+            ("room_id", room.map_or(V::Null, |room_id| V::Str(room_id.clone()))),
+            ("created_minute", field(item, "created_minute")?.clone()),
+            ("admitted_minute", V::Int(minute)),
+        ]);
+        let fields = map_of(item)?;
+        if fields.contains_key("approach_route_id") {
+            record.insert(Arc::from("approach_route_id"), field(item, "approach_route_id")?.clone());
+            record.insert(Arc::from("approach_started_minute"), field(item, "approach_started_minute")?.clone());
+            let completed = match fields.get("approach_completed_minute") {
+                Some(completed) => completed.clone(),
+                None => field(item, "approach_due_minute")?.clone(),
+            };
+            record.insert(Arc::from("approach_completed_minute"), completed);
+        }
+        Ok(record)
     }
 }
 
@@ -680,7 +875,7 @@ fn record_presence_transition(world: &World, inputs: &Inputs, change: PresenceCh
         let Some(raw) = value_of(world, PRESENCE, &inputs.namespaces.presence)?.filter(|row| matches!(row.0, V::Map(_))) else {
             return Ok(());
         };
-        person_in(&raw.0, agent_id)?
+        PresenceState::of(&raw.0).person(agent_id)?
     };
     let (admitted, group, here) = {
         let rows = world.rows()?;
@@ -826,18 +1021,8 @@ impl Places {
 type Target = (Arc<str>, Option<(Arc<str>, Pt)>);
 
 /// `_choose_admission_target`: the first zone with room, or with a room of the overlay.
-fn choose_target(world: &World, inputs: &Inputs, places: &mut Places, item: &V) -> Result<Option<Target>> {
-    let mut zones = vec![text(field(item, "zone_id")?)?];
-    match map_of(item)?.get("admission_zone_ids") {
-        None => {}
-        Some(V::List(alternates)) => {
-            for zone in alternates {
-                zones.push(text(zone)?);
-            }
-        }
-        Some(_) => return refuse("the admission zones are not a list"),
-    }
-    for zone in zones {
+fn choose_target(world: &World, inputs: &Inputs, places: &mut Places, item: PendingItem<'_>) -> Result<Option<Target>> {
+    for zone in item.zones()? {
         if places.has_room(world, inputs, &zone)? {
             return Ok(Some((zone, None)));
         }
@@ -1015,39 +1200,6 @@ pub fn check_admission_paths(world: &World, inputs: &Inputs, zones: &[&str]) -> 
     Ok(())
 }
 
-/// A waiting arrival's household (its traits') and source (its profile's provenance).
-fn household_and_source(item: &V) -> Result<(Option<Arc<str>>, Arc<str>)> {
-    let household = match kit::get(item, "traits")? {
-        traits @ V::Map(_) => kit::optional_text(kit::get(traits, "household_id")?)?.cloned(),
-        _ => None,
-    };
-    let profile = field(item, "profile")?;
-    let source = match map_of(profile)?.get("provenance") {
-        None => Arc::from(SOURCE_ID),
-        Some(V::Map(provenance)) => match provenance.get("source_id") {
-            None => Arc::from(SOURCE_ID),
-            Some(source) => text(source)?,
-        },
-        Some(_) => return refuse("a provenance is not a plain dict"),
-    };
-    Ok((household, source))
-}
-
-/// What the plan asks of a person about to be admitted.
-fn check_item_for_admission(item: &V, zone: &str) -> Result<()> {
-    let raw = field(item, "profile")?;
-    let agent_id = text(field(raw, "id")?)?;
-    let event_id = text(field(item, "event_id")?)?;
-    let (household, source) = household_and_source(item)?;
-    let group = kit::optional_text(field(raw, "group_id")?)?.cloned();
-    check_presence_ids(&event_id, &agent_id, Some(zone), household.as_deref().or(group.as_deref()), &source)?;
-    kit::exact_int(field(item, "created_minute")?)?;
-    if let Some(route) = map_of(item)?.get("approach_route_id") {
-        text(route)?;
-    }
-    Ok(())
-}
-
 /// One admission a plan has made.
 #[derive(Clone)]
 struct Admission {
@@ -1066,7 +1218,7 @@ fn write_admission(world: &World, inputs: &Inputs, admission: &Admission, minute
     let agent_id = agent.profile.id.clone();
     let fatigue = agent.needs.fatigue;
     let zone_id = &admission.zone;
-    let item = &admission.item;
+    let item = PendingItem::of(&admission.item);
     world.rows_mut()?.agents.insert(agent_id.clone(), (**agent).clone());
     if is_held(&inputs.namespaces.information) {
         let mut info = world.row_mut::<InformationRow>(INFORMATION)?;
@@ -1080,31 +1232,12 @@ fn write_admission(world: &World, inputs: &Inputs, admission: &Admission, minute
     if value_of(world, DYNAMICS, &inputs.namespaces.dynamics)?.is_none() {
         return Err(Error::Runtime("the population state left during an admission".to_owned()));
     }
-    let event_id = field(item, "event_id")?.clone();
-    let mut record = doc([
-        ("event_id", event_id.clone()),
-        ("agent_id", V::Str(agent_id.clone())),
-        ("zone_id", V::Str(zone_id.clone())),
-        ("preferred_zone_id", field(item, "zone_id")?.clone()),
-        ("room_id", admission.room.as_ref().map_or(V::Null, |(room_id, _)| V::Str(room_id.clone()))),
-        ("created_minute", field(item, "created_minute")?.clone()),
-        ("admitted_minute", V::Int(minute)),
-    ]);
-    let fields = map_of(item)?;
-    if fields.contains_key("approach_route_id") {
-        record.insert(Arc::from("approach_route_id"), field(item, "approach_route_id")?.clone());
-        record.insert(Arc::from("approach_started_minute"), field(item, "approach_started_minute")?.clone());
-        let completed = match fields.get("approach_completed_minute") {
-            Some(completed) => completed.clone(),
-            None => field(item, "approach_due_minute")?.clone(),
-        };
-        record.insert(Arc::from("approach_completed_minute"), completed);
-    }
+    let record = item.admitted_record(&agent_id, zone_id, admission.room.as_ref().map(|(room_id, _)| room_id), minute)?;
     {
         let mut row = world.row_mut::<ValueRow>(DYNAMICS)?;
         list_mut(field_mut(&mut row.0, "arrivals")?)?.push(V::Map(record));
     }
-    let event_text = text(&event_id)?;
+    let event_text = item.event_id()?;
     if is_held(&inputs.namespaces.movement) {
         reset_position(world, inputs.geo()?, &agent_id, zone_id)?;
     }
@@ -1119,11 +1252,11 @@ fn write_admission(world: &World, inputs: &Inputs, admission: &Admission, minute
         }
     }
     let status = match value_of(world, PRESENCE, &inputs.namespaces.presence)? {
-        Some(presence) if matches!(presence.0, V::Map(_)) => person_in(&presence.0, &agent_id)?.map(|person| person.status),
+        Some(presence) if matches!(presence.0, V::Map(_)) => PresenceState::of(&presence.0).person(&agent_id)?.map(|person| person.status),
         _ => None,
     };
     let action = if status.as_deref() == Some("awaiting_admission") { "admitted" } else { "arrived" };
-    let (household, source) = household_and_source(item)?;
+    let (household, source) = item.household_and_source()?;
     record_presence_transition(
         world,
         inputs,
@@ -1178,16 +1311,15 @@ fn plan_admit(world: &World, inputs: &Inputs, minute: i64) -> Result<Option<Admi
     let Some(state) = value_of(world, DYNAMICS, &inputs.namespaces.dynamics)? else {
         return Ok(None);
     };
-    let pending = field(&state.0, "pending_arrivals")?;
-    if !pending.is_truthy() {
+    let dynamics = DynamicsState::of(&state.0);
+    let Some(pending) = dynamics.waiting()? else {
         return Ok(None);
-    }
-    let pending = list_of(pending)?;
+    };
     let mut waiting = Vec::with_capacity(pending.len());
     for (index, item) in pending.iter().enumerate() {
-        let created = kit::exact_int(field(item, "created_minute")?)?;
-        let event_id = text(field(item, "event_id")?)?;
-        let agent_id = text(field(field(item, "profile")?, "id")?)?;
+        let created = item.created_minute()?;
+        let event_id = item.event_id()?;
+        let agent_id = item.agent_id()?;
         waiting.push((created, event_id, agent_id, index));
     }
     // Stable, as sorted is; IDs compare as their bytes do.
@@ -1198,17 +1330,16 @@ fn plan_admit(world: &World, inputs: &Inputs, minute: i64) -> Result<Option<Admi
     let mut remaining = Vec::with_capacity(waiting.len());
     let mut still = Vec::with_capacity(waiting.len());
     for (_, event_id, agent_id, index) in waiting {
-        let item = &pending[index];
-        let approaching = has(item, "approach_route_id")? && matches!(kit::get(item, "approach_completed_minute")?, V::Null);
-        if !approaching {
+        let item = pending[index];
+        if !item.approaching()? {
             if let Some((zone, room)) = choose_target(world, inputs, &mut places, item)? {
-                check_item_for_admission(item, &zone)?;
-                let agent = build_agent(field(item, "profile")?, &zone, minute, schema_version)?;
+                item.check_for_admission(&zone)?;
+                let agent = item.agent(&zone, minute, schema_version)?;
                 places.add(&zone);
                 if let Some((room_id, point)) = &room {
                     places.take_room(inputs, room_id, *point);
                 }
-                admissions.push(Admission { item: item.clone(), zone, room, agent });
+                admissions.push(Admission { item: item.to_value(), zone, room, agent });
                 continue;
             }
         }
@@ -1216,15 +1347,7 @@ fn plan_admit(world: &World, inputs: &Inputs, minute: i64) -> Result<Option<Admi
         still.push((event_id, agent_id));
     }
     check_admissions(world, inputs, &admissions)?;
-    let mut summaries = Vec::new();
-    for (index, record) in list_of(field(&state.0, "arrivals")?)?.iter().enumerate() {
-        if !has(record, "requested_count")? {
-            continue;
-        }
-        let requested = kit::exact_int(field(record, "requested_count")?)?;
-        let event_id = text(field(record, "event_id")?)?;
-        summaries.push((index, event_id, requested));
-    }
+    let summaries = dynamics.summaries()?;
     Ok(Some(AdmitPlan { admissions, remaining, held: pending.len(), waiting: still, summaries }))
 }
 
@@ -1395,10 +1518,10 @@ fn dynamics_or_new<C: WorldCell, H: Host>(cell: &C, host: &mut H, inputs: &Input
 }
 
 /// The state a plan reads: a new one, or the world's.
-fn state_in<'a>(new_state: &'a Option<V>, held: &'a Option<ShardRef<'_, ValueRow>>) -> Result<&'a V> {
+fn state_in<'a>(new_state: &'a Option<V>, held: &'a Option<ShardRef<'_, ValueRow>>) -> Result<DynamicsState<'a>> {
     match (new_state, held) {
-        (Some(state), _) => Ok(state),
-        (None, Some(row)) => Ok(&row.0),
+        (Some(state), _) => Ok(DynamicsState::of(state)),
+        (None, Some(row)) => Ok(DynamicsState::of(&row.0)),
         (None, None) => refuse("the population state is None"),
     }
 }
@@ -1843,7 +1966,7 @@ fn plan_arrivals_in(world: &World, inputs: &Inputs, row: &EventRow, new_state: O
             return Ok(false);
         }
         let ledger = value_of(world, PRESENCE, &inputs.namespaces.presence)?.ok_or_else(|| Error::unsupported("no presence"))?;
-        Ok(map_of(field(&ledger.0, "people")?)?.contains_key(&*item.agent_id))
+        PresenceState::of(&ledger.0).has_person(&item.agent_id)
     };
     // What `_record_waiting_presence` validates of the IDs it will write.
     let check_waiting_ids = |item: &Prepared| -> Result<()> {
@@ -1929,16 +2052,13 @@ fn plan_arrivals_in(world: &World, inputs: &Inputs, row: &EventRow, new_state: O
 
 /// The IDs an arrival may not take (the people's, the pending arrivals' and the profiles') and the
 /// bound the arrivals would pass, if any; the pending and profile IDs only within the bounds.
-fn reserved_ids(world: &World, state: &V, count: i64) -> Result<(HashSet<Arc<str>>, Option<&'static str>)> {
-    let pending = list_of(field(state, "pending_arrivals")?)?;
+fn reserved_ids(world: &World, state: DynamicsState<'_>, count: i64) -> Result<(HashSet<Arc<str>>, Option<&'static str>)> {
+    let pending = state.pending()?;
     let pending_count = pending.len() as i64;
     let agents = world.rows()?.agents.len() as i64;
-    let mut known: HashSet<Arc<str>> = HashSet::new();
-    for id in list_of(field(state, "initial_agent_ids")?)? {
-        known.insert(text(id)?);
-    }
-    let traits_map = map_of(field(state, "profile_traits")?)?;
-    known.extend(traits_map.keys().cloned());
+    let mut known: HashSet<Arc<str>> = state.initial_ids()?.into_iter().collect();
+    let trait_ids = state.trait_ids()?;
+    known.extend(trait_ids.iter().cloned());
     let fails = if pending_count + count > MAX_PENDING_ARRIVALS {
         Some("population arrival exceeds the pending capacity bound")
     } else if agents + pending_count + count > 10_000 {
@@ -1951,9 +2071,9 @@ fn reserved_ids(world: &World, state: &V, count: i64) -> Result<(HashSet<Arc<str
     let mut reserved: HashSet<Arc<str>> = world.rows()?.agents.iter().map(|(id, _)| id.clone()).collect();
     if fails.is_none() {
         for item in pending {
-            reserved.insert(text(field(field(item, "profile")?, "id")?)?);
+            reserved.insert(item.agent_id()?);
         }
-        reserved.extend(traits_map.keys().cloned());
+        reserved.extend(trait_ids);
     }
     Ok((reserved, fails))
 }
@@ -2629,21 +2749,6 @@ pub enum Departures {
     Leave { new_state: Option<V>, selected: Vec<Arc<str>> },
 }
 
-/// `_arrival_minute`.
-fn arrival_minute(state: &V, agent_id: &str) -> Result<i64> {
-    for record in list_of(field(state, "arrivals")?)? {
-        if equals_text(kit::get(record, "agent_id")?, agent_id) {
-            let fields = map_of(record)?;
-            let value = match fields.get("admitted_minute") {
-                Some(value) => value,
-                None => fields.get("created_minute").unwrap_or(&V::Int(0)),
-            };
-            return kit::exact_int(value);
-        }
-    }
-    Ok(0)
-}
-
 /// What `_remove_information_state` and `_archive_person` ask of the information state.
 pub(crate) fn check_information(world: &World, inputs: &Inputs) -> Result<()> {
     if let Some(info) = typed_of::<InformationRow>(world, INFORMATION, &inputs.namespaces.information)? {
@@ -2724,15 +2829,12 @@ fn plan_departures_in(
     let held = value_of(world, DYNAMICS, &inputs.namespaces.dynamics)?;
     let (keyed, busy) = {
         let state = state_in(&new_state, &held)?;
-        let mut initial: HashSet<Arc<str>> = HashSet::new();
-        for id in list_of(field(state, "initial_agent_ids")?)? {
-            initial.insert(text(id)?);
-        }
+        let initial: HashSet<Arc<str>> = state.initial_ids()?.into_iter().collect();
         let rows = world.rows()?;
         let mut keyed = Vec::new();
         for (id, agent) in rows.agents.iter() {
             if (include_initial || !initial.contains(id)) && &*agent.zone_id == zone {
-                let minute = if initial.contains(id) { -1 } else { arrival_minute(state, id)? };
+                let minute = if initial.contains(id) { -1 } else { state.arrival_minute(id)? };
                 keyed.push((minute, id.clone()));
             }
         }

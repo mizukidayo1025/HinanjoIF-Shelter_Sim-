@@ -507,38 +507,8 @@ fn parameter_catalog(configs: &IndexMap<Arc<str>, V>, selection: &crate::config:
     let installed = installed()?;
     let assumption = |model_id: &str| -> Result<V> { Ok(installed.model(model_id)?.get("assumption_source_id").cloned().unwrap_or(V::Null)) };
     let selected = |domain: &str| selection.get(domain).cloned().ok_or_else(|| Error::Key(domain.to_owned()));
-    let raw_staff = section_map(configs, "staff");
-    let mut staff: IndexMap<Arc<str>, V> =
-        [("support_task_minutes", V::Int(10)), ("unresolved_after_minutes", V::Int(90)), ("support_cooldown_minutes", V::Int(30))]
-            .into_iter()
-            .map(|(key, found)| (text(key), found))
-            .collect();
-    for (key, found) in &raw_staff {
-        staff.insert(key.clone(), found.clone());
-    }
-    if !raw_staff.contains_key("support_fairness_minutes") {
-        let fairness = match staff.get("unresolved_after_minutes") {
-            Some(V::Int(minutes)) if *minutes > 0 => (*minutes - 1).clamp(1, 30),
-            _ => 30,
-        };
-        staff.insert(text("support_fairness_minutes"), V::Int(fairness));
-    }
-    let psychology_raw = section_map(configs, "psychology");
-    let mut psychology = IndexMap::new();
-    for (name, default) in PSYCHOLOGY {
-        match (psychology_raw.get(name), default) {
-            (Some(V::Int(number)), _) => {
-                psychology.insert(text(name), V::Float(*number as f64));
-            }
-            (Some(found @ V::Float(_)), _) => {
-                psychology.insert(text(name), found.clone());
-            }
-            (None | Some(V::Null), Some(default)) => {
-                psychology.insert(text(name), V::Float(default));
-            }
-            _ => {}
-        }
-    }
+    let staff = staff_section(configs);
+    let psychology = psychology_section(configs);
     let social_source = assumption(&selected("social")?)?;
     let V::Str(social_source) = social_source else {
         return Err(Error::unsupported("a model has no assumption source"));
@@ -586,67 +556,8 @@ fn parameter_catalog(configs: &IndexMap<Arc<str>, V>, selection: &crate::config:
         sources.insert(name, assumption(&selected(domain)?)?);
     }
     let mut by_path: IndexMap<Arc<str>, V> = IndexMap::new();
-    for (domain, config) in &sections {
-        for (name, found) in config {
-            if !is_scalar(found) || &**name == "schema_version" {
-                continue;
-            }
-            let mut unit = if matches!(found, V::Bool(_)) {
-                "boolean"
-            } else if name.contains("minutes") {
-                "minute"
-            } else if name.contains("_ml") {
-                "mL"
-            } else if name.contains("meal_units") {
-                "meal_unit"
-            } else if name.contains("contacts") {
-                "count"
-            } else {
-                "normalized_or_multiplier"
-            };
-            let (mut lower, mut upper) = (V::Float(0.0), V::Null);
-            if *domain == "staff" && &**name == "support_fairness_minutes" {
-                lower = V::Int(1);
-                upper = config.get("unresolved_after_minutes").cloned().unwrap_or(V::Null);
-            }
-            if *domain == "psychology" {
-                let threshold = &**name == "need_pressure_threshold";
-                upper = V::Float(if threshold { 1.0 } else { 0.25 });
-                unit = if threshold { "normalized_0_1" } else { "normalized_per_minute" };
-            }
-            let path = text(&format!("{domain}.{name}"));
-            let row = vmap([
-                ("path", V::Str(path.clone())),
-                ("value", found.clone()),
-                ("unit", vstr(unit)),
-                ("lower", lower),
-                ("upper", upper),
-                ("evidence_grade", vstr("C")),
-                ("source_id", sources.get(domain).cloned().unwrap_or(V::Null)),
-                ("applicability", vstr("synthetic single-shelter hypothesis; no empirical calibration")),
-                ("external_validation", V::Bool(false)),
-            ]);
-            by_path.insert(path, row);
-        }
-    }
-    let mut active: Vec<Arc<str>> = selection.iter().map(|(_, model)| text(model)).collect();
-    if signatures.contains_key("simulator:staff_operations_v1") {
-        active.push(text("autonomous-routed-staff-v1"));
-    }
-    if signatures.contains_key("simulator:movement_v1") {
-        active.push(text("spatial-route-and-room-waypoint-v2"));
-    }
-    for (key, model) in [("resource_service", "resource-service-v1"), ("toilet_service", "toilet-service-uniform-v1"), ("staff", "staff-support-fifo-aging-v2")]
-    {
-        if configs.contains_key(key) {
-            active.push(text(model));
-        }
-    }
-    if let Some(V::Str(policy)) = section_map(configs, "staff_dynamics").get("policy_version") {
-        if matches!(&**policy, "continuous-duty-fatigue-v1" | "continuous-duty-fatigue-v2") {
-            active.push(policy.clone());
-        }
-    }
+    add_section_rows(&mut by_path, &sections, &sources);
+    let active = active_models(configs, selection, signatures);
     let configs_value = V::Map(configs.clone());
     let parameters_of = |model_id: &str| -> Result<IndexMap<Arc<str>, V>> {
         Ok(match installed.model(model_id)?.get("parameters") {
@@ -736,6 +647,119 @@ fn parameter_catalog(configs: &IndexMap<Arc<str>, V>, selection: &crate::config:
     }
     by_path.sort_by(|first, _, second, _| first.as_bytes().cmp(second.as_bytes()));
     Ok(V::List(by_path.into_values().collect()))
+}
+
+/// The staff section with its defaults, and the fairness minutes the rule derives where unset.
+fn staff_section(configs: &IndexMap<Arc<str>, V>) -> IndexMap<Arc<str>, V> {
+    let raw_staff = section_map(configs, "staff");
+    let mut staff: IndexMap<Arc<str>, V> =
+        [("support_task_minutes", V::Int(10)), ("unresolved_after_minutes", V::Int(90)), ("support_cooldown_minutes", V::Int(30))]
+            .into_iter()
+            .map(|(key, found)| (text(key), found))
+            .collect();
+    for (key, found) in &raw_staff {
+        staff.insert(key.clone(), found.clone());
+    }
+    if !raw_staff.contains_key("support_fairness_minutes") {
+        let fairness = match staff.get("unresolved_after_minutes") {
+            Some(V::Int(minutes)) if *minutes > 0 => (*minutes - 1).clamp(1, 30),
+            _ => 30,
+        };
+        staff.insert(text("support_fairness_minutes"), V::Int(fairness));
+    }
+    staff
+}
+
+/// The psychology section's numbers as floats, with their defaults where unset.
+fn psychology_section(configs: &IndexMap<Arc<str>, V>) -> IndexMap<Arc<str>, V> {
+    let psychology_raw = section_map(configs, "psychology");
+    let mut psychology = IndexMap::new();
+    for (name, default) in PSYCHOLOGY {
+        match (psychology_raw.get(name), default) {
+            (Some(V::Int(number)), _) => {
+                psychology.insert(text(name), V::Float(*number as f64));
+            }
+            (Some(found @ V::Float(_)), _) => {
+                psychology.insert(text(name), found.clone());
+            }
+            (None | Some(V::Null), Some(default)) => {
+                psychology.insert(text(name), V::Float(default));
+            }
+            _ => {}
+        }
+    }
+    psychology
+}
+
+/// The rows of the sections' scalar values, with the units and ranges the names say and each
+/// section's source.
+fn add_section_rows(by_path: &mut IndexMap<Arc<str>, V>, sections: &[(&str, IndexMap<Arc<str>, V>)], sources: &IndexMap<&str, V>) {
+    for (domain, config) in sections {
+        for (name, found) in config {
+            if !is_scalar(found) || &**name == "schema_version" {
+                continue;
+            }
+            let mut unit = if matches!(found, V::Bool(_)) {
+                "boolean"
+            } else if name.contains("minutes") {
+                "minute"
+            } else if name.contains("_ml") {
+                "mL"
+            } else if name.contains("meal_units") {
+                "meal_unit"
+            } else if name.contains("contacts") {
+                "count"
+            } else {
+                "normalized_or_multiplier"
+            };
+            let (mut lower, mut upper) = (V::Float(0.0), V::Null);
+            if *domain == "staff" && &**name == "support_fairness_minutes" {
+                lower = V::Int(1);
+                upper = config.get("unresolved_after_minutes").cloned().unwrap_or(V::Null);
+            }
+            if *domain == "psychology" {
+                let threshold = &**name == "need_pressure_threshold";
+                upper = V::Float(if threshold { 1.0 } else { 0.25 });
+                unit = if threshold { "normalized_0_1" } else { "normalized_per_minute" };
+            }
+            let path = text(&format!("{domain}.{name}"));
+            let row = vmap([
+                ("path", V::Str(path.clone())),
+                ("value", found.clone()),
+                ("unit", vstr(unit)),
+                ("lower", lower),
+                ("upper", upper),
+                ("evidence_grade", vstr("C")),
+                ("source_id", sources.get(domain).cloned().unwrap_or(V::Null)),
+                ("applicability", vstr("synthetic single-shelter hypothesis; no empirical calibration")),
+                ("external_validation", V::Bool(false)),
+            ]);
+            by_path.insert(path, row);
+        }
+    }
+}
+
+/// The models the Scenario runs: the selected ones, then those its simulators and sections bring.
+fn active_models(configs: &IndexMap<Arc<str>, V>, selection: &crate::config::Selection, signatures: &IndexMap<Arc<str>, V>) -> Vec<Arc<str>> {
+    let mut active: Vec<Arc<str>> = selection.iter().map(|(_, model)| text(model)).collect();
+    if signatures.contains_key("simulator:staff_operations_v1") {
+        active.push(text("autonomous-routed-staff-v1"));
+    }
+    if signatures.contains_key("simulator:movement_v1") {
+        active.push(text("spatial-route-and-room-waypoint-v2"));
+    }
+    for (key, model) in [("resource_service", "resource-service-v1"), ("toilet_service", "toilet-service-uniform-v1"), ("staff", "staff-support-fifo-aging-v2")]
+    {
+        if configs.contains_key(key) {
+            active.push(text(model));
+        }
+    }
+    if let Some(V::Str(policy)) = section_map(configs, "staff_dynamics").get("policy_version") {
+        if matches!(&**policy, "continuous-duty-fatigue-v1" | "continuous-duty-fatigue-v2") {
+            active.push(policy.clone());
+        }
+    }
+    active
 }
 
 /// The evidence route's answer for a new Run of the Scenario (canonical JSON):

@@ -745,6 +745,7 @@ impl PyPdfAnalysis {
 /// its stored tape's entries (`records("llm_tape")`).
 #[pyfunction]
 #[pyo3(signature = (query, project_id, run_id, branch_id, branch, mode, tape))]
+// Kept (#493): a Python function, whose arguments are the Python call's keyword arguments.
 #[allow(clippy::too_many_arguments)]
 fn llm_run_status_answer<'py>(
     py: Python<'py>,

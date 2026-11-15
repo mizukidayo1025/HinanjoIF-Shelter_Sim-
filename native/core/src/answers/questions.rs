@@ -236,7 +236,7 @@ impl QuestionPlan {
             let kpis = frame.get("kpis").and_then(Value::as_object).unwrap_or(&empty);
             Value::Object(KPI_FIELDS.iter().filter_map(|key| kpis.get(*key).map(|value| ((*key).to_owned(), value.clone()))).collect())
         };
-        packet.add("kpi", &format!("Boundary KPI · {minute}"), kpis(&frame), "boundary-kpis", None, minute, "recorded");
+        packet.add("kpi", &format!("Boundary KPI · {minute}"), kpis(&frame), Cited { reference: "boundary-kpis", branch: None, minute, status: "recorded" });
         if let Some(agent) = self.agent_id.as_deref().filter(|agent| !agent.is_empty()) {
             let people = frame.get("people").and_then(Value::as_array).map(Vec::as_slice).unwrap_or(&[]);
             let person = people
@@ -247,7 +247,7 @@ impl QuestionPlan {
                 .iter()
                 .map(|key| ((*key).to_owned(), person.get(*key).cloned().unwrap_or(Value::Null)))
                 .collect();
-            packet.add("agent", "Selected synthetic Agent state", Value::Object(data), agent, None, minute, "recorded");
+            packet.add("agent", "Selected synthetic Agent state", Value::Object(data), Cited { reference: agent, branch: None, minute, status: "recorded" });
         }
         if let Some(comparison) = comparison {
             let comparison = json_of(comparison)?;
@@ -259,7 +259,12 @@ impl QuestionPlan {
                 data.insert("shared_origin".to_owned(), comparison.get("shared_origin").cloned().unwrap_or(Value::Null));
                 data.insert("interpretation".to_owned(), comparison.get("interpretation").cloned().unwrap_or(Value::Null));
                 let target = other.get("branch_id").and_then(Value::as_str).unwrap_or_default().to_owned();
-                packet.add("comparison", "Same-minute candidate KPI", Value::Object(data), "boundary-kpis", Some(target), minute, "recorded");
+                packet.add(
+                    "comparison",
+                    "Same-minute candidate KPI",
+                    Value::Object(data),
+                    Cited { reference: "boundary-kpis", branch: Some(target), minute, status: "recorded" },
+                );
             }
         }
         if let Some(evidence) = evidence {
@@ -271,10 +276,7 @@ impl QuestionPlan {
                 "model",
                 "Active model versions and unvalidated assumptions",
                 proof_object(&Value::Object(data)),
-                "model-configs",
-                None,
-                minute,
-                "assumption",
+                Cited { reference: "model-configs", branch: None, minute, status: "assumption" },
             );
         }
         let scenario = json_of(scenario)?;
@@ -286,7 +288,7 @@ impl QuestionPlan {
                 .collect();
             let status = if source.get("source_kind").and_then(Value::as_str) == Some("assumption") { "assumption" } else { "recorded" };
             let id = source.get("id").and_then(Value::as_str).unwrap_or_default().to_owned();
-            packet.add("source", "Scenario source provenance", Value::Object(data), &id, None, minute, status);
+            packet.add("source", "Scenario source provenance", Value::Object(data), Cited { reference: &id, branch: None, minute, status });
         }
         let fork = self.record.as_ref().and_then(|record| record.get("fork_minute")).and_then(super::js_number).unwrap_or_default();
         let events = frame.get("events").and_then(Value::as_array).map(Vec::as_slice).unwrap_or(&[]);
@@ -302,7 +304,7 @@ impl QuestionPlan {
                 .filter_map(|key| event.get(*key).map(|value| ((*key).to_owned(), value.clone())))
                 .collect();
             let id = event.get("event_id").and_then(Value::as_str).unwrap_or_default().to_owned();
-            packet.add("event", &format!("Recorded event · {at}"), Value::Object(data), &id, None, at, "recorded");
+            packet.add("event", &format!("Recorded event · {at}"), Value::Object(data), Cited { reference: &id, branch: None, minute: at, status: "recorded" });
         }
         let context = self.context();
         let (context_id, kept) = self.context_id(&context, random);
@@ -337,7 +339,12 @@ impl QuestionPlan {
             "evidence": evidence_list,
         });
         let state_hash = digest(&json!({"context": context_value, "evidence": evidence_list}));
-        let task = asking::review_task(RESULT_QUESTION, PROMPT_VERSION, 2, &prompt, state_hash, &output_schema(), FALLBACK, 900)?;
+        let task = asking::review_task(
+            asking::Review { task: RESULT_QUESTION, prompt_version: PROMPT_VERSION, schema_version: 2, fallback_text: FALLBACK, max_output_tokens: 900 },
+            &prompt,
+            state_hash,
+            &output_schema(),
+        )?;
         Ok(Asking { stored: self.stored.clone(), minute, context, context_id, packet, task })
     }
 }
@@ -550,9 +557,18 @@ struct Packet {
     sources: Vec<Value>,
 }
 
+/// What a source of the packet refers to: the record's ID, its branch (None: the asked one), its
+/// minute and its status.
+struct Cited<'a> {
+    reference: &'a str,
+    branch: Option<String>,
+    minute: i64,
+    status: &'a str,
+}
+
 impl Packet {
-    #[allow(clippy::too_many_arguments)]
-    fn add(&mut self, kind: &str, label: &str, data: Value, reference: &str, branch: Option<String>, minute: i64, status: &str) {
+    fn add(&mut self, kind: &str, label: &str, data: Value, cited: Cited<'_>) {
+        let Cited { reference, branch, minute, status } = cited;
         if self.evidence.len() >= ALIASES {
             return;
         }
@@ -615,97 +631,9 @@ impl Asking {
         };
         let answered = read.as_ref().and_then(|read| read.answer.clone()).unwrap_or_else(|| json!({"claims": [], "explanations": []}));
         let packet = &self.packet;
-        let mut facts: Vec<Value> = Vec::new();
-        let mut rejected_claim = false;
-        for claim in answered.get("claims").and_then(Value::as_array).map(Vec::as_slice).unwrap_or(&[]) {
-            let proofs = claim.get("evidence").and_then(Value::as_array).map(Vec::as_slice).unwrap_or(&[]);
-            let mut rows = Vec::new();
-            for proof in proofs {
-                let alias = proof.get("alias").and_then(Value::as_str).unwrap_or_default();
-                let field = proof.get("field").and_then(Value::as_str).unwrap_or_default();
-                let actual = evidence_value(packet.data(alias), field);
-                if !proof_matches(actual, proof.get("value").unwrap_or(&Value::Null)) {
-                    rejected_claim = true;
-                    break;
-                }
-                rows.push(json!({"alias": alias, "field": field, "value": actual.cloned().unwrap_or(Value::Null)}));
-            }
-            if rejected_claim {
-                break;
-            }
-            for row in rows {
-                let alias = row["alias"].as_str().unwrap_or_default();
-                let field = row["field"].as_str().unwrap_or_default();
-                let label = label_of(field.rsplit('.').next().unwrap_or(field)).unwrap_or(field);
-                let text = format!("記録値 · {} · {label} = {}", packet.label(alias), asking::canonical(&row["value"]));
-                facts.push(json!({"text": text, "evidence": [row]}));
-            }
-        }
-        if rejected_claim {
-            facts.clear();
-        }
-        let mut explanations: Vec<Value> = Vec::new();
-        let mut rejected_explanation = false;
-        for explanation in answered.get("explanations").and_then(Value::as_array).map(Vec::as_slice).unwrap_or(&[]) {
-            let kind = explanation.get("kind").and_then(Value::as_str).unwrap_or_default();
-            let raw = explanation.get("text").and_then(Value::as_str).unwrap_or_default();
-            let proofs = explanation.get("evidence").and_then(Value::as_array).map(Vec::as_slice).unwrap_or(&[]);
-            let length = raw.chars().count();
-            let refused = !(1..=1200).contains(&length)
-                || crate::interpret::python_search(r"\d", raw).map_err(Failure::Error)?
-                || crate::interpret::names_entity(raw).map_err(Failure::Error)?
-                || !(1..=4).contains(&proofs.len());
-            if refused {
-                rejected_explanation = true;
-                continue;
-            }
-            let mut rows = Vec::new();
-            for proof in proofs {
-                let alias = proof.get("alias").and_then(Value::as_str).unwrap_or_default();
-                let field = proof.get("field").and_then(Value::as_str).unwrap_or_default();
-                let actual = evidence_value(packet.data(alias), field);
-                if !proof_matches(actual, proof.get("value").unwrap_or(&Value::Null)) {
-                    rejected_explanation = true;
-                    rows.clear();
-                    break;
-                }
-                rows.push(json!({"alias": alias, "field": field, "value": actual.cloned().unwrap_or(Value::Null)}));
-            }
-            if rows.is_empty() {
-                continue;
-            }
-            if kind == "synthetic_dialogue"
-                && !rows.iter().any(|row| {
-                    let source = packet.source(row["alias"].as_str().unwrap_or_default());
-                    source.and_then(|source| source.get("kind")).and_then(Value::as_str) == Some("event")
-                        || source.and_then(|source| source.get("label")).and_then(Value::as_str).is_some_and(|label| label.to_lowercase().contains("social"))
-                })
-            {
-                rejected_explanation = true;
-                continue;
-            }
-            let prefix = match kind {
-                "hypothesis" => "AIの解釈・仮説（記録された因果の断定ではありません）: ",
-                "suggestion" => "検討案（LLM生成。効果が確認された施策ではありません）: ",
-                _ => "記録を手がかりにした架空の合成会話（実際の発言記録ではありません）: ",
-            };
-            let narrative = crate::interpret::narrative(raw).map_err(Failure::Error)?;
-            let text = crate::interpret::py_strip(&narrative);
-            if text.is_empty() {
-                rejected_explanation = true;
-                continue;
-            }
-            explanations.push(json!({"kind": kind, "text": format!("{prefix}{text}"), "evidence": rows}));
-        }
-        let mut citations: Vec<String> = Vec::new();
-        for item in facts.iter().chain(&explanations) {
-            for row in item["evidence"].as_array().map(Vec::as_slice).unwrap_or(&[]) {
-                let alias = row["alias"].as_str().unwrap_or_default().to_owned();
-                if !citations.contains(&alias) {
-                    citations.push(alias);
-                }
-            }
-        }
+        let (mut facts, rejected_claim) = accepted_facts(packet, &answered);
+        let (explanations, rejected_explanation) = accepted_explanations(packet, &answered)?;
+        let mut citations = citations_of(&facts, &explanations);
         let mut exact_field = false;
         if citations.is_empty() {
             if let Some(fact) = self.exact_field_fact()? {
@@ -800,4 +728,112 @@ impl Asking {
         }
         Ok(None)
     }
+}
+
+/// The claims the LLM made whose every proof is a recorded scalar copied exactly, as facts; none
+/// where one claim's proof is not (and then true).
+fn accepted_facts(packet: &Packet, answered: &Value) -> (Vec<Value>, bool) {
+    let mut facts: Vec<Value> = Vec::new();
+    let mut rejected_claim = false;
+    for claim in answered.get("claims").and_then(Value::as_array).map(Vec::as_slice).unwrap_or(&[]) {
+        let proofs = claim.get("evidence").and_then(Value::as_array).map(Vec::as_slice).unwrap_or(&[]);
+        let mut rows = Vec::new();
+        for proof in proofs {
+            let alias = proof.get("alias").and_then(Value::as_str).unwrap_or_default();
+            let field = proof.get("field").and_then(Value::as_str).unwrap_or_default();
+            let actual = evidence_value(packet.data(alias), field);
+            if !proof_matches(actual, proof.get("value").unwrap_or(&Value::Null)) {
+                rejected_claim = true;
+                break;
+            }
+            rows.push(json!({"alias": alias, "field": field, "value": actual.cloned().unwrap_or(Value::Null)}));
+        }
+        if rejected_claim {
+            break;
+        }
+        for row in rows {
+            let alias = row["alias"].as_str().unwrap_or_default();
+            let field = row["field"].as_str().unwrap_or_default();
+            let label = label_of(field.rsplit('.').next().unwrap_or(field)).unwrap_or(field);
+            let text = format!("記録値 · {} · {label} = {}", packet.label(alias), asking::canonical(&row["value"]));
+            facts.push(json!({"text": text, "evidence": [row]}));
+        }
+    }
+    if rejected_claim {
+        facts.clear();
+    }
+    (facts, rejected_claim)
+}
+
+/// The explanations the LLM gave that hold no digits, name no one and cite recorded scalars exactly,
+/// labelled by their kind; and whether any was turned down.
+fn accepted_explanations(packet: &Packet, answered: &Value) -> Answer<(Vec<Value>, bool)> {
+    let mut explanations: Vec<Value> = Vec::new();
+    let mut rejected_explanation = false;
+    for explanation in answered.get("explanations").and_then(Value::as_array).map(Vec::as_slice).unwrap_or(&[]) {
+        let kind = explanation.get("kind").and_then(Value::as_str).unwrap_or_default();
+        let raw = explanation.get("text").and_then(Value::as_str).unwrap_or_default();
+        let proofs = explanation.get("evidence").and_then(Value::as_array).map(Vec::as_slice).unwrap_or(&[]);
+        let length = raw.chars().count();
+        let refused = !(1..=1200).contains(&length)
+            || crate::interpret::python_search(r"\d", raw).map_err(Failure::Error)?
+            || crate::interpret::names_entity(raw).map_err(Failure::Error)?
+            || !(1..=4).contains(&proofs.len());
+        if refused {
+            rejected_explanation = true;
+            continue;
+        }
+        let mut rows = Vec::new();
+        for proof in proofs {
+            let alias = proof.get("alias").and_then(Value::as_str).unwrap_or_default();
+            let field = proof.get("field").and_then(Value::as_str).unwrap_or_default();
+            let actual = evidence_value(packet.data(alias), field);
+            if !proof_matches(actual, proof.get("value").unwrap_or(&Value::Null)) {
+                rejected_explanation = true;
+                rows.clear();
+                break;
+            }
+            rows.push(json!({"alias": alias, "field": field, "value": actual.cloned().unwrap_or(Value::Null)}));
+        }
+        if rows.is_empty() {
+            continue;
+        }
+        if kind == "synthetic_dialogue"
+            && !rows.iter().any(|row| {
+                let source = packet.source(row["alias"].as_str().unwrap_or_default());
+                source.and_then(|source| source.get("kind")).and_then(Value::as_str) == Some("event")
+                    || source.and_then(|source| source.get("label")).and_then(Value::as_str).is_some_and(|label| label.to_lowercase().contains("social"))
+            })
+        {
+            rejected_explanation = true;
+            continue;
+        }
+        let prefix = match kind {
+            "hypothesis" => "AIの解釈・仮説（記録された因果の断定ではありません）: ",
+            "suggestion" => "検討案（LLM生成。効果が確認された施策ではありません）: ",
+            _ => "記録を手がかりにした架空の合成会話（実際の発言記録ではありません）: ",
+        };
+        let narrative = crate::interpret::narrative(raw).map_err(Failure::Error)?;
+        let text = crate::interpret::py_strip(&narrative);
+        if text.is_empty() {
+            rejected_explanation = true;
+            continue;
+        }
+        explanations.push(json!({"kind": kind, "text": format!("{prefix}{text}"), "evidence": rows}));
+    }
+    Ok((explanations, rejected_explanation))
+}
+
+/// The aliases the facts and explanations cite, each once, in their order.
+fn citations_of(facts: &[Value], explanations: &[Value]) -> Vec<String> {
+    let mut citations: Vec<String> = Vec::new();
+    for item in facts.iter().chain(explanations) {
+        for row in item["evidence"].as_array().map(Vec::as_slice).unwrap_or(&[]) {
+            let alias = row["alias"].as_str().unwrap_or_default().to_owned();
+            if !citations.contains(&alias) {
+                citations.push(alias);
+            }
+        }
+    }
+    citations
 }

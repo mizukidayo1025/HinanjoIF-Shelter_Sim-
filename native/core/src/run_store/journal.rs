@@ -532,107 +532,9 @@ impl Line {
         };
         let counts = || -> Result<Counts> { Ok(Counts { conversations: object.uint("conversations")?, tape: object.uint("tape")? }) };
         match kind.as_str() {
-            "run" => {
-                let format = object.string("format")?;
-                if OUTDATED_FORMATS.contains(&format.as_str()) {
-                    return Err(outdated(&format));
-                }
-                if format != FORMAT {
-                    return Err(Error::Value(format!("a stored Run of format {format}: this code reads {FORMAT}")));
-                }
-                let mut keys = vec![
-                    "kind",
-                    "format",
-                    "engine_version",
-                    "model_versions",
-                    "compression",
-                    "save_every",
-                    "export_sha256",
-                    "export_bytes",
-                    "world",
-                    "duration_minutes",
-                ];
-                let fork = match object.optional("fork_minute") {
-                    Some(_) => {
-                        keys.extend(["fork_minute", "parent_branch_id"]);
-                        Some(ForkStart { minute: object.minute("fork_minute")?, parent_branch_id: object.string("parent_branch_id")? })
-                    }
-                    None => None,
-                };
-                object.only(&keys)?;
-                let versions = Fields::of(object.get("model_versions")?, "model_versions")?;
-                let model_versions = versions
-                    .object
-                    .iter()
-                    .map(|(name, value)| {
-                        value.as_str().map(|value| (name.clone(), value.to_owned())).ok_or_else(|| corrupt("a model version that is not text"))
-                    })
-                    .collect::<Result<Versions>>()?;
-                Ok(Line::Run(RunLine {
-                    engine_version: object.string("engine_version")?,
-                    model_versions,
-                    compression: object.string("compression")?,
-                    save_every: object.uint("save_every")?,
-                    export_sha256: object.string("export_sha256")?,
-                    export_bytes: object.uint("export_bytes")?,
-                    world: object.string_or_null("world")?,
-                    duration_minutes: object.minute("duration_minutes")?,
-                    fork,
-                }))
-            }
-            "fork" => {
-                object.only(&["kind", "parent_branch_id", "minute", "fork_origin", "base", "program", "approved_program_hash", "receipt"])?;
-                let origin = Fields::of(object.get("fork_origin")?, "fork_origin")?;
-                origin.only(&["branch_id", "minute", "state_hash", "checkpoint_hash"])?;
-                let base = Fields::of(object.get("base")?, "base")?;
-                base.only(&[&["line", "head", "minute"][..], &BASE_FIELDS].concat())?;
-                let place = |prefix: &str| -> Result<Place> {
-                    Ok(Place {
-                        strings: base.uint(&format!("{prefix}_strings"))?,
-                        shapes: base.uint(&format!("{prefix}_shapes"))?,
-                        blocks: base.uint(&format!("{prefix}_blocks"))?,
-                    })
-                };
-                Ok(Line::Fork(ForkLine {
-                    parent_branch_id: object.string("parent_branch_id")?,
-                    minute: object.minute("minute")?,
-                    origin: ForkOrigin {
-                        branch_id: origin.string("branch_id")?,
-                        minute: origin.minute("minute")?,
-                        state_hash: origin.string("state_hash")?,
-                        checkpoint_hash: origin.string_or_null("checkpoint_hash")?,
-                    },
-                    base: Base {
-                        line: base.uint("line")?,
-                        head: base.string("head")?,
-                        minute: base.minute("minute")?,
-                        state: State { log: place("log")?, samples: place("sample")?, counts: Counts { conversations: 0, tape: base.uint("tape")? } },
-                    },
-                    program: object.string("program")?,
-                    approved_program_hash: object.string("approved_program_hash")?,
-                    receipt: object.string("receipt")?,
-                }))
-            }
-            "end" => {
-                object.only(&["kind", "minute", "records", "samples", "conversations", "tape", "parts", "metrics"])?;
-                let parts = match object.get("parts")? {
-                    Value::Object(parts) => parts
-                        .iter()
-                        .map(|(part, digest)| {
-                            digest.as_str().map(|digest| (part.clone(), digest.to_owned())).ok_or_else(|| corrupt("a part's digest that is not text"))
-                        })
-                        .collect::<Result<Vec<_>>>()?,
-                    _ => return Err(corrupt("the end line's parts are not an object")),
-                };
-                Ok(Line::End(EndLine {
-                    minute: object.minute("minute")?,
-                    records: object.uint("records")?,
-                    samples: object.uint("samples")?,
-                    counts: counts()?,
-                    parts,
-                    metrics: object.string("metrics")?,
-                }))
-            }
+            "run" => Self::run_line(&object),
+            "fork" => Self::fork_line(&object),
+            "end" => Self::end_line(&object),
             "export" => piece(Piece::Export, &[]),
             "world" => piece(Piece::World, &[]),
             "log_tables" => piece(Piece::LogTables(tables()?), &TABLES),
@@ -656,6 +558,112 @@ impl Line {
                 None => Err(corrupt(&format!("a line of an unknown kind: {other}"))),
             },
         }
+    }
+
+    /// A "run" line: of this code's format, with its fork where it is a branch's.
+    fn run_line(object: &Fields<'_>) -> Result<Line> {
+        let format = object.string("format")?;
+        if OUTDATED_FORMATS.contains(&format.as_str()) {
+            return Err(outdated(&format));
+        }
+        if format != FORMAT {
+            return Err(Error::Value(format!("a stored Run of format {format}: this code reads {FORMAT}")));
+        }
+        let mut keys = vec![
+            "kind",
+            "format",
+            "engine_version",
+            "model_versions",
+            "compression",
+            "save_every",
+            "export_sha256",
+            "export_bytes",
+            "world",
+            "duration_minutes",
+        ];
+        let fork = match object.optional("fork_minute") {
+            Some(_) => {
+                keys.extend(["fork_minute", "parent_branch_id"]);
+                Some(ForkStart { minute: object.minute("fork_minute")?, parent_branch_id: object.string("parent_branch_id")? })
+            }
+            None => None,
+        };
+        object.only(&keys)?;
+        let versions = Fields::of(object.get("model_versions")?, "model_versions")?;
+        let model_versions = versions
+            .object
+            .iter()
+            .map(|(name, value)| value.as_str().map(|value| (name.clone(), value.to_owned())).ok_or_else(|| corrupt("a model version that is not text")))
+            .collect::<Result<Versions>>()?;
+        Ok(Line::Run(RunLine {
+            engine_version: object.string("engine_version")?,
+            model_versions,
+            compression: object.string("compression")?,
+            save_every: object.uint("save_every")?,
+            export_sha256: object.string("export_sha256")?,
+            export_bytes: object.uint("export_bytes")?,
+            world: object.string_or_null("world")?,
+            duration_minutes: object.minute("duration_minutes")?,
+            fork,
+        }))
+    }
+
+    /// A "fork" line: the parent, the minute, the origin and base of the fork, and its program.
+    fn fork_line(object: &Fields<'_>) -> Result<Line> {
+        object.only(&["kind", "parent_branch_id", "minute", "fork_origin", "base", "program", "approved_program_hash", "receipt"])?;
+        let origin = Fields::of(object.get("fork_origin")?, "fork_origin")?;
+        origin.only(&["branch_id", "minute", "state_hash", "checkpoint_hash"])?;
+        let base = Fields::of(object.get("base")?, "base")?;
+        base.only(&[&["line", "head", "minute"][..], &BASE_FIELDS].concat())?;
+        let place = |prefix: &str| -> Result<Place> {
+            Ok(Place {
+                strings: base.uint(&format!("{prefix}_strings"))?,
+                shapes: base.uint(&format!("{prefix}_shapes"))?,
+                blocks: base.uint(&format!("{prefix}_blocks"))?,
+            })
+        };
+        Ok(Line::Fork(ForkLine {
+            parent_branch_id: object.string("parent_branch_id")?,
+            minute: object.minute("minute")?,
+            origin: ForkOrigin {
+                branch_id: origin.string("branch_id")?,
+                minute: origin.minute("minute")?,
+                state_hash: origin.string("state_hash")?,
+                checkpoint_hash: origin.string_or_null("checkpoint_hash")?,
+            },
+            base: Base {
+                line: base.uint("line")?,
+                head: base.string("head")?,
+                minute: base.minute("minute")?,
+                state: State { log: place("log")?, samples: place("sample")?, counts: Counts { conversations: 0, tape: base.uint("tape")? } },
+            },
+            program: object.string("program")?,
+            approved_program_hash: object.string("approved_program_hash")?,
+            receipt: object.string("receipt")?,
+        }))
+    }
+
+    /// An "end" line: the minute, the counts, the parts' digests and the metrics.
+    fn end_line(object: &Fields<'_>) -> Result<Line> {
+        let counts = || -> Result<Counts> { Ok(Counts { conversations: object.uint("conversations")?, tape: object.uint("tape")? }) };
+        object.only(&["kind", "minute", "records", "samples", "conversations", "tape", "parts", "metrics"])?;
+        let parts = match object.get("parts")? {
+            Value::Object(parts) => parts
+                .iter()
+                .map(|(part, digest)| {
+                    digest.as_str().map(|digest| (part.clone(), digest.to_owned())).ok_or_else(|| corrupt("a part's digest that is not text"))
+                })
+                .collect::<Result<Vec<_>>>()?,
+            _ => return Err(corrupt("the end line's parts are not an object")),
+        };
+        Ok(Line::End(EndLine {
+            minute: object.minute("minute")?,
+            records: object.uint("records")?,
+            samples: object.uint("samples")?,
+            counts: counts()?,
+            parts,
+            metrics: object.string("metrics")?,
+        }))
     }
 }
 

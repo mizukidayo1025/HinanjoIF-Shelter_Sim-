@@ -35,7 +35,7 @@ use indexmap::IndexMap;
 use crate::cell::ShardRef;
 use crate::config::environment::Infrastructure;
 use crate::config::proximity::Proximity;
-use crate::entities::{Activity, RequestStatus, Table};
+use crate::entities::{Activity, RequestRow, RequestStatus, Table};
 use crate::error::{Error, Result};
 use crate::events::writer::{WriteError, WriteResult};
 use crate::events::{EventKind, EventRow, EventStatus};
@@ -1064,27 +1064,9 @@ fn interrupt_support_task(
     }
     let now = world.minute_index()?;
     let events = Events::of(world)?;
+    let interrupting = Interrupting { world, inputs, events: &events, now };
     if timeout > now && timeouts.is_empty() {
-        let sequence = world.id_counter("event")?.unwrap_or(0);
-        let id = format!("support-timeout-rescheduled-{sequence}");
-        let mut payload = IndexMap::with_capacity(2);
-        payload.insert(text("request_id"), request_value.clone());
-        payload.insert(text("agent_id"), V::Str(request.agent_id.clone()));
-        let mut provenance = kit::assumption(str_v(SUPPORT_SOURCE), STAFF_SUPPORT_POLICY);
-        provenance.insert(text("rescheduled_after_staff_unavailable"), V::Bool(true));
-        let timeout_event = kit::new_event(kit::NewEvent {
-            event_id: text(&id),
-            kind: EventKind::Completion,
-            due_minute: timeout,
-            priority: 20,
-            sequence,
-            event_type: text("support_request_timeout"),
-            payload,
-            source_id: Some(request_id.clone()),
-            causation_id: Some(causation.event_id.clone()),
-            provenance,
-        })?;
-        schedule_new(&events, world, timeout_event, sequence, "support")?;
+        reschedule_timeout(interrupting, &request, &request_id, &request_value, causation, timeout)?;
     }
 
     let trips: Vec<(Arc<str>, i64)> = {
@@ -1099,42 +1081,7 @@ fn interrupt_support_task(
         return Err(Error::failed("resident has duplicate trips to assigned support").into());
     }
     if let Some((trip_id, trip_due)) = trips.first() {
-        let trip_value = V::Str(trip_id.clone());
-        let walks: Vec<Arc<EventRow>> = pending_rows(world)?
-            .into_iter()
-            .filter(|item| {
-                &*item.event_type == "agent_travel_complete"
-                    && py_eq(kit::payload(item, "task_id").unwrap_or(&NULL), &trip_value)
-                    && eq_text(kit::payload(item, "purpose").unwrap_or(&NULL), "staff_support_travel")
-                    && py_eq(kit::payload(item, "request_id").unwrap_or(&NULL), &request_value)
-            })
-            .collect();
-        if walks.len() != 1 || walks[0].due_minute != *trip_due {
-            return Err(Error::failed("resident support trip has inconsistent travel ownership").into());
-        }
-        let settled = events.settle(&walks[0], now, EventStatus::Suppressed, Some("assigned staff became unavailable before resident arrival"))?;
-        taken.extend(settled.taken);
-        world.rows_mut()?.active_tasks.remove_row(trip_id);
-        let zone = match kit::held_row::<MovementRow>(world, MOVEMENT, inputs.ops.movement)? {
-            Some(row) => row.positions.get(&*agent_id).map(|position| position.zone_id.clone()),
-            None => None,
-        };
-        if let Some(zone) = zone {
-            let mut rows = world.rows_mut()?;
-            if rows.zones.contains_key(&zone) {
-                if let Some(agent) = rows.agents.get_mut(&agent_id) {
-                    agent.zone_id = zone;
-                }
-            }
-        }
-        match inputs.ops.movement {
-            Held::Absent => {}
-            Held::Other(reason) => return Err(Error::unsupported(*reason).into()),
-            Held::Held => {
-                let geo = crate::rules::travel::plan(inputs.ops.geo)?;
-                movement::finish(world, geo, &agent_id)?;
-            }
-        }
+        cancel_support_trip(interrupting, &agent_id, (trip_id, trip_due), &request_value, taken)?;
     }
 
     let previous = {
@@ -1161,33 +1108,7 @@ fn interrupt_support_task(
         kit::check_metric_state(world, inputs.metric_state_held)?;
         Some(now.checked_add(cooldown).ok_or_else(|| Error::unsupported("a minute past 64 bits"))?)
     };
-    {
-        let mut rows = world.rows_mut()?;
-        let request_row = rows.support_requests.get_mut(&request_id).ok_or_else(|| Error::unsupported("the request is gone"))?;
-        request_row.assigned_staff_id = None;
-        request_row.task_id = None;
-        match cooldown_until {
-            None => request_row.status = RequestStatus::Pending,
-            Some(until) => {
-                request_row.status = RequestStatus::Unresolved;
-                request_row.resolved_minute = Some(now);
-                request_row.cooldown_until = until;
-            }
-        }
-        let agent = rows.agents.get_mut(&agent_id).ok_or_else(|| Error::unsupported("the agent is gone"))?;
-        agent.target_id = None;
-        match cooldown_until {
-            None => {
-                agent.activity = Activity::SeekingHelp;
-                agent.support_request_id = Some(request_id.clone());
-            }
-            Some(until) => {
-                agent.activity = Activity::Idle;
-                agent.support_request_id = None;
-                agent.support_cooldown_until = until;
-            }
-        }
-    }
+    write_request_back(world, &request_id, &agent_id, cooldown_until, now)?;
     if !requeued {
         kit::add_metric(world, "support_unresolved_count")?;
     }
@@ -1204,6 +1125,129 @@ fn interrupt_support_task(
         &causation.event_id,
         cause_type,
     )?)
+}
+
+/// What the interruption of a support task reads: the world, the staff's inputs, the event log and
+/// the minute.
+#[derive(Clone, Copy)]
+struct Interrupting<'a> {
+    world: &'a World,
+    inputs: &'a StaffIn<'a>,
+    events: &'a Events<'a>,
+    now: i64,
+}
+
+/// The request's timeout scheduled again at `timeout`, caused by the interruption.
+fn reschedule_timeout(
+    interrupting: Interrupting<'_>,
+    request: &RequestRow,
+    request_id: &Arc<str>,
+    request_value: &V,
+    causation: &EventRow,
+    timeout: i64,
+) -> WriteResult<()> {
+    let Interrupting { world, events, .. } = interrupting;
+    let sequence = world.id_counter("event")?.unwrap_or(0);
+    let id = format!("support-timeout-rescheduled-{sequence}");
+    let mut payload = IndexMap::with_capacity(2);
+    payload.insert(text("request_id"), request_value.clone());
+    payload.insert(text("agent_id"), V::Str(request.agent_id.clone()));
+    let mut provenance = kit::assumption(str_v(SUPPORT_SOURCE), STAFF_SUPPORT_POLICY);
+    provenance.insert(text("rescheduled_after_staff_unavailable"), V::Bool(true));
+    let timeout_event = kit::new_event(kit::NewEvent {
+        event_id: text(&id),
+        kind: EventKind::Completion,
+        due_minute: timeout,
+        priority: 20,
+        sequence,
+        event_type: text("support_request_timeout"),
+        payload,
+        source_id: Some(request_id.clone()),
+        causation_id: Some(causation.event_id.clone()),
+        provenance,
+    })?;
+    schedule_new(&events, world, timeout_event, sequence, "support")?;
+    Ok(())
+}
+
+/// The person's trip to the support (`(trip_id, trip_due)`) called off: its arrival suppressed, its task
+/// gone, and the person where the walk left them.
+fn cancel_support_trip(
+    interrupting: Interrupting<'_>,
+    agent_id: &Arc<str>,
+    (trip_id, trip_due): (&Arc<str>, &i64),
+    request_value: &V,
+    taken: &mut Vec<u64>,
+) -> WriteResult<()> {
+    let Interrupting { world, inputs, events, now } = interrupting;
+    let trip_value = V::Str(trip_id.clone());
+    let walks: Vec<Arc<EventRow>> = pending_rows(world)?
+        .into_iter()
+        .filter(|item| {
+            &*item.event_type == "agent_travel_complete"
+                && py_eq(kit::payload(item, "task_id").unwrap_or(&NULL), &trip_value)
+                && eq_text(kit::payload(item, "purpose").unwrap_or(&NULL), "staff_support_travel")
+                && py_eq(kit::payload(item, "request_id").unwrap_or(&NULL), &request_value)
+        })
+        .collect();
+    if walks.len() != 1 || walks[0].due_minute != *trip_due {
+        return Err(Error::failed("resident support trip has inconsistent travel ownership").into());
+    }
+    let settled = events.settle(&walks[0], now, EventStatus::Suppressed, Some("assigned staff became unavailable before resident arrival"))?;
+    taken.extend(settled.taken);
+    world.rows_mut()?.active_tasks.remove_row(trip_id);
+    let zone = match kit::held_row::<MovementRow>(world, MOVEMENT, inputs.ops.movement)? {
+        Some(row) => row.positions.get(&*agent_id).map(|position| position.zone_id.clone()),
+        None => None,
+    };
+    if let Some(zone) = zone {
+        let mut rows = world.rows_mut()?;
+        if rows.zones.contains_key(&zone) {
+            if let Some(agent) = rows.agents.get_mut(&agent_id) {
+                agent.zone_id = zone;
+            }
+        }
+    }
+    match inputs.ops.movement {
+        Held::Absent => {}
+        Held::Other(reason) => return Err(Error::unsupported(*reason).into()),
+        Held::Held => {
+            let geo = crate::rules::travel::plan(inputs.ops.geo)?;
+            movement::finish(world, geo, &agent_id)?;
+        }
+    }
+    Ok(())
+}
+
+/// The request back to pending (or unresolved, until `cooldown_until`) with no staff, and its person
+/// seeking help again (or idle in the cooldown).
+fn write_request_back(world: &World, request_id: &Arc<str>, agent_id: &Arc<str>, cooldown_until: Option<i64>, now: i64) -> Result<()> {
+    let mut rows = world.rows_mut()?;
+    let request_row = rows.support_requests.get_mut(&request_id).ok_or_else(|| Error::unsupported("the request is gone"))?;
+    request_row.assigned_staff_id = None;
+    request_row.task_id = None;
+    match cooldown_until {
+        None => request_row.status = RequestStatus::Pending,
+        Some(until) => {
+            request_row.status = RequestStatus::Unresolved;
+            request_row.resolved_minute = Some(now);
+            request_row.cooldown_until = until;
+        }
+    }
+    let agent = rows.agents.get_mut(&agent_id).ok_or_else(|| Error::unsupported("the agent is gone"))?;
+    agent.target_id = None;
+    match cooldown_until {
+        None => {
+            agent.activity = Activity::SeekingHelp;
+            agent.support_request_id = Some(request_id.clone());
+        }
+        Some(until) => {
+            agent.activity = Activity::Idle;
+            agent.support_request_id = None;
+            agent.support_cooldown_until = until;
+        }
+    }
+    Ok(())
 }
 
 /// `StaffRestorationHandler`'s rule, on the transaction's world.

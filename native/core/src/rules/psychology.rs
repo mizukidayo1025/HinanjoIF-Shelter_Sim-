@@ -819,39 +819,16 @@ fn mean_reverting_terms(value: f64, baseline: f64, kappa: f64) -> Result<(f64, f
 /// One person's next minute. A math function raises as Python did. Every float operation
 /// keeps the order of `policies/psychology.py`, and `py_max`/`py_min` return the first on a tie.
 fn step(model: Model, rates: &Rates, body: Option<&BodyRates>, a: &Input, mut stages: Option<&mut Stages>) -> Result<Next> {
-    // SimplePsychologyPolicy.explain_update
-    let (fatigue_delta, stress_recovery) = match a.activity {
-        Activity::Sleeping => {
-            (-rates.sleeping_fatigue_recovery * a.rest_efficiency, if rates.direct_rest_recovery { rates.sleeping_stress_recovery } else { 0.0 })
-        }
-        Activity::Resting => {
-            (-rates.resting_fatigue_recovery * a.rest_efficiency, if rates.direct_rest_recovery { rates.resting_stress_recovery } else { 0.0 })
-        }
-        _ => (a.awake_fatigue, 0.0),
-    };
-    let mut highest = py_max(py_max(a.toilet, a.hunger), a.fatigue);
-    if rates.resource_service_enabled {
-        highest = py_max(highest, a.hydration);
-    }
-    let unmet = py_max(0.0, highest - rates.need_pressure_threshold);
-    let need_pressure_stress = rates.stress_pressure * unmet * a.sensitivity;
-    let queued = a.activity == Activity::Queued;
-    let queue_wait_stress = if queued { rates.queued_stress } else { 0.0 };
-    let support_wait_stress = if a.support_open { rates.support_wait_stress } else { 0.0 };
-    let environmental_stress = a.environmental_per_minute * a.sensitivity;
-    let stress_delta = need_pressure_stress + queue_wait_stress + support_wait_stress + environmental_stress - stress_recovery;
-    let simple_stress = clamp(a.stress + stress_delta);
-    if let Some(stages) = stages.as_deref_mut() {
-        stages.highest = highest;
-        stages.unmet = unmet;
-        stages.need_pressure_stress = need_pressure_stress;
-        stages.queue_wait_stress = queue_wait_stress;
-        stages.support_wait_stress = support_wait_stress;
-        stages.environmental_stress = environmental_stress;
-        stages.stress_recovery = stress_recovery;
-        stages.stress_delta = stress_delta;
-        stages.simple_stress = simple_stress;
-    }
+    let SimpleTerms {
+        fatigue_delta,
+        stress_recovery,
+        need_pressure_stress,
+        queued,
+        queue_wait_stress,
+        support_wait_stress,
+        environmental_stress,
+        simple_stress,
+    } = simple_terms(rates, a, stages.as_deref_mut());
     let needs = |stress: f64, body: Option<[f64; 7]>| Next {
         toilet: clamp(a.toilet + a.toilet_growth),
         hunger: clamp(a.hunger + a.hunger_growth),
@@ -898,52 +875,8 @@ fn step(model: Model, rates: &Rates, body: Option<&BodyRates>, a: &Input, mut st
         return unsupported("the model has no body rates");
     };
     let life = &a.life;
-    let family_pressure = if life.family_separated { g.discontent_stress } else { 0.0 };
-    let effective_awake = match life.required_sleep {
-        None => g.awake_sleep_debt,
-        Some(0) => 0.0,
-        // Both are small ints: their true division is this f64 division.
-        Some(required) => py_min(10.0, required as f64 / (1440 - required).max(1) as f64),
-    };
-    let next_debt = match a.activity {
-        Activity::Sleeping => life.debt - g.sleep_sleep_debt_recovery * a.rest_efficiency,
-        Activity::Resting => life.debt - g.rest_sleep_debt_recovery * a.rest_efficiency,
-        _ => life.debt + effective_awake,
-    };
-    let debt = py_min(1440.0, py_max(0.0, next_debt));
-    let reassurance = py_max(0.0, life.reassurance - g.reassurance_decay);
-    let uncertainty_without =
-        py_min(1.0, py_max(0.0, life.uncertainty + life.query_pressure * g.uncertainty_drift - g.uncertainty_decay - reassurance * g.uncertainty_decay));
-    let uncertainty = py_min(
-        1.0,
-        py_max(
-            0.0,
-            life.uncertainty + (life.query_pressure + life.misinformation_pressure) * g.uncertainty_drift
-                - g.uncertainty_decay
-                - reassurance * g.uncertainty_decay,
-        ),
-    );
-    let queue_pressure = if queued { g.discontent_queue } else { 0.0 };
-    let need_pressure = py_max(py_max(py_max(a.toilet, a.hunger), a.fatigue), a.hydration);
-    let resting = matches!(a.activity, Activity::Resting | Activity::Sleeping);
-    let support_relief = if resting && !a.support_open { g.discontent_relief } else { 0.0 };
-    let reference = if g.tick_start_reference { a.stress } else { simple_stress };
-    let discontent = py_min(
-        1.0,
-        py_max(
-            0.0,
-            life.discontent
-                + reference * g.discontent_stress
-                + queue_pressure
-                + life.privacy_discontent
-                + py_max(0.0, need_pressure - 0.5) * g.discontent_stress
-                - support_relief
-                - reassurance * g.discontent_relief,
-        ),
-    );
-    let positive = 0.5 + (life.positive - 0.5) * py_max(0.0, 1.0 - g.positive_affect_decay);
-    let hygiene = py_min(1.0, py_max(0.0, life.hygiene + g.hygiene_growth + life.ventilation_growth + (1.0 - life.sanitation) * g.sanitation_hygiene_growth));
-    let negative = py_min(1.0, py_max(0.0, life.negative + reference * g.negative_affect_stress - reassurance * g.negative_affect_stress));
+    let LifeValues { family_pressure, debt, reassurance, uncertainty_without, uncertainty, discontent, positive, hygiene, negative } =
+        life_values(g, a, queued, simple_stress);
     // BodyDynamicsFormula.stress_feedback, and the same with the shared rates without a formula.
     let feedback_with = |uncertainty: f64| -> f64 {
         let debt_component = debt / 1440.0 * life.sleep_rate;
@@ -992,6 +925,126 @@ fn step(model: Model, rates: &Rates, body: Option<&BodyRates>, a: &Input, mut st
         information_feedback * multiplier,
     ]);
     Ok(needs(clamp(a.stress + (natural + forced)), body_values))
+}
+
+/// The terms of `SimplePsychologyPolicy.explain_update`, which the other models read too.
+#[derive(Clone, Copy)]
+struct SimpleTerms {
+    fatigue_delta: f64,
+    stress_recovery: f64,
+    need_pressure_stress: f64,
+    queued: bool,
+    queue_wait_stress: f64,
+    support_wait_stress: f64,
+    environmental_stress: f64,
+    simple_stress: f64,
+}
+
+/// The first part of `step`: the terms of the simple model, kept in `stages` too.
+#[inline]
+fn simple_terms(rates: &Rates, a: &Input, mut stages: Option<&mut Stages>) -> SimpleTerms {
+    // SimplePsychologyPolicy.explain_update
+    let (fatigue_delta, stress_recovery) = match a.activity {
+        Activity::Sleeping => {
+            (-rates.sleeping_fatigue_recovery * a.rest_efficiency, if rates.direct_rest_recovery { rates.sleeping_stress_recovery } else { 0.0 })
+        }
+        Activity::Resting => {
+            (-rates.resting_fatigue_recovery * a.rest_efficiency, if rates.direct_rest_recovery { rates.resting_stress_recovery } else { 0.0 })
+        }
+        _ => (a.awake_fatigue, 0.0),
+    };
+    let mut highest = py_max(py_max(a.toilet, a.hunger), a.fatigue);
+    if rates.resource_service_enabled {
+        highest = py_max(highest, a.hydration);
+    }
+    let unmet = py_max(0.0, highest - rates.need_pressure_threshold);
+    let need_pressure_stress = rates.stress_pressure * unmet * a.sensitivity;
+    let queued = a.activity == Activity::Queued;
+    let queue_wait_stress = if queued { rates.queued_stress } else { 0.0 };
+    let support_wait_stress = if a.support_open { rates.support_wait_stress } else { 0.0 };
+    let environmental_stress = a.environmental_per_minute * a.sensitivity;
+    let stress_delta = need_pressure_stress + queue_wait_stress + support_wait_stress + environmental_stress - stress_recovery;
+    let simple_stress = clamp(a.stress + stress_delta);
+    if let Some(stages) = stages.as_deref_mut() {
+        stages.highest = highest;
+        stages.unmet = unmet;
+        stages.need_pressure_stress = need_pressure_stress;
+        stages.queue_wait_stress = queue_wait_stress;
+        stages.support_wait_stress = support_wait_stress;
+        stages.environmental_stress = environmental_stress;
+        stages.stress_recovery = stress_recovery;
+        stages.stress_delta = stress_delta;
+        stages.simple_stress = simple_stress;
+    }
+    SimpleTerms { fatigue_delta, stress_recovery, need_pressure_stress, queued, queue_wait_stress, support_wait_stress, environmental_stress, simple_stress }
+}
+
+/// A person's life-state values of the next minute, and `uncertainty_without` the false claims.
+#[derive(Clone, Copy)]
+struct LifeValues {
+    family_pressure: f64,
+    debt: f64,
+    reassurance: f64,
+    uncertainty_without: f64,
+    uncertainty: f64,
+    discontent: f64,
+    positive: f64,
+    hygiene: f64,
+    negative: f64,
+}
+
+/// The life-state values of `step` (`LifeStatePsychologyPolicy.explain_update` and
+/// `sleep_debt_step`), before the stress feedback.
+#[inline]
+fn life_values(g: &BodyRates, a: &Input, queued: bool, simple_stress: f64) -> LifeValues {
+    let life = &a.life;
+    let family_pressure = if life.family_separated { g.discontent_stress } else { 0.0 };
+    let effective_awake = match life.required_sleep {
+        None => g.awake_sleep_debt,
+        Some(0) => 0.0,
+        // Both are small ints: their true division is this f64 division.
+        Some(required) => py_min(10.0, required as f64 / (1440 - required).max(1) as f64),
+    };
+    let next_debt = match a.activity {
+        Activity::Sleeping => life.debt - g.sleep_sleep_debt_recovery * a.rest_efficiency,
+        Activity::Resting => life.debt - g.rest_sleep_debt_recovery * a.rest_efficiency,
+        _ => life.debt + effective_awake,
+    };
+    let debt = py_min(1440.0, py_max(0.0, next_debt));
+    let reassurance = py_max(0.0, life.reassurance - g.reassurance_decay);
+    let uncertainty_without =
+        py_min(1.0, py_max(0.0, life.uncertainty + life.query_pressure * g.uncertainty_drift - g.uncertainty_decay - reassurance * g.uncertainty_decay));
+    let uncertainty = py_min(
+        1.0,
+        py_max(
+            0.0,
+            life.uncertainty + (life.query_pressure + life.misinformation_pressure) * g.uncertainty_drift
+                - g.uncertainty_decay
+                - reassurance * g.uncertainty_decay,
+        ),
+    );
+    let queue_pressure = if queued { g.discontent_queue } else { 0.0 };
+    let need_pressure = py_max(py_max(py_max(a.toilet, a.hunger), a.fatigue), a.hydration);
+    let resting = matches!(a.activity, Activity::Resting | Activity::Sleeping);
+    let support_relief = if resting && !a.support_open { g.discontent_relief } else { 0.0 };
+    let reference = if g.tick_start_reference { a.stress } else { simple_stress };
+    let discontent = py_min(
+        1.0,
+        py_max(
+            0.0,
+            life.discontent
+                + reference * g.discontent_stress
+                + queue_pressure
+                + life.privacy_discontent
+                + py_max(0.0, need_pressure - 0.5) * g.discontent_stress
+                - support_relief
+                - reassurance * g.discontent_relief,
+        ),
+    );
+    let positive = 0.5 + (life.positive - 0.5) * py_max(0.0, 1.0 - g.positive_affect_decay);
+    let hygiene = py_min(1.0, py_max(0.0, life.hygiene + g.hygiene_growth + life.ventilation_growth + (1.0 - life.sanitation) * g.sanitation_hygiene_growth));
+    let negative = py_min(1.0, py_max(0.0, life.negative + reference * g.negative_affect_stress - reassurance * g.negative_affect_stress));
+    LifeValues { family_pressure, debt, reassurance, uncertainty_without, uncertainty, discontent, positive, hygiene, negative }
 }
 
 /// What `step` knows on the way, which only a trace reads.

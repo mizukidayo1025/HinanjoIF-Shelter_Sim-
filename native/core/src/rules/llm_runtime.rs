@@ -785,71 +785,7 @@ fn typed<C: WorldCell>(cell: &C, runtime: &mut Runtime, mut records: Records<'_>
                 }
             }
         }
-        let agent_ids = V::List(participants.iter().map(|id| text(id)).collect());
-        let identity = map([
-            ("interaction_type", text(interaction_type)),
-            ("minute", V::Int(minute)),
-            ("trigger_id", text(&candidate.trigger_id)),
-            ("agent_ids", agent_ids.clone()),
-            ("zone_id", text(&candidate.zone_id)),
-            ("relationship", text(candidate.relationship)),
-            ("event_context", V::Map(candidate.event_payload.clone())),
-        ]);
-        let digest = crate::checkpoint::hex(&<sha2::Sha256 as sha2::Digest>::digest(identity.to_json()?));
-        let proposal_id = format!("social-interaction-{}", &digest[..16]);
-        let mut reason_codes: Vec<V> = candidate.reason_codes.iter().map(|code| text(code)).collect();
-        reason_codes.push(text("rule_fallback"));
-        let allowed = V::List(candidate.allowed_actions.iter().map(|action| text(action)).collect());
-        let schema = object_schema(&[
-            ("event_id", map([("type", text("string")), ("enum", V::List(vec![text(&proposal_id)]))])),
-            ("action", map([("type", text("string")), ("enum", allowed.clone())])),
-            ("reason_short", map([("type", text("string")), ("enum", V::List(reason_codes))])),
-        ]);
-        let input = map([
-            ("event_id", text(&proposal_id)),
-            ("interaction_type", text(interaction_type)),
-            ("minute", V::Int(minute)),
-            ("due_minute", V::Int(due)),
-            ("agent_ids", agent_ids),
-            ("zone_id", text(&candidate.zone_id)),
-            ("relationship", text(candidate.relationship)),
-            ("observed_facts", candidate.observed_facts.clone()),
-            ("allowed_choices", allowed),
-            ("reason_codes", V::List(candidate.reason_codes.iter().map(|code| text(code)).collect())),
-            (
-                "constraints",
-                V::List(
-                    [
-                        "Select only a listed action and reason code.",
-                        "Use no conversation text and do not add facts.",
-                        "Choose no_interaction when context does not support an action.",
-                        "Echo the supplied event_id exactly.",
-                    ]
-                    .iter()
-                    .map(|item| text(item))
-                    .collect(),
-                ),
-            ),
-        ]);
-        // `json.dumps({"event_id": ..., "action": ..., "reason_short": ...})`, in that order.
-        let mut fallback = Vec::with_capacity(96);
-        fallback.extend_from_slice(b"{\"event_id\":");
-        crate::json::write_json_string(&mut fallback, &proposal_id);
-        fallback.extend_from_slice(br#","action":"no_interaction","reason_short":"rule_fallback"}"#);
-        let task = Task {
-            task: llm::SOCIAL_INTERACTION,
-            stage: STAGE_RUNTIME,
-            prompt_version: format!("{SOCIAL_POLICY_VERSION}-{interaction_type}"),
-            schema_version: 1,
-            input_text: json_text(&input)?,
-            state_hash: runtime.state_hash(world)?,
-            output_schema: schema,
-            fallback_text: String::from_utf8(fallback).map_err(|_| Error::Runtime("a fallback that is not UTF-8".to_owned()))?,
-            // Runtime proposals include a long candidate ID and strict reason code; 40 tokens can be
-            // consumed before the JSON object is complete.
-            max_output_tokens: 128,
-            input_byte_limit: None,
-        };
+        let (proposal_id, task) = social_task(world, runtime, &candidate, &participants, minute, due)?;
         Ok(Ok((minute, due, proposal_id, task)))
     })??;
     let base = Rejected {
@@ -899,6 +835,78 @@ fn typed<C: WorldCell>(cell: &C, runtime: &mut Runtime, mut records: Records<'_>
         ..base.decision(minute, &candidate.initiator, "")
     };
     keep(&mut records, &decision)
+}
+
+/// The question `typed` asks of a candidate at `minute`: its proposal ID, made from what it asks
+/// about, and the task with its input, schema and fallback.
+fn social_task(world: &World, runtime: &mut Runtime, candidate: &Candidate, participants: &[String], minute: i64, due: i64) -> Result<(String, Task)> {
+    let interaction_type = candidate.interaction_type;
+    let agent_ids = V::List(participants.iter().map(|id| text(id)).collect());
+    let identity = map([
+        ("interaction_type", text(interaction_type)),
+        ("minute", V::Int(minute)),
+        ("trigger_id", text(&candidate.trigger_id)),
+        ("agent_ids", agent_ids.clone()),
+        ("zone_id", text(&candidate.zone_id)),
+        ("relationship", text(candidate.relationship)),
+        ("event_context", V::Map(candidate.event_payload.clone())),
+    ]);
+    let digest = crate::checkpoint::hex(&<sha2::Sha256 as sha2::Digest>::digest(identity.to_json()?));
+    let proposal_id = format!("social-interaction-{}", &digest[..16]);
+    let mut reason_codes: Vec<V> = candidate.reason_codes.iter().map(|code| text(code)).collect();
+    reason_codes.push(text("rule_fallback"));
+    let allowed = V::List(candidate.allowed_actions.iter().map(|action| text(action)).collect());
+    let schema = object_schema(&[
+        ("event_id", map([("type", text("string")), ("enum", V::List(vec![text(&proposal_id)]))])),
+        ("action", map([("type", text("string")), ("enum", allowed.clone())])),
+        ("reason_short", map([("type", text("string")), ("enum", V::List(reason_codes))])),
+    ]);
+    let input = map([
+        ("event_id", text(&proposal_id)),
+        ("interaction_type", text(interaction_type)),
+        ("minute", V::Int(minute)),
+        ("due_minute", V::Int(due)),
+        ("agent_ids", agent_ids),
+        ("zone_id", text(&candidate.zone_id)),
+        ("relationship", text(candidate.relationship)),
+        ("observed_facts", candidate.observed_facts.clone()),
+        ("allowed_choices", allowed),
+        ("reason_codes", V::List(candidate.reason_codes.iter().map(|code| text(code)).collect())),
+        (
+            "constraints",
+            V::List(
+                [
+                    "Select only a listed action and reason code.",
+                    "Use no conversation text and do not add facts.",
+                    "Choose no_interaction when context does not support an action.",
+                    "Echo the supplied event_id exactly.",
+                ]
+                .iter()
+                .map(|item| text(item))
+                .collect(),
+            ),
+        ),
+    ]);
+    // `json.dumps({"event_id": ..., "action": ..., "reason_short": ...})`, in that order.
+    let mut fallback = Vec::with_capacity(96);
+    fallback.extend_from_slice(b"{\"event_id\":");
+    crate::json::write_json_string(&mut fallback, &proposal_id);
+    fallback.extend_from_slice(br#","action":"no_interaction","reason_short":"rule_fallback"}"#);
+    let task = Task {
+        task: llm::SOCIAL_INTERACTION,
+        stage: STAGE_RUNTIME,
+        prompt_version: format!("{SOCIAL_POLICY_VERSION}-{interaction_type}"),
+        schema_version: 1,
+        input_text: json_text(&input)?,
+        state_hash: runtime.state_hash(world)?,
+        output_schema: schema,
+        fallback_text: String::from_utf8(fallback).map_err(|_| Error::Runtime("a fallback that is not UTF-8".to_owned()))?,
+        // Runtime proposals include a long candidate ID and strict reason code; 40 tokens can be
+        // consumed before the JSON object is complete.
+        max_output_tokens: 128,
+        input_byte_limit: None,
+    };
+    Ok((proposal_id, task))
 }
 
 /// After a call: the day's attempts, and each participant's attempts of the day and last attempt,

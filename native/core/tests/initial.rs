@@ -95,17 +95,23 @@ fn the_core_builds_the_entry_python_exports_and_runs_it_to_the_native_path_s_wor
 }
 
 #[test]
-fn the_core_refuses_configs_its_table_lacks() {
+fn the_core_refuses_records_its_table_lacks_but_builds_the_world() {
     let case = world_case("twenty");
     let mut scenario: Value = serde_json::from_str(case["scenario"].as_str().unwrap()).unwrap();
     let configs = scenario["model_configs"].as_object().unwrap().keys().cloned().collect::<Vec<_>>();
     assert!(initial::knows(&scenario["model_configs"]).unwrap());
     scenario["model_configs"]["behavior"]["temperature"] = serde_json::json!(0.3);
     let raw = serde_json::to_vec(&scenario).unwrap();
-    match initial::entry(&raw) {
+    match initial::model_versions(&raw) {
         Err(Error::Unsupported(why)) => assert!(why.contains("fingerprint"), "{why}"),
-        other => panic!("{:?}", other.map(|bytes| bytes.len())),
+        other => panic!("{other:?}"),
     }
+    // The world needs no table (#429).
+    let entry: Value = serde_json::from_slice(&initial::entry(&raw).unwrap()).unwrap();
+    assert_eq!(
+        entry["run"]["policies"]["controller"]["attrs"]["decisions"]["object"]["attrs"]["policy"]["object"]["attrs"]["temperature"]["value"],
+        serde_json::json!(0.3)
+    );
     // A data config's contents are not in the fingerprint; that it is there is.
     let mut moved: Value = serde_json::from_str(case["scenario"].as_str().unwrap()).unwrap();
     moved["model_configs"]["population_context"]["evacuation_selection_source_ids"] = serde_json::json!(["SRC-X"]);

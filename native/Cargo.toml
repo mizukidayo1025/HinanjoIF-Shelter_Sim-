@@ -18,18 +18,12 @@ members = [".", "core", "store", "wasm"]
 iter_over_hash_type = "deny"
 
 [dependencies]
-# The kernels use the core's helper threads: its default feature `parallel`, named here so that
-# the wrapper keeps it whatever the core's defaults become.
+# The local and VM versions run the core with its helper threads: its default feature `parallel`,
+# named here so that the wrapper keeps it whatever the core's defaults become.
 sheltersim_core = { path = "core", features = ["parallel"] }
 # The files of a stored Run on a disk (#426), for `rules::run_files`.
 sheltersim_store = { path = "store" }
 pyo3 = { version = "0.23", features = ["extension-module", "abi3-py312"] }
-indexmap = "2"
-itoa = "1"
-rayon = "1.10"
-rustc-hash = "2"
-smallvec = "1"
-sha2 = "0.10"
 serde_json = { version = "1.0", features = ["arbitrary_precision"] }
 
 [lints]

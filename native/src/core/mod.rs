@@ -1,19 +1,5 @@
-//! What every lane shares: JSON values, float operations with CPython's results, keyed draws
-//! and interned singletons (docs/rust-port/lanes/p3-skeleton.md).
+//! What the Python entries share: the Python exceptions of the core's errors and the Python link to
+//! an LLM.
 
-pub(crate) mod actions;
-pub(crate) mod census;
-pub(crate) mod configs;
 pub(crate) mod errors;
-pub(crate) mod geometry;
-pub(crate) mod interner;
 pub(crate) mod llm_link;
-pub(crate) mod mathx;
-pub(crate) mod parallel;
-pub(crate) mod rng;
-pub(crate) mod row;
-pub(crate) mod run;
-pub(crate) mod tracked;
-pub(crate) mod txn;
-pub(crate) mod value;
-pub(crate) mod world_core;

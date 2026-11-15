@@ -15,7 +15,7 @@ use indexmap::IndexMap;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use sheltersim_core::config::{Fault, FaultClass, Selection};
-use sheltersim_core::entities::{Activity, AgentRow, AnyTable, FacilityRow, Mobility, NeedRow, ProfileRow, RequestRow, RequestStatus, Table, TaskRow, ZoneRow};
+use sheltersim_core::entities::{Activity, AgentRow, FacilityRow, Mobility, NeedRow, ProfileRow, RequestRow, RequestStatus, Table, TaskRow, ZoneRow};
 use sheltersim_core::error::Error;
 use sheltersim_core::host::{Trace, TraceLevel};
 use sheltersim_core::row::{IdMap, Row, ValueRow};
@@ -101,9 +101,7 @@ fn expected() -> Value {
 // ---- The world -----------------------------------------------------------------------------------
 
 fn put<R: Clone>(table: &mut Table<R>, id: &str, row: R) {
-    let slot = table.reserve_slot();
-    table.fill_slot(slot, row);
-    assert_eq!(table.bind(text(id), slot), None);
+    table.insert(text(id), row);
 }
 
 fn add_row<T: Row>(world: &mut World, name: &str, place: Place, row: T) {

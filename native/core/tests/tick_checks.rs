@@ -8,9 +8,7 @@ use std::sync::Arc;
 use indexmap::IndexMap;
 use sheltersim_core::cell::Shard;
 use sheltersim_core::config::{ResourceNumbers, TickPlan};
-use sheltersim_core::entities::{
-    Activity, AgentRow, AnyTable, Entities, FacilityRow, Mobility, NeedRow, ProfileRow, RequestRow, RequestStatus, Table, ZoneRow,
-};
+use sheltersim_core::entities::{Activity, AgentRow, Entities, FacilityRow, Mobility, NeedRow, ProfileRow, RequestRow, RequestStatus, Table, ZoneRow};
 use sheltersim_core::error::{Error, Result};
 use sheltersim_core::events::log::EventLog;
 use sheltersim_core::events::queue::Queue;
@@ -32,10 +30,7 @@ fn refusal(reason: &str) -> Error {
 }
 
 fn put<R: Clone>(table: &mut Table<R>, id: &str, row: R) -> u32 {
-    let slot = table.reserve_slot();
-    table.fill_slot(slot, row);
-    assert_eq!(table.bind(text(id), slot), None);
-    slot
+    table.insert(text(id), row)
 }
 
 fn needs() -> NeedRow {
@@ -219,9 +214,9 @@ fn the_table_marks_each_written_or_filled_slot_once_in_order() {
     // Reads mark nothing.
     assert!(table.get("r1").is_some() && table.row_at(second).is_some());
     assert!(table.marked().is_empty());
-    // Three ways of writing (`get_mut`, `row_and_view_mut`, `slot_mut`): one mark per slot.
+    // Two ways of writing (`get_mut`, `slot_mut`): one mark per slot.
     table.get_mut("r2").unwrap().cooldown_until = 5;
-    table.row_and_view_mut(first).unwrap().0.cooldown_until = 6;
+    table.slot_mut(first).unwrap().cooldown_until = 6;
     table.slot_mut(second).unwrap().cooldown_until = 7;
     assert_eq!(table.marked(), &[second, first]);
     assert!(table.is_marked(first) && table.is_marked(second));

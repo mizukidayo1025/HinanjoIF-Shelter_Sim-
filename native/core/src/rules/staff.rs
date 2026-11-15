@@ -300,7 +300,7 @@ fn kind_exposure(workers: &[Worker], kind: &str) -> Option<(bool, bool, bool)> {
 
 /// `metric_state[name] = metric_state.get(name, 0.0) + count`, of the row.
 fn add_to_metric(world: &World, name: &str, count: f64) -> Result<()> {
-    let mut metrics = kit::metric_entries_of(world, &[name])?;
+    let mut metrics = kit::metrics_of(world)?;
     let sum = metrics.get(name).copied().unwrap_or(0.0) + count;
     let Ok(()) = map_set(&mut metrics, &NoTree, name, sum);
     Ok(())
@@ -308,7 +308,7 @@ fn add_to_metric(world: &World, name: &str, count: f64) -> Result<()> {
 
 /// `metric_state[name] = value`, of the row.
 fn set_metric(world: &World, name: &str, value: f64) -> Result<()> {
-    let mut metrics = kit::metric_entries_of(world, &[name])?;
+    let mut metrics = kit::metrics_of(world)?;
     let Ok(()) = map_set(&mut metrics, &NoTree, name, value);
     Ok(())
 }

@@ -266,7 +266,7 @@ fn a_request_for_information_ties_the_heard_claims_to_it() {
     assert_eq!(applied, Applied { target: Some(request_id.clone()), next_decision_at: 15, committed: true });
     // A Run without an LLM asks nothing.
     assert!(host.calls.is_empty());
-    let mut world = cell.try_borrow_mut().unwrap();
+    let world = cell.try_borrow_mut().unwrap();
     assert_eq!(person(&world, "a1").0, Activity::SeekingHelp);
     assert_eq!(world.rows().unwrap().support_requests.get(&request_id).unwrap().status, RequestStatus::Pending);
     assert_eq!(pending(&world), vec![text("support-timeout-10")]);
@@ -278,12 +278,12 @@ fn a_request_for_information_ties_the_heard_claims_to_it() {
     assert_eq!(message_ids, &vec![text("m1"), text("m2")]);
     assert_eq!(state.counters.support_requests, 1);
     assert_eq!(state.query_pressure.get("a1"), Some(&0.0));
-    // a2 holds no heard claim: the record writes nothing, and leaves the namespace unmarked.
-    world.slots.take_written();
+    // a2 holds no heard claim: the record writes nothing, and the namespace keeps its stamp.
+    crate::support::written(&world);
     drop(world);
     ask(&cell, &mut host, &inputs, &proposal(Action::SeekInformation, "a2")).unwrap();
     let world = cell.try_borrow_mut().unwrap();
-    assert!(!world.slots.written_names().iter().any(|name| &**name == INFORMATION));
+    assert!(!crate::support::written(&world).iter().any(|name| name == INFORMATION));
     assert_eq!(world.row::<InformationRow>(INFORMATION).unwrap().counters.support_requests, 1);
     drop(world);
     // a3 has no beliefs: an `Error::Key`, after the request's writes.

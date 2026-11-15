@@ -339,14 +339,14 @@ pub(crate) fn zone_known(world: &World, zone_id: &str) -> Result<bool> {
 
 /// `world.metric_state[name] = metric_state.get(name, 0.0) + count`.
 fn add_metric(world: &World, name: &str, count: usize) -> Result<()> {
-    let mut metrics = kit::metric_entries_of(world, &[name])?;
+    let mut metrics = kit::metrics_of(world)?;
     let value = metrics.get(name).copied().unwrap_or(0.0) + count as f64;
     metrics.insert(Arc::from(name), value);
     Ok(())
 }
 
 fn set_metric(world: &World, name: &str, value: f64) -> Result<()> {
-    kit::metric_entries_of(world, &[name])?.insert(Arc::from(name), value);
+    kit::metrics_of(world)?.insert(Arc::from(name), value);
     Ok(())
 }
 

@@ -9,7 +9,7 @@ use serde_json::{json, Value};
 use sheltersim_core::config::agent_dynamics::Awareness;
 use sheltersim_core::config::body::{AffectModel, BodyModels, TrustModel};
 use sheltersim_core::config::{Fault, FaultClass, Selection};
-use sheltersim_core::entities::{Activity, AgentRow, AnyTable, Entities, FacilityRow, Mobility, NeedRow, ProfileRow, Table};
+use sheltersim_core::entities::{Activity, AgentRow, Entities, FacilityRow, Mobility, NeedRow, ProfileRow, Table};
 use sheltersim_core::error::Error;
 use sheltersim_core::events::log::EventLog;
 use sheltersim_core::events::queue::Queue;
@@ -87,9 +87,7 @@ fn facility(id: &str, kind: &str, zone: &str) -> FacilityRow {
 }
 
 fn put<R: Clone>(table: &mut Table<R>, id: &str, row: R) {
-    let slot = table.reserve_slot();
-    table.fill_slot(slot, row);
-    assert_eq!(table.bind(text(id), slot), None);
+    table.insert(text(id), row);
 }
 
 /// Agents a2 and a1 (in that order) in z0, a3 in z1; f1 a toilet in z0, f2 an intake desk and f3 a
@@ -110,6 +108,7 @@ fn world() -> World {
     add_row(&mut world, ID_COUNTERS, Place::Field, ValueRow(map(&[("event", V::Int(5))])));
     world.hold_queue(Arc::new(Queue::new()));
     world.hold_log(Arc::new(EventLog::new()));
+    crate::support::written(&world);
     world
 }
 
@@ -119,9 +118,7 @@ fn add_row<T: Row>(world: &mut World, name: &str, place: Place, row: T) {
 }
 
 fn written(world: &mut World) -> Vec<String> {
-    let names: Vec<String> = world.slots.written_names().iter().map(|name| name.to_string()).collect();
-    world.slots.take_written();
-    names
+    crate::support::written(world)
 }
 
 fn counter(world: &World) -> V {
@@ -160,6 +157,7 @@ fn with_dynamics(policy: &str, records: &[(&str, &[&str])]) -> World {
         agents.insert(text(id), memory(known));
     }
     add_row(&mut world, DYNAMICS, Place::Namespace, AgentDynamicsRow { schema_version: 1, policy_version: text(policy), agents });
+    crate::support::written(&world);
     world
 }
 
@@ -471,6 +469,7 @@ fn with_body(records: &[(&str, BodyRecord)]) -> World {
         history: History::default(),
     };
     add_row(&mut world, BODY, Place::Namespace, row);
+    crate::support::written(&world);
     world
 }
 
@@ -541,6 +540,7 @@ fn with_network(body: &[(&str, BodyRecord)]) -> World {
         information_transfer_count: 0,
     };
     add_row(&mut world, NETWORK, Place::Namespace, row);
+    crate::support::written(&world);
     world
 }
 

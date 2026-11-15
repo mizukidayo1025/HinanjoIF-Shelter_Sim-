@@ -378,7 +378,7 @@ fn care_outcome(configs: &Map, selection: &Result<Selection>) -> V {
             return Err(refused("an input has no such attribute"));
         };
         let catalog = catalog()?;
-        let Some(definition) = catalog.models.get(model).filter(|definition| definition.factory && &*definition.domain == "care_outcome") else {
+        let Some(definition) = catalog.models.get(model).filter(|definition| &*definition.domain == "care_outcome") else {
             return Err(refused("the formula refuses"));
         };
         let config = configs.get("body_dynamics").cloned().unwrap_or_else(empty);

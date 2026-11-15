@@ -75,15 +75,14 @@ pub struct StaffOperations {
     pub selected_source: Option<Arc<str>>,
 }
 
-/// The source of each built-in formula (`MODEL_DEFINITIONS[model_id]["assumption_source_id"]`).
+/// The source of each built-in formula (its `assumption_source_id` in the Model Catalog).
 const URGENCY_FIRST_SOURCE: &str = "ASM-STAFF-URGENCY-FIRST-V1";
 const TRAVEL_FIRST_SOURCE: &str = "ASM-STAFF-TRAVEL-FIRST-V1";
 
 impl StaffOperations {
-    /// `create_staff_operations_formula(configs)` of the built-in formulas, for a build without
-    /// Python (the PyO3 crate fills the section from the Python factory, which may know a formula
-    /// registered later): the formula `policy_registry` selects, urgency first by default; its
-    /// source where the registry names one. Another formula is refused.
+    /// `create_staff_operations_formula(configs)` of the built-in formulas: the formula
+    /// `policy_registry` selects, urgency first by default; its source where the registry names
+    /// one. Another formula is refused.
     pub fn parse(configs: &V) -> Read<Self> {
         let selected = match map(configs)?.get("policy_registry") {
             Some(registry) => map(registry)?.get("staff_operations"),

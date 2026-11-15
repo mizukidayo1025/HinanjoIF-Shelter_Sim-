@@ -257,9 +257,6 @@ pub fn select(configs: &V) -> Result<Selection> {
     if FORMULA_DOMAINS.iter().any(|domain| selected.contains_key(*domain)) && !matches!(schema, Some(V::Int(2 | 3))) {
         return Err(value_error("replaceable formula factories require policy_registry schema_version 2 or 3"));
     }
-    if selected.values().any(|model| !catalog.models[&**model].factory) {
-        return Err(value_error("selected model metadata has no installed Policy factory"));
-    }
     if let Some(proximity) = selected.get("social_proximity") {
         let enabled = proximity_config(configs.get("social_proximity"))?;
         if &**proximity == PROXIMITY_POLICY && !enabled {

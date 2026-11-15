@@ -273,12 +273,15 @@ hr {
   min-width: 200px;
   max-width: 400px;
 }
-.header-scenario select {
-  background: transparent;
-  border: 0;
-  width: 250px;
-  margin: 0;
-  padding: 8px 20px 8px 0;
+.header-scenario[hidden] {
+  display: none;
+}
+.header-scenario strong {
+  min-width: 0;
+  padding: 8px 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .clock {
   background: #edf5ff;
@@ -356,26 +359,6 @@ hr {
   border-radius: 5px;
   width: 4px;
   background: var(--blue);
-}
-.sidebar-bottom {
-  margin-top: auto;
-}
-.current-scenario {
-  background: #ffffffd9;
-  padding: 12px;
-  border-radius: 0 0 8px 8px;
-}
-.current-scenario strong {
-  display: block;
-  margin: 7px 0;
-  overflow-wrap: anywhere;
-  font-size: 13px;
-}
-.current-scenario p {
-  font-size: 11px;
-}
-.current-scenario small {
-  font-size: 10px;
 }
 .shelter-picture {
   height: 92px;
@@ -1394,9 +1377,6 @@ body.is-busy #intervention-apply {
   .header-scenario {
     min-width: 160px;
   }
-  .header-scenario select {
-    width: 180px;
-  }
   .sidebar {
     width: 160px;
   }
@@ -1445,7 +1425,12 @@ body.is-busy #intervention-apply {
     height: 35px;
     font-size: 35px;
   }
+  /* A narrow screen shows the open scenario's name alone, cut short (#442). */
   .header-scenario {
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+  .header-scenario small {
     display: none;
   }
   .sidebar {
@@ -1459,9 +1444,6 @@ body.is-busy #intervention-apply {
   }
   .nav-item span {
     font-size: 28px;
-  }
-  .sidebar-bottom {
-    display: none;
   }
   main {
     margin-left: 68px;
@@ -1661,9 +1643,6 @@ body.is-busy #intervention-apply {
   margin: 7px 0;
   padding: 9px;
 }
-.current-scenario p {
-  white-space: pre-line;
-}
 @media (min-width: 1251px) {
   .page-heading {
     margin: 3px 0 10px;
@@ -1848,10 +1827,8 @@ body {
   white-space: nowrap;
   flex: none;
 }
-.header-scenario select {
-  width: 0;
+.header-scenario strong {
   flex: 1;
-  min-width: 0;
   font-size: 12px;
   font-weight: 650;
 }
@@ -1892,10 +1869,6 @@ body {
   box-shadow: none;
   background: linear-gradient(90deg, #dcedff, #bfdfff);
 }
-.sidebar-bottom {
-  border-radius: 8px;
-  overflow: hidden;
-}
 .shelter-picture {
   height: 110px;
   background: #d3ebf8;
@@ -1918,21 +1891,6 @@ body {
   border-radius: 3px;
   background: #ffffffdc;
   color: #446587;
-}
-.current-scenario {
-  padding: 12px;
-  background: #ffffffed;
-}
-.current-scenario strong {
-  font-size: 13px;
-  line-height: 1.6;
-}
-.current-scenario hr {
-  margin: 10px 0;
-}
-.current-scenario .fine {
-  line-height: 1.55;
-  font-size: 9px;
 }
 main {
   margin-left: var(--sidebar-width);
@@ -3597,20 +3555,6 @@ body:not([data-view="simulation"]):not([data-view="comparison"]) #play {
   gap: 6px;
   white-space: nowrap;
 }
-.sidebar-note {
-  margin: 8px 4px 0;
-  font-size: 10px;
-  line-height: 1.5;
-}
-.current-scenario {
-  border-radius: 8px;
-}
-.current-scenario strong {
-  min-height: 0;
-}
-.current-scenario p:empty {
-  display: none;
-}
 .nav-item:disabled {
   opacity: 0.45;
   cursor: not-allowed;
@@ -3926,5 +3870,30 @@ body[data-scenario="unavailable"] #page-scenario .scenario-grid {
 @media (max-width: 900px) {
   .detail-grid {
     grid-template-columns: 1fr;
+  }
+}
+/* A phone has no room beside the clock: the open scenario's name is a thin strip under the
+   header (#442). */
+@media (max-width: 540px) {
+  .header-scenario {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    margin: 0;
+    max-width: none;
+    border-radius: 0;
+    padding: 3px 12px;
+    border-bottom: 1px solid var(--line);
+  }
+  .header-scenario strong {
+    padding: 0;
+    font-size: 12px;
+  }
+  body:has(#header-scenario:not([hidden])) .sidebar {
+    top: calc(var(--header-height) + 25px);
+  }
+  body:has(#header-scenario:not([hidden])) main {
+    padding-top: 37px;
   }
 }

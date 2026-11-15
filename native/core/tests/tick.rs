@@ -1,6 +1,6 @@
 //! A tick of a Run in the core (lanes P9-2a and P9-2b, `sheltersim_core::rules::tick::run_tick`): the
 //! Run's scratch begins before the dispatch, the observer sees each phase through the host in
-//! `TICK_PHASE_ORDER`, the movement runs first in the update phase (the core's since lane P9-3b),
+//! `Phase::ORDER`, the movement runs first in the update phase (the core's since lane P9-3b),
 //! the steps' errors carry their labels, the dispatch's refusal is its entry's `KernelRefusal`, and a phase that
 //! moves the clock is the engine's error, with its text, before the observer hears the phase end.
 

@@ -1,11 +1,11 @@
 //! The extensions' signatures and the head of their validation (lane D of #250, #349):
-//! `simulator_signatures(world.model_configs)` and the first checks of
-//! `validate_simulator_extensions` (`temporary_spaces_v1`, the legacy queue marker, the required
-//! states). Each broken world of `validate_signatures.json`
-//! (`tests/support/core_validate_signatures.py`) gives Python's class and text at each entry point,
-//! and the signatures of each world's configs are Python's, key for key in its order. pydantic's
-//! `ValidationError` of the configs (`FacilityGeometry`, `ScenarioZoneEnvironmentConfig`,
-//! `FacilityAwarenessConfig`) is the core's `Error::Validation`, with the same text (#360).
+//! `validate::signatures::simulator_signatures` of the world's configs and the first checks of the
+//! extensions' validation (`validate::extension_head`: `temporary_spaces_v1`, the legacy queue
+//! marker, the required states). Each broken world of `validate_signatures.json` gives the
+//! recorded class and text at each entry point, and the signatures of each world's configs are the
+//! recorded ones, key for key in their order. A config the contracts refuse (the facility
+//! geometry, the zone environment, the facility awareness) is the core's `Error::Validation`, with
+//! the recorded text (#360). The cases were recorded before #430 and pin the core's output now.
 
 use crate::support;
 
@@ -17,12 +17,12 @@ use support::validate::{self, class_of, load_entry, Files};
 const FILE: &str = "validate_signatures";
 
 #[test]
-fn a_broken_head_or_config_gives_python_s_first_error() {
+fn a_broken_head_or_config_gives_the_recorded_first_error() {
     assert!(validate::check_file(FILE) >= 38);
 }
 
 #[test]
-fn the_signatures_are_python_s() {
+fn the_signatures_are_the_recorded_ones() {
     let mut files = Files::default();
     let signed = files.data(FILE)["signatures"].as_array().cloned().expect("the file has its signatures");
     let mut failures = Vec::new();

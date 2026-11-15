@@ -1,16 +1,15 @@
-//! The typed rows of `model_state` read from JSON without Python (Issue #225, F1; #214).
+//! The typed rows of `model_state` read from JSON (Issue #225, F1; #214).
 //!
-//! `tests/data/typed_rows.json` holds worlds of `tests/support/core_typed_rows.py` (written by
-//! `benchmarks/core_fixtures.py`, checked by `tests/integration/test_core_fixtures.py`)
-//! that together have every typed namespace: queues and their stalls, queue and staff support
-//! trips, a working and a finished staff task, a shift config with and without its optional keys,
-//! histories, receipts and audit records. Each namespace read into its row with `Field::from_value`
-//! writes the bytes of its canonical JSON again, and the loader puts it in its slot as that row.
+//! `tests/data/typed_rows.json` holds worlds that together have every typed namespace: queues and
+//! their stalls, queue and staff support trips, a working and a finished staff task, a shift config
+//! with and without its optional keys, histories, receipts and audit records, with the digest of
+//! each namespace's canonical JSON. They were recorded before #430. Each namespace read into its
+//! row with `Field::from_value` writes the bytes of its canonical JSON again, and the loader puts
+//! it in its slot as that row.
 //!
-//! What the PyO3 crate's `PyField::from_py` refuses is refused here too: the other number type, a
-//! missing or an extra key, a text outside an enum's set, a null where no `Option` is, and the
-//! checks of the hand-written readers (a journey's optional keys, the off-shift recovery's ints,
-//! the audit's records, the depth of a value).
+//! A row refuses the other number type, a missing or an extra key, a text outside an enum's set, a
+//! null where no `Option` is, and what the hand-written readers check (a journey's optional keys,
+//! the off-shift recovery's ints, the audit's records, the depth of a value).
 
 use crate::support;
 
@@ -87,7 +86,7 @@ fn taken(name: &str, change: impl FnOnce(&mut V)) -> (Vec<u8>, Vec<u8>) {
 }
 
 #[test]
-fn the_table_has_every_typed_namespace_python_has() {
+fn the_table_has_every_typed_namespace_the_fixture_lists() {
     let fixture = fixture();
     let python: Vec<&str> = fixture["typed"].as_array().unwrap().iter().map(|name| name.as_str().unwrap()).collect();
     let table: Vec<&str> = TYPED.iter().map(|(name, _)| *name).collect();
@@ -105,7 +104,7 @@ fn every_namespace_reads_into_its_row_and_writes_the_same_bytes() {
             let row = typed_row(name, &value).unwrap().unwrap_or_else(|misfit| panic!("{name}: {}", misfit.0));
             let written = bytes(&*row);
             assert!(written == canonical(&value), "{name} at minute {} wrote other bytes", world["minute"]);
-            // The bytes Python's json writes of the namespace.
+            // The recorded digest of the namespace's canonical JSON.
             assert_eq!(sha256_hex(&written), world["digests"][name].as_str().unwrap(), "{name}");
             seen.insert(name.clone());
         }

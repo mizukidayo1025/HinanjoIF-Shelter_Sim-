@@ -1,20 +1,19 @@
-//! Events given to one handler of an exported world, and what the Python rule did with each (Issue
-//! #225, lane M1; `tests/support/core_texts.py` writes the files).
+//! Events given to one handler of an exported world, and what the handler did with each, as
+//! recorded before #430 (Issue #225, lane M1).
 //!
 //! A world of such a file is an exported world, or a variant of another world of the same file
 //! (`{"base": name, "changes": [...]}`) or of another file (`{"file": stem, "base": name, ...}`,
 //! lane M8): `entry` (`resolve` of a file read already) makes the entry again, applying each
 //! change in order (`["set", path, value]`, where an index one past a list's end appends, and
-//! `["del", path]`), then each of `set` (`{"a.0.b": value}`, the shorter form
-//! `core_texts.variant(dotted=True)` writes). `resolve` reads any such table of a file (lane
-//! M10a's policies too). A case is one event for one handler of one world: the
-//! outcome the Python rule raised (`[class, text]`), or `after`, the world it left when the event
-//! applied. `check` runs the core's handler (`dispatch::apply_alone`, the kernel the handler's
-//! PyO3 entry calls) on a fresh load of the world with its host (`load::loaded`, and `host`:
-//! `load::host` whose `find_record` finds the world's records) and checks that it raised that
-//! outcome itself, with the same text, and changed nothing (or, where the case has `after` too, left
-//! that world, as a rule that writes before its outcome does); or that it applied and left the world
-//! `after` is, byte for byte (`canonical::parts`).
+//! `["del", path]`), then each of `set` (`{"a.0.b": value}`, the shorter form of dotted paths).
+//! `resolve` reads any such table of a file (lane M10a's policies too). A case is one event for
+//! one handler of one world: the recorded outcome (`[class, text]`), or `after`, the world it left
+//! when the event applied. `check` runs the core's handler (`dispatch::apply_alone`) on a fresh
+//! load of the world with its host (`load::loaded`, and `host`: `load::host` whose `find_record`
+//! finds the world's records) and checks that it raised that outcome itself, with the same text,
+//! and changed nothing (or, where the case has `after` too, left that world, as a rule that writes
+//! before its outcome does); or that it applied and left the world `after` is, byte for byte
+//! (`canonical::parts`).
 
 use std::sync::Arc;
 
@@ -62,7 +61,7 @@ pub fn apply_variant(entry: &mut Value, variant: &Value) {
     }
 }
 
-/// A set of `core_texts.variant(dotted=True)`: the value at a path of keys and indexes joined with
+/// A set of the dotted form: the value at a path of keys and indexes joined with
 /// dots, which the entry has but for its last key of a dict.
 fn set_dotted(entry: &mut Value, path: &str, value: &Value) {
     let keys: Vec<&str> = path.split('.').collect();
@@ -142,8 +141,7 @@ pub fn native(loaded: &Loaded, handler: &Value) -> Native {
 
 // ---- Cases --------------------------------------------------------------------------------------
 
-/// `load::host` of the entry, whose `find_record` finds the world's records as the native host's
-/// does (`event_log.find`).
+/// `load::host` of the entry, whose `find_record` finds the world's records (`load::find_record`).
 pub fn host(entry: &Value) -> TestHost {
     let mut host = load::host(entry);
     for record in entry["world"]["event_log"].as_array().unwrap() {
@@ -156,7 +154,7 @@ pub fn host(entry: &Value) -> TestHost {
 }
 
 /// What a handler (`handler`, as a case holds it) gives for an event on a loaded world with its
-/// host: `dispatch::apply_alone`, the kernel the handler's PyO3 entry calls, at the world's minute.
+/// host: `dispatch::apply_alone`, at the world's minute.
 pub fn apply_handler(loaded: &Loaded, host: &mut TestHost, handler: &Value, event: &EventRow) -> Result<Option<(EventStatus, String)>, String> {
     let native = native(loaded, handler);
     let minute = loaded.cell.with(|world| world.minute_index().unwrap()).unwrap();

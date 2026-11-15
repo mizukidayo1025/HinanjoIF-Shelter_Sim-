@@ -1,13 +1,12 @@
-//! The summary of a world for the intervention's reading in the core (#302): `sheltersim_core::summary`
-//! on a Run without Python (`plain::PlainRun`, the browser's host) gives, byte for byte, the
-//! canonical JSON of the summary Python's `scenario_summary_from_world` made of the same world at
-//! the same minute.
+//! The summary of a world for the intervention's reading in the core (#302):
+//! `sheltersim_core::summary` on a Run (`plain::PlainRun`, the browser's host) gives, byte for
+//! byte, the recorded canonical JSON of the summary of the same world at the same minute.
 //!
-//! The worlds and minutes are those of `tests/support/core_summaries.py`, which wrote
-//! `tests/data/summaries.json` (by `benchmarks/core_fixtures.py`): the two worlds of
+//! The worlds, the minutes and the summaries are `tests/data/summaries.json`: the two worlds of
 //! `tick_core.json`, a world with a staff member away, a pending shipment and people who come, go
 //! and step out (`operations`), and a world of one zone (`one_zone`). Each is run from minute 0 in
-//! the core, and its summary read at each minute.
+//! the core, and its summary read at each minute. The summaries were recorded before #430 and pin
+//! the core's output now.
 
 use std::fs;
 
@@ -27,7 +26,7 @@ fn run_to(run: &mut PlainRun, minute: i64) {
 }
 
 #[test]
-fn the_core_s_summary_is_python_s_at_each_minute() {
+fn the_core_s_summary_is_the_recorded_one_at_each_minute() {
     let fixture: Value = serde_json::from_slice(&read("summaries")).unwrap();
     for (name, summaries) in fixture["expected"].as_object().unwrap() {
         let file = fixture["files"][name].as_str().unwrap();

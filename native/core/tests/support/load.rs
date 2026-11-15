@@ -1,17 +1,17 @@
 //! The exported worlds of `tests/data/`, loaded with the crate's loader (`sheltersim_core::load`,
 //! #244; first written here as a test-only loader for #152 lane P10-1b and #225).
 //!
-//! A fixture file under `tests/data/` holds named worlds (`{"worlds": {name: entry}}`), which
-//! `sheltersim.core.world_export.export_world` exports and `benchmarks/core_fixtures.py` writes
-//! (the builders `tests/support/core_fixtures.py` registers): each entry has the world's canonical
-//! document at its minute, the slots its core owns, what the Run read of the controller
-//! (`RunCore.policies_document`) and the Python-parsed sections of its configs. `entry` reads one;
-//! `fixture` is the small world of `tests/support/core_tick.py` at minute 0 (`tick_core.json`'s
-//! `small_replay`). The functions of the crate's loader are here as the tests call them: an entry
-//! a test reads is well formed, so each panics where the crate's gives an error.
+//! A fixture file under `tests/data/` holds named worlds (`{"worlds": {name: entry}}`), each an
+//! entry as the crate's loader reads it (`initial::entry` makes one of a Scenario): the world's
+//! canonical document at its minute, the slots its core owns, the Run's policies and the sections
+//! a host parses of its configs. Most were recorded before #430; `benchmarks/core_fixtures.py`
+//! writes again the ones `tests/support/core_fixtures.py` registers. `entry` reads one; `fixture`
+//! is the small world of the core's tick test at minute 0 (`tick_core.json`'s `small_replay`). The
+//! functions of the crate's loader are here as the tests call them: an entry a test reads is well
+//! formed, so each panics where the crate's gives an error.
 //!
-//! `host` is a `TestHost` with the entry's sections and floor plan; `following_host` also does to
-//! the loaded world what the PyO3 crate's host does to the Python world it owns (`Following`).
+//! `host` is a `TestHost` with the entry's sections and floor plan; `following_host` also reads
+//! the loaded world as it is at each call, as a host that owns the world does (`Following`).
 
 use std::rc::Rc;
 use std::sync::Arc;
@@ -36,7 +36,7 @@ pub fn data(name: &str) -> Value {
     serde_json::from_str(&raw).unwrap()
 }
 
-/// The named world of a fixture file, as `export_world` wrote it (with the keys its builder added).
+/// The named world of a fixture file, as recorded (with the keys its builder added).
 pub fn entry(file: &str, world: &str) -> Value {
     let mut data = data(file);
     let names: Vec<String> = data["worlds"].as_object().unwrap_or_else(|| panic!("{file} has no worlds")).keys().cloned().collect();
@@ -53,12 +53,12 @@ pub fn v(value: &Value) -> V {
     core_load::value(value).unwrap()
 }
 
-/// `load::event`: an event of the queue (`ScheduledEvent.to_dict()`).
+/// `load::event`: an event of the queue (a row of `event_queue`).
 pub fn event(value: &Value) -> EventRow {
     core_load::event(value).unwrap()
 }
 
-/// `load::put_namespace`: `model_state[name] = value` in the World the PyO3 crate's core holds.
+/// `load::put_namespace`: `model_state[name] = value` in the World.
 pub fn put_namespace(world: &mut World, name: &str, value: V) {
     core_load::put_namespace(world, name, value).unwrap_or_else(|error| panic!("{error}"))
 }
@@ -73,7 +73,7 @@ pub fn fault(value: &Value) -> Fault {
     core_load::fault(value).unwrap()
 }
 
-/// `load::obj`: an object as `RunCore.policies_document` wrote it.
+/// `load::obj`: an object of the Run's policies, as the entry holds it.
 pub fn obj(value: &Value) -> Obj {
     core_load::obj(value).unwrap()
 }
@@ -83,7 +83,7 @@ pub fn loaded(fixture: &Value) -> Loaded {
     core_load::loaded(fixture).unwrap_or_else(|error| panic!("{error}"))
 }
 
-/// A `TestHost` whose Python-parsed sections are the exported world's (`sections::fill`) and whose
+/// A `TestHost` whose host-parsed sections are the exported world's (`sections::fill`) and whose
 /// floor plan is the world's as exported (`sections::floor_plan`; none where `Geo::of` refuses).
 pub fn host(fixture: &Value) -> super::TestHost {
     let mut host = super::TestHost::default();
@@ -103,8 +103,7 @@ pub fn following_host(fixture: &Value, loaded: &Rc<Loaded>) -> super::TestHost {
     host
 }
 
-/// What a host reads of the world it owns, as the PyO3 crate's `PyHost` reads the Python world, on
-/// a loaded World (#214).
+/// What a host reads of the world it owns, on a loaded World (#214).
 pub struct Following {
     loaded: Rc<Loaded>,
     /// The sections of the export, which the plan is built from.
@@ -128,7 +127,7 @@ impl Following {
         self.plans.builds()
     }
 
-    /// `event_log.find` on the world's log now (`load::find_record`).
+    /// A record of the world's log now (`load::find_record`).
     pub fn find_record(&self, event_id: &str) -> Result<Option<Logged>, Error> {
         self.loaded.cell.with(|world| core_load::find_record(world, event_id))?
     }

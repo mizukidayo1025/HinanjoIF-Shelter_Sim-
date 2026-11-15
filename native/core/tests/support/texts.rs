@@ -1,11 +1,10 @@
 //! What the core's tests that call a rule directly share (Issue #225, lane M2): the canonical text
-//! of a world in a cell, the outcome a rule raised, and events changed as the pytest files changed
-//! them.
+//! of a world in a cell, the outcome a rule raised, and events changed for a test.
 //!
 //! The worlds are read with `cases::entry` (a variant is stored as the changes from another world
-//! of its file). `canonical_of` is `WorldState.canonical_json()` of the world in a cell
-//! (`canonical::canonical_json`, with the entry's `rng_state`): a test that the pytest file ran
-//! "with the world unchanged" compares this text before and after the rule.
+//! of its file). `canonical_of` is the canonical document of the world in a cell
+//! (`canonical::canonical_json`, with the entry's `rng_state`): a test of a rule that leaves the
+//! world unchanged compares this text before and after the rule.
 
 use serde_json::Value;
 use sheltersim_core::cell::Shard;
@@ -16,7 +15,7 @@ use sheltersim_core::world::{World, WorldCell};
 
 use super::{canonical, load};
 
-/// A value of `changed`'s payload that drops the key (`_DROP` and `...` of the pytest files).
+/// A value of `changed`'s payload that drops the key.
 pub const DROP: &str = "\u{0}drop";
 
 /// The World of an entry, in a cell.
@@ -24,7 +23,7 @@ pub fn cell(entry: &Value) -> Shard<World> {
     Shard::new(load::world(&entry["world"], &entry["slots"]))
 }
 
-/// `WorldState.canonical_json()` of the world in a cell, with the entry's `rng_state`.
+/// The canonical document of the world in a cell, with the entry's `rng_state`.
 pub fn canonical_of(cell: &Shard<World>, entry: &Value) -> String {
     let bytes = cell.with(|world| canonical::canonical_json(world, &entry["world"]["rng_state"])).unwrap();
     String::from_utf8(bytes).unwrap()
@@ -59,7 +58,7 @@ pub fn suppressed<T>(result: Result<T, Error>) -> String {
     text
 }
 
-/// The event of the world's queue (`ScheduledEvent.to_dict()`) of this type, and of this `op` in
+/// The event of the world's queue (a row of `event_queue`) of this type, and of this `op` in
 /// its payload where given: the only one.
 pub fn pending(entry: &Value, event_type: &str, op: Option<&str>) -> Value {
     let found: Vec<&Value> = entry["world"]["event_queue"]
@@ -104,7 +103,7 @@ pub fn changed(event: &Value, payload: Value, fields: Value) -> Value {
     event
 }
 
-/// The core's row of an event as `ScheduledEvent.to_dict()` writes it.
+/// The core's row of an event as `event_queue` holds it.
 pub fn row(event: &Value) -> EventRow {
     load::event(event)
 }

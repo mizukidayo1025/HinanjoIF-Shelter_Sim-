@@ -1,8 +1,7 @@
-//! Lane b3: the staff's rules (`rules::staff`) on a world built here with no Python: the support
-//! requests' assignment, the complaints that come due, the waits the metrics read, the zones'
-//! sanitation, the routed tasks and their relief. The PyO3 crate's kernels of the same names are glue
-//! over these, so the gate and the offline tests run them on every Run; these say what each reads,
-//! decides, refuses and writes.
+//! Lane b3: the staff's rules (`rules::staff`) on a world built here: the support requests'
+//! assignment, the complaints that come due, the waits the metrics read, the zones' sanitation, the
+//! routed tasks and their relief. Every Run runs them; these say what each reads, decides, refuses
+//! and writes.
 
 use crate::support;
 
@@ -269,7 +268,7 @@ fn movement() -> Kept<Movement> {
     Movement::parse(&V::Map(IndexMap::new())).map(Arc::new)
 }
 
-// ---- StaffService.assign_pending -----------------------------------------------------------------
+// ---- staff::assign_pending ----------------------------------------------------------------------
 
 #[test]
 fn a_minute_where_nobody_can_be_assigned_records_the_attempt_and_the_exposure_once() {
@@ -402,7 +401,7 @@ fn an_urgent_request_preempts_a_routed_task() {
     assert_eq!(world.rows().unwrap().staff.get("s1").unwrap().active_task_id.as_deref(), Some("staff-support-41"));
 }
 
-// ---- _consider_due_complaints --------------------------------------------------------------------
+// ---- staff::consider_due_complaints -------------------------------------------------------------
 
 #[test]
 fn the_due_complaints_go_to_the_host_in_id_order() {
@@ -448,7 +447,7 @@ fn a_wait_reads_its_routes_only_where_free_staff_could_take_it() {
     assert_eq!(waits.reasons_of(&waits.requests[0]), ["insufficient_run_time"]);
 }
 
-// ---- update_staff_operations ---------------------------------------------------------------------
+// ---- staff::update_operations -------------------------------------------------------------------
 
 #[test]
 fn the_sanitation_falls_with_who_is_in_a_zone_and_an_unchanged_zone_is_not_written() {
@@ -468,7 +467,7 @@ fn the_sanitation_falls_with_who_is_in_a_zone_and_an_unchanged_zone_is_not_writt
     assert!(world.slots.take_written().is_empty());
 }
 
-// ---- assign_staff_operations ---------------------------------------------------------------------
+// ---- staff::assign_operations -------------------------------------------------------------------
 
 #[test]
 fn a_routed_task_starts_where_a_free_worker_has_one_to_take() {
@@ -504,7 +503,7 @@ fn a_routed_task_starts_where_a_free_worker_has_one_to_take() {
     assert!(matches!(refused, Err(WriteError::Error(error)) if error == unsupported("another staff operations formula")));
 }
 
-// ---- schedule_staff_operation_relief -------------------------------------------------------------
+// ---- staff::relief ------------------------------------------------------------------------------
 
 #[test]
 fn an_unavailable_worker_s_task_is_handed_to_one_at_the_task() {
@@ -568,7 +567,7 @@ fn the_service_s_route_is_the_controller_s_own_step_or_refused() {
 }
 
 #[test]
-fn the_built_in_formulas_are_the_python_factory_s() {
+fn the_built_in_formulas_are_parsed_with_their_provenance() {
     let none = StaffOperations::parse(&V::Map(IndexMap::new())).unwrap();
     assert_eq!((&*none.model_id, none.selected_source.as_deref(), none.travel_first()), ("staff-urgency-first-v1", None, false));
     assert_eq!(none.provenance(), ("ASM-STAFF-OPERATIONS-V1", "autonomous-routed-staff-v1", "autonomous-routed-staff-v1"));

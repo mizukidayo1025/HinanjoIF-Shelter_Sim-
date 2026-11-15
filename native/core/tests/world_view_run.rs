@@ -1,17 +1,12 @@
-//! The views of a Run, each with every field (Issue #225, lane M7; moved from
-//! `tests/integration/test_world_view_row.py`).
+//! The views of a Run, each with every field (Issue #225, lane M7).
 //!
 //! The worlds are the generated Scenario the Project screen makes, 120 minutes long, and 60 minutes
 //! of it with a rumor from A001 and its correction where every contact passes a claim on
-//! (`generated_texts.json`'s `views_run` and `views_claims`, `tests/support/core_fixtures_kernels.py`).
-//! The core runs their ticks as `TickEngine.step` does (`support/ticks.rs`), and at each tick
-//! takes the update phase's view, which the Run keeps for the propose phase, after that phase, and
-//! a new view of the world as the propose phase starts (`support/views.rs`), as the pytest file's
-//! observer took them. The digest of their texts (`views::exact`, the sha256 of the lines joined)
-//! was recorded from the core in #225 lane M7: the pytest file's digests were of Python's objects
-//! (`_exact`, of the views the PyO3 crate made), which the core does not make; on the same kernel
-//! they passed (`f1bc3977da99` and `77460590f664`). When they were recorded, each Run's last world
-//! here was the one `TickEngine` reaches on the same world (its canonical bytes but `rng_state`).
+//! (`generated_texts.json`'s `views_run` and `views_claims`). The core runs their ticks
+//! (`support/ticks.rs`), and at each tick takes the update phase's view, which the Run keeps for
+//! the propose phase, after that phase, and a new view of the world as the propose phase starts
+//! (`support/views.rs`). The digest of their texts (`views::exact`, the sha256 of the lines joined)
+//! was recorded from the core in #225 lane M7 and pins its output now.
 
 use crate::support;
 
@@ -38,7 +33,7 @@ fn tick_watched(loaded: &Loaded, host: &mut TestHost, texts: &mut Vec<String>) -
     for phase in Phase::ORDER {
         tick.host.phase(phase, true).bare()?;
         if phase == Phase::ProposeActions {
-            // A new view of the world as the propose phase starts (`view_of(world)`).
+            // A new view of the world as the propose phase starts (`views::fresh`).
             let (data, hash) = views::fresh(loaded, tick.host, true);
             texts.push(exact(&data, hash.as_deref()));
         }

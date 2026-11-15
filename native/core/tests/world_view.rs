@@ -1,9 +1,9 @@
 //! The view of lane P8 a1 (`rules::world_view`, `person_context`, `zone_environment`) over a world
-//! built here, with no Python.
+//! built here (`world`).
 //!
-//! The world is the one `view_world.py` built in Python (lane notes of P8 a1): the expected hashes
-//! and values are what the build before this lane gave for it (`view_for_proposals` at `04fb2fb`),
-//! so the core writes the audit hash's bytes as the PyO3 kernel did.
+//! The expected hashes and values are what the build before this lane gave for the same world
+//! (`view_for_proposals` at `04fb2fb`, lane notes of P8 a1); they pin the bytes of the core's audit
+//! hash now.
 
 use std::sync::Arc;
 
@@ -152,8 +152,8 @@ fn information() -> InformationRow {
     }
 }
 
-/// The world of `view_world.py`: `full` with information, distress, the presence ledger and a
-/// person context; without them, as its `plain` variant.
+/// The world: `full` with information, distress, the presence ledger and a person context; without
+/// them, as its `plain` variant.
 fn world(full: bool) -> World {
     let mut world = World::default();
     {
@@ -458,7 +458,7 @@ fn what_the_view_cannot_read_it_refuses_before_making_anything() {
     add_value(&mut world, "population_presence_v1", Place::Namespace, json!({"people": {"A1": {"household_id": 7}}}));
     assert_eq!(refused(&world, &mut cache), Some(unsupported("a view value is not a str")));
 
-    // An outage whose facilities are no container: Python's own TypeError.
+    // An outage whose facilities are no container: the TypeError of Python's `in`.
     let world = self::world(false);
     {
         let slot = world.slots.get("infrastructure_v1").unwrap();

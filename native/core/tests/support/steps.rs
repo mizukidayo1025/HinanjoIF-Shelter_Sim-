@@ -1,15 +1,14 @@
 //! A world of a fixture file, its Run and its host, for the tests that call one step of a phase on
-//! it (Issue #225, lane M6): the service, travel and staff steps, `_route` (`route`) and
-//! `_apply_effect` (`apply`, through `propose::apply_alone`).
+//! it (Issue #225, lane M6): the service, travel and staff steps, `travel::route` (`route`) and
+//! `propose::apply_alone` (`apply`).
 //!
 //! `Case::of` loads a world of a file (`cases::entry`, which makes a variant again) with its Run
 //! (`load::loaded`) and a host that follows the world (`load::following_host`: the floor plan of the
 //! world now, a namespace a rule starts, the ledger's `world.resources`). `tick` lends a step the
 //! `Tick` of the world's minute. A test reads the world as its canonical document
-//! (`canonical::canonical_json`, as `WorldState.canonical_json()` writes it) and edits it as the
-//! pytest edited the Python world: `edit` changes that document and loads it again, with the same
-//! Run's policies. Each step's answer and the world after it go to the case's `Answers`
-//! (`answered`; `apply` and `route` add theirs), whose digest a test records again from the core
+//! (`canonical::canonical_json`) and edits it between two steps: `edit` changes that document and
+//! loads it again, with the same Run's policies. Each step's answer and the world after it go to
+//! the case's `Answers` (`answered`; `apply` and `route` add theirs), whose digest a test pins
 //! (decision 1 of #225).
 
 use std::rc::Rc;
@@ -74,8 +73,8 @@ impl Case {
         self.loaded.cell.with(|world| world.minute_index().unwrap()).unwrap()
     }
 
-    /// `_apply_effect` of a proposal as the pytest files made it (`SimpleNamespace`, no observed
-    /// state hash): the next decision 7 minutes on (`propose::apply_alone`).
+    /// `propose::apply_alone` of a proposal with no observed state hash, the next decision 7
+    /// minutes on.
     pub fn apply(&mut self, action: Action, agent: &str, target: Option<&str>) -> Result<Applied, Error> {
         let proposal =
             Proposal { action, agent_id: Arc::from(agent), next_decision_at: self.minute() + 7, target_id: target.map(Arc::from), observed_state_hash: None };
@@ -96,8 +95,8 @@ impl Case {
         self.answers.hex()
     }
 
-    /// The controller's `_route`, on the Run's people's graph (its capacities, and the floor plan
-    /// and movement section of the world now).
+    /// `travel::route`, on the Run's people's graph (its capacities, and the floor plan and
+    /// movement section of the world now).
     pub fn route(&mut self, origin: &str, destination: &str, agent: &str) -> Option<Route> {
         let route = self.tick(|tick| {
             let graph = propose::graph(tick).unwrap();
@@ -115,7 +114,7 @@ impl Case {
         route
     }
 
-    /// `WorldState.canonical_json()` of the world now.
+    /// The canonical document of the world now, as text.
     pub fn bytes(&self) -> String {
         let bytes = self.loaded.cell.with(|world| canonical::canonical_json(world, &self.entry["world"]["rng_state"])).unwrap();
         String::from_utf8(bytes).unwrap()
@@ -127,7 +126,7 @@ impl Case {
     }
 
     /// The world with its canonical document changed by `f`, loaded again with the same Run's
-    /// policies, as the pytest changed the Python world between two steps.
+    /// policies.
     pub fn edit(&mut self, f: impl FnOnce(&mut Value)) {
         let mut entry = self.entry.clone();
         let mut doc = self.doc();
@@ -172,7 +171,7 @@ pub fn inputs(file: &str, name: &str) -> Value {
     load::data(file)["inputs"].get(name).unwrap_or_else(|| panic!("{file} has no inputs {name}")).clone()
 }
 
-/// `(target_id, next_decision_at, committed)` of `_apply_effect`.
+/// `(target_id, next_decision_at, committed)` of `propose::apply_alone`.
 pub fn applied(target: Option<&str>, next_decision_at: i64, committed: bool) -> Applied {
     Applied { target: target.map(Arc::from), next_decision_at, committed }
 }

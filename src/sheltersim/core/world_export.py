@@ -347,14 +347,13 @@ def sections(world: Any) -> dict[str, Any]:
     }
 
 
-# ---- What the core's minute-0 builder takes from Python (#249) ----------------------------------
+# ---- What the core's records of a new Run take from Python (#301) ------------------------------
 #
 # The core builds the entry of any Scenario's world at minute 0 itself (`native/core/src/initial/`,
-# #249, #429): the world, its namespaces and the sections Python parses. What it does not compute
-# yet (the Run's `policies_document`) it reads from a table that Python writes
-# (`native/core/src/initial/table.json`, by `tests/support/core_initial.py`), keyed by a
-# fingerprint of the configs that leaves out the configs that hold the Scenario's own data. A
-# Scenario whose fingerprint the table lacks is refused there.
+# #249, #429). A new Run's records (`model_versions` and the evidence route's answer) it still
+# makes from templates Python writes (`native/core/src/initial/table.json`, by
+# `tests/support/core_initial.py`), keyed by a fingerprint of the configs that leaves out the
+# configs that hold the Scenario's own data.
 
 # The configs whose contents are the Scenario's own data (its floor plan and its people): the
 # fingerprint keeps only that they are there. Every other config is the same for every Scenario the
@@ -374,9 +373,3 @@ def configs_fingerprint(configs: dict[str, Any]) -> str:
 
     masked = {key: True if key in DATA_CONFIGS else value for key, value in configs.items()}
     return hashlib.sha256(_canonical_text(masked).encode("utf-8")).hexdigest()
-
-
-def initial_table_entry(entry: dict[str, Any]) -> dict[str, Any]:
-    """What the core's builder reads from the table for an entry `export_world` wrote of a world at
-    minute 0 with its controller: the Run's policies."""
-    return {"policies": entry["run"]["policies"]}

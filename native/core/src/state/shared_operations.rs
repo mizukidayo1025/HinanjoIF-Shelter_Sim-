@@ -4,7 +4,7 @@
 //!
 //! A receipt is its canonical JSON, with what the rules read of it. `verified` says it was checked
 //! against its contract and its event: by the rule that appended it (`Receipts::appended_passed`),
-//! or by a check that passed (`recent_passed`, `all_passed`). A tick's check then needs nothing
+//! or by a check that passed (`recent_passed`). A tick's check then needs nothing
 //! more of it, but the retained staff completions for a staff operation receipt. A receipt
 //! restored or written past those rules isn't, until a check passes it.
 
@@ -170,13 +170,6 @@ impl Receipts {
     pub fn recent_passed(&mut self, minute_index: i64) {
         let start = self.recent_start(minute_index);
         for item in self.items.iter_mut().skip(start) {
-            item.verified = true;
-        }
-    }
-
-    /// The rules have just replayed the whole history and passed it.
-    pub fn all_passed(&mut self) {
-        for item in self.items.iter_mut() {
             item.verified = true;
         }
     }

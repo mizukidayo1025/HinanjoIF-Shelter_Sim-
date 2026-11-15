@@ -1,7 +1,8 @@
 //! The compression of a stored Run's pieces: deflate-raw (RFC 1951 without a header), the one the
 //! browser's `CompressionStream("deflate-raw")` writes and the "run" line names (`COMPRESSION`).
 //! A writer may be given another compressor of the same format (`Compress`): the tests write
-//! deflate's stored blocks, as the browser's fixtures are written (`node_stored_runs.mjs`).
+//! deflate's stored blocks (`tests/support.rs`), as the browser's fixtures are written
+//! (`node_stored_runs.mjs`).
 
 use std::io::{Read, Write};
 
@@ -39,26 +40,4 @@ pub fn inflate_raw(stored: &[u8], raw_length: u64) -> Result<Vec<u8>> {
         return Err(Error::refused(format!("a piece holds {} bytes, not the {raw_length} its line says", raw.len())));
     }
     Ok(raw)
-}
-
-/// deflate-raw of stored blocks of at most `size` bytes each (`BTYPE` 00): any inflater reads them,
-/// and they are the same bytes everywhere.
-pub fn stored_blocks(raw: &[u8], size: usize) -> Vec<u8> {
-    let size = size.clamp(1, 65535);
-    let chunks: Vec<&[u8]> = if raw.is_empty() { vec![raw] } else { raw.chunks(size).collect() };
-    let mut out = Vec::with_capacity(raw.len() + 5 * chunks.len());
-    for (index, chunk) in chunks.iter().enumerate() {
-        let length = chunk.len() as u16;
-        out.push(u8::from(index + 1 == chunks.len()));
-        out.extend_from_slice(&length.to_le_bytes());
-        out.extend_from_slice(&(!length).to_le_bytes());
-        out.extend_from_slice(chunk);
-    }
-    out
-}
-
-/// What the browser's fixtures are compressed with (`node_stored_runs.mjs`): stored blocks of at
-/// most 65535 bytes.
-pub fn stored_deflate(raw: &[u8]) -> Vec<u8> {
-    stored_blocks(raw, 65535)
 }

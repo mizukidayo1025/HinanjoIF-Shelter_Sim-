@@ -6,7 +6,7 @@
 //! contract, and the whole-model items `engine:model` and `engine:rng_algorithm`). A Run whose
 //! recorded versions differ from the installed ones is view-only: it is read and shown as stored,
 //! and going on with it (continuing, forking, an intervention) is refused with
-//! `ModelStatus::require_current` (`run_model_view_only`). A minute between its saved points is
+//! `ModelStatus::error_text` (`run_model_view_only`). A minute between its saved points is
 //! not computed again with the installed model: the saved point at or before it is shown, and the
 //! answer says so (`ModelStatus::describe_json`, D2).
 //!
@@ -142,16 +142,6 @@ impl ModelStatus {
     /// The refusal's text: `run_model_view_only: ` and the message.
     pub fn error_text(&self) -> String {
         format!("{VIEW_ONLY_CODE}: {}", self.message())
-    }
-
-    /// Nothing for a current Run; else the refusal to go on with it (a `Value` error with
-    /// `error_text`).
-    pub fn require_current(&self) -> Result<(), Error> {
-        if self.current() {
-            Ok(())
-        } else {
-            Err(Error::Value(self.error_text()))
-        }
     }
 
     /// The status as canonical JSON: `current`, `differences`, `installed_version`, `message`

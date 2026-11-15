@@ -553,21 +553,6 @@ pub fn assign_pending(
     assign_work(world, inputs, service, travel, &events, plan, taken).map(Assigned::Done)
 }
 
-/// The plain case of `assign_pending` alone: where every pending request stays pending at this
-/// minute, its writes (each attempt and the minute's exposure), and true; else false with nothing
-/// written. A minute other than the world's is not the plain case.
-pub fn assign_plain(world: &World, inputs: &Inputs<'_>, minute: i64) -> Result<bool> {
-    if minute != world.minute_index()? {
-        return Ok(false);
-    }
-    let plan = plan_pending(world, inputs, None, minute)?;
-    let Some(exposure) = &plan.plain else {
-        return Ok(false);
-    };
-    write_plain(world, &plan, exposure)?;
-    Ok(true)
-}
-
 /// `assign_pending` where a request may be taken.
 fn assign_work(
     world: &World,

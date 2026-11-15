@@ -777,20 +777,6 @@ pub fn has_active_modifier(world: &World, program: &Held, facility_id: &str) -> 
     program_state(world, program, |state| Ok(kit::has_active_modifier(state, facility_id)))
 }
 
-/// Whether a pending `effect_program_apply` or `_expire` event targets the facility.
-/// `PENDING_UNREAD` for a pending event without its row.
-pub fn has_pending_modifier(world: &World, facility_id: &str) -> Result<bool> {
-    for event in pending_rows(world)? {
-        if !matches!(&*event.event_type, "effect_program_apply" | "effect_program_expire") {
-            continue;
-        }
-        if is_text(map_of(&event.payload)?.get("facility_id"), facility_id) {
-            return Ok(true);
-        }
-    }
-    Ok(false)
-}
-
 /// Whether an outage of the facility is active (`kit::active_outage`).
 pub fn active_outage(world: &World, infrastructure: &Held, facility_id: &str) -> Result<bool> {
     let state = state_value(world, INFRASTRUCTURE, infrastructure)?;

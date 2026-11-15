@@ -218,7 +218,6 @@ struct Fingerprint {
     slots: Vec<(String, Option<Vec<u8>>, u64)>,
     queue: String,
     log: EventLog,
-    in_transaction: bool,
 }
 
 fn fingerprint(world: &World) -> Fingerprint {
@@ -247,7 +246,7 @@ fn fingerprint(world: &World) -> Fingerprint {
             (name.to_string(), bytes, slot.generation.get())
         })
         .collect();
-    Fingerprint { entities, slots, queue: format!("{:?}", *world.queue().unwrap()), log: world.log().unwrap().clone(), in_transaction: world.in_transaction() }
+    Fingerprint { entities, slots, queue: format!("{:?}", *world.queue().unwrap()), log: world.log().unwrap().clone() }
 }
 
 fn print(cell: &Shard<World>) -> Fingerprint {

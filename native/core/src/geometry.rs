@@ -4,8 +4,8 @@
 //! recorded Runs fix.
 //!
 //! A `Geo` is built from the parsed configs (`config::geometry`) and the overlay's facility moves
-//! and partitions. The world's `Configs` keep it by the overlay's stamp (`GeoCache`, Issue #152,
-//! lane 7-2); a `PlainHost` keeps the plan it built (`load::FloorPlans`).
+//! and partitions. A `PlainHost` keeps the plan it built (`load::FloorPlans`), by the overlay's
+//! stamp and the bytes of its parts (`OverlayKey`).
 
 use std::cmp::Ordering;
 use std::collections::{BinaryHeap, HashMap};
@@ -563,7 +563,7 @@ impl Geo {
     }
 }
 
-// ---- The plans a world keeps --------------------------------------------------------------------
+// ---- What a plan was built from --------------------------------------------------------------------
 
 /// What a plan was built from beside the configs: the overlay's state, by its stamp, and by the
 /// canonical bytes of its two parts the plan reads (empty for no entries).
@@ -606,65 +606,6 @@ impl OverlayKey {
             _ => None,
         };
         (part("facility_points", &self.moves), part("partitions", &self.partitions))
-    }
-}
-
-/// The plans of one `Configs` (so of one stamp of `model_configs`), by the overlay they were
-/// built with, the latest first. A stamp hit needs no read of the overlay. When the overlay's stamp
-/// changed (a reservation, a history row), the bytes of its two parts are compared, as before
-/// #152: a plan whose parts are the same serves the new stamp too. The bytes are canonical JSON,
-/// keys sorted, so two overlays that differ only in order share a plan (see `Layout`).
-#[derive(Default)]
-pub struct GeoCache {
-    entries: Vec<(OverlayKey, Arc<Geo>)>,
-}
-
-/// Plans kept for one configs stamp.
-pub const CACHED_PLANS: usize = 8;
-
-impl GeoCache {
-    /// The plan built with an overlay of this stamp.
-    pub fn by_stamp(&mut self, stamp: Stamp) -> Option<Arc<Geo>> {
-        let found = self.entries.iter().position(|(key, _)| key.stamp == Some(stamp))?;
-        Some(self.promote(found))
-    }
-
-    /// The plan built with these parts of an overlay; it now serves `key.stamp` too.
-    pub fn by_bytes(&mut self, key: &OverlayKey) -> Option<Arc<Geo>> {
-        let found = self.entries.iter().position(|(kept, _)| kept.present == key.present && kept.moves == key.moves && kept.partitions == key.partitions)?;
-        if key.stamp.is_some() {
-            self.entries[found].0.stamp = key.stamp;
-        }
-        Some(self.promote(found))
-    }
-
-    /// Whether the plan kept for this stamp was built from these parts (a debug check that the
-    /// overlay's stamp changes with each write).
-    pub fn holds(&self, key: &OverlayKey) -> bool {
-        self.entries
-            .iter()
-            .any(|(kept, _)| kept.stamp == key.stamp && kept.present == key.present && kept.moves == key.moves && kept.partitions == key.partitions)
-    }
-
-    pub fn insert(&mut self, key: OverlayKey, geo: Arc<Geo>) {
-        self.entries.insert(0, (key, geo));
-        self.entries.truncate(CACHED_PLANS);
-    }
-
-    pub fn len(&self) -> usize {
-        self.entries.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.entries.is_empty()
-    }
-
-    fn promote(&mut self, found: usize) -> Arc<Geo> {
-        if found != 0 {
-            let entry = self.entries.remove(found);
-            self.entries.insert(0, entry);
-        }
-        self.entries[0].1.clone()
     }
 }
 

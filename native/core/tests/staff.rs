@@ -287,8 +287,8 @@ fn a_minute_where_nobody_can_be_assigned_records_the_attempt_and_the_exposure_on
     // Once per minute.
     staff::assign_pending(&world, &inputs, &service(Step::Own, Step::Own), 10, None, &mut taken).unwrap();
     assert_eq!(metrics(&world)[1], (BUSY.to_owned(), 1.0));
-    assert!(staff::assign_plain(&world, &inputs, 10).unwrap());
-    assert!(!staff::assign_plain(&world, &inputs, 11).unwrap());
+    // Without the inputs of a full assignment, the plain case is all there is to do.
+    assert_eq!(staff::assign_pending(&world, &inputs, &service(Step::None, Step::None), 10, None, &mut taken).unwrap(), Assigned::Done(Vec::new()));
     // Another minute than the world's is the rule's marked ValueError.
     let wrong = staff::assign_pending(&world, &inputs, &service(Step::None, Step::None), 11, None, &mut taken);
     assert!(matches!(wrong, Err(WriteError::Error(Error::MarkedValue(text))) if text == "staff assignment minute must match WorldState"));

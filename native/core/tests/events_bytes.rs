@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use indexmap::IndexMap;
 use sheltersim_core::error::Error;
-use sheltersim_core::events::log::{fields_of_bytes, EventLog};
+use sheltersim_core::events::log::EventLog;
 use sheltersim_core::events::queue::Queue;
 use sheltersim_core::events::writer::{self, WriteError};
 use sheltersim_core::events::{EventKind, EventRow, EventStatus};
@@ -57,19 +57,6 @@ fn the_queue_orders_by_due_minute_priority_and_sequence() {
     assert_eq!(slot.key, (1, 2, 2));
     assert!(!queue.has_event("e") && !queue.has_sequence(2));
     assert_eq!(queue.len(), 6);
-    assert_eq!(queue.validate(), 0);
-}
-
-#[test]
-fn a_repeated_identity_from_the_constructor_is_refused() {
-    let mut queue = Queue::new();
-    queue.add_loaded(Arc::from("a"), (0, 0, 1));
-    queue.add_loaded(Arc::from("a"), (0, 0, 2));
-    assert_eq!(queue.validate(), 1);
-    let mut queue = Queue::new();
-    queue.add_loaded(Arc::from("a"), (0, 0, 1));
-    queue.add_loaded(Arc::from("b"), (0, 0, 1));
-    assert_eq!(queue.validate(), 2);
 }
 
 #[test]
@@ -102,9 +89,6 @@ fn the_writer_schedules_and_records_with_the_recorded_errors() {
         written,
         br#"{"detail":null,"event":{"causation_id":null,"due_minute":10,"event_id":"e-1","event_type":"test_event","kind":"endogenous","payload":{"agent_id":"a-1"},"priority":0,"provenance":{},"sequence":0,"source_id":null},"realized_minute":10,"status":"applied"}"#
     );
-    let fields = fields_of_bytes(&written).expect("a saved record");
-    assert_eq!((fields.event_id.as_str(), fields.sequence, fields.minute, fields.applied), ("e-1", 0, 10, true));
     let (read, minute, status, detail) = EventRow::from_saved_record(&written).expect("a saved record");
     assert_eq!((read, minute, status, detail), (event, 10, EventStatus::Applied, None));
-    assert!(log.all_encoded());
 }

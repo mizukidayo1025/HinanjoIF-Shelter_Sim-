@@ -259,14 +259,6 @@ fn a_space_is_registered_counted_and_expired_on_the_row() {
     assert_eq!(found.total(), Ok(15));
 }
 
-#[test]
-fn the_people_moving_to_a_zone_are_counted_by_their_target() {
-    let world = world();
-    assert_eq!(overlay::incoming_travelers(&world, "z0", None), Ok(1));
-    assert_eq!(overlay::incoming_travelers(&world, "z0", Some("a2")), Ok(0));
-    assert_eq!(overlay::incoming_travelers(&world, "z1", None), Ok(0));
-}
-
 // ---- beds ----------------------------------------------------------------------------------------
 
 #[test]

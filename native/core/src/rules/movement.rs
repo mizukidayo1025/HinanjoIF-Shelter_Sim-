@@ -1069,13 +1069,6 @@ fn is_near(row: &MovementRow, agent_id: &str, point: Pt) -> Result<bool> {
     Ok(distance(point, current) <= ARRIVED_WITHIN)
 }
 
-/// A person's slot in a facility's own queue or in an independent one (`queue_id`).
-pub fn queue_slot_position(world: &World, at: &Where<'_>, agent_id: &str, facility_id: &str, queue_id: Option<&str>) -> Result<Option<Pt>> {
-    let fifo = fifo_of(world, &at.queues, at.geo, queue_id)?;
-    let independent = fifo.as_ref().map(Fifo::slot_view);
-    with_positions(world, &at.movement, |row| queue_slot_in(at.geo, row, &*world.rows()?, agent_id, facility_id, independent))
-}
-
 /// Whether the person stands at their queue slot.
 pub fn at_queue_slot(world: &World, at: &Where<'_>, agent_id: &str, facility_id: &str, queue_id: Option<&str>) -> Result<bool> {
     if at.geo.layout.is_none() {
@@ -1141,11 +1134,6 @@ pub fn at_trip_destination(world: &World, movement: &Held, agent_id: &str) -> Re
         }
         is_near(row, agent_id, Pt { x: point.x, y: point.y })
     })
-}
-
-/// Whether the person is at a queue trip's destination, of the last point of a journey given.
-pub fn near_point(world: &World, movement: &Held, agent_id: &str, point: Pt) -> Result<bool> {
-    with_positions(world, movement, |row| is_near(row, agent_id, point))
 }
 
 // ---- route_with_movement_time ------------------------------------------------------------------

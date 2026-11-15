@@ -262,11 +262,6 @@ impl Key {
     pub fn new(hold: Hold, none: bool) -> Self {
         Self { hold, none, dict: hold == Hold::Held && !none }
     }
-
-    /// A key of a value that is a dict or not (lane P9-1a).
-    pub fn with_dict(hold: Hold, none: bool, dict: bool) -> Self {
-        Self { hold, none, dict }
-    }
 }
 
 /// Whether the world holds each namespace and owned field (`Holding::held`, `Holding::is_absent`

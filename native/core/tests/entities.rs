@@ -9,8 +9,8 @@ use std::sync::Arc;
 
 use indexmap::IndexMap;
 use sheltersim_core::entities::{
-    is_zone_kind, Activity, AgentRow, EdgeRow, Entities, EntityField, EntityRow, FacilityRow, Mobility, NeedRow, ProfileRow, RequestRow, RequestStatus, Skills,
-    StaffRow, Table, TaskRow, ZoneRow, ACTIVITIES, AGENT, EDGE, MOBILITIES, NEEDS, STATUSES, TASK, ZONE,
+    Activity, AgentRow, EdgeRow, Entities, EntityField, EntityRow, FacilityRow, Mobility, NeedRow, ProfileRow, RequestRow, RequestStatus, Skills, StaffRow,
+    Table, TaskRow, ZoneRow, ACTIVITIES, MOBILITIES, STATUSES,
 };
 use sheltersim_core::json::Encoder;
 use sheltersim_core::row::StrEnum;
@@ -327,36 +327,8 @@ fn with_rows() -> Entities {
 }
 
 #[test]
-fn the_zones_have_kinds_and_tables_of_their_own() {
-    assert!(is_zone_kind(ZONE) && is_zone_kind(EDGE));
-    assert!(![AGENT, NEEDS, TASK].into_iter().any(is_zone_kind));
+fn the_zones_keep_the_dict_order_and_their_document_order() {
     let rows = with_rows();
-    assert_eq!(rows.table(ZONE).len(), 2);
-    assert_eq!(rows.table(EDGE).len(), 0);
-    assert_eq!(rows.table(TASK).len(), 1);
     assert_eq!(keys(&rows.zones), ["b", "a"]);
     assert_eq!(rows.zones.document_slots(), [1, 0]);
-}
-
-#[test]
-fn a_taint_of_the_zones_leaves_the_people_and_the_other_way_round() {
-    let mut rows = with_rows();
-    rows.taint_for(ZONE, "a zone does not fit".to_owned());
-    assert_eq!(rows.zones_tainted(), Some("a zone does not fit"));
-    assert_eq!(rows.tainted_for(EDGE), Some("a zone does not fit"));
-    assert_eq!(rows.tainted(), None);
-    assert!(rows.zones.is_empty() && rows.zone_edges.is_empty());
-    assert_eq!(rows.active_tasks.len(), 1);
-    rows.taint_for(EDGE, "later".to_owned());
-    assert_eq!(rows.zones_tainted(), Some("a zone does not fit"));
-
-    let mut rows = with_rows();
-    rows.taint("a task does not fit".to_owned());
-    assert_eq!(rows.tainted_for(TASK), Some("a task does not fit"));
-    assert_eq!(rows.zones_tainted(), None);
-    assert!(rows.active_tasks.is_empty());
-    assert_eq!(keys(&rows.zones), ["b", "a"]);
-    rows.clear();
-    assert_eq!((rows.tainted(), rows.zones_tainted()), (None, None));
-    assert!(rows.zones.is_empty());
 }

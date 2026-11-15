@@ -719,11 +719,6 @@ impl Planned {
     pub fn deltas(&self, base: &[Delta]) -> Vec<Delta> {
         self.order.iter().zip(&self.plan.stresses).map(|(&place, &stress)| Delta { stress, ..base[place].clone() }).collect()
     }
-
-    /// Whether the plan is written.
-    pub fn is_written(&self) -> bool {
-        self.written
-    }
 }
 
 /// The neighbors of the people's zones, or the refusal of the first zone whose value the step

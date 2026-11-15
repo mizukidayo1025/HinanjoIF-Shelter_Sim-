@@ -6,11 +6,15 @@
 //! (`canonical::canonical_json`, with the entry's `rng_state`): a test of a rule that leaves the
 //! world unchanged compares this text before and after the rule.
 
+use std::sync::Arc;
+
 use serde_json::Value;
 use sheltersim_core::cell::Shard;
 use sheltersim_core::checkpoint::sha256_hex;
 use sheltersim_core::error::{Error, Outcome};
 use sheltersim_core::events::EventRow;
+use sheltersim_core::host::Host;
+use sheltersim_core::rules::population_lifecycle as lifecycle;
 use sheltersim_core::world::{World, WorldCell};
 
 use super::{canonical, load};
@@ -106,6 +110,14 @@ pub fn changed(event: &Value, payload: Value, fields: Value) -> Value {
 /// The core's row of an event as `event_queue` holds it.
 pub fn row(event: &Value) -> EventRow {
     load::event(event)
+}
+
+/// A relocation's completion (`population_lifecycle::complete_relocation`) through the host, as the
+/// travel completion runs it: the lifecycle's reads, the queue's rows, then the rule.
+pub fn complete_relocation<C: WorldCell, H: Host>(cell: &C, host: &mut H, row: &EventRow) -> Result<Vec<Arc<str>>, H::Error> {
+    let read = lifecycle::Read::read(cell, host, false)?;
+    host.read_queue_rows()?;
+    read.run(cell, |world, inputs| lifecycle::complete_relocation(world, inputs, row))
 }
 
 /// An int of JSON written out, for one past i64 (`10**30`).

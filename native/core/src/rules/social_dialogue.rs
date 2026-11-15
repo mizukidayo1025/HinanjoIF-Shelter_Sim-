@@ -283,11 +283,3 @@ pub fn context_problem(context: &V, ids: &[&str], due_minute: i64) -> Result<Opt
 pub fn context_verdict(context: &V, ids: &[&str], due_minute: i64) -> Result<bool> {
     Ok(context_problem(context, ids, due_minute)?.is_none())
 }
-
-/// The context's checks: Ok, or their ValueError.
-pub fn validate_context(context: &V, ids: &[&str], due_minute: i64) -> Result<()> {
-    match context_problem(context, ids, due_minute)? {
-        None => Ok(()),
-        Some(text) => Err(Error::value_error(text)),
-    }
-}

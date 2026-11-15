@@ -456,8 +456,3 @@ pub fn metric_values(world: &World) -> Result<[[i64; 6]; 2]> {
     let of = |account: &Account| [account.initial, account.delivered, account.served, account.losses, account.remaining, account.reserved];
     Ok([of(row.accounts.of(0)), of(row.accounts.of(1))])
 }
-
-/// `reservation_id in ledger["used_reservation_ids"]`, without reading the list.
-pub fn reservation_id_was_used(world: &World, reservation_id: &str) -> Result<bool> {
-    Ok(world.row::<LedgerRow>(NAME)?.used_reservation_ids.contains(reservation_id))
-}

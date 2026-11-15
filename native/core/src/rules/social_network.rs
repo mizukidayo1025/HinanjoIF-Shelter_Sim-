@@ -250,11 +250,6 @@ pub fn observed_contacts(world: &World, pairs: &[(&str, &str)], minute: i64) -> 
     Ok(ObservedContacts(write))
 }
 
-/// `observed_contacts` and its writes.
-pub fn record_observed_contacts(world: &World, pairs: &[(&str, &str)], minute: i64) -> Result<()> {
-    observed_contacts(world, pairs, minute)?.apply(world)
-}
-
 /// `value if isinstance(value, str) else None` of a payload's value: None for an absent key or a
 /// value of another type.
 fn str_field<'a>(payload: &'a V, key: &str) -> Option<&'a Arc<str>> {

@@ -230,11 +230,3 @@ impl Obj {
         object.get(last)
     }
 }
-
-/// The class of an object attribute, or the fault that keeps it from being one.
-pub fn class_of<'a>(held: &'a Read<Held>) -> Read<Option<&'a Class>> {
-    match held {
-        Ok(held) => Ok(held.object()?.map(|object| &object.class)),
-        Err(fault) => Err(fault.clone()),
-    }
-}

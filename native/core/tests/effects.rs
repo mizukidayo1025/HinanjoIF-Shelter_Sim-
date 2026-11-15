@@ -302,15 +302,8 @@ fn a_guard_reads_the_rows_and_a_guard_it_cannot_read_is_the_contract_s() {
 #[test]
 fn what_other_rules_ask_of_the_modifiers() {
     let built = world("set_facility_availability", vec![("infrastructure_v1", map(vec![("active_events", map(Vec::new()))]))]);
-    let pending = event("ev2", 50, "effect_program_expire", vec![("facility_id", s("toilet_1"))], V::Null);
-    built.queue_mut().unwrap().add(text("ev2"), (50, 0, 41), Some(Arc::new(pending)));
-    assert_eq!(effects::has_pending_modifier(&built, "toilet_1"), Ok(true));
-    assert_eq!(effects::has_pending_modifier(&built, "toilet_2"), Ok(false));
     assert_eq!(effects::has_active_modifier(&built, &Held::Held, "toilet_1"), Ok(false));
     assert_eq!(effects::has_active_modifier(&built, &Held::Absent, "toilet_1"), Ok(false));
-    // A pending event without its row is refused (`PENDING_UNREAD`).
-    built.queue_mut().unwrap().add(text("ev3"), (60, 0, 42), None);
-    assert_eq!(effects::has_pending_modifier(&built, "toilet_2"), Err(Error::Unsupported(effects::PENDING_UNREAD.into())));
 }
 
 // ---- Facility modifiers ------------------------------------------------------------------------------

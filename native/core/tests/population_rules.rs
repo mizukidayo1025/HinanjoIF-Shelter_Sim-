@@ -417,16 +417,22 @@ impl Case {
         self.gave_world();
     }
 
-    /// `population.zone_has_room`.
+    /// `population.zone_has_room` (`Places::has_room`).
     fn has_room(&mut self, zone: &str) -> bool {
         let read = population::Read::read(&self.loaded.cell, &mut self.host, false, false).unwrap();
-        read.run::<_, Error, _>(&self.loaded.cell, |world, inputs| population::zone_has_room(world, inputs, zone)).unwrap()
+        read.run::<_, Error, _>(&self.loaded.cell, |world, inputs| population::Places::of(world)?.has_room(world, inputs, zone)).unwrap()
     }
 
-    /// `validate_population_dynamics_state` of a world the core holds.
+    /// `validate_population_dynamics_state` of a world the core holds. It reads the approach routes
+    /// where an arrival on its approach is waiting, as the whole-world validation does.
     fn validate_dynamics(&mut self) -> Result<(), Error> {
         let dynamics = kit::holding(&self.loaded.cell, &mut self.host)?.held(DYNAMICS, population::OTHER_DYNAMICS);
-        let routes = self.loaded.cell.with(|world| population::validation_reads_routes(world, &dynamics))??;
+        let routes = self.loaded.cell.with(|world| {
+            Ok::<_, Error>(kit::held_row::<ValueRow>(world, DYNAMICS, &dynamics)?.is_some_and(|state| match kit::get(&state.0, "pending_arrivals") {
+                Ok(V::List(pending)) => pending.iter().any(|item| matches!(item, V::Map(fields) if fields.contains_key("approach_route_id"))),
+                _ => false,
+            }))
+        })??;
         let read = population::Read::read(&self.loaded.cell, &mut self.host, routes, false)?;
         read.run::<_, Error, _>(&self.loaded.cell, population::validate)
     }
@@ -460,7 +466,7 @@ impl Case {
     /// `population_lifecycle.zone_has_room(world, zone, excluding=...)`.
     fn lifecycle_has_room(&mut self, zone: &str, excluding: Option<&str>) -> bool {
         let read = lifecycle::Read::read(&self.loaded.cell, &mut self.host, false).unwrap();
-        read.run::<_, Error, _>(&self.loaded.cell, |world, inputs| lifecycle::zone_has_room(world, inputs, zone, excluding)).unwrap()
+        read.run::<_, Error, _>(&self.loaded.cell, |world, inputs| lifecycle::Places::of(world)?.has_room_for(world, inputs, zone, excluding)).unwrap()
     }
 
     /// A copy of the world (`copy.deepcopy`), loaded with a host of its own.
@@ -508,7 +514,7 @@ impl Case {
 
     /// `complete_presence_relocation(world, event)`, with the result (None) and the world the rule's.
     fn complete_relocation(&mut self, event: &Value) {
-        lifecycle::complete_relocation_through(&self.loaded.cell, &mut self.host, &texts::row(event)).unwrap();
+        texts::complete_relocation(&self.loaded.cell, &mut self.host, &texts::row(event)).unwrap();
         self.gave_result(V::Null);
     }
 

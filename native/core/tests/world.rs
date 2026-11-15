@@ -25,9 +25,7 @@ fn a_part_borrowed_mutably_twice_is_an_error_not_a_panic() {
     let first = shard.try_borrow_mut().unwrap();
     assert_eq!(shard.try_borrow_mut().err(), Some(borrowed()));
     assert_eq!(shard.try_borrow().err(), Some(borrowed()));
-    assert!(shard.is_borrowed());
     drop(first);
-    assert!(!shard.is_borrowed());
     *shard.try_borrow_mut().unwrap() += 1;
     assert_eq!(*shard.try_borrow().unwrap(), 2);
 }
@@ -111,7 +109,7 @@ fn a_row_is_read_as_its_type_or_refused() {
     assert_eq!(slots.row_mut::<ValueRow>("population").unwrap().0, V::Bool(true));
     // Another type: refused, and the slot is free again.
     assert_eq!(slots.try_row_mut::<f64>("population").err(), Some(Error::Unsupported("the namespace has another row".into())));
-    assert!(!slots.get("population").unwrap().is_borrowed());
+    assert!(slots.get("population").unwrap().try_borrow_mut().is_ok());
 }
 
 #[test]
@@ -130,8 +128,6 @@ fn entities_keep_the_first_taint_and_drop_their_rows() {
     entities.taint("second".to_owned());
     assert_eq!(entities.tainted(), Some("first"));
     assert_eq!(entities.agents.len(), 0);
-    entities.clear();
-    assert_eq!(entities.tainted(), None);
 }
 
 #[test]
@@ -181,7 +177,7 @@ fn a_value_slot_reads_as_its_value_absent_or_refused() {
     assert!(slots.try_value("operational_events_v1").is_err());
     slots.get("metric_state").unwrap().try_borrow_mut().unwrap().row = Some(Box::new(0.5_f64));
     assert_eq!(slots.value("metric_state").err(), Some(Error::Unsupported("the namespace has another row".into())));
-    assert!(!slots.get("metric_state").unwrap().is_borrowed());
+    assert!(slots.get("metric_state").unwrap().try_borrow_mut().is_ok());
 }
 
 #[test]

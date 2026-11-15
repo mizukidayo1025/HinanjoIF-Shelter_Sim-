@@ -88,11 +88,6 @@ pub struct Snapshot {
 }
 
 impl Snapshot {
-    /// How many slots the world had.
-    pub fn slot_count(&self) -> usize {
-        self.slots.len()
-    }
-
     /// A slot as it was.
     pub fn slot(&self, index: usize) -> Option<&Slot> {
         self.slots.get(index).map(|slot| &**slot)
@@ -335,11 +330,6 @@ impl World {
             log_held: self.log_held,
             txn_open: false,
         })
-    }
-
-    /// Whether a transaction is open on the world (`txn::Txn`).
-    pub fn in_transaction(&self) -> bool {
-        self.txn_open
     }
 
     /// The world's event queue, borrowed shared; Unsupported while the world's queue is not held

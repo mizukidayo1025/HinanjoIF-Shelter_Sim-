@@ -421,8 +421,8 @@ fn the_metric_columns_and_the_used_ids() {
     let mut world = ledger_world();
     operate(&mut world, "reserve", reservation(Some(10), "r1", "a1"), "op-1").unwrap();
     assert_eq!(resources::metric_values(&world), Ok([[1000, 0, 0, 0, 1000, 10], [50, 0, 0, 0, 50, 0]]));
-    assert_eq!(resources::reservation_id_was_used(&world, "r1"), Ok(true));
-    assert_eq!(resources::reservation_id_was_used(&world, "r2"), Ok(false));
+    let used = &world.row::<LedgerRow>(LEDGER).unwrap().used_reservation_ids;
+    assert!(used.contains("r1") && !used.contains("r2"));
 }
 
 // ---- The receipts' contracts -----------------------------------------------------------------------

@@ -12,6 +12,28 @@ use sheltersim_store::compute::{Computation, ForkRequest};
 use sheltersim_store::records::{Branch, NewRun, ProjectFiles};
 use sheltersim_store::stored::{read_journal, StoredRunWriter};
 
+/// deflate-raw of stored blocks of at most `size` bytes each (`BTYPE` 00): any inflater reads them,
+/// and they are the same bytes everywhere.
+fn stored_blocks(raw: &[u8], size: usize) -> Vec<u8> {
+    let size = size.clamp(1, 65535);
+    let chunks: Vec<&[u8]> = if raw.is_empty() { vec![raw] } else { raw.chunks(size).collect() };
+    let mut out = Vec::with_capacity(raw.len() + 5 * chunks.len());
+    for (index, chunk) in chunks.iter().enumerate() {
+        let length = chunk.len() as u16;
+        out.push(u8::from(index + 1 == chunks.len()));
+        out.extend_from_slice(&length.to_le_bytes());
+        out.extend_from_slice(&(!length).to_le_bytes());
+        out.extend_from_slice(chunk);
+    }
+    out
+}
+
+/// What the browser's fixtures are compressed with (`node_stored_runs.mjs`): stored blocks of at
+/// most 65535 bytes.
+pub fn stored_deflate(raw: &[u8]) -> Vec<u8> {
+    stored_blocks(raw, 65535)
+}
+
 /// A folder for one test, removed when it is dropped.
 pub struct TempDir(PathBuf);
 

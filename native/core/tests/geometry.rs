@@ -10,10 +10,9 @@ use serde_json::Value;
 use sheltersim_core::config::{FacilityPlan, SpatialConstraints};
 use sheltersim_core::geometry::{
     distance, point_in_polygon, point_segment_distance, polyline_length, segment_clear_of_polygon, segment_inside_polygon, segment_intersection, zone_center,
-    Geo, GeoCache, Opening, OverlayKey, Pt, Route, ServicePoint, Wall, Zone,
+    Geo, Opening, Pt, Route, ServicePoint, Wall, Zone,
 };
 use sheltersim_core::row::IdMap;
-use sheltersim_core::stamp::Stamp;
 use sheltersim_core::value::V;
 
 fn reference() -> Value {
@@ -244,35 +243,4 @@ fn an_overlay_part_that_is_not_a_dict_is_refused() {
     assert!(geo.layout.is_none() && geo.constraints.is_none());
     assert_eq!(geo.center("room"), Ok(None));
     assert!(geo.route_is_clear("e1", "independent"));
-}
-
-fn key(stamp: Option<Stamp>, moves: &[u8]) -> OverlayKey {
-    OverlayKey { present: true, stamp, moves: moves.to_vec(), partitions: Vec::new() }
-}
-
-#[test]
-fn the_plans_of_a_configs_stamp_are_found_by_the_overlay_stamp_then_by_bytes() {
-    let mut cache = GeoCache::default();
-    let (first, second, third) = (Stamp::next(), Stamp::next(), Stamp::next());
-    let geo = Arc::new(Geo::default());
-    cache.insert(key(Some(first), b"{}"), geo.clone());
-    assert!(Arc::ptr_eq(&cache.by_stamp(first).unwrap(), &geo));
-    assert!(cache.by_stamp(second).is_none());
-    // A new stamp with the same parts: the same plan, which now answers to the new stamp.
-    assert!(Arc::ptr_eq(&cache.by_bytes(&key(Some(second), b"{}")).unwrap(), &geo));
-    assert!(cache.by_stamp(second).is_some());
-    assert!(cache.holds(&key(Some(second), b"{}")));
-    assert!(!cache.holds(&key(Some(second), b"{\"a\":1}")));
-    // Other parts are another plan; no overlay is another kind of key.
-    assert!(cache.by_bytes(&key(Some(third), b"{\"a\":1}")).is_none());
-    let absent = OverlayKey { present: false, stamp: None, moves: Vec::new(), partitions: Vec::new() };
-    assert!(cache.by_bytes(&absent).is_none());
-    cache.insert(absent.clone(), Arc::new(Geo::default()));
-    assert!(cache.by_bytes(&absent).is_some());
-    // At most CACHED_PLANS, the least recently used dropped.
-    for index in 0..sheltersim_core::geometry::CACHED_PLANS {
-        cache.insert(key(Some(Stamp::next()), format!("{index}").as_bytes()), Arc::new(Geo::default()));
-    }
-    assert_eq!(cache.len(), sheltersim_core::geometry::CACHED_PLANS);
-    assert!(cache.by_stamp(second).is_none());
 }

@@ -831,14 +831,14 @@ fn a_run_of_other_model_versions_is_view_only_with_pythons_rule_and_text() {
         .map(|(key, value)| (key.to_owned(), value.to_owned()))
         .collect();
     let status = ModelStatus::of(&installed, &installed);
-    assert!(status.current() && status.require_current().is_ok());
+    assert!(status.current());
     // Without the engine's items, a save was computed by engine 1.
     let unrecorded: Versions = installed.iter().filter(|(key, _)| !key.starts_with("engine:")).map(|(key, value)| (key.clone(), value.clone())).collect();
     let status = ModelStatus::of(&unrecorded, &installed);
     assert_eq!((status.recorded_version.as_str(), status.installed_version.as_str()), ("1", "3"));
     assert_eq!(status.differences, ["engine:model"]);
     assert!(status.message().starts_with("このシナリオは旧モデル（版 1）で計算されました。今のモデルは版 3 です。閲覧のみです。"), "{}", status.message());
-    let error = status.require_current().unwrap_err().to_string();
+    let error = status.error_text();
     assert!(error.starts_with("run_model_view_only: このシナリオは旧モデル（版 1）"), "{error}");
     // A later version, and other policy signatures.
     let mut later = installed.clone();

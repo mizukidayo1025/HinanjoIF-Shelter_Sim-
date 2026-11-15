@@ -181,16 +181,6 @@ pub fn kind_is(row: &EventRow, kind: EventKind) -> bool {
     row.kind == kind
 }
 
-/// The status of `EventStatus.<member>`, by the member's name.
-pub fn status_member(member: &str) -> Option<EventStatus> {
-    match member {
-        "APPLIED" => Some(EventStatus::Applied),
-        "FAILED" => Some(EventStatus::Failed),
-        "SUPPRESSED" => Some(EventStatus::Suppressed),
-        _ => None,
-    }
-}
-
 // ---- Namespaces and configs (lane P8 a2) ----------------------------------------------------------
 
 /// `model_state.get(name) is None` as a kernel asks it, of the world's slots: true for a name no

@@ -251,7 +251,7 @@ fn a_minute_writes_the_row_and_the_network_and_gives_the_deltas() {
     let deltas = base_deltas();
     let (settings, expressiveness, neighbors) = (settings(Model::Sparse), social::Table::new(), neighbors());
     let planned = social::update(&world, &social_inputs(&settings, &expressiveness, &view, &deltas, &neighbors, false)).unwrap();
-    assert!(planned.is_written() && !planned.first_use);
+    assert!(!planned.first_use);
     assert_eq!(written(&mut world), [SOCIAL, NETWORK]);
     let row = world.row::<SocialRow>(SOCIAL).unwrap();
     // The contacts of this minute only, each a pair of people here.
@@ -309,12 +309,12 @@ fn the_first_tick_plans_and_writes_once_the_namespace_is_there() {
     let deltas = base_deltas();
     let (settings, expressiveness, neighbors) = (settings(Model::Sparse), social::Table::new(), neighbors());
     let mut planned = social::update(&world, &social_inputs(&settings, &expressiveness, &view, &deltas, &neighbors, false)).unwrap();
-    assert!(planned.first_use && !planned.is_written());
+    assert!(planned.first_use);
     assert!(written(&mut world).is_empty());
     // The empty namespace is stored; then the plan is written.
     world.slots.get(SOCIAL).unwrap().try_borrow_mut().unwrap().row = Some(Box::new(social_row(&[], &[])));
     social::write(&world, &mut planned).unwrap();
-    assert!(planned.is_written() && !planned.first_use);
+    assert!(!planned.first_use);
     assert_eq!(written(&mut world), [SOCIAL]);
     assert!(!world.row::<SocialRow>(SOCIAL).unwrap().contacts.is_empty());
     assert_eq!(social::write(&world, &mut planned).err(), Some(Error::Runtime("the plan is written already".to_owned())));

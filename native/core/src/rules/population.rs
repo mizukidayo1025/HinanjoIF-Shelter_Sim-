@@ -1031,11 +1031,6 @@ fn choose_target(world: &World, inputs: &Inputs, places: &mut Places, item: Pend
     Ok(None)
 }
 
-/// Whether the zone has room for one more (`Places::has_room`).
-pub fn zone_has_room(world: &World, inputs: &Inputs, zone_id: &str) -> Result<bool> {
-    Places::of(world)?.has_room(world, inputs, zone_id)
-}
-
 // ---- The agent the constructors make -------------------------------------------------------------
 
 /// What the constructors make of a saved profile: the agent's row, or the `ValueError` they raise
@@ -3238,17 +3233,6 @@ fn is_scalar(value: &V) -> bool {
 
 const SCHEMA: &str = "population_dynamics_v1 has an invalid exact schema";
 const PENDING_INVALID: &str = "population_dynamics_v1 pending arrival is invalid";
-
-/// Whether the validation reads the approach routes: an arrival on its approach is waiting.
-pub fn validation_reads_routes(world: &World, held: &Held) -> Result<bool> {
-    let Some(state) = value_of(world, DYNAMICS, held)? else {
-        return Ok(false);
-    };
-    Ok(match kit::get(&state.0, "pending_arrivals") {
-        Ok(V::List(pending)) => pending.iter().any(|item| matches!(item, V::Map(fields) if fields.contains_key("approach_route_id"))),
-        _ => false,
-    })
-}
 
 /// What the validation reads of a world: of the core's world (`validate`), or of a world's view for
 /// the whole-world validation (`validate::population_dynamics::validate`).

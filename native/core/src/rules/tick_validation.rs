@@ -544,9 +544,6 @@ fn occupants_pass(census: &Census<'_>, sites: &Sites<'_>) -> Result<()> {
 /// The pending events, from the rows of the queue: `watch` is told each type, and the completions
 /// and timeouts are counted by the task or request they name.
 fn read_events<'a>(queue: &'a Queue, v6: bool, watch: &mut dyn FnMut(&str)) -> Result<Pending<'a>> {
-    if queue.validate() != 0 {
-        return refuse("the event queue repeats an identity");
-    }
     let mut events: Vec<&EventRow> = Vec::with_capacity(queue.ordered().len());
     for (_, serial) in queue.ordered() {
         match &queue.slot(*serial).row {

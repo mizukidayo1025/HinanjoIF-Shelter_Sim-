@@ -4,7 +4,7 @@
 
 use crate::support;
 
-use sheltersim_core::events::log::{fields_of_bytes, EventLog};
+use sheltersim_core::events::log::EventLog;
 use sheltersim_core::events::packed::Unpacked;
 use sheltersim_core::plain::PlainRun;
 use sheltersim_core::world::WorldCell;
@@ -63,7 +63,7 @@ fn a_packed_log_reads_and_writes_what_a_log_of_bytes_does() {
     let json_size: usize = json(&bytes).iter().map(Vec::len).sum();
     assert!(size * 4 < json_size, "{size} of {json_size}");
     assert!(strings > 0 && shapes > 0);
-    assert!(bytes.packed_sizes().is_none() && !bytes.is_packed());
+    assert!(bytes.packed_sizes().is_none() && !bytes.all_packed());
     // Out of range: no record.
     assert_eq!(packed.record(records.len()).unwrap(), None);
     assert!(!packed.write_record(records.len(), &mut Vec::new()).unwrap());
@@ -153,7 +153,7 @@ fn a_record_whose_packed_form_would_differ_keeps_its_bytes() {
     let canonical = records[20].record_json().unwrap();
     let spaced = String::from_utf8(canonical.to_vec()).unwrap().replacen(",\"event\":", ", \"event\": ", 1).into_bytes();
     assert_ne!(spaced, &canonical[..]);
-    assert_eq!(log.add(fields_of_bytes(&canonical).unwrap(), false, Some(spaced.clone().into_boxed_slice())), 0);
+    assert_eq!(log.add(records[20].event.index_fields(records[20].realized_minute, records[20].status), false, Some(spaced.clone().into_boxed_slice())), 0);
     assert_eq!(log.pack_records().unwrap(), 20);
     assert!(log.written(19).is_none());
     assert_eq!(log.written(20), Some(&spaced[..]));
@@ -179,7 +179,7 @@ fn find_record_reads_a_packed_record() {
         .cell
         .with(|world| {
             let log = world.log().unwrap();
-            assert!(log.is_packed() && log.len() > 0);
+            assert!(log.all_packed() && log.len() > 0);
             let ids: Vec<String> = log.event_ids().map(str::to_owned).collect();
             let rows: Vec<Unpacked> = (0..log.len()).map(|index| log.record(index).unwrap().unwrap()).collect();
             drop(log);

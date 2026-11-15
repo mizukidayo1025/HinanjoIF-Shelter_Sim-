@@ -116,7 +116,6 @@ fn fields(configs: &Configs) -> usize {
         tick_plan: _,
         facility_geometry: _,
         spatial_constraints: _,
-        geo: _,
         staff_fatigue: _,
         staff_operations: _,
         staff_operations_known: _,
@@ -142,18 +141,18 @@ fn fields(configs: &Configs) -> usize {
         accessibility_needs: _,
         extensions_enabled: _,
     } = configs;
-    // Less the stamp and the plans (`geo`), which are not sections.
-    30 - 2
+    // Less the stamp, which is not a section.
+    29 - 1
 }
 
 #[test]
 fn every_section_can_be_filled_from_outside_the_crate() {
     let configs = Configs::new(None);
     assert_eq!(SectionId::ALL.len(), fields(&configs));
-    for which in SectionId::ALL {
-        assert!(!which.is_filled(&configs), "{}", which.name());
+    assert_eq!(support::filled_sections(&configs), 0);
+    for (index, which) in SectionId::ALL.iter().enumerate() {
         support::fill_section(&configs, *which);
-        assert!(which.is_filled(&configs), "{}", which.name());
+        assert_eq!(support::filled_sections(&configs), index + 1, "{}", which.name());
     }
     // Each with a value, none a fault.
     assert!(matches!(configs.selection.get(), Some(Section::Ok(_))));

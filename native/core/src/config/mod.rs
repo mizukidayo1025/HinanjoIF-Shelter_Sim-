@@ -37,10 +37,9 @@ pub mod staff;
 pub mod tick_plan;
 
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use crate::error::Result;
-use crate::geometry::GeoCache;
 use crate::row::ValueRow;
 use crate::stamp::Stamp;
 use crate::value::V;
@@ -77,8 +76,6 @@ pub struct Configs {
     pub facility_geometry: Lazy<FacilityGeometry>,
     /// `spatial_constraints`, or `{}` where the key is missing, parsed.
     pub spatial_constraints: Lazy<SpatialConstraints>,
-    /// The plans (`Geo`) built from these configs, by the overlay (`geometry_overlay_v1`).
-    pub geo: Mutex<GeoCache>,
     // ---- Lane 7-5b ----
     /// The staff fatigue formula, for `rules::staff_dynamics::update`.
     pub staff_fatigue: Lazy<StaffFatigue>,
@@ -157,13 +154,6 @@ macro_rules! sections {
             pub fn name(self) -> &'static str {
                 match self {
                     $(SectionId::$id => stringify!($field),)*
-                }
-            }
-
-            /// Whether these configs hold the section: parsed, absent or a fault.
-            pub fn is_filled(self, configs: &Configs) -> bool {
-                match self {
-                    $(SectionId::$id => configs.$field.get().is_some(),)*
                 }
             }
 

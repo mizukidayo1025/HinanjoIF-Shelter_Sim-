@@ -25,7 +25,7 @@ use std::sync::Arc;
 
 use indexmap::IndexMap;
 
-use crate::entities::FacilityRow;
+use crate::entities::{Entities, FacilityRow};
 use crate::error::{Error, Result};
 use crate::events::EventRow;
 use crate::geometry::Geo;
@@ -779,6 +779,48 @@ pub fn validate(world: &World, program: &EffectProgram, placement: &mut Placemen
     let events = pending(world)?;
     let mut issues: Vec<String> = Vec::new();
 
+    program_issues(world, program, minute, duration, &events, &mut issues)?;
+
+    let temporary = temporary_capacity(world, &events)?;
+
+    let zone_known = |id: &str| rows.zones.contains_key(id);
+    let mut added = Added::default();
+    let cx = Checks { world, rows: &rows, configs: &configs, minute, duration, schema_version, zone_known: &zone_known };
+    for effect in &program.effects {
+        check_effect(cx, effect, &mut added, &mut issues)?;
+    }
+    let Added { facility_intervals, added_staff, added_facilities, added_evacuees, toilet_additions } = added;
+
+    interval_issues(&rows, &events, facility_intervals, schema_version, &mut issues)?;
+
+    if let Some(config) = configs.get("zone_environment") {
+        environment_limits(world, config, &events, &zone_known, minute, duration, &mut issues)?;
+    }
+
+    let staff_total = rows.staff.len() as i64 + pending_count(&events, "effect_program_structure", "add_staff")? + added_staff;
+    if staff_total > 100 {
+        issues.push("program exceeds the 100-staff runtime bound".to_owned());
+    }
+    if temporary.values().any(|capacity| *capacity > 1000) {
+        issues.push("temporary person capacity exceeds the 1000-person per-zone bound".to_owned());
+    }
+    let facility_total = rows.facilities.len() as i64 + pending_count(&events, "effect_program_structure", "add_toilet")? + added_facilities;
+    if facility_total > 200 {
+        issues.push("program exceeds the 200-facility runtime bound".to_owned());
+    }
+    drop(rows);
+    if !toilet_additions.is_empty() && configs.contains_key("facility_geometry") {
+        issues.extend(toilet_placement(world, &toilet_additions, placement)?);
+    }
+    population_issues(world, &events, added_evacuees, &mut issues)?;
+    let mut seen = BTreeSet::new();
+    issues.retain(|issue| seen.insert(issue.clone()));
+    Ok(issues)
+}
+
+/// The checks of the program as a whole: its support mode, assumptions and start, whether this
+/// branch scheduled it already, and its event counts.
+fn program_issues(world: &World, program: &EffectProgram, minute: i64, duration: i64, events: &[Arc<EventRow>], issues: &mut Vec<String>) -> Result<()> {
     let mode = &*program.support_mode;
     if matches!(mode, "clarification_required" | "not_simulatable") {
         issues.push(format!("program support mode {} cannot be executed", py_repr(mode)));
@@ -809,8 +851,11 @@ pub fn validate(world: &World, program: &EffectProgram, placement: &mut Placemen
     if program.simulation_start_minute >= duration {
         issues.push("simulation_start_minute is outside the scenario duration".to_owned());
     }
+    Ok(())
+}
 
-    // The people's capacity of the temporary spaces, active and pending, by zone.
+/// The people's capacity of the temporary spaces, active and pending, by zone.
+fn temporary_capacity(world: &World, events: &[Arc<EventRow>]) -> Result<IndexMap<Arc<str>, i64>> {
     let mut temporary: IndexMap<Arc<str>, i64> = IndexMap::new();
     if let Some(V::Map(state)) = value(world, overlay::SPACES_KEY)? {
         if let Some(spaces) = state.get("spaces") {
@@ -826,7 +871,7 @@ pub fn validate(world: &World, program: &EffectProgram, placement: &mut Placemen
             }
         }
     }
-    for event in &events {
+    for event in events {
         if &*event.event_type != "effect_program_temporary_space" {
             continue;
         }
@@ -836,140 +881,192 @@ pub fn validate(world: &World, program: &EffectProgram, placement: &mut Placemen
             }
         }
     }
+    Ok(temporary)
+}
 
-    let zone_known = |id: &str| rows.zones.contains_key(id);
-    let mut facility_intervals: IndexMap<Arc<str>, Vec<(i64, i64, i64, Arc<str>)>> = IndexMap::new();
-    let (mut added_staff, mut added_facilities, mut added_evacuees) = (0i64, 0i64, 0i64);
-    let mut toilet_additions: Vec<(String, Arc<str>, i64)> = Vec::new();
-    for effect in &program.effects {
-        let label = format!("effect {}", py_repr(&effect.effect_id));
-        let Some(primitive) = primitive(&effect.op) else {
-            issues.push(format!("{label} uses unsupported operator {}", py_repr(&effect.op)));
-            continue;
-        };
-        let kind = &*effect.target_selector.kind;
-        if !primitive.target_kinds.contains(&kind) {
-            issues.push(format!("{label} target kind must be one of {}", list_repr(primitive.target_kinds)));
+/// What the checks of each effect read.
+#[derive(Clone, Copy)]
+struct Checks<'a> {
+    world: &'a World,
+    rows: &'a Entities,
+    configs: &'a Map,
+    minute: i64,
+    duration: i64,
+    schema_version: i64,
+    zone_known: &'a dyn Fn(&str) -> bool,
+}
+
+/// What the effects add, which the checks after them read: the facility modifiers' intervals by
+/// facility, the staff, facilities and evacuees added, and the toilets to place.
+#[derive(Default)]
+struct Added {
+    facility_intervals: IndexMap<Arc<str>, Vec<(i64, i64, i64, Arc<str>)>>,
+    added_staff: i64,
+    added_facilities: i64,
+    added_evacuees: i64,
+    toilet_additions: Vec<(String, Arc<str>, i64)>,
+}
+
+/// The checks of one effect, in Python's order; what it adds goes to `added`.
+fn check_effect(cx: Checks<'_>, effect: &Effect, added: &mut Added, issues: &mut Vec<String>) -> Result<()> {
+    let Checks { rows, duration, zone_known, .. } = cx;
+    let label = format!("effect {}", py_repr(&effect.effect_id));
+    let Some(primitive) = primitive(&effect.op) else {
+        issues.push(format!("{label} uses unsupported operator {}", py_repr(&effect.op)));
+        return Ok(());
+    };
+    let kind = &*effect.target_selector.kind;
+    if !primitive.target_kinds.contains(&kind) {
+        issues.push(format!("{label} target kind must be one of {}", list_repr(primitive.target_kinds)));
+    }
+    if !primitive.units.contains(&&*effect.units) {
+        issues.push(format!("{label} has unsupported units {}", py_repr(&effect.units)));
+    }
+    let dependencies: BTreeSet<&str> = effect.policy_dependencies.iter().map(|id| &**id).collect();
+    if dependencies != primitive.policies.iter().copied().collect() {
+        issues.push(format!("{label} policy_dependencies must be exactly {}", list_repr(primitive.policies)));
+    }
+    let parameters = parameters(effect)?;
+    let target = match (&effect.target_selector.target_id, effect.target_selector.candidate_ids.is_empty()) {
+        (Some(target), true) => target.clone(),
+        _ => {
+            issues.push(format!("{label} requires one explicit target ID"));
+            return Ok(());
         }
-        if !primitive.units.contains(&&*effect.units) {
-            issues.push(format!("{label} has unsupported units {}", py_repr(&effect.units)));
+    };
+    if let Some(guard) = &effect.guard {
+        guard_issues(&label, kind, guard, issues);
+    }
+    window_issues(cx, effect, &primitive, &label, issues)?;
+    if matches!(&*effect.op, "add_staff" | "add_toilet" | "add_evacuees" | "depart_evacuees") && !zone_known(&target) {
+        issues.push(format!("{label} references unknown zone {}", py_repr(&target)));
+    }
+    if &*effect.op == "add_evacuees" {
+        admission_issues(cx, &parameters, &target, &label, issues)?;
+    }
+    match &*effect.op {
+        "add_staff" => added.added_staff += parameters.count,
+        "add_toilet" => {
+            added.added_facilities += parameters.count;
+            added.toilet_additions.push((label.clone(), target.clone(), parameters.count));
         }
-        let dependencies: BTreeSet<&str> = effect.policy_dependencies.iter().map(|id| &**id).collect();
-        if dependencies != primitive.policies.iter().copied().collect() {
-            issues.push(format!("{label} policy_dependencies must be exactly {}", list_repr(primitive.policies)));
+        "add_evacuees" => added.added_evacuees += parameters.count,
+        _ => {}
+    }
+    if &*effect.op == "facility_outage" {
+        if !rows.facilities.contains_key(&target) {
+            issues.push(format!("{label} references unknown facility {}", py_repr(&target)));
+            return Ok(());
         }
-        let parameters = parameters(effect)?;
-        let target = match (&effect.target_selector.target_id, effect.target_selector.candidate_ids.is_empty()) {
-            (Some(target), true) => target.clone(),
-            _ => {
-                issues.push(format!("{label} requires one explicit target ID"));
-                continue;
+        added.facility_intervals.entry(target.clone()).or_default().push((
+            effect.start_minute,
+            effect.end_minute.unwrap_or(duration),
+            parameters.units,
+            effect.effect_id.clone(),
+        ));
+    } else if &*effect.op == "water_outage" {
+        if effect.end_minute.is_none() {
+            issues.push(format!("{label} requires end_minute so water service can be restored"));
+        }
+        if kind == "facility" {
+            if !rows.facilities.get(&target).is_some_and(|facility| &*facility.kind == "water_station") {
+                issues.push(format!("{label} facility must be an existing water_station"));
             }
-        };
-        if let Some(guard) = &effect.guard {
-            let mut fields = BTreeSet::new();
-            guard.fields(&mut fields);
-            for field in fields {
-                let shown = py_repr(&field);
-                if field.starts_with("target.") && kind != "facility" {
-                    issues.push(format!("{label} guard field {shown} requires a facility target"));
-                } else if &*field == "zone.occupancy" && !matches!(kind, "facility" | "zone") {
-                    issues.push(format!("{label} guard field {shown} needs a zone-scoped target"));
-                } else if &*field == "resource.available_quantity" {
-                    issues.push(format!("{label} guard field {shown} requires a resource delivery target"));
-                } else if &*field == "staff.available" {
-                    issues.push(format!("{label} guard field {shown} requires a staff availability target"));
-                }
-            }
-        }
-        if effect.start_minute < minute || effect.start_minute >= duration {
-            issues.push(format!("{label} start_minute must be within the remaining scenario"));
-        }
-        match effect.end_minute {
-            Some(end) => {
-                if end <= effect.start_minute || end > duration {
-                    issues.push(format!("{label} end_minute is outside its valid time window"));
-                }
-                if end - effect.start_minute > MAX_EFFECT_DURATION {
-                    issues.push(format!("{label} duration exceeds the 366-day limit"));
-                }
-            }
-            None if duration - effect.start_minute > MAX_EFFECT_DURATION => issues.push(format!("{label} duration exceeds the 366-day limit")),
-            None => {}
-        }
-        if !primitive.timed && effect.end_minute.is_some() {
-            issues.push(format!("{label} is a one-shot operation and cannot have end_minute"));
-        }
-        if primitive.policies.contains(&"operational_events_v1") && !has(world, "operational_events_v1")? {
-            issues.push(format!("{label} requires operational_events_v1 state"));
-        }
-        if primitive.policies.contains(&"resource_service_v1") && (schema_version != 6 || !has(world, "resource_service_v1")?) {
-            issues.push(format!("{label} requires the WorldState v6 resource-service policy"));
-        }
-        if primitive.policies.contains(&"population_dynamics_v1") && !has(world, "population_dynamics_v1")? {
-            issues.push(format!("{label} requires population_dynamics_v1 state"));
-        }
-        if matches!(&*effect.op, "add_staff" | "add_toilet" | "add_evacuees" | "depart_evacuees") && !zone_known(&target) {
-            issues.push(format!("{label} references unknown zone {}", py_repr(&target)));
-        }
-        if &*effect.op == "add_evacuees" {
-            let admission = &parameters.admission_zone_ids;
-            if admission.contains(&target) || admission.iter().any(|zone| !zone_known(zone)) {
-                issues.push(format!("{label} alternate admission zones must be known and exclude its preferred zone"));
-            }
-            let overlay_schema = match configs.get("geometry_overlay") {
-                Some(V::Map(config)) => match config.get("schema_version") {
-                    Some(V::Int(version)) => Some(*version),
-                    _ => None,
-                },
-                _ => None,
-            };
-            if !admission.is_empty() && !matches!(overlay_schema, Some(3 | 4)) {
-                issues.push(format!("{label} alternate physical room admission requires geometry_overlay schema_version=3 or 4"));
-            }
-            if let Some(route_id) = &parameters.approach_route_id {
-                if !admission.is_empty() {
-                    issues.push(format!("{label} cannot combine one approach route with alternate admission zones"));
-                }
-                if let Some(problem) = approach_problem(&configs, route_id, &target)? {
-                    issues.push(format!("{label} arrival approach is invalid: {problem}"));
-                }
-            }
-        }
-        match &*effect.op {
-            "add_staff" => added_staff += parameters.count,
-            "add_toilet" => {
-                added_facilities += parameters.count;
-                toilet_additions.push((label.clone(), target.clone(), parameters.count));
-            }
-            "add_evacuees" => added_evacuees += parameters.count,
-            _ => {}
-        }
-        if &*effect.op == "facility_outage" {
-            if !rows.facilities.contains_key(&target) {
-                issues.push(format!("{label} references unknown facility {}", py_repr(&target)));
-                continue;
-            }
-            facility_intervals.entry(target.clone()).or_default().push((
-                effect.start_minute,
-                effect.end_minute.unwrap_or(duration),
-                parameters.units,
-                effect.effect_id.clone(),
-            ));
-        } else if &*effect.op == "water_outage" {
-            if effect.end_minute.is_none() {
-                issues.push(format!("{label} requires end_minute so water service can be restored"));
-            }
-            if kind == "facility" {
-                if !rows.facilities.get(&target).is_some_and(|facility| &*facility.kind == "water_station") {
-                    issues.push(format!("{label} facility must be an existing water_station"));
-                }
-            } else if !zone_known(&target) || !rows.facilities.iter().any(|(_, facility)| &*facility.kind == "water_station" && facility.zone_id == target) {
-                issues.push(format!("{label} zone must contain an existing water_station"));
-            }
+        } else if !zone_known(&target) || !rows.facilities.iter().any(|(_, facility)| &*facility.kind == "water_station" && facility.zone_id == target) {
+            issues.push(format!("{label} zone must contain an existing water_station"));
         }
     }
+    Ok(())
+}
 
+/// The fields an effect's guard reads, against its target kind.
+fn guard_issues(label: &str, kind: &str, guard: &Guard, issues: &mut Vec<String>) {
+    let mut fields = BTreeSet::new();
+    guard.fields(&mut fields);
+    for field in fields {
+        let shown = py_repr(&field);
+        if field.starts_with("target.") && kind != "facility" {
+            issues.push(format!("{label} guard field {shown} requires a facility target"));
+        } else if &*field == "zone.occupancy" && !matches!(kind, "facility" | "zone") {
+            issues.push(format!("{label} guard field {shown} needs a zone-scoped target"));
+        } else if &*field == "resource.available_quantity" {
+            issues.push(format!("{label} guard field {shown} requires a resource delivery target"));
+        } else if &*field == "staff.available" {
+            issues.push(format!("{label} guard field {shown} requires a staff availability target"));
+        }
+    }
+}
+
+/// An effect's time window, and the policies its operator needs.
+fn window_issues(cx: Checks<'_>, effect: &Effect, primitive: &Primitive, label: &str, issues: &mut Vec<String>) -> Result<()> {
+    let Checks { world, minute, duration, schema_version, .. } = cx;
+    if effect.start_minute < minute || effect.start_minute >= duration {
+        issues.push(format!("{label} start_minute must be within the remaining scenario"));
+    }
+    match effect.end_minute {
+        Some(end) => {
+            if end <= effect.start_minute || end > duration {
+                issues.push(format!("{label} end_minute is outside its valid time window"));
+            }
+            if end - effect.start_minute > MAX_EFFECT_DURATION {
+                issues.push(format!("{label} duration exceeds the 366-day limit"));
+            }
+        }
+        None if duration - effect.start_minute > MAX_EFFECT_DURATION => issues.push(format!("{label} duration exceeds the 366-day limit")),
+        None => {}
+    }
+    if !primitive.timed && effect.end_minute.is_some() {
+        issues.push(format!("{label} is a one-shot operation and cannot have end_minute"));
+    }
+    if primitive.policies.contains(&"operational_events_v1") && !has(world, "operational_events_v1")? {
+        issues.push(format!("{label} requires operational_events_v1 state"));
+    }
+    if primitive.policies.contains(&"resource_service_v1") && (schema_version != 6 || !has(world, "resource_service_v1")?) {
+        issues.push(format!("{label} requires the WorldState v6 resource-service policy"));
+    }
+    if primitive.policies.contains(&"population_dynamics_v1") && !has(world, "population_dynamics_v1")? {
+        issues.push(format!("{label} requires population_dynamics_v1 state"));
+    }
+    Ok(())
+}
+
+/// The alternate admission zones and the approach route of an `add_evacuees` effect.
+fn admission_issues(cx: Checks<'_>, parameters: &Parameters, target: &Arc<str>, label: &str, issues: &mut Vec<String>) -> Result<()> {
+    let Checks { configs, zone_known, .. } = cx;
+    let admission = &parameters.admission_zone_ids;
+    if admission.contains(target) || admission.iter().any(|zone| !zone_known(zone)) {
+        issues.push(format!("{label} alternate admission zones must be known and exclude its preferred zone"));
+    }
+    let overlay_schema = match configs.get("geometry_overlay") {
+        Some(V::Map(config)) => match config.get("schema_version") {
+            Some(V::Int(version)) => Some(*version),
+            _ => None,
+        },
+        _ => None,
+    };
+    if !admission.is_empty() && !matches!(overlay_schema, Some(3 | 4)) {
+        issues.push(format!("{label} alternate physical room admission requires geometry_overlay schema_version=3 or 4"));
+    }
+    if let Some(route_id) = &parameters.approach_route_id {
+        if !admission.is_empty() {
+            issues.push(format!("{label} cannot combine one approach route with alternate admission zones"));
+        }
+        if let Some(problem) = approach_problem(configs, route_id, target)? {
+            issues.push(format!("{label} arrival approach is invalid: {problem}"));
+        }
+    }
+    Ok(())
+}
+
+/// The facility modifiers of the program, by facility: their stacking against the facility's
+/// occupancy, and the pending facility events they overlap.
+fn interval_issues(
+    rows: &Entities,
+    events: &[Arc<EventRow>],
+    mut facility_intervals: IndexMap<Arc<str>, Vec<(i64, i64, i64, Arc<str>)>>,
+    schema_version: i64,
+    issues: &mut Vec<String>,
+) -> Result<()> {
     for (facility_id, intervals) in &mut facility_intervals {
         intervals.sort_by(|first, second| first.0.cmp(&second.0).then_with(|| first.3.as_bytes().cmp(second.3.as_bytes())));
         let facility = rows.facilities.get(facility_id).ok_or_else(|| Error::Runtime("a facility left the table".to_owned()))?;
@@ -986,7 +1083,7 @@ pub fn validate(world: &World, program: &EffectProgram, placement: &mut Placemen
             }
             active.push((*end, target));
         }
-        for event in &events {
+        for event in events {
             if matches!(&*event.event_type, "facility_outage" | "facility_recovery" | "effect_program_apply" | "effect_program_expire")
                 && matches!(payload(event, "facility_id"), Some(V::Str(id)) if id == facility_id)
                 && intervals.iter().any(|(start, end, _, _)| *start <= event.due_minute && event.due_minute < *end)
@@ -995,26 +1092,12 @@ pub fn validate(world: &World, program: &EffectProgram, placement: &mut Placemen
             }
         }
     }
+    Ok(())
+}
 
-    if let Some(config) = configs.get("zone_environment") {
-        environment_limits(world, config, &events, &zone_known, minute, duration, &mut issues)?;
-    }
-
-    let staff_total = rows.staff.len() as i64 + pending_count(&events, "effect_program_structure", "add_staff")? + added_staff;
-    if staff_total > 100 {
-        issues.push("program exceeds the 100-staff runtime bound".to_owned());
-    }
-    if temporary.values().any(|capacity| *capacity > 1000) {
-        issues.push("temporary person capacity exceeds the 1000-person per-zone bound".to_owned());
-    }
-    let facility_total = rows.facilities.len() as i64 + pending_count(&events, "effect_program_structure", "add_toilet")? + added_facilities;
-    if facility_total > 200 {
-        issues.push("program exceeds the 200-facility runtime bound".to_owned());
-    }
-    drop(rows);
-    if !toilet_additions.is_empty() && configs.contains_key("facility_geometry") {
-        issues.extend(toilet_placement(world, &toilet_additions, placement)?);
-    }
+/// The population bound: the known profiles, the pending arrivals and the evacuees the program
+/// adds.
+fn population_issues(world: &World, events: &[Arc<EventRow>], added_evacuees: i64, issues: &mut Vec<String>) -> Result<()> {
     if let Some(V::Map(population)) = value(world, "population_dynamics_v1")? {
         let mut known: BTreeSet<Arc<str>> = BTreeSet::new();
         match population.get("initial_agent_ids") {
@@ -1032,14 +1115,12 @@ pub fn validate(world: &World, program: &EffectProgram, placement: &mut Placemen
             Some(V::Map(traits)) => known.extend(traits.keys().cloned()),
             Some(_) => return Err(Error::unsupported("the profile traits are not a dict")),
         }
-        let arriving = pending_count(&events, "effect_program_population", "add_evacuees")?;
+        let arriving = pending_count(events, "effect_program_population", "add_evacuees")?;
         if known.len() as i64 + arriving + added_evacuees > 10_000 {
             issues.push("program exceeds the 10000-profile population runtime bound".to_owned());
         }
     }
-    let mut seen = BTreeSet::new();
-    issues.retain(|issue| seen.insert(issue.clone()));
-    Ok(issues)
+    Ok(())
 }
 
 /// `_TemporarySpaceParameters.model_validate(parameters).people_capacity`, None where it refuses.
@@ -1308,35 +1389,12 @@ pub fn schedule(world: &mut World, program: &EffectProgram, placement: &mut Plac
 fn schedule_on(world: &World, program: &EffectProgram) -> Result<Receipt> {
     use crate::events::EventKind;
     use crate::rules::kit::{new_event, Events, NewEvent};
-    use crate::state::effect_program::Program;
 
     let minute = world.minute_index()?;
     let program_hash = crate::checkpoint::sha256_hex(&program.dump_json()?);
     let source_text_hash = sha256_text(&program.source_text);
     let provenance = program.compiler_provenance.dump();
-    if !has(world, EFFECT_PROGRAM)? {
-        world.start_namespace(
-            EFFECT_PROGRAM,
-            Box::new(EffectProgramRow { schema_version: 1, programs: Default::default(), active_facility_modifiers: Default::default() }),
-        )?;
-    }
-    {
-        let mut state = world.row_mut::<EffectProgramRow>(EFFECT_PROGRAM)?;
-        state.programs.insert(
-            program.program_id.clone(),
-            Program {
-                program_hash: Arc::from(program_hash.as_str()),
-                source_text_hash: Arc::from(source_text_hash.as_str()),
-                narrative: program.narrative.clone(),
-                compiler_provenance: provenance.clone(),
-                assumptions: V::List(program.assumptions.iter().map(Assumption::dump).collect()),
-                support_mode: program.support_mode.clone(),
-                effect_ids: program.effects.iter().map(|effect| effect.effect_id.clone()).collect(),
-                operators: program.effects.iter().map(|effect| (effect.effect_id.clone(), effect.op.clone())).collect(),
-                scheduled_event_ids: Vec::new(),
-            },
-        );
-    }
+    start_record(world, program, &program_hash, &source_text_hash, &provenance)?;
     let events = Events::of(world)?;
     let mut event_ids: Vec<Arc<str>> = Vec::new();
     let mut make = |effect: &Effect, due: i64, event_type: &str, payload: Map, phase: &str, priority: i64, causation: Option<Arc<str>>| -> Result<Arc<str>> {
@@ -1398,62 +1456,8 @@ fn schedule_on(world: &World, program: &EffectProgram) -> Result<Receipt> {
             payload
         };
         match &*effect.op {
-            "facility_outage" => {
-                let units = projected_units(world, program, effect)?;
-                let modifier = V::Str(modifier_id(&program.program_id, &effect.effect_id));
-                let start = make(
-                    effect,
-                    effect.start_minute,
-                    "effect_program_apply",
-                    head(&[("modifier_id", modifier.clone()), ("facility_id", V::Str(target.clone())), ("working_units", V::Int(units))]),
-                    "start",
-                    0,
-                    None,
-                )?;
-                if let Some(end) = effect.end_minute {
-                    make(
-                        effect,
-                        end,
-                        "effect_program_expire",
-                        head(&[("modifier_id", modifier), ("facility_id", V::Str(target.clone()))]),
-                        "expiry",
-                        20,
-                        Some(start),
-                    )?;
-                }
-            }
-            "water_outage" => {
-                let outage_id: Arc<str> = Arc::from(format!("outage-{}", &sha256_text(&format!("{}:{}:water", program.program_id, effect.effect_id))[..32]));
-                let zone = &*effect.target_selector.kind == "zone";
-                let mut payload = Map::new();
-                payload.insert(Arc::from("outage_id"), V::Str(outage_id.clone()));
-                payload.insert(Arc::from(if zone { "zone_id" } else { "facility_id" }), V::Str(target.clone()));
-                let start = make(effect, effect.start_minute, "water_outage", payload, "start", 0, None)?;
-                let mut restore = V::Null;
-                if let Some(end) = effect.end_minute.filter(|end| *end < world.duration_minutes().unwrap_or(i64::MAX)) {
-                    let mut payload = Map::new();
-                    payload.insert(Arc::from("outage_id"), V::Str(outage_id.clone()));
-                    restore = V::Str(make(effect, end, "water_restored", payload, "expiry", 10, Some(start.clone()))?);
-                }
-                let mut state = world.row_mut::<ValueRow>("operational_events_v1")?;
-                let V::Map(state) = &mut state.0 else { return Err(Error::unsupported("operational_events_v1 is not a dict")) };
-                let Some(V::Map(outages)) = state.get_mut("water_outages") else {
-                    return Err(Error::unsupported("the water outages are not a dict"));
-                };
-                if outages.contains_key(&outage_id) {
-                    return Err(Error::Value(format!("water outage ID collision for {}", py_repr(&outage_id))));
-                }
-                outages.insert(
-                    outage_id,
-                    object([
-                        ("target_kind", V::Str(Arc::from(if zone { "zone" } else { "facility" }))),
-                        ("target_id", V::Str(target.clone())),
-                        ("outage_event_id", V::Str(start)),
-                        ("restore_event_id", restore),
-                        ("active", V::Bool(false)),
-                    ]),
-                );
-            }
+            "facility_outage" => schedule_facility_outage(world, program, effect, &target, &mut make, &head)?,
+            "water_outage" => schedule_water_outage(world, program, effect, &target, &mut make)?,
             "add_staff" | "add_toilet" => {
                 let mut payload = head(&[
                     ("modifier_id", V::Str(modifier_id(&program.program_id, &effect.effect_id))),
@@ -1472,4 +1476,100 @@ fn schedule_on(world: &World, program: &EffectProgram) -> Result<Receipt> {
         }
     }
     Ok(Receipt { program_id: program.program_id.clone(), program_hash, event_ids, minute })
+}
+
+/// The writer of one scheduled event (`make` of `schedule_on`): the effect, the due minute, the
+/// event type, the payload, the phase, the priority and the causation; the event's ID.
+type Make<'a> = dyn FnMut(&Effect, i64, &str, Map, &str, i64, Option<Arc<str>>) -> Result<Arc<str>> + 'a;
+
+/// The program's record in `effect_program_v1`, the namespace started where the world has none.
+fn start_record(world: &World, program: &EffectProgram, program_hash: &str, source_text_hash: &str, provenance: &V) -> Result<()> {
+    use crate::state::effect_program::Program;
+
+    if !has(world, EFFECT_PROGRAM)? {
+        world.start_namespace(
+            EFFECT_PROGRAM,
+            Box::new(EffectProgramRow { schema_version: 1, programs: Default::default(), active_facility_modifiers: Default::default() }),
+        )?;
+    }
+    {
+        let mut state = world.row_mut::<EffectProgramRow>(EFFECT_PROGRAM)?;
+        state.programs.insert(
+            program.program_id.clone(),
+            Program {
+                program_hash: Arc::from(program_hash),
+                source_text_hash: Arc::from(source_text_hash),
+                narrative: program.narrative.clone(),
+                compiler_provenance: provenance.clone(),
+                assumptions: V::List(program.assumptions.iter().map(Assumption::dump).collect()),
+                support_mode: program.support_mode.clone(),
+                effect_ids: program.effects.iter().map(|effect| effect.effect_id.clone()).collect(),
+                operators: program.effects.iter().map(|effect| (effect.effect_id.clone(), effect.op.clone())).collect(),
+                scheduled_event_ids: Vec::new(),
+            },
+        );
+    }
+    Ok(())
+}
+
+/// A `facility_outage` effect: its start event, and its expiry event where it ends.
+fn schedule_facility_outage(
+    world: &World,
+    program: &EffectProgram,
+    effect: &Effect,
+    target: &Arc<str>,
+    make: &mut Make<'_>,
+    head: &dyn Fn(&[(&str, V)]) -> Map,
+) -> Result<()> {
+    let units = projected_units(world, program, effect)?;
+    let modifier = V::Str(modifier_id(&program.program_id, &effect.effect_id));
+    let start = make(
+        effect,
+        effect.start_minute,
+        "effect_program_apply",
+        head(&[("modifier_id", modifier.clone()), ("facility_id", V::Str(target.clone())), ("working_units", V::Int(units))]),
+        "start",
+        0,
+        None,
+    )?;
+    if let Some(end) = effect.end_minute {
+        make(effect, end, "effect_program_expire", head(&[("modifier_id", modifier), ("facility_id", V::Str(target.clone()))]), "expiry", 20, Some(start))?;
+    }
+    Ok(())
+}
+
+/// A `water_outage` effect: its start event, its restoration event where it ends within the run,
+/// and its outage record in `operational_events_v1`.
+fn schedule_water_outage(world: &World, program: &EffectProgram, effect: &Effect, target: &Arc<str>, make: &mut Make<'_>) -> Result<()> {
+    let outage_id: Arc<str> = Arc::from(format!("outage-{}", &sha256_text(&format!("{}:{}:water", program.program_id, effect.effect_id))[..32]));
+    let zone = &*effect.target_selector.kind == "zone";
+    let mut payload = Map::new();
+    payload.insert(Arc::from("outage_id"), V::Str(outage_id.clone()));
+    payload.insert(Arc::from(if zone { "zone_id" } else { "facility_id" }), V::Str(target.clone()));
+    let start = make(effect, effect.start_minute, "water_outage", payload, "start", 0, None)?;
+    let mut restore = V::Null;
+    if let Some(end) = effect.end_minute.filter(|end| *end < world.duration_minutes().unwrap_or(i64::MAX)) {
+        let mut payload = Map::new();
+        payload.insert(Arc::from("outage_id"), V::Str(outage_id.clone()));
+        restore = V::Str(make(effect, end, "water_restored", payload, "expiry", 10, Some(start.clone()))?);
+    }
+    let mut state = world.row_mut::<ValueRow>("operational_events_v1")?;
+    let V::Map(state) = &mut state.0 else { return Err(Error::unsupported("operational_events_v1 is not a dict")) };
+    let Some(V::Map(outages)) = state.get_mut("water_outages") else {
+        return Err(Error::unsupported("the water outages are not a dict"));
+    };
+    if outages.contains_key(&outage_id) {
+        return Err(Error::Value(format!("water outage ID collision for {}", py_repr(&outage_id))));
+    }
+    outages.insert(
+        outage_id,
+        object([
+            ("target_kind", V::Str(Arc::from(if zone { "zone" } else { "facility" }))),
+            ("target_id", V::Str(target.clone())),
+            ("outage_event_id", V::Str(start)),
+            ("restore_event_id", restore),
+            ("active", V::Bool(false)),
+        ]),
+    );
+    Ok(())
 }

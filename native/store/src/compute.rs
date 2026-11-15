@@ -397,7 +397,8 @@ impl ProjectFiles {
     }
 
     /// The branches left `running` that no writer holds (their lock is free) become `interrupted`,
-    /// with their Runs, as the Python server's start does (`Procedure::recover`); their heads stay.
+    /// with their Runs (`Procedure::recover`), as the local and VM servers do when they start;
+    /// their heads stay.
     /// Returns them as `(project, run, branch)`.
     pub fn recover_interrupted(&self) -> Result<Vec<(String, String, String)>> {
         let mut host = Host::of_store(self)?;

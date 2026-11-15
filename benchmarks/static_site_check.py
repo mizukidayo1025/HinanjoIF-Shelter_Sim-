@@ -258,7 +258,6 @@ SCREEN_STATE = """() => ({
   seekMax: Number(document.getElementById("seek").max),
   seekDisabled: document.getElementById("seek").disabled,
   seekLabel: document.getElementById("seek-label").textContent,
-  clock: document.getElementById("clock").textContent,
   replay: window.HinanjoReplayView ? { ...window.HinanjoReplayView } : null,
   historyNote: document.getElementById("history-note").textContent,
 })"""
@@ -368,7 +367,7 @@ COMPUTED = """() => {
   const match = /([0-9]+)分まで計算済み/.exec(label);
   return {
     computed: match ? Number(match[1]) : null,
-    clock: document.getElementById("clock").textContent,
+    clock: document.getElementById("seek-label").textContent,
     mode: document.getElementById("play").dataset.mode,
     label: document.querySelector("#play .play-label").textContent,
     cancel: document.getElementById("play").dataset.mode === "cancel",

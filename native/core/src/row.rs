@@ -197,9 +197,9 @@ pub trait Scalar: Field {
 /// since #430 removed the Python trees).
 pub trait TreeSink {
     type Error;
-    /// d[key] = value, where key is a field of a record.
+    /// `d[key] = value`, where `key` is a field of a record.
     fn set_field(&self, key: &'static str, value: Atom<'_>) -> std::result::Result<(), Self::Error>;
-    /// d[key] = value, where key is an entry of a map.
+    /// `d[key] = value`, where `key` is an entry of a map.
     fn set_entry(&self, key: &str, value: Atom<'_>) -> std::result::Result<(), Self::Error>;
 }
 

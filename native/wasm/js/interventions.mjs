@@ -9,12 +9,12 @@
 //       the approval's hash and a draft (`preview_id`).
 //   POST runs/{run}/branches/{branch}/intervention-apply     {preview_id, approved_program_hash,
 //       approved, child_id}
-//       the draft's checks, then ProjectAPI.fork as the server's process worker answers it:
-//       {"status": "running", "branch_id": child, "minute": m}. The child is made at once (the
-//       branch at the minute, the program applied, the child's stored Run written: format v6 of
-//       run_store.mjs, which reads the parent's pieces up to the saved point the fork's world was
-//       restored from, its base) and the outcome is the Run's `last_fork` (GET runs/{run}), as the
-//       server's is once its worker ends: {"status": "created", "branch_id", "minute",
+//       src/sheltersim/web/workspace.py `intervention_apply`: the draft's checks, then the child
+//       made at once, as the server's `ProjectAPI.fork` makes it (the branch at the minute, the
+//       program applied, the child's stored Run written: format v6 of run_store.mjs, which reads
+//       the parent's pieces up to the saved point the fork's world was restored from, its base).
+//       The answer is {"status": "running", "branch_id": child, "minute": m}, and the outcome is
+//       the Run's `last_fork` (GET runs/{run}): {"status": "created", "branch_id", "minute",
 //       "state_hash"} or {"status": "failed", "error", "code"}.
 //
 // The checks, the answers, the draft and the outcome are the core's (`answers::interventions`,
@@ -25,15 +25,14 @@
 // A Run computed with other model versions is view-only: both routes refuse it as the server does
 // (409 `run_model_view_only`, compute.mjs `requireCurrentModel`).
 //
-// Where the browser differs from the server (docs/project-persistence.md lists these):
-// - A typed `program` (the screen never sends one) is refused, 409 `browser_unsupported`, after the
-//   checks of the branch and the minute: pydantic's texts for a program it refuses are not made here.
-// - `preview_id` is random, as the server's (uuid4); a draft is kept in the Project's folder
-//   (`drafts/<preview_id>.json`) and is not part of a Project's bundle.
-// - The fork is not a job: it is done before the answer, so the Run never shows `running` for it,
-//   and another branch computing does not count against the server's two workers.
-// - `last_fork` is kept by the page's Worker, as the server keeps it in its process: it is gone
-//   when the page closes.
+// The rest is as the server does it too (#427, #449; docs/project-persistence.md): a typed
+// `program` (the screen never sends one) is refused, 409 `browser_unsupported`, after the checks of
+// the branch, the minute and the model versions (the core's `check_typed`); `preview_id` is random
+// (a uuid4's hex); the draft is kept in the Project's folder (`drafts/<preview_id>.json`) and is not
+// part of a Project's bundle; the fork is not a computing job, so it never makes the Run `running`
+// and does not count against the parallel computations. `last_fork` is kept in memory, by the
+// page's Worker (`BrowserApi.forkOutcomes`) as by the server's process
+// (`ProjectAPI._fork_outcomes`): it is gone when the page closes.
 
 import { core } from "./api_answers.mjs";
 import { requireCurrentModel } from "./compute.mjs";

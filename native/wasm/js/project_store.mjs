@@ -31,8 +31,9 @@
 // Checkpoint's hash; the Run's status is kept in run.json (the Python server kept it in
 // status.json before #427). Where the browser differs: `storage` of the Project list counts the
 // files of the store and takes its limit from the caller (the page:
-// `navigator.storage.estimate().quota`); a Run answers no `last_fork`.
-// docs/project-persistence.md lists these.
+// `navigator.storage.estimate().quota`). A Run's `last_fork` is in no record: `runResponse` answers
+// the outcome its caller keeps (the page's Worker, browser_api.mjs, as the server keeps it in its
+// process). docs/project-persistence.md lists these.
 //
 // A store is a tree: `memoryTree()` (Node, tests) or `opfsTree(directory)` (a folder of the origin
 // private file system). A tree reads, writes, lists and removes files by path (a list of names),

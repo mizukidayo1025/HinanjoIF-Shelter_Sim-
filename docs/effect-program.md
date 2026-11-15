@@ -1,9 +1,8 @@
 # EffectProgram runtime
 
-> **#430から**：EffectProgramを確かめて予定するのは、Rustの中核（`native/core/src/program.rs`）だけです。中核が予定できる操作は、介入の文の読み取りが作る6つ（`add_staff`、`add_toilet`、`facility_outage`、`water_outage`、`add_evacuees`、`depart_evacuees`）です。ほかの操作のprogramは、画面・API・CLIのどこからも予定できません（中核が`Unsupported`で断ります）。それらのイベントを処理する中核の規則は残っていて、記録した世界（`native/core/tests/data/`）と全経路のゲートの0分に予定した記録（`fixtures/gate-scheduled-programs.json.xz`）で確かめます。下の表と説明は、PythonがEffectProgramを予定していたときの仕様です。
+> **#430から**：EffectProgramを確かめて予定するのは、Rustの中核（`native/core/src/program.rs`）だけです。中核が予定できる操作は、介入の文の読み取りが作る6つ（`add_staff`、`add_toilet`、`facility_outage`、`water_outage`、`add_evacuees`、`depart_evacuees`）です。ほかの操作のprogramは、画面・API・CLIのどこからも予定できません（中核が`Unsupported`で断ります）。それらのイベントを処理する中核の規則は残っていて、記録した世界（`native/core/tests/data/`）と全経路のゲートの0分に予定した記録（`fixtures/gate-scheduled-programs.json.xz`）で確かめます。下の「導入済みprimitive」の表は、PythonがEffectProgramを予定していたとき（#430より前）の仕様です。
 
-
-EffectProgramの版付き契約とoffline interpreterはsheltersim.events.effectsが管理します。LLM/compiler層は同じPydantic契約を作れますが、runtimeはProvider、HTTP client、UI、生成コードをimportしません。opはDEFAULT_PRIMITIVE_REGISTRYの検索keyです。未知のoperatorや未宣言parameter fieldは意味検証で拒否します。
+EffectProgramの版付き契約（`program::EffectProgram`。読むときは`of_json`、正準JSONは`dump_json`）と、確かめと予定は中核の`native/core/src/program.rs`にあります。中核はProvider、HTTP client、UI、生成コードを使いません。opはprimitiveの名前です。未知のoperatorや未宣言parameter fieldは拒否します。
 
 ## 導入済みprimitive
 
@@ -27,20 +26,20 @@ zone_environment_v1は任意設定で、既存Zoneに限定されます。編集
 
 ## 検証とschedule
 
-validate_effect_program(world, program)は、対象、parameter model、単位、導入済みPolicy、時刻、効果数、queue上限、guard対象、使用中設備、effect間の競合を変更なしで検証します。
+`program::validate`（WASMの`Simulation.validateEffectProgram`）は、対象、parameter、単位、導入済みPolicy、時刻、効果数、queue上限、guard対象、使用中設備、effect間の競合を、世界を変えずに確かめ、問題を文の並びで返します。
 
-schedule_effect_program(world, program)（中核の`program::schedule`）は事前検証を再度行い、世界をトランザクションで開きます。開始・期限eventを追加し、水停止用stateを更新して世界全体を検証した後に一括commitします。不正effectがあれば取り消し、元stateは変わりません。世界の中核がトランザクションを持てないとき（`Unsupported`）は、以前と同じく分離した候補WorldStateを作って差し替えます（`state_mirror.transaction_or_copy`）。BranchRuntime.apply_effect_programも同じ操作を行い、program hashと予定event IDをBranch command historyに記録します。
+`program::schedule`（`PlainRun::apply_effect_program`、WASMの`Simulation.applyEffectProgram`）は確かめをやり直し、問題があれば世界を変えずに`EffectProgram could not be scheduled: …`の誤りにします。問題がなければ、programの記録（`effect_program_v1`の名前空間）と開始・期限eventを世界に書きます。途中で誤りになったときは、書く前の世界に戻します。書いた後の世界全体の検証（#250のE6）はしません。受領（`program::Receipt`）はprogram hashと予定したevent IDを持ち、分岐の子の保存したRunの`fork`の行に残ります。
 
-## 承認済みCheckpointからのBranch
+## 保存した点からのBranch
 
-Projectの介入は、Branchの`intervention-preview`と`intervention-apply`で作ります（[APIリファレンス](api-reference.md#projectと介入の流れ)）。previewは指定minuteのstateを復元してprogramを検証し、元Branchを変えません。applyはpreview ID、program hash、明示承認、child IDを要求します。serverはpreviewとの対応を検証しますが、誰がクリックしたかは認証しません。
+Projectの介入は、Branchの`intervention-preview`と`intervention-apply`で作ります（[APIリファレンス](api-reference.md#projectと介入の流れ)）。previewは指定minuteの世界を戻してprogramを確かめ、元Branchを変えません。applyはpreview ID、program hash、明示承認、child IDを要求します。serverはpreviewとの対応を検証しますが、誰がクリックしたかは認証しません。
 
-applyは、指定minuteのstateを保存したCheckpointから復元し（保存の間のminuteは直前の保存から計算し直します）、previewが見たstate hashと一致することを確かめてから、子Branchを作ってprogramをscheduleします。却下時に元Branchや兄弟Branchは変わりません。以前の画面の`POST /api/v1/demo/branch-plan`（idempotency keyつきのApprovedPlan）は#376でなくしました。
+applyは、指定minuteの世界を保存したRunから戻し（その分以前で一番近い保存した点に戻して計算し直します）、previewが見たstate hashと一致することを確かめてから、子Branchを作ってprogramを予定します（中核の`compute::Procedure::fork`、#476）。却下時に元Branchや兄弟Branchは変わりません。以前の画面の`POST /api/v1/demo/branch-plan`（idempotency keyつきのApprovedPlan）は#376でなくしました。
 
-Program ID、effect ID、modifier IDは安定しています。eventにはeffect ID、source ID、可能な場合は親原因、compiler種別・版、source文章SHA-256、仮定、単位、依存Policyを記録します。元文章はWorldStateへ複製しません。資源配布、shipment遅延、staff不在、水停止は既存の型付きhandlerが処理します。
+Program ID、effect ID、modifier IDは安定しています。eventにはeffect ID、source ID、可能な場合は親原因、compiler種別・版、source文章SHA-256、仮定、単位、依存Policyを記録します。元文章は世界へ複製しません（記録はsource文章のSHA-256だけです）。資源配布、shipment遅延、staff不在、水停止は既存の型付きhandlerが処理します。
 
 施設稼働modifierは、有効な稼働単位数のうち最も厳しい上限を適用します。各期限は自身のmodifier IDだけを除き、残りの上限または保存した基準値に戻します。modifierと競合する直接の故障・復旧やBranch availability変更は拒否します。staff不在と水停止には明示的な復旧eventがあります。一回限りの操作には期限を指定できません。
 
 GuardExpressionは上限付きASTです。最大20 node、深さ4、固定fieldと比較・boolean operatorのみを許可します。dispatcherはASTを直接解釈し、Python eval、コード実行、動的import、event trigger chainを使いません。guardがfalseなら抑止eventだけ記録し、対象subsystemは変えません。`target.*`と`zone.occupancy`は、その効果の対象（施設・区画）で評価します。図面の変更の操作は対象をpayloadの`target_id`に持つので、それも対象として読みます（#194）。`eq`・`ne`は、数値（整数・小数）どうしなら数として比べ（`0`と`0.0`は等しい）、真偽値と数値は等しいとみなしません（#196）。開始がguardで抑止された効果の期限切れも、抑止として記録します（環境の変更を含む。#195）。guardは開始のeventだけが持ちます。開始が適用されたあとに予定へ入るevent（職員の復帰、遅らせた配送、歩いて来る到着の歩きの終わり。phaseは`derived`）は、始まったことの続きなのでguardを写さず、もう一度評価しません（#89）。
 
-任意のeffect_program_v1とzone_environment_v1 stateはWorldState、したがってCheckpointに保存されます。EffectProgramを含むCheckpointはmodel_versionsにeffect_program_interpreter=1を記録します。任意stateがないWorldState v5/v6とCheckpoint v1・v2も互換性を保ちます。
+任意のeffect_program_v1とzone_environment_v1の状態は中核の世界の名前空間で、保存した点（`archive::SavedPoint`）にも入ります。#430より前のPythonのCheckpointは`model_versions`に`effect_program_interpreter=1`を記録していましたが、そのCheckpointは今は読みません（#368の決定2）。

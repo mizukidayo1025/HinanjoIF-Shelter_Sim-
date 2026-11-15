@@ -487,7 +487,12 @@ impl PdfPlan {
             "evidence": facts,
         });
         let state_hash = if attempt == 0 { digest(&facts) } else { digest(&json!({"facts": facts, "attempt": attempt})) };
-        let mut task = asking::review_task(PDF_ANALYSIS, PROMPT_VERSION, 1, &prompt, state_hash, &output_schema(), "{}", 4000)?;
+        let mut task = asking::review_task(
+            asking::Review { task: PDF_ANALYSIS, prompt_version: PROMPT_VERSION, schema_version: 1, fallback_text: "{}", max_output_tokens: 4000 },
+            &prompt,
+            state_hash,
+            &output_schema(),
+        )?;
         task.input_byte_limit = Some(48_000);
         Ok(PdfAnalysis { data, facts, task })
     }

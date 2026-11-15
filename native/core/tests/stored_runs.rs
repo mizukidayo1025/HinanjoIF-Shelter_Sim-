@@ -873,6 +873,8 @@ fn a_run_of_other_model_versions_is_view_only_with_pythons_rule_and_text() {
             },
         })
     );
+    // The bytes the frame gets, the whole message and the order of the keys with them (#489).
+    assert_eq!(sha256_hex(&old.describe_json(30, 45)), "74cb82e11e81a523ac1a3626757f53c75f44f0f27d6caf50d18d58c2fbb89ec7");
     let at_save: Value = serde_json::from_slice(&old.describe_json(30, 30)).unwrap();
     assert!(at_save.get("saved_point_rounding").is_none() && at_save["model_view"]["view_only"] == true);
     assert_eq!(ModelStatus::of(&installed, &installed).describe_json(30, 30), b"{}");

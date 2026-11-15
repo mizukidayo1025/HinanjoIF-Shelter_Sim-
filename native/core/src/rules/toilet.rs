@@ -171,7 +171,13 @@ pub fn queue_up(world: &World, request: &Request<'_>) -> WriteResult<Receipt> {
                 active_task_id: task_id.clone(),
             };
             let sequence = events.next_sequence()?;
-            Some(transition_row(&events, &queued, "queued", &task_id, None, None, Some(position), Some(point.service_capacity), sequence, minute)?)
+            Some(transition_row(
+                &events,
+                &fifo::Transition { request: &queued, transition: "queued", task_id: &task_id, wait_minutes: None, causation_id: None },
+                fifo::Place { queue_position: Some(position), capacity: Some(point.service_capacity) },
+                sequence,
+                minute,
+            )?)
         }
         None => None,
     };
@@ -187,7 +193,11 @@ pub fn queue_up(world: &World, request: &Request<'_>) -> WriteResult<Receipt> {
         facility.queue_agent_ids.push(agent_arc.clone());
     }
     if let Some(point) = point {
-        fifo::write_enqueue(world, point, &task_id, &task_id, agent_name, "toilet", minute)?;
+        fifo::write_enqueue(
+            world,
+            point,
+            fifo::NewRequest { request_id: &task_id, task_id: &task_id, agent_id: agent_name, service_kind: "toilet", requested_minute: minute },
+        )?;
     }
     {
         let mut rows = world.rows_mut()?;
@@ -564,13 +574,14 @@ fn pass(world: &World, start: &Start<'_>, drawn: Option<f64>) -> WriteResult<Pas
     let transition = match &head {
         Some(head) => Some(transition_row(
             &events,
-            &head.request,
-            "service_started",
-            &task_id,
-            Some(wait),
-            Some(&event_id),
-            None,
-            Some(head.point_capacity),
+            &fifo::Transition {
+                request: &head.request,
+                transition: "service_started",
+                task_id: &task_id,
+                wait_minutes: Some(wait),
+                causation_id: Some(&event_id),
+            },
+            fifo::Place { queue_position: None, capacity: Some(head.point_capacity) },
             sequence + 1,
             minute,
         )?),
@@ -715,7 +726,13 @@ pub fn complete(world: &World, event: &EventRow, queues: &Held, geo: &Geo, body:
             let wait = task_start.checked_sub(request.requested_minute).ok_or_else(|| Error::unsupported("a wait out of range"))?;
             let capacity = point_of(geo, &request.queue_id).map(|point| point.service_capacity);
             let sequence = events.next_sequence()?;
-            let row = transition_row(&events, &request, "completed", &task_id, Some(wait), Some(&task_id), position, capacity, sequence, minute)?;
+            let row = transition_row(
+                &events,
+                &fifo::Transition { request: &request, transition: "completed", task_id: &task_id, wait_minutes: Some(wait), causation_id: Some(&task_id) },
+                fifo::Place { queue_position: position, capacity: capacity },
+                sequence,
+                minute,
+            )?;
             Some((request, row))
         }
         None => None,

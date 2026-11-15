@@ -290,7 +290,6 @@ fn stall_valid(stall: &V) -> Result<bool> {
 }
 
 /// The long condition on a request, in Python's order.
-#[allow(clippy::too_many_arguments)]
 fn request_valid(
     request: &Map,
     request_id: &V,

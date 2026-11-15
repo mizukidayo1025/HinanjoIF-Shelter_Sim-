@@ -32,7 +32,7 @@ use crate::geometry::{distance, polyline_length, usable, Geo, Pt};
 use crate::mathx::{py_max, py_min};
 use crate::rules::facility_queues::{self as fifo, point_of, request_of_task};
 use crate::rules::kit::movement::{
-    approach_point, is_queue_trip, plan_start, position_point, queue_slot_in, refused, room_minutes, Changes, EXACT_INT, KEY, MOVEMENT_SOURCE_ID,
+    approach_point, is_queue_trip, plan_start, position_point, queue_slot_in, refused, room_minutes, Changes, Start, EXACT_INT, KEY, MOVEMENT_SOURCE_ID,
     POLICY_VERSION,
 };
 use crate::rules::kit::{add_metric, held_row, is_toilet, mobility_text, set_agent, Events, Held, WRITING_REFUSED};
@@ -630,8 +630,19 @@ fn plan_leave(world: &World, call: &LeaveCall<'_>, person: &Leaving, sequence: i
                     // After `finish_service` the request has no place in the queue.
                     let taken = events.is_realized(&fifo::transition_id(next), Some(next))?;
                     let wait = Some(minute - request.requested_minute);
-                    let payload =
-                        fifo::transition_payload(taken, &request, "abandoned", &person.task_id, wait, Some(&person.task_id), None, capacity, next, minute)?;
+                    let payload = fifo::transition_payload(
+                        taken,
+                        &fifo::Transition {
+                            request: &request,
+                            transition: "abandoned",
+                            task_id: &person.task_id,
+                            wait_minutes: wait,
+                            causation_id: Some(&person.task_id),
+                        },
+                        fifo::Place { queue_position: None, capacity: capacity },
+                        next,
+                        minute,
+                    )?;
                     let row = fifo::transition_event(payload, Some(&person.task_id), next, minute)?;
                     next += 1;
                     Some((request, row))
@@ -702,7 +713,11 @@ fn plan_leave(world: &World, call: &LeaveCall<'_>, person: &Leaving, sequence: i
                 support_request_id: None,
                 support_staff_id: None,
             };
-            let changes = start_on_path(&row, &rows, &person.agent_id, journey, &zone, &points, minute, minutes)?;
+            let changes = start_on_path(
+                &row,
+                &rows,
+                Start { agent_id: &person.agent_id, journey, origin: &zone, points: &points, edge_ids: &[], started: minute, duration: minutes },
+            )?;
             next += 1;
             Some(LeaveWalk { task_id, destination: zone, due, event, changes })
         }
@@ -711,21 +726,11 @@ fn plan_leave(world: &World, call: &LeaveCall<'_>, person: &Leaving, sequence: i
 }
 
 /// `start_movement` of a walk along a path of points.
-#[allow(clippy::too_many_arguments)]
-fn start_on_path(
-    row: &MovementRow,
-    rows: &Entities,
-    agent_id: &Arc<str>,
-    journey: Journey,
-    origin: &Arc<str>,
-    points: &[Pt],
-    started: i64,
-    duration: i64,
-) -> Result<Changes> {
-    if points.is_empty() {
+fn start_on_path(row: &MovementRow, rows: &Entities, start: Start<'_>) -> Result<Changes> {
+    if start.points.is_empty() {
         return Err(Error::unsupported("a walk without the points of its path"));
     }
-    plan_start(row, rows, agent_id, journey, origin, points, &[], started, duration, None)
+    plan_start(row, rows, start, None)
 }
 
 /// Everyone's plan, for what it refuses: the writes then plan again, on the state they find.
@@ -850,22 +855,36 @@ pub fn trip_id(sequence: i64) -> Arc<str> {
     Arc::from(format!("physical-queue-trip-{sequence}"))
 }
 
-/// `_schedule_queue_trip`, changing nothing, taking this event number. `duration` is the Run's,
-/// and `taken` whether the queue or the log holds the event `trip_id(sequence)` names already.
-#[allow(clippy::too_many_arguments)]
+/// The queue a trip walks in: its facility, whether it is the resource queue, and its signed point's
+/// queue where the facility has one.
+#[derive(Clone, Copy)]
+pub struct TripQueue<'a> {
+    pub facility_id: &'a str,
+    pub resource: bool,
+    pub fifo: Option<&'a Fifo>,
+}
+
+/// The event a trip takes: its number, whether the queue or the log holds the event
+/// `trip_id(sequence)` names already, and the Run's duration.
+#[derive(Clone, Copy)]
+pub struct TripEvent {
+    pub sequence: i64,
+    pub taken: bool,
+    pub duration: i64,
+}
+
+/// `_schedule_queue_trip`, changing nothing, taking this event number.
 pub fn plan_trip(
-    duration: i64,
-    taken: bool,
     row: &MovementRow,
     rows: &Entities,
-    facility_id: &str,
-    resource: bool,
+    queue: TripQueue<'_>,
     route: Route,
     minute: i64,
     phase: &'static str,
-    fifo: Option<&Fifo>,
-    sequence: i64,
+    trip_event: TripEvent,
 ) -> Result<Plan> {
+    let TripQueue { facility_id, resource, fifo } = queue;
+    let TripEvent { sequence, taken, duration } = trip_event;
     let due = minute.checked_add(route.minutes).ok_or_else(|| Error::unsupported("a due minute out of range"))?;
     if route.minutes <= 0 || due >= duration {
         return Ok(Plan::Blocked);
@@ -969,7 +988,11 @@ pub fn plan_trip(
         support_request_id: None,
         support_staff_id: None,
     };
-    let changes = start_on_path(row, rows, &route.agent_id, journey, &zone, &route.path, minute, route.minutes)?;
+    let changes = start_on_path(
+        row,
+        rows,
+        Start { agent_id: &route.agent_id, journey, origin: &zone, points: &route.path, edge_ids: &[], started: minute, duration: route.minutes },
+    )?;
     Ok(Plan::Trip(Box::new(Trip { agent_id: route.agent_id, event, changes })))
 }
 
@@ -1001,18 +1024,19 @@ pub fn write_plan(world: &World, facility_id: &str, plan: Plan) -> WriteResult<(
     Ok(())
 }
 
+/// The person whose slot in a queue is routed, and the queue: its facility (row and ID) and its
+/// signed point's queue where the facility has one.
+#[derive(Clone, Copy)]
+pub struct SlotOf<'a> {
+    pub agent_id: &'a str,
+    pub facility: &'a FacilityRow,
+    pub facility_id: &'a str,
+    pub fifo: Option<&'a Fifo>,
+}
+
 /// `facility_queue_slot_route`: the route's minutes and its path, or None for no route.
-#[allow(clippy::too_many_arguments)]
-pub fn slot_route(
-    geo: &Geo,
-    row: &MovementRow,
-    rows: &Entities,
-    model: &Read<MovementModel>,
-    agent_id: &str,
-    facility: &FacilityRow,
-    facility_id: &str,
-    fifo: Option<&Fifo>,
-) -> Result<Option<(i64, Arc<[Pt]>)>> {
+pub fn slot_route(geo: &Geo, row: &MovementRow, rows: &Entities, model: &Read<MovementModel>, slot: SlotOf<'_>) -> Result<Option<(i64, Arc<[Pt]>)>> {
+    let SlotOf { agent_id, facility, facility_id, fifo } = slot;
     let Some(destination) = queue_slot_in(geo, row, rows, agent_id, facility_id, fifo.map(Fifo::slot_view))? else {
         return Ok(None);
     };
@@ -1111,7 +1135,7 @@ pub fn positions(world: &World, walk: &Walk<'_>, facility_id: &str, resource: bo
                         continue;
                     }
                 }
-                let route = slot_route(geo, &row, &rows, model, agent_id, facility, facility_id, fifo.as_ref())?;
+                let route = slot_route(geo, &row, &rows, model, SlotOf { agent_id, facility, facility_id, fifo: fifo.as_ref() })?;
                 let Some((minutes, path)) = route.filter(|(_, path)| !path.is_empty()) else {
                     return Ok((index == 0, Plan::Blocked));
                 };
@@ -1120,7 +1144,15 @@ pub fn positions(world: &World, walk: &Walk<'_>, facility_id: &str, resource: bo
                 let route = Route { agent_id: agent_id.clone(), index: place, minutes, path };
                 let sequence = events.next_sequence()?;
                 let taken = events.is_taken(&trip_id(sequence), Some(sequence))?;
-                let plan = plan_trip(events.duration(), taken, &row, &rows, facility_id, resource, route, minute, "position", fifo.as_ref(), sequence)?;
+                let plan = plan_trip(
+                    &row,
+                    &rows,
+                    TripQueue { facility_id, resource, fifo: fifo.as_ref() },
+                    route,
+                    minute,
+                    "position",
+                    TripEvent { sequence, taken, duration: events.duration() },
+                )?;
                 return Ok((index == 0, plan));
             }
             Ok((false, Plan::Nothing))
@@ -1164,7 +1196,18 @@ pub fn head_to_service(world: &World, walk: &Walk<'_>, facility_id: &str, resour
             let route = Route { agent_id: agent_id.clone(), index: 0, minutes, path };
             let sequence = events.next_sequence()?;
             let taken = events.is_taken(&trip_id(sequence), Some(sequence))?;
-            Ok((true, plan_trip(events.duration(), taken, &row, &rows, facility_id, resource, route, minute, "service", fifo.as_ref(), sequence)?))
+            Ok((
+                true,
+                plan_trip(
+                    &row,
+                    &rows,
+                    TripQueue { facility_id, resource, fifo: fifo.as_ref() },
+                    route,
+                    minute,
+                    "service",
+                    TripEvent { sequence, taken, duration: events.duration() },
+                )?,
+            ))
         })()?
     };
     write_plan(world, facility_id, plan)?;

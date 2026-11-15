@@ -210,8 +210,10 @@ fn the_fifo_is_written_on_the_row_and_marks_its_slot() {
     written(&mut world);
     let geo = geo();
     let left = fifo::point_of(&geo, "q-left").unwrap().clone();
-    fifo::write_enqueue(&world, &left, "t1", "t1", "a1", "toilet", 1).unwrap();
-    fifo::write_enqueue(&world, &left, "t2", "t2", "a2", "toilet", 2).unwrap();
+    fifo::write_enqueue(&world, &left, fifo::NewRequest { request_id: "t1", task_id: "t1", agent_id: "a1", service_kind: "toilet", requested_minute: 1 })
+        .unwrap();
+    fifo::write_enqueue(&world, &left, fifo::NewRequest { request_id: "t2", task_id: "t2", agent_id: "a2", service_kind: "toilet", requested_minute: 2 })
+        .unwrap();
     assert_eq!(written(&mut world), [text(fifo::STATE_KEY)]);
     {
         let row = fifo::queues(&world, &Held::Held).unwrap().unwrap();
@@ -265,7 +267,8 @@ fn the_least_loaded_open_queue_is_chosen_then_the_smaller_id() {
     let geo = geo();
     assert_eq!(fifo::choose_queue(&world, &Held::Held, &geo, TOILET, "a1", &[]).unwrap().as_deref(), Some("q-left"));
     let left = fifo::point_of(&geo, "q-left").unwrap().clone();
-    fifo::write_enqueue(&world, &left, "t1", "t1", "a1", "toilet", 0).unwrap();
+    fifo::write_enqueue(&world, &left, fifo::NewRequest { request_id: "t1", task_id: "t1", agent_id: "a1", service_kind: "toilet", requested_minute: 0 })
+        .unwrap();
     assert_eq!(fifo::choose_queue(&world, &Held::Held, &geo, TOILET, "a2", &[]).unwrap().as_deref(), Some("q-right"));
     assert_eq!(fifo::choose_queue(&world, &Held::Absent, &geo, TOILET, "a2", &[]), Ok(None));
     // A restricted point needs all its tags: the person's needs and mobility.
@@ -300,7 +303,14 @@ fn request(transition_wait: i64) -> QueueRequest {
 
 #[test]
 fn a_transition_payload_is_the_receipt_s_and_what_its_contract_refuses_is_refused() {
-    let payload = fifo::transition_payload(false, &request(3), "queued", "t1", None, None, Some(1), Some(1), 12, 5).unwrap();
+    let payload = fifo::transition_payload(
+        false,
+        &fifo::Transition { request: &request(3), transition: "queued", task_id: "t1", wait_minutes: None, causation_id: None },
+        fifo::Place { queue_position: Some(1), capacity: Some(1) },
+        12,
+        5,
+    )
+    .unwrap();
     let keys: Vec<&str> = payload.keys().map(|key| &**key).collect();
     assert_eq!(
         keys,
@@ -333,16 +343,90 @@ fn a_transition_payload_is_the_receipt_s_and_what_its_contract_refuses_is_refuse
     let refused = Err(unsupported("the receipt's contract refuses it"));
     // Queued without a place, a request from the future, a wait longer than the time since it,
     // an ID that is not an Identifier, a transition the contract doesn't name.
-    assert_eq!(fifo::transition_payload(false, &request(3), "requeued", "t1", None, None, None, None, 12, 5).map(|_| ()), refused);
-    assert_eq!(fifo::transition_payload(false, &request(6), "completed", "t1", None, None, None, None, 12, 5).map(|_| ()), refused);
-    assert_eq!(fifo::transition_payload(false, &request(3), "completed", "t1", Some(3), None, None, None, 12, 5).map(|_| ()), refused);
-    assert_eq!(fifo::transition_payload(false, &request(3), "completed", "t 1", None, None, None, None, 12, 5).map(|_| ()), refused);
-    assert_eq!(fifo::transition_payload(false, &request(3), "lost", "t1", None, None, None, None, 12, 5).map(|_| ()), refused);
-    assert_eq!(fifo::transition_payload(false, &request(3), "queued", "t1", None, None, Some(0), None, 12, 5).map(|_| ()), refused);
-    // A wait of all the time since the request, and a cause, are taken.
-    assert!(fifo::transition_payload(false, &request(3), "completed", "t1", Some(2), Some("e-1"), None, Some(0), 12, 5).is_ok());
     assert_eq!(
-        fifo::transition_payload(true, &request(3), "completed", "t1", None, None, None, None, 12, 5).map(|_| ()),
+        fifo::transition_payload(
+            false,
+            &fifo::Transition { request: &request(3), transition: "requeued", task_id: "t1", wait_minutes: None, causation_id: None },
+            fifo::Place { queue_position: None, capacity: None },
+            12,
+            5
+        )
+        .map(|_| ()),
+        refused
+    );
+    assert_eq!(
+        fifo::transition_payload(
+            false,
+            &fifo::Transition { request: &request(6), transition: "completed", task_id: "t1", wait_minutes: None, causation_id: None },
+            fifo::Place { queue_position: None, capacity: None },
+            12,
+            5
+        )
+        .map(|_| ()),
+        refused
+    );
+    assert_eq!(
+        fifo::transition_payload(
+            false,
+            &fifo::Transition { request: &request(3), transition: "completed", task_id: "t1", wait_minutes: Some(3), causation_id: None },
+            fifo::Place { queue_position: None, capacity: None },
+            12,
+            5
+        )
+        .map(|_| ()),
+        refused
+    );
+    assert_eq!(
+        fifo::transition_payload(
+            false,
+            &fifo::Transition { request: &request(3), transition: "completed", task_id: "t 1", wait_minutes: None, causation_id: None },
+            fifo::Place { queue_position: None, capacity: None },
+            12,
+            5
+        )
+        .map(|_| ()),
+        refused
+    );
+    assert_eq!(
+        fifo::transition_payload(
+            false,
+            &fifo::Transition { request: &request(3), transition: "lost", task_id: "t1", wait_minutes: None, causation_id: None },
+            fifo::Place { queue_position: None, capacity: None },
+            12,
+            5
+        )
+        .map(|_| ()),
+        refused
+    );
+    assert_eq!(
+        fifo::transition_payload(
+            false,
+            &fifo::Transition { request: &request(3), transition: "queued", task_id: "t1", wait_minutes: None, causation_id: None },
+            fifo::Place { queue_position: Some(0), capacity: None },
+            12,
+            5
+        )
+        .map(|_| ()),
+        refused
+    );
+    // A wait of all the time since the request, and a cause, are taken.
+    assert!(fifo::transition_payload(
+        false,
+        &fifo::Transition { request: &request(3), transition: "completed", task_id: "t1", wait_minutes: Some(2), causation_id: Some("e-1") },
+        fifo::Place { queue_position: None, capacity: Some(0) },
+        12,
+        5
+    )
+    .is_ok());
+    assert_eq!(
+        fifo::transition_payload(
+            true,
+            &fifo::Transition { request: &request(3), transition: "completed", task_id: "t1", wait_minutes: None, causation_id: None },
+            fifo::Place { queue_position: None, capacity: None },
+            12,
+            5
+        )
+        .map(|_| ()),
         Err(unsupported("the record's identity is taken"))
     );
 }
@@ -352,9 +436,16 @@ fn a_recorded_transition_takes_the_next_sequence() {
     let world = world([0.5; 3], 5);
     let geo = geo();
     let left = fifo::point_of(&geo, "q-left").unwrap().clone();
-    fifo::write_enqueue(&world, &left, "t1", "t1", "a1", "toilet", 3).unwrap();
+    fifo::write_enqueue(&world, &left, fifo::NewRequest { request_id: "t1", task_id: "t1", agent_id: "a1", service_kind: "toilet", requested_minute: 3 })
+        .unwrap();
     let request = fifo::queues(&world, &Held::Held).unwrap().unwrap().requests["t1"].clone();
-    let recording = fifo::plan_record(&world, &Held::Held, &geo, &request, "queued", "t1", None, None).unwrap();
+    let recording = fifo::plan_record(
+        &world,
+        &Held::Held,
+        &geo,
+        &fifo::Transition { request: &request, transition: "queued", task_id: "t1", wait_minutes: None, causation_id: None },
+    )
+    .unwrap();
     assert_eq!((recording.sequence, recording.minute), (10, 5));
     assert_eq!(recording.payload["queue_position"], V::Int(1));
     assert_eq!(recording.payload["service_capacity_concurrent"], V::Int(1));
@@ -369,7 +460,8 @@ fn the_validator_passes_a_consistent_fifo_and_turns_down_a_lost_request() {
     let geo = geo();
     assert_eq!(fifo::validate(&world, &Held::Held, &geo, &Held::Held), Ok(true));
     let left = fifo::point_of(&geo, "q-left").unwrap().clone();
-    fifo::write_enqueue(&world, &left, "t1", "t1", "a1", "toilet", 3).unwrap();
+    fifo::write_enqueue(&world, &left, fifo::NewRequest { request_id: "t1", task_id: "t1", agent_id: "a1", service_kind: "toilet", requested_minute: 3 })
+        .unwrap();
     assert_eq!(fifo::validate(&world, &Held::Held, &geo, &Held::Held), Ok(true));
     // A request of a queued person whose task is not a queue task.
     world.rows_mut().unwrap().active_tasks.get_mut("t1").unwrap().kind = text("toilet_service");
@@ -549,7 +641,8 @@ fn an_independent_queue_walks_its_own_people_to_its_signed_point() {
     let world = world([0.5; 3], 5);
     let geo = geo();
     let left = fifo::point_of(&geo, "q-left").unwrap().clone();
-    fifo::write_enqueue(&world, &left, "t2", "t2", "a2", "toilet", 1).unwrap();
+    fifo::write_enqueue(&world, &left, fifo::NewRequest { request_id: "t2", task_id: "t2", agent_id: "a2", service_kind: "toilet", requested_minute: 1 })
+        .unwrap();
     let found = queues::Fifo::read(&world, &Held::Held, &geo, "q-left").unwrap();
     assert_eq!(found.members, [text("a2")]);
     assert_eq!(found.slot_view().1, Some(Pt { x: 8.0, y: 2.0 }));

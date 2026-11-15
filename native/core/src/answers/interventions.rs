@@ -11,8 +11,8 @@
 //! Apply: `apply_draft_id` reads the request's draft id; the caller reads the draft;
 //! `ApplyPlan::new` checks it and the approval; the caller checks the model versions;
 //! `ApplyPlan::fork_checks` checks the branch, the minute and the child; the caller makes the
-//! child (restores the parent at the minute, `ApplyPlan::check_origin`, applies the program and
-//! stores the child's Run) and keeps its outcome (`created_outcome`, `failed_outcome`: the Run's
+//! child (`compute::Procedure::fork`, given the state the preview saw, `ApplyPlan::state_hash`)
+//! and keeps its outcome (`created_outcome`, `failed_outcome`: the Run's
 //! `last_fork`). The answer (`ApplyPlan::answer`) is the server's while its worker forks.
 
 use serde_json::{Map, Value};
@@ -274,12 +274,9 @@ impl ApplyPlan {
         self.content.get("hash").and_then(Value::as_str)
     }
 
-    /// The parent's world at the minute must be the one the preview saw (its digest).
-    pub fn check_origin(&self, state_hash: &str) -> Answer<()> {
-        if self.content.get("state_hash").and_then(Value::as_str) != Some(state_hash) {
-            return Err(Refusal::storage("source state changed; preview the intervention again").into());
-        }
-        Ok(())
+    /// The parent's state the preview saw (its draft's `state_hash`).
+    pub fn state_hash(&self) -> Option<&str> {
+        self.content.get("state_hash").and_then(Value::as_str)
     }
 
     /// The answer while the child is made: `{"branch_id", "minute", "status": "running"}`.

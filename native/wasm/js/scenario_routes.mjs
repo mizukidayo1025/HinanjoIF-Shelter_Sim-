@@ -39,7 +39,7 @@
 import { ApiError } from "./api_answers.mjs";
 import * as store from "./project_store.mjs";
 import { BrowserUnsupported, PyFloat, pyJson, pyStrip, research, researchRequest } from "./research.mjs";
-import { COMPRESSION, RunWriter, SAVE_EVERY } from "./run_store.mjs";
+import { SAVE_EVERY } from "./run_store.mjs";
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -475,21 +475,14 @@ export class ScenarioRoutes {
       evidenceBytes: evidence,
       createdAt: store.createdAtOf(this.now()),
     });
-    const backend = await store.branchBackend(this.tree, projectId, runId, "main");
-    const simulation = new this.wasm.Simulation(entry);
-    let head;
+    // The branch `main` at minute 0 of the world (the core's `Procedure.start`): its stored Run's
+    // "run" line and "export" piece, and its record there without a status.
+    const procedure = this.wasm.Procedure.start(projectId, runId, "main", entry, undefined, SAVE_EVERY);
     try {
-      const writer = await RunWriter.create(this.wasm, backend);
-      try {
-        writer.core.start(simulation, entry, null, SAVE_EVERY, JSON.stringify(modelVersions), COMPRESSION);
-        head = await writer.flush();
-      } finally {
-        writer.close();
-      }
+      await store.stepHost(this.wasm, this.tree).finish(procedure);
     } finally {
-      simulation.free();
+      procedure.free();
     }
-    await store.writeBranch(this.tree, projectId, runId, { branch_id: "main", parent_branch_id: null, fork_minute: 0, computed_until: 0, checkpoint_hash: head, status: null });
     return store.runResponse(this.wasm, this.tree, projectId, runId);
   }
 }

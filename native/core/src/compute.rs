@@ -297,6 +297,19 @@ pub enum Given {
     Failed,
 }
 
+impl Given {
+    /// Records given as a JSON list of them, as a host in another language lists them.
+    pub fn texts_of_json(json: &[u8]) -> Result<Given, Error> {
+        let listed: Vec<Value> = serde_json::from_slice(json).map_err(|_| Error::Value("records are given as a JSON list".to_owned()))?;
+        Ok(Given::Texts(listed.iter().map(|record| record.to_string().into_bytes()).collect()))
+    }
+
+    /// Ids given as a JSON list of strings.
+    pub fn ids_of_json(json: &[u8]) -> Result<Given, Error> {
+        Ok(Given::Ids(serde_json::from_slice(json).map_err(|_| Error::Value("ids are given as a JSON list of strings".to_owned()))?))
+    }
+}
+
 /// A fork to make (`Procedure::fork`).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ForkRequest {
@@ -764,6 +777,11 @@ impl Procedure {
     /// The branches `recover` made `interrupted`.
     pub fn recovered(&self) -> &[Where] {
         &self.recovered
+    }
+
+    /// `recovered` as a JSON list of "project/run/branch".
+    pub fn recovered_json(&self) -> String {
+        Value::from(self.recovered.iter().map(|at| format!("{}/{}/{}", at.project, at.run, at.branch)).collect::<Vec<_>>()).to_string()
     }
 
     // ---- The steps ---------------------------------------------------------------------------

@@ -486,10 +486,11 @@ impl ApplyPlan {
         self.plan.hash().map(str::to_owned)
     }
 
-    /// The parent's world at the minute must be the one the preview saw.
-    #[wasm_bindgen(js_name = checkOrigin)]
-    pub fn check_origin(&self, state_hash: &str) -> Result<(), JsError> {
-        self.plan.check_origin(state_hash).map_err(failed)
+    /// The parent's state the preview saw (the draft's), which the fork checks
+    /// (`Procedure.fork`).
+    #[wasm_bindgen(js_name = stateHash)]
+    pub fn state_hash(&self) -> Option<String> {
+        self.plan.state_hash().map(str::to_owned)
     }
 
     /// The answer while the child is made.

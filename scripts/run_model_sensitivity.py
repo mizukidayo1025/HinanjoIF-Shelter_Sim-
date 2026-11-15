@@ -17,10 +17,10 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any
 
-from sheltersim.domain.models import InformationSpreadConfig
 from sheltersim.experiments.comparison import compare_sensitivity_run_sets
 from sheltersim.experiments.project_runs import compute_run, final_kpis, metrics_of, project_api
 from sheltersim.experiments.scenario import PsychologyModelConfig, ScenarioSpec
+from sheltersim.scenario_authoring.configs.models import InformationSpreadConfig
 
 ROOT = Path(__file__).resolve().parents[1]
 SEEDS = (3, 4, 5)

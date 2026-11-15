@@ -408,7 +408,7 @@ pub struct Place {
     pub capacity: Option<i64>,
 }
 
-/// What `FacilityQueueTransitionReceipt.model_validate` takes of the payload `transition_payload`
+/// What `FacilityQueueTransitionReceipt.model_validate` takes of the payload `transition_record`
 /// makes: its IDs are `Identifier`s, its kinds the contract's, its counts not negative (a place
 /// from 1), the request not from the future, the wait within the time since it, and a queued or
 /// requeued request with its place.
@@ -431,9 +431,51 @@ pub fn receipt_takes(event_id: &str, change: &Transition<'_>, place: Place, minu
         && (queue_position.is_some() || !matches!(transition, "queued" | "requeued"))
 }
 
-/// What a transition's record says, in the receipt's order, changing nothing. `taken`: the log
-/// holds a record of its ID or its sequence already.
-pub fn transition_payload(taken: bool, change: &Transition<'_>, place: Place, sequence: i64, minute: i64) -> Result<IndexMap<Arc<str>, V>> {
+/// What a transition's record says: the receipt's fields, whose payload `transition_event` writes.
+#[derive(Clone)]
+pub struct TransitionRecord {
+    pub event_id: Arc<str>,
+    pub request: QueueRequest,
+    pub transition: Arc<str>,
+    pub minute: i64,
+    pub task_id: Arc<str>,
+    pub place: Place,
+    pub wait_minutes: Option<i64>,
+    pub causation_id: Option<Arc<str>>,
+}
+
+impl TransitionRecord {
+    /// The record's payload, in the receipt's order.
+    pub fn payload(&self) -> IndexMap<Arc<str>, V> {
+        let Self { event_id, request, transition, minute, task_id, place, wait_minutes, causation_id } = self;
+        let Place { queue_position, capacity } = *place;
+        let option_int = |value: Option<i64>| value.map_or(V::Null, V::Int);
+        let mut payload: IndexMap<Arc<str>, V> = IndexMap::with_capacity(18);
+        payload.insert(Arc::from("schema_version"), V::Int(1));
+        payload.insert(Arc::from("record_type"), text("operations"));
+        payload.insert(Arc::from("event_type"), text("facility_queue_transition"));
+        payload.insert(Arc::from("event_id"), V::Str(event_id.clone()));
+        payload.insert(Arc::from("request_id"), V::Str(request.request_id.clone()));
+        payload.insert(Arc::from("queue_id"), V::Str(request.queue_id.clone()));
+        payload.insert(Arc::from("service_point_id"), V::Str(request.service_point_id.clone()));
+        payload.insert(Arc::from("facility_id"), V::Str(request.facility_id.clone()));
+        payload.insert(Arc::from("agent_id"), V::Str(request.agent_id.clone()));
+        payload.insert(Arc::from("service_kind"), V::Str(request.service_kind.clone()));
+        payload.insert(Arc::from("transition"), V::Str(transition.clone()));
+        payload.insert(Arc::from("minute"), V::Int(*minute));
+        payload.insert(Arc::from("requested_minute"), V::Int(request.requested_minute));
+        payload.insert(Arc::from("task_id"), V::Str(task_id.clone()));
+        payload.insert(Arc::from("queue_position"), option_int(queue_position));
+        payload.insert(Arc::from("service_capacity_concurrent"), option_int(capacity));
+        payload.insert(Arc::from("wait_minutes"), option_int(*wait_minutes));
+        payload.insert(Arc::from("causation_id"), causation_id.clone().map_or(V::Null, V::Str));
+        payload
+    }
+}
+
+/// What a transition's record says, changing nothing. `taken`: the log holds a record of its ID or
+/// its sequence already.
+pub fn transition_record(taken: bool, change: &Transition<'_>, place: Place, sequence: i64, minute: i64) -> Result<TransitionRecord> {
     if taken {
         return Err(Error::unsupported("the record's identity is taken"));
     }
@@ -442,32 +484,20 @@ pub fn transition_payload(taken: bool, change: &Transition<'_>, place: Place, se
         return Err(Error::unsupported("the receipt's contract refuses it"));
     }
     let Transition { request, transition, task_id, wait_minutes, causation_id } = *change;
-    let Place { queue_position, capacity } = place;
-    let option_int = |value: Option<i64>| value.map_or(V::Null, V::Int);
-    let mut payload: IndexMap<Arc<str>, V> = IndexMap::with_capacity(18);
-    payload.insert(Arc::from("schema_version"), V::Int(1));
-    payload.insert(Arc::from("record_type"), text("operations"));
-    payload.insert(Arc::from("event_type"), text("facility_queue_transition"));
-    payload.insert(Arc::from("event_id"), V::Str(event_id));
-    payload.insert(Arc::from("request_id"), V::Str(request.request_id.clone()));
-    payload.insert(Arc::from("queue_id"), V::Str(request.queue_id.clone()));
-    payload.insert(Arc::from("service_point_id"), V::Str(request.service_point_id.clone()));
-    payload.insert(Arc::from("facility_id"), V::Str(request.facility_id.clone()));
-    payload.insert(Arc::from("agent_id"), V::Str(request.agent_id.clone()));
-    payload.insert(Arc::from("service_kind"), V::Str(request.service_kind.clone()));
-    payload.insert(Arc::from("transition"), text(transition));
-    payload.insert(Arc::from("minute"), V::Int(minute));
-    payload.insert(Arc::from("requested_minute"), V::Int(request.requested_minute));
-    payload.insert(Arc::from("task_id"), text(task_id));
-    payload.insert(Arc::from("queue_position"), option_int(queue_position));
-    payload.insert(Arc::from("service_capacity_concurrent"), option_int(capacity));
-    payload.insert(Arc::from("wait_minutes"), option_int(wait_minutes));
-    payload.insert(Arc::from("causation_id"), causation_id.map_or(V::Null, text));
-    Ok(payload)
+    Ok(TransitionRecord {
+        event_id,
+        request: request.clone(),
+        transition: Arc::from(transition),
+        minute,
+        task_id: Arc::from(task_id),
+        place,
+        wait_minutes,
+        causation_id: causation_id.map(Arc::from),
+    })
 }
 
-/// The record of `record_queue_transition` of a payload `transition_payload` made.
-pub fn transition_event(payload: IndexMap<Arc<str>, V>, causation_id: Option<&str>, sequence: i64, minute: i64) -> Result<EventRow> {
+/// The event of `record_queue_transition` of a record `transition_record` made.
+pub fn transition_event(record: &TransitionRecord, causation_id: Option<&str>, sequence: i64, minute: i64) -> Result<EventRow> {
     let mut provenance: IndexMap<Arc<str>, V> = IndexMap::with_capacity(3);
     provenance.insert(Arc::from("source_type"), text("assumption"));
     provenance.insert(Arc::from("source_id"), text(SOURCE_ID));
@@ -479,7 +509,7 @@ pub fn transition_event(payload: IndexMap<Arc<str>, V>, causation_id: Option<&st
         priority: 0,
         sequence,
         event_type: Arc::from("facility_queue_transition"),
-        payload: V::Map(payload),
+        payload: V::Map(record.payload()),
         source_id: Some(Arc::from(POLICY_VERSION)),
         causation_id: causation_id.map(Arc::from),
         provenance: V::Map(provenance),
@@ -498,7 +528,7 @@ pub fn write_transition(events: &Events<'_>, row: &EventRow, minute: i64) -> Wri
 pub struct Recording {
     pub sequence: i64,
     pub minute: i64,
-    pub payload: IndexMap<Arc<str>, V>,
+    pub record: TransitionRecord,
 }
 
 /// `record_queue_transition`, changing nothing: the payload of the record, with the place of the
@@ -519,8 +549,8 @@ pub fn plan_record(world: &World, held: &Held, geo: &Geo, change: &Transition<'_
     let capacity = point_of(geo, &request.queue_id).map(|point| point.service_capacity);
     let sequence = events.next_sequence()?;
     let taken = events.is_realized(&transition_id(sequence), Some(sequence))?;
-    let payload = transition_payload(taken, change, Place { queue_position: position, capacity }, sequence, minute)?;
-    Ok(Recording { sequence, minute, payload })
+    let record = transition_record(taken, change, Place { queue_position: position, capacity }, sequence, minute)?;
+    Ok(Recording { sequence, minute, record })
 }
 
 /// `record_queue_transition`: `plan_record`, then its writes (`write_record`), on one borrow.
@@ -532,7 +562,7 @@ pub fn record_transition(world: &World, held: &Held, geo: &Geo, change: &Transit
 /// `record_queue_transition`'s writes, of what `plan_record` read.
 pub fn write_record(world: &World, recording: Recording, causation_id: Option<&str>) -> WriteResult<()> {
     let events = Events::of(world)?;
-    let row = transition_event(recording.payload, causation_id, recording.sequence, recording.minute)?;
+    let row = transition_event(&recording.record, causation_id, recording.sequence, recording.minute)?;
     write_transition(&events, &row, recording.minute)
 }
 

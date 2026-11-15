@@ -28,6 +28,7 @@ use crate::rules::kit;
 use crate::rules::kit::{assumption, log_record, DYNAMICS};
 use crate::state::shared_operations::NAME;
 use crate::state::shared_operations::{is_identifier, is_support_kind, CareStatus};
+use crate::state::staff_operations::Outcome;
 use crate::value::V;
 use crate::world::{set_id_counter, World, WorldCell, ID_COUNTERS, MODEL_CONFIGS};
 
@@ -81,9 +82,8 @@ pub struct Transition {
     pub staff_id: Option<Arc<str>>,
     pub causation_id: Option<Arc<str>>,
     pub source_ids: Vec<Arc<str>>,
-    /// `outcome_observation` and `state_changes` (a list of `NumericStateChange` documents), of a
-    /// completed one.
-    pub outcome: Option<(&'static str, V)>,
+    /// `outcome_observation` and `state_changes`, of a completed one.
+    pub outcome: Option<(&'static str, Vec<Change>)>,
 }
 
 /// The status of a transition: one a care receipt holds.
@@ -156,11 +156,12 @@ pub fn plan_transition(world: &World, transition: Transition, sequence: i64) -> 
         return Err(Error::unsupported("the event's identity is taken"));
     }
     let (observation, changes) = match outcome {
-        Some((observation, V::List(changes))) => {
-            let changes = changes.iter().map(|change| Change::of(change)).collect::<Result<Vec<_>>>()?;
+        Some((observation, changes)) => {
+            for change in &changes {
+                change.validate()?;
+            }
             (Arc::from(observation), changes)
         }
-        Some(_) => return Err(Error::unsupported("the state changes are not a list")),
         None => (Arc::from("not_applicable"), Vec::new()),
     };
     let care = CareReceipt {
@@ -514,39 +515,27 @@ pub fn continuity_record(world: &World, continuity: Continuity<'_>, causation: &
 }
 
 /// What a completed staff operation says, for `make_staff_operation_record`: the values of the
-/// operation's record that the receipt copies, as the record holds them.
+/// operation's record that the receipt copies.
 pub struct OperationOutcome {
-    pub task_id: V,
-    pub staff_id: V,
-    pub task_kind: V,
-    pub target_id: V,
-    pub target_zone_id: V,
-    pub reason: V,
-    pub status: V,
-    pub start_minute: V,
-    pub arrival_minute: V,
-    pub travel_minutes: V,
-    /// `NumericStateChange` documents, sorted by kind, entity and path.
-    pub changes: Vec<V>,
+    pub task_id: Arc<str>,
+    pub staff_id: Arc<str>,
+    pub task_kind: Arc<str>,
+    pub target_id: Option<Arc<str>>,
+    pub target_zone_id: Arc<str>,
+    pub reason: Arc<str>,
+    pub status: Outcome,
+    pub start_minute: i64,
+    pub arrival_minute: Option<i64>,
+    pub travel_minutes: i64,
+    /// The changes measured, sorted by kind, entity and path.
+    pub changes: Vec<Change>,
     pub measured: bool,
     pub causation: Arc<str>,
 }
 
-fn identifier_value(value: &V) -> bool {
-    matches!(value, V::Str(text) if is_identifier(text))
-}
-
 /// What `make_staff_operation_record` asks of one change: an identifier and two finite numbers.
-fn change_fits(change: &V) -> bool {
-    let V::Map(change) = change else {
-        return false;
-    };
-    let number = |value: Option<&V>| match value {
-        Some(V::Float(number)) => number.is_finite(),
-        Some(V::Int(_) | V::Bool(_)) => true,
-        _ => false,
-    };
-    change.get("entity_id").is_some_and(identifier_value) && number(change.get("before")) && number(change.get("after"))
+fn change_fits(change: &Change) -> bool {
+    is_identifier(&change.entity_id) && change.before.is_finite() && change.after.is_finite()
 }
 
 /// `make_staff_operation_record(...)[0]` of a world that has the shared contract.
@@ -561,49 +550,51 @@ pub fn staff_operation_record(world: &World, outcome: OperationOutcome) -> Resul
     };
     let total = outcome.changes.len();
     let sampled = &outcome.changes[..total.min(256)];
-    let times_fit = match (&outcome.start_minute, &outcome.arrival_minute, &outcome.travel_minutes) {
-        (V::Int(start), V::Int(arrival), V::Int(travel)) => *start >= 0 && *travel >= 0 && start <= arrival && *arrival <= minute && *travel <= arrival - start,
-        _ => false,
+    let (start, travel) = (outcome.start_minute, outcome.travel_minutes);
+    let times_fit = match outcome.arrival_minute {
+        Some(arrival) => start >= 0 && travel >= 0 && start <= arrival && arrival <= minute && travel <= arrival - start,
+        None => false,
     };
-    let reason_fits = matches!(&outcome.reason, V::Str(text) if (1..=240).contains(&text.chars().count()));
+    let reason_fits = (1..=240).contains(&outcome.reason.chars().count());
     let fits = times_fit
         && sampled.iter().all(change_fits)
         && reason_fits
-        && identifier_value(&outcome.task_id)
-        && identifier_value(&outcome.staff_id)
-        && (outcome.target_id == V::Null || identifier_value(&outcome.target_id))
-        && identifier_value(&outcome.target_zone_id)
+        && is_identifier(&outcome.task_id)
+        && is_identifier(&outcome.staff_id)
+        && outcome.target_id.as_deref().is_none_or(is_identifier)
+        && is_identifier(&outcome.target_zone_id)
         && is_identifier(&outcome.causation)
         && minute >= 0
-        && matches!(&outcome.task_kind, V::Str(kind) if matches!(&**kind, "cleaning" | "maintenance" | "information_outreach" | "intake" | "patrol"))
-        && match &outcome.status {
-            V::Str(status) if &**status == "completed" => true,
-            V::Str(status) if &**status == "blocked" => total == 0 && outcome.measured,
-            _ => false,
+        && matches!(&*outcome.task_kind, "cleaning" | "maintenance" | "information_outreach" | "intake" | "patrol")
+        && match outcome.status {
+            Outcome::Completed => true,
+            Outcome::Blocked => total == 0 && outcome.measured,
+            Outcome::Interrupted => false,
         };
     if !fits {
         return refused();
     }
-    let V::Str(status) = &outcome.status else {
+    let Some(arrival) = outcome.arrival_minute else {
         return refused();
     };
+    let status = outcome.status.text();
     let detail = format!("staff operation {status} outcome recorded after state application");
     let (minute, sequence) = minute_and_sequence(world)?;
     let event_id = format!("staff-operation-transition-{sequence}");
     let mut payload = header("operations", "staff_operation_transition", &event_id);
-    put(&mut payload, "task_id", outcome.task_id.clone());
-    put(&mut payload, "staff_id", outcome.staff_id.clone());
-    put(&mut payload, "task_kind", outcome.task_kind.clone());
-    put(&mut payload, "target_id", outcome.target_id.clone());
-    put(&mut payload, "target_zone_id", outcome.target_zone_id.clone());
-    put(&mut payload, "reason", outcome.reason.clone());
-    put(&mut payload, "status", outcome.status.clone());
+    put(&mut payload, "task_id", V::Str(outcome.task_id.clone()));
+    put(&mut payload, "staff_id", V::Str(outcome.staff_id.clone()));
+    put(&mut payload, "task_kind", V::Str(outcome.task_kind.clone()));
+    put(&mut payload, "target_id", outcome.target_id.clone().map_or(V::Null, V::Str));
+    put(&mut payload, "target_zone_id", V::Str(outcome.target_zone_id.clone()));
+    put(&mut payload, "reason", V::Str(outcome.reason.clone()));
+    put(&mut payload, "status", str_value(status));
     put(&mut payload, "minute", V::Int(minute));
-    put(&mut payload, "start_minute", outcome.start_minute.clone());
-    put(&mut payload, "arrival_minute", outcome.arrival_minute.clone());
-    put(&mut payload, "travel_minutes", outcome.travel_minutes.clone());
+    put(&mut payload, "start_minute", V::Int(start));
+    put(&mut payload, "arrival_minute", V::Int(arrival));
+    put(&mut payload, "travel_minutes", V::Int(travel));
     put(&mut payload, "outcome_observation", str_value(observation));
-    put(&mut payload, "state_changes", V::List(sampled.to_vec()));
+    put(&mut payload, "state_changes", V::List(sampled.iter().map(Change::document).collect()));
     put(&mut payload, "total_state_change_count", V::Int(total as i64));
     put(&mut payload, "state_changes_truncated", V::Bool(total > sampled.len()));
     put(&mut payload, "causation_id", V::Str(outcome.causation.clone()));

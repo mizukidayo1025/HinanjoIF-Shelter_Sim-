@@ -31,6 +31,7 @@ use crate::events::{EventKind, EventRow};
 use crate::host::Host;
 use crate::mathx::{py_max, py_min};
 use crate::rules::care_receipts::{self, person_context, source_ids_of, PlannedTransition, Transition};
+use crate::rules::common_operations::Change;
 use crate::rules::kit::{self, add_metric, check_metric_state, set_agent, Events, Held};
 use crate::state::body_state::{BodyRecord, BodyRow, NAME as BODY};
 use crate::state::shared_operations::{SharedOperationsRow, NAME as SHARED};
@@ -377,16 +378,9 @@ fn config_float(config: &V, by_agent: &str, name: &str, agent_id: &str) -> Resul
     }
 }
 
-/// A `NumericStateChange` document.
-fn change(kind: &str, entity: &Arc<str>, path: &str, before: f64, after: f64) -> V {
-    let mut document: IndexMap<Arc<str>, V> = IndexMap::with_capacity(6);
-    document.insert(Arc::from("entity_id"), V::Str(entity.clone()));
-    document.insert(Arc::from("entity_kind"), V::Str(Arc::from(kind)));
-    document.insert(Arc::from("field_path"), V::Str(Arc::from(path)));
-    document.insert(Arc::from("before"), V::Float(before));
-    document.insert(Arc::from("after"), V::Float(after));
-    document.insert(Arc::from("unit"), V::Str(Arc::from("normalized_0_1")));
-    V::Map(document)
+/// A `NumericStateChange`.
+fn change(kind: &str, entity: &Arc<str>, path: &str, before: f64, after: f64) -> Change {
+    Change { entity_id: entity.clone(), entity_kind: Arc::from(kind), field_path: Arc::from(path), before, after, unit: Arc::from("normalized_0_1") }
 }
 
 /// What the care does to the person and their body: their new values.
@@ -646,7 +640,14 @@ fn cancelled(world: &World, task_id: &str) -> Result<bool> {
 
 /// The care without a selected formula: emotional support and hygiene support change the person and
 /// their body where the body has their record; anything else is not measured.
-fn fixed_care(world: &World, inputs: &Inputs, agent_id: &Arc<str>, kind: &str, stress: f64, trust: f64) -> Result<(Care, (&'static str, V), Vec<Arc<str>>)> {
+fn fixed_care(
+    world: &World,
+    inputs: &Inputs,
+    agent_id: &Arc<str>,
+    kind: &str,
+    stress: f64,
+    trust: f64,
+) -> Result<(Care, (&'static str, Vec<Change>), Vec<Arc<str>>)> {
     let emotional = kind == EMOTIONAL_SUPPORT;
     let hygiene = kind == "hygiene_support";
     let mut source_ids = vec![Arc::from(STAFF_SUPPORT_SOURCE)];
@@ -666,7 +667,7 @@ fn fixed_care(world: &World, inputs: &Inputs, agent_id: &Arc<str>, kind: &str, s
         None
     };
     let Some((record, relief)) = found else {
-        return Ok((Care::None, ("not_measured", V::List(Vec::new())), source_ids));
+        return Ok((Care::None, ("not_measured", Vec::new()), source_ids));
     };
     let mut next = record;
     let mut changes = Vec::with_capacity(5);
@@ -694,7 +695,7 @@ fn fixed_care(world: &World, inputs: &Inputs, agent_id: &Arc<str>, kind: &str, s
     if ![stress, trust, relief, record.reassurance, record.positive_affect, record.negative_affect, record.hygiene_need].iter().all(|value| value.is_finite()) {
         return Err(Error::unsupported("a value is not finite"));
     }
-    let outcome = (if changed { "observed_change" } else { "observed_no_change" }, V::List(changes));
+    let outcome = (if changed { "observed_change" } else { "observed_no_change" }, changes);
     source_ids.push(Arc::from(BODY_SOURCE));
     Ok((care, outcome, source_ids))
 }
@@ -821,7 +822,7 @@ fn formula_care(
     kind: &str,
     household_id: Option<&str>,
     stress: f64,
-) -> Result<(Care, (&'static str, V), Vec<Arc<str>>)> {
+) -> Result<(Care, (&'static str, Vec<Change>), Vec<Arc<str>>)> {
     let hygiene = kind == "hygiene_support";
     let typed = formula_read(formula.deltas(kind, agent_id))?;
     let (relational, sources) =
@@ -829,7 +830,7 @@ fn formula_care(
     let mut source_ids = vec![Arc::from(STAFF_SUPPORT_SOURCE)];
     source_ids.extend(sources);
     let measured_kind = hygiene || !typed.is_empty();
-    let not_measured = || ("not_measured", V::List(Vec::new()));
+    let not_measured = || ("not_measured", Vec::new());
     if !inputs.body_present {
         if !relational.is_empty() {
             return Err(Error::unsupported("a dependent without a body record"));
@@ -926,7 +927,7 @@ fn formula_care(
     if outcome_source {
         source_ids.push(formula.source_id.clone());
     }
-    Ok((Care::Formula { people }, (if changed { "observed_change" } else { "observed_no_change" }, V::List(changes)), source_ids))
+    Ok((Care::Formula { people }, (if changed { "observed_change" } else { "observed_no_change" }, changes), source_ids))
 }
 
 /// The dependents of a caregiver's assistance with the deltas the formula gives each (those with
@@ -977,7 +978,7 @@ fn recorded_changes(
     order: &[Arc<str>],
     (originals, people): (&[BodyRecord], &[CaredPerson]),
     (original_stresses, stresses): (&[f64], &[f64]),
-) -> Result<(Vec<V>, bool)> {
+) -> Result<(Vec<Change>, bool)> {
     let mut changes = Vec::with_capacity(before.len());
     let mut changed = false;
     for (is_stress, index, field) in before {

@@ -488,14 +488,24 @@ pub fn ends_any_action(event_type: &str) -> bool {
     )
 }
 
-/// What `record_applied_action_completion` reads of an applied event: its row's fields, or those of
-/// an object Python made.
+/// What `record_applied_action_completion` reads of an applied event: its row's fields, and the
+/// payload's IDs the rule reads, each where it is a str.
 pub struct Ending<'a> {
     pub event_id: &'a str,
     pub event_type: &'a str,
     pub due_minute: i64,
-    /// A mapping (`V::Map`) with at least the keys of `ENDING_KEYS` the event has.
-    pub payload: &'a V,
+    pub ids: EndingIds<'a>,
+}
+
+/// The payload's values of `ENDING_KEYS` that are str (`payload.get(key)`), None for another value.
+#[derive(Clone, Copy, Default)]
+pub struct EndingIds<'a> {
+    pub agent_id: Option<&'a Arc<str>>,
+    pub sender_agent_id: Option<&'a Arc<str>>,
+    pub facility_id: Option<&'a Arc<str>>,
+    pub participant_agent_id: Option<&'a Arc<str>>,
+    pub staff_id: Option<&'a Arc<str>>,
+    pub request_id: Option<&'a Arc<str>>,
 }
 
 /// The payload's keys the rule reads.
@@ -503,18 +513,22 @@ pub const ENDING_KEYS: [&str; 6] = ["agent_id", "sender_agent_id", "facility_id"
 
 impl<'a> Ending<'a> {
     pub fn of(row: &'a EventRow) -> Self {
-        Self { event_id: &row.event_id, event_type: &row.event_type, due_minute: row.due_minute, payload: &row.payload }
-    }
-}
-
-/// `payload.get(key)` when it is a str.
-fn text<'a>(event: &Ending<'a>, key: &str) -> Option<&'a Arc<str>> {
-    match event.payload {
-        V::Map(map) => match map.get(key) {
-            Some(V::Str(value)) => Some(value),
+        let text = |key: &str| match &row.payload {
+            V::Map(map) => match map.get(key) {
+                Some(V::Str(value)) => Some(value),
+                _ => None,
+            },
             _ => None,
-        },
-        _ => None,
+        };
+        let ids = EndingIds {
+            agent_id: text("agent_id"),
+            sender_agent_id: text("sender_agent_id"),
+            facility_id: text("facility_id"),
+            participant_agent_id: text("participant_agent_id"),
+            staff_id: text("staff_id"),
+            request_id: text("request_id"),
+        };
+        Self { event_id: &row.event_id, event_type: &row.event_type, due_minute: row.due_minute, ids }
     }
 }
 
@@ -525,11 +539,11 @@ pub fn closes(active: &ActiveActions, event: &Ending<'_>) -> Option<(Arc<str>, &
     if !ends_any_action(event_type) {
         return None;
     }
-    let agent_id = text(event, "agent_id").or_else(|| text(event, "sender_agent_id"))?;
+    let ids = event.ids;
+    let agent_id = ids.agent_id.or(ids.sender_agent_id)?;
     let current = active.rows.get(&**agent_id)?;
     let support = matches!(event_type, "staff_support_complete" | "support_request_timeout");
-    let keys: &[&str] = if support { &["request_id", "staff_id"] } else { &["facility_id", "participant_agent_id", "staff_id", "request_id"] };
-    let observed = keys.iter().find_map(|key| text(event, key));
+    let observed = if support { ids.request_id.or(ids.staff_id) } else { ids.facility_id.or(ids.participant_agent_id).or(ids.staff_id).or(ids.request_id) };
     if let (Some(expected), Some(observed)) = (&current.target_id, observed) {
         if expected != observed {
             return None;

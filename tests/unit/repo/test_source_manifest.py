@@ -30,12 +30,14 @@ RUST_STRING = re.compile(r'"(?:[^"\\]|\\.)*"')
 # Described in another file, but not in the manifest.
 RECORDED_ELSEWHERE = {
     "ASM-A03-INFRASTRUCTURE-V1": "docs/infrastructure-events.md",
-    "ASM-ACTION-LIFECYCLE-V1": "fixtures/regression-contract.json",
     "ASM-H19-ZONE-ENVIRONMENT-V1": "docs/environmental-demand-effects.md",
 }
 # Not described in any manifest, fixture or document.
 NOT_RECORDED = frozenset(
     {
+        # Listed only among the event sources of a stale entry of fixtures/regression-contract.json
+        # until #494 removed it; never described there.
+        "ASM-ACTION-LIFECYCLE-V1",
         "ASM-AFFECT-TRANSFER-V1",
         "ASM-AFFECT-TRUST-WEIGHTING-V1",
         "ASM-BODY-FEEDBACK-COMPLETE-V1",

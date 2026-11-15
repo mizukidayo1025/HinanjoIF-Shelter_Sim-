@@ -12,26 +12,29 @@ from sheltersim.contracts.policies import model_catalog
 
 
 def operator_evidence_catalog() -> dict[str, dict[str, Any]]:
-    from sheltersim.domain.facilities import TOILET_SERVICE_POLICY_VERSION
-    from sheltersim.domain.simulator_state import simulator_state_catalog
-    from sheltersim.domain.staff import STAFF_SUPPORT_POLICY_VERSION, STAFF_SUPPORT_SOURCE_ID
-    from sheltersim.domain.staff_dynamics import (
-        SHIFT_STAFF_DYNAMICS_POLICY_VERSION,
-        SHIFT_STAFF_DYNAMICS_SOURCE_ID,
-        STAFF_DYNAMICS_POLICY_VERSION,
-        STAFF_DYNAMICS_SOURCE_ID,
-        canonical_staff_dynamics_config,
-    )
-    from sheltersim.domain.staff_operations import (
-        STAFF_OPERATIONS_POLICY_VERSION,
-        canonical_staff_operations_config,
-    )
     from sheltersim.experiments.scenario import (
         RESOURCE_SERVICE_POLICY_ID,
         ResourceServiceConfig,
         ToiletServiceConfig,
     )
     from sheltersim.region.conditions import RESOURCE_SERVICE_ASSUMPTION_ID
+    from sheltersim.scenario_authoring.configs.facilities import TOILET_SERVICE_POLICY_VERSION
+    from sheltersim.scenario_authoring.configs.simulator_state import simulator_state_catalog
+    from sheltersim.scenario_authoring.configs.staff import (
+        STAFF_SUPPORT_POLICY_VERSION,
+        STAFF_SUPPORT_SOURCE_ID,
+    )
+    from sheltersim.scenario_authoring.configs.staff_dynamics import (
+        SHIFT_STAFF_DYNAMICS_POLICY_VERSION,
+        SHIFT_STAFF_DYNAMICS_SOURCE_ID,
+        STAFF_DYNAMICS_POLICY_VERSION,
+        STAFF_DYNAMICS_SOURCE_ID,
+        canonical_staff_dynamics_config,
+    )
+    from sheltersim.scenario_authoring.configs.staff_operations import (
+        STAFF_OPERATIONS_POLICY_VERSION,
+        canonical_staff_operations_config,
+    )
 
     catalog = model_catalog()
     record = next(
@@ -78,7 +81,7 @@ def operator_evidence_catalog() -> dict[str, dict[str, Any]]:
             "empirical calibration"
         ),
     }
-    from sheltersim.domain.movement import (
+    from sheltersim.scenario_authoring.configs.movement import (
         MOVEMENT_POLICY_VERSION,
         MOVEMENT_STATE_KEY,
         canonical_movement_config,

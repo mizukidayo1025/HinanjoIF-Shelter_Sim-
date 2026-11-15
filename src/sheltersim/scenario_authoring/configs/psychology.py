@@ -12,8 +12,8 @@ import math
 from dataclasses import dataclass, field
 from typing import Any
 
-from sheltersim.domain.body_state import BODY_SOURCE_ID, canonical_body_config
-from sheltersim.domain.models import validate_unit_interval
+from sheltersim.scenario_authoring.configs.body_state import BODY_SOURCE_ID, canonical_body_config
+from sheltersim.scenario_authoring.configs.models import validate_unit_interval
 
 
 @dataclass(frozen=True)

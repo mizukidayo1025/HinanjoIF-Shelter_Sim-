@@ -15,7 +15,7 @@ def test_polling_reuses_only_the_same_immutable_frame():
     script = r"""
 import fs from "node:fs";
 import assert from "node:assert/strict";
-const source = fs.readFileSync(process.argv[1], "utf8");
+const source = fs.readFileSync(process.argv[1], "utf8").replaceAll("\r\n", "\n");
 const body = source.split("  async function refreshRun() {")[1].split("  async function seek(")[0];
 const elements = new Map();
 const $ = id => {
@@ -72,7 +72,7 @@ def test_applying_an_intervention_waits_for_the_fork_process_to_list_the_child()
     script = r"""
 import fs from "node:fs";
 import assert from "node:assert/strict";
-const source = fs.readFileSync(process.argv[1], "utf8");
+const source = fs.readFileSync(process.argv[1], "utf8").replaceAll("\r\n", "\n");
 const body = source
   .split("  async function waitForked(child) {")[1]
   .split("  async function previewIntervention(")[0];
@@ -130,7 +130,7 @@ def test_timeline_events_scroll_to_the_newest_record():
     script = r"""
 import fs from "node:fs";
 import assert from "node:assert/strict";
-const source = fs.readFileSync(process.argv[1], "utf8");
+const source = fs.readFileSync(process.argv[1], "utf8").replaceAll("\r\n", "\n");
 const body = source
   .split("  function renderEvents(box, events, clickable = false) {")[1]
   .split("  function personSummary(")[0];
@@ -175,7 +175,7 @@ def test_a_browser_failure_does_not_send_the_reader_to_the_url():
     script = r"""
 import fs from "node:fs";
 import assert from "node:assert/strict";
-const source = fs.readFileSync(process.argv[1], "utf8");
+const source = fs.readFileSync(process.argv[1], "utf8").replaceAll("\r\n", "\n");
 const body = source.split("  function loadFailure(error) {")[1].split("  loading(init).catch(")[0];
 const loadFailure = eval("(function loadFailure(error) {" + body + ")");
 const opfs = "このブラウザーでは、計算の結果を保存する場所（OPFS）を使えません。";
@@ -204,7 +204,7 @@ def test_the_address_names_what_is_open_and_the_bare_screen_is_the_home():
     script = r"""
 import fs from "node:fs";
 import assert from "node:assert/strict";
-const source = fs.readFileSync(process.argv[1], "utf8");
+const source = fs.readFileSync(process.argv[1], "utf8").replaceAll("\r\n", "\n");
 const body = source.split("  function remember() {")[1].split("  async function api(")[0];
 let stored = null, address = null;
 const localStorage = {setItem: (key, value) => {stored = [key, JSON.parse(value)];}};
@@ -246,7 +246,7 @@ def test_runs_are_named_as_scenarios_and_runs_of_the_same_conditions_apart():
     script = r"""
 import fs from "node:fs";
 import assert from "node:assert/strict";
-const source = fs.readFileSync(process.argv[1], "utf8");
+const source = fs.readFileSync(process.argv[1], "utf8").replaceAll("\r\n", "\n");
 const take = (name, next) => source.split(`  function ${name}(`)[1].split(`  ${next}`)[0];
 const num = (n) => String(n);
 const disasterName = (d) => ({earthquake: "地震"})[d] || d;
@@ -309,7 +309,7 @@ def test_opening_a_run_uses_no_random_id():
     script = r"""
 import fs from "node:fs";
 import assert from "node:assert/strict";
-const source = fs.readFileSync(process.argv[1], "utf8");
+const source = fs.readFileSync(process.argv[1], "utf8").replaceAll("\r\n", "\n");
 const body = source.split("  const askedProject = ")[1].split("  const state = {")[0];
 const run = (search, saved) => {
   let made = 0;
@@ -346,7 +346,7 @@ def test_the_api_passphrase_is_sent_only_to_the_relay_and_forgotten_when_refused
     script = r"""
 import fs from "node:fs";
 import assert from "node:assert/strict";
-const source = fs.readFileSync(process.argv[1], "utf8");
+const source = fs.readFileSync(process.argv[1], "utf8").replaceAll("\r\n", "\n");
 const body = source.split("  const LLM_KEY =")[1].split("  async function enableApi(")[0];
 const store = new Map();
 const localStorage = {
@@ -410,7 +410,7 @@ def test_the_home_lists_saved_scenarios_with_delete_but_not_the_server_s_example
     script = r"""
 import fs from "node:fs";
 import assert from "node:assert/strict";
-const source = fs.readFileSync(process.argv[1], "utf8");
+const source = fs.readFileSync(process.argv[1], "utf8").replaceAll("\r\n", "\n");
 const body = source.split("  function homeRows(")[1].split("\n  }\n")[0];
 const node = (tag, text, cls) => ({
   tag, text, cls, children: [], attrs: {},

@@ -238,6 +238,9 @@ def test_the_site_holds_the_relay_s_owner_page_at_one_path_not_linked_from_the_s
     assert '<meta name="robots" content="noindex, nofollow" />' in page
     assert re.findall(r"fetch\(`([^`$]*)", page) == ["/llm/v1/admin/"]
     assert "localStorage" not in page and "sessionStorage" not in page
+    # Issuing and the list are hidden until the relay takes the key.
+    for section in ("issue-section", "list-section"):
+        assert re.search(rf'<section id="{section}"[^>]* hidden>', page), section
     assert not re.search(r"(sk-ant-|LLM_ADMIN_KEY\s*=|Bearer [A-Za-z0-9_-]{16,})", page)
     assert page_path not in (output / "index.html").read_text(encoding="utf-8")
     assert server_module["resolve"](output, f"/{page_path}") == written

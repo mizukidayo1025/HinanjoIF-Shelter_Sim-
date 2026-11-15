@@ -193,7 +193,7 @@ def main():
         page.locator("#play").click()
         page.wait_for_timeout(300)
         assert frozen != pixels("#simulation-map")
-        page.locator("#speed").select_option("120")
+        page.locator("#speed").select_option("240")
         page.wait_for_function(
             "()=>window.HinanjoReplayView.bufferedUntil>window.HinanjoReplayView.minute+3"
         )
@@ -201,13 +201,13 @@ def main():
         wall = time.monotonic()
         page.wait_for_timeout(1100)
         ratio = (snapshot()["view"]["minute"] - before) * 60000 / ((time.monotonic() - wall) * 1000)
-        assert 105 < ratio < 135, ratio
-        result["measuredRate120x"] = ratio
+        assert 210 < ratio < 270, ratio
+        result["measuredRate240x"] = ratio
         page.locator("#play").click()
         if args.record:
             cdp.send("Page.stopScreencast")
         seek(2)
-        page.locator("#speed").select_option("1")
+        page.locator("#speed").select_option("60")
         page.locator("#play").click()
         page.wait_for_function(
             "()=>window.HinanjoReplayView.bufferedUntil>window.HinanjoReplayView.minute+1"
@@ -216,8 +216,8 @@ def main():
         wall = time.monotonic()
         page.wait_for_timeout(1200)
         ratio = (snapshot()["view"]["minute"] - before) * 60000 / ((time.monotonic() - wall) * 1000)
-        assert 0.85 < ratio < 1.15, ratio
-        result["measuredRate1x"] = ratio
+        assert 51 < ratio < 69, ratio
+        result["measuredRate60x"] = ratio
         page.locator("#play").click()
         seek(0)
 

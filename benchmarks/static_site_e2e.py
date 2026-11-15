@@ -684,8 +684,11 @@ class PythonSide:
         from sheltersim.storage.projects import ProjectStore
         from sheltersim.web.projects import ProjectAPI
 
-        # As server.py: each computation and fork in its own process.
-        self.api = ProjectAPI(ProjectStore(store), worker="process", recover=False)
+        # As server.py: each computation and fork in its own process. The Runs' `created_at`
+        # (#447) is read from the clock pinned at the corpus's NOW, as the browser's `Date`.
+        self.api = ProjectAPI(
+            ProjectStore(store), worker="process", recover=False, clock=lambda: _corpus().NOW
+        )
         self.stack.callback(self.api.close)
         return self.api
 
@@ -806,8 +809,8 @@ class PythonSide:
                 "run_id": run,
             }
             self._memo("scenario", f"approve_{name}", "POST", f"{base}/scenario-approve", approve)
-        text_run = api.store.run(s.project, s.run)
-        form_run = api.store.run(s.project, s.form_run)
+        text_run = api.get([s.project, "runs", s.run], {})
+        form_run = api.get([s.project, "runs", s.form_run], {})
         copy = {
             "run_id": s.copy_run,
             "scenario_id": text_run["scenario_id"],
@@ -1199,10 +1202,8 @@ class Walk:
             if label == "text":
                 self.page.click("#example")
             else:
-                # With a Scenario open, the scenario page shows its conditions; a new one starts
-                # from 「新しいシナリオを作る」 (#372).
+                # The scenario page shows the form for a new Scenario, even with one open (#502).
                 self.page.click("[data-page=scenario]")
-                self.page.click("#scenario-new")
                 self.view("scenario")
                 self.page.evaluate(
                     """(fields) => {

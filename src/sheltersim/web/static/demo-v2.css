@@ -292,7 +292,7 @@ hr {
   white-space: nowrap;
 }
 .speed-label select {
-  width: 67px;
+  width: auto;
   margin: 0;
   padding: 9px 4px;
 }
@@ -3588,18 +3588,8 @@ body.is-uncomputed main > .page.active {
     border-color: #0a63e8 #cfe3fb #cfe3fb #cfe3fb;
   }
 }
-/* シナリオ設定：開いているシナリオの条件、または作れない理由を出すときは、新しいシナリオの入力を隠す */
-body[data-scenario="open"] #page-scenario .steps,
-body[data-scenario="open"] #page-scenario .scenario-grid,
-body[data-scenario="unavailable"] #page-scenario .steps,
-body[data-scenario="unavailable"] #page-scenario .scenario-grid {
-  display: none;
-}
-.scenario-open .panel-title {
-  flex-wrap: wrap;
-  gap: 8px;
-}
-.scenario-open .chips {
+/* 記録・出典の「シナリオの記録」の条件（#502） */
+#scenario-open-chips {
   margin: 8px 0;
 }
 @media (max-width: 540px) {

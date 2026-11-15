@@ -24,9 +24,11 @@ from sheltersim.contracts.policies import (
     legacy_psychology_notice,
     selected_models,
 )
-from sheltersim.domain.psychological_state import INTEGRATED_PSYCHOLOGY_POLICY_VERSION
 from sheltersim.experiments.model_suite import install_default_model_suite
-from sheltersim.policies.psychology import (
+from sheltersim.scenario_authoring.configs.psychological_state import (
+    INTEGRATED_PSYCHOLOGY_POLICY_VERSION,
+)
+from sheltersim.scenario_authoring.configs.psychology import (
     IntegratedDistressLifeStatePolicy,
 )
 

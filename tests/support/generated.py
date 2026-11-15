@@ -209,8 +209,8 @@ def place_three_at_facility() -> Callable[[Any, str], None]:
     """
 
     def place(world: Any, facility_id: str) -> None:
-        from sheltersim.domain.geometry_overlay import effective_geometry
-        from sheltersim.domain.movement import MOVEMENT_STATE_KEY
+        from sheltersim.scenario_authoring.configs.geometry_overlay import effective_geometry
+        from sheltersim.scenario_authoring.configs.movement import MOVEMENT_STATE_KEY
 
         zone_id = world.facilities[facility_id].zone_id
         zone = next(row for row in effective_geometry(world).zones if row.zone_id == zone_id)

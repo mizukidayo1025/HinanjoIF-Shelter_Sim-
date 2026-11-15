@@ -52,6 +52,11 @@ impl PlainRun {
     fn limits(limits: Option<&[u8]>) -> PyResult<Limits> {
         limits.map_or(Ok(Limits::default()), |raw| Limits::from_json(raw).or_py())
     }
+
+    /// The core's Run, for the other modules' functions of a Run (`answers`).
+    pub(crate) fn core(&self) -> &plain::PlainRun {
+        &self.run
+    }
 }
 
 #[pymethods]

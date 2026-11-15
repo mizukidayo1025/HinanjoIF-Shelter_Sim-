@@ -369,8 +369,11 @@ the split of the first two PR by PR; its last section sums up what is where.
   `/api/v1/projects/...` routes answer, as pure functions of the files a store holds (a record's
   bytes, None where it is missing; a stored Run's pieces decompressed): the records' answers
   (`answers::records`: the Project list, a Project, its Runs, a Run, its evidence, a branch with
-  computed minutes), and `llm-status`, `conversations`, `pdf-report` and `delete`
-  (`answers::routes`), with the server's checks in its order and its refusals (`Refusal`: the
+  computed minutes), `llm-status`, `conversations`, `pdf-report` and `delete`
+  (`answers::routes`), the KPI history (`answers::history`: `HistoryPlan` checks the query and
+  the cursor, the caller reads the branch's samples into a `KpiTable`, the plan writes the page)
+  and the offline report (`answers::report`: what is kept, or `build_report` of the Run at its
+  last minute), with the server's checks in its order and its refusals (`Refusal`: the
   HTTP status, the text, the code; `Failure` adds the core's errors, a stored Run of an older
   format being 409 `stored_run_outdated`). Reading the files, decompressing, locks, routing and
   computing stay with the caller. The browser calls them through `wasm/src/answers.rs` (a
@@ -384,7 +387,8 @@ the split of the first two PR by PR; its last section sums up what is where.
   stored Run's metric samples back and pages them as the Python history index pages
   `kind=kpis` (`history::kpi_row` writes a row as canonical JSON); a sample of a world with a
   resource ledger also holds the ledger's columns (`plain::Balances`, #266). In WASM: `KpiHistory`, `Simulation.log_record` and
-  `Simulation.review_metrics`; `wasm/js/api_answers.mjs` writes the answers, and
+  `Simulation.review_metrics`; the answers are the core's (`answers`, below the list's #449
+  item); `wasm/js/api_answers.mjs` reads what they need, and
   `wasm/tests/node_api_answers.mjs` checks them against the Python server's on the Run of
   `core/tests/data/api_answers.json`.
 - **The offline intervention compiler** (#303): `interpret::compile_offline` answers what

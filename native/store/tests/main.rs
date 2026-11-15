@@ -7,4 +7,5 @@ mod browser_runs;
 mod limits;
 mod locks;
 mod records;
+mod server;
 mod torn_lines;

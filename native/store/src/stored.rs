@@ -264,10 +264,26 @@ pub struct Sought {
     pub base: usize,
 }
 
-/// The journal of the stored Run in `folder`, as it is now.
+/// What the stored Runs the Python server wrote before #427 were kept as, named in the error of
+/// reading one (`run_store::outdated`).
+pub const PYTHON_CHECKPOINTS: &str = "Python の Checkpoint";
+
+/// The journal of the stored Run in `folder`, as it is now. A branch of a Run the Python server
+/// stored before #427 (its Checkpoints in the Run's folder, no journal) is of an older format:
+/// `stored_run_outdated`, as a Run of format v1 to v4 is.
 pub fn read_journal(folder: &Path) -> Result<Journal> {
-    let bytes = fs::read(folder.join(JOURNAL))?;
+    let bytes = match fs::read(folder.join(JOURNAL)) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound && python_stored(folder) => return Err(run_store::outdated(PYTHON_CHECKPOINTS).into()),
+        Err(error) => return Err(error.into()),
+    };
     Ok(Journal::parse(&bytes)?)
+}
+
+/// Whether the branch folder `folder` (`<run>/branches/<branch>`) is of a Run the Python server
+/// stored before #427: its Run's folder holds the Checkpoints' folder.
+pub fn python_stored(folder: &Path) -> bool {
+    folder.parent().and_then(Path::parent).is_some_and(|run| run.join("checkpoints").is_dir())
 }
 
 impl StoredRun {
@@ -338,6 +354,23 @@ impl StoredRun {
             records.extend(run_store::records::read(&self.raw_at(position)?)?);
         }
         Ok(records)
+    }
+
+    /// The pieces of the stored metric samples, in order (a fork's from its parent's up to its
+    /// base, then its own): each `(kind, bytes)`, "sample_tables" or "sample_block", checked against
+    /// its line. What the KPI history reads (`answers::history::KpiTable`).
+    pub fn sample_pieces(&self) -> Result<Vec<(&'static str, Vec<u8>)>> {
+        let mut pieces = Vec::new();
+        for position in self.chain.sample_pieces()? {
+            let kind = self.chain.piece(position)?.0.piece.kind();
+            pieces.push((kind, self.raw_at(position)?));
+        }
+        Ok(pieces)
+    }
+
+    /// The number of metric samples the Run's "end" line counts, where it has one.
+    pub fn end_samples(&self) -> Option<u64> {
+        self.journal.end().map(|end| end.samples)
     }
 
     /// The exported world the Run started from, read once.

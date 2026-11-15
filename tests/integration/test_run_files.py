@@ -199,3 +199,46 @@ def test_a_killed_writer_leaves_its_lock_free_and_its_cut_line_unread(tmp_path):
         assert _compute(straight, lease, 1440) == "completed"
     head = json.loads(files.branch_record("p", "r", "main"))["checkpoint_hash"]
     assert head == json.loads(straight.branch_record("p", "r", "main"))["checkpoint_hash"]
+
+
+def test_the_server_reads_the_files_an_answer_needs_and_exports_a_project(tmp_path):
+    files = _store(tmp_path)
+    with files.claim_branch("p", "r", "main") as lease:
+        assert _compute(files, lease, 400) == "paused"
+    # What the core's answers read (#427): the records by folder, a journal up to its last line.
+    assert [name for name, _ in files.projects_listing()] == ["p"]
+    run, branches = files.run_listing("p", "r")
+    assert json.loads(run)["run_id"] == "r" and [name for name, _ in branches] == ["main"]
+    project, scenarios, runs = files.project_listing("p", True)
+    assert json.loads(project)["project_id"] == "p"
+    assert [(scenario, [name for name, _ in each]) for scenario, each in scenarios] == [
+        ("s", ["v1.json", "v1.scenario.json"])
+    ]
+    assert [name for name, _, _ in runs] == ["r"]
+    assert files.run_file("p", "r", "evidence.json") == b'{"schema_version":1}'
+    journal = files.branch_file("p", "r", "main", "journal.jsonl")
+    assert journal == (Path(files.branch_folder("p", "r", "main")) / "journal.jsonl").read_bytes()
+    assert files.branch_file("p", "r", "main", "report.json") is None
+    with pytest.raises(ValueError, match="no file data.pack of a branch is read"):
+        files.branch_file("p", "r", "main", "data.pack")
+    reader = files.reader("p", "r", "main")
+    kinds = [kind for kind, _ in reader.sample_pieces()]
+    assert kinds[0] == "sample_tables" and set(kinds) == {"sample_tables", "sample_block"}
+    assert reader.end_samples() is None
+
+    # A Run is running while any of its branches is.
+    with files.transaction():
+        files.set_branch_status("p", "r", "main", "running")
+        assert json.loads(files.run_record("p", "r"))["status"] == "running"
+        files.set_branch_status("p", "r", "main", "paused")
+    assert json.loads(files.run_record("p", "r"))["status"] == "paused"
+
+    # The bundle the browser imports: the records and the stored Run, not the server's lock.
+    bundle = files.export_project("p", '{"tool": "test"}')
+    assert bundle[:16] == b"\x89SHELTERSIM-PRJ\n" and FILES.BUNDLE_EXTENSION == ".shelterproj"
+    length = int.from_bytes(bundle[20:24], "big")
+    manifest = json.loads(bundle[56 : 56 + length])
+    assert manifest["source"] == {"tool": "test"}
+    paths = [entry["path"] for entry in manifest["entries"]]
+    assert "runs/r/branches/main/journal.jsonl" in paths
+    assert not any("worker-lock" in path for path in paths)

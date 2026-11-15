@@ -352,7 +352,12 @@ the split of the first two PR by PR; its last section sums up what is where.
   (`.lock`, a Run's and a branch's `worker-lock`: `flock`, or `LockFileEx` on Windows over the
   byte `msvcrt.locking` takes); `quota` the limit (`--project-storage-gb`) checked before each
   write; `compute` going on from a branch's head in chunks, a fork, a question's turn and the
-  recovery of interrupted branches, as `compute.mjs` and `interventions.mjs` do.
+  recovery of interrupted branches, as `compute.mjs` and `interventions.mjs` do; `listing` the
+  files the core's answers read (#449), gathered as `project_store.mjs` gathers them; `bundle` a
+  Project in one file as the browser's `exportProject` writes it (leaving out what only the Python
+  server keeps: its locks, drafts and LLM usage). A branch's status keeps its Run's the summary of
+  its branches' (running while any of them computes), and a Run the Python server stored before
+  #427 (Checkpoints, no journal) is refused as an older format (`stored_run_outdated`).
   `cargo test -p sheltersim_store` makes the five stored Runs of `node_stored_runs.mjs` again: with
   the fixtures' stored blocks their journals, data.pack and records are the browser's byte for
   byte; with flate2 each line has the browser's head hash and pieces (before compression). Python

@@ -43,6 +43,13 @@ impl<T> OrStore<T> for sheltersim_store::Result<T> {
     }
 }
 
+/// Files of a listing: `[(name, bytes)]`.
+type Named<'py> = Vec<(String, Bound<'py, PyBytes>)>;
+
+fn named(py: Python<'_>, files: Vec<(String, Vec<u8>)>) -> Named<'_> {
+    files.into_iter().map(|(name, bytes)| (name, PyBytes::new(py, &bytes))).collect()
+}
+
 /// A record's JSON text, as its file holds it without the newline.
 fn record_text(record: &Record) -> String {
     let bytes = records::record_bytes(record);
@@ -341,6 +348,86 @@ impl ProjectFiles {
         self.inner.kept_through(project, run, branch).or_store()
     }
 
+    /// Sets a branch's status and keeps the Run's their summary (Python's `set_branch_status`):
+    /// the branch's record.
+    #[pyo3(signature = (project, run, branch, status, run_status=None))]
+    fn set_branch_status(&self, project: &str, run: &str, branch: &str, status: &str, run_status: Option<&str>) -> PyResult<String> {
+        Ok(record_text(&self.inner.set_branch_status(project, run, branch, status, run_status).or_store()?))
+    }
+
+    /// Sets a Run's status to `running` while a branch of it is queued or running, else `idle`.
+    fn settle_run_status(&self, project: &str, run: &str, idle: &str) -> PyResult<String> {
+        Ok(record_text(&self.inner.settle_run_status(project, run, idle).or_store()?))
+    }
+
+    // ---- What the answers read (`sheltersim_store::listing`) ---------------------------------
+
+    /// The project.json of each Project's folder: `[(folder, bytes)]`.
+    fn projects_listing<'py>(&self, py: Python<'py>) -> PyResult<Vec<(String, Bound<'py, PyBytes>)>> {
+        Ok(self.inner.projects_listing().or_store()?.into_iter().map(|(name, bytes)| (name, PyBytes::new(py, &bytes))).collect())
+    }
+
+    /// A Run's records: `(run.json or None, [(branch folder, branch.json)])`.
+    fn run_listing<'py>(&self, py: Python<'py>, project: &str, run: &str) -> PyResult<(Option<Bound<'py, PyBytes>>, Named<'py>)> {
+        let (record, branches) = self.inner.run_listing(project, run).or_store()?;
+        Ok((record.map(|bytes| PyBytes::new(py, &bytes)), named(py, branches)))
+    }
+
+    /// A Project's records: `(project.json or None, [(scenario id, [(file, bytes)])] where
+    /// `scenarios`, [(run folder, run.json or None, [(branch folder, branch.json)])])`.
+    #[allow(clippy::type_complexity)]
+    fn project_listing<'py>(
+        &self,
+        py: Python<'py>,
+        project: &str,
+        scenarios: bool,
+    ) -> PyResult<(Option<Bound<'py, PyBytes>>, Vec<(String, Named<'py>)>, Vec<(String, Option<Bound<'py, PyBytes>>, Named<'py>)>)> {
+        let (record, listed_scenarios, runs) = self.inner.project_listing(project, scenarios).or_store()?;
+        Ok((
+            record.map(|bytes| PyBytes::new(py, &bytes)),
+            listed_scenarios.into_iter().map(|(id, files)| (id, named(py, files))).collect(),
+            runs.into_iter().map(|(id, record, branches)| (id, record.map(|bytes| PyBytes::new(py, &bytes)), named(py, branches))).collect(),
+        ))
+    }
+
+    /// The file `name` of a Run's folder, or None.
+    fn run_file<'py>(&self, py: Python<'py>, project: &str, run: &str, name: &str) -> PyResult<Option<Bound<'py, PyBytes>>> {
+        if !matches!(name, "run.json" | "evidence.json") {
+            return Err(PyValueError::new_err(format!("no file {name} of a Run is read")));
+        }
+        Ok(self.inner.run_file(project, run, name).or_store()?.map(|bytes| PyBytes::new(py, &bytes)))
+    }
+
+    /// The file `name` of a branch's folder, or None; a journal up to its last whole line.
+    fn branch_file<'py>(&self, py: Python<'py>, project: &str, run: &str, branch: &str, name: &str) -> PyResult<Option<Bound<'py, PyBytes>>> {
+        if !matches!(name, "branch.json" | "journal.jsonl" | "report.json") {
+            return Err(PyValueError::new_err(format!("no file {name} of a branch is read")));
+        }
+        Ok(self.inner.branch_file(project, run, branch, name).or_store()?.map(|bytes| PyBytes::new(py, &bytes)))
+    }
+
+    /// The draft `id` of an intervention's preview, or None.
+    fn draft<'py>(&self, py: Python<'py>, project: &str, id: &str) -> PyResult<Option<Bound<'py, PyBytes>>> {
+        Ok(self.inner.draft(project, id).or_store()?.map(|bytes| PyBytes::new(py, &bytes)))
+    }
+
+    /// Keeps the draft `id` of an intervention's preview. Hold the transaction.
+    fn keep_draft(&self, project: &str, id: &str, draft: &[u8]) -> PyResult<()> {
+        self.inner.keep_draft(project, id, draft).or_store()
+    }
+
+    /// Keeps a branch's report (made when it is first asked for). Hold the transaction.
+    fn keep_report(&self, project: &str, run: &str, branch: &str, report: &[u8]) -> PyResult<()> {
+        self.inner.keep_report(project, run, branch, report).or_store()
+    }
+
+    /// The bundle of a Project (the browser's `exportProject`, `.shelterproj`); `source` is the JSON
+    /// text its manifest keeps as what made it.
+    #[pyo3(signature = (project, source="null"))]
+    fn export_project<'py>(&self, py: Python<'py>, project: &str, source: &str) -> PyResult<Bound<'py, PyBytes>> {
+        Ok(PyBytes::new(py, &self.inner.export_project(project, &json_of(source)?).or_store()?))
+    }
+
     /// The branches left `running` that no writer holds become `interrupted`, with their Runs:
     /// `(project, run, branch)` each.
     fn recover_interrupted(&self) -> PyResult<Vec<(String, String, String)>> {
@@ -402,6 +489,17 @@ impl StoredRun {
     /// The model versions the Run was computed with, as JSON.
     fn model_versions_json(&self) -> PyResult<String> {
         Ok(serde_json::to_string(&self.inner.journal().run().or_py()?.model_versions).expect("strings"))
+    }
+
+    /// The pieces of the stored metric samples, in order: `[(kind, bytes)]`, "sample_tables" or
+    /// "sample_block" (what `answers.KpiTable` reads).
+    fn sample_pieces<'py>(&self, py: Python<'py>) -> PyResult<Vec<(&'static str, Bound<'py, PyBytes>)>> {
+        Ok(self.inner.sample_pieces().or_store()?.into_iter().map(|(kind, bytes)| (kind, PyBytes::new(py, &bytes))).collect())
+    }
+
+    /// The number of metric samples the "end" line counts, where there is one.
+    fn end_samples(&self) -> Option<u64> {
+        self.inner.end_samples()
     }
 
     /// The JSON texts of the records of `kind` ("decisions", "conversations", "llm_tape").
@@ -492,5 +590,6 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("COMPRESSION", compress::COMPRESSION)?;
     m.add("SAVE_EVERY", sheltersim_core::run_store::SAVE_EVERY)?;
     m.add("CAPACITY_EXCEEDED", quota::CAPACITY_EXCEEDED)?;
+    m.add("BUNDLE_EXTENSION", sheltersim_store::bundle::BUNDLE_EXTENSION)?;
     Ok(())
 }

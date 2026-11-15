@@ -1,16 +1,11 @@
-//! The social model's step (`rules::social_propagation::update`, the kernel of the PyO3 entry
-//! `update_social_propagation`) on the worlds of `integration/test_social_propagation_row.py`: the
-//! Project screen's generated Scenario at minute 0 with a new row and each person's stress
-//! `(index % 10) / 10` (`model_steps.json`'s `social`), and the policies and the values that file
-//! made with `random.Random` (`tests/support/core_model_steps.py` writes them; Issue #225, lane
-//! M10a). The pytest file keeps the entry test (`test_the_step_writes_what_the_python_rule_wrote`
-//! for one model), the row and its tree, what the PyO3 entry turns down, the bits of
-//! `plan_of_values` on random values, and the Runs.
+//! The social model's step (`rules::social_propagation::update`) on the Project screen's generated
+//! Scenario at minute 0 with a new row and each person's stress `(index % 10) / 10`
+//! (`model_steps.json`'s `social`), and the policies and the values made for it with Python's
+//! `random.Random` (Issue #225, lane M10a).
 //!
-//! The digests are the ones the pytest file pinned from the deleted Python rules
-//! (`policies/social.py` and `policies/alternatives.py` at 2d8fb46): the tests write the same texts
-//! with `Dumps` (`json.dumps` of the namespace's tree, the trace's document, the deltas with each
-//! stress by `float.hex`), so each value is still the Python rule's answer.
+//! A test pins the sha256 of its texts (`ANSWERS`), written with `Dumps`: `json.dumps` of the
+//! namespace's tree, the trace's document, the deltas with each stress by `float.hex`. The world,
+//! the values and the digests were recorded before #430 and pin the core's output now.
 
 use crate::support;
 
@@ -38,7 +33,7 @@ use support::{cases, load, sections, texts, Call, TestHost};
 
 const FILE: &str = "model_steps";
 
-/// What the deleted Python rules answered, as the pytest file pinned it (`ANSWERS`).
+/// The recorded sha256 of each test's texts, by name.
 const ANSWERS: &[(&str, &str)] = &[
     ("group", "dd7c12c930b88477983e7ef0b47333e405e2dc251446845d128e4d1ab0d1ac5e"),
     ("ints-channel-[('family_channel_strength', 1), ('same_zone_channel_strength', 0)]", "f27599cb9e7be64bb0e04d3732512345eeb9379ef80ce5b9deea7ca3ec854164"),
@@ -77,7 +72,7 @@ const ANSWERS: &[(&str, &str)] = &[
     ("trace-sparse-3", "5a87b37453a94349e6d4cfab0c996bd93b855aa78ce470bc6ae7a9b26887364b"),
 ];
 
-/// `_answers`: the sha256 of the texts, each with a newline, against the pinned digest.
+/// The sha256 of the texts, each with a newline, against the recorded digest.
 fn answers(name: &str, texts: &[String]) {
     let wanted = ANSWERS.iter().find(|(key, _)| *key == name).unwrap_or_else(|| panic!("no answer {name}")).1;
     let joined: String = texts.iter().map(|text| format!("{text}\n")).collect();
@@ -100,7 +95,7 @@ fn entry(name: &str) -> Value {
     cases::resolve(&data()["worlds"], name)
 }
 
-/// The step's policy as the Run read it of `controller.stress_policy`.
+/// The step's policy as the Run read it of the controller's `stress_policy`.
 fn stress(policy: &Value) -> Stress {
     let document = cases::resolve(&data()["policies"], policy.as_str().unwrap());
     let mut controller = Obj::new(Class::named("sheltersim.experiments.runner", "OfflineSimulationController"));
@@ -112,7 +107,7 @@ fn got<T>(read: Result<T, Bad>) -> T {
     read.unwrap_or_else(|bad| panic!("the policy was not read: {bad:?}"))
 }
 
-/// `support.world.view_of(world, include_state_hash=False)`: the update phase's view, built anew.
+/// The update phase's view, built anew, without its state hash.
 fn view_of(world: &World, entry: &Value) -> ViewData {
     let configs = sections::section(entry, SectionId::Selection);
     let selection = match configs.selection.get() {
@@ -128,7 +123,7 @@ fn view_of(world: &World, entry: &Value) -> ViewData {
     view::build(world, &inputs, &mut ViewCache::default()).unwrap().finish(extensions)
 }
 
-/// The deltas of `_small`: each person's, by ID, with stress and trust 0.5.
+/// The deltas of a step: each person's, by ID, with stress and trust 0.5.
 fn deltas(world: &World, minute: i64) -> Vec<Delta> {
     let mut ids: Vec<Arc<str>> = world.rows().unwrap().agents.iter().map(|(id, _)| id.clone()).collect();
     ids.sort();
@@ -147,15 +142,15 @@ fn deltas(world: &World, minute: i64) -> Vec<Delta> {
         .collect()
 }
 
-/// `controller.zone_neighbors`: each zone with no neighbor, or, with `all`, every zone.
+/// The zones' neighbors: each zone with no neighbor, or, with `all`, every zone.
 fn neighbors(world: &World, all: bool) -> Neighbors {
     let mut zones: Vec<String> = world.rows().unwrap().zones.iter().map(|(id, _)| id.to_string()).collect();
     zones.sort();
     Ok(zones.iter().map(|zone| (zone.clone(), Ok(if all { zones.clone() } else { Vec::new() }))).collect::<HashMap<_, _>>())
 }
 
-/// One call of the PyO3 entry with a controller whose policy is `stress`: the step, then the
-/// trace's document to the host when it keeps one. The final deltas.
+/// One step with a controller whose policy is `stress`, then the trace's document to the host when
+/// it keeps one. The final deltas.
 fn step(cell: &Shard<World>, stress: &Stress, view: &ViewData, deltas: &[Delta], neighbors: &Neighbors, host: &mut TestHost) -> Result<Vec<Delta>, Error> {
     assert!(got(social::enabled(stress)));
     let settings: Settings = got(social::settings(stress));
@@ -189,13 +184,13 @@ fn documents(host: &TestHost) -> Vec<String> {
         .collect()
 }
 
-// ---- The texts the pytest file wrote ----------------------------------------------------------
+// ---- The texts a test pins --------------------------------------------------------------------
 
 fn named(pairs: Vec<(&str, V)>) -> V {
     V::Map(pairs.into_iter().map(|(name, value)| (Arc::from(name), value)).collect::<IndexMap<_, _>>())
 }
 
-/// The namespace's tree as Python reads it (the row's order, `NAMES`).
+/// The namespace's tree (the row's order, `NAMES`).
 fn tree(row: &SocialRow) -> V {
     let contacts = row
         .contacts
@@ -209,7 +204,7 @@ fn tree(row: &SocialRow) -> V {
     named(vec![("schema_version", V::Int(row.schema_version)), ("contacts", V::Map(contacts)), ("agent_cooldown_until", V::Map(cooldowns))])
 }
 
-/// `json.dumps(world.model_state[KEY])`.
+/// `json.dumps` of the namespace's tree.
 fn state_text(cell: &Shard<World>) -> String {
     cell.with(|world| Dumps::default().text(&tree(&world.row::<SocialRow>(NAME).unwrap()))).unwrap()
 }
@@ -227,7 +222,7 @@ fn hex(value: f64) -> String {
     format!("{sign}0x{lead}.{fraction:013x}p{exponent:+}")
 }
 
-/// `_deltas_text`: `asdict` of each delta, its stress by `float.hex`.
+/// The fields of each delta, its stress by `float.hex`.
 fn deltas_text(deltas: &[Delta]) -> String {
     let body_names = ["sleep_debt_minutes", "uncertainty", "reassurance", "discontent", "positive_affect", "negative_affect", "hygiene_need"];
     let items = deltas
@@ -252,7 +247,7 @@ fn deltas_text(deltas: &[Delta]) -> String {
     Dumps::default().text(&V::List(items))
 }
 
-// ---- Setting the world as the pytest file did ------------------------------------------------
+// ---- Setting the world for a test ------------------------------------------------------------
 
 fn set_minute(cell: &Shard<World>, minute: i64) {
     cell.with(|world| world.scalars.get_mut().minute_index = Fit::Ok(minute)).unwrap();
@@ -301,9 +296,9 @@ fn minutes(name: &str, policy: &Value, minutes: &Value, ints: bool) -> Vec<Strin
 
 // ---- The tests ----------------------------------------------------------------------------------
 
-/// `test_the_step_writes_what_the_python_rule_wrote`, of each model.
+/// Of each model.
 #[test]
-fn the_step_writes_what_the_python_rule_wrote() {
+fn the_step_writes_the_recorded_values() {
     for (policy, name) in cases_of()["step"].as_object().unwrap() {
         let entry = entry("social");
         let cell = texts::cell(&entry);
@@ -316,10 +311,10 @@ fn the_step_writes_what_the_python_rule_wrote() {
     }
 }
 
-/// `test_the_document_of_a_trace_is_the_python_rule_s`: five minutes of each model and seed, on
-/// values no scenario has, so contacts last and cooldowns count.
+/// Five minutes of each model and seed, on values no scenario has, so contacts last and cooldowns
+/// count.
 #[test]
-fn the_document_of_a_trace_is_the_python_rule_s() {
+fn the_document_of_a_trace_is_the_recorded_one() {
     let cases = cases_of();
     for case in cases["trace"].as_array().unwrap() {
         let name = case["name"].as_str().unwrap();
@@ -328,10 +323,10 @@ fn the_document_of_a_trace_is_the_python_rule_s() {
     }
 }
 
-/// `test_int_coefficients_of_a_scenario_give_the_python_rule_s_answers`: a coefficient written as
-/// `0` or `1` gives the Python rule's answers, an int cap staying an int in the trace.
+/// A coefficient written as `0` or `1` gives the recorded answers, an int cap staying an int in
+/// the trace.
 #[test]
-fn int_coefficients_of_a_scenario_give_the_python_rule_s_answers() {
+fn int_coefficients_of_a_scenario_give_the_recorded_answers() {
     let cases = cases_of();
     for case in cases["ints"].as_array().unwrap() {
         let name = case["name"].as_str().unwrap();
@@ -339,10 +334,10 @@ fn int_coefficients_of_a_scenario_give_the_python_rule_s_answers() {
     }
 }
 
-/// `test_a_restored_namespace_gets_the_order_of_the_python_rule`: a namespace read again with its
-/// keys sorted (a restore) gets the records in the order the rule writes them.
+/// A namespace read again with its keys sorted (a restore) gets the records in the order the rule
+/// writes them.
 #[test]
-fn a_restored_namespace_gets_the_order_of_the_python_rule() {
+fn a_restored_namespace_gets_the_order_the_rule_writes() {
     let entry = entry("social");
     let cell = texts::cell(&entry);
     let stress = stress(&cases_of()["restored"]);
@@ -366,8 +361,7 @@ fn a_restored_namespace_gets_the_order_of_the_python_rule() {
     answers("restored", &[state_text(&cell)]);
 }
 
-/// `test_the_group_comes_from_the_view_and_not_the_profile`: the view's household, not
-/// `profile.group_id`, makes a family contact.
+/// The view's household, not `profile.group_id`, makes a family contact.
 #[test]
 fn the_group_comes_from_the_view_and_not_the_profile() {
     let entry = entry("social");
@@ -398,8 +392,8 @@ fn the_group_comes_from_the_view_and_not_the_profile() {
     answers("group", &[state_text(&from_view)]);
 }
 
-/// `test_contacts_without_weight_shift_nothing` (#87): a total weight of 0 makes contacts and moves
-/// no stress; the draws, the trace and the row are the Python rule's.
+/// A total weight of 0 makes contacts and moves no stress (#87); the draws, the trace and the row
+/// are the recorded ones.
 #[test]
 fn contacts_without_weight_shift_nothing() {
     for case in cases_of()["no_weight"].as_array().unwrap() {
@@ -425,8 +419,7 @@ fn contacts_without_weight_shift_nothing() {
     }
 }
 
-/// `test_unsorted_deltas_are_sorted_except_for_degroot`: the Python rules sorted the deltas by ID,
-/// but DeGroot's, which kept their order.
+/// The deltas are sorted by ID, but DeGroot's, which keep their order.
 #[test]
 fn unsorted_deltas_are_sorted_except_for_degroot() {
     let cases = &cases_of()["unsorted"];

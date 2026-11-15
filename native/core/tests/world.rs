@@ -469,7 +469,7 @@ fn the_core_writes_a_stock_of_resources_with_a_new_stamp_and_no_mark() {
     let held: Vec<(String, i64)> = world.resources().unwrap().iter().map(|(key, value)| (key.to_string(), *value)).collect();
     assert_eq!(held, [("water_ml".to_owned(), 7), ("food_meal_units".to_owned(), 3), ("blankets".to_owned(), 2)]);
     assert_ne!(world.stamp_of(RESOURCES).unwrap().unwrap(), before);
-    // No mark: a host with Python views gives the field a new tree itself.
+    // No mark: a host with views of its own gives the field a new tree itself.
     assert!(world.slots.take_written().is_empty());
 }
 

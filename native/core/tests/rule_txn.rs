@@ -1,5 +1,5 @@
 //! Lane P9-1b: the rule transactions in the core (`txn::rule`, policy E16) and the handlers that
-//! open one (`effects::*_event`, `handlers::*_event`), on worlds built here with no Python.
+//! open one (`effects::*_event`, `handlers::*_event`), on worlds built here.
 //!
 //! A recording host writes down each step of the transaction and of the world's checks, in order,
 //! and can make the check of the changed world fail with an outcome. Each handler that opens a

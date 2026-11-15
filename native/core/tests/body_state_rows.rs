@@ -1,18 +1,13 @@
 //! `record_social_event` of `body_state_v1` (`rules::body_state`), and `observe_event` of
-//! `social_network_v1` reading what it wrote, on the worlds of `integration/test_body_state_row.py`:
-//! the Project screen's generated Scenario at minute 0 with a new body state, under each pair of
-//! the affect and relationship models (`people_rows.json`'s `body*` worlds, written by
-//! `tests/support/core_people_rows.py`), with the inputs that file made with `random.Random`
-//! (Issue #225, lane M5). The PyO3 entry (`native/src/rules/body_state.rs`) reads the event and the
-//! configs' models through the host and calls this kernel; the pytest file keeps an entry test, and
-//! the tests of the boundary: the row and its tree, what taints it, each way of writing that the
-//! check must see, a model the Python selection names, and the comparisons with the Python
-//! validation still in `src/`.
+//! `social_network_v1` (`rules::social_network`) reading what it wrote, on the Project screen's
+//! generated Scenario at minute 0 with a new body state, under each pair of the affect and
+//! relationship models (`data/people_rows.json`'s `body*` worlds, with inputs made with
+//! `random.Random`; Issue #225, lane M5).
 //!
-//! The digests the pytest file pinned from the Python rule (`PYTHON_GAVE`: `json.dumps` of the
-//! trees it left, each history item's keys sorted) are kept: the tests write the same text with
-//! `Dumps`, each record's fields in the order of the tree (`NAMES`) and the config's keys in the
-//! order its rule made them (`body_config_order`), as the PyO3 crate gives the trees to Python.
+//! The tests pin the digests of `json.dumps` of the trees the rule left (`trees_digest`), each
+//! record's fields in the order of the tree (`NAMES`), each history item's keys sorted, and the
+//! config's keys in the recorded order (`body_config_order`). The values were recorded before #430
+//! and pin the core's output now.
 
 use crate::support;
 
@@ -46,7 +41,7 @@ fn inputs() -> &'static Value {
     &data()["inputs"]
 }
 
-/// A named world of the file, and what the PyO3 entry reads of its configs through the host.
+/// A named world of the file, and what the rule reads of its configs through the host.
 fn held(name: &str) -> (Shard<World>, Inputs) {
     let entry = cases::resolve(&data()["worlds"], name);
     let cell = texts::cell(&entry);
@@ -54,7 +49,7 @@ fn held(name: &str) -> (Shard<World>, Inputs) {
     (cell, inputs)
 }
 
-/// The first two people, by ID (`_pair`).
+/// The first two people, by ID.
 fn pair(world: &World) -> (String, String) {
     let mut ids: Vec<String> = world.rows().unwrap().agents.iter().map(|(id, _)| id.to_string()).collect();
     ids.sort();
@@ -71,7 +66,7 @@ fn body_json(world: &World) -> Vec<u8> {
     encoder.out
 }
 
-/// The payload's fields the rule reads of an event of this type, as its PyO3 entry reads them.
+/// The payload's fields the rule reads of an event of this type.
 fn keys_of(event_type: &str) -> &'static [&'static str] {
     match event_type {
         "proximity_contact_update" => {
@@ -85,8 +80,8 @@ fn keys_of(event_type: &str) -> &'static [&'static str] {
     }
 }
 
-/// `record_social_event` of `_event(kind, payload, number)` at `minute`, as its PyO3 entry calls it:
-/// the event `event-<number>`, caused by `cause` for an even number.
+/// `record_social_event` of an event of this type and payload at `minute`: the event
+/// `event-<number>`, caused by `cause` for an even number.
 fn record(cell: &Shard<World>, inputs: &Inputs, event_type: &str, payload: &Value, number: usize, minute: i64) -> Result<(), Error> {
     let models = inputs.models.as_ref().unwrap_or_else(|fault| panic!("the models raised: {fault:?}"));
     let fields = keys_of(event_type).iter().filter_map(|key| payload.get(*key).map(|value| (Arc::from(*key), load::v(value)))).collect();
@@ -96,7 +91,7 @@ fn record(cell: &Shard<World>, inputs: &Inputs, event_type: &str, payload: &Valu
     cell.with(|world| body::record_social_event(world, &event, minute, &inputs.selection, models)).unwrap()
 }
 
-// ---- The trees the pytest file pinned -------------------------------------------------------------
+// ---- The recorded trees -------------------------------------------------------------------------
 
 fn text(value: &str) -> V {
     V::Str(Arc::from(value))
@@ -114,8 +109,8 @@ fn named(names: &[&str], values: impl IntoIterator<Item = V>) -> V {
     V::Map(names.iter().zip(values).map(|(name, value)| (Arc::from(*name), value)).collect())
 }
 
-/// The body state's tree as Python holds it (each record's fields in the order of the tree,
-/// `NAMES`), with each history item's keys sorted (`_with_canonical_history`).
+/// The body state's tree (each record's fields in the order of the tree, `NAMES`), with each
+/// history item's keys sorted.
 fn body_tree(row: &BodyRow) -> V {
     let agents = row
         .agents
@@ -164,7 +159,7 @@ fn body_tree(row: &BodyRow) -> V {
     )
 }
 
-/// The body config's tree: its keys in the order its rule made the dict (`body_config_order`).
+/// The body config's tree: its keys in the recorded order (`body_config_order`).
 fn config_tree(config: &V) -> V {
     let V::Map(config) = config else { panic!("the body's config is a map") };
     let order = inputs()["expected"]["body_config_order"].as_array().unwrap();
@@ -172,7 +167,7 @@ fn config_tree(config: &V) -> V {
     V::Map(order.iter().map(|key| (Arc::from(key.as_str().unwrap()), config[key.as_str().unwrap()].clone())).collect())
 }
 
-/// The social network's tree as Python holds it.
+/// The social network's tree.
 fn network_tree(row: &SocialNetworkRow) -> V {
     let relationships = row
         .relationships
@@ -197,23 +192,23 @@ fn network_tree(row: &SocialNetworkRow) -> V {
     )
 }
 
-/// `_digest(*values)`: each value's `json.dumps`, one per line.
-fn python_gave(values: &[V]) -> String {
+/// The digest of each value's `json.dumps`, one per line.
+fn trees_digest(values: &[V]) -> String {
     let lines: Vec<String> = values.iter().map(|value| Dumps::default().text(value)).collect();
     digest(&lines.join("\n"))
 }
 
 fn body_gave(cell: &Shard<World>) -> String {
-    cell.with(|world| python_gave(&[body_tree(&world.row::<BodyRow>(BODY).unwrap())])).unwrap()
+    cell.with(|world| trees_digest(&[body_tree(&world.row::<BodyRow>(BODY).unwrap())])).unwrap()
 }
 
-// ---- The rule against its Python base ------------------------------------------------------------
+// ---- The rule against the recorded digests ------------------------------------------------------
 
-/// `test_each_event_is_python_s_bit_for_bit`: under each pair of models, two people's random records
-/// and three rounds of every kind of event, each 7 minutes after the last.
+/// Under each pair of models, two people's random records and three rounds of every kind of event,
+/// each 7 minutes after the last.
 #[test]
-fn each_event_is_python_s_bit_for_bit() {
-    // By affect, then relationship model (the pytest file's ids are `[relationship-affect]`).
+fn each_event_gives_the_recorded_bits() {
+    // By affect, then relationship model.
     let recorded = [["005dcea969a92e5b", "8f1caed430a305f8"], ["fdb7e9d9e11c0aad", "681c8392395a1d95"]];
     let payloads = inputs()["body_payloads"].as_array().unwrap();
     for affect in 0..2 {
@@ -227,10 +222,10 @@ fn each_event_is_python_s_bit_for_bit() {
     }
 }
 
-/// `test_many_random_events_are_python_s_bit_for_bit`: eight people's random records, and 168
-/// events of random pairs with random distances, contact minutes and durations.
+/// Eight people's random records, and 168 events of random pairs with random distances, contact
+/// minutes and durations.
 #[test]
-fn many_random_events_are_python_s_bit_for_bit() {
+fn many_random_events_give_the_recorded_bits() {
     let (cell, inputs) = held("body_random");
     for (number, item) in self::inputs()["random_body_events"].as_array().unwrap().iter().enumerate() {
         record(&cell, &inputs, item[0].as_str().unwrap(), &item[1], number, 10 + number as i64).unwrap();
@@ -238,7 +233,6 @@ fn many_random_events_are_python_s_bit_for_bit() {
     assert_eq!(body_gave(&cell), "3a1ec129bd6d269a");
 }
 
-/// `test_a_positions_distance_reaches_trust_and_the_deltas`.
 #[test]
 fn a_positions_distance_reaches_trust_and_the_deltas() {
     let (cell, inputs) = held("body_positions");
@@ -250,11 +244,10 @@ fn a_positions_distance_reaches_trust_and_the_deltas() {
     assert!(last["deltas"]["contact_distance_m"].as_f64().unwrap() > 0.0);
 }
 
-/// `test_a_correction_is_python_s_bit_for_bit`: a correction in the first person's zone, where the
-/// first took the claim from this event and the last from another; with the evidence-aware model only
-/// the first is moved.
+/// A correction in the first person's zone, where the first took the claim from this event and the
+/// last from another; with the evidence-aware model only the first is moved.
 #[test]
-fn a_correction_is_python_s_bit_for_bit() {
+fn a_correction_gives_the_recorded_bits() {
     let zone = inputs()["expected"]["correction_zone"].clone();
     for (evidence_aware, recorded) in [(0, "34db09179e3303c2"), (1, "42dcc7a70bd10934")] {
         let (cell, inputs) = held(&format!("body_correction.{evidence_aware}"));
@@ -271,8 +264,8 @@ fn a_correction_is_python_s_bit_for_bit() {
     }
 }
 
-/// `test_the_relationship_limit_stops_new_pairs_only`: with the relationships at their limit, a
-/// contact of a new pair moves the affect and leaves its history item, without a relationship.
+/// With the relationships at their limit, a contact of a new pair moves the affect and leaves its
+/// history item, without a relationship.
 #[test]
 fn the_relationship_limit_stops_new_pairs_only() {
     let (cell, inputs) = held("body");
@@ -311,8 +304,8 @@ fn the_relationship_limit_stops_new_pairs_only() {
 
 // ---- social_network_v1 reads what this rule wrote ---------------------------------------------------
 
-/// `test_observe_event_copies_the_trust_this_kernel_wrote`: four interactions of each kind, 30
-/// minutes apart, recorded here and then observed by the social network, which copies the trust.
+/// Four interactions of each kind, 30 minutes apart, recorded here and then observed by the social
+/// network, which copies the trust.
 #[test]
 fn observe_event_copies_the_trust_this_kernel_wrote() {
     let kinds = ["cooperation", "reassurance_exchange", "family_care", "voluntary_support"];
@@ -331,7 +324,7 @@ fn observe_event_copies_the_trust_this_kernel_wrote() {
             cell.with(|world| social_network::observe_event(world, "social_interaction", &observed, minute)).unwrap().unwrap();
         }
         let gave = cell
-            .with(|world| python_gave(&[body_tree(&world.row::<BodyRow>(BODY).unwrap()), network_tree(&world.row::<SocialNetworkRow>(NETWORK).unwrap())]))
+            .with(|world| trees_digest(&[body_tree(&world.row::<BodyRow>(BODY).unwrap()), network_tree(&world.row::<SocialNetworkRow>(NETWORK).unwrap())]))
             .unwrap();
         assert_eq!(gave, recorded, "{kind}");
         cell.with(|world| {
@@ -353,7 +346,6 @@ fn refused_with(result: Result<(), Error>, why: &str) {
     }
 }
 
-/// `test_what_the_kernel_refuses_changes_nothing_here`.
 #[test]
 fn what_the_kernel_refuses_changes_nothing_here() {
     for (event_type, payload, why) in [
@@ -370,7 +362,6 @@ fn what_the_kernel_refuses_changes_nothing_here() {
     }
 }
 
-/// `test_a_person_without_a_record_is_refused` and `test_a_relationship_without_trust_is_refused`.
 #[test]
 fn a_person_without_a_record_or_a_relationship_without_trust_is_refused() {
     for (change, why) in [("no record", "no body record"), ("no trust", "no trust")] {

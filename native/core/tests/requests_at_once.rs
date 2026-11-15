@@ -1,20 +1,15 @@
-//! What `_apply_effect` does with no trip to make, and the checks of having arrived (Issue #225,
-//! lane M6; moved from `tests/integration/test_requests_at_once.py`, with the request at once of
-//! `test_resource_service_texts.py` its queue turns down).
+//! What the step of a proposal does with no trip to make, and the checks of having arrived (Issue
+//! #225, lane M6).
 //!
 //! A person who asks a queue at once and a request closed at once, on a world with a floor plan and
 //! on one without, through the core's step of the propose phase (`propose::apply_alone`); and
 //! `at_queue_slot`, `at_service_point` and `near_point` of `rules::movement`. The worlds are the
 //! generated Scenario at minute 0 of `tests/data/generated_texts.json` and its variants, and the
-//! Scenario without a floor plan of `tests/data/staff_assignment.json`
-//! (`tests/support/core_fixtures_service.py`); each was exported with the controller the pytest made
-//! after its edits.
+//! Scenario without a floor plan of `tests/data/staff_assignment.json`, each with its controller.
 //!
-//! The pytest compared the world with the `world_digest` of what the deleted Python rule left,
-//! written with Python's `repr` of the events; the digests here are of each step's answer and the
-//! world's canonical parts after it (`steps::Case::answered`, `support/answers.rs`), recorded from
-//! the core in #225 lane M6 (decision 1): on the same kernel each pytest named in a test's doc
-//! comment passed with the digests it had, and the PyO3 entry left the same canonical text.
+//! The digests are of each step's answer and the world's canonical parts after it
+//! (`steps::Case::answered`, `support/answers.rs`), recorded from the core in #225 lane M6
+//! (decision 1). The values were recorded before #430 and pin the core's output now.
 
 use crate::support;
 
@@ -47,7 +42,6 @@ fn listed(doc: &Value, table: &str, id: &str, field: &str, agent: &str) -> bool 
 
 // ---- A queue at once ------------------------------------------------------------------------------
 
-/// `test_a_toilet_at_an_independent_queue` (pytest digest `c5ae5dfd75fc5f19`).
 #[test]
 fn a_toilet_at_an_independent_queue() {
     let mut case = Case::of(GENERATED, s(&inputs("toilet_at_an_independent_queue")["world"]));
@@ -59,7 +53,6 @@ fn a_toilet_at_an_independent_queue() {
     assert_eq!(case.hex(), "e82ebd9608f89764802c704540cd1f285d32877a98f486eae3c4b4e8ce45a8fe");
 }
 
-/// `test_a_service_at_an_independent_queue` (pytest digest `2ef942f400f86948`).
 #[test]
 fn a_service_at_an_independent_queue() {
     let given = inputs("service_at_an_independent_queue");
@@ -70,9 +63,8 @@ fn a_service_at_an_independent_queue() {
     assert_eq!(case.hex(), "0acca3262ab0ba5249c09de37979ebbb34f8b72db1448eab6593126c8a64e5ca");
 }
 
-/// `test_someone_at_the_point_of_the_facility_asks_at_once` (pytest digests `438170f6746a69b5`,
-/// `12cae6962fa17612`, `0aee98f71212d596`): a floor plan without service points or queues of its
-/// own, and the person standing at the facility's point.
+/// A floor plan without service points or queues of its own, and the person standing at the
+/// facility's point.
 #[test]
 fn someone_at_the_point_of_the_facility_asks_at_once() {
     let given = inputs("at_the_point_asks_at_once");
@@ -89,8 +81,7 @@ fn someone_at_the_point_of_the_facility_asks_at_once() {
     }
 }
 
-/// `test_without_a_floor_plan_someone_in_the_zone_asks_at_once` (pytest digest
-/// `510ba205709d5c99`): the Scenario has toilets only, so the water and the meal were skipped.
+/// The Scenario has toilets only, so the water and the meal were skipped.
 #[test]
 fn without_a_floor_plan_someone_in_the_zone_asks_at_once() {
     let given = steps::inputs(PLAIN, "plain_at_toilet");
@@ -100,10 +91,8 @@ fn without_a_floor_plan_someone_in_the_zone_asks_at_once() {
     assert_eq!(case.hex(), "d934382a1c2c7c015ee6b3c4568df1918096b97d21f403b3263599c1d07891a8");
 }
 
-/// `test_a_person_the_service_turns_down_is_recorded_with_python_s_text` (pytest digest
-/// `cca2a54dd1d43e3c`).
 #[test]
-fn a_person_the_service_turns_down_is_recorded_with_python_s_text() {
+fn a_person_the_service_turns_down_is_recorded_with_its_text() {
     let mut case = Case::of(GENERATED, s(&inputs("service_turns_down")["world"]));
     assert_eq!(case.apply(Action::FetchWater, "A001", None).unwrap(), applied(None, 7, false));
     let doc = case.doc();
@@ -113,12 +102,10 @@ fn a_person_the_service_turns_down_is_recorded_with_python_s_text() {
     assert_eq!(case.hex(), "b790e8745919c178b430652666b0d4e5aba4944ffe2cd84ad53b0e7635e5ceef");
 }
 
-/// `test_a_request_at_once_the_queue_turns_down_keeps_python_s_text` of
-/// test_resource_service_texts.py (pytest digests `queue` `3a9569d6ad20ffc0`, `active`
-/// `4a025222d590125b`, `exclusive` `8074303070235945`): the propose step records the ValueError's
-/// text as the request's detail, and counts the rejection.
+/// The propose step records the ValueError's text as the request's detail, and counts the
+/// rejection.
 #[test]
-fn a_request_at_once_the_queue_turns_down_keeps_python_s_text() {
+fn a_request_at_once_the_queue_turns_down_keeps_the_recorded_text() {
     let given = inputs("queue_turns_down");
     for (why, text, digest) in [
         ("queue", "no accessible independent resource service queue is available", "6273ef3f8a937cd3282634ed0677fbe8c846712ce53e14ea393430846ab7dbe2"),
@@ -135,8 +122,7 @@ fn a_request_at_once_the_queue_turns_down_keeps_python_s_text() {
     }
 }
 
-/// `test_a_service_action_with_no_service_is_rejected` (pytest digest `01b3b5c39ad4a7a1`): the
-/// controller's `resource_service` is None.
+/// The controller's `resource_service` is None.
 #[test]
 fn a_service_action_with_no_service_is_rejected() {
     let mut case = Case::of(GENERATED, s(&inputs("no_service")["world"]));
@@ -145,8 +131,7 @@ fn a_service_action_with_no_service_is_rejected() {
     assert_eq!(case.hex(), "fc2d35e6f3f32be55728bda4cd028daf41a005fa7e2490835190d91d73b92c3b");
 }
 
-/// `test_a_capacity_wait_comes_before_a_request_at_once` (pytest digest `2cc71f44ef0c8a6b`):
-/// choosing a toilet routes to each one the person knows; a full passage on the way to one records
+/// Choosing a toilet routes to each one the person knows; a full passage on the way to one records
 /// its wait, then the person asks the queue of another at once. The wait comes first (sequence 1,
 /// after the trip's 0).
 #[test]
@@ -173,8 +158,7 @@ fn a_capacity_wait_comes_before_a_request_at_once() {
 
 // ---- A request closed at once ---------------------------------------------------------------------
 
-/// `test_a_request_of_the_last_minute_is_closed_at_once` (pytest digests `bad73c778047a79d`,
-/// `531955270a9a0d1f`): `seek_help` records two care receipts, asked and interrupted.
+/// `seek_help` records two care receipts, asked and interrupted.
 #[test]
 fn a_request_of_the_last_minute_is_closed_at_once() {
     let name = s(&inputs("last_minute")["world"]).to_owned();
@@ -202,8 +186,6 @@ fn a_request_of_the_last_minute_is_closed_at_once() {
     }
 }
 
-/// `test_a_person_in_a_cooldown_is_turned_down_in_the_last_minute_too` (pytest digest
-/// `e3dfec0b66e237b2`).
 #[test]
 fn a_person_in_a_cooldown_is_turned_down_in_the_last_minute_too() {
     let mut case = Case::of(GENERATED, s(&inputs("last_minute")["cooldown"]));
@@ -239,8 +221,8 @@ fn arrived(case: &mut Case, agent: &str, facility: &str, queue: Option<&str>, po
     answers
 }
 
-/// `test_having_arrived_at_a_slot_or_the_service_point`: three people asked the toilet's queue;
-/// each is in neither place where they stood, and at the service point at the facility's point.
+/// Three people asked the toilet's queue; each is in neither place where they stood, and at the
+/// service point at the facility's point.
 #[test]
 fn having_arrived_at_a_slot_or_the_service_point() {
     let given = inputs("arrived_at_a_slot");
@@ -262,8 +244,7 @@ fn having_arrived_at_a_slot_or_the_service_point() {
     assert!(!slot);
 }
 
-/// The core's half of `test_having_arrived_at_the_end_of_a_trip`: near the trip's last point,
-/// within its tolerance (the pytest keeps the journeys the PyO3 entry reads as none).
+/// Near the trip's last point, within its tolerance.
 #[test]
 fn having_arrived_at_the_end_of_a_trip() {
     let mut case = Case::of(GENERATED, "generated");
@@ -280,8 +261,7 @@ fn having_arrived_at_the_end_of_a_trip() {
     assert_eq!(answers, [true, false, true]);
 }
 
-/// `test_having_arrived_with_an_independent_queue`: standing where they were placed, neither in
-/// the slot nor at the point.
+/// Standing where they were placed, neither in the slot nor at the point.
 #[test]
 fn having_arrived_with_an_independent_queue() {
     let given = inputs("arrived_with_an_independent_queue");

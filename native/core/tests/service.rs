@@ -1,7 +1,6 @@
 //! Lane c3: the staffed water and meal service (`rules::service`) and the toilet service
-//! (`rules::toilet`), on a world built here with no Python. The PyO3 crate's kernels of the same
-//! names are glue over these, so the gate and the offline tests run them on every Run; these say
-//! what each reads, decides and writes, and what it asks of the host.
+//! (`rules::toilet`), on a world built here. Every Run runs them; these say what each reads,
+//! decides and writes, and what it asks of the host.
 
 use crate::support;
 
@@ -196,7 +195,7 @@ fn world(water: i64) -> World {
     world
 }
 
-/// The manager's config of `domain/resource_service.py`'s defaults.
+/// The manager's config at its defaults.
 fn config() -> IndexMap<Arc<str>, V> {
     let mut config = IndexMap::new();
     for (key, value) in [
@@ -274,7 +273,7 @@ fn a_request_queues_the_person_with_a_receipt_and_its_record() {
 }
 
 #[test]
-fn a_refused_request_gives_the_python_rule_s_text_with_python_s_repr() {
+fn a_refused_request_gives_the_recorded_text_quoted_as_repr() {
     let mut world = world(1000);
     let (config, geo, needs) = (config(), no_geo(), no_needs());
     let manager = manager(&config, &geo);
@@ -401,7 +400,7 @@ fn a_ledger_refusal_takes_the_sequences_and_its_rule_wraps_the_text() {
     let (config, geo, needs) = (config(), no_geo(), no_needs());
     let manager = manager(&config, &geo);
     service::queue_up(&mut world, &manager, &request("a1", &needs), &[]).unwrap();
-    // The task's ID is a used reservation ID: the Python rule's invariant, before anything.
+    // The task's ID is a used reservation ID: the rule's invariant, before anything.
     world.row_mut::<LedgerRow>(LEDGER).unwrap().used_reservation_ids.push(text("resource-service-task-0"));
     assert!(matches!(
         service::serve(&mut world, &manager, &serve_at(5), &[]),

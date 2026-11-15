@@ -1,7 +1,6 @@
 //! Lane b2: the events of a staff operation and an operator's order (`rules::staff_operation_events`,
-//! `rules::staff_order`) on a world built here with no Python. The PyO3 crate's kernels of the same
-//! names are glue over these, so the gate and the offline tests run them on every Run; these say
-//! what each reads, decides, refuses and writes.
+//! `rules::staff_order`) on a world built here. Every Run runs them; these say what each reads,
+//! decides, refuses and writes.
 
 use std::sync::Arc;
 

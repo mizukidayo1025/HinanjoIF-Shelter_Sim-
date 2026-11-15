@@ -1,14 +1,12 @@
-//! What the views of the update and the propose phases read of a world (Issue #225, lane M7; moved
-//! from `tests/integration/test_world_view_row.py`).
+//! What the views of the update and the propose phases read of a world (Issue #225, lane M7).
 //!
 //! The world is the generated Scenario the Project screen makes at minute 0, with its Run
-//! (`generated_texts.json`'s `generated`), changed as each pytest test changed the Python world; the
-//! forms of the view's audit hash are its variants without the information namespace or the life
-//! context (`views_*`, `tests/support/core_fixtures_kernels.py`). The views are the kernels the
-//! phases' steps call (`support/views.rs`). A view kept or read again is compared with a view of
-//! the same world built with nothing kept (`views::fresh`, as `support.world.view_of` made one),
-//! field by field (`views::exact`); the values and hashes the pytest file wrote down from the
-//! Python rule `WorldView.from_world` (gone since lane L10) are compared as they were.
+//! (`generated_texts.json`'s `generated`), changed for each test; the forms of the view's audit
+//! hash are its variants without the information namespace or the life context (`views_*`). The
+//! views are the ones the phases' steps build (`support/views.rs`). A view kept or read again is
+//! compared with a view of the same world built with nothing kept (`views::fresh`), field by field
+//! (`views::exact`). The worlds, the values and the hashes were recorded before #430 and pin the
+//! core's output now.
 
 use crate::support;
 
@@ -162,7 +160,7 @@ fn a_changed_zone_modifier_or_a_new_cache_is_seen_at_the_next_view() {
 }
 
 #[test]
-fn stressors_outages_and_sanitation_are_read_as_python_reads_them() {
+fn stressors_outages_and_sanitation_are_read_as_recorded() {
     let mut case = case("generated");
     let (facility, facility_zone, zone, facility_ids) = case.edit(|world| {
         let rows = world.rows().unwrap();
@@ -213,7 +211,7 @@ fn stressors_outages_and_sanitation_are_read_as_python_reads_them() {
         views::rewrite(world, "staff_operations_v1", |state| views::set(state, &["zones", &zone], "sanitation", V::Float(0.25)));
     });
     let made = case.after_movement();
-    // What the Python rule gave.
+    // The recorded values.
     for id in &facility_ids {
         let found = made.facilities.iter().find(|item| item.id == *id).unwrap();
         let wanted: Vec<&str> = if *id == facility { vec!["o0", "o2", "o3"] } else { Vec::new() };
@@ -229,7 +227,7 @@ fn stressors_outages_and_sanitation_are_read_as_python_reads_them() {
     }
 }
 
-/// `_HASHES` of the pytest file: the Python rule's audit hashes, by (information, life context).
+/// The recorded audit hashes, by (information, life context).
 /// Its forms of `schema_version` 6 are the same worlds (the generated world is v6 with its
 /// `resource_service` config), with the same hashes.
 const HASHES: [(&str, &str); 4] = [

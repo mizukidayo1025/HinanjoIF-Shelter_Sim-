@@ -1,10 +1,7 @@
 //! The pilot kernel of lane 5-4: the KPI columns of a minute (`rules::metrics::sample`) over a
-//! `World` built here, with no Python; and the `WorldCell` of a world Rust holds alone. Since lane
-//! P8 b4 the open requests' waits are the staff rules' over the rows, and the metrics phase gives
-//! the sample to the host (`metrics::capture`).
-//!
-//! The Python test `tests/integration/test_entity_rules_kernel.py` checks the same function, through
-//! the PyO3 glue, against the digest of the columns the Python rule gave on the worlds of a Run.
+//! `World` built here, against the columns written in the tests; and the `WorldCell` of a world
+//! Rust holds alone. Since lane P8 b4 the open requests' waits are the staff rules' over the rows,
+//! and the metrics phase gives the sample to the host (`metrics::capture`).
 
 use crate::support;
 
@@ -200,7 +197,7 @@ fn log() -> EventLog {
 
 const ABSENT: Held = Held::Absent;
 
-/// What the staff rules read of the Python world: no namespace held.
+/// What the staff rules read of the world: no namespace held.
 fn staff_inputs(held: bool) -> staff::Inputs<'static> {
     staff::Inputs { operations: &ABSENT, dynamics: &ABSENT, body: &ABSENT, shared: &ABSENT, metric_state_held: held, tasks: None }
 }
@@ -219,7 +216,7 @@ fn unsupported(reason: &str) -> Error {
 }
 
 #[test]
-fn the_columns_are_those_of_the_python_rule() {
+fn the_columns_are_the_recorded_ones() {
     let taken = sample_of(&world(), true).unwrap();
     let source_ids = format!(
         concat!(
@@ -316,7 +313,7 @@ fn an_empty_world_has_means_of_zero() {
 }
 
 #[test]
-fn a_kind_that_is_not_ascii_is_folded_as_python_folds_it() {
+fn a_kind_that_is_not_ascii_is_casefolded() {
     let mut world = world();
     {
         let rows = world.entities.get_mut();
@@ -324,7 +321,7 @@ fn a_kind_that_is_not_ascii_is_folded_as_python_folds_it() {
         put(&mut rows.facilities, "f5", facility("f5", "TOİLET", 8, &["a4"], &[]));
         put(&mut rows.facilities, "f6", facility("f6", "ﬆoilet", 16, &[], &[]));
     }
-    // `str.casefold` gives "stoilet" and "toi̇let" (P8-0a: the core's fold, Python's before).
+    // `str.casefold` gives "stoilet" and "toi̇let" (the core's fold, P8-0a).
     assert_eq!(sample_of(&world, true).unwrap().toilet_working_units, 3 + 4 + 16);
     assert!(is_toilet("A-TOILET-room"));
     assert!(is_toilet("ﬆoilet"));
@@ -353,7 +350,7 @@ fn what_the_kernel_refused_it_still_refuses_with_its_text() {
     assert_eq!(sample_of(&bare(), false).err(), Some(unsupported("the namespace is not owned")));
 
     // A world whose EventLog or queue is held elsewhere (lane 6-5), or whose event counter a rule
-    // cannot add to, as the PyO3 crate's `EventWriter::of` refused it before.
+    // cannot add to.
     let mut world = self::world();
     assert!(world.release_log().is_some());
     assert_eq!(sample_of(&world, true).err(), Some(unsupported("the event log is not in Rust")));
@@ -379,10 +376,10 @@ fn a_world_cell_lends_the_whole_world_once_at_a_time() {
     .unwrap();
 }
 
-/// `operational_kpi_values`' reads of the rows (lane P10-1c): the needs' means over the people in
-/// their order, the water and meal queues, and each part's own refusal, in the rule's order.
+/// `metrics::kpi_rows`, the KPIs' reads of the rows (lane P10-1c): the needs' means over the people
+/// in their order, the water and meal queues, and each part's own refusal, in the rule's order.
 #[test]
-fn the_kpi_reads_are_those_of_the_python_rule() {
+fn the_kpi_reads_are_the_recorded_ones() {
     let mut world = world();
     {
         let rows = world.entities.get_mut();
@@ -422,7 +419,7 @@ fn the_kpi_reads_are_those_of_the_python_rule() {
     // The world's ledger is not a namespace this world owns.
     assert_eq!(metrics::kpi_rows(&world, &Held::Held, true).unwrap().reserved, Err(unsupported("the namespace is not owned")));
 
-    // No one: the Python rule's mean divides by zero, which the PyO3 crate raises.
+    // No one: there is no mean to take.
     let mut empty = self::world();
     empty.entities.get_mut().agents = Table::default();
     assert_eq!(metrics::kpi_rows(&empty, &Held::Absent, true).unwrap().means, None);

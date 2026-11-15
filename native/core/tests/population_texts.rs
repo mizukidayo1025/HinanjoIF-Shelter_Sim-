@@ -1,25 +1,19 @@
-//! The saved texts of the population's rules, byte for byte (Issue #225, lane M2; moved from
-//! `tests/unit/domain/test_population_texts.py`).
+//! The saved texts of the population's rules, byte for byte (Issue #225, lane M2).
 //!
 //! A rule's `EventSuppressed` and `EventApplicationError` texts go to the event's record as
-//! `detail`, so the core must raise what the Python rule raised, in its order of checks, after its
-//! writes and no others. Each case reaches one check. The Python rules are gone (lane L10,
-//! `kernel_only`): each case was run with them once (2d8fb46), and the class they raised and the
-//! world they left were pinned in the pytest file's `PYTHON_GAVE`, as 16 hex digits of the sha256 of
-//! the class's JSON and the sha256 of the world's canonical JSON. `PYTHON_GAVE` here is that table:
-//! the core's world writes the same canonical text (`support/texts.rs`), so the digests are the
-//! pytest file's, unchanged.
+//! `detail`, so the core must raise the recorded text, in its order of checks, after its writes and
+//! no others. Each case reaches one check. `RECORDED` holds, per test and in call order, 16 hex
+//! digits of the sha256 of the class's JSON and the sha256 of the world's canonical JSON
+//! (`support/texts.rs`). The values were recorded before #430 and pin the core's output now.
 //!
-//! The worlds are the generated Scenario the Project screen makes (`tests/data/generated_texts.json`,
-//! `tests/support/core_fixtures_texts.py`), and its variants with an arrival approach route in the
-//! floor plan (the configs' sections Python parses change with it) and with the population programs
-//! the tests schedule, built and validated with pydantic. The commands are what
-//! `PopulationPresenceCommand` made of the pytest file's (`model_dump(mode="json")`). The other edits
-//! are made here, as the pytest file made them. Each argument of a rule is what the PyO3 crate reads
-//! of the Python value the pytest file passed (`native/src/rules/population.rs`). Where a rule asks
-//! pydantic's contracts of an arrival's language or person context, the host gives what the fixture
-//! recorded they gave; where it starts a namespace in `model_state`, the host puts it in the world,
-//! as the native host does (`load::following_host`).
+//! The worlds are the generated Scenario the Project screen makes
+//! (`tests/data/generated_texts.json`), and its variants with an arrival approach route in the
+//! floor plan (the configs' sections change with it) and with the population programs the tests
+//! schedule. The commands are what `PopulationPresenceCommand` made of them
+//! (`model_dump(mode="json")`). The other edits are made here. Where a rule asks the contracts of
+//! an arrival's language or person context, the host gives what the fixture recorded they gave;
+//! where it starts a namespace in `model_state`, the host puts it in the world, as the native host
+//! does (`load::following_host`).
 
 use crate::support;
 
@@ -50,8 +44,8 @@ const LIFECYCLE: &str = "population_lifecycle_v1";
 const PRESENCE: &str = "population_presence_v1";
 const ROUTE: &str = "arrival-route-test";
 
-/// What the Python rules gave, per test and in call order (the pytest file's `PYTHON_GAVE`).
-const PYTHON_GAVE: &[(&str, &[&str])] = &[
+/// The recorded digests, per test and in call order.
+const RECORDED: &[(&str, &[&str])] = &[
     ("a_command_outside_its_contract_or_minute", &["bbded8a4299217b9", "330cb0ce4aca5606", "a34be4debf2ed930"]),
     ("a_departure", &["0717aceb0e0c255a"]),
     ("a_first_departure", &["0717aceb0e0c255a"]),
@@ -91,8 +85,8 @@ fn text(value: &str) -> Arc<str> {
     Arc::from(value)
 }
 
-/// A world of the fixture in a cell, with a host of its sections and floor plan, and the digests
-/// the Python rule gave in this test, in turn.
+/// A world of the fixture in a cell, with a host of its sections and floor plan, and the recorded
+/// digests of this test, in turn.
 struct Case {
     entry: Value,
     loaded: Rc<Loaded>,
@@ -106,11 +100,11 @@ fn case(name: &str, test: &str) -> Case {
     let entry = cases::entry(FILE, name);
     let loaded = Rc::new(load::loaded(&entry));
     let host = load::host(&entry);
-    let gave = PYTHON_GAVE.iter().find(|(name, _)| *name == test).unwrap_or_else(|| panic!("{test}")).1.iter();
+    let gave = RECORDED.iter().find(|(name, _)| *name == test).unwrap_or_else(|| panic!("{test}")).1.iter();
     Case { entry, loaded, host, gave, label: String::new() }
 }
 
-/// What the pytest file picked in Python's order and what the contracts made (on `generated`).
+/// The IDs the tests pick and what the contracts made (on `generated`).
 fn inputs() -> Value {
     load::entry(FILE, "generated")["population"].take()
 }
@@ -124,8 +118,8 @@ impl Case {
         texts::canonical_of(&self.loaded.cell, &self.entry)
     }
 
-    /// `_says`: the rule raises `expected`, its own outcome, of the class the Python rule raised
-    /// and after the writes it made: the class and the world are `PYTHON_GAVE`'s next digest.
+    /// The rule raises `expected`, its own outcome, of the recorded class and after the recorded
+    /// writes: the class and the world are `RECORDED`'s next digest.
     fn says<T>(&mut self, expected: &str, rule: impl FnOnce(&mut Self) -> Result<T, Error>) {
         let (class, said) = texts::outcome(rule(self));
         assert_eq!(said, expected, "{}", self.label);
@@ -133,15 +127,15 @@ impl Case {
         assert_eq!(&digest[..16], *self.gave.next().expect("a digest of this call"), "{expected} {}", self.label);
     }
 
-    /// `_unchanged`: `says`, for a check before any write: the world is as it was.
+    /// `says`, for a check before any write: the world is as it was.
     fn unchanged<T>(&mut self, expected: &str, rule: impl FnOnce(&mut Self) -> Result<T, Error>) {
         let before = self.bytes();
         self.says(expected, rule);
         assert!(self.bytes() == before, "the world changed: {expected} {}", self.label);
     }
 
-    /// `_handler_says`: `EffectProgramPopulationHandler().apply(world, event)` raises `class` with
-    /// `expected`, with the world unchanged.
+    /// The population handler (`EffectProgramPopulationHandler`) raises `class` with `expected`,
+    /// with the world unchanged.
     fn handler_says(&mut self, event: &Value, class: &str, expected: &str) {
         let before = self.bytes();
         let row = texts::row(event);
@@ -199,7 +193,7 @@ impl Case {
         lifecycle::presence_command_typed(&self.loaded.cell, &mut self.host, &texts::row(event), &dumped)
     }
 
-    /// `_command`: the world at `minute`, the command's event at `event_minute` (`minute` unless
+    /// The world at `minute`, the command's event at `event_minute` (`minute` unless
     /// given), and the rule's text with the world unchanged.
     fn command_says(&mut self, expected: &str, minute: i64, event_minute: Option<i64>, action: &str, command: &str) {
         self.set_minute(minute);
@@ -223,7 +217,7 @@ impl Case {
         self.edit(|world| world.rows_mut().unwrap().zones.get_mut(zone).unwrap().capacity = capacity);
     }
 
-    /// `_departed_record`: a presence record for someone not in the shelter.
+    /// A presence record for someone not in the shelter.
     fn departed_record(&self, agent_id: &str) {
         let mut record = load::v(&inputs()["departed_record"]);
         let V::Map(fields) = &mut record else { panic!() };
@@ -246,7 +240,7 @@ fn class_name(class: &str) -> &'static str {
     }
 }
 
-/// `_zone`: the zone of the person the pytest file picked first (`next(iter(world.agents))`).
+/// The zone of the fixture's first person (`person`).
 fn inputs_zone(entry: &Value) -> String {
     let person = inputs()["person"].as_str().unwrap().to_owned();
     entry["world"]["agents"].as_array().unwrap().iter().find(|agent| agent["profile"]["id"] == person.as_str()).unwrap()["zone_id"].as_str().unwrap().to_owned()
@@ -266,7 +260,7 @@ fn field<'a>(value: &'a mut V, key: &str) -> &'a mut V {
     fields.get_mut(key).unwrap_or_else(|| panic!("no {key}"))
 }
 
-/// `_event` of the pytest file: an event of the test's source, its sequence from its ID.
+/// An event of the test's source, its sequence from its ID.
 fn event(event_id: &str, minute: i64, payload: Value) -> Value {
     event_of(event_id, minute, "effect_program_population", payload)
 }
@@ -287,7 +281,7 @@ fn event_of(event_id: &str, minute: i64, event_type: &str, payload: Value) -> Va
     })
 }
 
-/// `_arrival_id`: the ID an arrival of this event generates.
+/// The ID an arrival of this event generates.
 fn arrival_id(seed: &str, event_id: &str, index: i64) -> String {
     format!("arrival-{}", &sha256_hex(format!("{seed}\0{event_id}\0{index}").as_bytes())[..28])
 }
@@ -314,7 +308,7 @@ fn route(id: &str) -> Option<Option<Arc<str>>> {
     Some(Some(text(id)))
 }
 
-/// The scheduled event of a population program (`_program`).
+/// The scheduled event of a population program.
 fn program_event(entry: &Value, op: &str) -> Value {
     let program = format!("population-texts-{op}");
     let found: Vec<&Value> = entry["world"]["event_queue"]
@@ -343,7 +337,7 @@ fn an_arrival_the_rule_refuses_says_its_text() {
     let needs = |index: i64, need: &str| {
         V::Map([(text("member_index"), V::Int(index)), (text("care_support_needs"), V::List(vec![V::Str(text(need))]))].into_iter().collect())
     };
-    // Each option as the PyO3 crate reads the pytest file's Python value of it.
+    // Each option as the rule is given it.
     let cases: Vec<(&str, Box<dyn Fn(&mut Given)>, &str)> = vec![
         ("zone_id='no-such-zone'", Box::new(|given| given.zone = Ok(Some(text("no-such-zone")))), unknown),
         ("zone_id=7", Box::new(|given| given.zone = Ok(None)), unknown),
@@ -524,7 +518,7 @@ fn a_waiting_approach_with_a_record_stops_after_it_joins_the_waiting() {
 
 // ---- apply_arrival_approach_completion ------------------------------------------------------
 
-/// `_walking`: one arrival walking the approach route, and its completion event.
+/// One arrival walking the approach route, and its completion event.
 fn walking(test: &str) -> (Case, Value) {
     let mut case = case("route_here_program", test);
     let zone = case.zone();
@@ -684,8 +678,8 @@ fn a_relocation_the_rule_refuses_says_its_text() {
     case.command_says("relocation route would finish after the scenario boundary", 1, None, "relocate", "relocate");
 }
 
-/// `_apply_presence_action(world, candidate, ...)`: the command on a copy of the world in which the
-/// person is queued (a queued person is in a facility's queue in a whole world; the check reads the
+/// A presence action on a candidate: the command on a copy of the world in which the person is
+/// queued (a queued person is in a facility's queue in a whole world; the check reads the
 /// activity), whose plan reads the world too.
 #[test]
 fn a_relocation_of_someone_busy_says_the_rule_s_text() {

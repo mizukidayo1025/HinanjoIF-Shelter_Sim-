@@ -1,14 +1,12 @@
 //! The views the update and the propose phases make of a loaded world, and an exact text of a view
 //! (Issue #225, lane M7: `world_view_reads.rs` and `world_view_run.rs`).
 //!
-//! `after_movement` is `_view_after_movement` (`tick::update::view_after_movement`), built with
-//! the Run's cache of what it read (`Run::views`); `for_proposals` is `_view_for_proposals`
-//! (`tick::propose::view_for_proposals`): the update phase's view kept in the Run's scratch read
-//! again, or a new view, with its audit hash. `fresh` is a view built with a new cache, as
-//! `support.world.view_of` of the pytest files made one (nothing of an earlier view kept).
-//! `exact` writes every field a reader of a view gets (the floats by their bits, `{:?}` being
-//! the shortest text that reads back to the same bits), as `_exact` of `test_world_view_row.py`
-//! did of the Python objects.
+//! `after_movement` is `tick::update::view_after_movement`, built with the Run's cache of what it
+//! read (`Run::views`); `for_proposals` is `tick::propose::view_for_proposals`: the update phase's
+//! view kept in the Run's scratch read again, or a new view, with its audit hash. `fresh` is a view
+//! built with a new cache (nothing of an earlier view kept). `exact` writes every field a reader of
+//! a view gets (the floats by their bits, `{:?}` being the shortest text that reads back to the
+//! same bits).
 
 use std::fmt::Write as _;
 use std::sync::Arc;
@@ -28,13 +26,13 @@ fn minute_of(loaded: &Loaded) -> i64 {
     loaded.cell.with(|world| world.minute_index().unwrap()).unwrap()
 }
 
-/// `_view_after_movement` at the world's minute.
+/// `update::view_after_movement` at the world's minute.
 pub fn after_movement(loaded: &Loaded, host: &mut TestHost) -> ViewData {
     let minute = minute_of(loaded);
     update::view_after_movement(&mut tick_at(loaded, host, minute)).unwrap_or_else(|error| panic!("{error:?}"))
 }
 
-/// `_view_for_proposals` at the world's minute: the view, and its audit hash.
+/// `propose::view_for_proposals` at the world's minute: the view, and its audit hash.
 pub fn for_proposals(loaded: &Loaded, host: &mut TestHost) -> (Arc<ViewData>, String) {
     let minute = minute_of(loaded);
     let data = propose::view_for_proposals(&mut tick_at(loaded, host, minute)).unwrap_or_else(|error| panic!("{error:?}"));
@@ -42,7 +40,7 @@ pub fn for_proposals(loaded: &Loaded, host: &mut TestHost) -> (Arc<ViewData>, St
     (data, hash)
 }
 
-/// The update phase's view handed on to the propose phase (`_view_before_proposals`).
+/// The update phase's view handed on to the propose phase (`Prior::View` in the Run's scratch).
 pub fn hand_on(loaded: &Loaded, data: ViewData) {
     let minute = minute_of(loaded);
     let mut run = loaded.run.borrow_mut();
@@ -137,7 +135,7 @@ pub fn exact(data: &ViewData, hash: Option<&str>) -> String {
     out
 }
 
-// ---- Writing the world as a Python rule or a test would ------------------------------------------
+// ---- Writing the world as a rule or a test would ------------------------------------------------
 
 /// A namespace of `model_state` (or a field's slot) as a `V`, from its row's JSON.
 pub fn namespace(world: &World, name: &str) -> V {

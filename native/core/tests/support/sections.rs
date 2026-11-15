@@ -1,9 +1,8 @@
-//! The Python-parsed sections and the floor plan of an exported world, for a `TestHost` (#225 lane
-//! F2, #214): the crate's `load::Sections` (#244), which reads them as the PyO3 crate's
-//! `PyHost::fill_section` and `Geo::of` do.
+//! The sections a host parses and the floor plan of an exported world, for a `TestHost` (#225 lane
+//! F2, #214): the crate's `load::Sections` (#244), which `PlainHost::fill_section` reads too.
 //!
 //! `fill` gives a `TestHost` every section the host parses; it fills each with the world's value
-//! when a rule asks, and panics where the PyO3 crate raises out of `fill_section`. `floor_plan` is
+//! when a rule asks, and panics where `Sections::fill` gives an error. `floor_plan` is
 //! built once, from the world as exported; a test that changes the overlay builds it again
 //! (`plan_of`).
 
@@ -23,7 +22,7 @@ fn sections(entry: &Value) -> Sections {
     Sections::of_entry(entry).unwrap_or_else(|error| panic!("{error}"))
 }
 
-/// Give the host every Python-parsed section of an exported world (`entry`): it fills each with the
+/// Give the host every section a host parses of an exported world (`entry`): it fills each with the
 /// world's value when a rule asks. Each section the core parses itself is left to the core.
 pub fn fill(host: &mut TestHost, entry: &Value) {
     let sections = Arc::new(sections(entry));

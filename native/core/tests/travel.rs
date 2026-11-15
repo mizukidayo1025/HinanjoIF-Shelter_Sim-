@@ -1,7 +1,6 @@
 //! Lane c6: the rules of travel, proximity and replans (`rules::travel`, `rules::proximity`,
-//! `rules::replan`) on a world built here with no Python. The PyO3 crate's kernels of the same names
-//! are glue over these, so the gate and the offline tests run them on every Run; these say what each
-//! reads, decides, refuses and writes.
+//! `rules::replan`) on a world built here. Every Run runs them; these say what each reads, decides,
+//! refuses and writes.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -243,7 +242,7 @@ fn the_routers_are_the_tables_and_tainted_tables_build_none() {
     assert!(Arc::ptr_eq(&people, &staff.unwrap()));
     let found = travel::world_route(&world, &text("z0"), &text("z2")).unwrap().unwrap();
     assert_eq!((found.edge_ids, found.minutes), (vec![text("e1"), text("e3")], 6));
-    // A plan the PyO3 crate could not read is said where the staff's graph needs it.
+    // A plan that could not be read is said where the staff's graph needs it.
     let planned = world_with(map(vec![("facility_geometry", V::Null)]));
     let travel::Routers { staff, .. } = travel::routers_of(&planned, &RouteCapacities::default(), None).unwrap().unwrap();
     assert_eq!(staff.err(), Some(unsupported(PLAN_UNREAD)));
@@ -275,7 +274,7 @@ fn the_loads_count_the_trips_under_way() {
     let loads = travel::active_edge_loads(&world, &Held::Absent, 5).unwrap();
     assert_eq!(loads, HashMap::from([(text("e1"), 1), (text("e3"), 1)]));
     assert_eq!(travel::active_edge_loads(&world, &Held::Other("another"), 5).err(), Some(unsupported("another")));
-    // An event Python scheduled whose row was not read: the PyO3 crate reads them first.
+    // An event in the queue with no row is refused.
     world.queue_mut().unwrap().add(text("ev3"), (60, 0, 7), None);
     assert_eq!(travel::active_edge_loads(&world, &Held::Absent, 5).err(), Some(unsupported("an event in the queue is not a plain one")));
 }
@@ -389,7 +388,7 @@ fn a_trip_turned_down_writes_nothing() {
     let walking = Walking { movement: &Held::Absent, geo: None };
     let events = Events::of(&world).unwrap();
     let plan = |trip: Trip<'_>| travel::plan_travel(&world, &events, walking, trip);
-    // From elsewhere: the Python rule's ValueError.
+    // From elsewhere: the rule's ValueError.
     assert_eq!(
         plan(trip("a1", route("z1", "z2", &["z1", "z2"], &["e3"], 2), "return")).err(),
         Some(Error::Value("travel route origin does not match Agent zone".to_owned()))
@@ -550,7 +549,7 @@ fn the_step_samples_only_at_its_interval() {
     let no_interval = proximity(map(vec![]), true, V::Null);
     assert_eq!(proximity::when(&no_interval, Some(15)).err(), Some(Error::Key("sample_interval_minutes".to_owned())));
     assert_eq!(proximity::when(&proximity(contact_config(0), true, V::Null), Some(15)).err(), Some(unsupported("the sampling interval is not positive")));
-    // A policy whose read raised: the PyO3 crate reads it again.
+    // A policy whose read raised is refused.
     let raised = Proximity { config: Err(Fault::new(sheltersim_core::config::FaultClass::Value, "boom")), known: Ok(true), policy: Ok(None) };
     assert_eq!(proximity::when(&raised, Some(15)).err(), Some(unsupported(POLICY_FAULT)));
 }

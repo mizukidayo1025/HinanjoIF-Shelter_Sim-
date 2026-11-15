@@ -1,9 +1,8 @@
 //! A digest of a test's answers and the world after each (Issue #225, lane M3).
 //!
-//! A test that records what a rule answered and left (a pytest's `repr` digest, recorded again from
-//! the core: decision 1 of #225) adds each call's result and the world after it to `Answers`, in the
-//! order of its calls, as the pytests chained theirs. The world is its canonical parts
-//! (`canonical::parts`: the canonical JSON of each top-level key of `WorldState.canonical_json()`
+//! A test that records what a rule answered and left (decision 1 of #225) adds each call's result
+//! and the world after it to `Answers`, in the order of its calls. The world is its canonical parts
+//! (`canonical::parts`: the canonical JSON of each top-level key of the world's canonical document
 //! but `rng_state`), a line each with the key's name.
 
 use sheltersim_core::checkpoint::sha256_hex;

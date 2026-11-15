@@ -1,21 +1,19 @@
 //! The texts of the water and meal service's outcomes, of a request its queue turns down, and of
 //! the toilet completion's and the ledger handler's wraps of their rules' errors (Issue #225, lane
-//! M2; moved from `tests/integration/test_resource_service_texts.py`).
+//! M2).
 //!
 //! `service::complete`, `cancel` and `interrupt` raise `EventSuppressed` and
 //! `EventApplicationError`, whose texts the dispatcher saves as an event's `detail`; a request the
 //! queue turns down is the text of a `ValueError` the propose step saves as the request's `detail`.
-//! Each case builds a state that reaches one check, and the core must raise the class and text the
-//! Python rule raised there (written down from it before it went: lane L10, `kernel_only`) and
-//! leave the world's canonical bytes as they were.
+//! Each case builds a state that reaches one check, and the core must raise the recorded class and
+//! text there and leave the world's canonical bytes as they were. The texts were recorded before
+//! #430 and pin the core's output now.
 //!
-//! The worlds are `tests/data/resource_service_texts.json` (`tests/support/core_fixtures_texts.py`):
-//! `serving` is h00_small_replay with a water station and a meal point, A001 being served water at
-//! minute 0; `visiting` is the gate's generated Scenario at the first minute someone is served at a
-//! toilet; each with the Run's policies (the manager's config, the dispatch table). The edits of
-//! each case are made here, as the pytest file made them in Python. The pytest file keeps one test
-//! of each Python entry: its request is the one no independent queue takes, on a floor plan of its
-//! own. The propose step's request at once the queue turns down is in `requests_at_once.rs`.
+//! The worlds are `tests/data/resource_service_texts.json`: `serving` is h00_small_replay with a
+//! water station and a meal point, A001 being served water at minute 0; `visiting` is the gate's
+//! generated Scenario at the first minute someone is served at a toilet; each with the Run's
+//! policies (the manager's config, the dispatch table). The edits of each case are made here. The
+//! propose step's request at once the queue turns down is in `requests_at_once.rs`.
 
 use crate::support;
 
@@ -75,7 +73,7 @@ impl Case {
         texts::canonical_of(&self.loaded.cell, &self.entry)
     }
 
-    /// What `rule` raised on the world, which it must leave as it was (`_says`).
+    /// What `rule` raised on the world, which it must leave as it was.
     fn says<T>(&mut self, rule: impl FnOnce(&mut Self) -> Result<T, Error>) -> (&'static str, String) {
         let before = self.bytes();
         let said = texts::outcome(rule(self));
@@ -160,7 +158,7 @@ impl Case {
     }
 }
 
-/// `_event` of the pytest file: an event of the test's source.
+/// An event of the test's source.
 fn event(event_type: &str, payload: Value, kind: &str, due: i64, sequence: i64) -> Value {
     json!({
         "event_id": format!("test-{}", event_type.replace('_', "-")),
@@ -189,10 +187,10 @@ fn the_service_cancelled(world: &mut World, task_id: &str) {
     world.row_mut::<ServiceRow>(SERVICE).unwrap().cancelled_task_ids.push(text(task_id));
 }
 
-/// The loaded worlds write the canonical text Python wrote of them, by which each case sees that its
-/// world did not change.
+/// The loaded worlds write the canonical text of the fixture's worlds, by which each case sees that
+/// its world did not change.
 #[test]
-fn the_loaded_worlds_write_python_s_canonical_text() {
+fn the_loaded_worlds_write_the_fixture_s_canonical_text() {
     for name in ["serving", "visiting"] {
         let case = case(name);
         let python = Dumps::default().unicode().compact().sorted().text(&load::v(&case.entry["world"]));
@@ -203,7 +201,7 @@ fn the_loaded_worlds_write_python_s_canonical_text() {
 // ---- complete ------------------------------------------------------------------------------------
 
 #[test]
-fn a_completion_s_texts_are_python_s() {
+fn a_completion_s_texts_are_the_recorded_ones() {
     let full = "resource service completion does not match its full reservation, slot, or staff";
     let invalid = "resource completion payload or event kind is invalid";
     let unmatched = "resource completion does not match its active task";
@@ -236,7 +234,7 @@ fn a_completion_s_texts_are_python_s() {
 }
 
 #[test]
-fn a_completion_of_a_cancelled_task_is_suppressed_with_python_s_text() {
+fn a_completion_of_a_cancelled_task_is_suppressed_with_the_recorded_text() {
     let mut case = case("serving");
     case.edit(|world| the_service_cancelled(world, "resource-service-task-gone"));
     let event = changed(&case.completion(), json!({"task_id": "resource-service-task-gone"}), json!({}));
@@ -245,7 +243,7 @@ fn a_completion_of_a_cancelled_task_is_suppressed_with_python_s_text() {
 }
 
 #[test]
-fn a_completion_whose_service_state_differs_is_python_s_to_fail() {
+fn a_completion_whose_service_state_differs_fails() {
     for spoil in ["slot", "staff", "staff_busy", "reservation", "owned"] {
         let mut case = case("serving");
         let (task_id, staff_id) = (case.task_id(), case.staff_id());
@@ -308,7 +306,7 @@ fn cancellation(payload: Value) -> Value {
 }
 
 #[test]
-fn a_cancellation_s_texts_are_python_s() {
+fn a_cancellation_s_texts_are_the_recorded_ones() {
     let requires = "resource cancellation requires a task_id";
     let untyped = "resource cancellation payload is not a typed cancellation";
     let cases: Vec<(Value, &str)> = vec![
@@ -331,7 +329,7 @@ fn a_cancellation_s_texts_are_python_s() {
 }
 
 #[test]
-fn a_cancellation_of_a_cancelled_task_is_suppressed_with_python_s_text() {
+fn a_cancellation_of_a_cancelled_task_is_suppressed_with_the_recorded_text() {
     let mut case = case("serving");
     let task_id = case.task_id();
     case.edit(|world| the_service_cancelled(world, &task_id));
@@ -341,7 +339,7 @@ fn a_cancellation_of_a_cancelled_task_is_suppressed_with_python_s_text() {
 }
 
 #[test]
-fn a_cancellation_whose_task_differs_is_python_s_to_fail() {
+fn a_cancellation_whose_task_differs_fails() {
     let mismatch = "active resource cancellation does not match reservation, slot, and staff";
     let cases = [
         ("kind", "resource cancellation does not match an active task"),
@@ -385,7 +383,7 @@ fn a_cancellation_whose_task_differs_is_python_s_to_fail() {
 // ---- interrupt_for_staff -------------------------------------------------------------------------
 
 #[test]
-fn an_interruption_s_texts_are_python_s() {
+fn an_interruption_s_texts_are_the_recorded_ones() {
     let inconsistent = "interrupted resource task has inconsistent state";
     let reservation = "interrupted service reservation is inconsistent";
     let cases = [
@@ -444,7 +442,7 @@ fn an_interruption_of_a_cancelled_task_is_the_cancellation_s_text() {
 // ---- A request the queue turns down ------------------------------------------------------------
 
 #[test]
-fn a_request_s_refusal_texts_are_python_s() {
+fn a_request_s_refusal_texts_are_the_recorded_ones() {
     let while_active = |agent: &str| format!("Agent {} cannot request resource service while active", py_repr(agent));
     let exclusive = |agent: &str| format!("Agent {} already has an exclusive task", py_repr(agent));
     let cases: Vec<(&str, &str, Minute, bool, String)> = vec![
@@ -496,7 +494,7 @@ fn a_request_s_refusal_texts_are_python_s() {
 // ---- The wraps: a toilet visit's completion, and the ledger --------------------------------------
 
 #[test]
-fn a_toilet_completion_wraps_python_s_text() {
+fn a_toilet_completion_wraps_the_recorded_text() {
     let cases = [
         ("facility", "'{water}' is not a toilet Facility"),
         ("unknown_facility", "'nowhere' is not a toilet Facility"),
@@ -553,7 +551,7 @@ fn a_toilet_completion_wraps_python_s_text() {
 }
 
 #[test]
-fn the_ledger_handler_wraps_python_s_text() {
+fn the_ledger_handler_wraps_the_recorded_text() {
     let cases: Vec<(&str, Value, &str)> = vec![
         ("loss", json!({"warehouse_id": "warehouse-h02", "resource_id": "water_ml", "quantity": 900}), "resource loss exceeds unreserved remaining inventory"),
         (

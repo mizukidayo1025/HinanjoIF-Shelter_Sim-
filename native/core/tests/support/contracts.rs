@@ -1,11 +1,10 @@
-//! What the native host's contracts gave for the inputs a test's rules ask, as a fixture recorded
-//! them (Issue #225, lane M7).
+//! What a host's contracts gave for the inputs a test's rules ask, as a fixture recorded them
+//! (Issue #225, lane M7).
 //!
-//! A pydantic contract is Python's (`Host::contract`): the native host validates the input with the
-//! model and gives its dump (`model_dump(mode="json")`), or raises what `model_validate` raised. A
-//! fixture records that for each input a test needs: `{"model": name, "op": op, "input": value,
-//! "dump": value}` or `{..., "raises": [class, text]}`, the class `Value` or `Type`, `op` only for
-//! `_PARAMETER_MODELS` (the model of an operator's parameters). `recorded` is the
+//! A contract (`Host::contract`) validates the input against its model and gives the model's dump,
+//! or refuses it. A fixture records that for each input a test needs: `{"model": name, "op": op,
+//! "input": value, "dump": value}` or `{..., "raises": [class, text]}`, the class `Value` or
+//! `Type`, `op` only for the model of an operator's parameters. `recorded` is the
 //! `TestHost.contracts` that answers so; any other input is given back, as the `TestHost` does.
 
 use serde_json::Value;

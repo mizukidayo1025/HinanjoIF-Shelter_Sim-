@@ -3,10 +3,9 @@
 //! pending order, and the transaction around them (`txn::Txn`). Lane 6-5: the queue and the log as
 //! parts of the world.
 //!
-//! The order of `WorldState.from_dict(world.to_dict())` is that of `json.dumps(sort_keys=True)`:
-//! the keys of every dict sorted by code point (UTF-8 bytes), lists as they are, the entities by
-//! their own ID (`_canonical_data`) and the pending events in queue order (`EventQueue([...])`).
-//! tests/integration/test_world_txn.py compares a transaction's start with from_dict itself.
+//! The order of a world read again from its document is that of `json.dumps(sort_keys=True)`: the
+//! keys of every dict sorted by code point (UTF-8 bytes), lists as they are, the entities by their
+//! own ID and the pending events in queue order.
 
 use std::sync::Arc;
 

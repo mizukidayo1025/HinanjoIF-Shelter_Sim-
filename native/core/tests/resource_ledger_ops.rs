@@ -1,16 +1,14 @@
-//! The operations of the resource ledger (`rules::resources::apply_operation`, the kernel of
-//! `apply_resource_operation`) on the world of `integration/test_resource_ledger_row.py`, without
-//! Python (Issue #225, lane M10b).
+//! The operations of the resource ledger (`rules::resources::apply_operation`) on a small world
+//! (Issue #225, lane M10b).
 //!
-//! `data/resource_ledger.json` (`tests/support/core_fixtures_reads.py`) holds that world: the small
-//! replay Scenario with a stock of water and meals and no events, at minute 0, and the operations
-//! the pytest file drew with `random.Random`. What an operation wrote is pinned as the pytest file
-//! pinned it, with the same digests, taken from the deleted Python rule: `json.dumps` with
-//! `ensure_ascii=False` of the ledger's tree and of `world.resources` (`Dumps`). The tree is the
-//! row's, each record's fields in the order of its row (`NAMES`), the audit records' keys sorted,
-//! as the tree that follows the row has them. A refusal has the Python rule's text and changes
-//! nothing (`canonical_of`). The entry writes the new balance into `world.resources`; here
-//! `operate` does, as the PyO3 crate's `replace_resources` does.
+//! `data/resource_ledger.json` holds that world: the small replay Scenario with a stock of water
+//! and meals and no events, at minute 0, and operations drawn with `random.Random`. What an
+//! operation wrote is pinned by a digest of `json.dumps` with `ensure_ascii=False` of the ledger's
+//! tree and of `world.resources` (`Dumps`). The tree is the row's, each record's fields in the
+//! order of its row (`NAMES`), the audit records' keys sorted, as the tree that follows the row has
+//! them. A refusal has the recorded text and changes nothing (`canonical_of`). The values were
+//! recorded before #430 and pin the core's output now. A host writes the new balance into
+//! `world.resources`; here `operate` does.
 
 use crate::support;
 
@@ -39,7 +37,7 @@ fn text(value: &str) -> V {
     V::Str(Arc::from(value))
 }
 
-/// The world of the pytest file (`_world`), in a cell, with its entry.
+/// The world of the fixture, in a cell, with its entry.
 fn ledger() -> (Value, Shard<World>) {
     let entry = load::entry(FILE, "ledger");
     let cell = texts::cell(&entry);
@@ -50,7 +48,7 @@ fn set_minute(cell: &Shard<World>, minute: i64) {
     cell.with(|world| world.scalars.get_mut().minute_index = Fit::Ok(minute)).unwrap();
 }
 
-/// An event's payload: the warehouse, then the given fields in order (`_event`).
+/// An event's payload: the warehouse, then the given fields in order.
 fn payload(fields: &[(&str, V)]) -> V {
     let mut map = IndexMap::new();
     map.insert(Arc::from("warehouse_id"), text("warehouse-main"));
@@ -65,8 +63,8 @@ fn exactly(fields: &[(&str, V)]) -> V {
     V::Map(fields.iter().map(|(name, value)| (Arc::from(*name), value.clone())).collect())
 }
 
-/// `apply_resource_operation` of an event with this payload, source and ID, and the new balance in
-/// `world.resources` (a new dict in Python, here the row).
+/// `apply_operation` of an event with this payload, source and ID, and the new balance in
+/// `world.resources`.
 fn operate(cell: &Shard<World>, operation: OperationArg<'_>, payload: &V, source: &V, event_id: &str) -> Result<Applied, Fail> {
     let source = match source {
         V::Str(source) => Some(&**source),
@@ -82,7 +80,7 @@ fn operate(cell: &Shard<World>, operation: OperationArg<'_>, payload: &V, source
     .unwrap()
 }
 
-/// The pytest file's `_apply`: the operation applies.
+/// The operation applies.
 fn apply(cell: &Shard<World>, operation: &str, fields: &[(&str, V)], event_id: &str) {
     operate(cell, OperationArg::Text(operation), &payload(fields), &text(SOURCE), event_id).unwrap_or_else(|fail| panic!("{event_id}: {fail:?}"));
 }
@@ -123,8 +121,8 @@ fn meal(agent: &str, reservation: &str, quantity: Option<i64>) -> Vec<(&'static 
     fields
 }
 
-/// The pytest file's `_operate`: a delivery, a reservation of two meals, one consumed, another
-/// reserved and released, and a loss of water; the events `op-1` to `op-6`. The person it gave.
+/// A delivery, a reservation of two meals, one consumed, another reserved and released, and a loss
+/// of water; the events `op-1` to `op-6`. The person it gave.
 fn operate_all(cell: &Shard<World>) -> String {
     let agent = first_agent(cell);
     set_minute(cell, 1);
@@ -180,7 +178,7 @@ fn tree(world: &World) -> V {
     ledger
 }
 
-/// `_digest`: the first 16 hex of the sha256 of the ledger's tree and the resources, each
+/// The first 16 hex of the sha256 of the ledger's tree and the resources, each
 /// `json.dumps(..., ensure_ascii=False)`, the resources in their order (`RESOURCE_IDS`).
 fn digest(cell: &Shard<World>) -> String {
     cell.with(|world| {
@@ -198,7 +196,7 @@ fn resources_of(cell: &Shard<World>) -> Vec<(String, i64)> {
 }
 
 #[test]
-fn each_operation_writes_what_the_python_rule_wrote() {
+fn each_operation_writes_what_was_recorded() {
     let (_, cell) = ledger();
     operate_all(&cell);
     assert_eq!(digest(&cell), "85afdc35f4831e99");
@@ -234,8 +232,8 @@ fn big(digits: &str) -> V {
     load::v(&texts::big(digits))
 }
 
-/// The refused operations of the pytest file (`REFUSED`): the name, the operation, the payload (the
-/// whole of it), the source, and the Python rule's text.
+/// The refused operations: the name, the operation, the payload (the whole of it), the source, and
+/// the recorded text.
 fn refused(agent: &str) -> Vec<(&'static str, &'static str, V, V, &'static str)> {
     let source = text(SOURCE);
     let thirty = || big("1000000000000000000000000000000");
@@ -327,7 +325,7 @@ fn refused(agent: &str) -> Vec<(&'static str, &'static str, V, V, &'static str)>
 }
 
 #[test]
-fn a_refusal_changes_nothing_and_has_the_python_text() {
+fn a_refusal_changes_nothing_and_has_the_recorded_text() {
     let (entry, cell) = ledger();
     let agent = operate_all(&cell);
     let cases = refused(&agent);
@@ -340,7 +338,7 @@ fn a_refusal_changes_nothing_and_has_the_python_text() {
 }
 
 #[test]
-fn someone_else_s_reservation_has_the_python_text() {
+fn someone_else_s_reservation_has_the_recorded_text() {
     let (_, cell) = ledger();
     operate_all(&cell);
     let other = &sorted_agents(&cell)[1];
@@ -387,11 +385,11 @@ fn drawn(line: &str) -> (String, V, V) {
     (operation.to_owned(), payload(&fields), text(source))
 }
 
-/// The pytest file's `_random_sequences`: each drawn sequence on a new world, one operation a
-/// minute; the digest of each outcome (the text of a refusal, else `_digest` after it), and how many
-/// ran and were refused. A refusal changes nothing.
+/// Each drawn sequence on a new world, one operation a minute; the digest of each outcome (the text
+/// of a refusal, else `digest` after it), and how many ran and were refused. A refusal changes
+/// nothing.
 #[test]
-fn random_sequences_with_refusals_are_the_python_rule_s() {
+fn random_sequences_with_refusals_are_the_recorded_ones() {
     let entry = load::entry(FILE, "ledger");
     let sequences = entry["sequences"].as_array().unwrap();
     assert_eq!(sequences.len(), 25);

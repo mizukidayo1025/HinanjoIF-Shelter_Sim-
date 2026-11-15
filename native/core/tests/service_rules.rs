@@ -1,21 +1,15 @@
-//! `_apply_effect`, `_route`, `_schedule_travel` and the water and meal service on the worlds of
-//! `tests/integration/test_service_rules.py` (Issue #225, lane M6; moved from that file).
+//! A proposal's effect, routes, trips and the water and meal service, one step at a time (Issue
+//! #225, lane M6).
 //!
-//! The worlds are `tests/data/service_rules.json` (`tests/support/core_fixtures_service.py`): the
-//! generated Scenario of the Project screen at minute 5 with its Run's policies, and the worlds the
-//! pytest edited of it; the IDs the pytest picked in Python's order are the file's `inputs`. Each
-//! case calls the core's step its PyO3 entry calls: `propose::apply_alone` (the propose phase's
-//! `_apply_effect`), `travel::route` and `schedule_travel`, the service's `serve` (one pass of
-//! `arbitrate`'s loop, as `serve_head`), `complete`, `request`, `append_outcome` and
-//! `facilities_to_serve`.
+//! The worlds are `tests/data/service_rules.json`: the generated Scenario of the Project screen at
+//! minute 5 with its Run's policies, and worlds edited of it; the IDs a test picks are the file's
+//! `inputs`. Each case calls one step of the core: `propose::apply_alone`, `travel::route` and
+//! `schedule_travel`, the service's `serve` (one pass of `arbitrate`'s loop), `complete`,
+//! `request`, `append_outcome` and `facilities_to_serve`.
 //!
-//! The pytest compared the world a step left with a digest of what the deleted Python rule left,
-//! taken from Python's `repr` of the events (`world_digest`, `_is_python_s`). The core's World
-//! does not write that `repr`, so the digests here are of each step's answer and the world's
-//! canonical parts after it (`steps::Case::answered`, `support/answers.rs`), recorded from the core
-//! in #225 lane M6 (decision 1): on the same kernel, each pytest named in a test's doc comment
-//! passed with the digests it had, and the PyO3 entry left the same canonical text as the core does
-//! here.
+//! A test pins the sha256 of each step's answer and the world's canonical parts after it
+//! (`steps::Case::answered`, `support/answers.rs`; decision 1 of #225). The world and the digests
+//! were recorded before #430 and pin the core's output now.
 
 use crate::support;
 
@@ -50,7 +44,7 @@ fn inputs(name: &str) -> Value {
 
 // ---- The steps ------------------------------------------------------------------------------------
 
-/// `_schedule_travel` of a trip home, without the world's validation.
+/// `travel::schedule_travel` of a trip home, without the world's validation.
 fn schedule(case: &mut Case, agent: &str, route: &Route, purpose: &str) -> Result<bool, Error> {
     let trip = Trip {
         agent_id: text(agent),
@@ -78,7 +72,7 @@ fn schedule(case: &mut Case, agent: &str, route: &Route, purpose: &str) -> Resul
     result
 }
 
-/// One pass of `arbitrate`'s loop at a facility's shared queue (`serve_head`): the started
+/// One pass of `arbitrate`'s loop at a facility's shared queue (`service::serve`): the started
 /// event's ID, or None.
 fn serve(case: &mut Case, facility: &str, resource: &str) -> Result<Option<Arc<str>>, Error> {
     let result = case.tick(|tick| {
@@ -109,7 +103,7 @@ fn serve(case: &mut Case, facility: &str, resource: &str) -> Result<Option<Arc<s
     result
 }
 
-/// `ResourceServiceManager(world).complete(event)` of the pending event with this ID.
+/// `service::complete` of the pending event with this ID.
 fn complete(case: &mut Case, event_id: &str) -> Result<(), Error> {
     let doc = case.doc();
     let event = doc["event_queue"].as_array().unwrap().iter().find(|event| event["event_id"] == event_id).unwrap().clone();
@@ -125,7 +119,7 @@ fn complete(case: &mut Case, event_id: &str) -> Result<(), Error> {
     result
 }
 
-/// `ResourceServiceManager(world).request(agent, facility, validate_state=False)`.
+/// `service::request` of a person at a facility, without the world's validation.
 fn request(case: &mut Case, agent: &str, facility: &str) -> Result<Requested, Error> {
     let result = case.tick(|tick| {
         let manager = service::manager_in(tick)?;
@@ -152,10 +146,9 @@ fn pending_count(doc: &Value) -> usize {
     doc["event_queue"].as_array().unwrap().len()
 }
 
-// ---- _apply_effect --------------------------------------------------------------------------------
+// ---- propose::apply_alone -----------------------------------------------------------------------
 
-/// `test_a_still_action_is_python_s` (pytest digests `1fecc84b22ca7b75`, `8dba68cbcb659dc2`,
-/// `9dd05aad2d72d58b`).
+/// Waiting, resting and sleeping each give up the target and wait for the next decision.
 #[test]
 fn a_still_action_gives_up_the_target_and_waits() {
     let given = inputs("still_action");
@@ -170,8 +163,7 @@ fn a_still_action_gives_up_the_target_and_waits() {
     }
 }
 
-/// `test_a_social_action_schedules_python_s_event` (pytest digests `4a0541d31b600176`,
-/// `2861f4df8b51b5a8`, `7ba195e90b4e41d3`).
+/// Each social action schedules one event with its target.
 #[test]
 fn a_social_action_schedules_its_event() {
     let pair = &inputs("social_action")["pair"];
@@ -188,8 +180,7 @@ fn a_social_action_schedules_its_event() {
     }
 }
 
-/// `test_the_config_s_minutes_and_their_end_of_the_run` (pytest digests `de59a5ea0e95b1e8`,
-/// `72fe8db9763f1642`).
+/// A social action lasts the config's minutes, and none starts that would end past the run.
 #[test]
 fn the_config_s_minutes_and_their_end_of_the_run() {
     let given = inputs("config_s_minutes");
@@ -203,7 +194,7 @@ fn the_config_s_minutes_and_their_end_of_the_run() {
     assert_eq!(case.hex(), "c101fd8e76cd429d268546a41d076cc7405d5776a4adbedbc77979a501fc1c11");
 }
 
-/// `test_without_a_config_the_default_minutes_are_python_s` (pytest digest `50325313983b94ac`).
+/// Without a config, a social action lasts the default minutes.
 #[test]
 fn without_a_config_the_default_minutes() {
     let pair = &inputs("social_action")["pair"];
@@ -212,8 +203,7 @@ fn without_a_config_the_default_minutes() {
     assert_eq!(case.hex(), "ce73c8db056e7db81e6055ea511129cada0aea15e8c6840cef850efd58125e3b");
 }
 
-/// `test_a_social_action_needs_someone_else_in_the_zone` (pytest digest `a8a42ffe67df1a3a` after
-/// each step).
+/// A social action with no one else in the zone changes nothing.
 #[test]
 fn a_social_action_needs_someone_else_in_the_zone() {
     let given = inputs("needs_someone_else");
@@ -223,12 +213,11 @@ fn a_social_action_needs_someone_else_in_the_zone() {
         assert_eq!(case.apply(Action::HelpOthers, s(&given["agent"]), target.as_str()).unwrap(), applied(None, 12, false), "{target}");
         worlds.push(case.bytes());
     }
-    // The pytest's digest was the same after each step.
+    // The world is the same after each step.
     assert!(worlds.iter().all(|world| *world == worlds[0]));
     assert_eq!(case.hex(), "ee7215675e0c0981900bdd443ce9655e76cbc979c45e0e35dce8687557ec1903");
 }
 
-/// `test_a_held_bed_is_given_up_and_sleep_keeps_it`.
 #[test]
 fn a_held_bed_is_given_up_and_sleep_keeps_it() {
     let given = inputs("held_bed");
@@ -240,9 +229,8 @@ fn a_held_bed_is_given_up_and_sleep_keeps_it() {
     assert_eq!(reservations.as_object().unwrap().keys().collect::<Vec<_>>(), vec![s(&pair[1])]);
 }
 
-/// `test_each_trip_action_from_each_zone` (pytest: eight digests of each action): each person is
-/// moved to each zone in turn until a trip starts, as the pytest moved them; the target of each
-/// step is the one the pytest listed.
+/// Each person of the file's `inputs` is moved to each zone in turn until a trip starts; the
+/// target of each step is the one the `inputs` list.
 #[test]
 fn each_trip_action_from_each_zone() {
     let given = inputs("trip_action_from_each_zone");
@@ -267,8 +255,6 @@ fn each_trip_action_from_each_zone() {
     }
 }
 
-/// `test_a_trip_past_the_end_of_the_run_is_refused_as_python_refuses` (pytest digests
-/// `7e223ff83025985b` twice, `49966c9a404bdcb4`).
 #[test]
 fn a_trip_past_the_end_of_the_run_is_refused() {
     let given = inputs("trip_past_the_end");
@@ -283,8 +269,6 @@ fn a_trip_past_the_end_of_the_run_is_refused() {
     assert_eq!(case.hex(), "ce1f82ecc1befae240ad6aa65c0fa9300465afac32a5e1e5cd8afd3eea8ca481");
 }
 
-/// `test_no_known_facility_is_recorded_as_python_records` (pytest digests `de420a4402712c0d`,
-/// `67380efd43798097` twice).
 #[test]
 fn no_known_facility_is_recorded() {
     let given = inputs("no_known_facility");
@@ -304,8 +288,7 @@ fn no_known_facility_is_recorded() {
     assert!(metric(&doc, "resource_service_request_rejected_count") >= 2.0);
 }
 
-/// `test_the_lower_load_goes_before_the_shorter_walk`: the least load, then the shortest walk,
-/// then the least ID (`_select_toilet` of 45a9bc9).
+/// The least load, then the shortest walk, then the least ID.
 #[test]
 fn the_lower_load_goes_before_the_shorter_walk() {
     let given = inputs("lower_load");
@@ -314,19 +297,15 @@ fn the_lower_load_goes_before_the_shorter_walk() {
     assert_eq!(done.target.as_deref(), Some(s(&given["far"])));
 }
 
-/// `test_a_toilet_kind_beyond_ascii_is_folded_as_python_folds_it` (pytest digest
-/// `068b0babfdc6141d`): `"toilet" in kind.casefold()`, where full-width letters fold to
-/// full-width ones.
+/// `"toilet" in kind.casefold()`, where full-width letters fold to full-width ones.
 #[test]
-fn a_toilet_kind_beyond_ascii_is_folded_as_python_folds_it() {
+fn a_toilet_kind_beyond_ascii_is_folded_as_casefold_folds_it() {
     let given = inputs("toilet_kind_beyond_ascii");
     let mut case = Case::of(FILE, s(&given["world"]));
     assert_eq!(case.apply(Action::RequestToilet, s(&given["agent"]), None).unwrap(), applied(Some("toilet_01"), 12, true));
     assert_eq!(case.hex(), "68138e5672f4b7b9c2d3954251cf98bf70d633e192f7dec609214c8a9b3d8012");
 }
 
-/// `test_a_request_of_the_run_s_last_minute_is_closed_at_once` (pytest digests
-/// `66c8a5870bf1b6f4`, `32f0d7926c7ef2c5`).
 #[test]
 fn a_request_of_the_run_s_last_minute_is_closed_at_once() {
     let given = inputs("request_of_the_last_minute");
@@ -342,10 +321,9 @@ fn a_request_of_the_run_s_last_minute_is_closed_at_once() {
     }
 }
 
-// ---- _route and _schedule_travel ------------------------------------------------------------------
+// ---- travel::route and schedule_travel ----------------------------------------------------------
 
-/// `test_every_route_is_python_s_for_every_mobility` (pytest digest `c5d1362fa0212f15` of the
-/// routes' `repr`): from each zone to each, for the first person of each mobility.
+/// From each zone to each, for the first person of each mobility.
 #[test]
 fn every_route_for_every_mobility() {
     let mut case = Case::of(FILE, "minute_5");
@@ -373,8 +351,7 @@ fn every_route_for_every_mobility() {
     assert_eq!(case.hex(), "2732fa9f6889e655f8c8febf7415bdbbda89fdc0f6af84c2c6ee6101c2823333");
 }
 
-/// `test_an_equal_time_goes_to_the_lower_edge_id`: the graph's own travel times equal, so only the
-/// IDs decide; as the Python rule found it.
+/// The graph's own travel times equal, so only the IDs decide.
 #[test]
 fn an_equal_time_goes_to_the_lower_edge_id() {
     let given = inputs("equal_time");
@@ -386,9 +363,7 @@ fn an_equal_time_goes_to_the_lower_edge_id() {
     assert_eq!(route.minutes, 4);
 }
 
-/// `test_a_trip_and_each_limit_are_python_s` (pytest digests `167bbd68b5a94255`,
-/// `623e47f172d00aff`, `80054702e0e729ce`): the zone is full, counting who walks there; the trip
-/// ends past the run; then it starts.
+/// The zone is full, counting who walks there; the trip ends past the run; then it starts.
 #[test]
 fn a_trip_and_each_limit() {
     let given = inputs("trip");
@@ -411,9 +386,8 @@ fn a_trip_and_each_limit() {
     assert_eq!(case.hex(), "76d470042e297b32da8ea7b6a9fe8d237732bda7a6e8d0796b92a58ffccd8aeb");
 }
 
-/// `test_a_trip_refused_writes_nothing`: the Python rule's errors, raised before anything is
-/// written, and a person the world does not have refused. The pytest keeps the refusal's
-/// `KernelRefusal` of the PyO3 entry.
+/// The rule's errors, raised before anything is written, and a person the world does not have
+/// refused (`Unsupported`).
 #[test]
 fn a_trip_refused_writes_nothing() {
     let given = inputs("trip");
@@ -436,7 +410,6 @@ fn a_trip_refused_writes_nothing() {
 
 // ---- arbitrate --------------------------------------------------------------------------------------
 
-/// `test_a_head_at_the_point_starts_its_service` (pytest digest `2a3c0767c9e08409`).
 #[test]
 fn a_head_at_the_point_starts_its_service() {
     let given = inputs("at_water_station");
@@ -450,10 +423,7 @@ fn a_head_at_the_point_starts_its_service() {
     assert_eq!(case.hex(), "2319ada0d5e77cd7f91359bd25a8cb4330ae6a87c29dbb17046963df5c8a0e91");
 }
 
-/// `test_each_wait_is_python_s_record` (pytest digests: `capacity` `bb6a050583414052`, `staff`
-/// `aea91f1779cd9538`, `stock` `83e5c9064839b2b3`, `run_end` `62eee99e27894a3c`, `water_outage`
-/// `1b96482b22525348`): the head waits, its stall is recorded once, and the same wait the next
-/// minute adds nothing.
+/// The head waits, its stall is recorded once, and the same wait the next minute adds nothing.
 #[test]
 fn each_wait_is_recorded_once() {
     let given = inputs("each_wait");
@@ -483,9 +453,8 @@ fn each_wait_is_recorded_once() {
     }
 }
 
-/// `test_a_taken_reservation_id_is_python_s_error`.
 #[test]
-fn a_taken_reservation_id_is_python_s_error() {
+fn a_taken_reservation_id_gives_the_recorded_error() {
     let given = inputs("taken_reservation_id");
     let mut case = Case::of(FILE, s(&given["world"]));
     let before = case.bytes();
@@ -498,7 +467,6 @@ fn a_taken_reservation_id_is_python_s_error() {
     assert!(case.bytes() == before);
 }
 
-/// `test_only_the_queues_with_people_are_served`.
 #[test]
 fn only_the_queues_with_people_are_served() {
     let given = inputs("queues_with_people");
@@ -517,8 +485,7 @@ fn only_the_queues_with_people_are_served() {
 
 // ---- complete -----------------------------------------------------------------------------------------
 
-/// `test_a_completion_relieves_python_s_need` (pytest digests: water `2a3c0767c9e08409` started,
-/// `4f39327b201771c8` completed; meal `0d30579820e3bf95`, `46c48784b7891a9e`).
+/// Water and meal: the service starts, then its completion relieves the need.
 #[test]
 fn a_completion_relieves_the_need() {
     for (kind, resource, need, relief, started, completed) in [
@@ -558,7 +525,7 @@ fn a_completion_relieves_the_need() {
     }
 }
 
-/// `test_the_relief_is_read_at_its_value_and_stops_at_zero`: the manager's relief made 1% larger.
+/// The manager's relief made 1% larger.
 #[test]
 fn the_relief_is_read_at_its_value() {
     let given = inputs("relief_at_its_value");
@@ -572,10 +539,9 @@ fn the_relief_is_read_at_its_value() {
     assert_ne!(relief, config(&Case::of(FILE, "minute_5"), "hydration_relief"));
 }
 
-/// `test_a_completion_that_does_not_match_is_python_s_error`: its staff free, the reservation not
-/// the service's, the person not served.
+/// Its staff free, the reservation not the service's, the person not served.
 #[test]
-fn a_completion_that_does_not_match_is_python_s_error() {
+fn a_completion_that_does_not_match_gives_the_recorded_error() {
     let given = inputs("at_water_station");
     for change in ["busy_until", "active_reservation_ids", "resource_active_agent_ids"] {
         let mut case = Case::of(FILE, s(&given["world"]));
@@ -600,7 +566,6 @@ fn a_completion_that_does_not_match_is_python_s_error() {
 
 // ---- request and its record ---------------------------------------------------------------------------
 
-/// `test_a_request_is_python_s` (pytest digest `22667c113d8b86dd`).
 #[test]
 fn a_request_queues_the_person() {
     let given = inputs("request");
@@ -620,10 +585,9 @@ fn a_request_queues_the_person() {
     assert_eq!(case.hex(), "16593c41e9eed57abc20951d2aefef1f81d42d96471087b3c2a5083dbd141272");
 }
 
-/// `test_a_request_refused_has_python_s_text`: the kernel's text of the Python rule's ValueError,
-/// before it writes anything.
+/// The rule's text of the refusal, before it writes anything.
 #[test]
-fn a_request_refused_has_python_s_text() {
+fn a_refused_request_gives_the_recorded_text() {
     let cases = inputs("request_refused");
     for given in cases.as_array().unwrap() {
         let agent = s(&given["agent"]);
@@ -642,8 +606,7 @@ fn a_request_refused_has_python_s_text() {
     assert_eq!(cases.as_array().unwrap().len(), 2);
 }
 
-/// `test_a_record_of_a_request_is_python_s`: the record appended with the world's minute, and
-/// nothing else written: the world the pytest made by appending it in Python.
+/// The record appended with the world's minute, and nothing else written.
 #[test]
 fn a_record_of_a_request() {
     let given = inputs("record_of_a_request");

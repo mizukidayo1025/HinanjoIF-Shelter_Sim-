@@ -1,7 +1,6 @@
 //! Lane P8 a2: the leaves of the people rules in the core (`rules::agent_dynamics`,
-//! `action_lifecycle`, `body_state`, `social_network`, `social_dialogue`), on worlds built here.
-//! The PyO3 crate's files of the same names are glue over these, so the gate and the offline tests
-//! run them on every Run; these say what each does with no Python.
+//! `action_lifecycle`, `body_state`, `social_network`, `social_dialogue`), on worlds built here:
+//! what each does, and the texts of what each refuses.
 
 use std::sync::Arc;
 
@@ -201,7 +200,7 @@ fn a_decision_is_remembered_in_the_row_and_marks_it() {
     // An agent without a record has nothing to remember, and nothing is marked.
     dynamics::remember_decision(&world, &Decision { agent_id: "a2", ..decision }).unwrap();
     assert!(written(&mut world).is_empty());
-    // Without the namespace's row, for the Python rule to create it.
+    // Without the namespace's row, refused.
     assert_eq!(dynamics::remember_decision(&self::world(), &decision), Err(unsupported("the namespace is not owned")));
 }
 
@@ -219,7 +218,7 @@ fn an_agent_learns_a_facility_and_with_discovery_its_zone() {
     let discover: Kept<Option<Awareness>> = Ok(Arc::new(Some(Awareness { initial: Vec::new(), discover: true })));
     dynamics::learn_facility(&world, Some("a1"), Some("f2"), &discover).unwrap();
     assert_eq!(known(&world, "a1"), ["f1", "f2", "f3"]);
-    // The config is read only for an agent with a record, as the Python rule reads it.
+    // The config is read only for an agent with a record.
     let bad: Kept<Option<Awareness>> = Err(refused("a bad awareness"));
     dynamics::learn_facility(&world, Some("a2"), Some("f2"), &bad).unwrap();
     assert_eq!(dynamics::learn_facility(&world, Some("a1"), Some("f2"), &bad), Err(unsupported("a bad awareness")));
@@ -608,7 +607,7 @@ fn context(captured: V, participants: &[(&str, V)]) -> V {
 }
 
 #[test]
-fn a_context_s_verdict_is_the_python_rule_s_in_its_order() {
+fn a_context_s_verdict_is_the_recorded_one_in_its_order() {
     let good = context(V::Int(3), &[("a1", state(V::Float(0.2), V::Null))]);
     assert_eq!(dialogue::context_problem(&good, &["a1"], 5), Ok(None));
     assert_eq!(dialogue::validate_context(&good, &["a1"], 5), Ok(()));

@@ -1,6 +1,5 @@
-//! Lane c2: the rules of `domain/movement.py` (`rules::movement`) on a world built here with no
-//! Python. The PyO3 crate's kernels of the same names are glue over these, so the gate and the
-//! offline tests run them on every Run; these say what each reads, decides and writes.
+//! Lane c2: the movement rules (`rules::movement`) on a world built here: what each reads, decides
+//! and writes.
 
 use crate::support;
 
@@ -451,7 +450,7 @@ fn a_travelling_staff_member_is_on_their_route() {
     assert_eq!(xy(&row(&world).staff_positions["s1"]), Some((10.0, 5.0)));
     assert_eq!(written(&mut world), [text(MOVEMENT)]);
     // Past the travel minutes: progress 1.0 on the last edge, in the zone it ends in. The edge is
-    // read from that zone, so backwards, as the Python rule reads it: its point is the far end.
+    // read from that zone, so backwards: its point is the far end.
     let records = movement::staff_position_snapshots(&world, &geo(), &StaffOps::Row, 9).unwrap();
     assert_eq!((xy(&records[0].1), records[0].1.progress, &*records[0].1.zone_id), (Some((5.0, 5.0)), 1.0, "z1"));
     assert_eq!(written(&mut world), [text(MOVEMENT)]);

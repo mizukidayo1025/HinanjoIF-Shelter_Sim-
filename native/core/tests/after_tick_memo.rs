@@ -1,13 +1,7 @@
-//! The memo of the end-of-tick check on the worlds of a Run (Issue #225, lane M11; moved from
-//! `tests/integration/test_after_tick_kernel.py`).
-//!
-//! The pytest file took the worlds of a Run of the generated Scenario every 20 minutes; here the core
-//! runs the same world's ticks (`generated_texts.json`'s `generated`, `support/ticks.rs`, which pass
-//! the worlds of `run_scenario`) and checks it at the same minutes. A world is "primed" as the
-//! pytest file's `_primed` primed it: a new memo that the check (`after_tick::check`, the kernel of
-//! `WorldState.validate_after_tick`) has passed once. What stays in pytest is what compares the
-//! kernel with the Python check (a yes of the kernel means the Python rules pass), the Python
-//! writes that reach the rows, and the patches of the Python rules.
+//! The memo of the end-of-tick check (`rules::after_tick::check`) on the worlds of a Run of the
+//! generated Scenario (Issue #225, lane M11): the core runs its ticks (`generated_texts.json`'s
+//! `generated`, `support/ticks.rs`) and checks the world every 20 minutes. A world is "primed" when
+//! a new memo has passed the check once.
 
 use crate::support;
 
@@ -35,7 +29,7 @@ fn check(loaded: &Loaded, host: &mut TestHost, memo: &mut Memo) -> Result<(), sh
     check_after_tick(loaded, host, memo, &mut NoPython::default())
 }
 
-/// A new memo the check passed once on the world as it is now (`_primed`).
+/// A new memo the check passed once on the world as it is now.
 fn primed(loaded: &Loaded, host: &mut TestHost) -> Memo {
     let mut memo = Memo::default();
     check(loaded, host, &mut memo).unwrap();
@@ -46,14 +40,14 @@ fn is_settled(row: &RequestRow) -> bool {
     matches!(row.status, RequestStatus::Resolved | RequestStatus::Unresolved)
 }
 
-/// The requests whose rows were written since the last passed check (`written_requests`).
+/// The requests whose rows were written since the last passed check.
 fn written(world: &World) -> Vec<Arc<str>> {
     let rows = world.rows().unwrap();
     let table = &rows.support_requests;
     table.marked().iter().map(|slot| table.slots().find(|(_, at)| at == slot).unwrap().0.clone()).collect()
 }
 
-/// `test_the_memo_moves_on_to_the_minute_it_checked`: the world of minute 20, its minute moved on.
+/// The world of minute 20, its minute moved on.
 #[test]
 fn the_memo_moves_on_to_the_minute_it_checked() {
     let (loaded, mut host) = generated();
@@ -65,8 +59,8 @@ fn the_memo_moves_on_to_the_minute_it_checked() {
     assert_eq!(memo.minute, 21);
 }
 
-/// `test_a_new_request_is_read_and_held`: a settled request copied under a new key is read and
-/// held, with no mark left; a write to it marks its slot, and the check turns it down.
+/// A settled request copied under a new key is read and held, with no mark left; a write to it
+/// marks its slot, and the check turns it down.
 #[test]
 fn a_new_request_is_read_and_held() {
     let (loaded, mut host) = generated();
@@ -89,9 +83,9 @@ fn a_new_request_is_read_and_held() {
     assert!(check(&loaded, &mut host, &mut memo).is_err());
 }
 
-/// `_reopened`: the first settled request, before an open one in the table, of someone idle with no
-/// other open request, pending again as the rules want it (the timeout its worker left in the queue,
-/// or the Run's end). Its key, or None.
+/// The first settled request, before an open one in the table, of someone idle with no other open
+/// request, pending again as the rules want it (the timeout its worker left in the queue, or the
+/// Run's end). Its key, or None.
 fn reopen(world: &World) -> Option<Arc<str>> {
     let duration = world.duration_minutes().unwrap();
     let mut rows = world.rows_mut().unwrap();
@@ -121,9 +115,8 @@ fn reopen(world: &World) -> Option<Arc<str>> {
     Some(id)
 }
 
-/// `test_a_reopened_request_comes_back_in_the_order_of_the_dict`: at the first minute of 20, 40, ...
-/// with such a request, the check holds the open requests in the order of the table, the reopened
-/// one in its place.
+/// At the first minute of 20, 40, ... with such a request, the check holds the open requests in the
+/// order of the table, the reopened one in its place.
 #[test]
 fn a_reopened_request_comes_back_in_the_order_of_the_table() {
     let (loaded, mut host) = generated();

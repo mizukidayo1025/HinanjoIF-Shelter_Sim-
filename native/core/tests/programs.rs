@@ -1,15 +1,14 @@
 //! The EffectProgram of an intervention before it is scheduled, in the core (#304): the contract
-//! (`sheltersim_core::program::EffectProgram`) reads each program of `tests/data/programs.json`
-//! as `EffectProgram.model_validate` did, or refuses what it refused, and its dump has the sha256
-//! of `program.model_dump(mode="json")`'s canonical JSON (the approval's hash); `program::validate`
-//! on the same world at the same minute (`plain::PlainRun`, the browser's host) gives the issues
-//! `validate_effect_program` gave, in the same order and texts.
+//! (`sheltersim_core::program::EffectProgram`) reads each program of `tests/data/programs.json`, or
+//! refuses it where the case is `refused`; its dump has the recorded sha256 of its canonical JSON
+//! (`dump_sha256`, the approval's hash); and `program::validate` on the same world at the same
+//! minute (`plain::PlainRun`, the browser's host) gives the recorded issues, in the same order and
+//! texts. The values were recorded before #430 and pin the core's output now.
 //!
-//! The cases are those of `tests/support/core_programs.py` (by `benchmarks/core_fixtures.py`):
-//! the six operators the offline reading of a text makes, on `small_replay` and `generated` of
-//! `tick_core.json` and on `operations`, a world with pending outages. A case marked `unsupported`
-//! is one the browser does not check (another operator of the registry, or parameters whose issue
-//! holds pydantic's text): the core refuses it.
+//! The cases are the six operators the offline reading of a text makes, on `small_replay` and
+//! `generated` of `tick_core.json` and on `operations`, a world with pending outages. A case marked
+//! `unsupported` is one the browser does not check (another operator of the registry, or
+//! parameters whose issue holds pydantic's text): the core refuses it.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -32,7 +31,7 @@ fn run_to(run: &mut PlainRun, minute: i64) {
 }
 
 #[test]
-fn the_core_reads_dumps_and_checks_each_program_as_python_did() {
+fn the_core_reads_dumps_and_checks_each_program_as_recorded() {
     let fixture: Value = serde_json::from_slice(&read("programs")).unwrap();
     let mut files = BTreeMap::new();
     let mut runs: BTreeMap<String, PlainRun> = BTreeMap::new();
@@ -71,17 +70,17 @@ fn the_core_reads_dumps_and_checks_each_program_as_python_did() {
     assert!(checked >= 35 && with_issues >= 25, "{checked} {with_issues}");
 }
 
-/// The world's digests by part, as `core_tick.world_digests` writes them.
+/// The world's digests by part (`canonical::run_digests`).
 fn digests(run: &PlainRun) -> Value {
     let digests = run.loaded.cell.with(|world| sheltersim_core::canonical::run_digests(world)).unwrap().unwrap();
     Value::Object(digests.into_iter().map(|(part, digest)| (part.to_owned(), Value::from(digest))).collect())
 }
 
-/// A program is scheduled on the world as `BranchRuntime.apply_effect_program` scheduled it (#305):
-/// the same `command_log` entry, the same world after it and at the end of the Run; a program
-/// with issues is refused with Python's text, the world as it was.
+/// A program is scheduled on the world as recorded (#305): the same `command_log` entry, the same
+/// world after it and at the end of the Run; a program with issues is refused with the recorded
+/// issues' text, the world as it was.
 #[test]
-fn the_core_schedules_each_program_as_python_did() {
+fn the_core_schedules_each_program_as_recorded() {
     let fixture: Value = serde_json::from_slice(&read("programs")).unwrap();
     let (mut scheduled, mut refused) = (0, 0);
     for case in fixture["cases"].as_array().unwrap() {

@@ -1,20 +1,15 @@
 //! The staff's assignment: a task, a relief, a route's wait, and the support wait's reasons (Issue
-//! #225, lane M6; moved from `tests/integration/test_staff_assignment.py`).
+//! #225, lane M6).
 //!
-//! The worlds are `tests/data/staff_assignment.json` (`tests/support/core_fixtures_service.py`):
-//! `scenario_100_agents.json` with the staff and configs each pytest gave and the simulator's
-//! extensions, the worlds of a controller whose Run has route capacities, and the draws of the
-//! pytest's `random.Random(2615)`. Each case calls the core's step of the PyO3 entry the pytest
-//! called: `staff::assign_operations` with the router the pytest gave (`_graph_of`, read as the
-//! PyO3 entry reads a `SpaceRouter`), `staff::relief`, `staff::open_waits` (`_support_wait_snapshot`),
-//! the controller's `_route` and `StaffService.assign_pending` with the controller's own route and
-//! trip, each as the tick's arbitrate phase calls it.
+//! The worlds are `tests/data/staff_assignment.json`: a Scenario of 100 people with the staff and
+//! configs of each case and the simulator's extensions, the worlds of a controller whose Run has
+//! route capacities, and inputs drawn with Python's `random.Random(2615)`. Each case calls one
+//! step of the core as the tick's arbitrate phase calls it: `staff::assign_operations` with the
+//! router the case gives, `staff::relief`, `staff::open_waits`, `travel::route` and
+//! `staff::assign_pending` with the controller's own route and trip.
 //!
-//! The pytest compared what a step started with a digest of what the deleted Python rule started
-//! (`PYTHON_DIGESTS`: its answer, the world, its records and its events, with `json.dumps`); here
-//! the digest is of the answers and the worlds after them (`support/answers.rs`), recorded from the core
-//! in #225 lane M6 (decision 1): on the same kernel each pytest named in a test's doc comment passed
-//! with the digests it had.
+//! A test pins the sha256 of the answers and the worlds after them (`support/answers.rs`; decision
+//! 1 of #225). The worlds and the digests were recorded before #430 and pin the core's output now.
 
 use crate::support;
 
@@ -53,8 +48,7 @@ fn written<T>(result: WriteResult<T>) -> Result<T, Error> {
     }
 }
 
-/// The router of a `SpaceRouter` a Python caller gave, as the PyO3 entry reads its graph
-/// (`read_graph`): the open edges, but those of no room.
+/// The router of the graph a case gives: the open edges, but those of no room.
 fn router_of(graph: &Value) -> Router {
     let zones = graph["zones"].as_array().unwrap().iter().map(|zone| Arc::from(s(zone)));
     let edges = graph["edges"].as_array().unwrap().iter().filter_map(|edge| {
@@ -73,8 +67,8 @@ fn router_of(graph: &Value) -> Router {
     Router::new(zones.collect::<Vec<_>>(), edges.collect::<Vec<_>>())
 }
 
-/// `assign_staff_operations(world, minute, router)`: the plain call first, and where a free worker
-/// has a task to take, again with the routes, the floor plan and the formula.
+/// `staff::assign_operations` with a router: the plain call first, and where a free worker has a
+/// task to take, again with the routes, the floor plan and the formula.
 fn assign_operations(case: &mut Case, minute: i64, graph: &Value) -> Vec<Arc<str>> {
     let router = router_of(graph);
     let result = case
@@ -109,7 +103,7 @@ fn assign_operations(case: &mut Case, minute: i64, graph: &Value) -> Vec<Arc<str
     result
 }
 
-/// `schedule_staff_operation_relief(world, minute)`.
+/// `staff::relief` at a minute.
 fn relief(case: &mut Case, minute: i64) -> Vec<Arc<str>> {
     let result = case
         .tick(|tick| -> Result<Vec<Arc<str>>, Error> {
@@ -126,9 +120,9 @@ fn relief(case: &mut Case, minute: i64) -> Vec<Arc<str>> {
     result
 }
 
-/// `_support_wait_snapshot(world, active, minute)[0]` of the pending and assigned requests in ID
-/// order: by person, `(request, waited, reasons)`. The first call reads no routes; where it asks
-/// for them, the second reads the edges' loads, the floor plan and the sections.
+/// `staff::open_waits` of the pending and assigned requests in ID order: by person, `(request,
+/// waited, reasons)`. The first call reads no routes; where it asks for them, the second reads the
+/// edges' loads, the floor plan and the sections.
 fn waits(case: &mut Case, sample: i64) -> Vec<(String, String, i64, Vec<String>)> {
     let doc = case.doc();
     let mut ids: Vec<Arc<str>> = doc["support_requests"]
@@ -162,14 +156,14 @@ fn waits(case: &mut Case, sample: i64) -> Vec<(String, String, i64, Vec<String>)
                 (request.agent.to_string(), ids[request.index].to_string(), request.waited, found.reasons_of(request).into_iter().map(str::to_owned).collect())
             })
             .collect();
-        // `sorted(active_support, key=agent_id)`, stable.
+        // By person, stable.
         out.sort_by(|first, second| first.0.as_bytes().cmp(second.0.as_bytes()));
         Ok(out)
     })
     .unwrap()
 }
 
-/// The reasons of each request, by person (`_reasons`).
+/// The reasons of each request, by person.
 fn reasons(case: &mut Case) -> Vec<Vec<String>> {
     waits(case, 0).into_iter().map(|(_, _, _, reasons)| reasons).collect()
 }
@@ -187,11 +181,9 @@ fn assigned(label: &str) -> (Case, Vec<Arc<str>>, String) {
     (case, answer, digest)
 }
 
-// ---- assign_staff_operations ----------------------------------------------------------------------
+// ---- staff::assign_operations -------------------------------------------------------------------
 
-/// `test_a_worker_takes_the_task_the_python_rule_ranks_first` (pytest digests `ranks.None`
-/// `7da4f6ec183639af`, `ranks.staff-urgency-first-v1` `0a361a1c16e7d532`,
-/// `ranks.staff-travel-first-v1` `9b591b8fac3c7782`).
+/// With no formula, the urgency-first one and the travel-first one.
 #[test]
 fn a_worker_takes_the_task_ranked_first() {
     for (label, digest) in [
@@ -211,8 +203,6 @@ fn a_worker_takes_the_task_ranked_first() {
     }
 }
 
-/// `test_a_zone_s_threshold_names_the_reason_as_python_formats_it` (pytest digest
-/// `3e1aecc8255f15d4`).
 #[test]
 fn a_zone_s_threshold_names_the_reason() {
     let (case, answer, digest) = assigned("zone_threshold");
@@ -221,10 +211,7 @@ fn a_zone_s_threshold_names_the_reason() {
     assert_eq!(digest, "9636da47cd9eb4c33d7a73c2420dac8b55d5500660fb793975ff149e5899589f");
 }
 
-/// `test_the_rotation_reads_the_history_and_the_fatigue` (pytest digests `rotation.0.0005`
-/// `fe1a9f6b18252347`, `rotation.0.0015` `bf315e3139710a99`, `rotation.0.0025`
-/// `12ac201e10b4c1df`, `rotation.0.001` `65082333055b238e`): 1000 * 0.0005 is half way, `round()`
-/// goes to even, and the ties go by ID.
+/// 1000 * 0.0005 is half way, `round()` goes to even, and the ties go by ID.
 #[test]
 fn the_rotation_reads_the_history_and_the_fatigue() {
     for (label, digest) in [
@@ -239,9 +226,7 @@ fn the_rotation_reads_the_history_and_the_fatigue() {
     }
 }
 
-/// `test_a_patrol_s_urgency_is_half_the_mean_stress_against_another_task` (pytest digests
-/// `patrol_urgency.0.598` `2462696bf8fe417f`, `patrol_urgency.0.602` `c235dab606e85b15`): either
-/// side of the rank, a 1% change of the factor swaps them.
+/// Against another task: either side of the rank, a 1% change of the factor swaps them.
 #[test]
 fn a_patrol_s_urgency_is_half_the_mean_stress() {
     for (label, kind, digest) in [
@@ -255,8 +240,6 @@ fn a_patrol_s_urgency_is_half_the_mean_stress() {
     }
 }
 
-/// `test_the_rotation_counts_recent_work_from_four_hours_back` (pytest digest
-/// `d3535c084e011d31`).
 #[test]
 fn the_rotation_counts_recent_work_from_four_hours_back() {
     let (case, answer, digest) = assigned("recent_work");
@@ -267,8 +250,7 @@ fn the_rotation_counts_recent_work_from_four_hours_back() {
     assert_eq!(digest, "2fb541847b45441b4e787786c010a4ea029b6fcba8be360d5640cd5564328af1");
 }
 
-/// `test_a_fatigue_rounds_at_a_thousandth_in_the_rotation` (pytest digest `f4f886f4b8462b42`):
-/// both round to 50, so the ID decides; 1010 * fatigue would give 51 and 50.
+/// Both round to 50, so the ID decides; 1010 * fatigue would give 51 and 50.
 #[test]
 fn a_fatigue_rounds_at_a_thousandth_in_the_rotation() {
     let (case, answer, digest) = assigned("fatigue_rounds");
@@ -277,8 +259,6 @@ fn a_fatigue_rounds_at_a_thousandth_in_the_rotation() {
     assert_eq!(digest, "717abfe773f6eee6e1a81540282e513c3fe049da6716e1c6057ee5edc7605ae8");
 }
 
-/// `test_the_travel_first_formula_takes_the_nearer_task` (pytest digests `travel_first`
-/// `b294e15f8056d14c`, `urgency_first` `8b18793a5e14593f`).
 #[test]
 fn the_travel_first_formula_takes_the_nearer_task() {
     let (near, answer, digest) = assigned("travel_first");
@@ -291,7 +271,6 @@ fn the_travel_first_formula_takes_the_nearer_task() {
     assert_eq!(digest, "5c6e477b93447cbc78c878b0fa1b5f1435961f4b8ba7f12bad320c5a4056dea3");
 }
 
-/// `test_equal_ranks_go_by_the_kind_as_python_compares_them` (pytest digest `f3c1783863594513`):
 /// `1.0 - 0.6 == 0.8 * 0.5`.
 #[test]
 fn equal_ranks_go_by_the_kind() {
@@ -301,7 +280,6 @@ fn equal_ranks_go_by_the_kind() {
     assert_eq!(digest, "2a25ac024040d0c584f94cce9610d1855155207a0bbb91ded2e862cc8be6e621");
 }
 
-/// `test_a_small_threshold_names_the_reason_with_an_exponent` (pytest digest `bea27665c28fd976`).
 #[test]
 fn a_small_threshold_names_the_reason_with_an_exponent() {
     let (case, answer, digest) = assigned("small_threshold");
@@ -310,7 +288,6 @@ fn a_small_threshold_names_the_reason_with_an_exponent() {
     assert_eq!(digest, "36c2da48e0b0981820208b6d02abe226e70e71f2930eb32904f420b01857be7d");
 }
 
-/// `test_a_full_passage_keeps_a_worker_from_a_task` (pytest digest `efff7d4ce6533e45`).
 #[test]
 fn a_full_passage_keeps_a_worker_from_a_task() {
     let (_, answer, digest) = assigned("full_passage");
@@ -318,7 +295,7 @@ fn a_full_passage_keeps_a_worker_from_a_task() {
     assert_eq!(digest, "3992a88466a82238c39c37052878680b7dde8f586f58aadd3ab7ea268771d975");
 }
 
-/// The passages' loads at a minute (`shared_passage_edge_loads`).
+/// The passages' loads at a minute (`travel::passage_edge_loads`).
 fn passage_loads(case: &mut Case, minute: i64) -> Vec<(String, i64)> {
     let mut loads: Vec<(String, i64)> = case
         .tick(|tick| {
@@ -334,9 +311,7 @@ fn passage_loads(case: &mut Case, minute: i64) -> Vec<(String, i64)> {
     loads
 }
 
-/// `test_the_passage_loads_are_the_python_rule_s` (pytest digests `passage_loads.0`
-/// `a93d4ab3da46b5fe`, `passage_loads.1` `0f0fb0bf34700171`): the zones stay reserved, so a later
-/// minute starts nothing new on them and reads the loads.
+/// The zones stay reserved, so a later minute starts nothing new on them and reads the loads.
 #[test]
 fn the_passage_loads_are_read_a_minute_later() {
     let given = &inputs("assign_operations")["passage_loads"];
@@ -348,9 +323,7 @@ fn the_passage_loads_are_read_a_minute_later() {
     assert_eq!(case.hex(), "dfc4b75537748b640124c6b10a35ef64b050ba8514e94aa9d0553adc5d939ee9");
 }
 
-/// `test_a_trip_under_way_loads_the_edge_its_share_of_the_time_has_reached` (pytest digest
-/// `84e9301a84f3442f`): at 496 of 1000 minutes the walker is on the first edge; a 1% scale would
-/// say the second.
+/// At 496 of 1000 minutes the walker is on the first edge; a 1% scale would say the second.
 #[test]
 fn a_trip_under_way_loads_the_edge_its_share_of_the_time_has_reached() {
     let given = &inputs("assign_operations")["trip_under_way"];
@@ -361,7 +334,7 @@ fn a_trip_under_way_loads_the_edge_its_share_of_the_time_has_reached() {
     assert_eq!(case.hex(), "5c5c5842f4cef109cc29e26ee59d99947cb14647743c746bdd1a2a7fb0007269");
 }
 
-// ---- schedule_staff_operation_relief --------------------------------------------------------------
+// ---- staff::relief ------------------------------------------------------------------------------
 
 fn replacement(case: &Case) -> Value {
     case.doc()["event_queue"].as_array().unwrap().iter().find(|event| event["event_type"] == "staff_operation_relief").unwrap()["payload"]
@@ -369,8 +342,7 @@ fn replacement(case: &Case) -> Value {
         .clone()
 }
 
-/// `test_a_relief_goes_to_the_replacement_the_python_rule_picks` (pytest digest
-/// `708bac4aa204b371`): the one scheduled is not asked for again.
+/// The one scheduled is not asked for again.
 #[test]
 fn a_relief_goes_to_a_replacement_at_the_task() {
     let mut case = Case::of(FILE, s(&inputs("relief")["world"]));
@@ -381,8 +353,6 @@ fn a_relief_goes_to_a_replacement_at_the_task() {
     assert!([json!("S02"), json!("S03")].contains(&replacement(&case)));
 }
 
-/// `test_a_relief_goes_to_the_replacement_with_the_least_work` (pytest digest
-/// `e4690399fa7ab401`).
 #[test]
 fn a_relief_goes_to_the_replacement_with_the_least_work() {
     let mut case = Case::of(FILE, s(&inputs("relief_least_work")["world"]));
@@ -391,8 +361,7 @@ fn a_relief_goes_to_the_replacement_with_the_least_work() {
     assert_eq!(replacement(&case), json!("S03"));
 }
 
-/// `test_no_relief_for_a_worker_still_on_shift_or_too_near_the_end`: still on shift at minute 0;
-/// at minute 1 the task is due at 2, too near the end.
+/// Still on shift at minute 0; at minute 1 the task is due at 2, too near the end.
 #[test]
 fn no_relief_for_a_worker_still_on_shift_or_too_near_the_end() {
     let mut on_shift = Case::of(FILE, s(&inputs("on_a_task")["world"]));
@@ -406,8 +375,8 @@ fn no_relief_for_a_worker_still_on_shift_or_too_near_the_end() {
 
 // ---- What the metrics read, with routes -----------------------------------------------------------
 
-/// `test_the_reasons_a_free_worker_s_route_gives_are_the_python_rule_s`: not attempted at the
-/// sampled minute, attempted with no reason recorded, then the reason recorded.
+/// Not attempted at the sampled minute, attempted with no reason recorded, then the reason
+/// recorded.
 #[test]
 fn the_reasons_a_free_worker_s_route_gives() {
     let steps = inputs("waits")["free_worker"].clone();
@@ -422,13 +391,12 @@ fn the_reasons_a_free_worker_s_route_gives() {
     }
 }
 
-/// `test_a_route_past_the_end_of_the_run_is_its_reason`.
 #[test]
 fn a_route_past_the_end_of_the_run_is_its_reason() {
     assert_eq!(reasons(&mut Case::of(FILE, s(&inputs("waits")["past_the_end"]))), [["insufficient_run_time"]]);
 }
 
-/// `test_a_route_that_ends_exactly_at_the_run_s_end_is_too_late`: its minutes and ten of service.
+/// Its minutes and ten of service.
 #[test]
 fn a_route_that_ends_exactly_at_the_run_s_end_is_too_late() {
     for item in inputs("waits")["ends_exactly"].as_array().unwrap() {
@@ -437,8 +405,7 @@ fn a_route_that_ends_exactly_at_the_run_s_end_is_too_late() {
     }
 }
 
-/// `test_a_full_destination_counts_who_is_on_the_way`: one there and one walking there fill a
-/// toilet of two.
+/// One there and one walking there fill a toilet of two.
 #[test]
 fn a_full_destination_counts_who_is_on_the_way() {
     let worlds = inputs("waits")["full_destination"].clone();
@@ -446,7 +413,6 @@ fn a_full_destination_counts_who_is_on_the_way() {
     assert_ne!(reasons(&mut Case::of(FILE, s(&worlds[1]))), [["staff_destination_full"]]);
 }
 
-/// `test_a_full_destination_and_a_full_passage_are_their_reasons`.
 #[test]
 fn a_full_destination_and_a_full_passage_are_their_reasons() {
     let worlds = inputs("waits")["full_passage"].clone();
@@ -456,10 +422,8 @@ fn a_full_destination_and_a_full_passage_are_their_reasons() {
     }
 }
 
-/// `test_many_worlds_read_the_same_reasons_with_free_and_busy_workers` (pytest digest
-/// `886f522f9c88ebae` of the snapshots' `json.dumps`): 120 worlds of the pytest's draws, each its
-/// base with the people's zones, the busy staff, the requests, the metric and a zone's capacity
-/// set as the pytest set them (`_drawn_world` of the builder, which checks they make its world).
+/// 120 worlds of the recorded draws, each its base with the people's zones, the busy staff, the
+/// requests, the metric and a zone's capacity set as drawn.
 #[test]
 fn many_worlds_read_the_same_reasons_with_free_and_busy_workers() {
     let drawn = inputs("many_worlds")["worlds"].clone();
@@ -501,15 +465,13 @@ fn many_worlds_read_the_same_reasons_with_free_and_busy_workers() {
     }
 }
 
-// ---- _route with edge capacities ------------------------------------------------------------------
+// ---- travel::route with edge capacities ---------------------------------------------------------
 
 fn capacity_waits(case: &Case) -> usize {
     case.doc()["event_log"].as_array().unwrap().iter().filter(|record| record["event"]["event_type"] == "zone_edge_capacity_wait").count()
 }
 
-/// `test_a_route_with_a_full_edge_records_its_wait_as_the_python_rule_does` (pytest digest
-/// `f4d92ff6d72e10df`): no route past the full edges, and its wait recorded once; a person already
-/// there needs none.
+/// No route past the full edges, and its wait recorded once; a person already there needs none.
 #[test]
 fn a_route_with_a_full_edge_records_its_wait() {
     let mut case = Case::of(FILE, s(&inputs("route_full_edge")["world"]));
@@ -521,8 +483,6 @@ fn a_route_with_a_full_edge_records_its_wait() {
     assert_eq!(case.hex(), "50e3430e26f5e73d5ca6e54925bdd94b56fb10471b46fcef9f224d691de02e4e");
 }
 
-/// `test_a_route_with_room_on_its_edges_counts_the_trips_under_way` (pytest digest
-/// `99b6008414a8e20a`).
 #[test]
 fn a_route_with_room_on_its_edges_counts_the_trips_under_way() {
     let mut case = Case::of(FILE, s(&inputs("route_room")["world"]));
@@ -535,9 +495,8 @@ fn a_route_with_room_on_its_edges_counts_the_trips_under_way() {
     assert_eq!(case.hex(), "82a691f41b01ab09236b1d7b4c4a93f67a500d97f2e720fc3f4ce6048026efbc");
 }
 
-/// `StaffService.assign_pending(minute, validate_state=False)` with the service as the Run read
-/// it: the plain case first, and where a request may be assigned, the controller's own route and
-/// trip.
+/// `staff::assign_pending` without the world's validation, with the service as the Run read it:
+/// the plain case first, and where a request may be assigned, the controller's own route and trip.
 fn assign_pending(case: &mut Case, minute: i64) -> Vec<Arc<str>> {
     let result = case
         .tick(|tick| -> Result<Vec<Arc<str>>, Error> {
@@ -581,10 +540,8 @@ fn assign_pending(case: &mut Case, minute: i64) -> Vec<Arc<str>> {
     result
 }
 
-/// `test_the_controller_s_own_route_and_trip_decide_an_assignment` (pytest digests `full`
-/// `d7277550d063eaba`, `late` `5cb01dc39695c9aa`, `trip` `60c1b30ab87e9513`): a full edge leaves no
-/// route (and records its wait), a task past the Run's end is not started, and a route with room
-/// schedules the person's trip before the task's event.
+/// A full edge leaves no route (and records its wait), a task past the Run's end is not started,
+/// and a route with room schedules the person's trip before the task's event.
 #[test]
 fn the_controller_s_own_route_and_trip_decide_an_assignment() {
     let given = inputs("own_route_and_trip");

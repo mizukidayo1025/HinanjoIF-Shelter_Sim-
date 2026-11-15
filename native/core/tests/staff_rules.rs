@@ -1,15 +1,12 @@
-//! The staff's rules of a tick and the shared operations' receipts on the worlds the pytest files
-//! built (Issue #225, lane M4; moved from `tests/integration/test_staff_rules.py` and three tests of
-//! `test_handler_rest_rules.py`).
+//! The staff's rules of a tick and the shared operations' receipts (`rules::staff`,
+//! `rules::common_operations`; Issue #225, lane M4).
 //!
-//! The worlds are `tests/support/core_fixtures_staff.py`'s (`staff_rules.json`): the small replay
-//! with three staff members, edited as each pytest edited it. Each test calls the core's rule the
-//! PyO3 entry of the pytest called (`rules::staff`, `rules::common_operations`), with what that
-//! entry reads besides the world read as the core's tick reads it (`kit::holding`, the sections of
-//! the exported configs, the floor plan). The rules have no Python body left (lane L10,
-//! `kernel_only`): they are checked against the deleted rule's formula as the pytest wrote it (the
-//! fixture's values), or against a digest of what that rule gave, which the test writes again
-//! byte for byte (`support/dumps.rs`, `support/canonical.rs`).
+//! The worlds are `staff_rules.json`: the small replay with three staff members, edited for each
+//! test. Each test calls one rule of the core, with what it reads besides the world read as the
+//! core's tick reads it (`kit::holding`, the sections of the exported configs, the floor plan). A
+//! test checks the fixture's values, or a digest of what the rule gave (`support/dumps.rs`,
+//! `support/canonical.rs`). The worlds, the values and the digests were recorded before #430 and
+//! pin the core's output now.
 
 use crate::support;
 
@@ -46,7 +43,7 @@ fn data() -> Value {
     load::data(FILE)
 }
 
-/// The first 16 hex digits of the sha256 of a text, as the pytest files pinned them.
+/// The first 16 hex digits of the sha256 of a text, as the tests pin them.
 fn digest(text: &str) -> String {
     sha256_hex(text.as_bytes())[..16].to_owned()
 }
@@ -98,7 +95,7 @@ impl Rig {
         }
     }
 
-    /// `dict(world.metric_state)`, in the row's order (which the Python dict follows).
+    /// The world's `metric_state`, in the row's order.
     fn metric_state(&self) -> V {
         self.cell.with(|world| V::Map(world.metric_state().unwrap().iter().map(|(key, value)| (key.clone(), V::Float(*value))).collect())).unwrap()
     }
@@ -107,15 +104,14 @@ impl Rig {
         self.cell.with(|world| world.scalars.get_mut().minute_index = Fit::Ok(minute)).unwrap();
     }
 
-    /// `update_staff_operations(world, minute)`.
+    /// `staff::update_operations` at a minute.
     fn update(&mut self, minute: i64) -> Result<(), Error> {
         let staff = self.staff();
         self.cell.with(|world| staff::update_operations(world, &staff.inputs(None), minute)).unwrap()
     }
 
-    /// `assign_staff_operations(world, minute, router)` up to the router: what it started without
-    /// routes, or `NeedsRoutes` where a free worker has a task to take (the PyO3 entry then reads
-    /// the router).
+    /// `staff::assign_operations` up to the router: what it started without routes, or
+    /// `NeedsRoutes` where a free worker has a task to take (the tick then reads the router).
     fn operations(&mut self, minute: i64) -> WriteResult<Operations> {
         let holding = kit::holding(&self.cell, &mut self.host).unwrap();
         let known = kit::kept_section_value(
@@ -131,21 +127,21 @@ impl Rig {
         self.cell.with(|world| staff::assign_operations(world, &staff.inputs(None), &known, minute, None)).unwrap()
     }
 
-    /// `schedule_staff_operation_relief(world, minute)`.
+    /// `staff::relief` at a minute.
     fn relief(&mut self, minute: i64) -> WriteResult<Vec<Arc<str>>> {
         let staff = self.staff();
         self.cell.with(|world| staff::relief(world, &staff.inputs(None), minute)).unwrap()
     }
 
-    /// `assign_none` of the PyO3 crate without the validation: whether every request stays pending
-    /// (and was written so).
+    /// `staff::assign_plain` without the validation: whether every request stays pending (and was
+    /// written so).
     fn plain(&mut self, minute: i64) -> bool {
         let staff = self.staff();
         self.cell.with(|world| staff::assign_plain(world, &staff.inputs(None), minute)).unwrap().unwrap()
     }
 
-    /// `StaffService(world, ...).assign_pending(minute, validate_state=False)` of a service with no
-    /// route: the plain case first, and where a request may be assigned, what the tasks read.
+    /// `staff::assign_pending` without the validation, of a service with no route: the plain case
+    /// first, and where a request may be assigned, what the tasks read.
     fn assign(&mut self, service: &Service, minute: i64) -> Vec<Arc<str>> {
         let holding = kit::holding(&self.cell, &mut self.host).unwrap();
         let staff = Staff::of(&holding).unwrap();
@@ -179,9 +175,8 @@ impl Rig {
         }
     }
 
-    /// `_support_wait_snapshot(world, active, sample)` of the open requests (pending or assigned,
-    /// by ID), as the PyO3 entry makes its value: `[details, no_qualified]`. The routes' inputs are
-    /// read where the core asks for them, as `with_wait_inputs` reads them.
+    /// `staff::open_waits` of the open requests (pending or assigned, by ID), as the value
+    /// `[details, no_qualified]`. The routes' inputs are read where the core asks for them.
     fn snapshot(&mut self, sample: i64) -> V {
         let ids: Vec<Arc<str>> = match self.part("support_requests") {
             V::List(rows) => rows
@@ -233,8 +228,8 @@ impl Rig {
         V::List(vec![V::Map(details), V::List(no_qualified.into_iter().map(|agent| V::Str(Arc::from(agent))).collect())])
     }
 
-    /// `record_shared_operation(world, receipt)` at the receipt's minute, with the receipt's record
-    /// in the EventLog (`find_record` of the host).
+    /// `common_operations::record_shared_operation` at the receipt's minute, with the receipt's
+    /// record in the EventLog (`find_record` of the host).
     fn record(&mut self, logged: &Value) -> Result<(), Error> {
         let record = &logged["record"];
         let event = load::event(&record["event"]);
@@ -250,13 +245,13 @@ fn is_unsupported<T: std::fmt::Debug>(result: &WriteResult<T>) -> bool {
     matches!(result, Err(WriteError::Error(Error::Unsupported(_))))
 }
 
-/// The zones of `staff_operations_v1`, as the core's test writes the deleted rule's (sorted keys).
+/// The zones of `staff_operations_v1`, as `json.dumps` with sorted keys writes them.
 fn zones_text(rig: &Rig) -> String {
     let V::Map(state) = rig.namespace(KEY) else { unreachable!() };
     Dumps::default().sorted().text(&state["zones"])
 }
 
-/// `StaffService(world)`: what `assign_pending` takes of a service of no route, with its
+/// What `staff::assign_pending` takes of a service of no route, with its
 /// `fairness_after_minutes`.
 fn service(data: &Value, fairness_after: Option<i64>) -> Service {
     let given = &data["service"];
@@ -269,12 +264,12 @@ fn service(data: &Value, fairness_after: Option<i64>) -> Service {
     }
 }
 
-// ---- update_staff_operations ---------------------------------------------------------------------
+// ---- staff::update_operations -------------------------------------------------------------------
 
 /// Each zone's sanitation falls by `load * rate * elapsed`, down to 0.0, on 40 rounds of random
 /// rates (Python's `random.Random(7)`), each updated at 4 random minutes.
 #[test]
-fn the_sanitation_is_the_python_rules_on_random_rates() {
+fn the_sanitation_is_the_recorded_one_on_random_rates() {
     let data = data();
     let rounds = data["tests"]["sanitation_random_rates"].as_array().unwrap();
     assert_eq!(rounds.len(), 40);
@@ -297,9 +292,9 @@ fn a_rate_of_one_percent_more_shows() {
 }
 
 /// `canonical_staff_operations_config` takes an int rate in its range (0, or 1 for the global
-/// one); the Python rule's product was then an int, taken off the sanitation as its float.
+/// one); the product is then an int, taken off the sanitation as its float.
 #[test]
-fn an_int_rate_the_config_takes_is_the_python_rule_s() {
+fn an_int_rate_the_config_takes_gives_the_recorded_sanitation() {
     let data = data();
     let cases = data["tests"]["int_rate"].as_array().unwrap();
     assert_eq!(cases.len(), 3);
@@ -310,8 +305,8 @@ fn an_int_rate_the_config_takes_is_the_python_rule_s() {
     }
 }
 
-/// `config["effects_by_zone"]`: the Python rule raised KeyError for a config no rule writes; the
-/// core leaves it to Python, with nothing changed.
+/// A config without `effects_by_zone`, which no rule writes: the core refuses it (`Unsupported`),
+/// with nothing changed.
 #[test]
 fn a_config_without_its_table_changes_nothing_and_is_refused() {
     let data = data();
@@ -321,7 +316,7 @@ fn a_config_without_its_table_changes_nothing_and_is_refused() {
     assert!(rig.parts() == before);
 }
 
-// ---- assign_staff_operations, schedule_staff_operation_relief ------------------------------------
+// ---- staff::assign_operations, staff::relief ----------------------------------------------------
 
 fn check_operations(group: &str, count: usize) {
     let data = data();
@@ -359,9 +354,9 @@ fn the_outreach_threshold_is_the_rules() {
     check_operations("outreach", 2);
 }
 
-/// A repair is due where a facility lacks a working unit; another formula is the Python rule's.
+/// A repair is due where a facility lacks a working unit; another formula is refused.
 #[test]
-fn a_repair_reads_the_router_and_another_formula_goes_to_the_python_rule() {
+fn a_repair_reads_the_router_and_another_formula_is_refused() {
     check_operations("repair", 3);
 }
 
@@ -380,17 +375,17 @@ fn a_tick_with_nothing_to_start_changes_nothing() {
 }
 
 #[test]
-fn a_task_with_no_id_sends_the_relief_to_the_python_rule() {
+fn a_task_with_no_id_refuses_the_relief() {
     let data = data();
     let mut rig = rig(&data, "working_without_task");
     assert!(is_unsupported(&rig.relief(3)));
     assert_eq!(rig.relief(199).unwrap(), Vec::<Arc<str>>::new());
 }
 
-// ---- StaffService.assign_pending -----------------------------------------------------------------
+// ---- staff::assign_pending ----------------------------------------------------------------------
 
 /// `[(id, last_assignment_attempt_minute, last_assignment_wait_reason_code), ...]` of the requests,
-/// in the order of `world.support_requests` (made in ID order).
+/// in the order of the world's `support_requests` (made in ID order).
 fn waiting_fields(rig: &Rig) -> V {
     let V::List(rows) = rig.part("support_requests") else { unreachable!() };
     let fields = ["id", "last_assignment_attempt_minute", "last_assignment_wait_reason_code"];
@@ -413,10 +408,9 @@ fn waiting_fields(rig: &Rig) -> V {
 
 /// 30 rounds of random skills and care kinds (Python's `random.Random(11)`) where every request
 /// stays pending: the waiting fields and the metrics, and the metrics after a second call at the
-/// same minute, which adds nothing. The digest of their texts is the one the pytest took from the
-/// Python rule before it went (lane L10).
+/// same minute, which adds nothing. The digest of their texts is the recorded one.
 #[test]
-fn requests_that_stay_pending_are_the_python_rules() {
+fn requests_that_stay_pending_give_the_recorded_fields() {
     let data = data();
     let service = service(&data, None);
     let rounds = data["tests"]["pending_rounds"].as_array().unwrap();
@@ -433,7 +427,7 @@ fn requests_that_stay_pending_are_the_python_rules() {
 }
 
 #[test]
-fn the_wait_counts_staff_off_shift_away_and_busy_as_the_python_rule_does() {
+fn the_wait_counts_staff_off_shift_away_and_busy() {
     let data = data();
     let mut rig = rig(&data, "off_shift");
     assert_eq!(rig.assign(&service(&data, None), 0), Vec::<Arc<str>>::new());
@@ -500,9 +494,9 @@ fn each_kind_asks_for_the_skills_of_the_table() {
 
 /// 120 rounds of random staff (Python's `random.Random(23)`): busy, on another operation, resting,
 /// off shift; requests pending, in progress or on the way. The digest of the snapshots' texts is
-/// the one the pytest took from the Python rule before it went (lane L10).
+/// the recorded one.
 #[test]
-fn the_reasons_are_the_python_rules_on_random_staff() {
+fn the_reasons_are_the_recorded_ones_on_random_staff() {
     let data = data();
     let rounds = data["tests"]["reasons_rounds"].as_array().unwrap();
     assert_eq!(rounds.len(), 120);
@@ -527,9 +521,9 @@ fn the_reasons_are_the_python_rules_on_random_staff() {
     }
 }
 
-/// A free worker's route is read for the wait; the digest the pytest took from the Python rule.
+/// A free worker's route is read for the wait; the digest is the recorded one.
 #[test]
-fn a_free_worker_s_route_is_read_as_the_python_rule_reads_it() {
+fn a_free_worker_s_route_is_read_for_the_wait() {
     let data = data();
     let mut rig = rig(&data, "free_worker");
     let answer = rig.snapshot(0);
@@ -538,19 +532,18 @@ fn a_free_worker_s_route_is_read_as_the_python_rule_reads_it() {
     assert_eq!(digest(&Dumps::default().text(&answer)), "af5c0d0aa04d98b8");
 }
 
-// ---- The assignment of a request (test_handler_rest_rules.py) ------------------------------------
+// ---- The assignment of a request ----------------------------------------------------------------
 
-/// `_digest(_bytes(world))` of test_handler_rest_rules.py: the world's canonical text as a JSON
-/// string (`json.dumps(text, sort_keys=True, ensure_ascii=False)`).
+/// The digest of the world's canonical text as a JSON string (`json.dumps(text, sort_keys=True,
+/// ensure_ascii=False)`).
 fn world_digest(rig: &Rig) -> String {
     let text = rig.cell.with(|world| canonical_json(world, &rig.entry["world"]["rng_state"])).unwrap();
     digest(&Dumps::default().unicode().sorted().text(&V::Str(Arc::from(String::from_utf8(text).unwrap()))))
 }
 
-/// The world after the assignment is the one the Python rule left: the digest the pytest took
-/// before it went (lane L10).
+/// The world after the assignment has the recorded digest.
 #[test]
-fn a_free_worker_takes_a_request_as_in_python() {
+fn a_free_worker_takes_a_request() {
     let data = data();
     let mut rig = rig(&data, "staffed_request");
     let assigned = rig.assign(&service(&data, None), 10);
@@ -561,7 +554,7 @@ fn a_free_worker_takes_a_request_as_in_python() {
 }
 
 #[test]
-fn an_old_request_is_promoted_as_in_python() {
+fn an_old_request_is_promoted() {
     let data = data();
     let mut rig = rig(&data, "staffed_old_request");
     assert_eq!(rig.assign(&service(&data, Some(3)), 10), vec![Arc::<str>::from("support-t1")]);
@@ -575,11 +568,10 @@ fn nobody_free_leaves_the_plain_kernel_running() {
     assert!(rig(&data, "staffed_nobody_free").plain(10));
 }
 
-// ---- record_shared_operation ---------------------------------------------------------------------
+// ---- common_operations::record_shared_operation -------------------------------------------------
 
-/// `json.dumps(world.model_state[SHARED])` of the tree the pytest kept: the row's document, the
-/// namespace's keys in the order Python made the tree (the fixture's `shared_keys`), and what the
-/// kernel wrote into it in the row's order, sorted (`_same_receipt` of the pytest).
+/// `json.dumps` of `shared_operations_v1`, its keys in the recorded order (the fixture's
+/// `shared_keys`).
 fn shared_text(rig: &Rig, data: &Value) -> String {
     let V::Map(mut state) = rig.namespace(SHARED) else { unreachable!() };
     let keys = data["tests"]["shared_keys"].as_array().unwrap();
@@ -602,12 +594,9 @@ fn text_of(error: Error) -> String {
 /// completes, and the history of the four. The stress after it is a float of the run, pinned by
 /// the digest of the four states (with sorted keys).
 ///
-/// The digest was recorded from the core in #225 lane M4: the pytest's was of the Python tree,
-/// whose heads have the contract's key order, which the row does not keep. On the same kernel the
-/// pytest `test_staff_rules.py::test_a_request_s_receipts_are_the_python_rules_and_kept_in_the_row`
-/// with digest `f685064e884a` passed, and its four trees written with sorted keys give this digest.
+/// The digest was recorded from the core in #225 lane M4.
 #[test]
-fn a_request_s_receipts_are_the_python_rules_and_kept_in_the_row() {
+fn a_request_s_receipts_are_the_recorded_ones_and_kept_in_the_row() {
     let data = data();
     let mut rig = rig(&data, "plain");
     let mut states = Vec::new();

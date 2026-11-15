@@ -28,7 +28,7 @@ Python標準ライブラリのHTTPサーバーがローカルブラウザーの�
 | core | Scenarioの作成が使う決定的乱数（`core/rng.py`） |
 | domain | Scenarioが選ぶ設定とその検証（`ScenarioSpec`が読む型と正準化） |
 | events | Scenarioが予定するeventの種類 |
-| policies | Scenarioが選べるモデルの登録（`policies/registry.py`） |
+| policies | Scenarioが設定する心理・社会モデルの係数の型と、待ち行列の設定の確かめ（モデルの定義と選択は中核のModel Catalog、`contracts/policies.py`が読む） |
 | experiments | Scenario、生成、モデルの評価、Projectの道の計算（`project_runs.py`） |
 | region | 地域データ、標準の合成施設とgeometry検証 |
 | llm | Provider adapter、型付き出力、cache、応答再生、利用額記録、中核のLLMの口へのつなぎ（`llm/link.py`） |

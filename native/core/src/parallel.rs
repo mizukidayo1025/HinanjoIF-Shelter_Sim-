@@ -21,7 +21,7 @@
 use std::ops::Range;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use crate::{census, rng};
+use crate::rng;
 
 /// A helper takes this many people at a time.
 const PEOPLE_PER_PART: usize = 32;
@@ -34,10 +34,10 @@ fn per_helper() -> usize {
     PER_HELPER.load(Ordering::Relaxed).max(1)
 }
 
-/// The helpers for `count` people, or None for the calling thread alone. The census and the draw
-/// log count what this thread does, in its order, so with either on the work stays here.
+/// The helpers for `count` people, or None for the calling thread alone. The draw log keeps what
+/// this thread draws, in its order, so with it on the work stays here.
 fn helpers_for(count: usize) -> Option<pool::Helpers> {
-    if census::is_on() || rng::draw_log_is_on() {
+    if rng::draw_log_is_on() {
         return None;
     }
     pool::helpers((count / per_helper()).min(pool::threads()))

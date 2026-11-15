@@ -3,11 +3,11 @@
 // Usage: node native/wasm/tests/node_initial.mjs PKG_DIR
 //   PKG_DIR: the output of `wasm-bindgen --target nodejs` for sheltersim_wasm.wasm.
 //
-// For each Scenario of native/core/tests/data/initial_worlds.json (tests/support/core_initial.py),
-// `initialEntry` of its canonical JSON must be the entry Python exports of its world at minute 0
-// (the sha256 of its bytes), and that entry, run for the fixture's ticks, must reach the native
-// path's world (the digests of its parts and of the metric samples), as
-// native/core/tests/initial.rs checks in native code. What is not a Scenario is a JS error, and
+// For each Scenario of native/core/tests/data/initial_worlds.json, `initialEntry` of its canonical
+// JSON must be the recorded entry of its world at minute 0 (the sha256 of its bytes), and that
+// entry, run for the fixture's ticks, must reach the recorded world (the digests of its parts and
+// of the metric samples; recorded before #430), as native/core/tests/initial.rs checks in native
+// code. What is not a Scenario is a JS error, and
 // configs the core's table lacks are an error that says "unsupported: ".
 
 import { readFileSync } from "node:fs";

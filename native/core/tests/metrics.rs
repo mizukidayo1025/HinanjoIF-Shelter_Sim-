@@ -344,7 +344,10 @@ fn what_the_kernel_refused_it_still_refuses_with_its_text() {
 
     let world = self::world();
     assert_eq!(sample_of(&world, false).err(), Some(unsupported("the field holds another dict")));
-    world.slots.get(METRIC_STATE).unwrap().try_borrow_mut().unwrap().misfit("an int".to_owned());
+    {
+        let mut slot = world.slots.get(METRIC_STATE).unwrap().try_borrow_mut().unwrap();
+        (slot.row, slot.taint) = (None, Some("an int".to_owned()));
+    }
     assert_eq!(sample_of(&world, true).err(), Some(unsupported("the namespace has no row")));
 
     assert_eq!(sample_of(&bare(), false).err(), Some(unsupported("the namespace is not owned")));

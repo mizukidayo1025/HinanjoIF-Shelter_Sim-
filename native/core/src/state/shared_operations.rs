@@ -118,11 +118,6 @@ impl Heads {
         Self { map, unchecked: true }
     }
 
-    /// A forwarded write reached the heads.
-    pub fn mark_unchecked(&mut self) {
-        self.unchecked = true;
-    }
-
     /// Whether every head is one the contract takes. Reads them only after a forwarded write.
     pub fn are_valid(&mut self) -> bool {
         if self.unchecked {

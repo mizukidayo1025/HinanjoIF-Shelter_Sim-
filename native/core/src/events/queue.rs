@@ -113,12 +113,6 @@ impl Queue {
         0
     }
 
-    /// The first scheduled event of this ID, in the order the events were added (the event a
-    /// replace finds).
-    pub fn first_scheduled(&self, event_id: &str) -> Option<u64> {
-        self.insertion.iter().copied().find(|serial| &*self.slots[serial].event_id == event_id)
-    }
-
     /// A new order for an event, which has no row until one is read again.
     pub fn rekey(&mut self, serial: u64, key: Key) {
         let (event_id, current) = {

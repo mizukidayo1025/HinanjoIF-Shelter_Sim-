@@ -3,11 +3,10 @@
 //
 //   GET /api/v1/projects/{p}/runs/{r}/branches/{b}/history?kind=kpis&start=&end=&step=&limit=&cursor=
 //       historyResponse: from the branch's stored metric samples (js/run_store.mjs, #252), paged as
-//       the history index pages them (src/sheltersim/web/project_queries.py,
-//       src/sheltersim/storage/history_index.py)
+//       the server pages them (src/sheltersim/web/project_queries.py)
 //   GET …/branches/{b}/report       reportResponse: what the server writes when an offline Run of
-//       the screen completes (web/workspace.py `finish_review`: the evidence review's rule
-//       fallback), or {"status":"not_generated"} before
+//       the screen completes (the evidence review's rule fallback; web/worker_process.py
+//       `review` for a Run with an LLM), or {"status":"not_generated"} before
 //   GET …/branches/{b}/llm-status   llmStatusResponse: the offline Run's answer (no router records)
 //
 // The answers, their checks and their refusals are the core's (`sheltersim_core::answers`, #449),

@@ -546,17 +546,6 @@ pub enum Place {
     Value,
 }
 
-/// Counters for the budget of a lane.
-#[derive(Copy, Clone, Default, PartialEq, Eq, Debug)]
-pub struct SlotCounts {
-    /// Writes forwarded from the tree to the row.
-    pub forwards: u64,
-    /// Whole values stored over the slot.
-    pub whole_writes: u64,
-    /// Trees built again from the row after a detach.
-    pub rebuilds: u64,
-}
-
 /// One owned field or namespace: its row, and what is known of it.
 pub struct Slot {
     pub place: Place,
@@ -565,12 +554,9 @@ pub struct Slot {
     /// Why the row was dropped: a value or a write that does not fit. A rule that reads it says
     /// Unsupported.
     pub taint: Option<String>,
-    /// The row alone holds the state, with no tree (the Python world's; since #430 always false).
-    pub detached: bool,
     /// Changes with every write to the row: while it stands, the state is what it was. A
     /// process-unique stamp, never `+= 1`.
     pub generation: Stamp,
-    pub counts: SlotCounts,
     /// A kernel of the core wrote the row since the marks were last taken (`Slots::take_written`).
     /// Not state.
     pub written: bool,
@@ -587,9 +573,7 @@ impl Clone for Slot {
             place: self.place,
             row: self.row.as_ref().map(|row| row.clone_row()),
             taint: self.taint.clone(),
-            detached: self.detached,
             generation: self.generation,
-            counts: self.counts,
             written: self.written,
             keys: self.keys.clone(),
         }
@@ -598,7 +582,7 @@ impl Clone for Slot {
 
 impl Slot {
     pub fn new(place: Place) -> Self {
-        Self { place, row: None, taint: None, detached: false, generation: Stamp::next(), counts: SlotCounts::default(), written: false, keys: None }
+        Self { place, row: None, taint: None, generation: Stamp::next(), written: false, keys: None }
     }
 
     /// The row as its type, to write from a kernel of the core: the slot gets a new stamp and its
@@ -634,12 +618,6 @@ impl Slot {
     #[inline]
     pub fn touch(&mut self) {
         self.generation = Stamp::next();
-    }
-
-    /// Drop the row, for a write that does not fit.
-    pub fn misfit(&mut self, why: String) {
-        self.row = None;
-        self.taint = Some(why);
     }
 
     /// The row as its type, or Unsupported (the kernels' answer for a tainted or absent namespace).

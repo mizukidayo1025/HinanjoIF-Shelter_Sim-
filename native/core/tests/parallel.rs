@@ -9,7 +9,7 @@ use std::ops::Range;
 
 use rustc_hash::FxHashSet;
 use sha2::{Digest, Sha256};
-use sheltersim_core::checkpoint::{candidates, chunk_hash, chunk_hashes, hex, sensitive_candidates, Candidates};
+use sheltersim_core::checkpoint::{candidates, hex, sensitive_candidates, Candidates};
 use sheltersim_core::parallel::{in_order, parallel_state, parts_in_order, set_people_per_helper};
 
 const PEOPLE: usize = 1000;
@@ -18,7 +18,7 @@ const PER_HELPER: usize = 8;
 const PER_PART: usize = 64;
 
 /// The digest of everything below, frozen from the build with the `parallel` feature.
-const FROZEN: &str = "97d12c344c4ac193714d4edc40325b7b014553ca1ef93db157979cd205f5704a";
+const FROZEN: &str = "9ab65f6dc7d080f6ac56860241ae7c73633330660f6d45b09310f8921d0c35c0";
 
 /// A person's compute: bytes that depend on the index alone.
 fn person(index: usize) -> Vec<u8> {
@@ -73,17 +73,9 @@ fn the_split_work_gives_the_bytes_of_a_plain_loop() {
         digest.update(sum.to_bits().to_le_bytes());
     }
 
-    // The Checkpoint kernels: the chunks' hashes in the chunks' order.
+    // The privacy candidates: the same sets as one text after another.
     let texts = json_texts();
     let raws: Vec<&[u8]> = texts.iter().map(String::as_bytes).collect();
-    let chunks: Vec<Vec<&[u8]>> = raws.chunks(3).map(<[&[u8]]>::to_vec).collect();
-    let hashes = chunk_hashes(&chunks);
-    assert_eq!(hashes, chunks.iter().map(|chunk| chunk_hash(chunk)).collect::<Vec<_>>());
-    for hash in &hashes {
-        digest.update(hash.as_bytes());
-    }
-
-    // The privacy candidates: the same sets as one text after another.
     let (keys, strings) = sensitive_candidates(&raws).unwrap();
     let mut one_by_one = Candidates::default();
     for raw in &raws {

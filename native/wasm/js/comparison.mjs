@@ -1,8 +1,8 @@
 // The browser's answers to comparing branches (Issue #307, under #292), as the Python server
 // answers them:
 //
-//   GET runs/{run}/compare?branch_ids=a,b&minute=m      src/sheltersim/web/workspace.py `comparison`
-//   GET runs/{run}/replay-frames?branch_ids=a,b&start=&end=   web/replay.py `replay_frames` of two
+//   GET runs/{run}/compare?branch_ids=a,b&minute=m      src/sheltersim/web/projects.py `_compare`
+//   GET runs/{run}/replay-frames?branch_ids=a,b&start=&end=   web/projects.py `_replay` of two
 //       branches: each minute's comparison
 //
 // The checks and the answers are the core's (`sheltersim_core::answers::frames`, #449): a
@@ -34,8 +34,8 @@ async function using(objects, use) {
   }
 }
 
-/// `ProjectWorkspace.comparison_context`'s checks of comparing `branchIds` at `minute` (the core's
-/// `comparison_range`), and the branches' fork receipts read: a refusal where they do not pass.
+/// The checks of comparing `branchIds` at `minute` (the core's `comparison_range`), and the
+/// branches' fork receipts read: a refusal where they do not pass.
 export async function comparisonContext(api, projectId, runId, branchIds, minute) {
   await using([await store.runFiles(api.wasm, api.tree, projectId, runId)], (files) =>
     core(() => api.wasm.comparisonRange(branchIds, Number.isInteger(minute) ? minute : undefined, projectId, runId, files)),

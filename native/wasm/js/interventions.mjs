@@ -2,7 +2,7 @@
 // 「ここから別の『もしも』を試す」 calls, as the Python server answers them without an API key.
 //
 //   POST runs/{run}/branches/{branch}/intervention-preview   {minute, text}
-//       src/sheltersim/web/workspace.py `intervention`: the branch at the minute, the summary of its
+//       src/sheltersim/web/workspace.py `intervention_preview`: the branch at the minute, the summary of its
 //       world (Simulation.scenarioSummary, #302), the offline compiler's result
 //       (compileInterventionOffline, #303), and for a compiled plan its EffectProgram
 //       (effectProgramDump, #304), the program's checks on the world (validateEffectProgram),
@@ -109,11 +109,11 @@ export async function interventionApply(api, projectId, runId, branchId, body) {
   }
 }
 
-/// `TimelineStore.fork` (the core's `Procedure.fork`): the parent at the minute, checked against
-/// the state the preview saw, the program applied, and the child's stored Run and record. The
-/// child's stored Run reads the parent's pieces up to the line the parent's world was restored from
-/// (its base), and stores the rest from there: the records to the fork's minute, and a saved point there, after the program was applied. Returns `last_fork` (the core's
-/// JSON).
+/// The fork (the core's `Procedure.fork`): the parent at the minute, checked against the state
+/// the preview saw, the program applied, and the child's stored Run and record. The child's stored
+/// Run reads the parent's pieces up to the line the parent's world was restored from (its base),
+/// and stores the rest from there: the records to the fork's minute, and a saved point there,
+/// after the program was applied. Returns `last_fork` (the core's JSON).
 async function fork(api, projectId, runId, parent, plan) {
   const { wasm, tree } = api;
   const minute = plan.minute();

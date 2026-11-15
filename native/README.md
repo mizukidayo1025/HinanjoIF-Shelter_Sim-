@@ -53,7 +53,14 @@ each one carries `#[rustfmt::skip]`.
     EffectProgram, saved points, LLM link, decisions) and `Restore`.
   - `rules.run_files`: the stored Runs' files (`ProjectFiles`, `Lease`, `StoredRun`,
     `Computation`).
-  - `rules.answers`: the answers of the Project routes, as the browser's.
+  - `rules.answers`: the answers of the Project routes, as the browser's, and the answers made
+    with an LLM (#463): a question about a branch's results (`questions::QuestionPlan::ask`,
+    `Asking::answer`), the review of a completed branch (`report::review`), the reading of an
+    intervention's text (`interpret::Compiling`) and the llm-status of a Run computed with an LLM.
+    Each is steps around the port of `llm.rs` (`answers::asking`): the core gives the task's JSON,
+    the caller hands it to its link and gives the reply's JSON back. `core/tests/llm_answers.rs`
+    checks the reading; `tests/integration/test_llm_answers.py` asks through the Project API with
+    a fake Provider.
   - `initial_entry`, `initial_model_versions`, `initial_evidence`, `scenario_text_parse`,
     `set_people_per_helper`, `parallel_state`, and the exception `Unsupported`.
   - `core/errors.rs` makes the core's errors Python's exceptions; `core/llm_link.rs` calls a

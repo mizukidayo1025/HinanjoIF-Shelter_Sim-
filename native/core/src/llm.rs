@@ -45,6 +45,16 @@ pub const SOCIAL_SUPPORT_REQUEST: &str = "social_support_request";
 /// The social policy's typed interaction: a complaint's response, a cooperation, an information
 /// reaction (`_consider_typed_interaction`).
 pub const SOCIAL_INTERACTION: &str = "social_interaction";
+/// A question about a branch's results (`answers::questions`, #463).
+pub const RESULT_QUESTION: &str = "result_question";
+/// The review of a completed branch (`answers::report`, #463).
+pub const RUN_REVIEW: &str = "run_review";
+/// The analysis the PDF report prints (`answers::pdf`, #463).
+pub const PDF_ANALYSIS: &str = "pdf_analysis";
+/// The reading of an intervention's text into an EffectProgram (`answers::interventions`, #463),
+/// and its one repair.
+pub const INTERVENTION_COMPILER: &str = "intervention_compiler";
+pub const INTERVENTION_REPAIR: &str = "intervention_repair";
 
 /// What the core asks of an LLM.
 #[derive(Clone, Debug, PartialEq)]
@@ -59,6 +69,10 @@ pub struct Task {
     pub output_schema: V,
     pub fallback_text: String,
     pub max_output_tokens: i64,
+    /// The input's own UTF-8 byte limit, for a task whose bounded context outgrows the router's
+    /// generic guard (Python's `LLMTask.input_byte_limit`); it changes no answer, so it is not part
+    /// of a call's identity. None for the tick's tasks.
+    pub input_byte_limit: Option<i64>,
 }
 
 impl Task {
@@ -82,6 +96,9 @@ impl Task {
         map.insert(key("output_schema"), self.output_schema.clone());
         map.insert(key("fallback_text"), text(&self.fallback_text));
         map.insert(key("max_output_tokens"), V::Int(self.max_output_tokens));
+        if let Some(limit) = self.input_byte_limit {
+            map.insert(key("input_byte_limit"), V::Int(limit));
+        }
         V::Map(map).to_json()
     }
 
@@ -307,72 +324,218 @@ impl Limits {
 
 // ---- The answer ------------------------------------------------------------------------------------
 
-/// The answer `text` read against `schema` (`validate_task_output` of `llm/contracts.py`, for the
-/// subset the core's schemas use: an object of closed properties, each a string or an integer with
-/// an `enum`, a string's `maxLength`), as its value; None where it is not JSON or does not fit.
+/// The answer `text` read against `schema` (`validate_task_output` of `llm/contracts.py`: the
+/// schema subset its `_validate_value` reads, `$ref` to the root's `$defs`, `anyOf`, `oneOf`,
+/// `type`, `const`, `enum`, a number's bounds, an object's closed `properties`, `required` and
+/// typed `additionalProperties`, an array's `items` and its length, a string's length and
+/// `pattern`), as its value; None where it is not JSON or does not fit.
 pub fn check_answer(text: &str, schema: &V) -> Option<Value> {
     if text.trim().is_empty() {
         return None;
     }
     let value: Value = serde_json::from_str(text).ok()?;
-    fits(&value, schema).then_some(value)
+    conforms(&value, schema).then_some(value)
 }
 
-fn fits(value: &Value, schema: &V) -> bool {
+/// Whether `value` fits `schema` (`_validate_value` without its message).
+pub fn conforms(value: &Value, schema: &V) -> bool {
+    fits(value, schema, schema, 0)
+}
+
+fn fits(value: &Value, schema: &V, root: &V, depth: usize) -> bool {
     let V::Map(schema) = schema else {
         return false;
     };
-    let typed = match schema.get("type") {
-        None => true,
-        Some(V::Str(kind)) => match &**kind {
+    if depth > 64 {
+        return false;
+    }
+    if let Some(reference) = schema.get("$ref") {
+        return match resolve(reference, root) {
+            Some(target) => fits(value, target, root, depth + 1),
+            None => false,
+        };
+    }
+    if let Some(V::List(candidates)) = schema.get("anyOf") {
+        return candidates.iter().any(|candidate| fits(value, candidate, root, depth + 1));
+    }
+    if let Some(V::List(candidates)) = schema.get("oneOf") {
+        return candidates.iter().filter(|candidate| fits(value, candidate, root, depth + 1)).count() == 1;
+    }
+    let kind = match schema.get("type") {
+        None => None,
+        Some(V::Str(kind)) => Some(&**kind),
+        Some(_) => return false,
+    };
+    if let Some(kind) = kind {
+        let typed = match kind {
             "object" => value.is_object(),
+            "array" => value.is_array(),
             "string" => value.is_string(),
-            "integer" => value.is_i64() || value.is_u64(),
+            "integer" => is_integer(value),
             "number" => value.is_number(),
             "boolean" => value.is_boolean(),
             "null" => value.is_null(),
-            "array" => value.is_array(),
             _ => false,
-        },
-        Some(_) => false,
-    };
-    if !typed {
-        return false;
-    }
-    if let Some(V::List(allowed)) = schema.get("enum") {
-        if !allowed.iter().any(|item| same(value, item)) {
-            return false;
-        }
-    }
-    if let (Some(V::Int(most)), Some(text)) = (schema.get("maxLength"), value.as_str()) {
-        if text.chars().count() as i64 > *most {
-            return false;
-        }
-    }
-    if let Some(object) = value.as_object() {
-        let properties = match schema.get("properties") {
-            Some(V::Map(properties)) => properties,
-            _ => return false,
         };
-        if object.keys().any(|name| !properties.contains_key(name.as_str())) {
+        if !typed {
             return false;
         }
-        if let Some(V::List(required)) = schema.get("required") {
-            if required.iter().any(|name| !matches!(name, V::Str(name) if object.contains_key(&**name))) {
+    }
+    if let Some(fixed) = schema.get("const") {
+        if !py_equal(value, fixed) || value.is_boolean() != matches!(fixed, V::Bool(_)) {
+            return false;
+        }
+    }
+    if let Some(allowed) = schema.get("enum") {
+        let V::List(allowed) = allowed else {
+            return false;
+        };
+        if !allowed.iter().any(|item| py_equal(value, item)) {
+            return false;
+        }
+    }
+    match kind {
+        Some("integer" | "number") => {
+            let Some(number) = number_of(value) else {
+                return false;
+            };
+            if !number.is_finite() {
+                return false;
+            }
+            let bound = |name: &str| schema.get(name).and_then(v_number);
+            if bound("minimum").is_some_and(|least| number < least) || bound("maximum").is_some_and(|most| number > most) {
+                return false;
+            }
+            if bound("exclusiveMinimum").is_some_and(|least| number <= least) || bound("exclusiveMaximum").is_some_and(|most| number >= most) {
                 return false;
             }
         }
-        return object.iter().all(|(name, item)| properties.get(name.as_str()).is_some_and(|property| fits(item, property)));
+        Some("object") => {
+            let object = value.as_object().expect("typed above");
+            let empty = IndexMap::new();
+            let properties = match schema.get("properties") {
+                Some(V::Map(properties)) => properties,
+                None => &empty,
+                Some(_) => return false,
+            };
+            let extra = match schema.get("additionalProperties") {
+                Some(extra @ V::Map(_)) => Some(extra),
+                _ => None,
+            };
+            if extra.is_none() && object.keys().any(|name| !properties.contains_key(name.as_str())) {
+                return false;
+            }
+            match schema.get("required") {
+                None => {}
+                Some(V::List(required)) => {
+                    if required.iter().any(|name| !matches!(name, V::Str(name) if object.contains_key(&**name))) {
+                        return false;
+                    }
+                }
+                Some(_) => return false,
+            }
+            for (name, item) in object {
+                let Some(item_schema) = properties.get(name.as_str()).or(extra) else {
+                    return false;
+                };
+                if !fits(item, item_schema, root, depth + 1) {
+                    return false;
+                }
+            }
+        }
+        Some("array") => {
+            let items = value.as_array().expect("typed above");
+            let count = items.len() as f64;
+            let least = schema.get("minItems").and_then(v_number).unwrap_or(0.0);
+            let most = schema.get("maxItems").and_then(v_number).unwrap_or(1_000_000.0);
+            if count < least || count > most {
+                return false;
+            }
+            if let Some(item_schema) = schema.get("items") {
+                if !items.iter().all(|item| fits(item, item_schema, root, depth + 1)) {
+                    return false;
+                }
+            }
+        }
+        Some("string") => {
+            let text = value.as_str().expect("typed above");
+            let length = text.chars().count() as f64;
+            let least = schema.get("minLength").and_then(v_number).unwrap_or(0.0);
+            let most = schema.get("maxLength").and_then(v_number).unwrap_or(1_000_000.0);
+            if length < least || length > most {
+                return false;
+            }
+            if let Some(pattern) = schema.get("pattern") {
+                let V::Str(pattern) = pattern else {
+                    return false;
+                };
+                if !crate::interpret::python_search(pattern, text).unwrap_or(false) {
+                    return false;
+                }
+            }
+        }
+        _ => {}
     }
     true
 }
 
-fn same(value: &Value, item: &V) -> bool {
+/// `_resolve_ref`: a reference to the root's `$defs` or `definitions`.
+fn resolve<'s>(reference: &V, root: &'s V) -> Option<&'s V> {
+    let (V::Str(reference), V::Map(root)) = (reference, root) else {
+        return None;
+    };
+    for (prefix, container) in [("#/$defs/", "$defs"), ("#/definitions/", "definitions")] {
+        if let Some(name) = reference.strip_prefix(prefix) {
+            if let Some(V::Map(definitions)) = root.get(container) {
+                if let Some(target @ V::Map(_)) = definitions.get(name) {
+                    return Some(target);
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Whether a JSON number is an int to `json.loads` (no point, no exponent).
+fn is_integer(value: &Value) -> bool {
+    matches!(value, Value::Number(number) if !number.to_string().contains(['.', 'e', 'E']))
+}
+
+fn number_of(value: &Value) -> Option<f64> {
+    match value {
+        Value::Number(number) => number.to_string().parse().ok(),
+        _ => None,
+    }
+}
+
+fn v_number(value: &V) -> Option<f64> {
+    match value {
+        V::Int(number) => Some(*number as f64),
+        V::Float(number) => Some(*number),
+        V::Big(text) => text.parse().ok(),
+        _ => None,
+    }
+}
+
+/// Python's `==` of a JSON value and a schema's value: numbers by value (a bool is 0 or 1),
+/// strings, null, lists item by item, objects key by key.
+fn py_equal(value: &Value, item: &V) -> bool {
+    let numeric = |value: &Value| match value {
+        Value::Bool(flag) => Some(f64::from(u8::from(*flag))),
+        other => number_of(other),
+    };
+    let item_numeric = match item {
+        V::Bool(flag) => Some(f64::from(u8::from(*flag))),
+        other => v_number(other),
+    };
     match (value, item) {
         (Value::String(text), V::Str(other)) => text == &**other,
-        (Value::Number(number), V::Int(other)) => number.as_i64() == Some(*other),
-        (Value::Bool(flag), V::Bool(other)) => flag == other,
         (Value::Null, V::Null) => true,
+        (Value::Array(items), V::List(others)) => items.len() == others.len() && items.iter().zip(others).all(|(a, b)| py_equal(a, b)),
+        (Value::Object(object), V::Map(other)) => {
+            object.len() == other.len() && object.iter().all(|(name, a)| other.get(name.as_str()).is_some_and(|b| py_equal(a, b)))
+        }
+        (Value::Bool(_) | Value::Number(_), _) => matches!((numeric(value), item_numeric), (Some(a), Some(b)) if a == b),
         _ => false,
     }
 }

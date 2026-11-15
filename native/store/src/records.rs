@@ -28,7 +28,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde_json::{Map, Value};
-use sheltersim_core::answers::records::is_created_at;
+use sheltersim_core::answers::records::{is_created_at, record_of, run_record_of};
 use sheltersim_core::checkpoint::sha256_hex;
 
 use crate::compress::{deflate_raw, Compress};
@@ -41,10 +41,9 @@ use crate::{Error, Result};
 /// A Run's statuses (Python's).
 pub const STATUSES: [&str; 7] = ["queued", "running", "paused", "completed", "cancelled", "failed", "interrupted"];
 
-/// Python's text of a record that is not there or is not JSON.
-pub const MISSING: &str = "saved artifact is missing or corrupt";
-/// Python's text of a record of another schema version.
-pub const UNSUPPORTED: &str = "unsupported saved artifact version; migration required";
+// The texts of a record that is not there or is not JSON, and of one of another schema version:
+// the core's, which the browser's store refuses with.
+pub use sheltersim_core::answers::records::{MISSING, UNSUPPORTED};
 
 /// A record: a JSON object.
 pub type Record = Map<String, Value>;
@@ -89,30 +88,19 @@ pub fn record_bytes(record: &Record) -> Vec<u8> {
     text.into_bytes()
 }
 
-/// The record of `bytes`: a JSON object of schema version 1, or Python's errors.
+/// The record of `bytes`: a JSON object of schema version 1, or Python's errors (the core's
+/// `record_of`).
 pub fn parse_record(bytes: &[u8]) -> Result<Record> {
-    let value: Value = std::str::from_utf8(bytes).ok().and_then(|text| serde_json::from_str(text).ok()).ok_or_else(|| Error::refused(MISSING))?;
-    match value {
-        Value::Object(map) if map.get("schema_version").and_then(Value::as_i64) == Some(1) => Ok(map),
-        _ => Err(Error::refused(UNSUPPORTED)),
-    }
+    record_of(bytes).map_err(Error::refused)
 }
 
 /// The schema version of the Run records the store writes: 2 adds `created_at` (#447).
 pub const RUN_SCHEMA_VERSION: i64 = 2;
 
-/// A Run's record of `bytes` (`run.json`): schema version 1, or 2 with its `created_at`.
+/// A Run's record of `bytes` (`run.json`): schema version 1, or 2 with its `created_at` (the
+/// core's `run_record_of`).
 pub fn parse_run_record(bytes: &[u8]) -> Result<Record> {
-    let value: Value = std::str::from_utf8(bytes).ok().and_then(|text| serde_json::from_str(text).ok()).ok_or_else(|| Error::refused(MISSING))?;
-    let version = value.get("schema_version").and_then(Value::as_i64);
-    match value {
-        Value::Object(map) if version == Some(1) => Ok(map),
-        Value::Object(map) if version == Some(RUN_SCHEMA_VERSION) => match map.get("created_at").and_then(Value::as_str) {
-            Some(created) if is_created_at(created) => Ok(map),
-            _ => Err(Error::refused(MISSING)),
-        },
-        _ => Err(Error::refused(UNSUPPORTED)),
-    }
+    run_record_of(bytes).map_err(Error::refused)
 }
 
 /// A branch's record as a writer gives it (`writeBranch`'s argument): the fork's minute 0 and the

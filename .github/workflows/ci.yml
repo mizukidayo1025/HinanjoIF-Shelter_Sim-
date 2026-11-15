@@ -178,6 +178,10 @@ jobs:
             exit 1
           fi
           cargo test --manifest-path native/Cargo.toml -p sheltersim_core --profile ci-test
+      # The files of a stored Run on a disk (native/store, #426): the browser's stored Runs and
+      # records written again byte for byte, locks, the limit, lines cut short.
+      - name: 保存したRunのファイルの置き場のテスト
+        run: cargo test --manifest-path native/Cargo.toml -p sheltersim_store --profile ci-test
 
   # The core without rayon, for the browser: a job of its own beside the core's tests, as each
   # builds them with other features (#380).

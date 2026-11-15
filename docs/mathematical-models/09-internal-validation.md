@@ -1,5 +1,8 @@
 # 09. 内部検証
 
+> `scripts/run_research_model_validation.py` はPythonの世界を読む道具だったので、Pythonの世界と一緒に#430でなくしました。下の結果は、そのときに記録したものです。
+
+
 ## テストで確認する性質
 
 追加検証は `tests/unit/policies/test_psychology.py`, `tests/unit/policies/test_social.py`, `tests/unit/policies/test_information.py`, `tests/unit/domain/test_information.py`, `tests/integration/test_research_psychology.py`, `tests/integration/test_information_spread.py`, `tests/unit/experiments/test_sanitation_diagnostics.py` にあります。既存の挙動検査は行動、待ち行列、資源、移動、checkpoint、provenanceのテスト群で再利用します。

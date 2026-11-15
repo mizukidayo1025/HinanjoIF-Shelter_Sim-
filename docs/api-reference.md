@@ -8,14 +8,14 @@
 |---|---|
 | ScenarioSpec | 固定された人口、避難所、schedule、モデル設定 |
 | ProfileSpec / 生成profile集合 | 合成人物の特性、ニーズ、provenance |
-| WorldState | 可変simulation state、将来event queue、実行済みevent履歴、モデル状態 |
-| Checkpoint | 復元、seek、replay、Branch作成のための版管理snapshot |
+| 中核の世界（`sheltersim_core::World`） | 可変simulation state、将来event queue、実行済みevent履歴、モデル状態 |
+| 保存したRun（形v5） | 目録（`journal.jsonl`）と部品（`data.pack`）。保存した点（`SavedPoint`）から復元、seek、Branch作成 |
 | EffectProgram | 対象、時刻、仮定を持つ型付き・上限付き介入計画 |
 | Project / Run / Branch | ローカルworkspace、Scenario版、Run状態、独立した履歴 |
 
-主要schemaは個別に版管理しています。現在の形式にはScenarioSpec v3、ProfileSpec v2、拡張状態に応じてWorldState v5またはv6、Checkpoint v2（v1も読めます）があります。契約変更時は現行validatorと移行テストを確認してください。版の異なるデータは互換とは限りません。
+主要schemaは個別に版管理しています。現在の形式にはScenarioSpec v3、ProfileSpec v2、保存したRunの形v5（`sheltersim-run-v5`）があります。PythonのCheckpointと形v1〜v4は読まず、計算し直してもらいます。契約変更時は現行validatorと移行テストを確認してください。版の異なるデータは互換とは限りません。
 
-Scenario JSON、Run manifest、CheckpointはJSONを使います。eventとdecisionはJSONL、metricsはCSVを使う場合があります。Run manifestにはseed、モデル版、仮定、source ID、実行mode、hash、LLM利用量とfallback集計（llm_usage.outcomes、llm-integration.md参照）を記録します。有効なsubsystemにより、追加の版管理済みtrace成果物が作られます。
+Scenario JSONとProject・Run・Branchの記録はJSONを使います。保存したRunの目録はJSONL、部品は中核のbinaryの形です（[project-persistence.md](project-persistence.md)）。Runの記録にはseed、モデル版、仮定、source ID、実行mode、hashを記録します。
 
 ## CLI
 
@@ -48,7 +48,7 @@ serverは許可されたfield/queryだけを受け付けます。実装はsrc/sh
 | /api/v1/projects/{project}/runs/{run}/branches/{branch} | timeline、履歴（`kind`は`kpis`と`conversations`だけ）、report、会話、LLM fallback集計（llm-status）を参照し、介入のpreview・apply、質問を送ります |
 | /api/v1/usage/runtime | CLI（と以前の画面のDemo）の上限付き利用記録を参照します |
 
-Project APIは登録モデル・契約（`GET …/contracts`）と、LLMの利用記録（`GET …/usage`、`GET …/runs/{run}/usage`）も扱います。Runの監査（`…/audit`）、履歴の索引（`…/index`）、Checkpointの一覧と節（`…/checkpoints`）、互換性（`…/compatibility`）、作り直し（`…/rerun`）、CLIの`project fork`・`project rerun`は、PythonのCheckpointと一緒に#427でなくしました。以前の画面だけが使った道（図面のupload・asset・Geometry、draft、evaluation、dataset、実験、複数Runの比較〔`comparison-query`〕、条件の差〔`condition-differences`〕、`first-divergence`、世帯の修正、標準施設の補正〔`facility-preview`〕、計測〔`…/telemetry`と、`resume`の`measure_performance`〕、介入なしの分岐〔`…/branches/{branch}/fork`〕、アーカイブ〔`POST …/archive`、`POST …/runs/{run}/archive`、`GET …/scenarios`、CLIの`project archive`。不要なRunは`POST …/runs/{run}/delete`で消します〕）は#376でなくしました。OpenAPI documentは別途生成していません。field・responseの正確な契約は現在のPydantic modelとtestを参照してください。
+Project APIは、中核が予定できるEffectProgramの操作の一覧（`GET …/contracts`、#430から操作の一覧だけです）と、LLMの利用記録（`GET …/usage`、`GET …/runs/{run}/usage`）も扱います。Runの監査（`…/audit`）、履歴の索引（`…/index`）、Checkpointの一覧と節（`…/checkpoints`）、互換性（`…/compatibility`）、作り直し（`…/rerun`）、CLIの`project fork`・`project rerun`は、PythonのCheckpointと一緒に#427でなくしました。以前の画面だけが使った道（図面のupload・asset・Geometry、draft、evaluation、dataset、実験、複数Runの比較〔`comparison-query`〕、条件の差〔`condition-differences`〕、`first-divergence`、世帯の修正、標準施設の補正〔`facility-preview`〕、計測〔`…/telemetry`と、`resume`の`measure_performance`〕、介入なしの分岐〔`…/branches/{branch}/fork`〕、アーカイブ〔`POST …/archive`、`POST …/runs/{run}/archive`、`GET …/scenarios`、CLIの`project archive`。不要なRunは`POST …/runs/{run}/delete`で消します〕）は#376でなくしました。OpenAPI documentは別途生成していません。field・responseの正確な契約は現在のPydantic modelとtestを参照してください。
 
 ### Projectと介入の流れ
 
@@ -75,9 +75,8 @@ Scenario作成とBranch状態変更には、確認済みhashに結び付く明�
 
 ## 正確な契約の参照先
 
-- src/sheltersim/contracts: APIとstate model。
+- src/sheltersim/contracts: Scenarioの拡張の契約。
 - src/sheltersim/experiments/scenario.py: ScenarioSpec。
-- src/sheltersim/core/world.py、checkpoint.py: 永続simulation state。
-- src/sheltersim/events/effects.py: EffectProgram schemaとinterpreter。
+- native/core/src: 中核の世界、EffectProgram（`program.rs`）と入力の契約（`contracts/`）、保存したRunの形（`run_store/`）。
 - src/sheltersim/web/projects.py、project_services.py: Project HTTP API。
 - tests/: request、validation、replay、互換性を確認する実行可能契約。

@@ -174,15 +174,8 @@ PYTHON_GONE = (
 PYTHON_GONE_PATTERN = re.compile(r"^make_\w+_record$")
 
 # Steps whose rule moved to the core: each a `kernel_only` entry with no body but its docstring,
-# as (file under src/sheltersim, class or None, name).
-BODYLESS = (
-    ("experiments/phases/dispatch.py", "DispatchPhase", "_sync_movement_after_events"),
-    ("experiments/phases/dispatch.py", "DispatchPhase", "_consider_social_contact_event"),
-    ("domain/facilities.py", "ToiletServiceManager", "arbitrate"),
-    ("domain/resource_service.py", "ResourceServiceManager", "arbitrate"),
-    ("events/handlers.py", "EventDispatcher", "_dispatch_one"),
-    ("events/handlers.py", "EventDispatcher", "settle"),
-)
+# as (file under src/sheltersim, class or None, name). None since the Python steps went (#430).
+BODYLESS: tuple[tuple[str, str | None, str], ...] = ()
 
 # The dispatcher's counters of the Python paths, gone with them (lane P9-1c).
 STATS_GONE = ("events_python", "settled_python", "finished_python", "sync_refused")

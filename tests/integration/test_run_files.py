@@ -1,13 +1,12 @@
 """The files of a stored Run on a disk, from Python (`sheltersim_native.rules.run_files`, #426).
 
 The store (`native/store`) writes and reads the browser's folders: the records, a branch's
-`journal.jsonl` and `data.pack` of format v5, computed from its head in chunks. Its locks are the
-Python server's (`ProjectStore.claim_branch`) on the same files, so a holder on either side keeps
-the other out, in this process and in another. A writer process killed while it holds its branch
-leaves the lock free and its record at its last head; a line it left cut short is not read, and
-going on from the head cuts it off and reaches the Run computed straight through. A reader in
-another process reads every piece of the lines it sees while the writer appends. That the store
-writes the browser's Runs byte for byte is `cargo test -p sheltersim_store`'s.
+`journal.jsonl` and `data.pack` of format v5, computed from its head in chunks. A holder of a
+branch's lock keeps others out, in this process and in another. A writer process killed while it
+holds its branch leaves the lock free and its record at its last head; a line it left cut short
+is not read, and going on from the head cuts it off and reaches the Run computed straight through.
+A reader in another process reads every piece of the lines it sees while the writer appends. That
+the store writes the browser's Runs byte for byte is `cargo test -p sheltersim_store`'s.
 """
 
 from __future__ import annotations
@@ -23,7 +22,6 @@ import pytest
 from support.paths import CORE_TEST_DATA
 
 from sheltersim import native
-from sheltersim.storage.projects import ProjectStore
 
 # Run on every pull request on Windows and macOS too (pytest --os-subset, #380): files flushed and
 # cut, locks shared with Python's, a process killed while it holds one.
@@ -93,27 +91,24 @@ def test_a_branch_is_computed_from_its_head_and_read_back(tmp_path):
         FILES.inflate_raw(FILES.deflate_raw(raw), 999)
 
 
-def test_the_store_and_pythons_project_store_hold_the_same_locks(tmp_path):
-    files = _store(tmp_path)
-    lock = Path(files.branch_folder("p", "r", "main")) / "worker-lock"
-    with files.claim_branch("p", "r", "main"):
-        with pytest.raises(ValueError, match=BRANCH_BUSY):
-            files.claim_branch("p", "r", "main")
-        with pytest.raises(ValueError, match="^run_worker_busy: a branch of this Run is being"):
-            files.claim_run("p", "r")
-        with pytest.raises(BlockingIOError):
-            ProjectStore._lock_without_waiting(lock)
-    descriptor = ProjectStore._lock_without_waiting(lock)
-    try:
-        with pytest.raises(ValueError, match=BRANCH_BUSY):
-            files.claim_branch("p", "r", "main")
-    finally:
-        ProjectStore.release_run(descriptor)
-    gate = files.claim_run("p", "r")
-    with pytest.raises(BlockingIOError):
-        ProjectStore._lock_without_waiting(lock.parents[2] / "worker-lock")
-    gate.release()
-    files.claim_branch("p", "r", "main").release()
+# The writer's process: it goes on with `main` toward minute 1000, says "ready" once its head is
+# past 360 and waits for "go", then computes to 1000 (paused), says so, and waits to be killed with
+# its lease held and its record still `running`.
+WRITER = """
+import sys
+from sheltersim import native
+files = native.rules("run_files").ProjectFiles(sys.argv[1])
+lease = files.claim_branch("p", "r", "main")
+computation = files.go_on(lease, "p", "r", "main", 1000)
+ready = False
+while (status := computation.chunk(files, 10)) is None:
+    if not ready and computation.head()[0] >= 360:
+        ready = True
+        print("ready", flush=True)
+        sys.stdin.readline()
+print(status, computation.head()[0], flush=True)
+sys.stdin.readline()
+"""
 
 
 # The writer's process: it goes on with `main` toward minute 1000, says "ready" once its head is
@@ -149,8 +144,6 @@ def test_a_killed_writer_leaves_its_lock_free_and_its_cut_line_unread(tmp_path):
         assert writer.stdout.readline().strip() == "ready"
         with pytest.raises(ValueError, match=BRANCH_BUSY):
             files.claim_branch("p", "r", "main")
-        with pytest.raises(BlockingIOError):
-            ProjectStore._lock_without_waiting(folder / "worker-lock")
         # Read while the writer appends, until it says where it stopped.
         said: list[str] = []
         listener = threading.Thread(target=lambda: said.append(writer.stdout.readline().strip()))

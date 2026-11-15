@@ -2,17 +2,6 @@
 
 この計測器はProviderやネットワークを使わず、合成Scenarioでシミュレーションと成果物の書き込み時間、プロセスのピークRSS、記録量を測ります。結果は実装・ホスト・合成条件の記述であり、実際の避難所運用やモデルの妥当性を示しません。
 
-## 再計測
-
-開発依存を入れ、出力先を指定して実行します。
-
-```shell
-SHELTERSIM_LLM_MODE=offline python benchmarks/run_benchmarks.py \
-  --output-dir /tmp/sheltersim-benchmarks
-```
-
-既定値は30、100、500、1000人、seed 2026と2027です。期間を指定しない場合はScenarioの期間を使用します。比較するときは人数・期間・seed・trace level・モデル版・環境をそろえてください。出力先にRun成果物が作られるため、Git管理外の一時ディレクトリを使います。
-
 ## 中核の計算と保存付き計算
 
 `benchmarks/investigate_performance.py` は、100人のScenarioを中核（`PlainRun`）で計算する時間を、1ケース1プロセスで測ります（#430）。
@@ -47,7 +36,7 @@ PYTHONPATH=src SHELTERSIM_LLM_MODE=offline python benchmarks/investigate_perform
 
 ## 保持した1日計測
 
-次の結果は、コードSHA `19e5cde0a4d59de140582e45b6c9dce3e2b04b7b` の時点で取得した、Linux x86_64・CPython 3.12.14・報告CPU数3の単一seed（2026）結果です。1ケースあたり1440分、trace level `off`、offline modeを使用し、有料API呼び出しはありません。元の作業環境に含まれていたScenarioの絶対パスだけを移管時にリポジトリ相対パスへ置き換えています。値と計測対象は変更していません。
+次の結果は、Pythonの`run_scenario()`の経路（`benchmarks/run_benchmarks.py`。どちらも#430でなくしました）で、コードSHA `19e5cde0a4d59de140582e45b6c9dce3e2b04b7b` の時点で取得した、Linux x86_64・CPython 3.12.14・報告CPU数3の単一seed（2026）結果です。1ケースあたり1440分、trace level `off`、offline modeを使用し、有料API呼び出しはありません。元の作業環境に含まれていたScenarioの絶対パスだけを移管時にリポジトリ相対パスへ置き換えています。値と計測対象は変更していません。
 
 | 人数 | 壁時計 (秒) | CPU (秒) | ピークRSS (MiB) | 成果物 (MiB) |
 |---:|---:|---:|---:|---:|

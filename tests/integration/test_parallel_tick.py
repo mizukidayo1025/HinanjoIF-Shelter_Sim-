@@ -1,10 +1,10 @@
 """The per-person compute of a tick on several threads gives the bytes of one thread (lane L12).
 
-native/src/core/parallel.rs computes each person's social contacts and entries of the view hash on
+native/core/src/parallel.rs computes each person's social contacts and entries of the view hash on
 any thread and applies the results in the people's order. A compute of few
 people stays on the calling thread, so these tests send every person to the helpers, one at a time
-(`set_people_per_helper(1)`), and compare the world, its event log and the Run's files, traces
-included, with the Run on the calling thread alone.
+(`set_people_per_helper(1)`), and compare the core's digests of the world and of the metric
+samples with the Run on the calling thread alone.
 """
 
 from __future__ import annotations
@@ -23,29 +23,20 @@ PEOPLE = 60
 DAYS = 0.25
 
 _RUN = """
-import hashlib, json, sys
+import json, sys
 from pathlib import Path
 import sheltersim_native
-from sheltersim.core.engine import TraceLevel
-from sheltersim.experiments.runner import run_scenario
-from sheltersim.experiments.scenario import ScenarioSpec
-from sheltersim.storage.projects import digest
+from sheltersim import native
 
-scenario_file, output, per_helper = Path(sys.argv[1]), Path(sys.argv[2]), int(sys.argv[3])
+scenario_file, per_helper = Path(sys.argv[1]), int(sys.argv[2])
 sheltersim_native.set_people_per_helper(per_helper)
-world = run_scenario(ScenarioSpec.load(scenario_file), output / "run", trace_level=TraceLevel.FULL)
-document = world.to_dict()
-files = {
-    str(path.relative_to(output)): hashlib.sha256(path.read_bytes()).hexdigest()
-    for path in sorted((output / "run").rglob("*"))
-    if path.is_file()
-}
+run = native.rules("plain").PlainRun.from_scenario(scenario_file.read_bytes().strip())
+run.advance(run.duration())
 print(json.dumps({
     "helper_threads": sheltersim_native.parallel_state(PEOPLE)[0],
     "helpers": sheltersim_native.parallel_state(PEOPLE)[1],
-    "world": digest(document),
-    "events": digest(document["event_log"]),
-    "files": files,
+    "world": json.loads(run.digests_json()),
+    "metrics": run.metrics_digest(),
 }))
 """.replace("PEOPLE", str(PEOPLE))
 
@@ -59,7 +50,7 @@ def _run(scenario_file: Path, output: Path, per_helper: int, threads: str) -> di
         "PYTHONPATH": os.pathsep.join(sys.path),
     }
     done = subprocess.run(
-        [sys.executable, "-c", _RUN, str(scenario_file), str(output), str(per_helper)],
+        [sys.executable, "-c", _RUN, str(scenario_file), str(per_helper)],
         env=environment,
         capture_output=True,
         text=True,
@@ -91,8 +82,7 @@ def test_four_threads_compute_the_bytes_of_one(scenario_file: Path, tmp_path: Pa
     assert (one["helper_threads"], one["helpers"]) == (0, 0)
     assert (four["helper_threads"], four["helpers"]) == (3, 3)
     assert four["world"] == one["world"]
-    assert four["events"] == one["events"]
-    assert four["files"] == one["files"] and four["files"]
+    assert four["metrics"] == one["metrics"]
 
 
 def test_helpers_give_the_bytes_of_the_calling_thread_alone(
@@ -103,8 +93,4 @@ def test_helpers_give_the_bytes_of_the_calling_thread_alone(
     helped = _run(scenario_file, tmp_path / "helped", 1, "4")
 
     assert alone["helpers"] == 0 and helped["helpers"] == 3
-    assert (helped["world"], helped["events"], helped["files"]) == (
-        alone["world"],
-        alone["events"],
-        alone["files"],
-    )
+    assert (helped["world"], helped["metrics"]) == (alone["world"], alone["metrics"])

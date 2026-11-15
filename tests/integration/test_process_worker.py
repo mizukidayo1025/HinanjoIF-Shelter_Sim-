@@ -117,7 +117,7 @@ def _second_run(api: ProjectAPI) -> None:
 
 
 def _fork(api: ProjectAPI, run: str, parent: str, child: str, minute: int, program) -> None:
-    document = program(start_minute=minute).model_dump(mode="json")
+    document = program(start_minute=minute)
     text = json.dumps(document, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     api.fork("p", run, parent, child, minute, text, digest(document))
 

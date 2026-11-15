@@ -95,25 +95,13 @@ def test_an_exemption_of_a_class_not_allowed_and_an_exempt_file_not_allowed_fail
     ]
 
 
-def test_a_deleted_python_rule_and_a_step_with_a_body_fail() -> None:
+def test_a_deleted_python_rule_fails() -> None:
     check = _glue_check()
     sources = {
         "domain/care_receipts.py": "def care_source_ids_for_agent(world, i):\n    return ()\n",
         "domain/other.py": "from x import make_care_transition_record\n",
-        "experiments/phases/dispatch.py": (
-            "class DispatchPhase:\n"
-            "    @kernel_only('dispatch', 'sync_movement')\n"
-            "    def _sync_movement_after_events(self):\n"
-            "        '''Finish the journeys.'''\n"
-            "    @kernel_only('dispatch', 'consider_contact')\n"
-            "    def _consider_social_contact_event(self, event):\n"
-            "        '''Ask.'''\n"
-            "        return None\n"
-        ),
     }
     problems = check.scan_python(sources)
     assert any("care_source_ids_for_agent" in problem for problem in problems)
     assert any("make_care_transition_record" in problem for problem in problems)
-    assert any("_consider_social_contact_event must be" in problem for problem in problems)
-    assert not any("_sync_movement_after_events" in problem for problem in problems)
     assert check.scan_stats({"src/rules/dispatch.rs": 'counts.set_item("events_python", 1)'})

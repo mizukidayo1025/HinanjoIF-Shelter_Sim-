@@ -1,5 +1,8 @@
 # EffectProgram runtime
 
+> **#430から**：EffectProgramを確かめて予定するのは、Rustの中核（`native/core/src/program.rs`）だけです。中核が予定できる操作は、介入の文の読み取りが作る6つ（`add_staff`、`add_toilet`、`facility_outage`、`water_outage`、`add_evacuees`、`depart_evacuees`）です。ほかの操作のprogramは、画面・API・CLIのどこからも予定できません（中核が`Unsupported`で断ります）。それらのイベントを処理する中核の規則は残っていて、記録した世界（`native/core/tests/data/`）と全経路のゲートの0分に予定した記録（`fixtures/gate-scheduled-programs.json.xz`）で確かめます。下の表と説明は、PythonがEffectProgramを予定していたときの仕様です。
+
+
 EffectProgramの版付き契約とoffline interpreterはsheltersim.events.effectsが管理します。LLM/compiler層は同じPydantic契約を作れますが、runtimeはProvider、HTTP client、UI、生成コードをimportしません。opはDEFAULT_PRIMITIVE_REGISTRYの検索keyです。未知のoperatorや未宣言parameter fieldは意味検証で拒否します。
 
 ## 導入済みprimitive
@@ -26,7 +29,7 @@ zone_environment_v1は任意設定で、既存Zoneに限定されます。編集
 
 validate_effect_program(world, program)は、対象、parameter model、単位、導入済みPolicy、時刻、効果数、queue上限、guard対象、使用中設備、effect間の競合を変更なしで検証します。
 
-schedule_effect_program(world, program)は事前検証を再度行い、世界をトランザクション（`state_mirror.transaction(world, "effect")`）で開きます。開始・期限eventを追加し、水停止用stateを更新して世界全体を検証した後に一括commitします。不正effectがあれば取り消し、元stateは変わりません。世界の中核がトランザクションを持てないとき（`Unsupported`）は、以前と同じく分離した候補WorldStateを作って差し替えます（`state_mirror.transaction_or_copy`）。BranchRuntime.apply_effect_programも同じ操作を行い、program hashと予定event IDをBranch command historyに記録します。
+schedule_effect_program(world, program)（中核の`program::schedule`）は事前検証を再度行い、世界をトランザクションで開きます。開始・期限eventを追加し、水停止用stateを更新して世界全体を検証した後に一括commitします。不正effectがあれば取り消し、元stateは変わりません。世界の中核がトランザクションを持てないとき（`Unsupported`）は、以前と同じく分離した候補WorldStateを作って差し替えます（`state_mirror.transaction_or_copy`）。BranchRuntime.apply_effect_programも同じ操作を行い、program hashと予定event IDをBranch command historyに記録します。
 
 ## 承認済みCheckpointからのBranch
 

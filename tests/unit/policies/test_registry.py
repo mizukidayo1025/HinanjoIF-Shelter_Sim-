@@ -66,8 +66,6 @@ def test_unknown_operator_cannot_be_imported():
         selected_models({"policy_registry": {"schema_version": 1, "psychology": "os.system"}})
 
 
-
-
 def test_new_unselected_configs_receive_one_pinned_core_suite():
     configs = install_default_model_suite({"behavior": {"policy": "utility-softmax-v1"}})
 
@@ -104,5 +102,3 @@ def test_suite_v1_selector_keeps_its_original_model_map():
     configs["policy_registry"]["suite_id"] = CORE_MODEL_SUITE_V1
 
     assert selected_models(configs) == CORE_MODEL_SUITE_MODELS_V1
-
-

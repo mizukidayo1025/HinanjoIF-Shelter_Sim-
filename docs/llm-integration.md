@@ -92,19 +92,19 @@ fallbackの理由はoutcome別（max_api_calls、shared_allowance_unavailable、
 - sheltersim runの出力JSONのllm_status（RunのLLMの利用記録〔`GET …/runs/{run}/usage`〕の`outcomes`。offlineのRunは`not_requested`）。degradedまたはall_fallbackのときはstderrに1行の警告を出します。終了codeは0のままです。
 - Project Branchは GET /api/v1/projects/{project}/runs/{run}/branches/{branch}/llm-status。head Checkpointに保存済みのrouter記録から読み取り時に集計します。read-onlyで、Checkpoint形式は変えません。forkしたchild Branchの値には、fork前に親から引き継いだ記録も含みます。
 
-受理したresponse tapeはstate/input hash、model、prompt、schema版に結び付きます。対応runtime状態はCheckpointに保存できます。過去seekは記録結果を使い、暗黙にProviderを呼びません。Branch stateが変わった場合、異なるinputにresponseを再利用しません。
+受理したresponse tapeはstate/input hash、model、prompt、schema版に結び付きます。tickの中の問い合わせのテープは、保存したRunの`llm_tape`の部品に保存します。過去seekは記録結果を使い、暗黙にProviderを呼びません。Branch stateが変わった場合、異なるinputにresponseを再利用しません。
 
 ## tickの中の問い合わせを中核で行う（#428）
 
-tickの中でLLMに問い合わせる規則（支援要請の優先度`_prioritize_support_request`と、社会の方針`EventTriggeredSocialPolicy`）は、Rustの中核（`native/core/src/rules/llm_runtime.rs`）にもあります。中核は、Pythonのない計算（`PlainRun`）で、この規則を自分で動かします。外とは`LlmLink::complete(task) -> reply`という1つの口（`native/core/src/llm.rs`）だけでつながります。ローカル版・VM版の計算は#427から`PlainRun`で行い、APIキーのあるサーバーでは、Runを作ったときのLLMのmode（`runs/{run}/llm.json`）で`RouterLink`を口にします（`web/worker_process.py`の`runtime_link`。modeが今の設定と違えば計算を断ります）。
+tickの中でLLMに問い合わせる規則（支援要請の優先度`_prioritize_support_request`と、社会の方針`EventTriggeredSocialPolicy`）は、Rustの中核（`native/core/src/rules/llm_runtime.rs`）にあります（Pythonの規則は#430で消しました）。中核は、計算（`PlainRun`）の中で、この規則を自分で動かします。外とは`LlmLink::complete(task) -> reply`という1つの口（`native/core/src/llm.rs`）だけでつながります。ローカル版・VM版の計算は#427から`PlainRun`で行い、APIキーのあるサーバーでは、Runを作ったときのLLMのmode（`runs/{run}/llm.json`）で`RouterLink`を口にします（`web/worker_process.py`の`runtime_link`。modeが今の設定と違えば計算を断ります）。
 
 - 口を通るのは、作業（`task`の名前、stage、プロンプトの版、schemaの版、入力の文、状態のhash、出力のschema、代替の文、出力の上限）と答え（文と、PythonのLLMCallRecordの結果・費用・token）のJSONだけです。プロンプトを作り、答えをschemaで確かめ、世界を書き換えるのは中核です。schemaに合わない答えは、口が何を返しても代替（`invalid_output`）になります。
-- プロンプトは、Pythonと同じ正規のJSONで、bytesもPythonと同じです。状態のhashだけは中核の世界のdigestで、Pythonの`world.canonical_json()`のhashとは違います。そのため、Pythonの経路で記録したresponse tape（Checkpointの中のもの）は中核では再生できません。結果の世界は、同じ答えならPythonの経路と同じです（`tests/integration/test_plain_run_llm.py`がゲートの台本のProviderで確かめます）。
-- ローカル版・VM版では、`sheltersim.llm.link.RouterLink`がPythonの`LLMRouter`を口につなぎます（`PlainRun.set_llm(RouterLink(router))`）。予算・呼出し上限・response tape・利用記録のobserver・`RecordedRouter`の順の確かめは、routerのものがそのまま働きます。routerが止める設定（`LLMErrorPolicy.STOP`）の誤りや口が投げた例外は、tickを止め、`advance`の`RuntimeError`の原因（`__cause__`）になります。
+- プロンプトは、#428で移したときのPythonの規則と同じ正規のJSONで、bytesも同じでした。状態のhashは中核の世界のdigestです。そのため、Pythonの経路で記録したresponse tape（PythonのCheckpointの中のもの）は再生できません。結果の世界は、ゲートの`llm_tape`のScenario（台本のProvider）が固定します。
+- ローカル版・VM版では、`sheltersim.llm.link.RouterLink`がPythonの`LLMRouter`を口につなぎます（`PlainRun.set_llm(RouterLink(router))`）。予算・呼出し上限・response tape・利用記録のobserverは、routerのものがそのまま働きます。routerが止める設定（`LLMErrorPolicy.STOP`）の誤りや口が投げた例外は、tickを止め、`advance`の`RuntimeError`の原因（`__cause__`）になります。
 - APIキーがない（offlineの）口には、中核は何も問い合わせず、世界も変えません。結果はLLMのないRunと同じです。社会の方針が問い合わせなかった理由（`offline_rule_mode`など）は、判断の記録（`record_kind`が`dialogue`の行）に残ります。
 - 問い合わせごとに、LLMのテープの項目（作業、版、入力と状態のhash、答えの文と結果・費用）を1つ残します（`PlainRun.take_tape()`）。保存の形式v5では`llm_tape`の部品に入ります。プロンプトとモデルの自由な文（優先度の`rationale`）は残しません。
 - 保存した点の間の分を開くときは、前の保存した点に戻し、その点の件数より後のテープの項目で計算し直します（`PlainRun.set_llm_replay`、中核の`llm::Replay`）。順が違う問い合わせや、テープより先の問い合わせはtickを止めます。過去の計算でProviderを呼ぶことはありません。続きを計算するときは、テープの後に渡した口へ進みます。
-- 社会の方針の上限（`SocialRuntimeLimits`、`SupportPriorityLimits`）の値はPythonと同じで、出典も同じです（ASM-EVENT-TRIGGERED-SOCIAL-LIMITS-V1、ASM-SUPPORT-PRIORITY-LIMITS-V1）。テストだけが`set_llm`の`limits`で変えます。
+- 社会の方針の上限（`SocialRuntimeLimits`、`SupportPriorityLimits`）の値と出典は、中核の`llm::Limits`にあります（ASM-EVENT-TRIGGERED-SOCIAL-LIMITS-V1、ASM-SUPPORT-PRIORITY-LIMITS-V1）。テストだけが`set_llm`の`limits`で変えます。
 - ブラウザー版の中継（#287）も、同じ作業と答えのJSONで口を作れます。まだつないでいません（tickの中から呼ぶには同期の呼び出しが要るためです）。
 
 ## ブラウザー版の中継（#419）

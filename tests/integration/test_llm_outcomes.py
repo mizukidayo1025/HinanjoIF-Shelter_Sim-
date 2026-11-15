@@ -30,12 +30,6 @@ class TruncatedProvider:
         )
 
 
-
-
-
-
-
-
 def test_prepare_cli_warns_when_scenario_draft_falls_back(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -65,5 +59,3 @@ def test_prepare_cli_warns_when_scenario_draft_falls_back(
     preview = json.loads(captured.out)
     assert preview["generation_manifest"]["status"] == "rule_fallback"
     assert "warning: LLM fallback:" in captured.err and "invalid_output" in captured.err
-
-

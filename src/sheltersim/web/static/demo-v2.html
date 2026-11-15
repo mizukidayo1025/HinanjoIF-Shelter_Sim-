@@ -26,11 +26,8 @@
         ></span
       ></a
       ><span class="tagline">避難所の「もしも」を、考えよう。</span>
-      <div class="header-scenario">
-        <small>シナリオ</small
-        ><select id="saved-runs" aria-label="保存したシナリオ">
-          <option value="">新しいシナリオ</option>
-        </select>
+      <div id="header-scenario" class="header-scenario" hidden>
+        <small>シナリオ</small><strong id="scenario-name"></strong>
       </div>
       <div class="clock">
         <small>シミュレーション時刻</small><strong id="clock">開始前</strong>
@@ -66,14 +63,6 @@
           <span data-icon="detail"></span>詳細
         </button>
       </nav>
-      <div class="sidebar-bottom">
-        <div class="current-scenario">
-          <small>開いているシナリオ</small
-          ><strong id="scenario-name">まだ開いていません</strong>
-          <p id="scenario-summary"></p>
-        </div>
-        <p class="fine sidebar-note">合成の人物によるモデル実験です。実際の結果の予測ではありません。</p>
-      </div>
     </aside>
     <main aria-busy="true">
       <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>

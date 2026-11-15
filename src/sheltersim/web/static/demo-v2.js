@@ -445,7 +445,8 @@
     note(label, "loading");
     try {
       await task();
-      note("操作が完了しました。記録された結果を表示しています。", "success");
+      // Done: the screen shows the result; the notice says nothing more (#442).
+      if ($("notice").classList.contains("loading")) $("notice").hidden = true;
     } catch (error) {
       note(`操作を完了できませんでした：${error.message}`, "error");
     } finally {
@@ -889,8 +890,6 @@
     invalidateIntervention();
     resetChat();
     clearRunView();
-    $("saved-runs").replaceChildren(el("option", "新しいシナリオ"));
-    $("saved-runs").firstChild.value = "";
     show("scenario");
     void refreshRuns().catch(() => {
       /* The Project is made on the first preview. */
@@ -920,8 +919,7 @@
     $("events").replaceChildren();
     $("people-list").replaceChildren();
     $("person-detail").replaceChildren();
-    $("scenario-name").textContent = "まだ開いていません";
-    $("scenario-summary").textContent = "";
+    showOpenName("");
     state.scenario = null;
     showMode(null);
   }
@@ -1109,7 +1107,6 @@
           : true;
     $("seek").disabled = !has || state.busy;
     $("branch-select").disabled = !has || working;
-    $("saved-runs").disabled = working;
     $("approve").disabled =
       !state.preview?.can_start || !$("scenario-check").checked || working;
     $("intervention-apply").disabled =
@@ -1168,17 +1165,17 @@
     if (!list.projects.some((p) => p.project_id === id))
       await api("/api/v1/projects", { project_id: id });
   }
+  // The open Run's name in the header, the one place it is shown (#442): as the home names it,
+  // told apart from Runs of the same conditions. Nothing is shown while no Run is open.
+  function showOpenName(name) {
+    $("scenario-name").textContent = name;
+    $("scenario-name").title = name;
+    $("header-scenario").hidden = !name;
+  }
   async function refreshRuns() {
     const project = await api(base());
-    $("saved-runs").replaceChildren(el("option", "新しいシナリオ"));
-    $("saved-runs").firstChild.value = "";
     const names = runNames(project.runs, project.scenarios);
-    for (const r of project.runs) {
-      const option = el("option", names.get(r.run_id));
-      option.value = r.run_id;
-      option.selected = r.run_id === state.run;
-      $("saved-runs").append(option);
-    }
+    showOpenName((state.run && names.get(state.run)) || "");
   }
   function scenarioRequest() {
     const req = {},
@@ -1342,12 +1339,6 @@
     $("preview-mode").textContent = [llmModeLabel(usage?.mode), read, "補完値を要確認"]
       .filter(Boolean)
       .join(" · ");
-    if (!state.run) {
-      $("scenario-name").textContent =
-        r.municipality + " · " + disasterName(r.disaster);
-      $("scenario-summary").textContent =
-        r.evacuees + "人 / " + num(r.duration_days) + "日間の試算";
-    }
     $("preview-summary").textContent =
       `${r.municipality}での${disasterName(r.disaster)}を想定し、${r.evacuees}人・${num(r.duration_days)}日間の避難所運営を試算します。施設・人口は合成モデルです。`;
     $("condition-chips").replaceChildren(
@@ -1610,10 +1601,6 @@
     }
     renderKpis($("sim-kpis"), frame.kpis);
     renderKpiStrip($("report-kpis"), frame.kpis);
-    $("scenario-name").textContent =
-      state.displayName || state.data?.scenario_id || "保存シナリオ";
-    $("scenario-summary").textContent =
-      `${num(frame.kpis.population)}人 / ${shortBranch(state.branch)}\n${time(state.minute)}（経過${state.minute}分）`;
     const geometryOrigin = {
       synthetic: "合成施設",
       measured: "実測形状",
@@ -3645,34 +3632,6 @@
       resetChat();
       invalidateIntervention();
       await refreshRun();
-    })),
-  );
-  $("saved-runs").addEventListener("change", () =>
-    action("保存したシナリオを開いています…", () => loading(async () => {
-      clearTimeout(state.poll);
-      state.scope++;
-      state.run = $("saved-runs").value || null;
-      state.branch = "main";
-      state.data = null;
-      state.frame = null;
-      state.comparison = null;
-      state.history = [];
-      state.context = null;
-      state.selected = null;
-      state.selectedGroup = [];
-      state.mapPan = { x: 0, y: 0 };
-      state.zoom = 1;
-      state.report = null;
-      invalidateIntervention();
-      resetChat();
-      if (state.run) {
-        await refreshRun();
-        show("simulation");
-      } else {
-        clearRunView();
-        show("scenario");
-      }
-      remember();
     })),
   );
   new ResizeObserver(() => requestAnimationFrame(drawAll)).observe(

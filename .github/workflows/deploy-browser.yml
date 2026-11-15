@@ -185,11 +185,17 @@ jobs:
             sleep 10
           done
           if [ "$got" != "$want" ]; then echo "::error::$SITE_URL/$index is not this build's"; fail=1; fi
-          # The published site says it is this commit (#563).
-          check /version.json "200 application/json"
-          served=$(curl -s "$SITE_URL/version.json" | python -c 'import json, sys; print(json.load(sys.stdin)["commit"])')
-          echo "/version.json commit -> $served"
+          # The published site says it is this commit (#563). It is waited for as the index is (at
+          # most 5 minutes): on the first publish with it, /version.json answered 404 once after the
+          # index was already this build's.
+          for attempt in $(seq 1 30); do
+            served=$(curl -s "$SITE_URL/version.json" | python -c 'import json, sys; print(json.load(sys.stdin)["commit"])' 2>/dev/null || true)
+            [ "$served" = "$GITHUB_SHA" ] && break
+            sleep 10
+          done
+          echo "/version.json commit -> $served (attempt $attempt)"
           if [ "$served" != "$GITHUB_SHA" ]; then echo "::error::$SITE_URL/version.json says $served, not $GITHUB_SHA"; fail=1; fi
+          check /version.json "200 application/json"
           check / "200 text/html"
           check /nope "404 text/html"
           check /browser/api_worker.mjs "200 text/javascript"

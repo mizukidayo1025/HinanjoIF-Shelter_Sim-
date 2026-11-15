@@ -1,5 +1,5 @@
 //! The journal's lines: their typed values, their JSON, the head hash of a line, and the journal
-//! read back (`Journal::parse`) with the checks of format v5.
+//! read back (`Journal::parse`) with the checks of format v6.
 
 use serde_json::{Map, Value};
 
@@ -39,12 +39,11 @@ pub struct Place {
     pub blocks: u64,
 }
 
-/// How many records of each append-only kind a Run has stored (`RecordKind`): the decision records
-/// and the LLM tape's entries from the Run's start (a fork's Run counts its parent's up to its base),
-/// and the conversation turns of the branch itself.
+/// How many records of each append-only kind a Run has stored (`RecordKind`): the LLM tape's
+/// entries from the Run's start (a fork's Run counts its parent's up to its base), and the
+/// conversation turns of the branch itself.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Counts {
-    pub decisions: u64,
     pub conversations: u64,
     pub tape: u64,
 }
@@ -60,8 +59,6 @@ pub struct State {
 /// The kinds of append-only records a Run stores in pieces of their own (`records`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RecordKind {
-    /// The decision records the core writes for an indexed sink (`PlainRun::take_decisions`).
-    Decisions,
     /// The turns of the questions about a branch's results (the browser's `questions.mjs`).
     Conversations,
     /// The LLM's responses a Run used (defined; nothing writes it yet).
@@ -69,12 +66,11 @@ pub enum RecordKind {
 }
 
 impl RecordKind {
-    pub const ALL: [RecordKind; 3] = [RecordKind::Decisions, RecordKind::Conversations, RecordKind::Tape];
+    pub const ALL: [RecordKind; 2] = [RecordKind::Conversations, RecordKind::Tape];
 
     /// The piece line's `kind`.
     pub fn name(self) -> &'static str {
         match self {
-            RecordKind::Decisions => "decisions",
             RecordKind::Conversations => "conversations",
             RecordKind::Tape => "llm_tape",
         }
@@ -82,7 +78,6 @@ impl RecordKind {
 
     fn of(self, counts: &mut Counts) -> &mut u64 {
         match self {
-            RecordKind::Decisions => &mut counts.decisions,
             RecordKind::Conversations => &mut counts.conversations,
             RecordKind::Tape => &mut counts.tape,
         }
@@ -326,23 +321,14 @@ fn string_or_null(encoder: &mut Encoder, text: Option<&str>) {
     }
 }
 
-fn counts_fields(counts: &Counts) -> [(&'static str, u64); 3] {
-    [("decisions", counts.decisions), ("conversations", counts.conversations), ("tape", counts.tape)]
+fn counts_fields(counts: &Counts) -> [(&'static str, u64); 2] {
+    [("conversations", counts.conversations), ("tape", counts.tape)]
 }
 
-const BASE_FIELDS: [&str; 8] = ["log_strings", "log_shapes", "log_blocks", "sample_strings", "sample_shapes", "sample_blocks", "decisions", "tape"];
+const BASE_FIELDS: [&str; 7] = ["log_strings", "log_shapes", "log_blocks", "sample_strings", "sample_shapes", "sample_blocks", "tape"];
 
-fn base_fields(state: &State) -> [(&'static str, u64); 8] {
-    let values = [
-        state.log.strings,
-        state.log.shapes,
-        state.log.blocks,
-        state.samples.strings,
-        state.samples.shapes,
-        state.samples.blocks,
-        state.counts.decisions,
-        state.counts.tape,
-    ];
+fn base_fields(state: &State) -> [(&'static str, u64); 7] {
+    let values = [state.log.strings, state.log.shapes, state.log.blocks, state.samples.strings, state.samples.shapes, state.samples.blocks, state.counts.tape];
     std::array::from_fn(|index| (BASE_FIELDS[index], values[index]))
 }
 
@@ -544,9 +530,7 @@ impl Line {
                 shapes: object.uint("shapes")?,
             })
         };
-        let counts = || -> Result<Counts> {
-            Ok(Counts { decisions: object.uint("decisions")?, conversations: object.uint("conversations")?, tape: object.uint("tape")? })
-        };
+        let counts = || -> Result<Counts> { Ok(Counts { conversations: object.uint("conversations")?, tape: object.uint("tape")? }) };
         match kind.as_str() {
             "run" => {
                 let format = object.string("format")?;
@@ -622,11 +606,7 @@ impl Line {
                         line: base.uint("line")?,
                         head: base.string("head")?,
                         minute: base.minute("minute")?,
-                        state: State {
-                            log: place("log")?,
-                            samples: place("sample")?,
-                            counts: Counts { decisions: base.uint("decisions")?, conversations: 0, tape: base.uint("tape")? },
-                        },
+                        state: State { log: place("log")?, samples: place("sample")?, counts: Counts { conversations: 0, tape: base.uint("tape")? } },
                     },
                     program: object.string("program")?,
                     approved_program_hash: object.string("approved_program_hash")?,
@@ -634,7 +614,7 @@ impl Line {
                 }))
             }
             "end" => {
-                object.only(&["kind", "minute", "records", "samples", "decisions", "conversations", "tape", "parts", "metrics"])?;
+                object.only(&["kind", "minute", "records", "samples", "conversations", "tape", "parts", "metrics"])?;
                 let parts = match object.get("parts")? {
                     Value::Object(parts) => parts
                         .iter()
@@ -669,7 +649,7 @@ impl Line {
                     log_blocks: object.uint("log_blocks")?,
                     sample_blocks: object.uint("sample_blocks")?,
                 }),
-                &["minute", "records", "samples", "decisions", "conversations", "tape", "point_version", "log_blocks", "sample_blocks"],
+                &["minute", "records", "samples", "conversations", "tape", "point_version", "log_blocks", "sample_blocks"],
             ),
             other => match RecordKind::ALL.into_iter().find(|kind| kind.name() == other) {
                 Some(kind) => piece(Piece::Records { kind, count: object.uint("count")? }, &["count"]),
@@ -824,8 +804,12 @@ impl Journal {
         {
             return Err(corrupt("a line after the end line"));
         }
-        if matches!(previous, Some(Line::Piece(PieceLine { piece: Piece::World, .. }))) && !matches!(line, Line::End(_)) {
+        let after_world = matches!(previous, Some(Line::Piece(PieceLine { piece: Piece::World, .. })));
+        if after_world && !matches!(line, Line::End(_)) {
             return Err(corrupt("a line between the world and the end line"));
+        }
+        if !after_world && matches!(line, Line::End(_)) {
+            return Err(corrupt("an end line that does not follow the world"));
         }
         match line {
             Line::Run(_) => Err(corrupt("a second run line")),

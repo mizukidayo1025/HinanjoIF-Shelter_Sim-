@@ -9,11 +9,11 @@
 | ScenarioSpec | 固定された人口、避難所、schedule、モデル設定 |
 | ProfileSpec / 生成profile集合 | 合成人物の特性、ニーズ、provenance |
 | 中核の世界（`sheltersim_core::World`） | 可変simulation state、将来event queue、実行済みevent履歴、モデル状態 |
-| 保存したRun（形v5） | 目録（`journal.jsonl`）と部品（`data.pack`）。保存した点（`SavedPoint`）から復元、seek、Branch作成 |
+| 保存したRun（形v6） | 目録（`journal.jsonl`）と部品（`data.pack`）。保存した点（`SavedPoint`）から復元、seek、Branch作成 |
 | EffectProgram | 対象、時刻、仮定を持つ型付き・上限付き介入計画 |
 | Project / Run / Branch | ローカルworkspace、Scenario版、Run状態、独立した履歴 |
 
-主要schemaは個別に版管理しています。現在の形式にはScenarioSpec v3、ProfileSpec v2、保存したRunの形v5（`sheltersim-run-v5`）があります。PythonのCheckpointと形v1〜v4は読まず、計算し直してもらいます。契約変更時は現行validatorと移行テストを確認してください。版の異なるデータは互換とは限りません。
+主要schemaは個別に版管理しています。現在の形式にはScenarioSpec v3、ProfileSpec v2、保存したRunの形v6（`sheltersim-run-v6`）があります。PythonのCheckpointと形v1〜v5は読まず、計算し直してもらいます。契約変更時は現行validatorと移行テストを確認してください。版の異なるデータは互換とは限りません。
 
 Scenario JSONとProject・Run・Branchの記録はJSONを使います。保存したRunの目録はJSONL、部品は中核のbinaryの形です（[project-persistence.md](project-persistence.md)）。Runの記録にはseed、モデル版、仮定、source ID、実行mode、hashを記録します。
 
@@ -22,7 +22,7 @@ Scenario JSONとProject・Run・Branchの記録はJSONを使います。保存�
 完全なcommand一覧は sheltersim --help で確認できます。
 
 - prepare: Scenarioを検証し、previewを作成します。--freezeはpreview hashと結び付いた承認記録を作ります。
-- run: 凍結済みScenarioを、Project（`--root`、既定`runs/.projects`。`--project-id`）のRun（`--run-id`）として、画面と同じ道で最後まで計算します（`POST {project}/runs`と`resume`。保存したRunの形v5、#450）。Projectがなければ作り、同じ内容のScenarioの版があればそれを使います。--offlineはProviderを呼ばないofflineの実験にします。出力はBranch `main`の記録、LLMの状態、心理モデルです。
+- run: 凍結済みScenarioを、Project（`--root`、既定`runs/.projects`。`--project-id`）のRun（`--run-id`）として、画面と同じ道で最後まで計算します（`POST {project}/runs`と`resume`。保存したRunの形v6、#450）。Projectがなければ作り、同じ内容のScenarioの版があればそれを使います。--offlineはProviderを呼ばないofflineの実験にします。出力はBranch `main`の記録、LLMの状態、心理モデルです。
 - inspect: Runを画面と同じ答えで読みます。--record（Runの記録とBranch）、--evidence（モデル・出典・仮定）、--kpis（Branchの指標の時系列の1ページ。--start、--end、--step、--limit、--cursor）、--conversations（質問の記録）のどれか1つです。行動・判断の履歴、人ごとの履歴、原因のたどりは、#368の決定（履歴はkpisとconversationsだけ）でなくしました。
 - compare: ProjectのBranch（`RUN`か`RUN/BRANCH`）を、指標の記録（`kind=kpis`の答え）で比べます。--baselineと--candidateはseedで組にし、同じ人のRunに限ります。組ごとに、指標が最初に違う分と、共通の最後の分の値と差を、組全体で各指標の差の要約（平均、標本標準偏差、近似95%区間）を出します。--metricで指標を絞り、--outputでJSONを書きます。
 - review: 計算を終えたBranchのレビュー（画面の`GET …/branches/{branch}/report`と同じ）を出します。--comparisonに`compare`のJSONを渡すと、そのBranchを含む組を一緒に出します。

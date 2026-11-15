@@ -7,9 +7,7 @@
 //! minute-0 world the core builds (`from_scenario`, #429), or one world of a file of named worlds,
 //! runs ticks (`advance`), and gives the digests, the metric samples, the frame, the scenario
 //! summary, the EffectProgram's check and schedule, the pieces a Run stores and its saved points;
-//! `Restore` builds a Run again at a saved point from the stored log and samples. It also collects
-//! the decisions' records where asked (`collect_decisions`, `take_decisions`), the rows the native
-//! path's `_IndexedMetricSink.observations` holds as bytes.
+//! `Restore` builds a Run again at a saved point from the stored log and samples.
 //!
 //! An LLM is given as a link (`set_llm`, #428): a Python object with `offline` (a bool, read once)
 //! and `complete(task: bytes) -> bytes`, the JSON of the core's `llm::Task` and `llm::Reply`
@@ -226,22 +224,6 @@ impl PlainRun {
     /// receipt (the `command_log` entry) as JSON.
     fn apply_effect_program(&mut self, program: &[u8]) -> PyResult<String> {
         self.run.apply_effect_program_json(program).or_py()
-    }
-
-    /// Whether the Run collects its decisions' records (off by default). It changes nothing of the
-    /// world; turning it off drops what was not taken.
-    fn collect_decisions(&mut self, on: bool) {
-        self.run.collect_decisions(on);
-    }
-
-    /// The decision records kept since the last call, taken out: the JSON bytes of each, in order.
-    fn take_decisions<'py>(&mut self, py: Python<'py>) -> Vec<Bound<'py, PyBytes>> {
-        self.run.take_decisions().iter().map(|raw| PyBytes::new(py, raw)).collect()
-    }
-
-    /// How many decisions were left to a sink in Python, which this host does not write.
-    fn decisions_missed(&self) -> u64 {
-        self.run.decisions_missed()
     }
 
     /// The log's string and shape tables' sizes: `(strings, shapes)`.

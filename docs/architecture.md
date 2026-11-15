@@ -10,7 +10,7 @@ Project、Scenario作成、地域データ、LLM Provider        |
         +------------- PyO3 ----------+------- WASM ---+
                                       |
                  Rustの中核 sheltersim_core（native/core）
-     0分の世界、tick（PlainRun）、EffectProgram、保存したRunの形v5、答え（answers）
+     0分の世界、tick（PlainRun）、EffectProgram、保存したRunの形v6、答え（answers）
                                       |
                  保存したRunの置き場 sheltersim_store（native/store、ファイル）／OPFS（ブラウザー）
 ~~~
@@ -53,7 +53,7 @@ ScenarioSpec、中核の世界、EffectProgram、保存したRunの形、Project
 
 ## 永続化とインターフェース
 
-Project、承認済みScenario、Run、Branchとその保存した点・記録は、保存したRunの形v5でファイルに置きます（`native/store`、#426、#427）。CLIのRunも同じProjectに入ります。APIリファレンスを参照してください。
+Project、承認済みScenario、Run、Branchとその保存した点・記録は、保存したRunの形v6でファイルに置きます（`native/store`、#426、#427）。CLIのRunも同じProjectに入ります。APIリファレンスを参照してください。
 
 HTTP APIは永続Projectと状態変更操作（/api/v1/projects）と、利用記録の参照（/api/v1/usage/runtime）です。以前の画面のための保存Run成果物の参照（/api/v1/runs）とprocess内のデモBranch（/api/v1/demo）は#376でなくしました。
 

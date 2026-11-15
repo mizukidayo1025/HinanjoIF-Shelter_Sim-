@@ -1,5 +1,5 @@
 """A Run that was computing when the server stopped is marked interrupted at the next start, and
-computing it again reaches the same world as an uninterrupted Run (format v5, #427).
+computing it again reaches the same world as an uninterrupted Run (format v6, #427).
 """
 
 from __future__ import annotations

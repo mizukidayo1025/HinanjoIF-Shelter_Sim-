@@ -40,7 +40,8 @@
 // Bundle. One file carries a Project: its records and each branch's stored files as they are,
 // whatever pieces their journal holds. Its form (BUNDLE_FORMAT, BUNDLE_VERSION; version 2 since its
 // stored Runs are of format v5, #368, and a fork's reads its parent's; a bundle of version 1 holds
-// Runs of an older format, which are computed again, and is refused):
+// Runs of an older format, which are computed again, and is refused. Format v6, #478, kept version
+// 2: a Run of format v5 in it is refused when it is read, as stored_run_outdated):
 //   16 bytes   magic: 0x89 "SHELTERSIM-PRJ" 0x0a
 //   4 bytes    the bundle's version, big-endian (2)
 //   4 bytes    the manifest's length in bytes, big-endian

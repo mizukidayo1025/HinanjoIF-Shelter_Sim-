@@ -11,7 +11,7 @@ PYTHONPATH=src SHELTERSIM_LLM_MODE=offline python benchmarks/investigate_perform
   --scenario generated --duration 10080 --route project --output /tmp/sheltersim-perf-project
 ```
 
-`--route plain` は `PlainRun` を保存なしで最後まで、`--route project` は画面と同じ道（`ProjectAPI` のworkerが形v5の保存したRunへ、360分ごとに保存する点を書きながら計算する道、#427）を測ります。`--scenario-file` で承認済みScenarioのローカルコピーを指定できます。生Scenarioには人口情報が含まれる場合があるため、出力先はGit管理外にします。ネットワーク接続は計測中に拒否します。
+`--route plain` は `PlainRun` を保存なしで最後まで、`--route project` は画面と同じ道（`ProjectAPI` のworkerが形v6の保存したRunへ、360分ごとに保存する点を書きながら計算する道、#427）を測ります。`--scenario-file` で承認済みScenarioのローカルコピーを指定できます。生Scenarioには人口情報が含まれる場合があるため、出力先はGit管理外にします。ネットワーク接続は計測中に拒否します。
 
 ### ピークのメモリー
 

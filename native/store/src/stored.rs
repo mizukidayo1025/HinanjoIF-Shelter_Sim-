@@ -1,5 +1,5 @@
 //! A branch's stored Run in its folder: `data.pack` and `journal.jsonl` (the core's
-//! `run_store`, format v5), written by `StoredRunWriter` and read by `StoredRun`, as the browser's
+//! `run_store`, format v6), written by `StoredRunWriter` and read by `StoredRun`, as the browser's
 //! `run_store.mjs` writes and reads them.
 //!
 //! Writing (`StoredRunWriter::flush`): for each item the core queued, a piece compressed (deflate-
@@ -169,21 +169,21 @@ impl StoredRunWriter {
         Ok(offset)
     }
 
-    /// The decision records `run` collected, the tables' new entries and the newly sealed blocks
+    /// The LLM tape's entries `run` kept, the tables' new entries and the newly sealed blocks
     /// (every block when `last`), written. Call it between calls to `advance`.
     pub fn take(&mut self, run: &mut PlainRun, last: bool) -> Result<Option<String>> {
         self.core.take(run, last)?;
         self.flush(None)
     }
 
-    /// A saved point of `run` now, its blocks sealed and stored and its decision records written
+    /// A saved point of `run` now, its blocks sealed and stored and its tape's entries written
     /// first: the head hash of its line.
     pub fn save(&mut self, run: &mut PlainRun) -> Result<String> {
         self.core.save(run)?;
         self.flush(None)?.ok_or_else(|| Error::refused("a saved point wrote no line"))
     }
 
-    /// The last pieces of a Run stored to its end (the decision records left, the world, the "end"
+    /// The last pieces of a Run stored to its end (the tape's entries left, the world, the "end"
     /// line): the head hash of the "end" line.
     pub fn finish(&mut self, run: &mut PlainRun) -> Result<String> {
         self.core.finish(run)?;
@@ -212,8 +212,7 @@ pub struct FromStart<'a> {
     pub save_every: u64,
 }
 
-/// Runs `start` for its whole clock and stores it in `folder` as it goes, with its decision
-/// records and saved points, its "run" line recording `model_versions` (the browser's
+/// Runs `start` for its whole clock and stores it in `folder` as it goes, with its saved points, its "run" line recording `model_versions` (the browser's
 /// `runAndStore`).
 pub fn run_and_store(folder: &Path, start: &FromStart<'_>, model_versions: Versions, quota: Quota, compress: Compress) -> Result<Stored> {
     let FromStart { export, world, ticks, save_every } = *start;
@@ -222,7 +221,6 @@ pub fn run_and_store(folder: &Path, start: &FromStart<'_>, model_versions: Versi
         Some(name) => PlainRun::of_worlds_json(export, name)?,
         None => PlainRun::of_json(export)?,
     };
-    run.collect_decisions(true);
     let duration = run.duration()?;
     let storing = Storing { model_versions, compression: COMPRESSION.to_owned(), save_every };
     writer.core.start(&run, export.to_vec(), world.map(str::to_owned), &storing)?;
@@ -361,8 +359,8 @@ impl StoredRun {
         self.chain.records(kind)?.into_iter().map(|position| self.raw_at(position)).collect()
     }
 
-    /// The JSON texts of the records of `kind`: the decision records and the tape's from the Run's
-    /// start, the turns of the branch itself.
+    /// The JSON texts of the records of `kind`: the tape's from the Run's start, the turns of the
+    /// branch itself.
     pub fn records(&self, kind: RecordKind) -> Result<Vec<Vec<u8>>> {
         let mut records = Vec::new();
         for position in self.chain.records(kind)? {
@@ -398,16 +396,16 @@ impl StoredRun {
 
     /// The Run at `minute` (from the fork's minute to the duration): restored from the nearest saved
     /// point at or before it, or built from the exported world where there is none, then computed to
-    /// it; collecting its decision records from where it was restored with `decisions`.
-    pub fn seek(&mut self, minute: i64, decisions: bool) -> Result<Sought> {
-        self.seek_with(minute, decisions, &Replaying::default())
+    /// it.
+    pub fn seek(&mut self, minute: i64) -> Result<Sought> {
+        self.seek_with(minute, &Replaying::default())
     }
 
     /// `seek`, and for a Run that kept an LLM tape (`llm_tape` pieces, #428) the ticks after the
     /// restored point answered from the tape's entries after that point's count (`llm::Replay`,
     /// within `replaying`'s limits): a seek never asks a provider, and reaches the world the Run
     /// reached with its link.
-    pub fn seek_with(&mut self, minute: i64, decisions: bool, replaying: &Replaying) -> Result<Sought> {
+    pub fn seek_with(&mut self, minute: i64, replaying: &Replaying) -> Result<Sought> {
         let seek = self.chain.seek(minute)?;
         let export = self.export_bytes()?;
         let world = self.journal.run()?.world.clone();
@@ -435,9 +433,6 @@ impl StoredRun {
                 PlainRun::restore(entry, restore)?
             }
         };
-        if decisions {
-            run.collect_decisions(true);
-        }
         let tape = self.records(RecordKind::Tape)?;
         if !tape.is_empty() {
             let from = match seek.from {

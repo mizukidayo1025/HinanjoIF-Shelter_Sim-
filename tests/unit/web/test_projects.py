@@ -1,5 +1,5 @@
 """The Project API's checks before a computation starts, a computation that fails on a corrupt
-stored Run, and the end of a job a client may see (format v5, #427)."""
+stored Run, and the end of a job a client may see (format v6, #427)."""
 
 from __future__ import annotations
 

@@ -1,6 +1,6 @@
 //! The files of the stored Runs on a disk (`sheltersim_store`, #426) for Python callers: a store's
 //! records in the browser's shapes, its locks (the Python server's, on the same files), its limit,
-//! a branch's stored Run of format v5 written and read, a branch computed from its head in chunks,
+//! a branch's stored Run of format v6 written and read, a branch computed from its head in chunks,
 //! a fork and a question's turn. The local and VM servers compute into and read from these in
 //! #427; nothing in Python calls them yet.
 //!
@@ -528,7 +528,7 @@ impl StoredRun {
         self.inner.end_samples()
     }
 
-    /// The JSON texts of the records of `kind` ("decisions", "conversations", "llm_tape").
+    /// The JSON texts of the records of `kind` ("conversations", "llm_tape").
     fn records<'py>(&self, py: Python<'py>, kind: &str) -> PyResult<Vec<Bound<'py, PyBytes>>> {
         Ok(self.inner.records(record_kind(kind)?).or_store()?.iter().map(|record| PyBytes::new(py, record)).collect())
     }
@@ -542,11 +542,11 @@ impl StoredRun {
     /// it: `(PlainRun, the minute it was computed from, the branch's line restored)`. The ticks of
     /// a Run that kept an LLM tape answer from it, within `llm_limits` (the JSON of `llm::Limits`
     /// the Run was computed with; the model's defaults where None).
-    #[pyo3(signature = (minute, decisions=false, llm_limits=None))]
-    fn seek(&mut self, minute: i64, decisions: bool, llm_limits: Option<&[u8]>) -> PyResult<(PlainRun, i64, usize)> {
+    #[pyo3(signature = (minute, llm_limits=None))]
+    fn seek(&mut self, minute: i64, llm_limits: Option<&[u8]>) -> PyResult<(PlainRun, i64, usize)> {
         let limits = llm_limits.map_or(Ok(Limits::default()), |raw| Limits::from_json(raw).or_py())?;
         let replaying = stored::Replaying { offline: false, limits };
-        let sought = self.inner.seek_with(minute, decisions, &replaying).or_store()?;
+        let sought = self.inner.seek_with(minute, &replaying).or_store()?;
         Ok((PlainRun::of_run(sought.run), sought.from, sought.base))
     }
 

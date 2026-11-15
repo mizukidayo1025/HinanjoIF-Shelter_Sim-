@@ -1,4 +1,4 @@
-"""Compute one branch of a Run in its own process (#48), into its stored Run of format v5 (#427).
+"""Compute one branch of a Run in its own process (#48), into its stored Run of format v6 (#427).
 
 The server process keeps answering HTTP requests without sharing the GIL with the simulation,
 and the memory a computation used returns to the OS when it ends. The computation is the core's

@@ -12,7 +12,7 @@
 // requests go through BrowserApi: each body, masked as the builder masks it (`preview_id` and the
 // branches' heads), has the server's sha256, and a refusal the server's body. Then what only the
 // browser does: a typed `program` is refused as unsupported, the questions' turns are kept in the
-// branch's stored Run, the child's stored Run is of format v5, starts at the fork and reads its
+// branch's stored Run, the child's stored Run is of format v6, starts at the fork and reads its
 // parent's pieces up to its base (no copy of them), and it reads back to its digests.
 
 import { readFileSync } from "node:fs";
@@ -174,7 +174,7 @@ console.log(`${fixture.cases.length} answers compared with the server's in ${((p
   check(got.status === 409 && JSON.parse(got.body).code === "browser_unsupported", `a typed program: ${got.body}`);
 }
 
-// The child's stored Run: format v5, its "run" line holds the fork, it starts at the fork's minute,
+// The child's stored Run: format v6, its "run" line holds the fork, it starts at the fork's minute,
 // it reads its parent's pieces up to its base (it holds no exported world of its own), and it reads
 // back to its digests. Without its parent's, it is not read.
 {

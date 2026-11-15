@@ -1,27 +1,27 @@
 {
   "from_zero": {
-    "journal_sha256": "b25e297b647eca89ad9852e64931cb1a6758714e745e5ce6f190a2a0349688e3",
-    "data_bytes": 848177,
-    "data_sha256": "c9704e1d3f5021c6faf47f6e0753c1533bb08b91fdaab17431be7de57598253f"
+    "journal_sha256": "02e5accf870fb012e069fcaeae271c16f7304783066ee2621bf0d6523721b5d6",
+    "data_bytes": 790423,
+    "data_sha256": "83e58272641fbe9a827937d78d3fee65d7290b6a2c7b666ab01790387ff603bf"
   },
   "no_points": {
-    "journal_sha256": "bdfed5600f87c64e3ce4a63794824ef6cc016adb2dd41abb7cf7c0416c814fc5",
-    "data_bytes": 783347,
-    "data_sha256": "023e3887a341f641992078200056c99f2af2b992e81a7a5522294ea369f88572"
+    "journal_sha256": "2a4cdd6d6e7702d632fc9d9c58bec246ece17ab47efecad0c5f7e1a17152673d",
+    "data_bytes": 729146,
+    "data_sha256": "d1d0ee6a5c106ee1a77527a4a91380f4c101cac79b7858c6bc3b909cdeb794a9"
   },
   "computed": {
-    "journal_sha256": "214aa2be85d1b0ccfa62deaef5e993f169d83f5a2110001e99d3eb11a82fae5a",
-    "data_bytes": 861528,
-    "data_sha256": "02b8fd0960feaed0918525927a95c4ca88149d927b49e658157562e67a383f77"
+    "journal_sha256": "8b6892be2ba06f709dbc95e5ed05b44825ff0f2500cf5cc6efe8e007f23cca71",
+    "data_bytes": 802581,
+    "data_sha256": "9b4507768e6a53c0003bcf7c56f9f5c4f170438c9e6a6b21f6f7a77578da9a5e"
   },
   "fork_parent": {
-    "journal_sha256": "64fb3af1cd67f151187747bee269a78c3a53b5a9e67a22c3f575a3ae33e3c32d",
-    "data_bytes": 2307850,
-    "data_sha256": "f3be14f97e2b7678375bfa4c971c1f7e0515ca6a27e0d46e9ca36350018e1acb"
+    "journal_sha256": "ff5446654a0cd7dfc21d1e1ac1bc199da15b32546626e4658d400ac659348892",
+    "data_bytes": 1890886,
+    "data_sha256": "3f909743e7fcf95d548dc15bdfd7099d861603297750cc81a6bf1231a24c8d20"
   },
   "fork": {
-    "journal_sha256": "b2a8b7463ec62709a5eaf09c6ef45efc5375a3d57e17519506fecbd3e40a2cc1",
-    "data_bytes": 1468534,
-    "data_sha256": "d2eb7cc4ce28755b6635bfca27e41755fb72257ade8ded170b3d2009bdce4fae"
+    "journal_sha256": "62bb2ff5e0465e9b907af3a9f6e13655e25b5d67b3ae9bf3446830b026b4c9a4",
+    "data_bytes": 1351547,
+    "data_sha256": "86975d70128105619eb17924756a325c6f444b0ebb2cacc4b257bd21e1473484"
   }
 }

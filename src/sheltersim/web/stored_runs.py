@@ -1,5 +1,5 @@
 """What the local and VM versions write when a Run starts (#427): its records and its branch
-`main` at minute 0, in the browser's folders and format v5 (`sheltersim_native.rules.run_files`,
+`main` at minute 0, in the browser's folders and format v6 (`sheltersim_native.rules.run_files`,
 native/store), as the browser's `POST runs` does (native/wasm/js/scenario_routes.mjs).
 
 The world at minute 0, the Run's model versions and its evidence are the core's, as the

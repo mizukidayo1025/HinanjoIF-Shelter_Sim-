@@ -20,7 +20,8 @@
 //!   (`DecisionSink::Silent`) unless the Run collects them (`PlainRun::collect_decisions`, #368):
 //!   then the sink is an indexed one, which keeps the JSON bytes the core writes of each decision
 //!   (`Decision::Indexed`), the rows `_IndexedMetricSink.observations` holds as bytes on the native
-//!   path (`Decisions`). Collecting changes nothing of the world.
+//!   path (`Decisions`). Collecting changes nothing of the world. Only the core's tests collect
+//!   them, to see what the rules decided and why; no Run stores them (#478).
 //! - The records of the log are the world's (`load::find_record`). The log holds them in the binary
 //!   form (`EventLog::pack_records`, `events::packed`, #252); their JSON is written when asked
 //!   for (the digests, `find_record`), the same bytes as the native path's.
@@ -643,7 +644,8 @@ impl PlainRun {
 
     /// Whether the Run collects its decisions' records (#368): on, the host is an indexed sink and
     /// keeps them (`Decisions`); off (the default), it is a silent one, and what it kept and was
-    /// not taken is dropped. The world is the same either way.
+    /// not taken is dropped. The world is the same either way. The core's tests read them; no Run
+    /// stores them (#478).
     pub fn collect_decisions(&mut self, on: bool) {
         match (on, self.host.decisions.is_some()) {
             (true, false) => self.host.decisions = Some(Decisions::default()),

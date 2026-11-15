@@ -22,7 +22,7 @@
 // Computing (Computing.resume). Python's checks and answers (src/sheltersim/web/projects.py
 // `submit`, `cancel`), one computation at a time (the thread worker's max_jobs). The branch is cut
 // back to its head, restored there (`RunReader.seek`, #251; the exported world at minute 0),
-// collecting its decision records, and computed in chunks of at most `chunkTicks` ticks. Each chunk
+// and computed in chunks of at most `chunkTicks` ticks. Each chunk
 // is a task of the store's queue (the requests' queue of browser_api.mjs, inside its Web Lock), so
 // the Worker answers timeline, history and the records between chunks. At every `save_every`
 // minutes (360, #263), at the target and when cancelled, the blocks are sealed and a saved point is
@@ -350,7 +350,7 @@ export class Computing {
       let duration;
       let saveEvery;
       try {
-        sought = await reader.seek(head.minute, { decisions: true });
+        sought = await reader.seek(head.minute);
         duration = reader.duration();
         saveEvery = reader.saveEvery();
       } finally {

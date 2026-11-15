@@ -130,7 +130,7 @@ for (const [name, saveEvery] of [["from_zero", 360], ["no_points", 0]]) {
   await store.createProject(tree, "p1");
   const scenarioBytes = encoder.encode(`{"duration_minutes":${duration},"id":"trial","seed":7}`);
   await store.saveScenario(tree, "p1", { scenarioBytes, scenarioHash: await store.sha256Hex(scenarioBytes) });
-  await store.createRun(tree, "p1", { runId: "r-sample", scenarioId: "trial", scenarioVersion: 1, seed: 7, modelVersions: engine, evidenceBytes: encoder.encode('{"schema_version":1}') });
+  await store.createRun(tree, "p1", { runId: "r-sample", scenarioId: "trial", scenarioVersion: 1, seed: 7, modelVersions: engine, evidenceBytes: encoder.encode('{"schema_version":1}'), createdAt: "2026-11-15T01:30:00Z" });
   await store.computeBranch({ wasm, tree, projectId: "p1", runId: "r-sample", branchId: "main", run: { exportBytes: tick, world: "small_replay", ticks: 120 } });
   await store.setRunStatus(tree, "p1", "r-sample", "completed");
   await makeComputeRun({ wasm, tree, projectId: "p1" });
@@ -160,7 +160,7 @@ for (const [name, saveEvery] of [["from_zero", 360], ["no_points", 0]]) {
   await store.createProject(tree, projectId);
   const scenarioBytes = encoder.encode(fixture.scenario_json);
   const scenario = await store.saveScenario(tree, projectId, { scenarioBytes, scenarioHash: await store.sha256Hex(scenarioBytes) });
-  await store.createRun(tree, projectId, { runId, scenarioId: scenario.scenario_id, scenarioVersion: scenario.scenario_version, seed, modelVersions, evidenceBytes: encoder.encode('{"schema_version":1}') });
+  await store.createRun(tree, projectId, { runId, scenarioId: scenario.scenario_id, scenarioVersion: scenario.scenario_version, seed, modelVersions, evidenceBytes: encoder.encode('{"schema_version":1}'), createdAt: "2026-11-15T01:30:00Z" });
   await store.computeBranch({ wasm, tree, projectId, runId, branchId: "main", run: { exportBytes: raw, world: "interventions", ticks: 60 } });
   await store.setRunStatus(tree, projectId, runId, "completed");
   const browser = new api.BrowserApi({ wasm, tree });

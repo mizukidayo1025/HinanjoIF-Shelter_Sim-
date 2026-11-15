@@ -473,6 +473,7 @@ export class ScenarioRoutes {
       seed,
       modelVersions,
       evidenceBytes: evidence,
+      createdAt: store.createdAtOf(this.now()),
     });
     const backend = await store.branchBackend(this.tree, projectId, runId, "main");
     const simulation = new this.wasm.Simulation(entry);

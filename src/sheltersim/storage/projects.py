@@ -209,7 +209,9 @@ class ProjectStore:
             and len(path.parents) > 2
             and path.parents[2].name == "branches"
         )
-        versions = {1, 2} if conversation else {1}
+        # A Run's record v2 adds its creation time (#447); one written before is v1.
+        run_record = path.name == "run.json" and path.parent.parent.name == "runs"
+        versions = {1, 2} if conversation or run_record else {1}
         if (
             not isinstance(value, dict)
             or type(value.get("schema_version")) is not int

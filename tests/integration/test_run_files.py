@@ -33,6 +33,7 @@ PLAIN = native.rules("plain")
 TICK = (CORE_TEST_DATA / "tick_core.json").read_bytes()
 WORLD = "small_replay"
 VERSIONS = json.dumps({"engine:model": "test"})
+CREATED = "2026-11-15T01:30:00Z"
 BRANCH_BUSY = "^run_worker_busy: another process writes this branch$"
 
 
@@ -44,7 +45,7 @@ def _store(root: Path) -> FILES.ProjectFiles:
     files.create_project("p")
     scenario = json.dumps({"duration_minutes": duration, "id": "s", "seed": 1}).encode()
     files.save_scenario("p", scenario, hashlib.sha256(scenario).hexdigest())
-    files.create_run("p", "r", "s", 1, 1, VERSIONS, b'{"schema_version":1}')
+    files.create_run("p", "r", "s", 1, 1, VERSIONS, b'{"schema_version":1}', CREATED)
     with files.claim_branch("p", "r", "main") as lease:
         files.start_branch(lease, "p", "r", "main", TICK, WORLD)
     return files
@@ -66,7 +67,10 @@ def test_a_branch_is_computed_from_its_head_and_read_back(tmp_path):
         assert _compute(files, lease, 700) == "paused"
     record = json.loads(files.branch_record("p", "r", "main"))
     assert (record["computed_until"], record["status"]) == (700, "paused")
-    assert json.loads(files.run_record("p", "r"))["status"] == "paused"
+    run_record = json.loads(files.run_record("p", "r"))
+    assert run_record["status"] == "paused"
+    # The record keeps the creation time it was given (#447), its status set or not.
+    assert (run_record["schema_version"], run_record["created_at"]) == (2, CREATED)
 
     reader = files.reader("p", "r", "main")
     heads = json.loads(reader.heads_json())
@@ -277,7 +281,7 @@ def test_a_run_computed_with_an_llm_keeps_its_tape_and_a_seek_answers_from_it(tm
     files.create_project("p")
     text = json.dumps({"duration_minutes": 240, "id": "s", "seed": 1}).encode()
     files.save_scenario("p", text, hashlib.sha256(text).hexdigest())
-    files.create_run("p", "r", "s", 1, 1, VERSIONS, b'{"schema_version":1}')
+    files.create_run("p", "r", "s", 1, 1, VERSIONS, b'{"schema_version":1}', CREATED)
     with files.claim_branch("p", "r", "main") as lease:
         files.start_branch(lease, "p", "r", "main", export, save_every=60)
         computation = files.go_on(lease, "p", "r", "main", 240)
@@ -318,7 +322,7 @@ def test_a_run_whose_llm_calls_are_accounted_computes_without_waiting_for_its_ow
     files.create_project("p")
     text = json.dumps({"duration_minutes": 120, "id": "s", "seed": 1}).encode()
     files.save_scenario("p", text, hashlib.sha256(text).hexdigest())
-    files.create_run("p", "r", "s", 1, 1, VERSIONS, b'{"schema_version":1}')
+    files.create_run("p", "r", "s", 1, 1, VERSIONS, b'{"schema_version":1}', CREATED)
     with files.claim_branch("p", "r", "main") as lease:
         files.start_branch(lease, "p", "r", "main", export, save_every=60)
     llm = {"schema_version": 1, "mode": "record", "execution_purpose": None}

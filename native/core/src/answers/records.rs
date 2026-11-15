@@ -14,7 +14,8 @@
 //! <project>/runs/<run>/branches/<branch>/branch.json   the branch's record
 //! ```
 //!
-//! Records are JSON with sorted keys and `schema_version` 1. The caller lists a folder and reads
+//! Records are JSON with sorted keys and `schema_version` 1; a Run's record is 1 or 2, which adds
+//! its creation time `created_at` (#447). The caller lists a folder and reads
 //! its files; the functions here keep the names that are identifiers, in the order of their bytes
 //! (as the browser's store lists them), and read the records in the order the browser read them,
 //! so a missing or unreadable record is refused at the same point.
@@ -60,6 +61,44 @@ pub fn parse_record(bytes: &[u8]) -> Answer<Record> {
     }
 }
 
+/// Whether `text` is a Run's creation time as `run.json` keeps it: UTC to the second,
+/// `YYYY-MM-DDTHH:MM:SSZ` (#447).
+pub fn is_created_at(text: &str) -> bool {
+    let bytes = text.as_bytes();
+    bytes.len() == 20
+        && bytes.iter().enumerate().all(|(index, &byte)| match index {
+            4 | 7 => byte == b'-',
+            10 => byte == b'T',
+            13 | 16 => byte == b':',
+            19 => byte == b'Z',
+            _ => byte.is_ascii_digit(),
+        })
+}
+
+/// A Run's record (`run.json`) read: `schema_version` 1, or 2, which adds `created_at` (#447).
+pub fn parse_run_record(bytes: &[u8]) -> Answer<Record> {
+    let corrupt = || Refusal::storage("saved artifact is missing or corrupt");
+    let text = std::str::from_utf8(bytes).map_err(|_| corrupt())?;
+    let value: Value = serde_json::from_str(text).map_err(|_| corrupt())?;
+    let version = value.get("schema_version").and_then(super::js_number);
+    match value {
+        Value::Object(record) if version == Some(1.0) => Ok(record),
+        Value::Object(record) if version == Some(2.0) => match record.get("created_at").and_then(Value::as_str) {
+            Some(created) if is_created_at(created) => Ok(record),
+            _ => Err(corrupt().into()),
+        },
+        _ => Err(Refusal::storage("unsupported saved artifact version; migration required").into()),
+    }
+}
+
+/// A Run's record that must be there: refused where it is missing.
+pub fn read_run_record(bytes: Option<&[u8]>) -> Answer<Record> {
+    match bytes {
+        Some(bytes) => parse_run_record(bytes),
+        None => Err(Refusal::storage("saved artifact is missing or corrupt").into()),
+    }
+}
+
 /// A record that must be there: refused where it is missing.
 pub fn read_record(bytes: Option<&[u8]>) -> Answer<Record> {
     match bytes {
@@ -99,7 +138,7 @@ impl RunFiles {
     pub fn document(&self, project_id: &str, run_id: &str) -> Answer<(Record, Vec<Record>)> {
         check_id(project_id)?;
         check_id(run_id)?;
-        let run = read_record(self.run.as_deref())?;
+        let run = read_run_record(self.run.as_deref())?;
         let mut branches = Vec::with_capacity(self.branches.len());
         for (_, bytes) in listed(&self.branches) {
             branches.push(parse_record(bytes)?);
@@ -305,7 +344,7 @@ pub fn run_answer(project_id: &str, run_id: &str, files: &RunFiles, last_fork: O
 pub fn evidence_answer(project_id: &str, run_id: &str, run: Option<&[u8]>, evidence: Option<&[u8]>) -> Answer {
     check_id(project_id)?;
     check_id(run_id)?;
-    read_record(run)?;
+    read_run_record(run)?;
     let evidence = evidence.ok_or_else(|| Refusal::storage("saved artifact is missing or corrupt"))?;
     Ok(js_trim_end(utf8(evidence)?).as_bytes().to_vec())
 }

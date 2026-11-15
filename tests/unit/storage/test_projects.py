@@ -104,6 +104,24 @@ def test_a_write_over_the_capacity_is_refused_and_leaves_the_file(tmp_path):
     assert store._read(path)["text"] == "a" * 10
 
 
+def test_a_run_record_of_schema_version_2_is_read_and_other_records_only_of_1(tmp_path):
+    """A Run's record v2 adds its creation time (#447); the store reads it as it reads v1. The
+    other records are still only v1."""
+    store = ProjectStore(tmp_path)
+    store.create_project("p")
+    run = store._path("p", "runs", "r", "run.json")
+    for version in (1, 2):
+        store._write(run, {"schema_version": version})
+        assert store._read(run)["schema_version"] == version
+    store._write(run, {"schema_version": 3})
+    with pytest.raises(StorageError, match="migration required"):
+        store._read(run)
+    note = store._path("p", "runs", "r", "note.json")
+    store._write(note, {"schema_version": 2})
+    with pytest.raises(StorageError, match="migration required"):
+        store._read(note)
+
+
 def test_a_transaction_on_windows_keeps_waiting_for_a_long_held_lock(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -1605,12 +1605,6 @@
       )?.scenario;
       state.total = state.scenario?.duration_minutes;
       state.loadedRun = state.run;
-      const req =
-        state.scenario?.provenance?.natural_language_input ||
-        state.scenario?.provenance?.initial_scenario_request;
-      state.displayName = req
-        ? `${req.municipality} · ${disasterName(req.disaster)}`
-        : data.scenario_id;
     }
     state.data = data;
     const branches = data.branches || [];

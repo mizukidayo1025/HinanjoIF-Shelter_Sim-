@@ -10,7 +10,7 @@
 // the sample. In both cases:
 // - The Run to compute is made beside the sample's (compute_run.mjs): its records, the sample's
 //   "export" piece as its bytes are, computed to minute 0.
-// - `resume` and `cancel` answer Python's checks and JSON; the Run is computed in chunks while
+// - `resume` and `cancel` answer the server's checks and JSON; the Run is computed in chunks while
 //   the records, timeline and history answer between them; the screen's `timeline` of each new
 //   head is the kept frame; cancelling stops at a chunk's end with a saved point there.
 // - A computation stopped in the middle (the page closed: the Worker never comes back, a line cut
@@ -18,9 +18,9 @@
 //   next start calls it `interrupted`, and resuming goes on from its head.
 // - Computed so in pieces, the Run's stored world, log and samples read back to the digests of
 //   the sample's Run (same Scenario, same seed), and its frames are the sample's.
-// - A Run computed with another model version is view-only: resume is refused with Python's text;
-//   its timeline and replay show its saved points, a minute between them rounded down as Python's
-//   D2 says (#368).
+// - A Run computed with another model version is view-only: resume is refused with the core's
+//   text; its timeline and replay show its saved points, a minute between them rounded down as D2
+//   of the model versions says (#368).
 // The store emulates OPFS's rule that a file has one access handle open at a time. Large bytes are
 // compared by their sha256 (a failing deepEqual of large arrays takes all the memory).
 
@@ -160,7 +160,7 @@ const get = (path, search = "") => browser.answer({ method: "GET", path: `${base
 const post = (path, body) => browser.answer({ method: "POST", path: `${base}${path}`, body: typeof body === "string" ? body : JSON.stringify(body) });
 const record = async () => JSON.parse((await get("")).body).branches.find((branch) => branch.branch_id === "main");
 const runStatus = async () => JSON.parse((await get("")).body).status;
-// Python's refusals (src/sheltersim/web/projects.py): a StorageError's text and code, 409.
+// The server's refusals (src/sheltersim/web/projects.py): a StorageError's text and code, 409.
 const refusal = async (path, body, status, error, code = status === 409 ? "storage_conflict" : null) => {
   const answer = await post(path, body);
   const document = JSON.parse(answer.body);
@@ -191,7 +191,7 @@ async function sampleFrame(minute, computedUntil) {
   }
 }
 
-// Python's refusals, before anything computes.
+// The server's refusals, before anything computes.
 const RANGE = "target minute must be in the uncomputed remaining range";
 await refusal("/resume", { branch_id: "main", target_minute: DURATION + 1 }, 409, RANGE);
 await refusal("/resume", { branch_id: "main", target_minute: 0 }, 409, RANGE);
@@ -356,8 +356,9 @@ let stoppedAt;
     const answer = await browser.answer({ method: "POST", path: `${at}/resume`, body: JSON.stringify({ branch_id: "main", target_minute: branch.computed_until + 1 }) });
     const wanted = "run_model_view_only: このシナリオは旧モデル（版 1）で計算されました。今のモデルは版 4 です。閲覧のみです。保存した時点だけを表示し、続きの計算、分岐、介入の適用はできません。";
     check(answer.status === 409 && answer.body === JSON.stringify({ code: "run_model_view_only", error: wanted }), `a Run of another model version: ${answer.status} ${answer.body}`);
-    // It is viewed as Python views it (D2): a minute between saved points shows the saved point at
-    // or before it, not computed again, and says so; a saved point's minute is shown as it is.
+    // It is viewed as D2 of the model versions says: a minute between saved points shows the saved
+    // point at or before it, not computed again, and says so; a saved point's minute is shown as it
+    // is.
     const frameOf = async (minute) => {
       const answer = await browser.answer({ method: "GET", path: `${at}/branches/main/timeline`, search: `?minute=${minute}` });
       check(answer.status === 200, `a Run of another model version at ${minute}: ${answer.status} ${answer.body.slice(0, 200)}`);

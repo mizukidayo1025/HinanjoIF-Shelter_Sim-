@@ -1,13 +1,12 @@
-// The summary of a world for the intervention's reading, in WASM, is Python's (#302).
+// The summary of a world for the intervention's reading, in WASM, is the recorded one (#302).
 //
 // Usage: node native/wasm/tests/node_summaries.mjs PKG_DIR
 //   PKG_DIR: the output of `wasm-bindgen --target nodejs` for sheltersim_wasm.wasm.
 //
-// For each world of native/core/tests/data/summaries.json (tests/support/core_summaries.py), it
-// runs the world in WASM from minute 0 and checks, at each minute the fixture lists, the sha256 of
-// `Simulation.scenarioSummary` (the summary's canonical JSON bytes) against that of the summary
-// Python's `scenario_summary_from_world` made, as native/core/tests/summaries.rs does in native
-// code. Reading a summary changes nothing.
+// For each world of native/core/tests/data/summaries.json, it runs the world in WASM from minute 0
+// and checks, at each minute the fixture lists, the sha256 of `Simulation.scenarioSummary` (the
+// summary's canonical JSON bytes) against the recorded summary's (recorded before #430), as
+// native/core/tests/summaries.rs does in native code. Reading a summary changes nothing.
 
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";

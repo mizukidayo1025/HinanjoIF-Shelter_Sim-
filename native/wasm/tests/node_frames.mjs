@@ -1,12 +1,12 @@
-// The frame of a minute in WASM is the native path's (#264).
+// The frame of a minute in WASM is the recorded one (#264).
 //
 // Usage: node native/wasm/tests/node_frames.mjs PKG_DIR
 //   PKG_DIR: the output of `wasm-bindgen --target nodejs` for sheltersim_wasm.wasm.
 //
-// For each world of native/core/tests/data/frames.json (tests/support/core_frames.py: the worlds of
-// tick_core.json and `arrivals`), it runs the world in WASM from minute 0 and checks, at each
-// minute the fixture lists, the sha256 of `Simulation.frame` (the frame's canonical JSON bytes)
-// and the world's digest (`stateDigest`) against what the native path's `world_frame` gave, as
+// For each world of native/core/tests/data/frames.json (the worlds of tick_core.json and
+// `arrivals`), it runs the world in WASM from minute 0 and checks, at each minute the fixture
+// lists, the sha256 of `Simulation.frame` (the frame's canonical JSON bytes) and the world's
+// digest (`stateDigest`) against the fixture's (recorded before #430), as
 // native/core/tests/frames.rs does in native code. A frame given a digest names it.
 
 import { readFileSync } from "node:fs";

@@ -1,7 +1,7 @@
 // A Run to compute, for the tests (node_compute.mjs, node_stored_runs.mjs): beside a Project's
 // computed Run, a Run of the same Scenario that is not computed. Its records are the source Run's
-// with its own id and Python's status of a Run just created ("queued"), and its stored Run holds
-// the source's "run" line and its "export" piece (the minute-0 world Python built), the compressed
+// with its own id and the status of a Run just created ("queued"), and its stored Run holds
+// the source's "run" line and its "export" piece (the world at minute 0), the compressed
 // bytes copied as they are. Its branch `main` is at minute 0, its head the "export" line.
 //
 // The site offered such a Run to compute beside the sample until #411 (js/compute.mjs's

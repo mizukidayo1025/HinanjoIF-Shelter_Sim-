@@ -4,11 +4,15 @@ server typesets the PDF and keeps it. No test calls a paid API.
 
 Without an API key the route answers the core's refusal (409 `pdf_analysis_offline`), the
 browser's, which the core's answer fixtures fix.
+
+The report's data and the analysis task's cache key (its facts, versions and schema) are pinned:
+a change that keeps the answers keeps them (#489).
 """
 
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 from typing import Any
 
@@ -21,6 +25,9 @@ from sheltersim.web.projects import ProjectAPI, answers
 
 END = 30
 FORK_MINUTE = 10
+# The sha256 of the report's data as canonical JSON, and the cache key of the analysis task.
+DATA_SHA256 = "905f9e210fa85fbf8884a9eb9e750d04de7e9c7cc55c81250b4d4fec34bd200a"
+ANALYSIS_KEY = "e7e292de94d0a4d4d414b5c12d58efbe1d7d4ece4ef5af304145f0847a0a2ade"
 
 
 @pytest.fixture(scope="module")
@@ -74,6 +81,9 @@ def test_a_report_of_two_branches_is_typeset_from_the_core_s_facts_and_kept(
     assert provider.calls == 1
     [artifact] = [item for item in kept(report_api) if len(item["data"]["branches"]) == 2]
     data, facts = artifact["data"], artifact["facts"]
+    canonical = json.dumps(data, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+    assert hashlib.sha256(canonical.encode()).hexdigest() == DATA_SHA256
+    assert provider.keys == [ANALYSIS_KEY]
     assert data["range"] == [FORK_MINUTE, END]
     assert [branch["branch_id"] for branch in data["branches"]] == ["main", "capacity"]
     assert data["paired"] is True

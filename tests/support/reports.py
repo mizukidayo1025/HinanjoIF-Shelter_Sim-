@@ -59,16 +59,19 @@ def prose_document() -> Callable[[], dict[str, Any]]:
 
 
 class _ReportProvider:
-    """A fake Opus: answers `document()` (the grounded prose by default), counting its calls."""
+    """A fake Opus: answers `document()` (the grounded prose by default), counting its calls and
+    keeping their tasks' cache keys."""
 
     def __init__(self, document: Callable[[], dict[str, Any]] = _prose_document) -> None:
         self.calls = 0
+        self.keys: list[str] = []
         self.document = document
 
     def complete(self, *, model_id, task, **_kwargs):
         from sheltersim.llm.contracts import ProviderResponse
 
         self.calls += 1
+        self.keys.append(task.cache_key(model_id))
         return ProviderResponse(
             json.dumps(self.document(), ensure_ascii=False), model_id, 200, 500, 1
         )

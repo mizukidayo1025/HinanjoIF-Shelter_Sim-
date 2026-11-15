@@ -140,13 +140,31 @@ python benchmarks/gate_all_paths.py --output 出力先 --determinism
 ~~~
 
 - 各Scenarioは自分のプロセスで動き、終わりの世界ごとに中核のハッシュ（世界の部分ごとのdigestから作るworld、イベント記録、指標の標本）と時間を`出力先/summary.json`に書きます。ネットワークへの接続は失敗させます。LLMの応答は、手元の台本のProviderが書いた応答テープとその再生だけを使います。
-- `--expect`：`fixtures/gate-all-paths.json`のハッシュと比べます。モデルや規則を意図して変えてハッシュが変わったときは、理由をPull Requestに書いて、`--write-expected`で更新します。理由が説明できない変化は不具合として調べます。この値はLinux・Windows・macOSで同じです。CIは3つのOSでこの値と比べます。OSによって変わったときは、OSの数学ライブラリ（libm）やCの関数に頼る計算が入っていないかを調べます。
+- `--expect`：`fixtures/gate-all-paths.json`のハッシュと比べます。モデルや規則を意図して変えてハッシュが変わったときは、理由をPull Requestに書いて、`--write-expected`で更新します。これは挙動の変更で、リファクタリングと同じPull Requestには入れません（下の「挙動を変えない変更（リファクタリング）」）。理由が説明できない変化は不具合として調べます。この値はLinux・Windows・macOSで同じです。CIは3つのOSでこの値と比べます。OSによって変わったときは、OSの数学ライブラリ（libm）やCの関数に頼る計算が入っていないかを調べます。
 - `--determinism`：別のプロセス、別の`PYTHONHASHSEED`、別の`RAYON_NUM_THREADS`（1と4）で、すべてのScenarioを動かして、1回目と比べます。`RAYON_NUM_THREADS`は、tickの人ごとの計算を手伝うスレッド（`native/core/src/parallel.rs`）の数を変えます。1は手伝いなし、4は手伝い3つです。人ごとの計算は少ない人数では呼んだスレッドだけで行うので、4の回は`SHELTERSIM_GATE_PEOPLE_PER_HELPER=1`で、どの人数でも1人ずつ手伝いに渡します。
 - 保存した点からの再開、再開した Run のさらに再開、保存したRunの続きの計算は、1つのScenarioの中でまっすぐのRunと比べます（`must_match`）。
 - 介入は、中核が予定できる操作（文章の読み取りが作る操作）なら、Runの途中の分に適用します。それ以外の操作は、0分の世界に予定した記録（`fixtures/gate-scheduled-programs.json.xz`）から計算します。この記録は、Pythonの経路を消す前に作り、Pythonの経路と中核が同じ世界で終わることを確かめたものです。
 - `policies`のモデルを足したら、ここにもScenarioを足します。`tests/integration/test_all_paths_gate.py`は、モデルの一覧がここに入っていないと失敗します。
 - 介入が拒否された結果と、有効な入力でRunが止まる結果（`run_stops`のScenario）も、期待値に入れます。直したら期待値が変わるので気づけます。止まるものは、見つけたときにIssueにします。直したものは`run_stops`にRunとして残し、再発に気づけるようにします。
 - 全件を動かすテストには`long_simulation`の印を付けます。通常のpytestは、1つの小さなScenarioだけを動かします。
+
+## 挙動を変えない変更（リファクタリング）
+
+名前の付け替え、ファイルの移動、型の置き換え、関数の分割のように、挙動を変えないための変更（リファクタリング）は、次の条件をすべて満たします。満たさない変更は挙動の変更です。リファクタリングとは別のPull Requestに分け、何がなぜ変わったかを書きます（#487）。
+
+- 全経路のハッシュが変わりません。`python benchmarks/gate_all_paths.py --output 出力先 --expect fixtures/gate-all-paths.json`を手元で通します。`--write-expected`で期待値を書き直さず、モデル全体の版`ENGINE_VERSION`（[architecture.md](architecture.md)）も上げません。
+- 全経路のハッシュが見ない出力（Projectの道の答え、保存の置き場とProjectの束、ブラウザー版のWASMとJSの口、文章の読み取り、検証の誤りの文、0分の世界、LLMへの問い合わせなど）を固定したテストが、期待値を変えずに通ります。中核のテストのfixture（`native/core/tests/data/`、`benchmarks/core_fixtures.py`で書き直すものも）、`fixtures/`の記録した値、テストに書いたsha256やcache keyを書き直しません。書き直しが要るなら、それは挙動の変更です。
+- 手元では、Pythonのoffline全件、Rustを触ったら`cargo test`（`sheltersim_core`は既定の機能と`--no-default-features`の両方、`sheltersim_store`）、ブラウザー版のWASMかJSを触ったら`native/wasm/tests/`のNodeのテスト（CIの`ブラウザー版の計算`と同じもの）を通します。
+- 固定されていない出力を変えそうなリファクタリングは、先にその出力のsha256を固定するテストを足し（別のPull Request）、それが通ることを確かめてから変えます。小さな合成の入力で作り、期待値はLinux・Windows・macOSで同じものにします（上の「通常のoffline確認」）。
+
+### 画面の整理の確かめ
+
+画面のファイル（`src/sheltersim/web/static/`）のリファクタリング（たとえば`demo-v2.js`を分ける）は、ハッシュでは確かめられません。変える前のcommitと変えた後のcommitで同じ手順を行い、結果を比べます。
+
+1. `tests/unit/web/`の`test_static_*.py`と、`tests/integration/test_static_site.py`・`test_demo_v2_routes.py`が通ります。
+2. 静的サイト（[開発環境](development.md#ブラウザー版の静的サイト266)の「ブラウザー版の静的サイト」）を、それぞれのcommitで同じ例のファイルと避難所のCSVから作り、`benchmarks/static_site_e2e.py --site … --work … --python-projects … --require-all --output …`を流します。画面の操作を最初から最後まで通し、ブラウザーの答えをPythonのserverと比べる道具です。前後のどちらも、すべての段がすべてのbrowserで通り、結果のJSONの各段の確かめ（`checks`の`name`と`verdict`）の並びが同じになります。
+3. 2と同じ例のProjectStore（`scripts/build_project_sample.py`の出力）の写しを`--runs-dir`の`.projects`に置いてローカル版のserverを起動し（`python -m sheltersim web --runs-dir … --port 8878`）、`scripts/review_demo_v2_gameplay.py --project sample --run run-sample-toilet-outage --branch branch-toilet01-outage --output …`を流します。前後の`recorded-frames.json`が同じbytesで、`results.json`の`recorded_audit`が同じになります。再生の速さやFPSのような実時間の値は比べず、道具の中の確かめが通ることだけを見ます。
+4. 画面の見た目は、2と3が書く画面の写しを前後で並べて見比べます。描画の時刻で画素が変わるため、写しのbytesは比べません。
 
 ## 不具合を見つけたとき
 

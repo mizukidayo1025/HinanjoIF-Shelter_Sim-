@@ -3,13 +3,13 @@
 //! `TestHost` is the host of a build without Python (orchestrator decision (c) on design-p8.md
 //! section 4.3): its `contract` gives its input back as given, its LLM methods do what a Run
 //! without an LLM does (nothing; `llm()` says there is none), its sinks write down each call, and
-//! the whole world's validation passes (policy E6: the Python checks are not in the core in #152).
+//! the whole world's validation it is asked for (`validate_*`) passes (policy E6).
 //!
 //! Lane P9-0: its holding is the world's slots' (`Host::holding` gives None) unless a test sets
 //! one; it fills every section of the configs with the values `fill_section` builds here, from
 //! outside the crate (the core-only tick of P10 needs that); it runs no foreign handler; and its
-//! Python decision sink writes the call down. A test hook (`on_llm`) runs at each LLM call, as an
-//! LLM hook of the native host writes the world.
+//! decision sink (`record_decision_python`) writes the call down. A test hook (`on_llm`) runs at
+//! each LLM call, as an LLM hook of a host writes the world.
 
 #![allow(dead_code)]
 
@@ -98,8 +98,8 @@ pub struct TestHost {
     pub source: Option<Option<Arc<str>>>,
     /// What `holding` answers; None: the world's slots answer (lane P9-0).
     pub holding: Option<Arc<Holding>>,
-    /// Run at each LLM call (`consider_*`, `prioritize_support_request`), as an LLM hook of the
-    /// native host writes the world.
+    /// Run at each LLM call (`consider_*`, `prioritize_support_request`), as an LLM hook of a host
+    /// writes the world.
     pub on_llm: Option<Box<dyn FnMut()>>,
     /// The EventLog's records `find_record` finds, by event ID (lane P9-1a); past them, those of
     /// the loaded world's log where `world` is set (#225 lane M9).
@@ -116,8 +116,8 @@ pub struct TestHost {
     pub foreign: Option<Box<dyn FnMut(&EventRow) -> Result<Foreign, Error>>>,
     /// What `contract` does (lane P9-3a): a test's contract; none gives the input back.
     pub contracts: Option<Box<dyn FnMut(&Contract, &V) -> Result<V, Error>>>,
-    /// Run before (true) and after (false) each phase of a tick, as `TickEngine.phase_observer`
-    /// (Issue #225, lane M10b): a test reads the world and the Run there.
+    /// Run before (true) and after (false) each phase of a tick (`Host::phase`, Issue #225, lane
+    /// M10b): a test reads the world and the Run there.
     pub on_phase: Option<Box<dyn FnMut(Phase, bool)>>,
 }
 
@@ -163,7 +163,7 @@ fn put<T>(lazy: &Lazy<T>, value: T) {
 }
 
 /// What a test host fills each section with: the values of configs `{}` where a parser of the core
-/// reads the configs' `V`, fixed values for what the Python contracts and factories parse. Each is
+/// reads the configs' `V`, fixed values for the sections a host parses. Each is
 /// built with the crate's public API only, which is what a host outside the crate (P10's) has.
 pub fn fill_section(configs: &Configs, which: SectionId) {
     let empty = V::Map(IndexMap::new());

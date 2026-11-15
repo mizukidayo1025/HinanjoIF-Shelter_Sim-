@@ -1,12 +1,11 @@
 //! The cases of the whole world's validation (`sheltersim_core::validate`, #250, #347): broken
-//! worlds and what Python raised for each at each entry point, which the core must raise too.
+//! worlds and the error recorded for each at each entry point, which the core must raise.
 //!
-//! `tests/support/core_validate.py` writes the files: `validate_worlds.json` holds the valid worlds,
-//! and each case file (`validate_<area>.json`) holds its cases' worlds as variants of those
-//! (`{"file": "validate_worlds", "base": name, "changes"/"set": ...}`, `cases::apply_variant`) and
-//! its cases: `{"name", "world", "in_flight"?, "expected": {entry: [class, text] | null}}`. A world
-//! is loaded with the namespaces as found (`load::Namespaces::Lenient`), so a namespace its typed
-//! row would refuse is there as a value, as Python holds it.
+//! `validate_worlds.json` holds the valid worlds, and each case file (`validate_<area>.json`) holds
+//! its cases' worlds as variants of those (`{"file": "validate_worlds", "base": name,
+//! "changes"/"set": ...}`, `cases::apply_variant`) and its cases: `{"name", "world", "in_flight"?,
+//! "expected": {entry: [class, text] | null}}`. A world is loaded with the namespaces as found
+//! (`load::Namespaces::Lenient`), so a namespace its typed row would refuse is there as a value.
 //!
 //! `check_file` checks every case of a file and fails with all the cases that differ; a test that
 //! has to change the loaded world itself (a value the loader cannot hold) uses `world_of`,
@@ -23,13 +22,13 @@ use sheltersim_core::world::World;
 
 use super::{cases, load};
 
-/// The entry points a case records, as `ENTRIES` of `core_validate.py` names them.
+/// The entry points a case records.
 pub const ENTRIES: [&str; 5] = ["validate", "validate_tick", "extensions", "candidate", "in_flight"];
 
-/// What an entry point gave: None where it passed, or the Python class and `str(exc)`.
+/// What an entry point gave: None where it passed, or the error's class and text (`py_str`).
 pub type Found = Option<(String, String)>;
 
-/// The Python class of a core error.
+/// The class name a case records for a core error.
 pub fn class_of(error: &Error) -> String {
     match error {
         Error::Invariant(_) | Error::Corrupt { .. } => "StateInvariantError",
@@ -169,7 +168,7 @@ pub fn check_file_without(file: &str, skipped: &[&str]) -> usize {
     cases.len()
 }
 
-/// Check that each valid world of a file of worlds passes every entry point, as it does in Python.
+/// Check that each valid world of a file of worlds passes every entry point.
 pub fn check_valid_worlds(file: &str) -> usize {
     let data = load::data(file);
     let worlds = data["worlds"].as_object().unwrap();

@@ -1,15 +1,9 @@
-//! The staff dynamics' update and availability on the small world of
-//! `tests/integration/test_staff_dynamics_row.py` (Issue #225, lane M11; moved from that file).
+//! The staff dynamics' update and availability (`rules::staff_dynamics::update`,
+//! `is_available_now`) on a small world (Issue #225, lane M11), with the fatigue formula the core
+//! reads from the configs (`StaffFatigue::parse`).
 //!
-//! The world is the pytest file's `_world()`: three staff members (`S01`..`S03`) and the namespace
-//! `create_staff_dynamics_state` made for an empty config, exported by
-//! `tests/support/core_fixtures_staff_work.py` (`staff_dynamics.json`). The rules are the kernels
-//! the PyO3 entries call (`rules::staff_dynamics::update`, `is_available_now`), with the fatigue
-//! formula the core reads from the configs (`StaffFatigue::parse`), as the entries read it.
-//!
-//! The tests of the pytest file that draw hundreds of random worlds and questions with
-//! `random.Random` stay there (decision 5 of #225), with the entries' tests and the comparisons
-//! with the Python checks of a config and of a saved namespace.
+//! The world (`staff_dynamics.json`) has three staff members (`S01`..`S03`) and the namespace of
+//! staff dynamics a new Run makes for an empty config; it was recorded before #430.
 
 use crate::support;
 
@@ -38,9 +32,8 @@ fn fields(record: StaffRecord) -> (i64, i64, i64, f64, i64, LastActivity) {
     (record.consecutive_work_minutes, record.total_work_minutes, record.total_rest_minutes, record.fatigue, record.rest_until_minute, record.last_activity)
 }
 
-/// `test_a_working_minute_is_the_formula_s_fatigue`: the linear formula's fatigue is
-/// `min(1.0, consecutive / maximum)`, 240 by default; a member without a task is off duty and
-/// keeps a new record.
+/// The linear formula's fatigue is `min(1.0, consecutive / maximum)`, 240 by default; a member
+/// without a task is off duty and keeps a new record.
 #[test]
 fn a_working_minute_is_the_formula_s_fatigue() {
     let (mut world, entry) = base();
@@ -51,10 +44,9 @@ fn a_working_minute_is_the_formula_s_fatigue() {
     assert_eq!(fields(record(&world, "S02")), fields(StaffRecord::new()));
 }
 
-/// `test_the_availability_reader_takes_each_shape_of_the_operations_state`: `operation is None or
-/// operation.get("phase") == "idle"` of `staff_operations_v1`, for each shape of the namespace
-/// (a record idle, travelling or working, no record, and None under the key, which the entry reads
-/// as no state).
+/// A member with no operation in `staff_operations_v1`, or an idle one, is available, for each
+/// shape of the namespace (a record idle, travelling or working, no record, and None under the
+/// key, which reads as no state).
 #[test]
 fn the_availability_reader_takes_each_shape_of_the_operations_state() {
     let data = load::data(FILE);

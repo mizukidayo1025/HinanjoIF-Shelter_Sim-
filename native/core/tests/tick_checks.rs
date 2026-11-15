@@ -1,9 +1,7 @@
 //! Lane P8 d4: the end-of-tick check (`rules::after_tick`) and its entity rules
-//! (`rules::tick_validation`) on a world built here with no Python, and the marks of the written
-//! slots the memo reads (`Table::marked`). The PyO3 crate's kernels are glue over these, so the gate
-//! and the offline tests run them on every tick (`tests/integration/test_after_tick_kernel.py`,
-//! `test_entity_rules_kernel.py` compare them with the Python check); these say what each reads,
-//! what it asks of Python (`Checks`), and what the memo keeps and skips.
+//! (`rules::tick_validation`) on a world built here, and the marks of the written slots the memo
+//! reads (`Table::marked`). Every tick runs them; these say what each reads, what it asks of its
+//! checks (`Checks`), and what the memo keeps and skips.
 
 use std::sync::Arc;
 
@@ -157,7 +155,7 @@ fn entity_rules(world: &World) -> Result<Vec<(Arc<str>, i64)>> {
     tick_validation::entity_rules(world, &entity_inputs(Requests::All, &absent, &routes), &mut |_| {})
 }
 
-/// The Python callables of the check: they say yes, and record what was asked.
+/// The check's questions (`Checks`): they say yes, and record what was asked.
 #[derive(Default)]
 struct Asked {
     namespaces: Vec<String>,
@@ -221,7 +219,7 @@ fn the_table_marks_each_written_or_filled_slot_once_in_order() {
     // Reads mark nothing.
     assert!(table.get("r1").is_some() && table.row_at(second).is_some());
     assert!(table.marked().is_empty());
-    // A rule of the core, then Python, then the core again: one mark per slot.
+    // Three ways of writing (`get_mut`, `row_and_view_mut`, `slot_mut`): one mark per slot.
     table.get_mut("r2").unwrap().cooldown_until = 5;
     table.row_and_view_mut(first).unwrap().0.cooldown_until = 6;
     table.slot_mut(second).unwrap().cooldown_until = 7;
@@ -242,7 +240,7 @@ fn the_entity_rules_read_the_rows() {
     world.rows_mut().unwrap().agents.get_mut("a1").unwrap().stress = 1.5;
     assert_eq!(entity_rules(&world), Err(refusal("an agent's value is the Python rule's")));
     world.rows_mut().unwrap().agents.get_mut("a1").unwrap().stress = 0.2;
-    // A v5 world with a resource config, or a v6 world without one, is the Python rule's.
+    // A v5 world with a resource config, or a v6 world without one, is refused.
     let config =
         ResourceNumbers { water_ml_per_service: 250, food_meal_units_per_service: 1, water_staff_skill: text("water"), meal_staff_skill: text("meal") };
     let (absent, routes) = (Held::Absent, Ok(Arc::new(None)));
@@ -271,7 +269,7 @@ fn the_entity_rules_read_requests_inventory_counters_and_events() {
     world.slots.row_mut::<IdMap<i64>>(RESOURCES).unwrap().insert(text("water_ml"), -1);
     assert_eq!(entity_rules(&world), Err(refusal("the inventory is the Python rule's")));
     world.slots.row_mut::<IdMap<i64>>(RESOURCES).unwrap().insert(text("water_ml"), 1);
-    // A pending event that is only a Python object, then one whose sequence the counter is not past.
+    // A pending event with no row, then one whose sequence the counter is not past.
     world.queue_mut().unwrap().add(text("e1"), (8, 0, 12), None);
     assert_eq!(entity_rules(&world), Err(refusal(NO_ROW)));
     let mut queue = Queue::new();

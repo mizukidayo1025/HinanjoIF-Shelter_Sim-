@@ -1,8 +1,8 @@
-//! A Run's ticks in the core without Python (Issue #152, lane P10-1b; definition of done 4.1-(4) of
-//! design-p8.md, notes for P10 in design-p9.md section 8; #214).
+//! A Run's ticks in the core (Issue #152, lane P10-1b; definition of done 4.1-(4) of design-p8.md,
+//! notes for P10 in design-p9.md section 8; #214).
 //!
-//! The worlds are those of `tests/support/core_tick.py`, read from `tests/data/tick_core.json` by
-//! the test-only loader (`support/load.rs`, orchestrator decision (b)):
+//! The worlds are read from `tests/data/tick_core.json` by the test-only loader (`support/load.rs`,
+//! orchestrator decision (b)):
 //! - `small_replay`: h00_small_replay (4 people, 4 zones, 6 edges, 4 toilets, 5 staff, a toilet's
 //!   outage at minute 15 and its recovery at 90), with no floor plan and no extensions.
 //! - `generated`: a generated Scenario (10 people, the UI's floor plan, every extension, a second
@@ -11,19 +11,17 @@
 //!   into its typed row, `support/typed.rs`), and the update phase's `update_movement` walks people
 //!   and replans the trips the moves changed.
 //!
-//! The Run's policies are what the PyO3 crate read of that controller. Each tick is the core's
-//! `run_tick` with the `TestHost` (decision (c)): what the world holds from its slots, the
-//! Python-parsed sections of the exported world (`support/sections.rs`), the floor plan of the world
-//! as it is at each call (`load::following_host`, as `Geo::of` reads the overlay), contracts that
-//! take their input as given, no foreign handler, sinks into its calls, no LLM, `space_refreshed`
-//! Ok. The test does what `TickEngine.step` does around the phases: the minute moves on, then the
-//! end-of-tick check (`after_tick::check`, with no Python validator to ask): `support/ticks.rs`.
+//! The Run's policies are the entry's. Each tick is the core's `run_tick` with the `TestHost`
+//! (decision (c)): what the world holds from its slots, the host-parsed sections of the exported
+//! world (`support/sections.rs`), the floor plan of the world as it is at each call
+//! (`load::following_host`, as `Geo::of` reads the overlay), contracts that take their input as
+//! given, no foreign handler, sinks into its calls, no LLM, `space_refreshed` Ok. Around the phases
+//! the minute moves on, then the end-of-tick check (`after_tick::check`, each of its questions
+//! answered yes): `support/ticks.rs`.
 //!
 //! After each world's ticks the digests of the world's parts (the rows, the queue, the log, the
-//! fields, `model_state`, the scalars) and of the metric samples are the ones the native path gives
-//! on the same world through `TickEngine` (frozen in the fixture by `tests/support/core_tick.py`,
-//! written by `benchmarks/core_fixtures.py`, and checked against the native path by
-//! `tests/integration/test_core_fixtures.py`).
+//! fields, `model_state`, the scalars) and of the metric samples are the fixture's `expected`. The
+//! worlds and the digests were recorded before #430 and pin the core's output now.
 
 use crate::support;
 
@@ -45,9 +43,9 @@ use support::load::{self, Loaded};
 use support::ticks::{metric_line, run as run_ticks};
 use support::{Call, TestHost};
 
-// ---- Digests of the world, as `tests/support/core_tick.py` writes them -----------------------------
+// ---- Digests of the world -----------------------------------------------------------------------
 
-/// The digests of the world's parts as `core_tick.py` writes them (`canonical::run_digests`).
+/// The digests of the world's parts (`canonical::run_digests`).
 fn digests(loaded: &Loaded) -> Vec<(&'static str, String)> {
     loaded.cell.with(|world| canonical::run_digests(world)).unwrap().unwrap()
 }
@@ -121,12 +119,12 @@ struct Ran {
     ticks_with_journeys: i64,
 }
 
-/// The world's ticks in the core, which reach what the native path gave: the log's event types, the
+/// The world's ticks in the core, which reach the recorded world: the log's event types, the
 /// metric samples, the digests of the world's parts and of the samples. Nothing went outside the
 /// core but the sinks, the observer, the contracts (which give their input back), what the host
 /// reads for the world it owns (the sections, the plan) and the notices of what the core wrote (a
 /// namespace started, `world.resources`).
-fn reaches_the_native_path(name: &str) -> (Value, Ran) {
+fn reaches_the_recorded_world(name: &str) -> (Value, Ran) {
     let fixture = load::entry("tick_core", name);
     let wanted = &fixture["expected"];
     let ticks = wanted["ticks"].as_i64().unwrap();
@@ -178,7 +176,7 @@ fn reaches_the_native_path(name: &str) -> (Value, Ran) {
     (fixture, ran)
 }
 
-/// The Python-parsed sections the ticks read, in the order first read.
+/// The host-parsed sections the ticks read, in the order first read.
 fn filled(host: &TestHost) -> Vec<SectionId> {
     let mut filled: Vec<SectionId> = Vec::new();
     for call in &host.calls {
@@ -197,7 +195,7 @@ fn replanned(loaded: &Loaded) -> i64 {
 }
 
 #[test]
-fn the_loaded_worlds_write_the_bytes_of_the_python_worlds() {
+fn the_loaded_worlds_write_the_recorded_bytes() {
     for name in WORLDS {
         let fixture = load::entry("tick_core", name);
         let loaded = load::loaded(&fixture);
@@ -206,12 +204,12 @@ fn the_loaded_worlds_write_the_bytes_of_the_python_worlds() {
 }
 
 #[test]
-fn the_core_runs_the_small_replay_alone_and_reaches_the_native_path_s_world() {
-    let (_, ran) = reaches_the_native_path("small_replay");
-    // The check asks only the validators the native path registers for namespaces (absent here)
-    // and the effect program's check: a world without Python answers yes (policy E6).
+fn the_core_runs_the_small_replay_alone_and_reaches_the_recorded_world() {
+    let (_, ran) = reaches_the_recorded_world("small_replay");
+    // The check asks only the validators of the namespaces (absent here) and the effect program's
+    // check: the test's checks answer yes (policy E6).
     assert!(ran.asked.iter().all(|question| question.starts_with("namespace ") || question == "effects"), "{:?}", ran.asked);
-    // The Python-parsed sections the ticks read, each the exported world's: the model selection,
+    // The host-parsed sections the ticks read, each the exported world's: the model selection,
     // whether the extensions are on (no: the configs have none) and the plan of the check.
     assert_eq!(filled(&ran.host), vec![SectionId::Selection, SectionId::ExtensionsEnabled, SectionId::TickPlan]);
     // No movement: nobody walks.
@@ -219,10 +217,10 @@ fn the_core_runs_the_small_replay_alone_and_reaches_the_native_path_s_world() {
 }
 
 #[test]
-fn the_core_walks_and_replans_the_generated_world_alone_and_reaches_the_native_path_s_world() {
-    let (fixture, ran) = reaches_the_native_path("generated");
+fn the_core_walks_and_replans_the_generated_world_alone_and_reaches_the_recorded_world() {
+    let (fixture, ran) = reaches_the_recorded_world("generated");
     let wanted = &fixture["expected"];
-    // The extensions `initialize_simulator_extensions` made, each read into its typed row.
+    // The extensions of the generated world, each read into its typed row.
     ran.loaded
         .cell
         .with(|world| {
@@ -256,8 +254,8 @@ fn the_core_walks_and_replans_the_generated_world_alone_and_reaches_the_native_p
     let started: Vec<&str> = ran.host.calls.iter().filter_map(|call| if let Call::StartNamespace(name) = call { Some(&**name) } else { None }).collect();
     assert_eq!(started, ["social_propagation_v1"]);
     assert!(ran.host.calls.iter().any(|call| matches!(call, Call::ResourcesChanged(..))));
-    // The Python-parsed sections the ticks read through `fill_section`; the floor plan's (the facility
-    // geometry and the spatial constraints) are read by `Following::floor_plan`.
+    // The host-parsed sections the ticks read through `fill_section`; the floor plan's (the
+    // facility geometry and the spatial constraints) are read by `Following::floor_plan`.
     assert_eq!(filled(&ran.host), vec![SectionId::Selection, SectionId::ExtensionsEnabled, SectionId::TickPlan, SectionId::BodyModels]);
 }
 
@@ -277,11 +275,11 @@ fn two_runs_of_the_core_give_the_same_bytes() {
     }
 }
 
-/// The crate's host without Python (`plain::PlainRun`, #244 PR 4-3; the host of the WASM
-/// prototype) runs each world to the native path's world and samples, as the `TestHost` does: the
-/// same digests of the world's parts and of the samples, tick by tick until the fixture's last.
+/// The crate's host (`plain::PlainRun`, #244 PR 4-3; the host of the browser) runs each world to
+/// the recorded world and samples, as the `TestHost` does: the same digests of the world's parts
+/// and of the samples, tick by tick until the fixture's last.
 #[test]
-fn the_plain_host_runs_each_world_to_the_native_path_s_world() {
+fn the_plain_host_runs_each_world_to_the_recorded_world() {
     for name in WORLDS {
         let fixture = load::entry("tick_core", name);
         let wanted = &fixture["expected"];
@@ -308,7 +306,7 @@ fn the_plain_host_runs_each_world_to_the_native_path_s_world() {
         assert_eq!(run.digests().unwrap(), whole, "{name}");
         assert_eq!(run.host.samples.len() as u64, wanted["metric_count"].as_u64().unwrap(), "{name}");
         assert_eq!(run.host.metrics_digest(), wanted["metrics"].as_str().unwrap(), "{name}");
-        // The samples are held packed (#252): their lines written again are the native path's.
+        // The samples are held packed (#252): their lines written again are the recorded ones.
         let lines: Vec<Vec<u8>> = (0..run.host.samples.len()).map(|index| run.host.samples.line(index).unwrap().unwrap()).collect();
         assert_eq!(sha256_hex(&lines.join(&b'\n')), wanted["metrics"].as_str().unwrap(), "{name}");
         assert!(run.host.samples.line(lines.len()).unwrap().is_none());
@@ -337,7 +335,7 @@ fn the_plain_host_runs_each_world_to_the_native_path_s_world() {
 /// The Run's routers follow the space (#368): the core refreshes them where a geometry or structure
 /// event applied, whatever the host. `route_closed` closes the sleeping area's way out and opens it
 /// again, so the Run is at its third epoch; with the routers of minute 0 kept, the trips while the way
-/// was closed went through it, and the world was not the native path's.
+/// was closed went through it, and the world was not the recorded one.
 #[test]
 fn the_plain_run_refreshes_its_routes_where_the_space_changed() {
     let fixture = load::entry("tick_core", "route_closed");
@@ -346,8 +344,7 @@ fn the_plain_run_refreshes_its_routes_where_the_space_changed() {
     for _ in 0..fixture["expected"]["ticks"].as_i64().unwrap() {
         run.step().unwrap();
     }
-    // The log the native path wrote (the Run's own records are packed, #252): the closing and the
-    // opening.
+    // The recorded log (the Run's own records are packed, #252): the closing and the opening.
     let changes = fixture["expected"]["event_types"]
         .as_array()
         .unwrap()
@@ -361,8 +358,7 @@ fn the_plain_run_refreshes_its_routes_where_the_space_changed() {
 
 /// A `PlainRun` collects its decisions' records only where asked (#368): off, the host is a silent
 /// sink, as in the browser; on, an indexed one, which keeps the JSON bytes the core writes of each
-/// decision (the rows of `_IndexedMetricSink.observations` on the native path). Collecting changes
-/// nothing of the world or the samples, and no decision is left to a sink in Python.
+/// decision. Collecting changes nothing of the world or the samples.
 #[test]
 fn the_plain_run_collects_decision_records_without_changing_the_world() {
     let fixture = load::entry("tick_core", "generated");
@@ -430,11 +426,10 @@ fn the_plain_run_stops_at_the_end_of_the_clock() {
     assert_eq!(run.digests().unwrap(), before);
 }
 
-/// A tick of a `PlainRun` ends with the core's whole validation without the event history
-/// (`validate_after_tick`, #250): a world it refuses stops the step with Python's error, the
-/// `StateInvariantError` that `WorldState.validate` raises for a negative seed.
+/// A tick of a `PlainRun` ends with the core's whole validation without the event history (#250):
+/// a world it refuses stops the step with the validation's error, the invariant of a negative seed.
 #[test]
-fn the_plain_run_ends_a_tick_with_python_s_validation_error() {
+fn the_plain_run_ends_a_tick_with_the_validation_error() {
     use sheltersim_core::error::Error;
     use sheltersim_core::world::{Fit, Seed};
     let fixture = load::entry("tick_core", "generated");

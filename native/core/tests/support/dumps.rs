@@ -1,6 +1,6 @@
-//! The text of Python's `json.dumps`, for the digests the pytest files took of it (Issue #225).
+//! The text of Python's `json.dumps`, for the recorded digests of it (Issue #225).
 //!
-//! Several pytest files fixed a sha256 of `json.dumps(value)` with Python's default options (the
+//! Several tests pin a sha256 of `json.dumps(value)` with Python's default options (the
 //! separators `", "` and `": "`, `ensure_ascii=True`, the dict's order), some with
 //! `ensure_ascii=False`, `sort_keys=True` or the separators `","` and `":"`. A test of the core
 //! writes the same text with `Dumps`, so it can keep those digests. Floats are `float.__repr__`,

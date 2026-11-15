@@ -832,7 +832,7 @@ fn a_run_of_other_model_versions_is_view_only_with_pythons_rule_and_text() {
         .collect();
     let status = ModelStatus::of(&installed, &installed);
     assert!(status.current() && status.require_current().is_ok());
-    // Without the engine's items, a save was computed by engine 1 (test_model_version.py).
+    // Without the engine's items, a save was computed by engine 1.
     let unrecorded: Versions = installed.iter().filter(|(key, _)| !key.starts_with("engine:")).map(|(key, value)| (key.clone(), value.clone())).collect();
     let status = ModelStatus::of(&unrecorded, &installed);
     assert_eq!((status.recorded_version.as_str(), status.installed_version.as_str()), ("1", "3"));
@@ -852,7 +852,7 @@ fn a_run_of_other_model_versions_is_view_only_with_pythons_rule_and_text() {
     assert_eq!(status.differences, ["model_suite", "policy:behavior", "policy:queue", "state:x"]);
     assert!(status.message().starts_with("このシナリオは今と異なるモデルの版（model_suite、policy:behavior、policy:queue ほか）"), "{}", status.message());
     // A view (D2): `model_view` for a Run of other versions, `saved_point_rounding` where the minute
-    // shown is not the one asked for (test_checkpoint_versions.py's fields).
+    // shown is not the one asked for.
     let old = ModelStatus::of(&unrecorded, &installed);
     let described: Value = serde_json::from_slice(&old.describe_json(30, 45)).unwrap();
     assert_eq!(

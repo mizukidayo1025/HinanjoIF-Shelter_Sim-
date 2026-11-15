@@ -1,16 +1,12 @@
 //! The rules of `social_network_v1` (`rules::social_network`), of the social dialogue's state
-//! context (`rules::social_dialogue`) and the social action of `SocialInteractionHandler`
-//! (`rules::social_interaction`, through `dispatch::apply_alone`) on the world of
-//! `integration/test_social_network_row.py`: the Project screen's generated Scenario after 40 ticks
-//! (`people_rows.json`'s `finished`, and its variants, written by
-//! `tests/support/core_people_rows.py`), with the inputs that file made with `random.Random`
-//! (Issue #225, lane M5). The pytest file keeps an entry test for each PyO3 entry, and the tests of
-//! the boundary: the row and its tree, what taints it, each way of writing that the check must see,
-//! and the comparisons with the Python rules still in `src/`.
+//! context (`rules::social_dialogue`) and the social action (`rules::social_interaction`, through
+//! `dispatch::apply_alone`) on the Project screen's generated Scenario after 40 ticks
+//! (`people_rows.json`'s `finished`, and its variants), with the inputs made for it with Python's
+//! `random.Random` (Issue #225, lane M5).
 //!
-//! The digests the pytest file pinned from the Python rules (`PYTHON_GAVE`: `json.dumps` with
-//! `sort_keys` of what a rule wrote or returned) are kept: the tests write the same text with
-//! `Dumps`.
+//! A test pins the digest of what a rule wrote or returned (`sorted_digest`: `json.dumps` with
+//! `sort_keys`, which `Dumps` writes). The world, the inputs and the digests were recorded before
+//! #430 and pin the core's output now.
 
 use crate::support;
 
@@ -55,7 +51,7 @@ fn world(name: &str) -> World {
     load::world(&entry["world"], &entry["slots"])
 }
 
-/// The first `count` people, by ID (`_people`).
+/// The first `count` people, by ID.
 fn people(world: &World, count: usize) -> Vec<String> {
     let mut ids: Vec<String> = world.rows().unwrap().agents.iter().map(|(id, _)| id.to_string()).collect();
     ids.sort();
@@ -82,8 +78,8 @@ fn network_value(world: &World) -> V {
     load::v(&serde_json::from_slice(&network_json(world)).unwrap())
 }
 
-/// `_digest(*values)`: each value's `json.dumps(sort_keys=True)`, one per line.
-fn python_gave(values: &[V]) -> String {
+/// The digest of each value's `json.dumps(sort_keys=True)`, one per line.
+fn sorted_digest(values: &[V]) -> String {
     let lines: Vec<String> = values.iter().map(|value| Dumps::default().sorted().text(value)).collect();
     digest(&lines.join("\n"))
 }
@@ -96,7 +92,7 @@ fn map(entries: &[(&str, V)]) -> V {
     V::Map(entries.iter().map(|(key, value)| (Arc::from(*key), value.clone())).collect())
 }
 
-/// `observe_event` as its PyO3 entry calls it: nothing for a type it does not observe, and the
+/// `observe_event` as the dispatcher calls it: nothing for a type it does not observe, and the
 /// payload's fields the rule reads of the type.
 fn observe(world: &World, event_type: &str, payload: &V, minute: i64) -> Result<(), Error> {
     if !observes_event(event_type) {
@@ -121,15 +117,14 @@ fn set_affect(world: &World, id: &str, positive: f64, negative: f64) {
 
 // ---- observe_event --------------------------------------------------------------------------------
 
-/// `test_observe_event_gives_the_bits_of_the_python_rule`: 1500 random contacts, corrections and
-/// interactions of six people, each after a random affect of all six, on the relationships in the
-/// order the Run left them. The namespace, and the order of its relationships, are what the Python
-/// rule left.
+/// 1500 random contacts, corrections and interactions of six people, each after a random affect of
+/// all six, on the relationships in the order the Run left them. The namespace, and the order of
+/// its relationships, are the recorded ones.
 #[test]
-fn observe_event_gives_the_bits_of_the_python_rule() {
+fn observe_event_gives_the_recorded_bits() {
     let world = world("finished");
     {
-        // The relationships in the order the Run left them, which the pytest file's world kept.
+        // The relationships in the order the Run left them, as the recorded world keeps them.
         let mut row = world.row_mut::<SocialNetworkRow>(NETWORK).unwrap();
         let map = &mut row.relationships.map;
         let order = inputs()["expected"]["network_order"].as_array().unwrap();
@@ -167,7 +162,7 @@ fn observe_event_gives_the_bits_of_the_python_rule() {
         observe(&world, event_type, &payload, now).unwrap();
     }
     let keys = V::List(world.row::<SocialNetworkRow>(NETWORK).unwrap().relationships.map.keys().map(|key| V::Str(key.clone())).collect());
-    assert_eq!(python_gave(&[network_value(&world), keys]), "4b665bcf9f3db776");
+    assert_eq!(sorted_digest(&[network_value(&world), keys]), "4b665bcf9f3db776");
     // The cap of the message IDs was reached, or the test proves little.
     assert!(world.row::<SocialNetworkRow>(NETWORK).unwrap().relationships.map.values().any(|record| record.shared_message_ids.len() >= 10));
 }
@@ -176,8 +171,8 @@ fn interaction(kind: &str, first: &str, second: &str) -> V {
     map(&[("interaction_type", text(kind)), ("agent_id", text(first)), ("participant_agent_id", text(second))])
 }
 
-/// `test_observe_event_computes_trust_when_the_body_has_no_record`: a pair with no record in either
-/// namespace, and each kind of interaction; then a 1% change of the body's transfer shows.
+/// A pair with no record in either namespace, and each kind of interaction; then a 1% change of the
+/// body's transfer shows.
 #[test]
 fn observe_event_computes_trust_when_the_body_has_no_record() {
     let world = world("unknown_pair");
@@ -187,7 +182,7 @@ fn observe_event_computes_trust_when_the_body_has_no_record() {
     let recorded = ["5223d144e68eb137", "6e056b1a622fdf84", "4848febde7b9557d", "6e4490f4644eeb43", "38953c71605d34fa"];
     for (kind, recorded) in kinds.iter().zip(recorded) {
         observe(&world, "social_interaction", &interaction(kind, first, second), minute(&world)).unwrap();
-        assert_eq!(python_gave(&[network_value(&world)]), recorded, "{kind}");
+        assert_eq!(sorted_digest(&[network_value(&world)]), recorded, "{kind}");
     }
     {
         let row = world.row::<SocialNetworkRow>(NETWORK).unwrap();
@@ -212,11 +207,10 @@ fn observe_event_computes_trust_when_the_body_has_no_record() {
     assert_ne!(observed(1.01), observed(1.0));
 }
 
-/// `test_observe_event_skips_odd_payloads_as_the_python_rule_did`: one person with themselves, a
-/// missing ID and an ID of another type record nothing; a message ID of another type records the
-/// contact without a message.
+/// One person with themselves, a missing ID and an ID of another type record nothing; a message ID
+/// of another type records the contact without a message.
 #[test]
-fn observe_event_skips_odd_payloads_as_the_python_rule_did() {
+fn observe_event_skips_odd_payloads() {
     let cases = [
         (json!({"recipient_agent_id": "a", "sender_agent_id": "a"}), "cac447cad753925e"),
         (json!({"recipient_agent_id": "a"}), "cac447cad753925e"),
@@ -227,7 +221,7 @@ fn observe_event_skips_odd_payloads_as_the_python_rule_did() {
         let world = world("finished");
         let before = network_json(&world);
         observe(&world, "information_contact_update", &load::v(&payload), minute(&world)).unwrap();
-        assert_eq!(python_gave(&[network_value(&world)]), recorded, "{payload}");
+        assert_eq!(sorted_digest(&[network_value(&world)]), recorded, "{payload}");
         if payload.get("message_id").is_some() {
             let row = world.row::<SocialNetworkRow>(NETWORK).unwrap();
             let record = &row.relationships.map["[\"a\",\"b\"]"];
@@ -238,7 +232,6 @@ fn observe_event_skips_odd_payloads_as_the_python_rule_did() {
     }
 }
 
-/// `test_observe_event_refuses_an_id_json_escapes_with_nothing_written`.
 #[test]
 fn observe_event_refuses_an_id_json_escapes_with_nothing_written() {
     let world = world("finished");
@@ -248,10 +241,9 @@ fn observe_event_refuses_an_id_json_escapes_with_nothing_written() {
     assert_eq!(network_json(&world), before);
 }
 
-/// `test_at_the_bound_the_python_rule_says_so`: 100,000 relationships, and a new pair's contact is
-/// the Python rule's ValueError, with nothing written.
+/// 100,000 relationships, and a new pair's contact is the rule's ValueError, with nothing written.
 #[test]
-fn at_the_bound_the_python_rule_says_so() {
+fn at_the_bound_the_rule_says_so() {
     assert_eq!(BOUND_REACHED, "social_network_v1 reached the configured relationship bound");
     let world = world("finished");
     let ids = people(&world, 2);
@@ -275,10 +267,10 @@ fn at_the_bound_the_python_rule_says_so() {
 
 // ---- The state context of a social event ------------------------------------------------------
 
-/// `test_capture_gives_what_the_python_rule_gives`: the context of two people in either order, of
-/// one, and of one given twice (`set(participant_ids)`), as `json.dumps` of what the rule returned.
+/// The context of two people in either order, of one, and of one given twice, as `json.dumps` of
+/// what the rule returned.
 #[test]
-fn capture_gives_what_the_python_rule_gives() {
+fn capture_gives_the_recorded_context() {
     let world = world("finished");
     let ids = people(&world, 2);
     let (first, second) = (ids[0].as_str(), ids[1].as_str());
@@ -289,11 +281,10 @@ fn capture_gives_what_the_python_rule_gives() {
         (vec![first], "5a9c239b8a353685"),
     ] {
         let context = capture_context(&world, &given).unwrap();
-        assert_eq!(python_gave(&[text(&Dumps::default().text(&context))]), recorded, "{given:?}");
+        assert_eq!(sorted_digest(&[text(&Dumps::default().text(&context))]), recorded, "{given:?}");
     }
 }
 
-/// `test_capture_says_the_rule_s_text`.
 #[test]
 fn capture_says_the_rule_s_text() {
     assert_eq!(NOT_ONE_OR_TWO, "social dialogue context requires one or two current participants");
@@ -310,8 +301,8 @@ fn participant<'a>(context: &'a mut V, id: &str) -> &'a mut indexmap::IndexMap<A
     state
 }
 
-/// `test_validation_of_a_context_says_the_rule_s_text`: the captured context of two people passes;
-/// each way of spoiling it gets the Python rule's text, in its order of checks.
+/// The captured context of two people passes; each way of spoiling it gets the rule's text, in its
+/// order of checks.
 #[test]
 fn validation_of_a_context_says_the_rule_s_text() {
     assert_eq!(
@@ -409,10 +400,10 @@ fn values(world: &World, ids: &[&str]) -> Vec<u64> {
         .collect()
 }
 
-/// `_apply_formula`: the deleted Python rule's writes of a social action whose checks all pass,
-/// written down from it. The participant is relieved by the transfer times the actor's affect
-/// signal, clipped to -1..1: stress down by it, trust up by half of it, both within 0..1. Except in
-/// a reassurance exchange, the actor gains 0.002 fatigue and a quarter of a positive relief as trust.
+/// The writes of a social action whose checks all pass, as the test expects them. The participant
+/// is relieved by the transfer times the actor's affect signal, clipped to -1..1: stress down by
+/// it, trust up by half of it, both within 0..1. Except in a reassurance exchange, the actor gains
+/// 0.002 fatigue and a quarter of a positive relief as trust.
 fn formula(world: &World, kind: &str, actor: &str, participant: &str) -> Vec<u64> {
     let (signal, transfer) = {
         let body = world.row::<BodyRow>(BODY).unwrap();
@@ -441,9 +432,8 @@ fn formula(world: &World, kind: &str, actor: &str, participant: &str) -> Vec<u64
     [actor_values, participant_values].iter().flat_map(|(stress, trust, fatigue)| [stress.to_bits(), trust.to_bits(), fatigue.to_bits()]).collect()
 }
 
-/// `test_a_social_action_gives_the_bits_of_the_rule_s_formula`: two people in one zone and
-/// household, 400 random states of each, and each kind of social action: the kernel writes the
-/// bits of the rule's formula.
+/// Two people in one zone and household, 400 random states of each, and each kind of social
+/// action: the rule writes the bits of `formula`.
 #[test]
 fn a_social_action_gives_the_bits_of_the_rule_s_formula() {
     let entry = entry("pair");
@@ -485,13 +475,10 @@ fn a_social_action_gives_the_bits_of_the_rule_s_formula() {
     }
 }
 
-/// `test_a_suppressed_action_says_python_s_text_with_nothing_written`,
-/// `test_a_helper_who_needs_more_than_the_target_is_suppressed`,
-/// `test_a_different_household_is_suppressed` and
-/// `test_a_bad_payload_is_failed_by_the_kernel_in_python_s_text`: the kernel suppresses or fails
-/// the action with the Python rule's text, written down from it, and changes nothing.
+/// A suppressed action, a helper who needs more than the target, a different household and a bad
+/// payload: the rule suppresses or fails the action with the recorded text, and changes nothing.
 #[test]
-fn a_social_action_the_rule_turns_down_says_python_s_text() {
+fn a_social_action_the_rule_turns_down_gives_the_recorded_text() {
     cases::check_group(FILE, "a_suppressed_action_says_python_s_text_with_nothing_written", 1);
     cases::check_group(FILE, "a_helper_who_needs_more_than_the_target_is_suppressed", 1);
     cases::check_group(FILE, "a_different_household_is_suppressed", 1);

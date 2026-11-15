@@ -1,20 +1,20 @@
 //! The validators of `movement_v1`, `geometry_overlay_v1`, `facility_queues_v1`,
-//! `temporary_spaces_v1` and `shared_operations_v1` without Python (`sheltersim_core::validate`,
-//! #250, #350): each broken world of `validate_places.json` and `validate_shared_operations.json`
-//! (`tests/support/core_validate_places.py`) gives Python's first error, class and text, at each
-//! entry point, and each valid one passes.
+//! `temporary_spaces_v1` and `shared_operations_v1` (`sheltersim_core::validate`, #250, #350): each
+//! broken world of `validate_places.json` and `validate_shared_operations.json` gives the recorded
+//! first error, class and text, at each entry point, and each valid one passes. The cases were
+//! recorded before #430 and pin the core's output now.
 
 use crate::support;
 
 use support::validate;
 
 #[test]
-fn movement_overlay_queues_and_spaces_give_python_s_errors() {
+fn movement_overlay_queues_and_spaces_give_the_recorded_errors() {
     assert!(validate::check_file("validate_places") >= 200);
 }
 
 #[test]
-fn shared_operations_and_their_history_give_python_s_errors() {
+fn shared_operations_and_their_history_give_the_recorded_errors() {
     assert!(validate::check_file("validate_shared_operations") >= 50);
 }
 
@@ -22,7 +22,7 @@ fn shared_operations_and_their_history_give_python_s_errors() {
 //
 // A state past one of the bounds is too large to record (100,001 queue requests, 10,001 bed
 // reservations, ...), so these change a case's loaded world here and expect the rule's text,
-// which the cases above record from Python for the same rule.
+// which the cases above record for the same rule.
 
 use std::sync::Arc;
 

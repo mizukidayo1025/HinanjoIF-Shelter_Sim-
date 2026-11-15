@@ -93,7 +93,7 @@ python -m coverage report --sort=cover
 |---|---|---|
 | `support/generated.py` | UIで作る生成ScenarioとProject画面のAPI | `generated_scenario`、`generated_scenario_with`、`generated_previews`、`ui_project_api`、`generated_request`、`place_three_at_facility`、`add_toilets_program` |
 | `support/fixture_scenarios.py` | `fixtures/`のScenarioを基に、1つの仕組みを確かめるために組み立てたScenario | `small_replay_scenario`、`small_benchmark_scenario`、`resource_service_scenario`、`information_spread_scenario`、`research_psychology_scenario` |
-| `support/storage.py` | Projectの保存、保存したRun（形v5）、ほかのOSでの保存 | `project_store_at`、`saved_project`、`newer_engine`、`windows_like` |
+| `support/storage.py` | Projectの保存、保存したRun（形v5）、ほかのOSでの保存 | `project_store_at`、`saved_project`、`windows_like` |
 | `support/web.py` | Projectの保存先を持つ、socketのないrequest handler | `bare_request_handler` |
 | `support/llm.py` | 偽のLLM Providerと、有料APIのライブの確認 | `counting_provider`、`recording_router`、`live_model_check`、`live_source_search_check` |
 | `support/public_data.py` | 地域の調べが呼ぶ公開サービス（国土地理院の住所検索・指定緊急避難場所、e-Stat、気象庁の予報、設定した地域の公開データ）の偽物。存在しない自治体（合成県合成市）の合成の記録を返し、`fail()`で接続の失敗を起こせる。ネットワークには出ない | `public_data`、`researching_project_api`、`research_request` |

@@ -7,7 +7,7 @@
 // private data, and the chain of a fork's Run and its parents' it reads pieces of. This file is the host's side: it opens the files (a backend), compresses each
 // piece with CompressionStream("deflate-raw") before writing it and decompresses it after reading it,
 // and passes the bytes to the core through WASM (`RunWriter`, `Journal`, `Chain`, `VerifyRun`,
-// `Restore`). A piece is written to data.pack and flushed before its journal line is, and each line
+// `Seeker`). A piece is written to data.pack and flushed before its journal line is, and each line
 // is flushed before the next is written.
 //
 // Storage is a backend: `opfsBackend` (the browser's origin private file system, through the
@@ -23,7 +23,7 @@
 // servers do them with theirs (`sheltersim_store::compute`).
 //
 // `wasm` is the module wasm-bindgen made of sheltersim_wasm (any target): its Simulation,
-// RunWriter, Procedure, Journal, Chain, VerifyRun, Restore and the saved points' schedule
+// RunWriter, Procedure, Seeker, Journal, Chain, VerifyRun and the saved points' schedule
 // (savedPointStep, savedPointDue).
 
 /// The format written and read (the core's `run_store::FORMAT`).
@@ -694,43 +694,26 @@ export class RunReader {
 
   /// The Run at `minute` (an integer from the fork's minute to the duration): restored from the
   /// nearest saved point at or before it, or from the exported world when there is none, then
-  /// computed to it. Returns { simulation, from, base, restoreMs, recomputeMs }: a
-  /// `Simulation` the caller frees, the minute it was computed from, the branch's line it was
-  /// restored from, and the time restoring and computing took.
+  /// computed to it. The seek is the core's (WASM's `Seeker`, #501), as the servers' and the
+  /// computing procedure's are: it names each piece of the chain to read, and here it is read and
+  /// decompressed. Returns { simulation, from, base, restoreMs, recomputeMs }: a `Simulation` the
+  /// caller frees, the minute it was computed from, the branch's line it was restored from, and
+  /// the time restoring and computing took.
   async seek(minute) {
     const { wasm, chain } = this;
-    const [point, base, , from] = chain.seek(minute);
     const started = performance.now();
-    const exportBytes = await this.exportBytes();
-    const world = this.run.world ?? null;
-    let simulation;
-    if (point < 0) {
-      simulation = world === null ? new wasm.Simulation(exportBytes) : wasm.Simulation.fromWorlds(exportBytes, world);
-    } else {
-      const [level, offset, length] = [this.opened.datas.length - 1, ...this.journal.place(point)];
-      const stored = this.opened.datas[level].read(offset, length);
-      if (stored.length !== length) throw new Error("saved: data.pack ends before the piece");
-      const raw = await inflateRaw(stored);
-      this.journal.checkRaw(point, raw);
-      const restore = new wasm.Restore(raw);
-      try {
-        for (let position = chain.nextRestoreRead(0, restore); position !== undefined; position = chain.nextRestoreRead(position + 1, restore)) {
-          restore.readEntry(chain, position, await this.inflated(position));
-        }
-        simulation = world === null ? wasm.Simulation.restore(exportBytes, restore) : wasm.Simulation.restoreFromWorlds(exportBytes, world, restore);
-      } finally {
-        restore.free();
-      }
-    }
-    const restored = performance.now();
+    const seeker = new wasm.Seeker(chain, minute);
     try {
-      const ticks = minute - simulation.minute();
-      if (ticks < 0 || simulation.advance(ticks) !== ticks) throw new Error(`the Run does not reach minute ${minute}`);
-    } catch (error) {
-      simulation.free();
-      throw error;
+      seeker.giveExport(await this.exportBytes());
+      for (let position = seeker.next(chain); position !== undefined; position = seeker.next(chain)) {
+        seeker.give(chain, await this.inflated(position));
+      }
+      const restored = performance.now();
+      const simulation = seeker.finish();
+      return { simulation, from: seeker.from(), base: seeker.base(), restoreMs: restored - started, recomputeMs: performance.now() - restored };
+    } finally {
+      seeker.free();
     }
-    return { simulation, from, base, restoreMs: restored - started, recomputeMs: performance.now() - restored };
   }
 
   close() {

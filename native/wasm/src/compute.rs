@@ -7,6 +7,10 @@
 //! `next` gives the step as JSON (`Step::to_json`); the bytes of a piece to write and of a line to
 //! append are `raw` and `line`. A refusal is thrown as the answers' are (`answers::REFUSED` and the
 //! refusal's JSON), any other error with the core's text.
+//!
+//! A reader's seek (`RunReader.seek`, #501) is the core's too (`compute::Seeker`): `Seeker.next`
+//! names the piece of the chain to read, the reader reads and decompresses it from OPFS and gives
+//! it (`give`), then `finish` gives the Run at the minute.
 
 use sheltersim_core::answers::Failure;
 use sheltersim_core::compute::{self, ForkRequest, Given, Lineage, Start, Where};
@@ -14,7 +18,7 @@ use sheltersim_core::frame;
 use wasm_bindgen::prelude::*;
 
 use crate::answers::failed;
-use crate::{count_of, js_error, minute_of, saved_json, versions_of};
+use crate::{count_of, js_error, minute_of, saved_json, versions_of, Chain, Simulation};
 
 fn step(result: Result<(), Failure>) -> Result<(), JsError> {
     result.map_err(failed)
@@ -242,5 +246,68 @@ impl Procedure {
     #[wasm_bindgen(js_name = recoveredJson)]
     pub fn recovered_json(&self) -> String {
         self.inner.recovered_json()
+    }
+}
+
+/// A seek of a stored Run to a minute (`compute::Seeker`).
+#[wasm_bindgen]
+pub struct Seeker {
+    inner: Option<compute::Seeker>,
+    from: f64,
+    base: f64,
+}
+
+impl Seeker {
+    fn get(&mut self) -> Result<&mut compute::Seeker, JsError> {
+        self.inner.as_mut().ok_or_else(|| JsError::new("the seek is finished"))
+    }
+}
+
+#[wasm_bindgen]
+impl Seeker {
+    /// The seek of `chain` to `minute`: an error for a minute out of the Run. The LLM's calls of a
+    /// Run that kept a tape are answered from it within the model's limits.
+    #[wasm_bindgen(constructor)]
+    pub fn new(chain: &Chain, minute: f64) -> Result<Seeker, JsError> {
+        let inner = compute::Seeker::new(&chain.inner, minute_of(minute)?, compute::Replaying::default()).map_err(failed)?;
+        Ok(Seeker { inner: Some(inner), from: 0.0, base: 0.0 })
+    }
+
+    /// The exported world's bytes, read and checked before (`Chain.checkRaw`): the seek does not
+    /// ask for them. Before the first `next`.
+    #[wasm_bindgen(js_name = giveExport)]
+    pub fn give_export(&mut self, export: Vec<u8>) -> Result<(), JsError> {
+        self.get()?.give_export(export);
+        Ok(())
+    }
+
+    /// The position in `chain` of the piece to read next, or undefined once the Run is restored.
+    pub fn next(&mut self, chain: &Chain) -> Result<Option<u32>, JsError> {
+        Ok(self.get()?.next(&chain.inner).map_err(failed)?.map(|position| position as u32))
+    }
+
+    /// The piece `next` named, decompressed: checked against its line, then read.
+    pub fn give(&mut self, chain: &Chain, raw: Vec<u8>) -> Result<(), JsError> {
+        step(self.get()?.give(&chain.inner, raw))
+    }
+
+    /// The Run restored, computed to the minute: a `Simulation` the caller frees. Then `from` and
+    /// `base`.
+    pub fn finish(&mut self) -> Result<Simulation, JsError> {
+        let seeker = self.inner.take().ok_or_else(|| JsError::new("the seek is finished"))?;
+        let sought = seeker.finish().map_err(failed)?;
+        self.from = sought.from as f64;
+        self.base = sought.base as f64;
+        Ok(Simulation { run: sought.run })
+    }
+
+    /// The minute the Run was computed from.
+    pub fn from(&self) -> f64 {
+        self.from
+    }
+
+    /// The branch's line the Run was restored from.
+    pub fn base(&self) -> f64 {
+        self.base
     }
 }

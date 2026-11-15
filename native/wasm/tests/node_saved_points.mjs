@@ -129,11 +129,6 @@ for (const [name, every] of [["small_replay", 360], ["generated", 60]]) {
   console.log(`older formats: ${failures === 0 ? "ok" : "FAILED"}`);
 }
 
-// What is not a saved point is a JS error, and the module still works after it.
-for (const bad of ["", "SHSP", "not a saved point"]) {
-  assert.throws(() => new wasm.Restore(encoder.encode(bad)), Error, bad);
-}
-
 if (failures > 0) {
   console.error(`${failures} problem(s)`);
   process.exit(1);

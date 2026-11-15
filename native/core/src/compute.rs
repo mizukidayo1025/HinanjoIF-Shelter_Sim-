@@ -12,7 +12,7 @@
 //! - `go_on` (resume): the branch cut back to the head its record names (the lines after it, then
 //!   the bytes of data.pack no line up to it points at; refused where a branch forked from it reads
 //!   past the head), its stored Run's chain opened (a fork's parents' journals), and the Run
-//!   restored there (`seek`). Then, while it says `Step::Compute`,
+//!   restored there (`Seeker`, the seek every reader takes). Then, while it says `Step::Compute`,
 //!   the host either runs a chunk of ticks (`advance`: at most the ticks it is given, not past the
 //!   next saved point or the target) or ends it early (`stop`); the steps after each store the
 //!   blocks sealed since, and at every `save_every` minutes, at the target and at the clock's end a
@@ -47,12 +47,14 @@ use std::collections::VecDeque;
 use serde_json::{json, Value};
 
 use crate::answers::{Answer, Failure, Refusal};
-use crate::archive::Restore;
 use crate::error::Error;
-use crate::llm::{Limits, Replay};
 use crate::model_version::{versions_of_json, Versions};
 use crate::plain::PlainRun;
-use crate::run_store::{records, Chain, Fork, ForkOrigin, Head, HeadKind, Journal, Next, RecordKind, RunWriter, Schedule, Stored, Storing};
+use crate::run_store::{Chain, Fork, ForkOrigin, Head, HeadKind, Journal, Next, RunWriter, Schedule, Stored, Storing};
+
+pub mod seek;
+
+pub use seek::{Replaying, Seeker, Sought};
 
 /// The compression of the pieces both hosts write, which the "run" line names.
 pub const COMPRESSION: &str = "deflate-raw";
@@ -365,15 +367,6 @@ enum Then {
     Fork,
 }
 
-/// Where a seek is.
-#[derive(Debug)]
-enum Seeking {
-    Export,
-    Point,
-    Restore(usize),
-    Tape(usize),
-}
-
 /// Where a procedure is.
 #[derive(Debug)]
 enum Phase {
@@ -389,7 +382,7 @@ enum Phase {
     GoCommitted(Option<&'static str>),
     // the chain and the seek (go on, fork)
     Parents(Then),
-    Seek(Then, Seeking),
+    Seek(Then),
     // fork
     ForkChild,
     ForkParent,
@@ -456,12 +449,7 @@ pub struct Procedure {
     journal_bytes: Vec<u8>,
     chain: Option<Chain>,
     levels: Vec<String>,
-    seek: Option<crate::run_store::Seek>,
-    seek_minute: i64,
-    export: Vec<u8>,
-    restore: Option<Restore>,
-    tape_positions: Vec<usize>,
-    tape: Vec<Vec<u8>>,
+    seeker: Option<Seeker>,
     sought_from: i64,
     sought_base: usize,
     // ---- the Run
@@ -518,12 +506,7 @@ impl Procedure {
             journal_bytes: Vec::new(),
             chain: None,
             levels: Vec::new(),
-            seek: None,
-            seek_minute: 0,
-            export: Vec::new(),
-            restore: None,
-            tape_positions: Vec::new(),
-            tape: Vec::new(),
+            seeker: None,
             sought_from: 0,
             sought_base: 0,
             run: None,
@@ -993,7 +976,11 @@ impl Procedure {
                 self.levels.insert(0, parent);
                 self.parents_or_seek(then)
             }
-            Phase::Seek(then, seeking) => self.seek_step(then, seeking, given),
+            Phase::Seek(then) => {
+                let raw = Self::text(given)?.ok_or_else(|| error("a piece read is given its bytes"))?;
+                self.seeker.as_mut().expect("a seek").give(self.chain.as_ref().expect("the chain"), raw)?;
+                self.seek_next(then)
+            }
             // ---- fork
             Phase::ForkChild => {
                 if Self::text(given)?.is_some() {
@@ -1358,116 +1345,34 @@ impl Procedure {
             }
             Then::Fork => self.fork.as_ref().expect("a fork").minute,
         };
-        self.seek_minute = minute;
-        let seek = self.chain().seek(minute)?;
-        let export = self.chain().export()?;
-        self.seek = Some(seek);
-        self.phase = Phase::Seek(then, Seeking::Export);
-        Ok(Some(self.piece_step(export)?))
+        // The ticks of a Run that kept an LLM tape are answered from it, within the model's limits.
+        self.seeker = Some(Seeker::new(self.chain(), minute, Replaying::default())?);
+        self.seek_next(then)
+    }
+
+    /// The step that reads the next piece the seek asks for; once the Run is restored, the Run
+    /// computed to the minute and the procedure going on from there.
+    fn seek_next(&mut self, then: Then) -> Answer<Option<Step>> {
+        let chain = self.chain.as_ref().expect("the chain");
+        let seeker = self.seeker.as_mut().expect("a seek");
+        if let Some(position) = seeker.next(chain)? {
+            self.phase = Phase::Seek(then);
+            return Ok(Some(self.piece_step(position)?));
+        }
+        let sought = self.seeker.take().expect("a seek").finish()?;
+        self.run = Some(sought.run);
+        self.sought_from = sought.from;
+        self.sought_base = sought.base;
+        match then {
+            Then::GoOn => self.go_sought(),
+            Then::Fork => self.fork_sought(),
+        }
     }
 
     /// The step that reads the piece at `position` of the chain.
     fn piece_step(&self, position: usize) -> Answer<Step> {
         let (level, stored) = self.chain().stored(position)?;
         Ok(Step::Piece { at: self.at.of(&self.levels[level]), stored: stored.clone() })
-    }
-
-    /// The seek of the stored Run read (`StoredRun::seek_with` of the store, `RunReader.seek` of the
-    /// browser): the nearest saved point at or before the minute restored with the stored log and
-    /// samples, or the exported world at minute 0; the ticks to the
-    /// minute answered from the LLM tape where the Run kept one.
-    fn seek_step(&mut self, then: Then, seeking: Seeking, given: Option<Given>) -> Answer<Option<Step>> {
-        let raw = Self::text(given)?.ok_or_else(|| error("a piece read is given its bytes"))?;
-        let seek = self.seek.clone().expect("a seek");
-        match seeking {
-            Seeking::Export => {
-                self.chain().check_raw(seek.export, &raw)?;
-                self.export = raw;
-                match seek.from {
-                    Some(point) => {
-                        let stored = self.chain().leaf().piece(point)?.stored.clone();
-                        self.phase = Phase::Seek(then, Seeking::Point);
-                        Ok(Some(Step::Piece { at: self.at.of(&self.reading), stored }))
-                    }
-                    None => {
-                        let world = self.chain().leaf().run()?.world.clone();
-                        self.run = Some(plain_run(&self.export, world.as_deref())?);
-                        self.restored(then)
-                    }
-                }
-            }
-            Seeking::Point => {
-                let point = seek.from.expect("a saved point");
-                self.chain().leaf().check_raw(point, &raw)?;
-                self.restore = Some(Restore::new(&raw)?);
-                self.next_restore(then, 0)
-            }
-            Seeking::Restore(position) => {
-                let chain = self.chain.as_ref().expect("the chain");
-                chain.restore_read(position, &raw, self.restore.as_mut().expect("a restore"))?;
-                self.next_restore(then, position + 1)
-            }
-            Seeking::Tape(index) => {
-                let position = self.tape_positions[index];
-                self.chain().check_raw(position, &raw)?;
-                self.tape.extend(records::read(&raw)?);
-                self.next_tape(then, index + 1)
-            }
-        }
-    }
-
-    fn next_restore(&mut self, then: Then, start: usize) -> Answer<Option<Step>> {
-        let next = self.chain().next_restore_read(start, self.restore.as_ref().expect("a restore"))?;
-        if let Some(position) = next {
-            self.phase = Phase::Seek(then, Seeking::Restore(position));
-            return Ok(Some(self.piece_step(position)?));
-        }
-        let world = self.chain().leaf().run()?.world.clone();
-        let entry = match &world {
-            Some(name) => PlainRun::entry_of_worlds_json(&self.export, name)?,
-            None => PlainRun::entry_of_json(&self.export)?,
-        };
-        self.run = Some(PlainRun::restore(entry, self.restore.take().expect("a restore"))?);
-        self.restored(then)
-    }
-
-    /// The Run restored: then the tape read.
-    fn restored(&mut self, then: Then) -> Answer<Option<Step>> {
-        self.tape_positions = self.chain().records(RecordKind::Tape)?;
-        self.tape.clear();
-        self.next_tape(then, 0)
-    }
-
-    fn next_tape(&mut self, then: Then, index: usize) -> Answer<Option<Step>> {
-        if let Some(&position) = self.tape_positions.get(index) {
-            self.phase = Phase::Seek(then, Seeking::Tape(index));
-            return Ok(Some(self.piece_step(position)?));
-        }
-        let seek = self.seek.clone().expect("a seek");
-        if !self.tape.is_empty() {
-            let from = match seek.from {
-                Some(point) => self.chain().leaf().saved(point)?.counts.tape as usize,
-                None => 0,
-            };
-            let entries = self.tape.get(from..).ok_or_else(|| refused("the stored Run's LLM tape is shorter than its saved point counts"))?;
-            let replay = Replay::new(entries, false)?;
-            self.run_ref().set_llm(Box::new(replay), Limits::default())?;
-            self.tape.clear();
-        }
-        let minute = self.seek_minute;
-        let run = self.run_ref();
-        let ticks = minute - run.minute()?;
-        let ran = if ticks < 0 { None } else { run.advance(ticks as u64).ok() };
-        if ran != Some(ticks as u64) {
-            return Err(refused(format!("the Run does not reach minute {minute}")));
-        }
-        self.sought_from = seek.from_minute;
-        self.sought_base = seek.base;
-        self.export = Vec::new();
-        match then {
-            Then::GoOn => self.go_sought(),
-            Then::Fork => self.fork_sought(),
-        }
     }
 
     /// The Run restored at the branch's head goes on from there: it must hold what the stored Run
@@ -1481,8 +1386,6 @@ impl Procedure {
         self.head_minute = head.minute;
         // What was read to restore the Run is not needed to go on.
         self.chain = None;
-        self.seek = None;
-        self.tape_positions = Vec::new();
         self.phase = Phase::GoReady;
         Ok(Some(Step::Compute))
     }

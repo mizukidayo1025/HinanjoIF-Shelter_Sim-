@@ -8,6 +8,9 @@
 //!   is in data.pack and how long it is: each line's head hash and each piece's bytes before
 //!   compression (its sha256 and length) are the browser's, so are the branches' records (their
 //!   heads), and each stored Run reads back to its digests.
+//! - Each stored Run sought to the minutes of `seeks.json` (the core's seek, `compute::Seeker`, #501)
+//!   reaches the world the browser's reader reached there: the same digests, computed from the same
+//!   minute.
 
 use std::fs;
 
@@ -50,6 +53,33 @@ fn the_store_writes_the_browsers_stored_runs_and_records_byte_for_byte() {
     for (path, text) in record_fixtures() {
         let written = fs::read_to_string(dir.path().join("store").join(&path)).unwrap();
         assert_eq!(written, text, "{path}");
+    }
+    seeks_reach_the_browsers_worlds(&made);
+}
+
+/// Each stored Run sought to the minutes `seeks.json` lists (written by `node_stored_runs.mjs` with
+/// the browser's reader): the same digests, from the same minute and line.
+fn seeks_reach_the_browsers_worlds(made: &crate::support::Made) {
+    let seeks: serde_json::Map<String, Value> = serde_json::from_slice(&data("stored_runs/seeks.json")).unwrap();
+    assert_eq!(seeks.keys().map(String::as_str).collect::<std::collections::BTreeSet<_>>(), NAMES.into_iter().collect());
+    for (name, wanted) in &seeks {
+        let mut reader = open(made.folder(name));
+        let wanted = wanted.as_array().unwrap();
+        assert!(wanted.len() >= 3, "{name}");
+        for seek in wanted {
+            let minute = seek["minute"].as_i64().unwrap();
+            let sought = reader.seek(minute).unwrap();
+            let run = &sought.run;
+            let got = serde_json::json!({
+                "minute": minute,
+                "from": sought.from,
+                "base": sought.base,
+                "state": run.state_digest().unwrap(),
+                "metrics": run.host.metrics_digest(),
+                "parts": sha256_hex(run.part_digests_json().unwrap().as_bytes()),
+            });
+            assert_eq!(&got, seek, "{name} at minute {minute}");
+        }
     }
 }
 

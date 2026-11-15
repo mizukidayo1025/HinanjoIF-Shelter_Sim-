@@ -32,6 +32,13 @@
 // (`computed`'s and the forks') are kept too, in records.json by path: the native store
 // (native/store, #426) writes the same records for the same Runs. Both write them through the
 // core's computing procedure (`sheltersim_core::compute`, #476).
+//
+// Each Run is also sought (`RunReader.seek`, the core's `Seeker`, #501) to its first minute and the
+// one after, each saved point and 7 minutes after it, and its end: seeks.json keeps the world's
+// digests there (its state digest, its metric samples' digest and the sha256 of its parts'
+// digests), with the minute each was computed from. The store's reader seeks the same Runs to the
+// same digests (native/store/tests/browser_runs.rs). The fork's seeks restore its own saved
+// points with its parent's log and samples, read through the chain.
 
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -235,6 +242,32 @@ for (const [name, saveEvery] of [["from_zero", 360], ["no_points", 0]]) {
   }
 }
 
+// The seeks of each Run (see the top).
+const seeks = {};
+for (const [name, { journal, data: pack }] of made) {
+  const backendOf = (files) => runs.memoryBackend(new Map([["journal.jsonl", encoder.encode(files.journal)], ["data.pack", files.data.slice()]]));
+  const parent = name === "fork" ? async () => backendOf(made.get("fork_parent")) : null;
+  const reader = await runs.RunReader.open({ wasm, backend: backendOf({ journal, data: pack }), parent });
+  try {
+    const [first, duration] = [reader.forkMinute(), reader.duration()];
+    const saved = reader.savedPoints().map((line) => line.minute);
+    const minutes = [...new Set([first, first + 1, ...saved, ...saved.map((minute) => minute + 7), duration])].filter((minute) => minute <= duration).sort((a, b) => a - b);
+    seeks[name] = [];
+    for (const minute of minutes) {
+      const { simulation, from, base } = await reader.seek(minute);
+      try {
+        const parts = wasm.sha256Hex(encoder.encode(simulation.part_digests_json()));
+        seeks[name].push({ minute, from, base, state: simulation.stateDigest(), metrics: simulation.metrics_digest(), parts });
+      } finally {
+        simulation.free();
+      }
+    }
+  } finally {
+    reader.close();
+  }
+}
+const seeksText = `${JSON.stringify(seeks, null, 2)}\n`;
+
 const summary = {};
 for (const [name, { journal, data: pack }] of made) {
   summary[name] = { journal_sha256: wasm.sha256Hex(encoder.encode(journal)), data_bytes: pack.length, data_sha256: wasm.sha256Hex(pack) };
@@ -255,6 +288,7 @@ if (write) {
   for (const [name, { journal }] of made) writeFileSync(join(out, `${name}.journal.jsonl`), journal);
   writeFileSync(join(out, "runs.json"), summaryText);
   writeFileSync(join(out, "records.json"), recordsText);
+  writeFileSync(join(out, "seeks.json"), seeksText);
   console.log(`wrote ${made.size} Runs to ${out}`);
 } else {
   for (const [name, { journal }] of made) {
@@ -277,6 +311,18 @@ if (write) {
     check(JSON.stringify(committed[name]) === JSON.stringify(entry), `${name}: ${JSON.stringify(entry)}, not the committed ${JSON.stringify(committed[name])}`);
   }
   check(Object.keys(committed).length === Object.keys(summary).length, `runs.json names ${Object.keys(committed)}`);
+  let committedSeeks = null;
+  try {
+    committedSeeks = readFileSync(join(out, "seeks.json"), "utf8");
+  } catch {
+    check(false, "no committed seeks.json");
+  }
+  if (committedSeeks !== null) {
+    const wanted = JSON.parse(committedSeeks);
+    for (const name of new Set([...Object.keys(wanted), ...Object.keys(seeks)])) {
+      check(JSON.stringify(wanted[name] ?? null) === JSON.stringify(seeks[name] ?? null), `seeks.json: ${name} is ${JSON.stringify(seeks[name] ?? null).slice(0, 300)}, not the committed one`);
+    }
+  }
   let committedRecords = null;
   try {
     committedRecords = readFileSync(join(out, "records.json"), "utf8");

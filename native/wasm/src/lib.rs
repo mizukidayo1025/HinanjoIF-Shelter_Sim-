@@ -12,8 +12,9 @@
 //! since #368): `RunWriter` decides what to store and when and writes the journal's lines,
 //! `Journal` reads the journal back and decides what a seek, a cut or a head is, and `VerifyRun`
 //! reads the pieces back to the Run's digests. The page's side, `js/run_store.mjs`, opens the files
-//! and compresses and decompresses the pieces. A Run is restored at a saved point with its stored
-//! log and samples (`Restore`, `Simulation.restore`).
+//! and compresses and decompresses the pieces. A reader's seek to a minute is the core's
+//! (`compute::Seeker`, the `Seeker` of `compute.rs`, #501): the Run restored at a saved point with
+//! its stored log and samples, then computed to the minute.
 //!
 //! A minute crosses the boundary as an `f64` (a JS number), not an `i64` (a `BigInt`): a world's
 //! minutes are far below 2^53.
@@ -24,7 +25,7 @@ use sheltersim_core::plain::PlainRun;
 use sheltersim_core::program::EffectProgram;
 use sheltersim_core::value::V;
 use sheltersim_core::world::WorldCell;
-use sheltersim_core::{archive, checkpoint, frame, history, model_version, run_store};
+use sheltersim_core::{checkpoint, frame, history, model_version, run_store};
 use wasm_bindgen::prelude::*;
 
 mod answers;
@@ -186,53 +187,13 @@ fn minute_of(minute: f64) -> Result<i64, JsError> {
 }
 
 /// Saved points (#251; `sheltersim_core::archive::SavedPoint`): the Run now as a saved point's
-/// bytes, and the Run at a saved point, restored with the stored log and samples (`Restore`).
+/// bytes.
 #[wasm_bindgen]
 impl Simulation {
     /// The Run now as a saved point's bytes (`archive::SavedPoint`): call it between calls to
     /// `advance`.
     pub fn saved_point(&self) -> Result<Vec<u8>, JsError> {
         Ok(self.run.saved_point().map_err(js_error)?.to_bytes())
-    }
-
-    /// The Run at the saved point `restore` was made of, which has read the stored log and samples
-    /// up to its counts, with the exported entry the Run started from (its JSON bytes). `restore`
-    /// is used up: it cannot restore again.
-    pub fn restore(entry: &[u8], restore: &mut Restore) -> Result<Simulation, JsError> {
-        let entry = PlainRun::entry_of_json(entry).map_err(js_error)?;
-        Ok(Simulation { run: PlainRun::restore(entry, restore.inner.take().map_err(js_error)?).map_err(js_error)? })
-    }
-
-    /// `restore` with the world `name` of a file of named worlds as the exported entry.
-    #[wasm_bindgen(js_name = restoreFromWorlds)]
-    pub fn restore_from_worlds(file: &[u8], name: &str, restore: &mut Restore) -> Result<Simulation, JsError> {
-        let entry = PlainRun::entry_of_worlds_json(file, name).map_err(js_error)?;
-        Ok(Simulation { run: PlainRun::restore(entry, restore.inner.take().map_err(js_error)?).map_err(js_error)? })
-    }
-}
-
-/// A saved point being restored (`archive::Restore`): made of the saved point's bytes, then given
-/// the stored log's and samples' pieces its chain names (`Chain.nextRestoreRead`, `readEntry`),
-/// then used by `Simulation.restore`.
-#[wasm_bindgen]
-pub struct Restore {
-    inner: archive::RestoreOnce,
-}
-
-#[wasm_bindgen]
-impl Restore {
-    /// An error for bytes that are not a saved point of the version this core reads.
-    #[wasm_bindgen(constructor)]
-    pub fn new(point: &[u8]) -> Result<Restore, JsError> {
-        Ok(Restore { inner: archive::RestoreOnce::new(point).map_err(js_error)? })
-    }
-
-    /// Reads the piece at `position` of `chain`, decompressed (`raw`), checked against its line
-    /// (`run_store::Chain::restore_read`).
-    #[wasm_bindgen(js_name = readEntry)]
-    pub fn read_entry(&mut self, chain: &Chain, position: u32, raw: &[u8]) -> Result<(), JsError> {
-        let restore = self.inner.get_mut().map_err(js_error)?;
-        chain.inner.restore_read(position as usize, raw, restore).map_err(js_error)
     }
 }
 
@@ -554,21 +515,6 @@ impl Chain {
     /// The exported world's piece.
     pub fn export(&self) -> Result<u32, JsError> {
         Ok(self.inner.export().map_err(js_error)? as u32)
-    }
-
-    /// Where a seek to `minute` starts (`run_store::Chain::seek`): `[the branch's "saved" line's
-    /// index or -1 for the exported world, the branch's line restored (the base a fork made there
-    /// goes on from), the exported world's piece, the minute it is computed from]`.
-    pub fn seek(&self, minute: f64) -> Result<Vec<f64>, JsError> {
-        let seek = self.inner.seek(minute_of(minute)?).map_err(js_error)?;
-        Ok(vec![seek.from.map_or(-1.0, |index| index as f64), seek.base as f64, seek.export as f64, seek.from_minute as f64])
-    }
-
-    /// The next piece from `start` on that `restore` needs, or undefined once it needs none.
-    #[wasm_bindgen(js_name = nextRestoreRead)]
-    pub fn next_restore_read(&self, start: u32, restore: &Restore) -> Result<Option<u32>, JsError> {
-        let restore = restore.inner.get().map_err(js_error)?;
-        Ok(self.inner.next_restore_read(start as usize, restore).map_err(js_error)?.map(|position| position as u32))
     }
 
     /// The samples' pieces: what the KPI history reads.

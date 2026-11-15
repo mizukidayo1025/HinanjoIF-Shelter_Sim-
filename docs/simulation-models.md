@@ -4,7 +4,7 @@
 
 engineは整数分の時計を進めます。Scenario stateには合成人物、世帯、Zone、施設、職員、資源、schedule、モデル設定を含みます。engineは期限到来eventと完了処理を実行し、モデル状態を更新し、適格actionを選び、資源・施設制約を検証して、結果のstateとeventを記録します。
 
-中核の世界（`sheltersim_core::World`）はRun中の可変stateです。保存した点（`SavedPoint`、保存したRunの形v6）は乱数状態、未処理作業、ID採番、metrics、対応runtime記録を含む版管理済みsnapshotです。BranchRuntimeは独立したCheckpointを復元し、親を変更せずに別案を比較します。
+中核の世界（`sheltersim_core::World`）はRun中の可変stateです。保存した点（`SavedPoint`、保存したRunの形v6）は乱数状態、未処理作業、ID採番、metrics、対応runtime記録を含む版管理済みsnapshotです。分岐は親の保存した点から戻した世界から始まり（中核の`compute::Procedure::fork`）、親を変更せずに別案を比較します。
 
 ## モデル群
 
@@ -23,7 +23,7 @@ engineは整数分の時計を進めます。Scenario stateには合成人物、
 
 ## 初期Scenario生成
 
-新規の未選択Scenarioは `core-model-suite-v2` を使います。Suite IDと個別Policy ID、係数、有効機構をRunに記録します。Suiteは内部テストされた候補で、避難所実績で校正・外部検証されたモデルではありません。長期比較と未完了ゲートは [標準モデルセット仕様](mathematical-models/14-default-model-suite.md) に記録しています。Suiteが個別Policy IDを省いた領域も、実行時はsuiteが宣言したモデルを使います。#169より前は、relationship・queue・誤情報の圧力の判定が `policy_registry` の個別のキーだけを読み、省かれていると昔の既定で動いていました。そのため、relationship・queue・psychologyのどれかを省いたsuiteは署名を `model_suite: <suite_id>@2` とし、`@1` で記録したCheckpointの再開を拒否します。個別のキーをすべて書いたsuite（生成Scenario）は `@1` のままで、動作も変わりません。
+新規の未選択Scenarioは `core-model-suite-v2` を使います。Suite IDと個別Policy ID、係数、有効機構をRunに記録します。Suiteは内部テストされた候補で、避難所実績で校正・外部検証されたモデルではありません。長期比較と未完了ゲートは [標準モデルセット仕様](mathematical-models/14-default-model-suite.md) に記録しています。Suiteが個別Policy IDを省いた領域も、実行時はsuiteが宣言したモデルを使います。#169より前は、relationship・queue・誤情報の圧力の判定が `policy_registry` の個別のキーだけを読み、省かれていると昔の既定で動いていました。そのため、relationship・queue・psychologyのどれかを省いたsuiteは署名を `model_suite: <suite_id>@2` とし、`@1` で記録したRunは閲覧のみになります（続きの計算を拒否します）。個別のキーをすべて書いたsuite（生成Scenario）は `@1` のままで、動作も変わりません。
 
 WebのScenario previewが使う初期Scenario生成器は、利用者が入力しなかった項目を次の仮定で補います。どれもprovenanceと出典台帳に仮定として記録し、実測値や地域統計ではありません。
 
@@ -43,7 +43,7 @@ WebのScenario previewが使う初期Scenario生成器は、利用者が入力�
 
 ## 旧来の心理モデル
 
-`causal-stress-v1`と`life-state-feedback-v1`は研究モデル導入前のモデルです。保存済みRun・Checkpointの再生と、研究モデルとの比較対照のために残しています。新しい分析で意図せず使わないよう、次の場所に使用中の心理モデルを表示します。
+`causal-stress-v1`と`life-state-feedback-v1`は研究モデル導入前のモデルです。保存済みRunの再生と、研究モデルとの比較対照のために残しています。新しい分析で意図せず使わないよう、次の場所に使用中の心理モデルを表示します。
 
 - `sheltersim prepare`と`sheltersim run`は、旧来モデルを選んだScenarioでstderrに1行の警告を出します。終了codeは0のままです。
 - `sheltersim run`の出力JSONに`psychology_model`を含めます。
@@ -52,7 +52,7 @@ WebのScenario previewが使う初期Scenario生成器は、利用者が入力�
 
 ## 再現性と評価
 
-対応するruntimeでは、ScenarioSpec、seed、Policy/モデル版、記録済みProvider応答テープが同じなら、正準stateとevent履歴の再現を目指します。Checkpoint復元、no-op branch replay、Branch分離、trace非干渉は回帰テストで確認します。
+対応するruntimeでは、ScenarioSpec、seed、Policy/モデル版、記録済みProvider応答テープが同じなら、正準stateとevent履歴の再現を目指します。保存した点からの復元、no-op branch replay、Branch分離、trace非干渉は回帰テストで確認します。
 
 対応seedを使った評価は、同一の合成入力下でモデル案の差を記述できます。統計的有意性、外部妥当性、現実世界の因果効果は証明しません。新しい評価にはseed集合、Scenario hash、設定、source ID、出力hashを保存してください。
 

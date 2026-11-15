@@ -4,7 +4,7 @@ The Rust of 避難所IF！: the simulation's core (`core/`, `sheltersim_core`), 
 (`store/`, `sheltersim_store`), the browser's boundary (`wasm/`, `sheltersim_wasm`) and the Python
 extension (`src/`, `sheltersim_native`) the local and VM versions call (#152, #368, #430). Every
 computation of a Run is the core's: the minute-0 world of a Scenario, the ticks, the
-EffectPrograms, the stored Run of format v5 and the answers of the Project routes. Python keeps the
+EffectPrograms, the stored Run of format v6 and the answers of the Project routes. Python keeps the
 HTTP server, the Scenario authoring, the regional data and the LLM Provider; the browser keeps its
 pages, OPFS and the relay to the LLM.
 

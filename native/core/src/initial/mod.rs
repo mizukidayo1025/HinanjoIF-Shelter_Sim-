@@ -8,23 +8,28 @@
 //! (`scripts/build_browser_sample.py`'s `export.json`). The loader (`crate::load::loaded`) and the
 //! browser's `Simulation` take those bytes as they take Python's.
 //!
-//! The core computes what depends on the Scenario's own data: the rows, the event queue, the
-//! stock's ledger, the operational events' state, each person's, staff member's and zone's record
-//! in the namespaces (`namespaces`), the floor plan's sections and the zone neighbors. What Python
-//! derives from the other configs (the Run's `policies_document`, the sections its contracts
-//! parse, the rest of each namespace) it reads from a table Python writes (`table.json`, by
-//! `tests/support/core_initial.py`), keyed by a fingerprint of the configs that leaves out
-//! `DATA_CONFIGS` but that they are there (`sheltersim.core.world_export.configs_fingerprint`).
-//! A Scenario whose fingerprint the table lacks is refused (`Unsupported`), as is one with what the
-//! Scenario screen's builder never makes (an infrastructure config, facility awareness, arrival
-//! approach routes, independent service-point queues).
+//! The core makes the whole world of any Scenario as Python does (#429): the rows, the event
+//! queue, every namespace (`namespaces`: `WorldState.from_scenario`,
+//! `initialize_simulator_extensions` and `initialize_declared_states`, in Python's order), then
+//! `world.validate()` (`crate::validate::world`); an error is the first one Python raises, with its
+//! class and text. It also makes the sections Python's contracts parse (`sections`), the route
+//! capacities and the zone neighbors. `world_entry` is the entry without its Run
+//! (`export_world(world)`).
+//!
+//! What it does not compute yet, the Run's `policies_document`, it reads from a table Python
+//! writes (`table.json`, by `tests/support/core_initial.py`), keyed by a fingerprint of the configs
+//! that leaves out `DATA_CONFIGS` but that they are there
+//! (`sheltersim.core.world_export.configs_fingerprint`). A Scenario whose fingerprint the table
+//! lacks is refused (`Unsupported`).
 //!
 //! The Scenario is untrusted input: what is not a Scenario's canonical JSON is an error, never a
-//! panic. Like the browser's builder that makes it (#291), this does not run `WorldState.validate`:
-//! the Python tests check that the builder's Scenarios give Python's bytes.
+//! panic. Like the browser's builder that makes it (#291), this does not run `ScenarioSpec`'s
+//! validation: `tests/unit/core/test_world_export.py` checks the corpus of Scenarios
+//! (`fixtures/initial_corpus.json.xz`) and Scenarios Python refuses to build.
 
 mod namespaces;
 mod records;
+mod sections;
 
 pub use records::{evidence, model_versions};
 
@@ -40,8 +45,8 @@ use crate::events::log::EventLog;
 use crate::events::queue::Queue;
 use crate::events::{EventKind, EventRow};
 use crate::json::Encoder;
-use crate::load;
 use crate::row::{IdMap, Row, StrEnum, ValueRow};
+use crate::validate;
 use crate::value::V;
 use crate::world::{self, Fit, Place, World};
 
@@ -137,9 +142,6 @@ fn canonical(value: &V) -> Result<Vec<u8>> {
 /// What Python derives for one fingerprint (`world_export.initial_table_entry`).
 pub(crate) struct TableEntry {
     pub policies: V,
-    pub route_capacities: V,
-    pub sections: IndexMap<Arc<str>, V>,
-    pub namespaces: IndexMap<Arc<str>, V>,
     /// `model_signatures(configs)` but the service points' signature.
     pub model_signatures: IndexMap<Arc<str>, V>,
     /// The evidence route's answer, without the Scenario's own parts.
@@ -147,7 +149,7 @@ pub(crate) struct TableEntry {
 }
 
 /// The table's version that this reader takes.
-const TABLE_SCHEMA_VERSION: i64 = 2;
+const TABLE_SCHEMA_VERSION: i64 = 3;
 
 fn read_table() -> std::result::Result<IndexMap<Arc<str>, Arc<TableEntry>>, String> {
     let json: Value = serde_json::from_str(include_str!("table.json")).map_err(|error| error.to_string())?;
@@ -166,9 +168,6 @@ fn read_table() -> std::result::Result<IndexMap<Arc<str>, Arc<TableEntry>>, Stri
         };
         let made = TableEntry {
             policies: V::from_json(&entry["policies"]).ok_or("an entry's policies")?,
-            route_capacities: V::from_json(&entry["route_capacities"]).ok_or("an entry's route capacities")?,
-            sections: map("sections")?,
-            namespaces: map("namespaces")?,
             model_signatures: map("model_signatures")?,
             evidence: {
                 let mut evidence = map("evidence")?;
@@ -397,7 +396,7 @@ fn put_row<T: Row>(world: &mut World, name: &str, row: T) -> Result<()> {
 }
 
 /// `WorldState.from_scenario` and the controller's set-up: the World at minute 0.
-fn build_world(scenario: &Scenario, table: &TableEntry) -> Result<World> {
+fn build_world(scenario: &Scenario) -> Result<World> {
     let mut world = World::default();
     let schema_version = if scenario.configs.contains_key("resource_service") { 6 } else { 5 };
     {
@@ -434,9 +433,6 @@ fn build_world(scenario: &Scenario, table: &TableEntry) -> Result<World> {
     put_row(&mut world, world::ID_COUNTERS, ValueRow(counters))?;
     put_row(&mut world, world::METRIC_STATE, IdMap::<f64>::default())?;
     put_row(&mut world, world::MODEL_CONFIGS, ValueRow(V::Map(scenario.configs.clone())))?;
-    for (name, state) in namespaces::namespaces(scenario, table)? {
-        load::put_namespace(&mut world, &name, state)?;
-    }
     let mut queue = Queue::new();
     for event in &scenario.events {
         if queue.schedule_row(event.clone()) != 0 {
@@ -445,6 +441,10 @@ fn build_world(scenario: &Scenario, table: &TableEntry) -> Result<World> {
     }
     world.hold_queue(Arc::new(queue));
     world.hold_log(Arc::new(EventLog::new()));
+    namespaces::from_scenario(&mut world, scenario)?;
+    namespaces::extensions(&mut world, scenario)?;
+    namespaces::declared(&mut world, scenario)?;
+    validate::world(&world, &validate::Options::default())?;
     Ok(world)
 }
 
@@ -472,48 +472,37 @@ fn zone_neighbors(scenario: &Scenario) -> V {
     )
 }
 
-/// The sections: the table's, with the floor plan's two from the configs as they are (the
-/// builder's configs are their contracts' dumps) and whether queues are independent.
-fn sections(scenario: &Scenario, table: &TableEntry) -> Result<V> {
-    let mut sections = table.sections.clone();
-    let configs = &scenario.configs;
-    let geometry = match configs.get("facility_geometry") {
-        None => vmap([("absent", V::Bool(true))]),
-        Some(V::Map(geometry)) => {
-            if !matches!(geometry.get("arrival_approach_routes"), Some(V::List(routes)) if routes.is_empty()) {
-                return Err(Error::unsupported("arrival approach routes are not built in the core"));
-            }
-            if namespaces::independent_queues(geometry)? {
-                return Err(Error::unsupported("independent service-point queues are not built in the core"));
-            }
-            vmap([("value", V::Map(geometry.clone()))])
-        }
-        Some(_) => return Err(bad("facility_geometry is not a dict")),
-    };
-    sections.insert(text("facility_geometry"), geometry);
-    let spatial = configs.get("spatial_constraints").ok_or_else(|| Error::unsupported("a Scenario without spatial constraints"))?;
-    sections.insert(text("spatial_constraints"), vmap([("value", spatial.clone())]));
-    match sections.get_mut("tick_plan") {
-        Some(V::Map(plan)) => match plan.get_mut("value") {
-            Some(V::Map(fields)) => {
-                fields.insert(text("independent_queues"), V::Bool(false));
-            }
-            _ => return Err(Error::unsupported("the table's tick plan is a fault")),
-        },
-        _ => return Err(Error::Value("the table has no tick plan".into())),
-    }
-    Ok(V::Map(sections))
-}
-
 /// The entry of the Scenario's world at minute 0 (`export_world(world, controller)`), as the
 /// browser's sample writes it: `json.dumps(entry, sort_keys=True, ensure_ascii=False,
 /// separators=(",", ":"))`.
 pub fn entry(scenario: &[u8]) -> Result<Vec<u8>> {
     let scenario = read_scenario(scenario)?;
+    let world = build_world(&scenario)?;
     let table = entry_of(&scenario.configs)?;
-    let world = build_world(&scenario, &table)?;
+    let run = vmap([("policies", table.policies.clone()), ("route_capacities", route_capacities(&scenario)), ("zone_neighbors", zone_neighbors(&scenario))]);
+    write_entry(&scenario, &world, Some(&run))
+}
+
+/// `export_world(world)` of the Scenario's world at minute 0 without its controller: the entry
+/// but its `run` (#429). The tests compare it with Python's for any Scenario.
+pub fn world_entry(scenario: &[u8]) -> Result<Vec<u8>> {
+    let scenario = read_scenario(scenario)?;
+    let world = build_world(&scenario)?;
+    write_entry(&scenario, &world, None)
+}
+
+/// `controller.route_capacities`: `layout_routing.max_agents_in_transit_by_edge`, as the configs
+/// hold it, or `{}`.
+fn route_capacities(scenario: &Scenario) -> V {
+    match scenario.configs.get("layout_routing") {
+        Some(V::Map(routing)) => routing.get("max_agents_in_transit_by_edge").cloned().unwrap_or(V::Map(IndexMap::new())),
+        _ => V::Map(IndexMap::new()),
+    }
+}
+
+fn write_entry(scenario: &Scenario, world: &World, run: Option<&V>) -> Result<Vec<u8>> {
     let rng_state = vmap([("algorithm", vstr("sha256-keyed-v1")), ("seed", value_of(&scenario.seed)?)]);
-    let document = crate::canonical::canonical_json(&world, &rng_state)?;
+    let document = crate::canonical::canonical_json(world, &rng_state)?;
     let slots = V::List(
         world
             .slots
@@ -524,12 +513,15 @@ pub fn entry(scenario: &[u8]) -> Result<Vec<u8>> {
             })
             .collect(),
     );
-    let run = vmap([("policies", table.policies.clone()), ("route_capacities", table.route_capacities.clone()), ("zone_neighbors", zone_neighbors(&scenario))]);
     let mut out = Vec::with_capacity(document.len() + 64 * 1024);
-    out.extend_from_slice(b"{\"run\":");
-    out.extend_from_slice(&canonical(&run)?);
-    out.extend_from_slice(b",\"sections\":");
-    out.extend_from_slice(&canonical(&sections(&scenario, &table)?)?);
+    out.push(b'{');
+    if let Some(run) = run {
+        out.extend_from_slice(b"\"run\":");
+        out.extend_from_slice(&canonical(run)?);
+        out.push(b',');
+    }
+    out.extend_from_slice(b"\"sections\":");
+    out.extend_from_slice(&canonical(&sections::sections(world)?)?);
     out.extend_from_slice(b",\"slots\":");
     out.extend_from_slice(&canonical(&slots)?);
     out.extend_from_slice(b",\"world\":");

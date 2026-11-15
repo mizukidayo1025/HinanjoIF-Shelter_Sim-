@@ -24,7 +24,9 @@
 //   fork         a branch made by an intervention (js/interventions.mjs) on fork_parent at minute
 //                400, computed to the end: it reads fork_parent's pieces up to its saved point at
 //                360 and stores its own from there
-// Each Run also reads back to its digests (`readAndVerify`).
+// Each Run also reads back to its digests (`readAndVerify`). The records of the two Projects
+// (`computed`'s and the forks') are kept too, in records.json by path: the native store
+// (native/store, #426) writes the same records for the same Runs.
 
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -101,6 +103,8 @@ const check = (ok, message) => {
 
 /// A Run's files: its journal's text and its data.pack.
 const made = new Map();
+/// The stores of the Projects whose records records.json keeps.
+const trees = [];
 
 async function verified(name, backend, parent = null) {
   const back = await runs.readAndVerify({ wasm, backend, parent });
@@ -119,6 +123,7 @@ for (const [name, saveEvery] of [["from_zero", 360], ["no_points", 0]]) {
 // computed: the Run to compute, beside a sample computed with runAndStore.
 {
   const tree = store.memoryTree();
+  trees.push(tree);
   const probe = wasm.Simulation.fromWorlds(tick, "small_replay");
   const duration = probe.duration();
   probe.free();
@@ -151,6 +156,7 @@ for (const [name, saveEvery] of [["from_zero", 360], ["no_points", 0]]) {
   const fixture = JSON.parse(raw.toString("utf8"));
   const { project_id: projectId, run_id: runId, seed, model_versions: modelVersions } = fixture.run;
   const tree = store.memoryTree();
+  trees.push(tree);
   await store.createProject(tree, projectId);
   const scenarioBytes = encoder.encode(fixture.scenario_json);
   const scenario = await store.saveScenario(tree, projectId, { scenarioBytes, scenarioHash: await store.sha256Hex(scenarioBytes) });
@@ -181,10 +187,21 @@ for (const [name, { journal, data: pack }] of made) {
   summary[name] = { journal_sha256: wasm.sha256Hex(encoder.encode(journal)), data_bytes: pack.length, data_sha256: wasm.sha256Hex(pack) };
 }
 const summaryText = `${JSON.stringify(summary, null, 2)}\n`;
+// The records of the Projects, by path: every record file but the working files (drafts) and the
+// Scenarios' texts (the bytes given, whose sha256 their records hold).
+const RECORD = /^[^/]+\/(project\.json|scenarios\/[^/]+\/v[0-9]+\.json|runs\/[^/]+\/(run|evidence)\.json|runs\/[^/]+\/branches\/[^/]+\/branch\.json)$/;
+const records = {};
+for (const tree of trees) {
+  for (const [path, { bytes, length }] of [...tree.files].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
+    if (RECORD.test(path)) records[path] = decoder.decode(bytes.subarray(0, length));
+  }
+}
+const recordsText = `${JSON.stringify(records, null, 2)}\n`;
 if (write) {
   mkdirSync(out, { recursive: true });
   for (const [name, { journal }] of made) writeFileSync(join(out, `${name}.journal.jsonl`), journal);
   writeFileSync(join(out, "runs.json"), summaryText);
+  writeFileSync(join(out, "records.json"), recordsText);
   console.log(`wrote ${made.size} Runs to ${out}`);
 } else {
   for (const [name, { journal }] of made) {
@@ -207,6 +224,18 @@ if (write) {
     check(JSON.stringify(committed[name]) === JSON.stringify(entry), `${name}: ${JSON.stringify(entry)}, not the committed ${JSON.stringify(committed[name])}`);
   }
   check(Object.keys(committed).length === Object.keys(summary).length, `runs.json names ${Object.keys(committed)}`);
+  let committedRecords = null;
+  try {
+    committedRecords = readFileSync(join(out, "records.json"), "utf8");
+  } catch {
+    check(false, "no committed records.json");
+  }
+  if (committedRecords !== null) {
+    const wanted = JSON.parse(committedRecords);
+    for (const path of new Set([...Object.keys(wanted), ...Object.keys(records)])) {
+      check(wanted[path] === records[path], `records.json: ${path} is ${JSON.stringify(records[path] ?? null)}, not the committed ${JSON.stringify(wanted[path] ?? null)}`);
+    }
+  }
 }
 
 if (failures > 0) {

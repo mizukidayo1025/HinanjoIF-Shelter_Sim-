@@ -103,6 +103,17 @@ Pythonの欄のうち、ブラウザーで意味が変わるもの：
 
 ブラウザーでの`resume`・`cancel`の答えは、Pythonのserverと同じstatus、JSON、誤りの文と符号です。違う所：`target_minute`の`60.0`のようなJSONの小数は、JSでは整数と区別できないので受け付けます（Pythonは断ります）。別のモデル版で計算したRunは、Pythonと同じく閲覧のみです（#368の決定8）。保存したRunの`run`の行の`model_versions`を、中核が今そのScenarioについて記録する版（`modelVersions`）と比べ（規則と文はPythonの`model_version.py`と同じ中核の`model_version`）、違えば`resume`、`intervention-preview`、`intervention-apply`を409の`run_model_view_only`で断ります。閲覧はできます。保存の間の分は、Pythonと同じく今のモデルで計算し直さず（D2）、その分以前で一番近い途中の点（0分からのRunでは最初の点の前は0分）の世界を表示し、frameに`model_view`（記録した版と今の版、違う項目、日本語の説明）と、丸めたときは`saved_point_rounding`（`requested_minute`、`saved_minute`、「旧モデルのRunのため、…分は計算し直さず、保存した時点（…分）の状態を表示しています。」）を足します。timeline、replay-frames、比較が同じframeを使います（どの点を見せるかと足す欄は中核の`Journal::saved_minute_at`と`ModelStatus::describe_json`が決めます）。違う所：中核が署名できないScenario（中核の表にないもの。試験の世界だけ）では、Pythonのように閲覧のみにせず、エンジンの版（`engine:model`・`engine:rng_algorithm`）だけを比べます。`measure_performance`は真偽値か確かめるだけで、計測は記録しません。`400`の誤り（JSONでない本文）は`"code": null`を持ちます（#266の`POST /api/v1/projects`と同じ。Pythonは`code`を持ちません）。
 
+### ディスクの置き場（Rust、#426）
+
+ローカル版・VM版がブラウザーと同じ置き場に計算を書き、同じ置き場から読むための部品が、`native/store`（crate `sheltersim_store`）です。中核（`sheltersim_core`）はファイルを読み書きせず、WASMの build にも入らないので、ファイル・圧縮・lock・容量の処理はこのcrateに置きます。Pythonからは`sheltersim_native.rules.run_files`（`ProjectFiles`、`Lease`、`StoredRun`、`Computation`）で呼びます。Pythonのserverの計算と読み出しをこれに替えるのは#427です。
+
+- **フォルダーと記録**：上の表と同じです（`records.rs`）。記録は鍵を並べたJSONと改行で、ブラウザー・Pythonと同じbytesです。ファイルは一時ファイルに書いて flush してから名前を替え、フォルダーも flush します（Pythonの`ProjectStore._write`と同じ）。誤りの文はPythonの`StorageError`と同じです。
+- **保存したRun**：部品をdeflate-raw（flate2）で圧縮して`data.pack`の末尾に書き、ディスクまで flush してから、目録の行を`journal.jsonl`に書いて flush します（`stored.rs`）。圧縮後のbytesはブラウザーと違うことがありますが、先頭のhashと圧縮前の中身は同じです。
+- **別のプロセスの読み手**：目録を1度読み、最後の欠けていない行までを読みます。書き手が追記している途中の行や、強制終了で欠けた行は読みません。読んだ行が指すbytesは、もうディスクにあります。続きの計算は、Branchの記録の先頭より後の行（欠けた行を含む）を切り落としてから始めます。
+- **lock**：Pythonの`claim_branch`・`claim_run`・`transaction`と同じファイル（`.lock`、Runと各Branchの`worker-lock`）に、同じ種類のlockをかけます（Linux・macOSは`flock`、Windowsは`msvcrt.locking`が取る先頭のbyteに重なる`LockFileEx`）。PythonとRustのどちらが持っていても、もう一方は断られます。同じBranchの計算は1つです。
+- **容量の上限**：`--project-storage-gb`の上限を、書く前に確かめます（`quota.rs`）。書き手は始めに置き場を測り、その後は自分の書いた量を足していきます。上限で止まった計算は、書き終えた行までが残り、記録は最後の先頭のままです。
+- **確かめ**：`cargo test -p sheltersim_store`は、`native/wasm/tests/node_stored_runs.mjs`の5つの保存したRunを、この置き場で作り直します。fixtureと同じ圧縮（deflateのstored block）では、目録・`data.pack`・記録（`stored_runs/records.json`）がブラウザーとbyteまで同じです。flate2では、各行の先頭のhashと圧縮前の部品が同じです。`tests/integration/test_run_files.py`は、PythonとRustのlockが互いに断ること、追記中に別のプロセスが読めること、Branchを持ったまま強制終了した書き手のlockが外れ、欠けた行が読まれず、続きの計算で最後まで同じ結果になることを確かめます。
+
 ## ブラウザーの時系列・レポート・LLMの状態（#266）
 
 ブラウザー版は、Branchの`GET …/history?kind=kpis`、`GET …/report`、`GET …/llm-status`に、同じRunにPythonのserverが返すのと同じbytesのJSONで答えます（中核の`sheltersim_core::answers`。ブラウザーは`native/wasm/js/api_answers.mjs`がファイルを読んで呼びます。#449）。

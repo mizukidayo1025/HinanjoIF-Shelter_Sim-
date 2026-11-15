@@ -248,7 +248,7 @@ fn restored(fixture: &serde_json::Value, point: &[u8], pieces: &[(&'static str, 
 /// A Run of each world of `tick_core.json` saved every `every` minutes as it goes (`small_replay`
 /// is one day, saved every 6 hours): restored at each saved point, the Run has the digests the Run
 /// had at that minute and saves the same point again; restored at a minute in the middle, it goes
-/// on to the end with the Run's digests and the native path's.
+/// on to the end with the Run's digests.
 #[test]
 fn a_run_restored_at_a_saved_point_goes_on_as_the_run_did() {
     for (name, every) in [("small_replay", 360), ("generated", 60)] {

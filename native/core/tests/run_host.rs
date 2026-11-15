@@ -10,7 +10,7 @@ use indexmap::IndexMap;
 use sheltersim_core::cell::Shard;
 use sheltersim_core::config::{Fault, FaultClass};
 use sheltersim_core::error::Error;
-use sheltersim_core::host::{Contract, Decision, DecisionSink, ErrorClass, Host, HostFailure, Llm, Part, Phase, Stage, Trace, TraceLevel, TxnKind, NO_DRAW};
+use sheltersim_core::host::{Contract, ErrorClass, Host, HostFailure, Llm, Part, Phase, Stage, Trace, TraceLevel, TxnKind, NO_DRAW};
 use sheltersim_core::mathx::MathError;
 use sheltersim_core::run::held::{Class, Held, Obj, NOT_READ, NO_CONTROLLER};
 use sheltersim_core::run::policies::CONTROLLER;
@@ -139,7 +139,6 @@ fn policies_of_a_controller_know_its_models_and_sinks() {
     assert_eq!(policies.services.toilet.object().unwrap().int("max_service_minutes"), Ok(8));
     assert_eq!(policies.services.resource.is_none(), Ok(true));
     assert_eq!(policies.services.staff.object().unwrap().get("route_resolver"), Ok(&Held::Opaque { callable: true }));
-    assert_eq!(policies.sinks.decision_sink, Ok(DecisionSink::Artifacts));
     assert_eq!(policies.sinks.trace_level, Ok(TraceLevel::Summary));
     assert_eq!(policies.llm(), Ok(Llm { router: false, social_policy: false }));
     // An attribute the spec of a part does not read is a refusal, not a guess.
@@ -194,12 +193,7 @@ fn what_a_read_raised_is_kept_for_the_read_site() {
     let mut found = controller();
     put(&mut found, "psychology", Err(raised.clone()));
     put(&mut found, "llm_router", Err(raised.clone()));
-    // A sink declared with no str is a TypeError at the read, as `downcast_exact` raises it.
-    let artifacts = with_class_own(
-        object("tests.helpers", "Sink", vec![("trace_level", Ok(Held::Value(V::Str(text("verbose")))))]),
-        "decision_sink",
-        Held::Value(V::Int(1)),
-    );
+    let artifacts = object("tests.helpers", "Sink", vec![("trace_level", Ok(Held::Value(V::Str(text("verbose")))))]);
     put(&mut found, "artifacts", Ok(artifacts));
     let policies = Policies::of(Arc::new(found));
     assert_eq!(policies.psychology.model, Err(raised.clone()));
@@ -207,19 +201,16 @@ fn what_a_read_raised_is_kept_for_the_read_site() {
     assert!(!policies.psychology.model.as_ref().unwrap_err().is_refusal());
     assert_eq!(policies.sinks.llm_router, Err(raised.clone()));
     assert_eq!(policies.llm(), Err(raised));
-    assert_eq!(policies.sinks.decision_sink.as_ref().map_err(|fault| fault.class.clone()), Err(FaultClass::Type));
     assert_eq!(policies.sinks.trace_level, Err(Fault::refused(sinks::UNKNOWN_LEVEL)));
 
-    // No artifacts, or a class without its own declaration: the sink is `DecisionSink::Host`.
+    // No artifacts: the trace level is a read that raised.
     let mut found = controller();
     put(&mut found, "artifacts", none());
     let policies = Policies::of(Arc::new(found));
-    assert_eq!(policies.sinks.decision_sink, Ok(DecisionSink::Host));
     assert_eq!(policies.sinks.trace_level.as_ref().map_err(Fault::is_refusal), Err(false));
     let mut found = controller();
     put(&mut found, "artifacts", Ok(object("tests.helpers", "Sink", vec![("trace_level", Ok(Held::Value(V::Str(text("off")))))])));
     let policies = Policies::of(Arc::new(found));
-    assert_eq!(policies.sinks.decision_sink, Ok(DecisionSink::Host));
     assert_eq!(policies.sinks.trace_level, Ok(TraceLevel::Off));
 }
 
@@ -313,9 +304,6 @@ fn complain<C: WorldCell, H: Host>(cell: &C, host: &mut H, due: &[(&str, &str)])
     if host.trace_level()? != TraceLevel::Off {
         host.trace(Trace::SocialContact(V::Int(minute)))?;
     }
-    if host.decision_sink()? == DecisionSink::Indexed {
-        host.decision(Decision::Indexed(b"{}".to_vec()))?;
-    }
     let after = cell.with(|world| world.scalars.get_mut().minute_index.clone())?;
     match after {
         Fit::Ok(after) => Ok(after),
@@ -332,7 +320,7 @@ fn a_rule_asks_the_host_and_reads_the_world_again() {
     let mut host = TestHost::default();
     assert_eq!(complain(&cell, &mut host, &[("a", "r1")]), Ok(7));
     assert!(host.calls.is_empty());
-    let mut host = TestHost { llm: Llm { router: false, social_policy: true }, level: TraceLevel::Full, sink: DecisionSink::Indexed, ..TestHost::default() };
+    let mut host = TestHost { llm: Llm { router: false, social_policy: true }, level: TraceLevel::Full, ..TestHost::default() };
     assert_eq!(complain(&cell, &mut host, &[("a", "r1"), ("b", "r2")]), Ok(7));
     assert_eq!(
         host.calls,
@@ -340,7 +328,6 @@ fn a_rule_asks_the_host_and_reads_the_world_again() {
             Call::Complaint { agent: text("a"), request: text("r1") },
             Call::Complaint { agent: text("b"), request: text("r2") },
             Call::Trace(Trace::SocialContact(V::Int(7))),
-            Call::Decision(Decision::Indexed(b"{}".to_vec())),
         ]
     );
 }

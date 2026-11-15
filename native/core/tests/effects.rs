@@ -13,7 +13,7 @@ use sheltersim_core::error::Error;
 use sheltersim_core::events::log::EventLog;
 use sheltersim_core::events::queue::Queue;
 use sheltersim_core::events::{EventKind, EventRow};
-use sheltersim_core::host::{Contract, Decision, DecisionSink, ErrorClass, Host, HostFailure, Llm, Phase, Stage, Trace, TraceLevel, TxnKind};
+use sheltersim_core::host::{Contract, ErrorClass, Host, HostFailure, Llm, Phase, Stage, Trace, TraceLevel, TxnKind};
 use sheltersim_core::row::{IdMap, ValueRow};
 use sheltersim_core::rules::effects::{self as effects, EnvironmentIn, EnvironmentPlan, GuardIn, SpaceIn, SpacePlan, Structure, StructureIn};
 use sheltersim_core::rules::kit::Held;
@@ -228,7 +228,6 @@ impl Host for Failing {
         consider_cooperation(initiator: &str, participant: &str, trigger: &str) -> ();
         consider_information_reaction(agent: &str, participant: &str, message: &str, trigger: &str) -> ();
         capture_metric(sample: &MetricSample, minute: i64) -> ();
-        decision(decision: Decision) -> ();
         trace(document: Trace) -> ();
         phase(phase: Phase, before: bool) -> ();
         space_refreshed() -> ();
@@ -250,10 +249,6 @@ impl Host for Failing {
 
     fn llm(&self) -> Result<Llm, Error> {
         self.host.llm()
-    }
-
-    fn decision_sink(&self) -> Result<DecisionSink, Error> {
-        self.host.decision_sink()
     }
 
     fn trace_level(&self) -> Result<TraceLevel, Error> {

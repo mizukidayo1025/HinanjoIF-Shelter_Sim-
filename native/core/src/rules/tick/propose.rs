@@ -1,6 +1,5 @@
 //! The propose phase: the view for the proposals (the update phase's, read again, or a new one,
-//! with its audit hash), the proposals of those due, and for each its observed state, its effect
-//! and its record.
+//! with its audit hash), the proposals of those due, and for each its effect and its outcome.
 //!
 //! What the effect reads besides the world is read by the proposal's action, in a fixed order
 //! (`read_effect`): what the world holds, the configs' sections, the floor plan, the Run's people's
@@ -15,10 +14,10 @@ use crate::config::movement::Movement;
 use crate::config::population::AccessibilityNeeds;
 use crate::config::SectionId;
 use crate::error::Error;
-use crate::host::{DecisionSink, Holding, Host};
+use crate::host::{Holding, Host};
 use crate::routes::{Router, Which};
 use crate::rules::behavior::{self, Proposal as Proposed};
-use crate::rules::decisions::{self, Observed, Recording, Sunk, LIFECYCLE, MEMORY};
+use crate::rules::decisions::{self, Recording, LIFECYCLE, MEMORY, NOT_AFTER};
 use crate::rules::kit::{Held, Kept};
 use crate::rules::proposals::{
     self, Action, Applied, Asked, Information, Inputs, Proposal, Seek, Sleep, Trips, Walk, INFORMATION, MANAGER_UNREAD, THRESHOLD_UNREAD,
@@ -36,7 +35,6 @@ use super::{Labelled, Prior, RunCell, Seed, Step, Tick};
 
 pub const VIEW: &str = "world_view.view_for_proposals";
 pub const PROPOSE: &str = "decisions.propose_rows";
-pub const OBSERVED: &str = "decisions.observed_row";
 pub const EFFECT: &str = "proposals.apply_effect";
 pub const RECORD: &str = "decisions.record_outcome";
 
@@ -52,9 +50,8 @@ pub fn propose<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R>) 
         return Ok(());
     };
     for proposal in &proposals {
-        let observed = observed(tick, &data, proposal).at(OBSERVED)?;
         let applied = apply_effect(tick, &data, proposal).at(EFFECT)?;
-        record_outcome(tick, &data, proposal, &applied, &observed).at(RECORD)?;
+        record_outcome(tick, &data, proposal, &applied).at(RECORD)?;
     }
     Ok(())
 }
@@ -106,20 +103,6 @@ fn due<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R>, data: &V
         return Err(Error::unsupported("the view has no hash of a state").into());
     };
     behavior::due(data, &scoring, &seed, hash).map_err(|bad| tick.bad(bad))
-}
-
-/// The observed state of a proposal: the host's own sink (`DecisionSink::Host`), or a writer's,
-/// reads the document as a dict.
-fn observed<C: WorldCell, H: Host, R: RunCell>(
-    tick: &mut Tick<'_, C, H, R>,
-    data: &ViewData,
-    proposal: &Proposed,
-) -> std::result::Result<Observed<'static>, H::Error> {
-    let sink = tick.host.decision_sink()?;
-    if matches!(sink, DecisionSink::Host | DecisionSink::Artifacts) {
-        return Ok(Observed::Value(behavior::observed_value(data, proposal.index)));
-    }
-    Ok(Observed::Other)
 }
 
 // ---- The effect -----------------------------------------------------------------------------------
@@ -440,34 +423,20 @@ pub fn apply_alone<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, 
     proposals::seek_after(tick.cell, tick.host, &inputs, &proposal, sought)
 }
 
-/// The outcome of a proposal: the record, then the lifecycle and the memory. The host's own sink
-/// (`DecisionSink::Host`) records it (`Host::record_host_decision`, H5), after which the core
-/// runs the same rules.
+/// The outcome of a proposal: the lifecycle and the memory (`decisions`), after the refusal of a
+/// next decision due no later than its minute.
 fn record_outcome<C: WorldCell, H: Host, R: RunCell>(
     tick: &mut Tick<'_, C, H, R>,
     data: &ViewData,
     proposal: &Proposed,
     applied: &Applied,
-    observed: &Observed<'_>,
 ) -> std::result::Result<(), H::Error> {
-    let observed = match observed {
-        Observed::Other => Observed::Row { data, index: proposal.index },
-        other => other.clone(),
-    };
     let holding = tick.holding()?;
     let remembers = holding.keys.contains_key("agent_dynamics_v1");
-    let recording = Recording {
-        data,
-        proposal,
-        target_id: applied.target.as_deref(),
-        next_decision_at: applied.next_decision_at,
-        committed: applied.committed,
-        observed: &observed,
-        remembers,
-    };
-    let to_host = applied.next_decision_at <= data.minute_index || decisions::record(tick.cell, tick.host, &recording)? == Sunk::Host;
-    if to_host {
-        tick.host.record_host_decision(data, proposal, recording.target_id, recording.next_decision_at, &observed)?;
+    let recording =
+        Recording { data, proposal, target_id: applied.target.as_deref(), next_decision_at: applied.next_decision_at, committed: applied.committed, remembers };
+    if recording.next_decision_at <= data.minute_index {
+        return Err(Error::unsupported(NOT_AFTER).into());
     }
     if recording.committed {
         let committed = tick.run.with(|run| tick.cell.with(|world| decisions::commit(world, &mut run.actions, &recording)));

@@ -1,5 +1,5 @@
-//! The proposals of the behavior rule (`rules::behavior::due`) and the observed state of a person
-//! (`behavior::observed_value`) (Issue #225, lane M10b).
+//! The proposals of the behavior rule (`rules::behavior::due`) and the people of its view (Issue
+//! #225, lane M10b).
 //!
 //! `data/behavior_rows.json` holds the world a drawn world starts from (the generated Scenario at
 //! minute 0, with its body state), the world of the requests' test, the world of a Run of 90
@@ -10,8 +10,10 @@
 //! (`Behavior::of`).
 //!
 //! Each value the kernel made is added to `Bits` as `json.dumps` of its exact form (`exact`, an
-//! `ActionProposal` record or the observed map): each type's name, each record's fields in order,
-//! each float as `float.hex`. The digests were recorded before #430 and pin the core's output now.
+//! `ActionProposal` record or a person of the view as the decisions' records wrote them before #556,
+//! `observed_value`): each type's name, each record's fields in order, each float as `float.hex`.
+//! The digests were recorded before #430, without the candidates' trigger texts since #556, and pin
+//! the core's output now.
 
 use crate::support;
 
@@ -135,13 +137,12 @@ fn action(name: &str) -> V {
     V::List(vec![text("ActionKind"), text(name)])
 }
 
-fn candidate(data: &ViewData, proposal: &Proposal, item: &Scored) -> V {
+fn candidate(item: &Scored) -> V {
     dataclass(
         "ActionCandidate",
         vec![
             ("action", action(item.action.value())),
             ("eligible", V::Bool(item.eligible)),
-            ("trigger", string(&proposal.trigger_of(data, item).unwrap())),
             ("utility", float(item.utility)),
             ("urgency_priority", int(item.priority)),
             ("probability", float(item.probability)),
@@ -163,7 +164,7 @@ fn proposal(data: &ViewData, proposal: &Proposal) -> V {
             ("minute_index", int(data.minute_index)),
             ("observed_state_hash", string(&proposal.common.state_hash)),
             ("action", action(outcome.action.value())),
-            ("candidates", tuple(outcome.candidates.iter().map(|item| candidate(data, proposal, item)).collect())),
+            ("candidates", tuple(outcome.candidates.iter().map(|item| candidate(item)).collect())),
             ("trigger", string("scheduled_decision")),
             ("choice_value", float(outcome.choice_value)),
             ("rng_key", tuple(key.collect())),
@@ -390,9 +391,9 @@ fn proposals(bits: &mut Bits, data: &ViewData, hash: &Arc<str>, policy: &str, se
     made
 }
 
-/// `behavior::observed_value`: the kernel's observed state of a person, added to `bits`.
+/// `observed_value`: the person as the view holds them, added to `bits`.
 fn observed(bits: &mut Bits, data: &ViewData, agent_id: &str) -> V {
-    let value = behavior::observed_value(data, data.index_of(agent_id).expect("a person of the view"));
+    let value = observed_value(data, data.index_of(agent_id).expect("a person of the view"));
     bits.add(&exact(&value));
     value
 }
@@ -419,7 +420,7 @@ fn a_seed_past_64_bits_gives_the_recorded_bits() {
     let case = &data["past_64"];
     let (_, view, hash) = drawn_view("generated", case["world"].as_str().unwrap());
     let seeds =
-        [("9223372036854775808", "4eeb7955eaf7a746"), ("18446744073709551623", "b05281eb8a1f1846"), ("1000000000000000000000000000000", "09fcdfd963ea511b")];
+        [("9223372036854775808", "3714389fdcc5c0c7"), ("18446744073709551623", "e8b735f322c6b1b6"), ("1000000000000000000000000000000", "7d848a89592bb2f3")];
     for (seed, digest) in seeds {
         let mut bits = Bits::default();
         assert!(!proposals(&mut bits, &view, &hash, case["policy"].as_str().unwrap(), seed).is_empty());
@@ -449,7 +450,7 @@ fn requests_cooldowns_and_queued_tasks_are_read_as_recorded() {
         assert_eq!(proposed, people.iter().map(String::as_str).collect::<Vec<_>>());
     }
     let snapshots: Vec<V> = people.iter().map(|agent_id| observed(&mut bits, &view, agent_id)).collect();
-    bits.check("58c69158d7eb36d8");
+    bits.check("d8de28d5e0161d6c");
     assert_eq!(get(&snapshots[0], &["support", "status"]), &text("pending"));
     assert_eq!(get(&snapshots[0], &["support", "wait_minutes"]), &V::Int(35));
     assert_eq!(get(&snapshots[4], &["support", "request_id"]), &text("nothing"));
@@ -547,5 +548,94 @@ fn each_proposal_of_a_run_gives_the_recorded_bits() {
     let counts = counts.borrow();
     assert_eq!(counts.calls, 90);
     assert!(counts.proposals == counts.observed && counts.observed > 0);
-    bits.borrow().check("39e0d6ea65c6015b");
+    bits.borrow().check("1f16640a882e7189");
+}
+
+fn text_value(text: &Option<Arc<str>>) -> V {
+    match text {
+        Some(text) => V::Str(text.clone()),
+        None => V::Null,
+    }
+}
+
+fn text_list(items: &[Arc<str>]) -> V {
+    V::List(items.iter().map(|item| V::Str(item.clone())).collect())
+}
+
+/// The person as the view holds them, with its keys in a fixed order: the observed state the
+/// decisions' records wrote before #556, which pins what the view read.
+fn observed_value(data: &ViewData, index: usize) -> V {
+    let agent = &data.agents[index];
+    let zone = data.zone_of(agent);
+    let map = |entries: Vec<(&str, V)>| V::Map(entries.into_iter().map(|(key, value)| (Arc::from(key), value)).collect());
+    let mut needs = vec![
+        ("toilet_urgency", V::Float(agent.needs.toilet_urgency)),
+        ("hunger", V::Float(agent.needs.hunger)),
+        ("fatigue", V::Float(agent.needs.fatigue)),
+        ("hygiene_need", V::Float(agent.body.hygiene_need)),
+    ];
+    if data.resource_service_enabled {
+        needs.push(("hydration_need", V::Float(agent.needs.hydration_need)));
+    }
+    let body = &agent.body;
+    let psychological = vec![
+        ("sleep_debt_minutes", V::Float(body.sleep_debt_minutes)),
+        ("uncertainty", V::Float(body.uncertainty)),
+        ("reassurance", V::Float(body.reassurance)),
+        ("discontent", V::Float(body.discontent)),
+        ("positive_affect", V::Float(body.positive_affect)),
+        ("negative_affect", V::Float(body.negative_affect)),
+    ];
+    let queue = vec![
+        ("task_id", text_value(&agent.queue_task_id)),
+        ("kind", text_value(&agent.queue_kind)),
+        ("target_id", text_value(&agent.queue_target_id)),
+        ("wait_minutes", V::Int(agent.queue_wait_minutes)),
+    ];
+    let support = vec![
+        ("request_id", text_value(&agent.support_request_id)),
+        ("status", agent.support_request_status.map_or(V::Null, |status| V::Str(Arc::from(status.text())))),
+        ("assigned_staff_id", text_value(&agent.support_assigned_staff_id)),
+        ("wait_minutes", V::Int(agent.support_wait_minutes)),
+        ("cooldown_remaining_minutes", V::Int(agent.support_cooldown_remaining_minutes)),
+    ];
+    let mut snapshot = vec![
+        ("agent_id", V::Str(agent.id.clone())),
+        ("zone_id", V::Str(zone.id.clone())),
+        ("activity", V::Str(Arc::from(agent.activity.text()))),
+        ("target_id", text_value(&agent.target_id)),
+        ("needs", map(needs)),
+        ("psychological", map(psychological)),
+        ("sanitation_level", V::Float(zone.sanitation_level)),
+        ("stress", V::Float(agent.stress)),
+        ("trust", V::Float(agent.trust)),
+        ("queue", map(queue)),
+        ("support", map(support)),
+    ];
+    if !zone.zone_environment_modifier_event_ids.is_empty() || !zone.demand_modifiers.is_empty() {
+        let modifiers = zone
+            .demand_modifiers
+            .iter()
+            .map(|item| {
+                map(vec![
+                    ("action", V::Str(item.action.clone())),
+                    ("probability_multiplier", V::Float(item.probability_multiplier)),
+                    ("duration_multiplier", V::Float(item.duration_multiplier)),
+                    ("event_ids", text_list(&item.modifier_event_ids)),
+                    ("assumption_ids", text_list(&item.assumption_ids)),
+                ])
+            })
+            .collect();
+        snapshot.push((
+            "zone_environment",
+            map(vec![
+                ("ambient_noise_level", V::Float(zone.ambient_noise_level)),
+                ("rest_efficiency_multiplier", V::Float(zone.rest_efficiency_multiplier)),
+                ("modifier_event_ids", text_list(&zone.zone_environment_modifier_event_ids)),
+                ("assumption_ids", text_list(&zone.zone_environment_assumption_ids)),
+                ("demand_modifiers", V::List(modifiers)),
+            ]),
+        ));
+    }
+    map(snapshot)
 }

@@ -4,8 +4,7 @@
 //! The worlds are `tick_core.json`'s (`support/load.rs`). A fake link answers each task with a
 //! choice it allows; the limits are opened (everyone eligible, no caps) so that each world asks.
 //! - The port: a task and a reply as JSON, the limits, the check of an answer, the tape's entries.
-//! - Offline, nothing is asked and nothing of the world changes: the Run is the Run without a link,
-//!   and the social policy records why it did not ask.
+//! - Offline, nothing is asked and nothing of the world changes: the Run is the Run without a link.
 //! - With a link, the rules write the priorities, their own state and the events the answers
 //!   chose, and keep one tape entry a call, without the model's free text. An answer that does not
 //!   fit its schema is the fallback.
@@ -24,6 +23,7 @@ use std::rc::Rc;
 use serde_json::{json, Value};
 use sheltersim_core::compute::{Replaying, Seeker};
 use sheltersim_core::error::{Error, Result};
+use sheltersim_core::events::EventStatus;
 use sheltersim_core::llm::{self, check_answer, Entry, Limits, LlmLink, Offline, Replay, Reply, Task, REPLAY_MISMATCH, REPLAY_MISSING};
 use sheltersim_core::model_version;
 use sheltersim_core::plain::PlainRun;
@@ -80,27 +80,37 @@ fn run_of(name: &str) -> PlainRun {
     PlainRun::of_entry(&load::entry("tick_core", name)).unwrap()
 }
 
-/// The world `name` to its end with `link` (none: no LLM), its decisions collected: the Run, and
-/// the records of the social policy.
-fn run_to_end(name: &str, link: Option<Box<dyn LlmLink>>, limits: &[u8]) -> (PlainRun, Vec<Value>) {
+/// The world `name` to its end with `link` (none: no LLM).
+fn run_to_end(name: &str, link: Option<Box<dyn LlmLink>>, limits: &[u8]) -> PlainRun {
     let mut run = run_of(name);
-    run.collect_decisions(true);
     if let Some(link) = link {
         run.set_llm(link, Limits::from_json(limits).unwrap()).unwrap();
     }
     let ticks = run.duration().unwrap() as u64;
     assert_eq!(run.advance(ticks).unwrap(), ticks);
-    let dialogue =
-        run.take_decisions().iter().map(|raw| serde_json::from_slice::<Value>(raw).unwrap()).filter(|record| record["record_kind"] == "dialogue").collect();
-    (run, dialogue)
+    run
 }
 
-fn reasons(records: &[Value]) -> BTreeMap<String, usize> {
-    let mut counts = BTreeMap::new();
-    for record in records {
-        *counts.entry(format!("{}:{}", record["interaction_type"].as_str().unwrap(), record["reason"].as_str().unwrap())).or_insert(0) += 1;
-    }
-    counts
+/// The applied `social_interaction` events the social policy scheduled from an answer (their
+/// provenance has the task's `input_hash`), in the Run's log: each one's payload and provenance.
+fn social_interactions(run: &PlainRun) -> Vec<(Value, Value)> {
+    run.loaded
+        .cell
+        .with(|world| {
+            let ids: Vec<String> = {
+                let log = world.log().unwrap();
+                log.positions_of_type("social_interaction").iter().map(|index| log.event_id_at(*index).unwrap().to_owned()).collect()
+            };
+            ids.iter()
+                .filter_map(|id| {
+                    let logged = sheltersim_core::load::find_record(world, id).unwrap().unwrap();
+                    let json = |value: &V| serde_json::from_slice::<Value>(&value.to_json().unwrap()).unwrap();
+                    let provenance = json(&logged.event.provenance);
+                    (logged.status == EventStatus::Applied && provenance.get("input_hash").is_some()).then(|| (json(&logged.event.payload), provenance))
+                })
+                .collect()
+        })
+        .unwrap()
 }
 
 fn namespace(run: &PlainRun, name: &str) -> Option<Value> {
@@ -211,25 +221,16 @@ fn the_limits_are_the_models_unless_set_and_checked() {
 }
 
 /// Offline, the rules ask nothing and write nothing of the world: the Run is the Run without a
-/// link, the samples too. The social policy records why it did not ask, as on a Project's Run (the
-/// `dialogue` rows of #385).
+/// link, the samples too.
 #[test]
-fn an_offline_link_changes_nothing_of_the_world_and_records_why_it_did_not_ask() {
+fn an_offline_link_changes_nothing_of_the_world() {
     for name in ["generated", "small_replay"] {
-        let (without, none) = run_to_end(name, None, b"{}");
-        assert!(none.is_empty());
-        let (offline, dialogue) = run_to_end(name, Some(Box::new(Offline)), b"{}");
+        let without = run_to_end(name, None, b"{}");
+        let offline = run_to_end(name, Some(Box::new(Offline)), b"{}");
         assert_eq!(offline.digests().unwrap(), without.digests().unwrap(), "{name}");
         assert_eq!(offline.host.metrics_digest(), without.host.metrics_digest(), "{name}");
         assert_eq!(offline.llm_calls(), 0);
-        assert!(!dialogue.is_empty(), "{name}");
-        for record in &dialogue {
-            let reason = record["reason"].as_str().unwrap();
-            assert!(["offline_rule_mode", "below_stress_threshold", "request_not_pending"].contains(&reason), "{name}: {reason}");
-            let flags = (record["accepted"].as_bool(), record["status"].as_str(), record["source_type"].as_str());
-            assert_eq!(flags, (Some(false), Some("rejected"), Some("assumption")));
-            assert_eq!(record["input_hash"], Value::Null);
-        }
+        assert!(social_interactions(&offline).is_empty(), "{name}");
         for state in ["social_runtime_v1", "support_priority_runtime_v1", "llm"] {
             assert_eq!(namespace(&offline, state), None, "{name}: {state}");
         }
@@ -241,8 +242,8 @@ fn an_offline_link_changes_nothing_of_the_world_and_records_why_it_did_not_ask()
 #[test]
 fn the_rules_ask_the_link_and_write_what_it_answered() {
     let (fake, asked) = Fake::new();
-    let (mut run, dialogue) = run_to_end("generated", Some(Box::new(fake)), OPEN);
-    let (without, _) = run_to_end("generated", None, b"{}");
+    let mut run = run_to_end("generated", Some(Box::new(fake)), OPEN);
+    let without = run_to_end("generated", None, b"{}");
     assert_ne!(run.digests().unwrap(), without.digests().unwrap());
     let asked = asked.borrow();
     assert_eq!(run.llm_calls(), asked.len() as u64);
@@ -256,18 +257,17 @@ fn the_rules_ask_the_link_and_write_what_it_answered() {
         assert_eq!(V::from_json(&value).unwrap().to_json().unwrap(), task.input_text.as_bytes());
     }
     assert_eq!(kinds.keys().copied().collect::<Vec<_>>(), ["event-triggered-social-v2", "event-triggered-social-v2-complaint_response", "support-priority-v2"]);
-    let counts = reasons(&dialogue);
-    assert_eq!(counts.get("support_request:accepted_and_scheduled"), Some(&kinds["event-triggered-social-v2"]));
-    assert_eq!(counts.get("complaint_response:accepted_and_scheduled"), Some(&kinds["event-triggered-social-v2-complaint_response"]));
-    // The accepted actions were applied the minute after.
-    for record in dialogue.iter().filter(|record| record["accepted"] == true) {
-        let event_id = record["event_id"].as_str().unwrap();
-        let logged = run.loaded.cell.with(|world| sheltersim_core::load::find_record(world, event_id).unwrap()).unwrap();
-        let logged = logged.unwrap_or_else(|| panic!("{event_id} was not applied"));
-        assert_eq!(logged.realized_minute, record["minute"].as_i64().unwrap() + 1);
-        assert_eq!(record["input_hash"].as_str().unwrap().len(), 64);
-        assert_eq!((record["model_id"].as_str(), record["api_request_count"].as_i64()), (Some("claude-haiku-test"), Some(1)));
+    // Every social answer chose an action, and each was applied: a support request's
+    // (`offer_reassurance`), a complaint's (its first choice).
+    let applied = social_interactions(&run);
+    let mut actions = BTreeMap::new();
+    for (payload, provenance) in &applied {
+        *actions.entry(payload["action"].as_str().unwrap().to_owned()).or_insert(0usize) += 1;
+        assert_eq!(provenance["input_hash"].as_str().unwrap().len(), 64);
+        assert_eq!(provenance["model_id"], "claude-haiku-test");
     }
+    assert_eq!(actions.get("offer_reassurance"), Some(&kinds["event-triggered-social-v2"]));
+    assert_eq!(applied.len(), kinds["event-triggered-social-v2"] + kinds["event-triggered-social-v2-complaint_response"]);
     // The rules' state.
     let social = namespace(&run, "social_runtime_v1").unwrap();
     let social_calls = kinds["event-triggered-social-v2"] + kinds["event-triggered-social-v2-complaint_response"];
@@ -294,7 +294,7 @@ fn the_rules_ask_the_link_and_write_what_it_answered() {
     }
     // The same Run again gives the same world and the same tape.
     let (fake, _) = Fake::new();
-    let (mut again, _) = run_to_end("generated", Some(Box::new(fake)), OPEN);
+    let mut again = run_to_end("generated", Some(Box::new(fake)), OPEN);
     assert_eq!(again.digests().unwrap(), run.digests().unwrap());
     assert_eq!(again.take_tape(), tape);
 }
@@ -304,7 +304,7 @@ fn the_rules_ask_the_link_and_write_what_it_answered() {
 #[test]
 fn the_models_limits_bound_the_calls() {
     let (fake, asked) = Fake::new();
-    let (run, dialogue) = run_to_end("small_replay", Some(Box::new(fake)), b"{}");
+    let run = run_to_end("small_replay", Some(Box::new(fake)), b"{}");
     let asked = asked.borrow();
     let priorities = asked.iter().filter(|task| task.task == llm::SUPPORT_PRIORITY).count();
     assert!(priorities <= 4, "{priorities}");
@@ -314,23 +314,20 @@ fn the_models_limits_bound_the_calls() {
     assert!(skipped > 0);
     let social = asked.iter().filter(|task| task.task != llm::SUPPORT_PRIORITY).count();
     assert!(social <= 4, "{social}");
-    assert!(reasons(&dialogue).keys().any(|reason| reason.ends_with(":below_stress_threshold")));
 }
 
 /// An answer that does not fit its schema is the task's fallback, whatever the link said: the call
-/// is counted, the action rejected (`rule_fallback:invalid_output`), and nothing is scheduled.
+/// is counted, and nothing is scheduled.
 #[test]
 fn an_answer_that_does_not_fit_is_the_fallback() {
     let (mut fake, asked) = Fake::new();
     fake.text = Some(r#"{"action":"run this code","priority":"urgent"}"#.to_owned());
-    let (mut run, dialogue) = run_to_end("generated", Some(Box::new(fake)), OPEN);
-    assert!(!asked.borrow().is_empty());
-    let asked_records: Vec<&Value> = dialogue.iter().filter(|record| record["input_hash"] != Value::Null).collect();
-    assert!(!asked_records.is_empty());
-    for record in asked_records {
-        assert_eq!((record["accepted"].as_bool(), record["reason"].as_str()), (Some(false), Some("rule_fallback:invalid_output")));
-        assert_eq!((record["fallback_used"].as_bool(), record["event_id"].as_str()), (Some(true), None));
-    }
+    let mut run = run_to_end("generated", Some(Box::new(fake)), OPEN);
+    let asked = asked.borrow();
+    let social = asked.iter().filter(|task| task.task != llm::SUPPORT_PRIORITY).count();
+    assert!(social > 0);
+    assert_eq!(namespace(&run, "social_runtime_v1").unwrap()["decision_count"], social);
+    assert!(social_interactions(&run).is_empty());
     for raw in run.take_tape() {
         let entry = Entry::from_json(&raw).unwrap();
         assert_eq!((entry.reply.outcome.as_str(), entry.reply.fallback_used), ("invalid_output", true));
@@ -346,9 +343,9 @@ fn an_answer_that_does_not_fit_is_the_fallback() {
 #[test]
 fn a_tape_answers_the_same_run_again_without_the_link() {
     let (fake, _) = Fake::new();
-    let (mut recorded, _) = run_to_end("generated", Some(Box::new(fake)), OPEN);
+    let mut recorded = run_to_end("generated", Some(Box::new(fake)), OPEN);
     let tape = recorded.take_tape();
-    let (mut replayed, _) = run_to_end("generated", Some(Box::new(Replay::new(&tape, false).unwrap())), OPEN);
+    let mut replayed = run_to_end("generated", Some(Box::new(Replay::new(&tape, false).unwrap())), OPEN);
     assert_eq!(replayed.digests().unwrap(), recorded.digests().unwrap());
     assert_eq!(replayed.host.metrics_digest(), recorded.host.metrics_digest());
     assert_eq!(replayed.take_tape(), tape);
@@ -370,13 +367,13 @@ fn a_tape_answers_the_same_run_again_without_the_link() {
     assert_eq!(stopped(Replay::new(&other, false).unwrap()), REPLAY_MISMATCH);
     // Past the end, a link goes on.
     let (fake, asked) = Fake::new();
-    let (mut continued, _) = run_to_end("generated", Some(Box::new(Replay::new(half, false).unwrap().then(Box::new(fake)))), OPEN);
+    let mut continued = run_to_end("generated", Some(Box::new(Replay::new(half, false).unwrap().then(Box::new(fake)))), OPEN);
     assert_eq!(continued.digests().unwrap(), recorded.digests().unwrap());
     assert_eq!(asked.borrow().len(), tape.len() - half.len());
     assert_eq!(continued.take_tape(), tape);
     // An offline Run's replay is offline: it asks nothing.
-    let (offline, _) = run_to_end("generated", Some(Box::new(Replay::new(&[], true).unwrap())), OPEN);
-    let (without, _) = run_to_end("generated", None, b"{}");
+    let offline = run_to_end("generated", Some(Box::new(Replay::new(&[], true).unwrap())), OPEN);
+    let without = run_to_end("generated", None, b"{}");
     assert_eq!(offline.digests().unwrap(), without.digests().unwrap());
     // A tape that is not one.
     assert!(Replay::new(&[b"{}".to_vec()], false).is_err());

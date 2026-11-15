@@ -1,8 +1,8 @@
 //! The check that keeps private data out of what a Run stores (#368, decision 5), with the rule and
 //! the texts of the check the Checkpoints' new chunks passed before #430. A stored Run
 //! (`run_store`) passes its exported world, each saved point's world, the world at its end, the
-//! records of its log, its metric samples and its decision records through it before the host
-//! writes them (`run_store::RunWriter`).
+//! records of its log and its metric samples through it before the host writes them
+//! (`run_store::RunWriter`).
 //!
 //! The rule: from the canonical JSON of what is stored, every object key and every string that
 //! could be one `_redact` of `src/sheltersim/storage/projects.py` changes

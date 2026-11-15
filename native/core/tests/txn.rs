@@ -17,7 +17,7 @@ use sheltersim_core::events::log::{EventLog, Fields};
 use sheltersim_core::events::queue::Queue;
 use sheltersim_core::events::writer::{self, WriteError};
 use sheltersim_core::events::{EventKind, EventRow, EventStatus};
-use sheltersim_core::host::{Contract, Decision, DecisionSink, Llm, Phase, Trace, TraceLevel};
+use sheltersim_core::host::{Contract, Llm, Phase, Trace, TraceLevel};
 use sheltersim_core::json::Encoder;
 use sheltersim_core::row::{Field, IdMap, Maybe, Row, ValueRow};
 use sheltersim_core::rules::metrics::MetricSample;
@@ -727,12 +727,6 @@ impl Host for Recorder {
         Err(NOT_ASKED.clone())
     }
     fn capture_metric(&mut self, _sample: &MetricSample, _minute: i64) -> Result<(), Error> {
-        Err(NOT_ASKED.clone())
-    }
-    fn decision_sink(&self) -> Result<DecisionSink, Error> {
-        Err(NOT_ASKED.clone())
-    }
-    fn decision(&mut self, _decision: Decision) -> Result<(), Error> {
         Err(NOT_ASKED.clone())
     }
     fn trace_level(&self) -> Result<TraceLevel, Error> {

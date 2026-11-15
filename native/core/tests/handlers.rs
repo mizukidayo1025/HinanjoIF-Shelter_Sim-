@@ -14,7 +14,7 @@ use sheltersim_core::events::log::EventLog;
 use sheltersim_core::events::queue::Queue;
 use sheltersim_core::events::writer::WriteError;
 use sheltersim_core::events::{EventKind, EventRow};
-use sheltersim_core::host::{Contract, Decision, DecisionSink, ErrorClass, Host, HostFailure, Llm, Phase, Stage, Trace, TraceLevel, TxnKind};
+use sheltersim_core::host::{Contract, ErrorClass, Host, HostFailure, Llm, Phase, Stage, Trace, TraceLevel, TxnKind};
 use sheltersim_core::row::ValueRow;
 use sheltersim_core::rules::care_receipts::Made;
 use sheltersim_core::rules::common_operations::Logged;
@@ -193,7 +193,6 @@ impl Host for Writing {
         consider_cooperation(initiator: &str, participant: &str, trigger: &str) -> ();
         consider_information_reaction(agent: &str, participant: &str, message: &str, trigger: &str) -> ();
         capture_metric(sample: &MetricSample, minute: i64) -> ();
-        decision(decision: Decision) -> ();
         trace(document: Trace) -> ();
         phase(phase: Phase, before: bool) -> ();
         space_refreshed() -> ();
@@ -205,10 +204,6 @@ impl Host for Writing {
 
     fn llm(&self) -> Result<Llm, Fault> {
         Ok(self.host.llm()?)
-    }
-
-    fn decision_sink(&self) -> Result<DecisionSink, Fault> {
-        Ok(self.host.decision_sink()?)
     }
 
     fn trace_level(&self) -> Result<TraceLevel, Fault> {

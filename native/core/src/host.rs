@@ -8,7 +8,7 @@
 //!   data (policy E15): `contract` validates and gives back `model_dump(mode="json")`, as
 //!   `contracts::validate` writes it (#346);
 //! - the LLM boundary (decision 2): the social policy and the support priority;
-//! - the outside sinks: metrics, decision records, trace documents and the phase observer;
+//! - the outside sinks: metrics, trace documents and the phase observer;
 //! - the host's own views of the space, rebuilt after a geometry or structure change.
 //!
 //! A Run's host is `plain::PlainHost`; the tests give their own (`TestHost`). Some calls were made
@@ -29,16 +29,13 @@ use crate::events::{EventRow, EventStatus};
 use crate::geometry::Geo;
 use crate::mathx::MathError;
 use crate::row::ValueRow;
-use crate::rules::behavior::Proposal;
 use crate::rules::common_operations::Logged;
-use crate::rules::decisions::Observed;
 use crate::rules::kit::Held;
 use crate::rules::metrics::MetricSample;
-use crate::rules::world_view::ViewData;
 use crate::value::V;
 use crate::world::{Place, Snapshot, World};
 
-pub use crate::run::sinks::{DecisionSink, Llm, TraceLevel};
+pub use crate::run::sinks::{Llm, TraceLevel};
 pub use crate::txn::{Stage, TxnKind};
 
 /// The class of a host's error, which a rule matches as Python's `except` does (an `except
@@ -171,16 +168,6 @@ pub enum Trace {
     SocialContact(V),
     /// The information spread's trace.
     InformationSpread(V),
-}
-
-/// A decision's record, as the sink of `DecisionSink` takes it. A decision the core writes no
-/// record of (`DecisionSink::Host`) goes to `Host::record_host_decision` instead.
-#[derive(Clone, Debug, PartialEq)]
-pub enum Decision {
-    /// The decision's document and the state it observed, for a sink whose trace is on.
-    Document { document: V, observed: V },
-    /// The record's JSON bytes, appended to the sink's observations (`DecisionSink::Indexed`).
-    Indexed(Vec<u8>),
 }
 
 /// A phase of the tick, in its order (`rules::tick::run_phases`).
@@ -385,9 +372,6 @@ pub struct Foreign {
 pub const NO_FOREIGN: &str = "the host runs no foreign handler";
 /// The text of a host that fills no section of the configs (`Host::fill_section`).
 pub const NO_SECTIONS: &str = "the host fills no section of the configs";
-/// The text of a host that takes no decision the core writes no record of
-/// (`Host::record_host_decision`).
-pub const NO_HOST_SINK: &str = "the host has no sink that records in Python";
 
 /// The text of a host that cannot draw (`Host::draw` of any host but a test's).
 pub const NO_DRAW: &str = "not a CounterRNG";
@@ -525,16 +509,6 @@ pub trait Host {
 
     /// The minute's metric sample, which the host keeps (`PlainHost`: `MetricSamples`).
     fn capture_metric(&mut self, sample: &MetricSample, minute: i64) -> Result<(), Self::Error>;
-    /// Where the decisions go (read once per Run).
-    fn decision_sink(&self) -> Result<DecisionSink, Self::Error>;
-    /// A decision's record.
-    fn decision(&mut self, decision: Decision) -> Result<(), Self::Error>;
-    /// The `source_id` an indexed sink writes for a policy version (the Model Catalog's
-    /// assumption source; None for no model), or None when the sink takes this record only its own
-    /// way: its world is another, or what it keeps for the version is not a str.
-    fn decision_source(&mut self, _policy_version: &str) -> Result<Option<Option<Arc<str>>>, Self::Error> {
-        Ok(Some(None))
-    }
     /// The trace's level (read once per Run).
     fn trace_level(&self) -> Result<TraceLevel, Self::Error>;
     /// A trace document.
@@ -577,23 +551,6 @@ pub trait Host {
     /// guard; it settles the event with what this gives back.
     fn apply_foreign(&mut self, _event: &EventRow) -> Result<Foreign, Self::Error> {
         Err(Error::unsupported(NO_FOREIGN).into())
-    }
-
-    // ---- A decision the core writes no record of (lane P9-0, H5) --------------------------------
-
-    /// A decision's record, the proposal with its target and next decision minute and the state it
-    /// observed, for `DecisionSink::Host` and what `decisions::record` gives `Sunk::Host`. The core
-    /// commits and remembers the decision itself after it. `PlainHost` counts it where the Run
-    /// collects its decisions, and refuses it otherwise.
-    fn record_host_decision(
-        &mut self,
-        _data: &ViewData,
-        _proposal: &Proposal,
-        _target_id: Option<&str>,
-        _next_decision_at: i64,
-        _observed: &Observed<'_>,
-    ) -> Result<(), Self::Error> {
-        Err(Error::unsupported(NO_HOST_SINK).into())
     }
 
     // ---- An older state (policy E11) ---------------------------------------------------------------

@@ -16,11 +16,7 @@
 //! - The LLM is a link the host is given (`PlainRun::set_llm`, #428): the core's rules ask it
 //!   (`rules::llm_runtime`) and keep the tape of its calls (`PlainRun::take_tape`). Without one the
 //!   Run runs as one without an LLM (`Llm::default()`). No trace goes out (`TraceLevel::Off`), and
-//!   no foreign handler runs. No decision record goes out either
-//!   (`DecisionSink::Silent`) unless the Run collects them (`PlainRun::collect_decisions`, #368):
-//!   then the sink is an indexed one, which keeps the JSON bytes the core writes of each decision
-//!   (`Decision::Indexed`, `Decisions`). Collecting changes nothing of the world. Only the core's
-//!   tests collect them, to see what the rules decided and why; no Run stores them (#478).
+//!   no foreign handler runs.
 //! - The records of the log are the world's (`load::find_record`). The log holds them in the binary
 //!   form (`EventLog::pack_records`, `events::packed`, #252); their JSON is written when asked
 //!   for (the digests, `find_record`), the same bytes as the record's JSON form.
@@ -52,17 +48,14 @@ use crate::error::{Error, Result};
 use crate::events::packed::{put_varint, put_zigzag, Blocks, Cursor, Packer};
 use crate::events::EventRow;
 use crate::geometry::Geo;
-use crate::host::{Contract, Decision, DecisionSink, Foreign, Holding, Host, Llm, Phase, Stage, Trace, TraceLevel, TxnKind, NO_FOREIGN, NO_HOST_SINK};
+use crate::host::{Contract, Foreign, Holding, Host, Llm, Phase, Stage, Trace, TraceLevel, TxnKind, NO_FOREIGN};
 use crate::json::Encoder;
 use crate::llm::{Limits, LlmLink, SocialLimits};
 use crate::load::{self, FloorPlans, Loaded, Sections};
 use crate::rules::action_lifecycle::ActiveActions;
-use crate::rules::behavior::Proposal;
 use crate::rules::common_operations::Logged;
-use crate::rules::decisions::Observed;
 use crate::rules::llm_runtime::{self, Runtime};
 use crate::rules::metrics::MetricSample;
-use crate::rules::world_view::ViewData;
 use crate::state::resource_ledger::NAME as LEDGER;
 use crate::validate;
 use crate::value::V;
@@ -75,26 +68,14 @@ pub struct PlainHost {
     plans: FloorPlans,
     /// The metric samples, packed (`MetricSamples`).
     pub samples: MetricSamples,
-    /// The decision records, where the Run collects them (`PlainRun::collect_decisions`).
-    pub decisions: Option<Decisions>,
     /// The LLM's link and what its rules keep, where the Run has one (`PlainRun::set_llm`).
     pub llm: Option<Runtime>,
-}
-
-/// The decision records a Run collects (#368, off unless asked for): the JSON bytes the core
-/// writes of each decision for an indexed sink (`Decision::Indexed`, `rules::decisions::decision_bytes`),
-/// in order; and how many decisions the core wrote no record of (`Sunk::Host`: an observed state
-/// longer than the core writes, a household no row reads, ...).
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct Decisions {
-    pub records: Vec<Vec<u8>>,
-    pub missed: u64,
 }
 
 impl PlainHost {
     /// The host of `loaded`, with the sections of the exported entry it was loaded from.
     pub fn new(entry: &Value, loaded: Rc<Loaded>) -> Result<Self> {
-        Ok(Self { loaded, sections: Sections::of_entry(entry)?, plans: FloorPlans::default(), samples: MetricSamples::default(), decisions: None, llm: None })
+        Ok(Self { loaded, sections: Sections::of_entry(entry)?, plans: FloorPlans::default(), samples: MetricSamples::default(), llm: None })
     }
 
     /// How many times the floor plan was built.
@@ -448,38 +429,28 @@ impl Host for PlainHost {
 
     fn consider_support_request(&mut self, agent_id: &str, request_id: &str) -> Result<()> {
         match &mut self.llm {
-            Some(runtime) => llm_runtime::consider_support_request(&self.loaded.cell, runtime, records(&mut self.decisions), agent_id, request_id),
+            Some(runtime) => llm_runtime::consider_support_request(&self.loaded.cell, runtime, agent_id, request_id),
             None => Ok(()),
         }
     }
 
     fn consider_complaint_response(&mut self, agent_id: &str, request_id: &str) -> Result<()> {
         match &mut self.llm {
-            Some(runtime) => llm_runtime::consider_complaint_response(&self.loaded.cell, runtime, records(&mut self.decisions), agent_id, request_id),
+            Some(runtime) => llm_runtime::consider_complaint_response(&self.loaded.cell, runtime, agent_id, request_id),
             None => Ok(()),
         }
     }
 
     fn consider_cooperation(&mut self, initiator: &str, participant: &str, trigger_event_id: &str) -> Result<()> {
         match &mut self.llm {
-            Some(runtime) => {
-                llm_runtime::consider_cooperation(&self.loaded.cell, runtime, records(&mut self.decisions), initiator, participant, trigger_event_id)
-            }
+            Some(runtime) => llm_runtime::consider_cooperation(&self.loaded.cell, runtime, initiator, participant, trigger_event_id),
             None => Ok(()),
         }
     }
 
     fn consider_information_reaction(&mut self, agent_id: &str, participant: &str, message: &str, trigger_event_id: &str) -> Result<()> {
         match &mut self.llm {
-            Some(runtime) => llm_runtime::consider_information_reaction(
-                &self.loaded.cell,
-                runtime,
-                records(&mut self.decisions),
-                agent_id,
-                participant,
-                message,
-                trigger_event_id,
-            ),
+            Some(runtime) => llm_runtime::consider_information_reaction(&self.loaded.cell, runtime, agent_id, participant, message, trigger_event_id),
             None => Ok(()),
         }
     }
@@ -494,47 +465,6 @@ impl Host for PlainHost {
             crate::rules::resources::metric_values(world).map(Some)
         })??;
         self.samples.push(sample, minute, balances.as_ref())
-    }
-
-    /// An indexed sink where the Run collects its decisions, else a silent one.
-    fn decision_sink(&self) -> Result<DecisionSink> {
-        Ok(if self.decisions.is_some() { DecisionSink::Indexed } else { DecisionSink::Silent })
-    }
-
-    /// The record's bytes, kept. An indexed sink is given no other kind of record, and a silent
-    /// one none.
-    fn decision(&mut self, decision: Decision) -> Result<()> {
-        if let (Some(decisions), Decision::Indexed(raw)) = (&mut self.decisions, decision) {
-            decisions.records.push(raw);
-        }
-        Ok(())
-    }
-
-    /// The source an indexed sink writes for a policy version: the assumption source of the
-    /// Model Catalog's model of that ID (`validate::catalog`), None for a version no model has.
-    fn decision_source(&mut self, policy_version: &str) -> Result<Option<Option<Arc<str>>>> {
-        let catalog = crate::validate::catalog::catalog()?;
-        Ok(Some(catalog.models.get(policy_version).map(|model| model.assumption_source_id.clone())))
-    }
-
-    /// A decision the core writes no record of. A collecting Run counts it (`Decisions`) and
-    /// goes on, as a silent sink would, so that collecting changes nothing; a decision due no later
-    /// than its own minute is refused whether or not the Run collects, as the silent sink refuses it.
-    fn record_host_decision(
-        &mut self,
-        data: &ViewData,
-        _proposal: &Proposal,
-        _target_id: Option<&str>,
-        next_decision_at: i64,
-        _observed: &Observed<'_>,
-    ) -> Result<()> {
-        match &mut self.decisions {
-            Some(decisions) if next_decision_at > data.minute_index => {
-                decisions.missed += 1;
-                Ok(())
-            }
-            _ => Err(Error::unsupported(NO_HOST_SINK)),
-        }
     }
 
     fn trace_level(&self) -> Result<TraceLevel> {
@@ -563,11 +493,6 @@ impl Host for PlainHost {
     fn apply_foreign(&mut self, _event: &EventRow) -> Result<Foreign> {
         Err(Error::unsupported(NO_FOREIGN))
     }
-}
-
-/// Where the social policy's records go: the decision records the Run collects, if it does.
-fn records(decisions: &mut Option<Decisions>) -> llm_runtime::Records<'_> {
-    decisions.as_mut().map(|decisions| &mut decisions.records)
 }
 
 /// A Run of an exported world on a `PlainHost`: the ticks one at a time (`step`), the world's
@@ -638,24 +563,6 @@ impl PlainRun {
         Ok(ran)
     }
 
-    /// Whether the Run collects its decisions' records (#368): on, the host is an indexed sink and
-    /// keeps them (`Decisions`); off (the default), it is a silent one, and what it kept and was
-    /// not taken is dropped. The world is the same either way. The core's tests read them; no Run
-    /// stores them (#478).
-    pub fn collect_decisions(&mut self, on: bool) {
-        match (on, self.host.decisions.is_some()) {
-            (true, false) => self.host.decisions = Some(Decisions::default()),
-            (false, _) => self.host.decisions = None,
-            (true, true) => {}
-        }
-    }
-
-    /// The decision records kept since the last call, taken out (none where the Run does not
-    /// collect them).
-    pub fn take_decisions(&mut self) -> Vec<Vec<u8>> {
-        self.host.decisions.as_mut().map(|decisions| std::mem::take(&mut decisions.records)).unwrap_or_default()
-    }
-
     /// Gives the Run an LLM (#428): the core's rules ask `link` within `limits`
     /// (`rules::llm_runtime`) for the social policy and the support priority. A Run
     /// restored from a saved point is given a link again; the rules' state is the world's.
@@ -673,12 +580,6 @@ impl PlainRun {
     /// How many calls the LLM's link answered since `set_llm`.
     pub fn llm_calls(&self) -> u64 {
         self.host.llm.as_ref().map_or(0, Runtime::calls)
-    }
-
-    /// How many decisions since the Run began to collect them the core wrote no record of
-    /// (`Decisions::missed`).
-    pub fn decisions_missed(&self) -> u64 {
-        self.host.decisions.as_ref().map_or(0, |decisions| decisions.missed)
     }
 
     /// The digest of each part of the world's canonical document (`canonical::digests`).

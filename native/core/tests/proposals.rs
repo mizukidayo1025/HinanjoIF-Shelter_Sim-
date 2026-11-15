@@ -14,7 +14,7 @@ use sheltersim_core::error::Error;
 use sheltersim_core::events::log::EventLog;
 use sheltersim_core::events::queue::Queue;
 use sheltersim_core::events::{EventKind, EventRow};
-use sheltersim_core::host::{Contract, Decision, DecisionSink, Host, Llm, Phase, Stage, Trace, TraceLevel, TxnKind};
+use sheltersim_core::host::{Contract, Host, Llm, Phase, Stage, Trace, TraceLevel, TxnKind};
 use sheltersim_core::row::{IdMap, Row, ValueRow};
 use sheltersim_core::rules::kit::{Events, Held};
 use sheltersim_core::rules::metrics::MetricSample;
@@ -424,12 +424,6 @@ impl Host for WritingHost<'_> {
     }
     fn capture_metric(&mut self, sample: &MetricSample, minute: i64) -> Result<(), Error> {
         self.inner.capture_metric(sample, minute)
-    }
-    fn decision_sink(&self) -> Result<DecisionSink, Error> {
-        self.inner.decision_sink()
-    }
-    fn decision(&mut self, decision: Decision) -> Result<(), Error> {
-        self.inner.decision(decision)
     }
     fn trace_level(&self) -> Result<TraceLevel, Error> {
         self.inner.trace_level()

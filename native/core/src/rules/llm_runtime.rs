@@ -15,13 +15,11 @@
 //! - `model_state["social_runtime_v1"]`: the social policy's attempts by day, by person and day,
 //!   each person's last attempt, and how many decisions it made; a `social_interaction` event for an
 //!   action it accepted, which `social_interaction.rs` applies.
-//! - The record of each social decision, accepted or not (`Decision::record`, with `record_kind`
-//!   `dialogue`), where the host collects decision records.
 //! - The tape's entry of each call (`llm::tape_entry`).
 //!
 //! Offline (a link without an API key), nothing is asked and nothing of the world is written: the
-//! priority returns at once, and the social policy records why it did not ask (`offline_rule_mode`
-//! or a check before it). A Run offline is the Run without a link, but for these records.
+//! priority and the social policy return at once (the social policy after its checks before
+//! that). A Run offline is the Run without a link.
 //!
 //! The prompts are data written as canonical JSON (keys sorted, no spaces). The state's hash a task
 //! carries is the core's digest of the world at the call (`canonical::state_digest_with`): a
@@ -220,143 +218,15 @@ fn support_advice_schema() -> V {
 
 // ---- The social policy ----------------------------------------------------------------------------
 
-/// A social decision, written as its record (`record`).
-struct Decision<'a> {
-    minute: i64,
-    agent_id: &'a str,
-    request_id: Option<&'a str>,
-    trigger: Option<&'a str>,
-    interaction_type: &'a str,
-    target_agent_id: Option<&'a str>,
-    trigger_id: Option<&'a str>,
-    action: Option<&'a str>,
-    accepted: bool,
-    reason: String,
-    reason_short: Option<&'a str>,
-    event_id: Option<&'a str>,
-    call: Option<(&'a Task, &'a Reply)>,
-}
-
-impl Decision<'_> {
-    /// The decision's record with `record_kind` `dialogue` and its `speech_status` (the row an
-    /// indexed sink keeps), as canonical JSON.
-    fn record(&self) -> Result<Vec<u8>> {
-        let optional = |value: Option<&str>| value.map_or(V::Null, text);
-        let (input_hash, state_hash, model_id, cache_hit, fallback_used, cost, requests, input_tokens, output_tokens) = match self.call {
-            None => (V::Null, V::Null, V::Null, false, false, 0.0, 0, 0, 0),
-            Some((task, reply)) => (
-                text(&task.input_hash()),
-                text(&task.state_hash),
-                optional(reply.model_id.as_deref()),
-                reply.cache_hit,
-                reply.fallback_used,
-                reply.estimated_cost_usd,
-                reply.api_request_count,
-                reply.input_tokens,
-                reply.output_tokens,
-            ),
-        };
-        let source = if self.interaction_type == "support_request" { SOCIAL_LIMITS_SOURCE } else { SOCIAL_INTERACTIONS_SOURCE };
-        let record = map([
-            ("record_kind", text("dialogue")),
-            ("minute", V::Int(self.minute)),
-            ("agent_id", text(self.agent_id)),
-            ("request_id", optional(self.request_id)),
-            ("trigger", text(self.trigger.unwrap_or("pending_support_request"))),
-            ("interaction_type", text(self.interaction_type)),
-            ("target_agent_id", optional(self.target_agent_id)),
-            ("trigger_id", optional(self.trigger_id)),
-            ("action", optional(self.action)),
-            ("accepted", V::Bool(self.accepted)),
-            ("status", text(if self.accepted { "accepted" } else { "rejected" })),
-            ("reason", text(&self.reason)),
-            ("reason_short", optional(self.reason_short)),
-            ("effect_code", optional(effect_code(self.interaction_type, self.action))),
-            ("event_id", optional(self.event_id)),
-            ("input_hash", input_hash),
-            ("state_hash", state_hash),
-            ("model_id", model_id),
-            ("estimated_cost_usd", V::Float(cost)),
-            ("api_request_count", V::Int(requests)),
-            ("input_tokens", V::Int(input_tokens)),
-            ("output_tokens", V::Int(output_tokens)),
-            ("source_type", text("assumption")),
-            ("source_id", text(source)),
-            ("cache_hit", V::Bool(cache_hit)),
-            ("fallback_used", V::Bool(fallback_used)),
-            ("speech_status", text("structured_interaction_only_no_recorded_utterance")),
-        ]);
-        record.to_json()
-    }
-}
-
-/// The fixed label of what an accepted action does.
-fn effect_code(interaction_type: &str, action: Option<&str>) -> Option<&'static str> {
-    Some(match (interaction_type, action?) {
-        ("support_request", "offer_reassurance") => "requester_stress_relief_and_trust_increase",
-        ("support_request", "share_practical_information") => "requester_trust_increase",
-        ("complaint_response", "acknowledge_complaint" | "explain_staff_process") => "requester_stress_relief_and_trust_increase",
-        ("complaint_response", "share_practical_information") => "requester_trust_increase",
-        ("cooperation", "offer_mutual_support") => "both_agents_stress_relief_and_trust_increase",
-        ("information_reaction", "seek_claim_verification") => "verification_query_pressure_increased",
-        _ => return None,
-    })
-}
-
-/// Where a decision's record goes: the host's decision records, or nowhere.
-pub type Records<'a> = Option<&'a mut Vec<Vec<u8>>>;
-
-fn keep(records: &mut Records<'_>, decision: &Decision<'_>) -> Result<()> {
-    if let Some(records) = records {
-        records.push(decision.record()?);
-    }
-    Ok(())
-}
-
-/// What a rejection names besides its reason.
-#[derive(Clone, Copy)]
-struct Rejected<'a> {
-    request_id: Option<&'a str>,
-    trigger: Option<&'a str>,
-    interaction_type: &'a str,
-    target_agent_id: Option<&'a str>,
-    trigger_id: Option<&'a str>,
-}
-
-impl<'a> Rejected<'a> {
-    fn support(request_id: &'a str) -> Self {
-        Self { request_id: Some(request_id), trigger: None, interaction_type: "support_request", target_agent_id: None, trigger_id: None }
-    }
-
-    fn decision(&self, minute: i64, agent_id: &'a str, reason: &str) -> Decision<'a> {
-        Decision {
-            minute,
-            agent_id,
-            request_id: self.request_id,
-            trigger: self.trigger,
-            interaction_type: self.interaction_type,
-            target_agent_id: self.target_agent_id,
-            trigger_id: self.trigger_id,
-            action: None,
-            accepted: false,
-            reason: reason.to_owned(),
-            reason_short: None,
-            event_id: None,
-            call: None,
-        }
-    }
-}
-
 /// `consider_support_request(world, agent_id=, request_id=)`: in the controller's order, a request
 /// no longer pending, a person below the stress limit, offline, a response due past the Run's end,
 /// the person's and the day's caps and the person's cooldown each reject it; otherwise the policy
 /// asks, counts the attempt, and schedules the chosen action (`social-interaction-<sequence>`, due
 /// after `event_delay_minutes`) unless it is `no_interaction` or the answer fell back.
-pub fn consider_support_request<C: WorldCell>(cell: &C, runtime: &mut Runtime, mut records: Records<'_>, agent_id: &str, request_id: &str) -> Result<()> {
+pub fn consider_support_request<C: WorldCell>(cell: &C, runtime: &mut Runtime, agent_id: &str, request_id: &str) -> Result<()> {
     let limits = runtime.limits.social;
     let offline = runtime.link.offline();
-    let rejected = Rejected::support(request_id);
-    let planned = cell.with(|world| -> Result<std::result::Result<(i64, i64, Task), (i64, &'static str)>> {
+    let planned = cell.with(|world| -> Result<Option<(i64, i64, Task)>> {
         let minute = world.minute_index()?;
         let (stress, trust, support_need, needs, status, requested) = {
             let rows = world.rows()?;
@@ -376,29 +246,29 @@ pub fn consider_support_request<C: WorldCell>(cell: &C, runtime: &mut Runtime, m
             )
         };
         if status != RequestStatus::Pending {
-            return Ok(Err((minute, "request_not_pending")));
+            return Ok(None);
         }
         if stress < limits.stress_threshold {
-            return Ok(Err((minute, "below_stress_threshold")));
+            return Ok(None);
         }
         if offline {
-            return Ok(Err((minute, "offline_rule_mode")));
+            return Ok(None);
         }
         let due = minute + limits.event_delay_minutes;
         if due >= world.duration_minutes()? {
-            return Ok(Err((minute, "scenario_deadline")));
+            return Ok(None);
         }
         let state = SocialRuntime::read(world)?;
         let day = minute.div_euclid(1440);
         if count(&state.attempts_by_agent_day, &format!("{day}:{agent_id}")) >= limits.per_agent_per_day {
-            return Ok(Err((minute, "agent_daily_cap")));
+            return Ok(None);
         }
         if count(&state.attempts_by_day, &day.to_string()) >= limits.global_per_day {
-            return Ok(Err((minute, "global_daily_cap")));
+            return Ok(None);
         }
         if let Some(prior) = state.last_attempt(agent_id) {
             if minute - prior < limits.cooldown_minutes {
-                return Ok(Err((minute, "cooldown")));
+                return Ok(None);
             }
         }
         let input = map([
@@ -447,58 +317,34 @@ pub fn consider_support_request<C: WorldCell>(cell: &C, runtime: &mut Runtime, m
             max_output_tokens: 24,
             input_byte_limit: None,
         };
-        Ok(Ok((minute, due, task)))
+        Ok(Some((minute, due, task)))
     })??;
-    let (minute, due, task) = match planned {
-        Err((minute, reason)) => return keep(&mut records, &rejected.decision(minute, agent_id, reason)),
-        Ok(planned) => planned,
+    let Some((minute, due, task)) = planned else {
+        return Ok(());
     };
     let (reply, answer) = runtime.ask(minute, &task)?;
     let action = answer.get("action").and_then(Value::as_str).ok_or_else(|| Error::Runtime("an action without its value".to_owned()))?.to_owned();
     let participants = [agent_id];
-    let event_id = cell.with(|world| -> Result<Option<String>> {
+    cell.with(|world| -> Result<()> {
         count_attempts(world, minute, &participants)?;
         if reply.fallback_used || action == "no_interaction" {
-            return Ok(None);
+            return Ok(());
         }
         let events = Events::of(world)?;
         let sequence = events.allocate_sequence()?;
         let event_id = format!("social-interaction-{sequence}");
         let payload = map_of([("agent_id", text(agent_id)), ("request_id", text(request_id)), ("action", text(&action))]);
         let provenance = provenance(SOCIAL_LIMITS_SOURCE, &task, &reply);
-        schedule(&events, &event_id, due, sequence, payload, request_id, provenance)?;
-        Ok(Some(event_id))
-    })??;
-    let reason = match (&event_id, reply.fallback_used) {
-        (_, true) => format!("rule_fallback:{}", reply.outcome),
-        (None, false) => "model_selected_no_interaction".to_owned(),
-        (Some(_), false) => "accepted_and_scheduled".to_owned(),
-    };
-    let decision = Decision {
-        action: Some(&action),
-        accepted: !reply.fallback_used,
-        reason,
-        event_id: event_id.as_deref(),
-        call: Some((&task, &reply)),
-        trigger: Some("pending_support_request"),
-        ..rejected.decision(minute, agent_id, "")
-    };
-    keep(&mut records, &decision)
+        schedule(&events, &event_id, due, sequence, payload, request_id, provenance)
+    })?
 }
 
 /// `consider_complaint_response(world, agent_id=, request_id=)`: a request still pending that has
 /// waited `complaint_wait_minutes`, of a person whose stress reaches the limit, is a typed
 /// interaction of that person alone.
-pub fn consider_complaint_response<C: WorldCell>(cell: &C, runtime: &mut Runtime, mut records: Records<'_>, agent_id: &str, request_id: &str) -> Result<()> {
+pub fn consider_complaint_response<C: WorldCell>(cell: &C, runtime: &mut Runtime, agent_id: &str, request_id: &str) -> Result<()> {
     let limits = runtime.limits.social;
-    let rejected = Rejected {
-        request_id: Some(request_id),
-        trigger: Some("long_waiting_support_request"),
-        interaction_type: "complaint_response",
-        target_agent_id: None,
-        trigger_id: None,
-    };
-    let checked = cell.with(|world| -> Result<std::result::Result<Candidate, (i64, &'static str)>> {
+    let checked = cell.with(|world| -> Result<Option<Candidate>> {
         let minute = world.minute_index()?;
         let rows = world.rows()?;
         let (Some(agent), Some(request)) = (rows.agents.get(agent_id), rows.support_requests.get(request_id)) else {
@@ -508,23 +354,19 @@ pub fn consider_complaint_response<C: WorldCell>(cell: &C, runtime: &mut Runtime
             return Err(Error::Value("complaint response requires a matching Agent support request".to_owned()));
         }
         if request.status != RequestStatus::Pending {
-            return Ok(Err((minute, "request_not_pending")));
+            return Ok(None);
         }
         let wait = minute - request.requested_minute;
         if wait < limits.complaint_wait_minutes {
-            return Ok(Err((minute, "complaint_wait_threshold_not_met")));
+            return Ok(None);
         }
         if agent.stress < limits.stress_threshold {
-            return Ok(Err((minute, "below_stress_threshold")));
+            return Ok(None);
         }
-        Ok(Ok(Candidate {
+        Ok(Some(Candidate {
             interaction_type: "complaint_response",
-            trigger: "long_waiting_support_request",
-            initiator: agent_id.to_owned(),
             participants: vec![agent_id.to_owned()],
             trigger_id: request_id.to_owned(),
-            request_id: Some(request_id.to_owned()),
-            target_agent_id: None,
             zone_id: agent.zone_id.to_string(),
             relationship: "pending_staff_support_request",
             observed_facts: map([
@@ -546,32 +388,17 @@ pub fn consider_complaint_response<C: WorldCell>(cell: &C, runtime: &mut Runtime
         }))
     })??;
     match checked {
-        Err((minute, reason)) => keep(&mut records, &rejected.decision(minute, agent_id, reason)),
-        Ok(candidate) => typed(cell, runtime, records, candidate),
+        None => Ok(()),
+        Some(candidate) => typed(cell, runtime, candidate),
     }
 }
 
 /// A cooperation the social policy considers after a contact (`dispatch::consider_contact`): two
 /// people of the same group in the same zone, one of whom is stressed past the limit, are a typed
 /// interaction of both.
-pub fn consider_cooperation<C: WorldCell>(
-    cell: &C,
-    runtime: &mut Runtime,
-    mut records: Records<'_>,
-    initiator: &str,
-    participant: &str,
-    trigger_event_id: &str,
-) -> Result<()> {
+pub fn consider_cooperation<C: WorldCell>(cell: &C, runtime: &mut Runtime, initiator: &str, participant: &str, trigger_event_id: &str) -> Result<()> {
     let limits = runtime.limits.social;
-    let rejected = Rejected {
-        request_id: None,
-        trigger: Some("modeled_social_contact"),
-        interaction_type: "cooperation",
-        target_agent_id: Some(participant),
-        trigger_id: Some(trigger_event_id),
-    };
-    let checked = cell.with(|world| -> Result<std::result::Result<Candidate, (i64, &'static str)>> {
-        let minute = world.minute_index()?;
+    let checked = cell.with(|world| -> Result<Option<Candidate>> {
         let rows = world.rows()?;
         let (Some(first), Some(second)) = (rows.agents.get(initiator), rows.agents.get(participant)) else {
             return Err(Error::Value("cooperation requires two different known Agent IDs".to_owned()));
@@ -580,22 +407,18 @@ pub fn consider_cooperation<C: WorldCell>(
             return Err(Error::Value("cooperation requires two different known Agent IDs".to_owned()));
         }
         if first.zone_id != second.zone_id {
-            return Ok(Err((minute, "participants_not_in_same_zone")));
+            return Ok(None);
         }
         if first.profile.group_id.is_none() || first.profile.group_id != second.profile.group_id {
-            return Ok(Err((minute, "modeled_relationship_not_eligible")));
+            return Ok(None);
         }
         if crate::mathx::py_max(first.stress, second.stress) < limits.stress_threshold {
-            return Ok(Err((minute, "participants_below_stress_threshold")));
+            return Ok(None);
         }
-        Ok(Ok(Candidate {
+        Ok(Some(Candidate {
             interaction_type: "cooperation",
-            trigger: "modeled_social_contact",
-            initiator: initiator.to_owned(),
             participants: vec![initiator.to_owned(), participant.to_owned()],
             trigger_id: trigger_event_id.to_owned(),
-            request_id: None,
-            target_agent_id: Some(participant.to_owned()),
             zone_id: first.zone_id.to_string(),
             relationship: "same_group",
             observed_facts: map([
@@ -617,8 +440,8 @@ pub fn consider_cooperation<C: WorldCell>(
         }))
     })??;
     match checked {
-        Err((minute, reason)) => keep(&mut records, &rejected.decision(minute, initiator, reason)),
-        Ok(candidate) => typed(cell, runtime, records, candidate),
+        None => Ok(()),
+        Some(candidate) => typed(cell, runtime, candidate),
     }
 }
 
@@ -628,21 +451,12 @@ pub fn consider_cooperation<C: WorldCell>(
 pub fn consider_information_reaction<C: WorldCell>(
     cell: &C,
     runtime: &mut Runtime,
-    mut records: Records<'_>,
     agent_id: &str,
     participant: &str,
     message_id: &str,
     trigger_event_id: &str,
 ) -> Result<()> {
-    let rejected = Rejected {
-        request_id: None,
-        trigger: Some("unverified_claim_contact"),
-        interaction_type: "information_reaction",
-        target_agent_id: Some(participant),
-        trigger_id: Some(trigger_event_id),
-    };
-    let checked = cell.with(|world| -> Result<std::result::Result<Candidate, (i64, &'static str)>> {
-        let minute = world.minute_index()?;
+    let checked = cell.with(|world| -> Result<Option<Candidate>> {
         let (zone, other_zone) = {
             let rows = world.rows()?;
             let (Some(agent), Some(other)) = (rows.agents.get(agent_id), rows.agents.get(participant)) else {
@@ -655,28 +469,24 @@ pub fn consider_information_reaction<C: WorldCell>(
         };
         let held = Holding::of_world(world)?.held_dict(INFORMATION, OTHER_DOCUMENT);
         let Some(state) = kit::held_row::<InformationRow>(world, INFORMATION, &held)? else {
-            return Ok(Err((minute, "information_state_unavailable")));
+            return Ok(None);
         };
         let (Some(message), Some(belief)) = (state.messages.get(message_id), state.beliefs.get(agent_id).and_then(|beliefs| beliefs.get(message_id))) else {
-            return Ok(Err((minute, "information_claim_not_current")));
+            return Ok(None);
         };
         if !message.parses() || !belief.parses() {
             return Err(Error::unsupported("a message or a belief the contract does not take"));
         }
         if &*message.truth_status != "false" || &*belief.belief != "heard" {
-            return Ok(Err((minute, "not_an_unverified_false_claim")));
+            return Ok(None);
         }
         if zone != other_zone {
-            return Ok(Err((minute, "participants_not_in_same_zone")));
+            return Ok(None);
         }
-        Ok(Ok(Candidate {
+        Ok(Some(Candidate {
             interaction_type: "information_reaction",
-            trigger: "unverified_claim_contact",
-            initiator: agent_id.to_owned(),
             participants: vec![agent_id.to_owned(), participant.to_owned()],
             trigger_id: trigger_event_id.to_owned(),
-            request_id: None,
-            target_agent_id: Some(participant.to_owned()),
             zone_id: zone.to_string(),
             relationship: "same_zone_contact",
             observed_facts: map([("belief_status", text("heard")), ("claim_is_locally_unverified", V::Bool(true))]),
@@ -693,20 +503,16 @@ pub fn consider_information_reaction<C: WorldCell>(
         }))
     })??;
     match checked {
-        Err((minute, reason)) => keep(&mut records, &rejected.decision(minute, agent_id, reason)),
-        Ok(candidate) => typed(cell, runtime, records, candidate),
+        None => Ok(()),
+        Some(candidate) => typed(cell, runtime, candidate),
     }
 }
 
 /// A typed interaction the policy may ask about (what `typed` takes).
 struct Candidate {
     interaction_type: &'static str,
-    trigger: &'static str,
-    initiator: String,
     participants: Vec<String>,
     trigger_id: String,
-    request_id: Option<String>,
-    target_agent_id: Option<String>,
     zone_id: String,
     relationship: &'static str,
     observed_facts: V,
@@ -721,26 +527,25 @@ struct Candidate {
 /// candidate ID made from what it asks about, counts the attempt for every participant, and
 /// schedules the chosen action as an event of that ID unless it is `no_interaction` or the answer
 /// fell back.
-fn typed<C: WorldCell>(cell: &C, runtime: &mut Runtime, mut records: Records<'_>, mut candidate: Candidate) -> Result<()> {
+fn typed<C: WorldCell>(cell: &C, runtime: &mut Runtime, mut candidate: Candidate) -> Result<()> {
     let limits = runtime.limits.social;
     let offline = runtime.link.offline();
-    let interaction_type = candidate.interaction_type;
     let mut participants = candidate.participants.clone();
     participants.sort();
     participants.dedup();
-    let planned = cell.with(|world| -> Result<std::result::Result<(i64, i64, String, Task), (i64, &'static str)>> {
+    let planned = cell.with(|world| -> Result<Option<(i64, i64, String, Task)>> {
         let minute = world.minute_index()?;
         let due = minute + limits.event_delay_minutes;
         if offline {
-            return Ok(Err((minute, "offline_rule_mode")));
+            return Ok(None);
         }
         if due >= world.duration_minutes()? {
-            return Ok(Err((minute, "scenario_deadline")));
+            return Ok(None);
         }
         {
             let rows = world.rows()?;
             if participants.is_empty() || participants.iter().any(|id| rows.agents.get(id.as_str()).is_none()) {
-                return Ok(Err((minute, "participant_state_changed")));
+                return Ok(None);
             }
         }
         let ids: Vec<&str> = participants.iter().map(String::as_str).collect();
@@ -748,31 +553,23 @@ fn typed<C: WorldCell>(cell: &C, runtime: &mut Runtime, mut records: Records<'_>
         let state = SocialRuntime::read(world)?;
         let day = minute.div_euclid(1440);
         if count(&state.attempts_by_day, &day.to_string()) >= limits.global_per_day {
-            return Ok(Err((minute, "global_daily_cap")));
+            return Ok(None);
         }
         for id in &participants {
             if count(&state.attempts_by_agent_day, &format!("{day}:{id}")) >= limits.per_agent_per_day {
-                return Ok(Err((minute, "agent_daily_cap")));
+                return Ok(None);
             }
             if let Some(prior) = state.last_attempt(id) {
                 if minute - prior < limits.cooldown_minutes {
-                    return Ok(Err((minute, "cooldown")));
+                    return Ok(None);
                 }
             }
         }
         let (proposal_id, task) = social_task(world, runtime, &candidate, &participants, minute, due)?;
-        Ok(Ok((minute, due, proposal_id, task)))
+        Ok(Some((minute, due, proposal_id, task)))
     })??;
-    let base = Rejected {
-        request_id: candidate.request_id.as_deref(),
-        trigger: Some(candidate.trigger),
-        interaction_type,
-        target_agent_id: candidate.target_agent_id.as_deref(),
-        trigger_id: Some(&candidate.trigger_id),
-    };
-    let (minute, due, proposal_id, task) = match planned {
-        Err((minute, reason)) => return keep(&mut records, &base.decision(minute, &candidate.initiator, reason)),
-        Ok(planned) => planned,
+    let Some((minute, due, proposal_id, task)) = planned else {
+        return Ok(());
     };
     let (reply, answer) = runtime.ask(minute, &task)?;
     let field = |name: &str| answer.get(name).and_then(Value::as_str).map(str::to_owned).ok_or_else(|| Error::Runtime(format!("an answer without its {name}")));
@@ -781,10 +578,10 @@ fn typed<C: WorldCell>(cell: &C, runtime: &mut Runtime, mut records: Records<'_>
         return Err(Error::Value("social proposal event_id does not match its candidate".to_owned()));
     }
     let ids: Vec<&str> = participants.iter().map(String::as_str).collect();
-    let scheduled = cell.with(|world| -> Result<bool> {
+    cell.with(|world| -> Result<()> {
         count_attempts(world, minute, &ids)?;
         if reply.fallback_used || action == "no_interaction" {
-            return Ok(false);
+            return Ok(());
         }
         let events = Events::of(world)?;
         let sequence = events.allocate_sequence()?;
@@ -792,24 +589,8 @@ fn typed<C: WorldCell>(cell: &C, runtime: &mut Runtime, mut records: Records<'_>
         payload.insert(Arc::from("action"), text(&action));
         payload.insert(Arc::from("reason_short"), text(&reason_short));
         let provenance = provenance(SOCIAL_INTERACTIONS_SOURCE, &task, &reply);
-        schedule(&events, &proposal_id, due, sequence, payload, &candidate.trigger_id, provenance)?;
-        Ok(true)
-    })??;
-    let reason = match (scheduled, reply.fallback_used) {
-        (_, true) => format!("rule_fallback:{}", reply.outcome),
-        (false, false) => "model_selected_no_interaction".to_owned(),
-        (true, false) => "accepted_and_scheduled".to_owned(),
-    };
-    let decision = Decision {
-        action: Some(&action),
-        accepted: !reply.fallback_used,
-        reason,
-        reason_short: Some(&reason_short),
-        event_id: scheduled.then_some(proposal_id.as_str()),
-        call: Some((&task, &reply)),
-        ..base.decision(minute, &candidate.initiator, "")
-    };
-    keep(&mut records, &decision)
+        schedule(&events, &proposal_id, due, sequence, payload, &candidate.trigger_id, provenance)
+    })?
 }
 
 /// The question `typed` asks of a candidate at `minute`: its proposal ID, made from what it asks

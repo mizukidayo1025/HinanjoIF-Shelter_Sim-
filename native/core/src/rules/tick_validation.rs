@@ -28,6 +28,7 @@ use crate::config::movement::RouteCapacities;
 use crate::config::ResourceNumbers;
 use crate::entities::{Activity, Entities, RequestStatus};
 use crate::error::{Error, Result};
+use crate::events::queue::Queue;
 use crate::events::{EventKind, EventRow};
 use crate::row::ValueRow;
 use crate::rules::kit::{self, Held, Kept};
@@ -263,6 +264,51 @@ fn held_value<'w>(world: &'w World, name: &str, held: &Held) -> Result<Option<Sh
     }
 }
 
+/// The people the entity rules read, and where each is in the list.
+struct Census<'a> {
+    people: Vec<Person<'a>>,
+    person_at: FxHashMap<&'a str, usize>,
+}
+
+/// The facilities the entity rules read, and where each is in the list.
+struct Sites<'a> {
+    places: Vec<Place<'a>>,
+    place_at: FxHashMap<&'a str, usize>,
+}
+
+/// The pending events, and those of the kinds that name a task or request, by what they name.
+struct Pending<'a> {
+    events: Vec<&'a EventRow>,
+    toilet_events: FxHashMap<&'a str, Named>,
+    resource_events: FxHashMap<&'a str, Named>,
+    travel_events: FxHashMap<&'a str, Named>,
+    staff_events: FxHashMap<&'a str, Named>,
+    timeouts: FxHashMap<&'a str, Named>,
+}
+
+/// The active tasks, and those of the travel, toilet and resource kinds, by what they name.
+struct Tasks<'a> {
+    works: Vec<Work<'a>>,
+    work_at: FxHashMap<&'a str, usize>,
+    travel_by_agent: FxHashMap<&'a str, usize>,
+    toilet_queue: FxHashSet<(&'a str, &'a str)>,
+    toilet_service: FxHashMap<(&'a str, &'a str), usize>,
+    resource_queue: FxHashSet<(&'a str, &'a str)>,
+    resource_service: FxHashMap<(&'a str, &'a str), usize>,
+}
+
+/// What `entity_rules` read of the rows and the queue, for the checks that match them up.
+#[derive(Clone, Copy)]
+struct Found<'a> {
+    rows: &'a Entities,
+    occupancy: &'a FxHashMap<&'a str, i64>,
+    census: &'a Census<'a>,
+    sites: &'a Sites<'a>,
+    pending: &'a Pending<'a>,
+    tasks: &'a Tasks<'a>,
+    workers: &'a FxHashMap<&'a str, Worker<'a>>,
+}
+
 /// The entity and event rules of `validate`, for a WorldState v5 or v6 at the end of a tick. The
 /// result lists `(zone_id, occupancy)` of the zones whose capacity is the overlay's rule
 /// (`zone_capacity_passes`): their temporary spaces and rooms count too. `watch` is told the type
@@ -305,6 +351,50 @@ pub fn entity_rules(world: &World, inputs: &EntityInputs<'_>, watch: &mut dyn Fn
     };
 
     // ---- Zones and edges. Each map's key is the item's stable ID.
+    let mut occupancy = zones_pass(&rows, inputs)?;
+
+    // ---- People: world_agents_valid, the keys, and what the rules below read.
+    let census = read_people(&rows, v6, &mut occupancy)?;
+
+    // ---- Facilities and who is in them.
+    let sites = read_places(&rows, v6, &occupancy)?;
+    occupants_pass(&census, &sites)?;
+
+    // ---- The pending events, from the rows of the queue.
+    let queue = world.queue()?;
+    let pending = read_events(&queue, v6, watch)?;
+
+    // ---- Tasks.
+    let tasks = read_tasks(&rows, minute, v6, &sites)?;
+
+    // ---- Staff, read before the tasks are matched with them.
+    let workers = read_staff(&rows, &occupancy, &tasks)?;
+
+    // ---- Facilities and tasks each name the other.
+    let found = Found { rows: &rows, occupancy: &occupancy, census: &census, sites: &sites, pending: &pending, tasks: &tasks, workers: &workers };
+    facility_tasks_pass(found)?;
+    let active_reservations = resource_services_pass(found, inputs, ledger.as_deref())?;
+    service_state_pass(world, inputs, v6, found, active_reservations)?;
+
+    // ---- Travel.
+    travel_pass(found)?;
+
+    // ---- The support requests the memo says may have changed.
+    requests_pass(found, inputs, minute, duration)?;
+
+    // ---- Every task once more.
+    tasks_pass(found)?;
+
+    // ---- The inventory, the counters and the event identities.
+    identities_pass(world, &pending.events, duration)?;
+
+    // ---- Zone capacity, last so a Python rule reads it after everything else passed.
+    capacity_left(world, inputs, &rows, &occupancy)
+}
+
+/// The zones and edges of `entity_rules`, and the route capacities. The result counts each zone's
+/// occupancy, at 0 for the people's rules to fill.
+fn zones_pass<'a>(rows: &'a Entities, inputs: &EntityInputs<'_>) -> Result<FxHashMap<&'a str, i64>> {
     let mut occupancy: FxHashMap<&str, i64> = FxHashMap::default();
     for (key, zone) in rows.zones.iter() {
         if key.is_empty() || zone.id != *key {
@@ -324,8 +414,11 @@ pub fn entity_rules(world: &World, inputs: &EntityInputs<'_>, watch: &mut dyn Fn
     if let Some(routing) = &*kit::kept(inputs.route_capacities)? {
         route_capacities_pass(routing, &rows)?;
     }
+    Ok(occupancy)
+}
 
-    // ---- People: world_agents_valid, the keys, and what the rules below read.
+/// The people's rules of `entity_rules`, which count each person in their zone's `occupancy`.
+fn read_people<'a>(rows: &'a Entities, v6: bool, occupancy: &mut FxHashMap<&'a str, i64>) -> Result<Census<'a>> {
     let mut people: Vec<Person<'_>> = Vec::with_capacity(rows.agents.len());
     let mut person_at: FxHashMap<&str, usize> = FxHashMap::default();
     person_at.reserve(rows.agents.len());
@@ -357,8 +450,11 @@ pub fn entity_rules(world: &World, inputs: &EntityInputs<'_>, watch: &mut dyn Fn
         person_at.insert(key, people.len());
         people.push(Person { id: key, activity, zone, target: agent.target_id.as_deref(), request: agent.support_request_id.as_deref() });
     }
+    Ok(Census { people, person_at })
+}
 
-    // ---- Facilities and who is in them.
+/// The facilities' rules of `entity_rules`, but for who is in them (`occupants_pass`).
+fn read_places<'a>(rows: &'a Entities, v6: bool, occupancy: &FxHashMap<&str, i64>) -> Result<Sites<'a>> {
     let mut places: Vec<Place<'_>> = Vec::with_capacity(rows.facilities.len());
     let mut place_at: FxHashMap<&str, usize> = FxHashMap::default();
     for (key, facility) in rows.facilities.iter() {
@@ -403,10 +499,18 @@ pub fn entity_rules(world: &World, inputs: &EntityInputs<'_>, watch: &mut dyn Fn
         place_at.insert(key, places.len());
         places.push(place);
     }
+    Ok(Sites { places, place_at })
+}
+
+/// Who is in the facilities' queues and services: each once, with the activity it needs, and
+/// everyone queued or in service somewhere.
+fn occupants_pass(census: &Census<'_>, sites: &Sites<'_>) -> Result<()> {
+    let Census { people, person_at } = census;
+    let places = &sites.places;
     let mut waiting: FxHashSet<&str> = FxHashSet::default();
     let mut served: FxHashSet<&str> = FxHashSet::default();
     let person = |id: &str| person_at.get(id).map(|index| &people[*index]);
-    for place in &places {
+    for place in places {
         for id in place.queue {
             if person(id).is_none_or(|who| who.activity != Activity::Queued) || served.contains(&**id) || !waiting.insert(id) {
                 return refuse("a facility queue is the Python rule's");
@@ -418,7 +522,7 @@ pub fn entity_rules(world: &World, inputs: &EntityInputs<'_>, watch: &mut dyn Fn
             }
         }
     }
-    for place in &places {
+    for place in places {
         let holds_here = |who: &Person<'_>| who.target == Some(place.id) && who.zone == place.zone;
         for id in place.resource_queue {
             if person(id).is_none_or(|who| who.activity != Activity::Queued || !holds_here(who)) || served.contains(&**id) || !waiting.insert(id) {
@@ -431,14 +535,17 @@ pub fn entity_rules(world: &World, inputs: &EntityInputs<'_>, watch: &mut dyn Fn
             }
         }
     }
-    for who in &people {
+    for who in people {
         if (who.activity == Activity::Queued && !waiting.contains(who.id)) || (who.activity == Activity::InService && !served.contains(who.id)) {
             return refuse("someone is missing from the facilities");
         }
     }
+    Ok(())
+}
 
-    // ---- The pending events, from the rows of the queue.
-    let queue = world.queue()?;
+/// The pending events, from the rows of the queue: `watch` is told each type, and the completions
+/// and timeouts are counted by the task or request they name.
+fn read_events<'a>(queue: &'a Queue, v6: bool, watch: &mut dyn FnMut(&str)) -> Result<Pending<'a>> {
     if queue.validate() != 0 {
         return refuse("the event queue repeats an identity");
     }
@@ -482,8 +589,13 @@ pub fn entity_rules(world: &World, inputs: &EntityInputs<'_>, watch: &mut dyn Fn
             return refuse("a resource completion lacks a task ID");
         }
     }
+    Ok(Pending { events, toilet_events, resource_events, travel_events, staff_events, timeouts })
+}
 
-    // ---- Tasks.
+/// The tasks' own rules of `entity_rules`, and the travel, toilet and resource tasks by what they
+/// name.
+fn read_tasks<'a>(rows: &'a Entities, minute: i64, v6: bool, sites: &Sites<'a>) -> Result<Tasks<'a>> {
+    let Sites { places, place_at } = sites;
     let mut works: Vec<Work<'_>> = Vec::with_capacity(rows.active_tasks.len());
     let mut work_at: FxHashMap<&str, usize> = FxHashMap::default();
     let mut travel_by_agent: FxHashMap<&str, usize> = FxHashMap::default();
@@ -552,8 +664,12 @@ pub fn entity_rules(world: &World, inputs: &EntityInputs<'_>, watch: &mut dyn Fn
         work_at.insert(key, index);
         works.push(work);
     }
+    Ok(Tasks { works, work_at, travel_by_agent, toilet_queue, toilet_service, resource_queue, resource_service })
+}
 
-    // ---- Staff, read before the tasks are matched with them.
+/// The staff's rules of `entity_rules`, and the staff by ID.
+fn read_staff<'a>(rows: &'a Entities, occupancy: &FxHashMap<&str, i64>, tasks: &Tasks<'_>) -> Result<FxHashMap<&'a str, Worker<'a>>> {
+    let work_at = &tasks.work_at;
     let mut workers: FxHashMap<&str, Worker<'_>> = FxHashMap::default();
     let mut assigned: FxHashSet<&str> = FxHashSet::default();
     for (key, member) in rows.staff.iter() {
@@ -583,10 +699,18 @@ pub fn entity_rules(world: &World, inputs: &EntityInputs<'_>, watch: &mut dyn Fn
         }
         workers.insert(key, Worker { active_task, work_queue, busy_until, zone, skills: &member.skills.0 });
     }
+    Ok(workers)
+}
 
-    // ---- Facilities and tasks each name the other.
+/// The toilet facilities and the resource queues, and the tasks they name, each naming the other.
+fn facility_tasks_pass(found: Found<'_>) -> Result<()> {
+    let Census { people, person_at } = found.census;
+    let Sites { places, place_at } = found.sites;
+    let Tasks { works, toilet_queue, toilet_service, resource_queue, resource_service, .. } = found.tasks;
+    let Pending { events, toilet_events, .. } = found.pending;
+    let person = |id: &str| person_at.get(id).map(|index| &people[*index]);
     let queue_person_targets = |id: &str, place: &Place<'_>| person(id).is_some_and(|who| who.target == Some(place.id));
-    for place in &places {
+    for place in places {
         if place.is_toilet {
             for id in place.queue {
                 if !toilet_queue.contains(&(place.id, &**id)) || !queue_person_targets(id, place) {
@@ -614,13 +738,13 @@ pub fn entity_rules(world: &World, inputs: &EntityInputs<'_>, watch: &mut dyn Fn
     }
     let place_of = |id: &str| place_at.get(id).map(|index| &places[*index]);
     #[allow(clippy::iter_over_hash_type, reason = "read-only checks; a refusal here hands the world to the Python check, which says its own text")]
-    for (facility, agent) in &toilet_queue {
+    for (facility, agent) in toilet_queue {
         if !place_of(facility).is_some_and(|place| contains(place.queue, agent)) || person(agent).is_none_or(|who| who.activity != Activity::Queued) {
             return refuse("a toilet queue task has no entry");
         }
     }
     #[allow(clippy::iter_over_hash_type, reason = "read-only checks; a refusal here hands the world to the Python check, which says its own text")]
-    for ((facility, agent), index) in &toilet_service {
+    for ((facility, agent), index) in toilet_service {
         let work = &works[*index];
         if !place_of(facility).is_some_and(|place| contains(place.active, agent)) || person(agent).is_none_or(|who| who.activity != Activity::InService) {
             return refuse("a toilet service task has no slot");
@@ -639,18 +763,31 @@ pub fn entity_rules(world: &World, inputs: &EntityInputs<'_>, watch: &mut dyn Fn
         }
     }
     #[allow(clippy::iter_over_hash_type, reason = "read-only checks; a refusal here hands the world to the Python check, which says its own text")]
-    for (facility, agent) in &resource_queue {
+    for (facility, agent) in resource_queue {
         if !place_of(facility).is_some_and(|place| contains(place.resource_queue, agent)) || person(agent).is_none_or(|who| who.activity != Activity::Queued) {
             return refuse("a resource queue task has no entry");
         }
     }
+    Ok(())
+}
+
+/// The resource service tasks: their slots, completions, reservations and staff. The result lists
+/// the reservations of the active tasks.
+fn resource_services_pass<'a>(found: Found<'a>, inputs: &EntityInputs<'_>, ledger: Option<&LedgerRow>) -> Result<FxHashSet<&'a str>> {
+    let Census { people, person_at } = found.census;
+    let Sites { places, place_at } = found.sites;
+    let Tasks { works, resource_service, .. } = found.tasks;
+    let Pending { events, resource_events, .. } = found.pending;
+    let workers = found.workers;
+    let person = |id: &str| person_at.get(id).map(|index| &people[*index]);
+    let place_of = |id: &str| place_at.get(id).map(|index| &places[*index]);
     let mut active_reservations: FxHashSet<&str> = FxHashSet::default();
     if !resource_service.is_empty() {
         let Some(config) = inputs.resource_config else {
             return refuse("no resource service config");
         };
         #[allow(clippy::iter_over_hash_type, reason = "read-only checks and a set of ids; a refusal hands the world to the Python check")]
-        for ((facility, agent), index) in &resource_service {
+        for ((facility, agent), index) in resource_service {
             let work = &works[*index];
             let Some(place) = place_of(facility) else {
                 return refuse("a resource service task's facility is unknown");
@@ -702,6 +839,14 @@ pub fn entity_rules(world: &World, inputs: &EntityInputs<'_>, watch: &mut dyn Fn
             }
         }
     }
+    Ok(active_reservations)
+}
+
+/// The resource service state of a v6 world: the tasks its completions name, and its active
+/// reservations, which are those of the active tasks.
+fn service_state_pass(world: &World, inputs: &EntityInputs<'_>, v6: bool, found: Found<'_>, active_reservations: FxHashSet<&str>) -> Result<()> {
+    let work_at = &found.tasks.work_at;
+    let resource_events = &found.pending.resource_events;
     // A v5 world has no service state: no resource task or completion came this far.
     if v6 {
         let Some(service) = kit::held_row::<ServiceRow>(world, SERVICE, inputs.service)? else {
@@ -719,10 +864,18 @@ pub fn entity_rules(world: &World, inputs: &EntityInputs<'_>, watch: &mut dyn Fn
         }
         // Each of these was found in the ledger above, in its task's account.
     }
+    Ok(())
+}
 
-    // ---- Travel.
+/// The travel tasks, their completions and the people moving.
+fn travel_pass(found: Found<'_>) -> Result<()> {
+    let Found { rows, occupancy, census, tasks, pending, workers, .. } = found;
+    let Census { people, person_at } = census;
+    let Tasks { works, travel_by_agent, .. } = tasks;
+    let Pending { events, travel_events, .. } = pending;
+    let person = |id: &str| person_at.get(id).map(|index| &people[*index]);
     #[allow(clippy::iter_over_hash_type, reason = "read-only checks; a refusal here hands the world to the Python check, which says its own text")]
-    for (agent_id, index) in &travel_by_agent {
+    for (agent_id, index) in travel_by_agent {
         let work = &works[*index];
         let Some(who) = person(agent_id).filter(|who| who.activity == Activity::Moving) else {
             return refuse("a travel task needs a moving agent");
@@ -756,13 +909,19 @@ pub fn entity_rules(world: &World, inputs: &EntityInputs<'_>, watch: &mut dyn Fn
             }
         }
     }
-    for who in &people {
+    for who in people {
         if who.activity == Activity::Moving && !travel_by_agent.contains_key(who.id) {
             return refuse("someone moving has no travel task");
         }
     }
+    Ok(())
+}
 
-    // ---- The support requests the memo says may have changed.
+/// The support requests the memo says may have changed, and the open request each person names.
+fn requests_pass(found: Found<'_>, inputs: &EntityInputs<'_>, minute: i64, duration: i64) -> Result<()> {
+    let Found { rows, census, pending, .. } = found;
+    let Census { people, person_at } = census;
+    let Pending { events, timeouts, .. } = pending;
     // Open requests by agent: how many, and the ID of the first.
     let mut open_by_agent: FxHashMap<&str, (u32, &str)> = FxHashMap::default();
     let slots: Vec<u32> = match inputs.requests {
@@ -799,51 +958,7 @@ pub fn entity_rules(world: &World, inputs: &EntityInputs<'_>, watch: &mut dyn Fn
         let task_id = request.task_id.as_deref();
         match request.status {
             RequestStatus::Assigned => {
-                let (Some(worker_id), Some(task_id)) = (staff_id, task_id) else {
-                    return refuse("an assigned request names no staff or task");
-                };
-                let (Some(worker), Some(work)) = (workers.get(worker_id), work_at.get(task_id).map(|at| &works[*at])) else {
-                    return refuse("an assigned request's staff or task is unknown");
-                };
-                if work.kind != "staff_support"
-                    || work.staff != Some(worker_id)
-                    || work.agent != Some(agent)
-                    || worker.active_task != Some(work.id)
-                    || work.due != worker.busy_until
-                {
-                    return refuse("an assigned request lacks one matching staff task");
-                }
-                let Some(who) = person(agent) else {
-                    return refuse("an assigned request's agent is unknown");
-                };
-                let travel = travel_by_agent.get(agent).map(|at| &works[*at]);
-                if who.activity == Activity::Moving {
-                    let event = travel.and_then(|trip| one_named(&travel_events, trip.id)).map(|at| events[at]);
-                    let right = match (travel, event) {
-                        (Some(trip), Some(event)) => {
-                            trip.kind == "staff_support_travel"
-                                && field(event, "request_id")?.is(id)
-                                && field(event, "staff_id")?.is(worker_id)
-                                && field(event, "destination_zone_id")?.is(worker.zone)
-                        }
-                        _ => false,
-                    };
-                    if !right {
-                        return refuse("an assigned request's travel is the Python rule's");
-                    }
-                } else if who.activity != Activity::SeekingHelp || travel.is_some_and(|trip| trip.kind == "staff_support_travel") {
-                    return refuse("an assigned request must seek help or travel to staff");
-                }
-                let Some(event) = one_named(&staff_events, task_id).map(|at| events[at]) else {
-                    return refuse("an assigned request needs one completion");
-                };
-                if event.due_minute != work.due
-                    || !field(event, "request_id")?.is(id)
-                    || !field(event, "agent_id")?.is(agent)
-                    || !field(event, "staff_id")?.is(worker_id)
-                {
-                    return refuse("an assigned request's completion is the Python rule's");
-                }
+                assigned_request_pass(found, id, agent, staff_id, task_id)?;
                 open_by_agent.entry(agent).or_insert((0, id)).0 += 1;
             }
             RequestStatus::Pending => {
@@ -858,7 +973,7 @@ pub fn entity_rules(world: &World, inputs: &EntityInputs<'_>, watch: &mut dyn Fn
             RequestStatus::Resolved | RequestStatus::Unresolved => {}
         }
     }
-    for who in &people {
+    for who in people {
         match open_by_agent.get(who.id) {
             Some((count, _)) if *count > 1 => return refuse("someone has duplicate open requests"),
             Some((_, request)) => {
@@ -873,9 +988,70 @@ pub fn entity_rules(world: &World, inputs: &EntityInputs<'_>, watch: &mut dyn Fn
             }
         }
     }
+    Ok(())
+}
 
-    // ---- Every task once more.
-    for work in &works {
+/// The rules of an assigned request: its one matching staff task and completion, and its agent
+/// seeking help or travelling to the staff.
+fn assigned_request_pass(found: Found<'_>, id: &str, agent: &str, staff_id: Option<&str>, task_id: Option<&str>) -> Result<()> {
+    let Census { people, person_at } = found.census;
+    let Tasks { works, work_at, travel_by_agent, .. } = found.tasks;
+    let Pending { events, travel_events, staff_events, .. } = found.pending;
+    let workers = found.workers;
+    let person = |id: &str| person_at.get(id).map(|index| &people[*index]);
+    let (Some(worker_id), Some(task_id)) = (staff_id, task_id) else {
+        return refuse("an assigned request names no staff or task");
+    };
+    let (Some(worker), Some(work)) = (workers.get(worker_id), work_at.get(task_id).map(|at| &works[*at])) else {
+        return refuse("an assigned request's staff or task is unknown");
+    };
+    if work.kind != "staff_support"
+        || work.staff != Some(worker_id)
+        || work.agent != Some(agent)
+        || worker.active_task != Some(work.id)
+        || work.due != worker.busy_until
+    {
+        return refuse("an assigned request lacks one matching staff task");
+    }
+    let Some(who) = person(agent) else {
+        return refuse("an assigned request's agent is unknown");
+    };
+    let travel = travel_by_agent.get(agent).map(|at| &works[*at]);
+    if who.activity == Activity::Moving {
+        let event = travel.and_then(|trip| one_named(&travel_events, trip.id)).map(|at| events[at]);
+        let right = match (travel, event) {
+            (Some(trip), Some(event)) => {
+                trip.kind == "staff_support_travel"
+                    && field(event, "request_id")?.is(id)
+                    && field(event, "staff_id")?.is(worker_id)
+                    && field(event, "destination_zone_id")?.is(worker.zone)
+            }
+            _ => false,
+        };
+        if !right {
+            return refuse("an assigned request's travel is the Python rule's");
+        }
+    } else if who.activity != Activity::SeekingHelp || travel.is_some_and(|trip| trip.kind == "staff_support_travel") {
+        return refuse("an assigned request must seek help or travel to staff");
+    }
+    let Some(event) = one_named(&staff_events, task_id).map(|at| events[at]) else {
+        return refuse("an assigned request needs one completion");
+    };
+    if event.due_minute != work.due || !field(event, "request_id")?.is(id) || !field(event, "agent_id")?.is(agent) || !field(event, "staff_id")?.is(worker_id) {
+        return refuse("an assigned request's completion is the Python rule's");
+    }
+    Ok(())
+}
+
+/// Every task once more: its agent, facility and timing, and a staff support task's staff and
+/// completion.
+fn tasks_pass(found: Found<'_>) -> Result<()> {
+    let Found { census, sites, tasks, pending, workers, .. } = found;
+    let person_at = &census.person_at;
+    let place_at = &sites.place_at;
+    let works = &tasks.works;
+    let Pending { events, staff_events, .. } = pending;
+    for work in works {
         if work.agent.is_some_and(|agent| !person_at.contains_key(agent)) {
             return refuse("a task's agent is unknown");
         }
@@ -896,8 +1072,11 @@ pub fn entity_rules(world: &World, inputs: &EntityInputs<'_>, watch: &mut dyn Fn
             return refuse("a task's timing is the Python rule's");
         }
     }
+    Ok(())
+}
 
-    // ---- The inventory, the counters and the event identities.
+/// The inventory, the ID counters and the identities of the pending events.
+fn identities_pass(world: &World, events: &[&EventRow], duration: i64) -> Result<()> {
     if world.resources()?.values().any(|value| *value < 0) {
         return refuse("the inventory is the Python rule's");
     }
@@ -912,7 +1091,7 @@ pub fn entity_rules(world: &World, inputs: &EntityInputs<'_>, watch: &mut dyn Fn
     }
     let log = world.log()?;
     let mut newest = log.max_sequence();
-    for event in &events {
+    for event in events {
         if log.has_event_id(&event.event_id) || log.has_sequence(event.sequence) || event.due_minute >= duration {
             return refuse("a pending event is the Python rule's");
         }
@@ -922,8 +1101,11 @@ pub fn entity_rules(world: &World, inputs: &EntityInputs<'_>, watch: &mut dyn Fn
     if counter <= newest {
         return refuse("the event counter is not past the sequences");
     }
+    Ok(())
+}
 
-    // ---- Zone capacity, last so a Python rule reads it after everything else passed.
+/// The zones whose capacity the overlay's rule checks (`zone_capacity_passes`).
+fn capacity_left(world: &World, inputs: &EntityInputs<'_>, rows: &Entities, occupancy: &FxHashMap<&str, i64>) -> Result<Vec<(Arc<str>, i64)>> {
     let spaces_are_empty = part_is_empty(world, SPACES, inputs.spaces, "spaces")? && part_is_empty(world, OVERLAY, inputs.overlay, "temporary_rooms")?;
     let mut left = Vec::new();
     for (id, zone) in rows.zones.iter() {

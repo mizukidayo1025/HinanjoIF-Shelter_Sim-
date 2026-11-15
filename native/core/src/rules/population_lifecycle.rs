@@ -1681,6 +1681,7 @@ fn write_action(world: &World, inputs: &Inputs<'_>, row: &EventRow, event: &Even
     let change = |value: PresenceChange| PresenceChange { household_id: command.household_id.clone(), source_ids: command.source_ids.clone(), ..value };
     let presence = has_presence(world, inputs)?;
     let mut taken = Vec::new();
+    let writing = Writing { world, inputs, event, command, minute, presence };
     let receipt = match plan {
         Plan::Suppress(_) | Plan::Defer(_) => return Err(Error::Runtime("a deferral has nothing to write".to_owned())),
         Plan::Exit { agent_id, from_zone } | Plan::Transfer { agent_id, from_zone } => {
@@ -1696,35 +1697,7 @@ fn write_action(world: &World, inputs: &Inputs<'_>, row: &EventRow, event: &Even
             let (action, to_zone) = if exit { ("temporary_exit", None) } else { ("transferred", command.zone_id.as_ref()) };
             history(world, inputs, event, Moved { agent_id: &agent_id, action, minute, from_zone: Some(&from_zone), to_zone }, command)?
         }
-        Plan::ReturnWait { agent_id, destination, household, from_zone } => {
-            let item = V::Map(doc([
-                ("agent_id", V::Str(agent_id.clone())),
-                ("zone_id", V::Str(destination.clone())),
-                ("event_id", V::Str(event.event_id.clone())),
-                ("minute", V::Int(minute)),
-                ("household_id", optional(&household)),
-                ("source_ids", strings(&command.sources_with(event))),
-            ]));
-            {
-                let mut state = lifecycle_mut(world)?;
-                let returns = part_mut(&mut state.0, "pending_returns")?;
-                let mut kept: Vec<V> =
-                    list_of(returns)?.iter().filter(|other| !matches!(other, V::Map(other) if is_text(other.get("agent_id"), &agent_id))).cloned().collect();
-                kept.push(item);
-                *returns = V::List(kept);
-            }
-            if presence {
-                let details = PresenceChange {
-                    from_zone,
-                    return_zone: Some(destination.clone()),
-                    household_id: household,
-                    source_ids: command.source_ids.clone(),
-                    ..Default::default()
-                };
-                set_presence(world, inputs, event, &agent_id, "awaiting_admission", minute, &details)?;
-            }
-            history(world, inputs, event, Moved { agent_id: &agent_id, action: "waiting", minute, from_zone: None, to_zone: Some(&destination) }, command)?
-        }
+        Plan::ReturnWait { agent_id, destination, household, from_zone } => write_return_wait(writing, agent_id, destination, household, from_zone)?,
         Plan::Return { agent_id, destination, household, room } => {
             restore_person(world, inputs, &agent_id, &destination, minute, room.as_ref(), &event.event_id)?;
             if presence {
@@ -1757,79 +1730,7 @@ fn write_action(world: &World, inputs: &Inputs<'_>, row: &EventRow, event: &Even
                 command,
             )?
         }
-        Plan::Relocate { agent_id, from_zone, destination, route } => {
-            release_room(world, inputs, &agent_id)?;
-            let events = Events::of(world)?;
-            events.allocate_sequence()?;
-            let event_id = route.event.event_id.clone();
-            {
-                let mut rows = world.rows_mut()?;
-                rows.active_tasks.insert(
-                    route.task_id.clone(),
-                    TaskRow {
-                        id: route.task_id.clone(),
-                        kind: Arc::from("travel_return"),
-                        agent_id: Some(agent_id.clone()),
-                        resource_id: None,
-                        start_minute: minute,
-                        due_minute: route.due,
-                        staff_id: None,
-                    },
-                );
-                kit::set_agent(&mut rows, &agent_id, Activity::Moving, Some(&destination))?;
-            }
-            events.schedule(route.event.clone()).map_err(plain)?;
-            if is_held(&inputs.population.namespaces.movement) {
-                let journey = Journey {
-                    event_id: event_id.clone(),
-                    task_id: route.task_id.clone(),
-                    purpose: Arc::from("presence_relocation"),
-                    facility_id: None,
-                    destination_zone_id: route.destination.clone(),
-                    route_zone_ids: route.zone_ids.clone(),
-                    route_edge_ids: route.edge_ids.clone(),
-                    route_points: Vec::new(),
-                    started_minute: minute,
-                    due_minute: route.due,
-                    queue_id: None,
-                    support_request_id: None,
-                    support_staff_id: None,
-                };
-                let duration = route.due - minute;
-                if duration <= 0 || duration >= EXACT_INT {
-                    return refuse("a journey has no plain duration");
-                }
-                let start =
-                    movement::Start { agent_id: &agent_id, journey, origin: &from_zone, points: &[], edge_ids: &route.edge_ids, started: minute, duration };
-                movement::start(world, inputs.geo()?, start)?;
-            }
-            let sources = strings(&command.sources_with(event));
-            let record = V::Map(doc([
-                ("task_id", V::Str(route.task_id.clone())),
-                ("event_id", V::Str(event_id.clone())),
-                ("from_zone_id", V::Str(from_zone.clone())),
-                ("to_zone_id", V::Str(destination.clone())),
-                ("household_id", optional(&command.household_id)),
-                ("source_ids", sources.clone()),
-                ("started_minute", V::Int(minute)),
-                ("due_minute", V::Int(route.due)),
-            ]));
-            {
-                let mut state = lifecycle_mut(world)?;
-                dict_mut(part_mut(&mut state.0, "pending_relocations")?)?.insert(agent_id.clone(), record);
-            }
-            V::Map(doc([
-                ("event_id", V::Str(event.event_id.clone())),
-                ("agent_id", V::Str(agent_id.clone())),
-                ("action", v_str("relocation_scheduled")),
-                ("minute", V::Int(minute)),
-                ("from_zone_id", V::Str(from_zone)),
-                ("to_zone_id", V::Str(destination)),
-                ("arrival_minute", V::Int(route.due)),
-                ("task_id", V::Str(route.task_id.clone())),
-                ("source_ids", sources),
-            ]))
-        }
+        Plan::Relocate { agent_id, from_zone, destination, route } => write_relocation(writing, agent_id, from_zone, destination, route)?,
         Plan::Reunite { zone } => {
             if !presence {
                 return refuse("the presence left");
@@ -1850,6 +1751,127 @@ fn write_action(world: &World, inputs: &Inputs<'_>, row: &EventRow, event: &Even
         }
     };
     Ok(Written { receipt, taken })
+}
+
+/// What the writes of a lifecycle command read: the world, the inputs, the event's IDs, the
+/// command, its minute, and whether the world holds the presence.
+#[derive(Clone, Copy)]
+struct Writing<'a> {
+    world: &'a World,
+    inputs: &'a Inputs<'a>,
+    event: &'a EventIds,
+    command: &'a Command,
+    minute: i64,
+    presence: bool,
+}
+
+/// A return that waits for admission: its pending return (in place of the person's earlier one),
+/// the presence awaiting admission, and the history's row.
+fn write_return_wait(writing: Writing<'_>, agent_id: Arc<str>, destination: Arc<str>, household: Option<Arc<str>>, from_zone: Option<Arc<str>>) -> Result<V> {
+    let Writing { world, inputs, event, command, minute, presence } = writing;
+    let item = V::Map(doc([
+        ("agent_id", V::Str(agent_id.clone())),
+        ("zone_id", V::Str(destination.clone())),
+        ("event_id", V::Str(event.event_id.clone())),
+        ("minute", V::Int(minute)),
+        ("household_id", optional(&household)),
+        ("source_ids", strings(&command.sources_with(event))),
+    ]));
+    {
+        let mut state = lifecycle_mut(world)?;
+        let returns = part_mut(&mut state.0, "pending_returns")?;
+        let mut kept: Vec<V> =
+            list_of(returns)?.iter().filter(|other| !matches!(other, V::Map(other) if is_text(other.get("agent_id"), &agent_id))).cloned().collect();
+        kept.push(item);
+        *returns = V::List(kept);
+    }
+    if presence {
+        let details = PresenceChange {
+            from_zone,
+            return_zone: Some(destination.clone()),
+            household_id: household,
+            source_ids: command.source_ids.clone(),
+            ..Default::default()
+        };
+        set_presence(world, inputs, event, &agent_id, "awaiting_admission", minute, &details)?;
+    }
+    history(world, inputs, event, Moved { agent_id: &agent_id, action: "waiting", minute, from_zone: None, to_zone: Some(&destination) }, command)
+}
+
+/// A relocation to another zone: the person's room let go, the travel task and its arrival, the
+/// walk where the world holds the movement, and the pending relocation; its receipt.
+fn write_relocation(writing: Writing<'_>, agent_id: Arc<str>, from_zone: Arc<str>, destination: Arc<str>, route: Box<PlannedRoute>) -> Result<V> {
+    let Writing { world, inputs, event, command, minute, .. } = writing;
+    release_room(world, inputs, &agent_id)?;
+    let events = Events::of(world)?;
+    events.allocate_sequence()?;
+    let event_id = route.event.event_id.clone();
+    {
+        let mut rows = world.rows_mut()?;
+        rows.active_tasks.insert(
+            route.task_id.clone(),
+            TaskRow {
+                id: route.task_id.clone(),
+                kind: Arc::from("travel_return"),
+                agent_id: Some(agent_id.clone()),
+                resource_id: None,
+                start_minute: minute,
+                due_minute: route.due,
+                staff_id: None,
+            },
+        );
+        kit::set_agent(&mut rows, &agent_id, Activity::Moving, Some(&destination))?;
+    }
+    events.schedule(route.event.clone()).map_err(plain)?;
+    if is_held(&inputs.population.namespaces.movement) {
+        let journey = Journey {
+            event_id: event_id.clone(),
+            task_id: route.task_id.clone(),
+            purpose: Arc::from("presence_relocation"),
+            facility_id: None,
+            destination_zone_id: route.destination.clone(),
+            route_zone_ids: route.zone_ids.clone(),
+            route_edge_ids: route.edge_ids.clone(),
+            route_points: Vec::new(),
+            started_minute: minute,
+            due_minute: route.due,
+            queue_id: None,
+            support_request_id: None,
+            support_staff_id: None,
+        };
+        let duration = route.due - minute;
+        if duration <= 0 || duration >= EXACT_INT {
+            return refuse("a journey has no plain duration");
+        }
+        let start = movement::Start { agent_id: &agent_id, journey, origin: &from_zone, points: &[], edge_ids: &route.edge_ids, started: minute, duration };
+        movement::start(world, inputs.geo()?, start)?;
+    }
+    let sources = strings(&command.sources_with(event));
+    let record = V::Map(doc([
+        ("task_id", V::Str(route.task_id.clone())),
+        ("event_id", V::Str(event_id.clone())),
+        ("from_zone_id", V::Str(from_zone.clone())),
+        ("to_zone_id", V::Str(destination.clone())),
+        ("household_id", optional(&command.household_id)),
+        ("source_ids", sources.clone()),
+        ("started_minute", V::Int(minute)),
+        ("due_minute", V::Int(route.due)),
+    ]));
+    {
+        let mut state = lifecycle_mut(world)?;
+        dict_mut(part_mut(&mut state.0, "pending_relocations")?)?.insert(agent_id.clone(), record);
+    }
+    Ok(V::Map(doc([
+        ("event_id", V::Str(event.event_id.clone())),
+        ("agent_id", V::Str(agent_id.clone())),
+        ("action", v_str("relocation_scheduled")),
+        ("minute", V::Int(minute)),
+        ("from_zone_id", V::Str(from_zone)),
+        ("to_zone_id", V::Str(destination)),
+        ("arrival_minute", V::Int(route.due)),
+        ("task_id", V::Str(route.task_id.clone())),
+        ("source_ids", sources),
+    ])))
 }
 
 /// What a command did: what it wrote, or why it waits for the person (`_defer_while_busy`), whose
@@ -2382,6 +2404,39 @@ pub fn validate_facts(facts: &Facts<'_>, leaving: Option<&str>) -> Result<()> {
     if !header || people.len() > MAX_RETAINED_PEOPLE || archive.len() > MAX_RELATIONSHIP_ARCHIVE || history_rows.len() > MAX_HISTORY {
         return invalid(LIFECYCLE_SCHEMA);
     }
+    check_retained_people(facts, people)?;
+    let pending_ids = check_pending_returns(facts, people, returns)?;
+    check_pending_relocations(facts, relocations)?;
+    check_relationship_archive(archive)?;
+    check_relocation_tasks(facts, relocations, leaving)?;
+    for (message_id, message) in messages {
+        match message {
+            V::Map(fields) if matches!(fields.get("id"), Some(V::Str(id)) if id == message_id) => json_checked(message)?,
+            _ => return invalid("population_lifecycle_v1 retained message is invalid"),
+        }
+    }
+    for beliefs in deferred.values() {
+        if !matches!(beliefs, V::Map(_)) {
+            return invalid("population_lifecycle_v1 deferred beliefs are invalid");
+        }
+        json_checked(beliefs)?;
+    }
+    if let Some(raw) = facts.presence {
+        let raw = raw.filter(|raw| !matches!(raw, V::Null)).ok_or_else(|| Error::unsupported("no presence"))?;
+        presence_is_plain(raw)?;
+        let people = map_of(field(raw, "people")?)?;
+        for agent_id in pending_ids {
+            let record = people.get(agent_id).filter(|record| !matches!(record, V::Null)).map(Person::parse).transpose()?;
+            if !record.is_some_and(|person| &*person.status == "awaiting_admission") {
+                return invalid("pending return is inconsistent with population_presence_v1");
+            }
+        }
+    }
+    Ok(())
+}
+
+/// The archived people: none admitted, each of its record's shape, its snapshot and values plain.
+fn check_retained_people(facts: &Facts<'_>, people: &Doc) -> Result<()> {
     const PERSON: &str = "population_lifecycle_v1 archived person is invalid";
     const RECORD: [&str; 6] = ["agent", "agent_dynamics", "body_agent", "information", "since_minute", "source_event_ids"];
     for (agent_id, record) in people {
@@ -2403,6 +2458,11 @@ pub fn validate_facts(facts: &Facts<'_>, leaving: Option<&str>) -> Result<()> {
         snapshot_checked(fields.get("agent").ok_or_else(|| Error::unsupported("no agent"))?, agent_id)?;
         json_checked(record)?;
     }
+    Ok(())
+}
+
+/// The pending returns: each of an archived person not admitted, to a known zone, once; their IDs.
+fn check_pending_returns<'a>(facts: &Facts<'_>, people: &Doc, returns: &'a [V]) -> Result<Vec<&'a str>> {
     let mut pending_ids: Vec<&str> = Vec::with_capacity(returns.len());
     const RETURN_INVALID: &str = "population_lifecycle_v1 pending return is invalid";
     const RETURN: [&str; 6] = ["agent_id", "zone_id", "event_id", "minute", "household_id", "source_ids"];
@@ -2433,6 +2493,11 @@ pub fn validate_facts(facts: &Facts<'_>, leaving: Option<&str>) -> Result<()> {
         }
         pending_ids.push(agent_id);
     }
+    Ok(pending_ids)
+}
+
+/// The pending relocations: each of an admitted person, of its shape, between known zones, due after it starts.
+fn check_pending_relocations(facts: &Facts<'_>, relocations: &Doc) -> Result<()> {
     const RELOCATION_INVALID: &str = "population_lifecycle_v1 pending relocation is invalid";
     const RELOCATION: [&str; 8] = ["task_id", "event_id", "from_zone_id", "to_zone_id", "household_id", "source_ids", "started_minute", "due_minute"];
     for (agent_id, relocation) in relocations {
@@ -2459,6 +2524,11 @@ pub fn validate_facts(facts: &Facts<'_>, leaving: Option<&str>) -> Result<()> {
             return invalid(RELOCATION_INVALID);
         }
     }
+    Ok(())
+}
+
+/// The relationship archive: each of its shape, of a known namespace and a pair of two people.
+fn check_relationship_archive(archive: &[V]) -> Result<()> {
     const ARCHIVE_INVALID: &str = "population_lifecycle_v1 relationship archive is invalid";
     const NAMES: [&str; 4] = [BODY, SOCIAL_NETWORK, INFORMATION, SOCIAL_RUNTIME];
     const ARCHIVE: [&str; 5] = ["namespace", "pair_key", "agent_ids", "value", "restore_when_both_active"];
@@ -2479,6 +2549,11 @@ pub fn validate_facts(facts: &Facts<'_>, leaving: Option<&str>) -> Result<()> {
         }
         json_checked(fields.get("value").ok_or_else(|| Error::unsupported("no value"))?)?;
     }
+    Ok(())
+}
+
+/// Each pending relocation (but the leaving person's) with its one travel task and its arrival event.
+fn check_relocation_tasks(facts: &Facts<'_>, relocations: &Doc, leaving: Option<&str>) -> Result<()> {
     for (agent_id, relocation) in relocations {
         const INCONSISTENT: &str = "population_lifecycle_v1 relocation task/event is inconsistent";
         if leaving == Some(&**agent_id) {
@@ -2501,29 +2576,6 @@ pub fn validate_facts(facts: &Facts<'_>, leaving: Option<&str>) -> Result<()> {
             event.is_some_and(|event| &*event.event_type == "agent_travel_complete" && is_text(kit::payload(&event, "purpose"), "presence_relocation"));
         if !task_fits || !event_fits {
             return invalid(INCONSISTENT);
-        }
-    }
-    for (message_id, message) in messages {
-        match message {
-            V::Map(fields) if matches!(fields.get("id"), Some(V::Str(id)) if id == message_id) => json_checked(message)?,
-            _ => return invalid("population_lifecycle_v1 retained message is invalid"),
-        }
-    }
-    for beliefs in deferred.values() {
-        if !matches!(beliefs, V::Map(_)) {
-            return invalid("population_lifecycle_v1 deferred beliefs are invalid");
-        }
-        json_checked(beliefs)?;
-    }
-    if let Some(raw) = facts.presence {
-        let raw = raw.filter(|raw| !matches!(raw, V::Null)).ok_or_else(|| Error::unsupported("no presence"))?;
-        presence_is_plain(raw)?;
-        let people = map_of(field(raw, "people")?)?;
-        for agent_id in pending_ids {
-            let record = people.get(agent_id).filter(|record| !matches!(record, V::Null)).map(Person::parse).transpose()?;
-            if !record.is_some_and(|person| &*person.status == "awaiting_admission") {
-                return invalid("pending return is inconsistent with population_presence_v1");
-            }
         }
     }
     Ok(())

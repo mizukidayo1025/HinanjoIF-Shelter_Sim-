@@ -2344,6 +2344,28 @@ fn check_history(world: &World, program: &Held, events: &[EventRow], found: &Ind
     if state.schema_version != 1 {
         return Err(Error::unsupported("another schema version"));
     }
+    let (scheduled, known) = program_records(&state)?;
+    for (event_id, program_id) in &scheduled {
+        let Some(event) = by_id(event_id)? else {
+            return Err(Error::unsupported("an unknown scheduled event"));
+        };
+        let marker = match map_of(&event.provenance)?.get(MARKER) {
+            None | Some(V::Null) => return Err(Error::unsupported("a scheduled event has no marker")),
+            Some(V::Map(marker)) => marker,
+            Some(_) => return Err(Error::unsupported("a marker the Python rule decides")),
+        };
+        let program = marker.get("program_id").ok_or_else(|| Error::unsupported("a marker the Python rule decides"))?;
+        if !is_text(Some(program), program_id) {
+            return Err(Error::unsupported("a marker of another program"));
+        }
+    }
+    markers_pass(events, &state, &scheduled, &known, &by_id)?;
+    facility_modifiers_pass(world, &state, &known)
+}
+
+/// The program records of the state, each by its own rules. The result maps each scheduled event
+/// ID to its program, and holds each (program, effect) the records know.
+fn program_records(state: &EffectProgramRow) -> Result<(IndexMap<&str, &str>, HashSet<(&str, &str)>)> {
     let mut scheduled: IndexMap<&str, &str> = IndexMap::new();
     let mut known: HashSet<(&str, &str)> = HashSet::new();
     for (program_id, program) in &state.programs {
@@ -2386,20 +2408,18 @@ fn check_history(world: &World, program: &Held, events: &[EventRow], found: &Ind
             }
         }
     }
-    for (event_id, program_id) in &scheduled {
-        let Some(event) = by_id(event_id)? else {
-            return Err(Error::unsupported("an unknown scheduled event"));
-        };
-        let marker = match map_of(&event.provenance)?.get(MARKER) {
-            None | Some(V::Null) => return Err(Error::unsupported("a scheduled event has no marker")),
-            Some(V::Map(marker)) => marker,
-            Some(_) => return Err(Error::unsupported("a marker the Python rule decides")),
-        };
-        let program = marker.get("program_id").ok_or_else(|| Error::unsupported("a marker the Python rule decides"))?;
-        if !is_text(Some(program), program_id) {
-            return Err(Error::unsupported("a marker of another program"));
-        }
-    }
+    Ok((scheduled, known))
+}
+
+/// The marker of each marked event, pending and then logged: its fields and values, its program
+/// and effect, and a derived event's parent, which `by_id` looks up.
+fn markers_pass(
+    events: &[EventRow],
+    state: &EffectProgramRow,
+    scheduled: &IndexMap<&str, &str>,
+    known: &HashSet<(&str, &str)>,
+    by_id: impl Fn(&str) -> Result<Option<Arc<EventRow>>>,
+) -> Result<()> {
     for event in events {
         let Some(V::Map(marker)) = map_of(&event.provenance)?.get(MARKER) else {
             return Err(Error::unsupported("a marker that is no mapping"));
@@ -2453,6 +2473,12 @@ fn check_history(world: &World, program: &Held, events: &[EventRow], found: &Ind
             return Err(Error::unsupported("an event type that isn't its operator's"));
         }
     }
+    Ok(())
+}
+
+/// The active facility modifiers: each stack's baseline and entries, and the facility's working
+/// units, which are the stack's lowest.
+fn facility_modifiers_pass(world: &World, state: &EffectProgramRow, known: &HashSet<(&str, &str)>) -> Result<()> {
     let rows = world.rows()?;
     for (facility_id, record) in &state.active_facility_modifiers {
         let Some(facility) = rows.facilities.get(facility_id) else {

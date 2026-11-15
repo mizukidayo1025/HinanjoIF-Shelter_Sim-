@@ -24,7 +24,7 @@ use crate::contacts::Basis;
 use crate::error::{Error, Result};
 use crate::host::{Host, Trace, TraceLevel};
 use crate::mathx::{py_fsum, Num};
-use crate::rules::world_view::{status_text, ViewAgent, ViewData, ViewFacility};
+use crate::rules::world_view::{status_text, MisinformationSource, ViewAgent, ViewData, ViewFacility, ViewZone};
 use crate::value::V;
 
 /// How many a summary document keeps of each list.
@@ -244,19 +244,7 @@ fn person_document(data: &ViewData, row: &PersonTrace, threshold: f64, stress_af
         causes.push(cause.done());
     }
 
-    let mut components = Doc::with_capacity(row.components.len() + 3);
-    for &(name, amount) in &row.components {
-        components.set(name, float(amount));
-    }
-    if row.life_state_feedback_stress != 0.0 {
-        components.set("life_state_feedback", float(row.life_state_feedback_stress));
-    }
-    if row.information_uncertainty_stress != 0.0 {
-        components.set("information_belief_via_uncertainty", float(row.information_uncertainty_stress));
-    }
-    if environmental {
-        components.set("experimental_environmental_stress", float(row.environmental_stress));
-    }
+    let components = components_of(row, environmental);
 
     let mut references = Doc::new();
     references.set("psychology_assumption_id", source_id.clone());
@@ -274,16 +262,7 @@ fn person_document(data: &ViewData, row: &PersonTrace, threshold: f64, stress_af
     for &(name, before, after) in &row.needs {
         needs.set(name, before_after(before, after));
     }
-    let mut stress = Doc::with_capacity(9);
-    stress.set("before", float(row.stress_before));
-    stress.set("after", float(stress_after));
-    stress.set("applied_delta", float(stress_after - row.stress_before));
-    stress.set("raw_delta", float(row.raw_stress_delta));
-    stress.set("candidate_before_clip", float(row.candidate_before_clip));
-    stress.set("psychology_clipped_delta", float(row.clipped_delta));
-    stress.set("social_delta", float(social_delta));
-    stress.set("clip_delta", float(row.clipped_delta - row.raw_stress_delta));
-    stress.set("components", components);
+    let stress = stress_of(row, stress_after, social_delta, components);
 
     let mut document = Doc::with_capacity(10);
     document.set("agent_id", V::Str(agent.id.clone()));
@@ -301,50 +280,99 @@ fn person_document(data: &ViewData, row: &PersonTrace, threshold: f64, stress_af
         document.set("zone_environment", item);
     }
     if !zone.condition_modifier_event_ids.is_empty() || !zone.condition_assumption_ids.is_empty() {
-        let mut item = Doc::new();
-        item.set("ventilation_effectiveness", float(zone.ventilation_effectiveness));
-        item.set("lighting_level", float(zone.lighting_level));
-        item.set("privacy_level", float(zone.privacy_level));
-        item.set("temperature_c", float(zone.temperature_c));
-        item.set("modifier_event_ids", texts(&zone.condition_modifier_event_ids));
-        item.set("assumption_ids", texts(&zone.condition_assumption_ids));
-        item.set("source_type", text("assumption"));
-        document.set("environment_conditions", item);
+        document.set("environment_conditions", conditions_of(zone));
     }
     if let Some((before, after)) = &row.life_state {
-        let mut item = Doc::with_capacity(LIFE_STATE_NAMES.len());
-        for (place, name) in LIFE_STATE_NAMES.into_iter().enumerate() {
-            if place == FAMILY_PRESSURE && row.family_pressure_int {
-                // `after - before` of two equal ints: the int 0.
-                let mut entry = Doc::with_capacity(3);
-                entry.set("before", int(before[place] as i64));
-                entry.set("after", int(after[place] as i64));
-                entry.set("delta", int(after[place] as i64 - before[place] as i64));
-                item.set(name, entry);
-                continue;
-            }
-            item.set(name, before_after(before[place], after[place]));
-        }
-        document.set("life_state", item);
+        document.set("life_state", life_state_of(row, before, after));
     }
     if !sources.is_empty() || belief_pressure != 0.0 {
-        let mut records = Vec::with_capacity(sources.len());
-        for source in sources {
-            let mut record = Doc::with_capacity(5);
-            record.set("message_id", V::Str(source.message_id.clone()));
-            record.set("origin_event_id", V::Str(source.origin_event_id.clone()));
-            record.set("belief_event_id", V::Str(source.last_event_id.clone()));
-            record.set("source_id", V::Str(source.source_id.clone()));
-            record.set("origin_minute", int(source.time));
-            records.push(record.done());
-        }
-        let mut item = Doc::with_capacity(3);
-        item.set("active_false_claim_pressure", float(belief_pressure));
-        item.set("source_records", V::List(records));
-        item.set("effect_kind", text("persistent_belief_state_input"));
-        document.set("information_belief_effect", item);
+        document.set("information_belief_effect", belief_effect_of(sources, belief_pressure));
     }
     document.done()
+}
+
+/// The `components` of a person's stress: each of the model's, and the life-state feedback, the
+/// information belief and the environmental stress that are not zero.
+fn components_of(row: &PersonTrace, environmental: bool) -> Doc {
+    let mut components = Doc::with_capacity(row.components.len() + 3);
+    for &(name, amount) in &row.components {
+        components.set(name, float(amount));
+    }
+    if row.life_state_feedback_stress != 0.0 {
+        components.set("life_state_feedback", float(row.life_state_feedback_stress));
+    }
+    if row.information_uncertainty_stress != 0.0 {
+        components.set("information_belief_via_uncertainty", float(row.information_uncertainty_stress));
+    }
+    if environmental {
+        components.set("experimental_environmental_stress", float(row.environmental_stress));
+    }
+    components
+}
+
+/// The `stress` of a person's document, with its `components`.
+fn stress_of(row: &PersonTrace, stress_after: f64, social_delta: f64, components: Doc) -> Doc {
+    let mut stress = Doc::with_capacity(9);
+    stress.set("before", float(row.stress_before));
+    stress.set("after", float(stress_after));
+    stress.set("applied_delta", float(stress_after - row.stress_before));
+    stress.set("raw_delta", float(row.raw_stress_delta));
+    stress.set("candidate_before_clip", float(row.candidate_before_clip));
+    stress.set("psychology_clipped_delta", float(row.clipped_delta));
+    stress.set("social_delta", float(social_delta));
+    stress.set("clip_delta", float(row.clipped_delta - row.raw_stress_delta));
+    stress.set("components", components);
+    stress
+}
+
+/// The `environment_conditions` of a person's document: the conditions of their zone.
+fn conditions_of(zone: &ViewZone) -> Doc {
+    let mut item = Doc::new();
+    item.set("ventilation_effectiveness", float(zone.ventilation_effectiveness));
+    item.set("lighting_level", float(zone.lighting_level));
+    item.set("privacy_level", float(zone.privacy_level));
+    item.set("temperature_c", float(zone.temperature_c));
+    item.set("modifier_event_ids", texts(&zone.condition_modifier_event_ids));
+    item.set("assumption_ids", texts(&zone.condition_assumption_ids));
+    item.set("source_type", text("assumption"));
+    item
+}
+
+/// The `life_state` of a person's document: each value before and after the minute.
+fn life_state_of(row: &PersonTrace, before: &LifeStateTrace, after: &LifeStateTrace) -> Doc {
+    let mut item = Doc::with_capacity(LIFE_STATE_NAMES.len());
+    for (place, name) in LIFE_STATE_NAMES.into_iter().enumerate() {
+        if place == FAMILY_PRESSURE && row.family_pressure_int {
+            // `after - before` of two equal ints: the int 0.
+            let mut entry = Doc::with_capacity(3);
+            entry.set("before", int(before[place] as i64));
+            entry.set("after", int(after[place] as i64));
+            entry.set("delta", int(after[place] as i64 - before[place] as i64));
+            item.set(name, entry);
+            continue;
+        }
+        item.set(name, before_after(before[place], after[place]));
+    }
+    item
+}
+
+/// The `information_belief_effect` of a person's document: the false claims they believe.
+fn belief_effect_of(sources: &[MisinformationSource], belief_pressure: f64) -> Doc {
+    let mut records = Vec::with_capacity(sources.len());
+    for source in sources {
+        let mut record = Doc::with_capacity(5);
+        record.set("message_id", V::Str(source.message_id.clone()));
+        record.set("origin_event_id", V::Str(source.origin_event_id.clone()));
+        record.set("belief_event_id", V::Str(source.last_event_id.clone()));
+        record.set("source_id", V::Str(source.source_id.clone()));
+        record.set("origin_minute", int(source.time));
+        records.push(record.done());
+    }
+    let mut item = Doc::with_capacity(3);
+    item.set("active_false_claim_pressure", float(belief_pressure));
+    item.set("source_records", V::List(records));
+    item.set("effect_kind", text("persistent_belief_state_input"));
+    item
 }
 
 // ---- A minute's psychology -----------------------------------------------------------------------

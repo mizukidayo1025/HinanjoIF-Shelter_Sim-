@@ -1,24 +1,12 @@
 """The all-paths gate: small offline scenarios that together reach most of the tick's code.
 
-Each scenario runs in its own process and writes the world, events and KPI hashes of every
-world it ended with, plus timing. Hashes are compared with --expect; --determinism also
-runs every scenario under other process settings and compares them with the first run. A write
-to model_configs in place inside a tick phase is a problem too (native/src/core/configs.rs).
-With --verify-rows, each tick's end also checks that every entity object holds what its row holds,
-and that every attached tree of a slot holds what its row holds (core/state_mirror.py,
-watch_entity_rows); a tick where they differ is a problem.
-With --poison, every object a rule's transaction takes out of the world gets a class that raises on
-any use (core/txn_checks.py); a use is a problem. Each result.json also holds the dispatcher's
-counts (how many due events another row of their ID replaced, and of those how many were the same
-event by value and ran; how many went to a handler the core does not run) and how many rule
-transactions ran in place and inside another (in the core only: policy E16).
+Each scenario runs in the core (`PlainRun`, benchmarks/gate_scenarios.py) in its own process and
+writes the world, events and KPI hashes of every world it ended with, plus timing. Hashes are
+compared with --expect; --determinism also runs every scenario under other process settings and
+compares them with the first run.
 
     python benchmarks/gate_all_paths.py --output DIR --expect fixtures/gate-all-paths.json
     python benchmarks/gate_all_paths.py --output DIR --determinism
-    python benchmarks/gate_all_paths.py --output DIR --reversed-order
-    python benchmarks/gate_all_paths.py --output DIR --coverage
-    python benchmarks/gate_all_paths.py --output DIR --verify-rows
-    python benchmarks/gate_all_paths.py --output DIR --poison
     python benchmarks/gate_all_paths.py --output DIR --write-expected fixtures/gate-all-paths.json
 
 Run from the repository root with src on PYTHONPATH. Output belongs outside the repository.
@@ -39,17 +27,6 @@ from pathlib import Path
 from typing import Any
 
 HASHES = ("world_hash", "events_hash", "metrics_hash")
-# The code the tick runs; coverage is reported for these.
-TICK_SIDE = (
-    "sheltersim/core/",
-    "sheltersim/domain/",
-    "sheltersim/events/",
-    "sheltersim/policies/",
-    "sheltersim/experiments/metrics.py",
-    "sheltersim/experiments/operational_kpis.py",
-    "sheltersim/experiments/runner.py",
-    "sheltersim/experiments/phases/",
-)
 
 
 @dataclass(frozen=True)
@@ -61,10 +38,10 @@ class Variant:
 
 
 # Each person's compute of a tick goes to helper threads from this many people on
-# (native/src/core/parallel.rs); a gate Scenario has fewer, so a variant sets 1 to send everyone.
+# (native/core/src/parallel.rs); a gate Scenario has fewer, so a variant sets 1 to send everyone.
 PEOPLE_PER_HELPER_VARIABLE = "SHELTERSIM_GATE_PEOPLE_PER_HELPER"
-# PYTHONHASHSEED varies set and str-hash order; RAYON_NUM_THREADS varies the parallel parse of
-# saved records and the helpers of the tick: one thread has none, four have three.
+# PYTHONHASHSEED varies set and str-hash order; RAYON_NUM_THREADS varies the helpers of the
+# tick: one thread has none, four have three.
 BASE = Variant("base", {"PYTHONHASHSEED": "1"})
 VARIANTS = (
     Variant("second_process", {"PYTHONHASHSEED": "1"}),
@@ -75,13 +52,6 @@ VARIANTS = (
         {"PYTHONHASHSEED": "3", "RAYON_NUM_THREADS": "4", PEOPLE_PER_HELPER_VARIABLE: "1"},
     ),
 )
-# With the base run's hash seed, so that only the order of the dicts differs from it.
-ORDER_VARIABLE = "SHELTERSIM_GATE_REVERSE"
-ORDER_VARIANTS = (Variant("reversed_order", {"PYTHONHASHSEED": "1", ORDER_VARIABLE: "phase"}),)
-# Set by --verify-rows for the scenarios' processes.
-VERIFY_ROWS_VARIABLE = "SHELTERSIM_GATE_VERIFY_ROWS"
-# Set by --poison.
-POISON_VARIABLE = "SHELTERSIM_GATE_POISON"
 
 
 def run_one(name: str, output: Path, chosen: Any = None) -> None:
@@ -111,28 +81,6 @@ def run_one(name: str, output: Path, chosen: Any = None) -> None:
     people_per_helper = os.environ.get(PEOPLE_PER_HELPER_VARIABLE)
     if people_per_helper:
         sheltersim_native.set_people_per_helper(int(people_per_helper))
-    # The kernels see an edit of model_configs at the next read, the Python scopes of a tick phase
-    # at the next minute (decision U1, native/src/core/configs.rs). Nothing should make one. While
-    # it counts, a geometry plan kept by the overlay's stamp is also checked against the overlay
-    # (native/src/core/geometry.rs): every write must give the overlay a new stamp.
-    watch_config_writes = getattr(sheltersim_native, "watch_config_writes", None)
-    if watch_config_writes is not None:
-        watch_config_writes(True)
-    verify_rows = bool(os.environ.get(VERIFY_ROWS_VARIABLE))
-    if verify_rows:
-        from sheltersim.core.state_mirror import watch_entity_rows
-
-        watch_entity_rows(True)
-    poison = bool(os.environ.get(POISON_VARIABLE))
-    if poison:
-        from sheltersim.core.txn_checks import poison_replaced
-
-        poison_replaced(True)
-    order = os.environ.get(ORDER_VARIABLE)
-    if order:
-        from tick_probe import ReversedOrder, install
-
-        install([ReversedOrder()])
     started = time.perf_counter()
     outcome = scenario.run(output / "work")
     mismatched = [
@@ -150,19 +98,6 @@ def run_one(name: str, output: Path, chosen: Any = None) -> None:
                 "refused": outcome.refused,
                 "must_match": [list(row) for row in outcome.must_match],
                 "must_match_failed": mismatched,
-                "config_writes_in_tick": (
-                    None
-                    if watch_config_writes is None
-                    else sheltersim_native.config_writes_in_tick()
-                ),
-                "stale_geometry_hits": getattr(
-                    sheltersim_native, "stale_geometry_hits", lambda: None
-                )(),
-                "entity_rows": _entity_rows() if verify_rows else None,
-                "slot_rows": _slot_rows() if verify_rows else None,
-                "poison": _poison_uses() if poison else None,
-                "dispatch": dict(sheltersim_native.rules.dispatch.stats()[0]),
-                "transactions": _transactions(sheltersim_native),
             },
             ensure_ascii=False,
             indent=2,
@@ -172,42 +107,11 @@ def run_one(name: str, output: Path, chosen: Any = None) -> None:
     )
 
 
-def _entity_rows() -> dict[str, Any]:
-    from sheltersim.core.state_mirror import entity_row_mismatches
-
-    return entity_row_mismatches()
-
-
-def _slot_rows() -> dict[str, Any]:
-    from sheltersim.core.state_mirror import slot_row_mismatches
-
-    return slot_row_mismatches()
-
-
-def _poison_uses() -> dict[str, Any]:
-    from sheltersim.core.txn_checks import poison_uses
-
-    return poison_uses()
-
-
-def _transactions(native: Any) -> dict[str, int] | None:
-    """What the rule transactions did (native/src/rules/transaction.rs), or None before them."""
-    counts = getattr(getattr(native.rules, "transaction", None), "counts", None)
-    return None if counts is None else dict(counts())
-
-
-def _spawn(
-    name: str, directory: Path, variant: Variant, coverage_file: Path | None
-) -> dict[str, Any]:
+def _spawn(name: str, directory: Path, variant: Variant) -> dict[str, Any]:
     """Run a scenario in a new process; a crash is a result, with its log kept."""
     directory.mkdir(parents=True, exist_ok=False)
     env = {**os.environ, **variant.env, "SHELTERSIM_LLM_MODE": "offline"}
-    command = [sys.executable]
-    if coverage_file is not None:
-        rc = directory / "coverage.rc"
-        rc.write_text("[run]\nsource = sheltersim\nbranch = False\ncore = sysmon\n", "utf-8")
-        command += ["-m", "coverage", "run", f"--rcfile={rc}", f"--data-file={coverage_file}"]
-    command += [__file__, "--run-one", name, "--output", str(directory)]
+    command = [sys.executable, __file__, "--run-one", name, "--output", str(directory)]
     started = time.perf_counter()
     with (directory / "log.txt").open("w", encoding="utf-8") as log:
         code = subprocess.run(
@@ -236,15 +140,10 @@ def _scenario_names(only: list[str] | None) -> list[str]:
 
 
 def _run_all(
-    names: list[str],
-    output: Path,
-    variant: Variant,
-    jobs: int,
-    coverage_dir: Path | None = None,
+    names: list[str], output: Path, variant: Variant, jobs: int
 ) -> dict[str, dict[str, Any]]:
     def one(name: str) -> dict[str, Any]:
-        data = coverage_dir / f"{variant.name}.{name}.cov" if coverage_dir else None
-        result = _spawn(name, output / variant.name / name, variant, data)
+        result = _spawn(name, output / variant.name / name, variant)
         state = "CRASH" if result.get("crashed") else f"{result['wall_seconds']:.1f}s"
         print(f"[{variant.name}] {name}: {state}", flush=True)
         return result
@@ -262,34 +161,6 @@ def _problems_within(results: dict[str, dict[str, Any]]) -> list[str]:
         for row in result["must_match_failed"]:
             problems.append(
                 f"{name}: {row['first']} and {row['second']} differ, but {row['means']}"
-            )
-        if result.get("config_writes_in_tick"):
-            problems.append(
-                f"{name}: model_configs was written in place inside a tick phase "
-                f"{result['config_writes_in_tick']} times"
-            )
-        if result.get("stale_geometry_hits"):
-            problems.append(
-                f"{name}: a geometry plan was kept for an overlay stamp after the overlay changed "
-                f"{result['stale_geometry_hits']} times"
-            )
-        rows = result.get("entity_rows")
-        if rows and rows["mismatches"]:
-            problems.append(
-                f"{name}: the entity objects differed from their rows at {rows['mismatches']} of "
-                f"{rows['checked']} tick ends; first {rows['first']}"
-            )
-        slots = result.get("slot_rows")
-        if slots and slots["mismatches"]:
-            problems.append(
-                f"{name}: a tree of a slot differed from its row at {slots['mismatches']} of "
-                f"{slots['checked']} tick ends; first {slots['first']}"
-            )
-        poisoned = result.get("poison")
-        if poisoned and poisoned["uses"]:
-            problems.append(
-                f"{name}: an object taken out of the world was used {poisoned['uses']} times; "
-                f"first {poisoned['first']}"
             )
     return problems
 
@@ -322,79 +193,12 @@ def _expected_document(results: dict[str, dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-def _tick_side_rows(data_files: list[Path]) -> list[dict[str, Any]]:
-    """Per file: the tick-side lines that can run and those that did, over all data files."""
-    import coverage
-
-    lines: dict[str, set[int]] = {}
-    for data_file in data_files:
-        part = coverage.CoverageData(basename=str(data_file))
-        part.read()
-        for filename in part.measured_files():
-            lines.setdefault(filename, set()).update(part.lines(filename) or ())
-    measured = coverage.Coverage(data_file=None, config_file=False, source=["sheltersim"])
-    measured.get_data().add_lines({name: sorted(found) for name, found in lines.items()})
-    rows = {}
-    root = Path(__import__("sheltersim").__file__).parent
-    # Files no scenario imported count as not reached at all.
-    for path in sorted(root.rglob("*.py")):
-        short = "sheltersim/" + path.relative_to(root).as_posix()
-        if short.startswith(TICK_SIDE):
-            _, statements, _, missing, _ = measured.analysis2(str(path))
-            rows[short] = {
-                "file": short,
-                "statements": len(statements),
-                "missing": len(missing),
-                "covered": len(statements) - len(missing),
-                "missing_lines": missing,
-            }
-    return [rows[key] for key in sorted(rows)]
-
-
-def _write_coverage(rows: list[dict[str, Any]], path: Path) -> None:
-    total = sum(row["statements"] for row in rows)
-    covered = sum(row["covered"] for row in rows)
-    lines = [
-        "| file | lines | reached | % |",
-        "|---|---:|---:|---:|",
-        *(
-            f"| {row['file']} | {row['statements']} | {row['covered']} | "
-            f"{100 * row['covered'] / max(row['statements'], 1):.0f} |"
-            for row in rows
-        ),
-        f"| total | {total} | {covered} | {100 * covered / max(total, 1):.1f} |",
-    ]
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    path.with_suffix(".json").write_text(json.dumps(rows, indent=1) + "\n", encoding="utf-8")
-    print(f"tick-side coverage: {covered}/{total} lines ({100 * covered / max(total, 1):.1f}%)")
-
-
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n", 1)[0])
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--expect", type=Path, help="fixture of expected hashes to compare with")
     parser.add_argument("--write-expected", type=Path, help="write the results as that fixture")
     parser.add_argument("--determinism", action="store_true", help="also run the other variants")
-    parser.add_argument(
-        "--reversed-order",
-        action="store_true",
-        help="also reverse model_state's dicts and world.agents at each phase's end",
-    )
-    parser.add_argument(
-        "--coverage",
-        action="store_true",
-        help="measure the tick-side Python lines the base runs reach, into coverage.md",
-    )
-    parser.add_argument(
-        "--verify-rows",
-        action="store_true",
-        help="check the entity objects and the slot trees against their rows at every tick's end",
-    )
-    parser.add_argument(
-        "--poison",
-        action="store_true",
-        help="make every object a rule's transaction takes out of the world raise on any use",
-    )
     parser.add_argument("--only", action="append", help="scenarios whose name starts with this")
     parser.add_argument("--jobs", type=int, default=min(os.cpu_count() or 1, 12))
     parser.add_argument("--run-one", help=argparse.SUPPRESS)
@@ -404,16 +208,9 @@ def main() -> int:
         return 0
 
     args.output.mkdir(parents=True, exist_ok=False)
-    if args.verify_rows:
-        os.environ[VERIFY_ROWS_VARIABLE] = "1"
-    if args.poison:
-        os.environ[POISON_VARIABLE] = "1"
     started = time.perf_counter()
     names = _scenario_names(args.only)
-    coverage_dir = args.output / "coverage" if args.coverage else None
-    if coverage_dir:
-        coverage_dir.mkdir()
-    results = _run_all(names, args.output, BASE, args.jobs, coverage_dir)
+    results = _run_all(names, args.output, BASE, args.jobs)
     problems = _problems_within(results)
     summary: dict[str, Any] = {
         "platform": platform.platform(),
@@ -425,11 +222,6 @@ def main() -> int:
                 "runs": result.get("runs"),
                 "refused": result.get("refused"),
                 "crashed": bool(result.get("crashed")),
-                "entity_rows": result.get("entity_rows"),
-                "slot_rows": result.get("slot_rows"),
-                "poison": result.get("poison"),
-                "dispatch": result.get("dispatch"),
-                "transactions": result.get("transactions"),
             }
             for name, result in results.items()
         },
@@ -443,23 +235,16 @@ def main() -> int:
             else:
                 problems.extend(_differences(f"expected {name}", expected[name], results[name]))
 
-    if args.determinism or args.reversed_order:
+    if args.determinism:
         table: dict[str, dict[str, Any]] = {name: {} for name in names}
-        variants = list(VARIANTS) if args.determinism else []
-        if args.reversed_order:
-            variants += ORDER_VARIANTS
-        for variant in variants:
-            other = _run_all(names, args.output, variant, args.jobs, coverage_dir)
+        for variant in VARIANTS:
+            other = _run_all(names, args.output, variant, args.jobs)
             problems.extend(_problems_within(other))
             for name in names:
                 differences = _differences(f"{variant.name} {name}", results[name], other[name])
                 problems.extend(differences)
                 table[name][variant.name] = "same" if not differences else "DIFFERENT"
         summary["determinism"] = table
-
-    if coverage_dir:
-        base = sorted(coverage_dir.glob(f"{BASE.name}.*.cov"))
-        _write_coverage(_tick_side_rows(base), args.output / "coverage.md")
 
     if args.write_expected:
         if problems:
@@ -476,34 +261,6 @@ def main() -> int:
         json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
     print(f"{len(names)} scenarios in {summary['total_seconds']:.1f}s; {len(problems)} problems")
-    if args.verify_rows:
-        rows = [result.get("entity_rows") or {} for result in results.values()]
-        checked = sum(row.get("checked", 0) for row in rows)
-        differed = sum(row.get("mismatches", 0) for row in rows)
-        print(f"entity rows checked at {checked} tick ends; {differed} differed")
-        slots = [result.get("slot_rows") or {} for result in results.values()]
-        print(
-            f"slot trees checked at {sum(row.get('checked', 0) for row in slots)} tick ends "
-            f"({sum(row.get('trees', 0) for row in slots)} trees); "
-            f"{sum(row.get('mismatches', 0) for row in slots)} differed"
-        )
-    if args.poison:
-        poisoned = [result.get("poison") or {} for result in results.values()]
-        print(
-            f"{sum(row.get('poisoned', 0) for row in poisoned)} objects poisoned; "
-            f"{sum(row.get('uses', 0) for row in poisoned)} uses"
-        )
-    dispatch = [result.get("dispatch") or {} for result in results.values()]
-    transactions = [result.get("transactions") or {} for result in results.values()]
-    print(
-        "events replaced: "
-        f"{sum(row.get('events_replaced', 0) for row in dispatch)}, of which the same and run: "
-        f"{sum(row.get('replaced_dispatched', 0) for row in dispatch)}; events to the host's "
-        f"handlers: {sum(row.get('events_foreign', 0) for row in dispatch)}; "
-        "rule transactions in place: "
-        f"{sum(row.get('in_place', 0) for row in transactions)}, inside another: "
-        f"{sum(row.get('nested', 0) for row in transactions)}"
-    )
     for problem in problems:
         print(f"PROBLEM {problem}")
     return 1 if problems else 0

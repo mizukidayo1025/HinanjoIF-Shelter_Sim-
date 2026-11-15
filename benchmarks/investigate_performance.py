@@ -1,5 +1,6 @@
-"""Offline differential timing of the library and the actual ProjectAPI worker (since #427 the
-core's `PlainRun` into a stored Run of format v5; its digests are compared with --expect).
+"""Offline timing of a Run in the core: `PlainRun` straight through (route plain), or the Project
+API's worker into a stored Run of format v5 (route project, the screen's since #427). The core's
+digests of the world and the metric samples it ends with are compared with --expect.
 
 Run in a fresh process per case. Output belongs outside the repository.
 """
@@ -8,7 +9,6 @@ from __future__ import annotations
 
 import argparse
 import cProfile
-import functools
 import json
 import os
 import pstats
@@ -20,33 +20,20 @@ from pathlib import Path
 os.environ["SHELTERSIM_LLM_MODE"] = "offline"
 os.environ.pop("ANTHROPIC_API_KEY", None)
 
+from sheltersim import native
 from sheltersim.contracts.policies import model_signatures
-from sheltersim.core.checkpoint import Checkpoint
-from sheltersim.core.engine import TickEngine, TraceLevel
-from sheltersim.core.world import WorldState
 from sheltersim.experiments.benchmark import build_benchmark_scenario, environment_manifest
-from sheltersim.experiments.runner import run_scenario
 from sheltersim.experiments.scenario import ScenarioSpec
-from sheltersim.experiments.timeline import TimelineStore, _IndexedMetricSink
-from sheltersim.inspection import frames as inspection_frames
-from sheltersim.inspection.traces import RunArtifactWriter
-from sheltersim.storage.checkpoints import CheckpointArchive
-from sheltersim.storage.frames import FrameCache
-from sheltersim.storage.history_index import HistoryIndex
-from sheltersim.storage.index_writer import BackgroundIndexer
 from sheltersim.storage.projects import ProjectStore, digest
 from sheltersim.web.projects import ProjectAPI
 from sheltersim.web.stored_runs import save_scenario
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tests"))
-from support.core_tick import metrics_digest, world_digests  # noqa: E402
 
 
 def peak_rss_mib(children: bool = False) -> float | None:
     """The high-water RSS of this process, or of the largest ended child, in MiB.
 
     None where the resource module is missing (Windows). A child counts only after it
-    has ended and been waited for, as the index process is when a computation ends.
+    has ended and been waited for.
     """
     try:
         import resource
@@ -69,7 +56,7 @@ def _stored_sizes(root: Path) -> dict[str, int]:
 def main() -> None:
     parser = argparse.ArgumentParser(__doc__)
     parser.add_argument("--duration", type=int, required=True)
-    parser.add_argument("--route", choices=("library", "project"), required=True)
+    parser.add_argument("--route", choices=("plain", "project"), required=True)
     parser.add_argument("--profile", action="store_true")
     parser.add_argument("--scenario", choices=("baseline", "generated"), default="baseline")
     parser.add_argument("--scenario-file", type=Path)
@@ -77,7 +64,7 @@ def main() -> None:
     parser.add_argument(
         "--expect",
         type=Path,
-        help="an earlier result.json whose world, events and KPI hashes must match",
+        help="an earlier result.json whose core digests of the world and samples must match",
     )
     args = parser.parse_args()
     if args.duration <= 0:
@@ -127,150 +114,41 @@ def main() -> None:
         scenario = ScenarioSpec.model_validate(document)
     environment["model_versions"] = model_signatures(scenario.model_configs)
     (args.output / "scenario.json").write_text(scenario.canonical_json() + "\n")
-    totals = {}
+    totals: dict[str, dict[str, float]] = {}
     progress = []
     started = time.perf_counter()
-    cpu_started = time.thread_time()
-    last = started
     store = None
-
-    def wrap(owner, name, label=None):
-        original = getattr(owner, name)
-
-        @functools.wraps(original)
-        def measured(*values, **kwargs):
-            nonlocal last
-            key = label or f"{owner.__name__}.{name}"
-            wall, cpu = time.perf_counter(), time.thread_time()
-            try:
-                return original(*values, **kwargs)
-            finally:
-                row = totals.setdefault(
-                    key, {"calls": 0, "wall_seconds": 0.0, "thread_seconds": 0.0}
-                )
-                row["calls"] += 1
-                row["wall_seconds"] += time.perf_counter() - wall
-                row["thread_seconds"] += time.thread_time() - cpu
-                if owner is TimelineStore and name == "record":
-                    directory = values[0].store.root
-                    progress.append(
-                        {
-                            "saved_minute": values[1].world.minute_index,
-                            "elapsed_seconds": time.perf_counter() - started,
-                            "files": sum(1 for p in directory.rglob("*") if p.is_file()),
-                        }
-                    )
-                if owner is TickEngine and values[0].world.minute_index % 30 == 0:
-                    now = time.perf_counter()
-                    # No filesystem scan in the timed loop: count newly published chunks only.
-                    item = {
-                        "minute": values[0].world.minute_index,
-                        "elapsed_seconds": now - started,
-                        "interval_seconds": now - last,
-                    }
-                    progress.append(item)
-                    print(json.dumps(item), flush=True)
-                    last = now
-
-        setattr(owner, name, measured)
-
-    # A patch of a controller's step would send each tick past the Rust driver (rules/tick.rs), so
-    # the phases are timed between them: this is what a Run does.
-    build_engine = TickEngine.__init__
-
-    def engine_with_phase_times(engine, *values, **kwargs):
-        build_engine(engine, *values, **kwargs)
-        marks = {}
-
-        def phase_time(phase, before):
-            if before:
-                marks["wall"], marks["cpu"] = time.perf_counter(), time.thread_time()
-                return
-            row = totals.setdefault(
-                "phase." + phase.value, {"calls": 0, "wall_seconds": 0.0, "thread_seconds": 0.0}
-            )
-            row["calls"] += 1
-            row["wall_seconds"] += time.perf_counter() - marks["wall"]
-            row["thread_seconds"] += time.thread_time() - marks["cpu"]
-
-        engine.phase_observer = phase_time
-
-    TickEngine.__init__ = engine_with_phase_times
-    for owner, name in (
-        (TickEngine, "step"),
-        (WorldState, "validate_after_tick"),
-        (_IndexedMetricSink, "record_decision"),
-        (_IndexedMetricSink, "record_social_decision"),
-        (_IndexedMetricSink, "capture_metric"),
-        (TimelineStore, "record"),
-        (ProjectStore, "save_branch"),
-        *(
-            ((ProjectStore, "save_captured_branch"),)
-            if hasattr(ProjectStore, "save_captured_branch")
-            else ()
-        ),
-        (ProjectStore, "usage"),
-        (
-            CheckpointArchive,
-            "_encode_validated_document"
-            if hasattr(CheckpointArchive, "_encode_validated_document")
-            else "encode",
-        ),
-        (HistoryIndex, "ingest"),
-        # The parts of a save outside capture and the store's write.
-        (TimelineStore, "_cache_frame"),
-        (FrameCache, "put"),
-        (BackgroundIndexer, "submit"),
-        (BackgroundIndexer, "_receive"),
-        (ProjectStore, "branch_reference"),
-    ):
-        wrap(owner, name, "CheckpointArchive.encode" if owner is CheckpointArchive else None)
-    wrap(inspection_frames, "world_frame", "world_frame")
-    close_indexer = BackgroundIndexer.close
-
-    def close_and_record(indexer):
-        close_indexer(indexer)
-        times = indexer.ingest_seconds
-        late = sorted(wall for wall, _ in times[-len(times) // 10 :])
-        totals["index process ingest"] = {
-            "calls": len(times),
-            "wall_seconds": sum(wall for wall, _ in times),
-            "thread_seconds": sum(cpu for _, cpu in times),
-            "late_median_seconds": late[len(late) // 2] if late else 0.0,
-        }
-
-    BackgroundIndexer.close = close_and_record
-    # Preserve the classmethod descriptor while timing capture.
-    capture = Checkpoint.capture.__func__
-    Checkpoint.capture = capture
-    wrap(Checkpoint, "capture")
-    Checkpoint.capture = classmethod(Checkpoint.capture)
-    wrap(os, "fsync", "os.fsync")
     profiler = cProfile.Profile() if args.profile else None
-    recorded_metrics = []
-    finalize = RunArtifactWriter.finalize
 
-    def finalize_and_observe(writer, world):
-        finalize(writer, world)
-        recorded_metrics.append(writer.metrics)
-
-    RunArtifactWriter.finalize = finalize_and_observe
-
-    if args.route == "library":
+    if args.route == "plain":
+        # The core's Run straight through, without saving: the ticks alone.
+        run = native.rules("plain").PlainRun.from_scenario(scenario.canonical_json().encode())
+        setup_seconds = time.perf_counter() - started
         if profiler:
             profiler.enable()
-        world = run_scenario(scenario, args.output / "run", trace_level=TraceLevel.OFF)
+        started = time.perf_counter()
+        cpu_before = time.process_time()
+        last = started
+        while run.minute() < args.duration:
+            run.advance(min(360, args.duration - run.minute()))
+            now = time.perf_counter()
+            item = {
+                "minute": run.minute(),
+                "elapsed_seconds": now - started,
+                "interval_seconds": now - last,
+            }
+            progress.append(item)
+            print(json.dumps(item), flush=True)
+            last = now
+        wall_seconds = time.perf_counter() - started
+        cpu_seconds = time.process_time() - cpu_before
         if profiler:
             profiler.disable()
-        cpu_seconds = time.thread_time() - cpu_started
-        wall_seconds = time.perf_counter() - started
         computation_peak = peak_rss_mib()
-        metrics = recorded_metrics[0].to_dict()
-        api_requests = 0
-        # The digests the core gives of the same world and samples (the project route's).
-        core_digests = {
-            "world": world_digests(world),
-            "metrics": metrics_digest(recorded_metrics[0].snapshots),
+        totals["PlainRun.advance"] = {
+            "calls": len(progress),
+            "wall_seconds": wall_seconds,
+            "thread_seconds": cpu_seconds,
         }
     else:
         # The screen's route (#427): the Run's branch computed in the core (`PlainRun`) into its
@@ -289,9 +167,6 @@ def main() -> None:
             },
         )
         setup_seconds = time.perf_counter() - started
-        setup_timings = dict(totals)
-        totals.clear()
-        progress.clear()
         if profiler:
             profiler.enable()
         started = time.perf_counter()
@@ -307,23 +182,12 @@ def main() -> None:
         assert record["computed_until"] == target, "the computation stopped early"
         reader = api.files.reader("p", "r", branch)
         run, _, _ = reader.seek(target)
-        core_digests = {
-            "world": json.loads(run.digests_json()),
-            "metrics": run.metrics_digest(),
-        }
         api.close()
-        world = None
-        metrics = None
-        api_requests = 0
-    peak_rss = {
-        "computation_mib": computation_peak,
-        # The background index process ends with its computation; a short computation
-        # indexes each save itself and starts none.
-        "index_process_mib": (
-            peak_rss_mib(children=True) if "index process ingest" in totals else None
-        ),
-        "with_hashing_mib": None,
+    core_digests = {
+        "world": json.loads(run.digests_json()),
+        "metrics": run.metrics_digest(),
     }
+    peak_rss = {"computation_mib": computation_peak, "with_hashing_mib": None}
     result = {
         "environment": environment,
         "route": args.route,
@@ -336,17 +200,10 @@ def main() -> None:
         "profiled": args.profile,
         "wall_seconds": wall_seconds,
         "thread_seconds": cpu_seconds,
-        "setup_seconds": locals().get("setup_seconds"),
-        "setup_timings": locals().get("setup_timings"),
+        "setup_seconds": setup_seconds,
         "scenario_kind": args.scenario,
-        # Python's hashes of the world it ended with (the library route only), and the core's
-        # digests of the world and the samples (both routes): the project route computes in the
-        # core since #427, so --expect compares the hashes both results hold.
-        "world_hash": digest(world.to_dict()) if world is not None else None,
-        "events_hash": digest(world.to_dict()["event_log"]) if world is not None else None,
-        "metrics_hash": digest(metrics) if metrics is not None else None,
+        # The core's digests of the world and the samples it ended with (both routes).
         "core_digests": core_digests,
-        "api_requests": api_requests,
         "network_attempts": len(network_attempts),
         "peak_rss": peak_rss,
         "timings": totals,
@@ -359,29 +216,15 @@ def main() -> None:
         profiler.dump_stats(str(args.output / "profile.pstats"))
         with (args.output / "profile.txt").open("w") as stream:
             pstats.Stats(profiler, stream=stream).sort_stats("cumulative").print_stats(100)
-    import gzip
-
-    if world is not None:
-        (args.output / "final-world.json.gz").write_bytes(
-            gzip.compress(world.canonical_json().encode())
-        )
     # The process's high-water mark including the read-back and hashes above.
     peak_rss["with_hashing_mib"] = peak_rss_mib()
     mismatched = []
     if args.expect:
         expected = json.loads(args.expect.read_text(encoding="utf-8"))
-        mismatched = [
-            key
-            for key in ("world_hash", "events_hash", "metrics_hash", "core_digests")
-            if result[key] is not None
-            and expected.get(key) is not None
-            and expected[key] != result[key]
-        ]
-        if not any(
-            result[key] is not None and expected.get(key) is not None
-            for key in ("world_hash", "core_digests")
-        ):
-            mismatched.append("nothing to compare")
+        if expected.get("core_digests") is None:
+            mismatched = ["nothing to compare"]
+        elif expected["core_digests"] != result["core_digests"]:
+            mismatched = ["core_digests"]
         result["expected_hashes"] = {"source": str(args.expect), "mismatched": mismatched}
     (args.output / "result.json").write_text(
         json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
@@ -395,8 +238,6 @@ def main() -> None:
                     "duration",
                     "wall_seconds",
                     "thread_seconds",
-                    "world_hash",
-                    "metrics_hash",
                     "peak_rss",
                 )
             }

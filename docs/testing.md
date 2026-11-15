@@ -207,56 +207,23 @@ UIで作るScenarioは、必ず図面（`facility_geometry`）と認知（`agent
 - 仕切りや設備の移設のように、KPIに現れにくい空間の変化は、人の歩く経路（`movement_v1`の`journeys`）や移動の完了イベントが通る区画で確かめます。移動時間は分単位なので、数メートルの違いは時間に出ません。
 - 区画の環境（騒音、明るさ、換気、プライバシー、気温、行動の起こりやすさ）は、続いている間に人の状態（疲れ、衛生の必要度、不満、ストレス）へ積み上がります。期限が切れる時刻に、まだ効いていることを確かめてから比べます。疲れ・衛生・不満はKPIにないので、全員の平均を直接比べます。
 
-## 全経路の確認（Rust移植のゲート）
+## 全経路の確認（ゲート）
 
-7日分のハッシュの確認は、生成Scenarioが通る処理しか確かめません（メッセージや信念、介入、記録した応答などを通りません）。tickのコードを移す前に、`benchmarks/gate_all_paths.py`で、そこを通る小さなofflineのScenarioの結果も確かめます。移植の段階の合格の条件のひとつです。結果と届いていない処理は[rust-port.md](rust-port.md)に書きます。
+7日分のハッシュの確認は、生成Scenarioが通る処理しか確かめません（メッセージや信念、介入、記録した応答などを通りません）。`benchmarks/gate_all_paths.py`で、そこを通る小さなofflineのScenarioの結果も確かめます。どのScenarioも中核（`PlainRun`）で計算します（#430）。
 
 ~~~shell
 python benchmarks/gate_all_paths.py --output 出力先 --expect fixtures/gate-all-paths.json
 python benchmarks/gate_all_paths.py --output 出力先 --determinism
-python benchmarks/gate_all_paths.py --output 出力先 --coverage
 ~~~
 
-- 各Scenarioは自分のプロセスで動き、終わりの世界ごとにworld・events・KPIのハッシュと時間を`出力先/summary.json`に書きます。ネットワークへの接続は失敗させます。LLMの応答は、手元の台本のProviderが書いた応答テープとその再生だけを使います。
-- `--expect`：`fixtures/gate-all-paths.json`のハッシュと比べます。モデルや規則を意図して変えてハッシュが変わったときは、理由をPull Requestに書いて、`--write-expected`で更新します。理由が説明できない変化は不具合として調べます。この値はLinux・Windows・macOSで同じです（手順4のL13）。CIは3つのOSでこの値と比べます。OSによって変わったときは、OSの数学ライブラリ（libm）やCの関数に頼る計算が入っていないかを調べます。
-- `--determinism`：別のプロセス、別の`PYTHONHASHSEED`、別の`RAYON_NUM_THREADS`（1と4）で、すべてのScenarioを動かして、1回目と比べます。`RAYON_NUM_THREADS`は、保存の記録の並列の解析と、tickの人ごとの計算を手伝うスレッド（`native/src/core/parallel.rs`）の数を変えます。1は手伝いなし、4は手伝い3つです。人ごとの計算は少ない人数では呼んだスレッドだけで行うので、4の回は`SHELTERSIM_GATE_PEOPLE_PER_HELPER=1`で、どの人数でも1人ずつ手伝いに渡します。
-- 分岐・再開・Checkpointの往復は、1つのScenarioの中でまっすぐのRunと比べます（`must_match`）。tickの順序に効くものを省いて同じになることは、この比較で確かめます。
-- `--coverage`：tick側のコード（`core`、`domain`、`events`、`policies`、`experiments/runner.py`、`experiments/phases/`）のどの行に届いたかを、ファイルごとに`coverage.md`に書きます。
-- `policies`のモデルや、EffectProgramの操作を足したら、ここにもScenarioを足します。`tests/integration/test_all_paths_gate.py`は、モデルの一覧がここに入っていないと失敗します。
+- 各Scenarioは自分のプロセスで動き、終わりの世界ごとに中核のハッシュ（世界の部分ごとのdigestから作るworld、イベント記録、指標の標本）と時間を`出力先/summary.json`に書きます。ネットワークへの接続は失敗させます。LLMの応答は、手元の台本のProviderが書いた応答テープとその再生だけを使います。
+- `--expect`：`fixtures/gate-all-paths.json`のハッシュと比べます。モデルや規則を意図して変えてハッシュが変わったときは、理由をPull Requestに書いて、`--write-expected`で更新します。理由が説明できない変化は不具合として調べます。この値はLinux・Windows・macOSで同じです。CIは3つのOSでこの値と比べます。OSによって変わったときは、OSの数学ライブラリ（libm）やCの関数に頼る計算が入っていないかを調べます。
+- `--determinism`：別のプロセス、別の`PYTHONHASHSEED`、別の`RAYON_NUM_THREADS`（1と4）で、すべてのScenarioを動かして、1回目と比べます。`RAYON_NUM_THREADS`は、tickの人ごとの計算を手伝うスレッド（`native/core/src/parallel.rs`）の数を変えます。1は手伝いなし、4は手伝い3つです。人ごとの計算は少ない人数では呼んだスレッドだけで行うので、4の回は`SHELTERSIM_GATE_PEOPLE_PER_HELPER=1`で、どの人数でも1人ずつ手伝いに渡します。
+- 保存した点からの再開、再開した Run のさらに再開、保存したRunの続きの計算は、1つのScenarioの中でまっすぐのRunと比べます（`must_match`）。
+- 介入は、中核が予定できる操作（文章の読み取りが作る操作）なら、Runの途中の分に適用します。それ以外の操作は、0分の世界に予定した記録（`fixtures/gate-scheduled-programs.json.xz`）から計算します。この記録は、Pythonの経路を消す前に作り、Pythonの経路と中核が同じ世界で終わることを確かめたものです。
+- `policies`のモデルを足したら、ここにもScenarioを足します。`tests/integration/test_all_paths_gate.py`は、モデルの一覧がここに入っていないと失敗します。
 - 介入が拒否された結果と、有効な入力でRunが止まる結果（`run_stops`のScenario）も、期待値に入れます。直したら期待値が変わるので気づけます。止まるものは、見つけたときにIssueにします。直したものは`run_stops`にRunとして残し、再発に気づけるようにします。
-- `--reversed-order`：`world.agents`と`model_state`のすべてのdictの順序を、各段階の終わりに逆にする回（`reversed_order`）を動かして、1回目と比べます。結果が変わったScenarioは、dictの順序に頼る処理があるということです。
 - 全件を動かすテストには`long_simulation`の印を付けます。通常のpytestは、1つの小さなScenarioだけを動かします。
-
-### 最初に違った場所を探す（`benchmarks/first_difference.py`）
-
-ハッシュが変わったときは、原因をこの道具で絞ります。2回の記録を比べます。記録の間で`PYTHONPATH`や環境を変えます。手順と計測は[lanes/p0-digest.md](rust-port/lanes/p0-digest.md)に書きます。
-
-~~~shell
-python benchmarks/first_difference.py --record Scenario名 --output A --draws
-python benchmarks/first_difference.py A B
-~~~
-
-- 段階ごとに、`model_state`の名前空間、人、作業、イベントの列、イベント記録などの部分ごとのdigestを書きます。比べると、最初に違った分、段階、部分を示し、そこまでもう一度実行して、違う値をJSONのパスと浮動小数点の16進で示します。
-- 記録は、Runと同じ経路（`native/src/rules/tick.rs`のdriver）を、段階の間で見ます（`tick_probe.install`は`TickEngine.phase_observer`を使います）。
-- `--draws`は、Pythonの乱数の抽選ごとに鍵と値、比べた相手の値を記録して比べます。確率がわずかに違っても比較の結果が変わらなければ世界もハッシュも変わらないためです。Rustの中の抽選は記録されません。Pythonに残る抽選は、Scenarioの人の性質（profile）の抽選だけです。Rustの確率の式は、ビット単位の比較のテスト（`tests/integration/test_native_kernels.py`や`test_*_row.py`）で確かめます。
-- kernelが断ると（`Unsupported`）、代わりに動くPythonの規則はないので、その手順は`KernelRefusal`で止まります。すべての`Unsupported`を作られた行と理由、受け取った場所ごとに数えるには`benchmarks/rule_shadow/refusal_census.py`（`SHELTERSIM_REFUSAL_CENSUS`）を使います。有効なRunでは0件です。kernelとPythonの規則を毎回比べた道具（`benchmarks/rule_shadow`の影、`benchmarks/tracked_mirror_gate.py`）は、規則と一緒になくなりました。
-- これらのフックはベンチマークの側にあり、`src/`には何も足しません。`--draws`や`--reverse`は、`--expect`と同じ最終のハッシュになるはずです。ならなければ不具合として調べます。
-- digestは、辞書の順序を区別しません（キーでそろえた正規のJSONです）。順序に頼る処理は`--reversed-order`で確かめます。追記だけの履歴の古い項目の書き換えは、一定の間隔（`--full-every-minutes`）でしか見えません。
-
-## 振る舞いの比較
-
-ハッシュが変わる変更（段階B5など）では、合格の条件はハッシュの一致ではなく決定性になります。どれだけ振る舞いが変わったかは、`benchmarks/compare_behaviour.py`で確かめます。
-
-~~~shell
-python benchmarks/compare_behaviour.py --collect 変更前の出力先
-python benchmarks/compare_behaviour.py --collect 変更後の出力先    # 変更したコードで
-python benchmarks/compare_behaviour.py 変更前の出力先 変更後の出力先
-~~~
-
-- KPIごとの平均、seedごとのばらつき、差をMarkdownの表に書きます。ラベルは結果の画面と同じ日本語です。
-- 同じseedどうしなら各seedを比べ、違うseedなら2つの集団として比べます。差が標準誤差の2倍を超えたKPIを「揺れより大きい」とします。何も変えていなくても、20個に1個ほどは偶然ここに入ります。
-- 同じコードの別のseedどうしを比べると、何も変えていないときの差の大きさが分かります。
-- 比べるのは差の大きさまでで、どちらが正しいかは決めません。係数の多くは実測で校正されていません。
 
 ## 不具合を見つけたとき
 

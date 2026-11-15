@@ -30,7 +30,7 @@ offlineモードでAI分析を代用したPDFを作ることはありません�
 
 `web/pdf_report.py` は保存済みScenarioと `TimelineStore.seek` から読み取り専用の集計projectionを作ります。
 既存の比較APIと同じ共通範囲・起点情報を利用します。engine、Policy、数理モデルは変更しません。
-KPIは評価境界の `MetricSnapshot`、時系列は保存済みsnapshotsです。
+KPIは評価境界の指標の標本（中核の`KpiTable`）、時系列は保存した標本です。
 比較の差はプログラムでB−Aを計算し、ストレスを100点尺度、稼働率を百分率に換算します。
 稼働率の増減自体には良否を付けません。
 

@@ -106,15 +106,6 @@ function queryOf(search) {
   return query;
 }
 
-/// Python's `int()` of a query value: an optional sign and digits, spaces around allowed.
-function integer(text, message) {
-  const trimmed = text.trim().replaceAll("_", "");
-  if (!/^[+-]?[0-9]+$/.test(trimmed)) throw refused(message);
-  const value = Number(trimmed);
-  if (!Number.isSafeInteger(value)) throw refused(message);
-  return value;
-}
-
 /// The answers of one store. `wasm` is sheltersim_wasm, `tree` a project_store tree, `quota` what
 /// the store may hold (the Project list's `storage.limit_bytes`), `extra` the routes another module
 /// answers: `{ history, report, llmStatus }`, each `({ wasm, tree, projectId, runId, branchId,
@@ -217,9 +208,9 @@ export class BrowserApi {
     }
     if (parts.length === 6 && parts[1] === "runs" && parts[3] === "branches" && (parts[5] === "intervention-preview" || parts[5] === "intervention-apply")) {
       const answer = parts[5] === "intervention-preview" ? interventionPreview : interventionApply;
-      return answer(this, parts[0], parts[2], parts[4], postDocument(body));
+      return answer(this, parts[0], parts[2], parts[4], body);
     }
-    if (parts.length === 6 && parts[1] === "runs" && parts[3] === "branches" && parts[5] === "questions") return questionResponse(this, parts[0], parts[2], parts[4], postDocument(body));
+    if (parts.length === 6 && parts[1] === "runs" && parts[3] === "branches" && parts[5] === "questions") return questionResponse(this, parts[0], parts[2], parts[4], body);
     if (parts.length === 4 && parts[1] === "runs" && parts[3] === "pdf-report") return this.pdfReport(parts[0], parts[2], body);
     if (parts.length === 4 && parts[1] === "runs" && parts[3] === "delete") return this.deleteRun(parts[0], parts[2], body);
     const route = parts.length >= 6 && parts[1] === "runs" ? parts.slice(3).join("/") : parts.slice(1).join("/");
@@ -238,17 +229,21 @@ export class BrowserApi {
     if (parts.length === 2 && section === "runs" && noQuery) return store.runsResponse(this.wasm, tree, projectId);
     if (parts.length === 3 && section === "runs" && noQuery) return store.runResponse(this.wasm, tree, projectId, runId, this.forkOutcomes.get(`${projectId}/${runId}`) ?? null);
     if (parts.length === 4 && section === "runs" && action === "evidence" && noQuery) return store.evidenceResponse(this.wasm, tree, projectId, runId);
-    if (parts.length === 4 && section === "runs" && action === "replay-frames") return this.replay(projectId, runId, query);
+    if (parts.length === 4 && section === "runs" && action === "replay-frames") return this.replay(projectId, runId, search);
     if (parts.length === 4 && section === "runs" && action === "compare" && query.size === 2 && query.has("branch_ids") && query.has("minute")) {
-      return compareResponse(this, projectId, runId, query, integer);
+      return compareResponse(this, projectId, runId, search);
     }
     if (parts.length === 4 && section === "runs" && action === "compare") throw refused("unknown project route or query");
     if (parts.length === 6 && section === "runs" && action === "branches") {
       if (branchAction === "timeline" && query.size === 1 && query.get("minute")?.length === 1) {
-        const minute = integer(query.get("minute")[0], "minute must be an integer");
-        const record = await this.branch(projectId, runId, branchId);
-        if (minute < record.fork_minute || minute > record.computed_until) throw refused("minute is outside this branch's computed range");
-        return this.frameText(projectId, runId, record, minute);
+        const files = await store.runFiles(this.wasm, tree, projectId, runId);
+        let plan;
+        try {
+          plan = JSON.parse(core(() => this.wasm.timelinePlan(query.get("minute")[0], projectId, runId, files, branchId)));
+        } finally {
+          files.free();
+        }
+        return this.frameText(projectId, runId, plan.record, plan.minute);
       }
       if (branchAction === "conversations" && noQuery) {
         await this.branch(projectId, runId, branchId);
@@ -320,27 +315,29 @@ export class BrowserApi {
     }
   }
 
-  /// `replay-frames` of one branch (Python's checks, in its order); two branches are a comparison
-  /// (stage C).
-  async replay(projectId, runId, query) {
-    const names = [...query.keys()].sort();
-    if (names.join(",") !== "branch_ids,end,start" || [...query.values()].some((values) => values.length !== 1)) {
-      throw refused("replay parameters must each occur once");
+  /// `replay-frames` of one branch (the core's checks, in Python's order, `ReplayPlan`); two
+  /// branches are a comparison (stage C).
+  async replay(projectId, runId, search) {
+    const files = await store.runFiles(this.wasm, this.tree, projectId, runId);
+    let plan;
+    try {
+      plan = core(() => this.wasm.replayPlan(search, projectId, runId, files));
+    } finally {
+      files.free();
     }
-    const start = integer(query.get("start")[0], "replay bounds must be integers");
-    const end = integer(query.get("end")[0], "replay bounds must be integers");
-    const branchIds = query.get("branch_ids")[0].split(",");
-    if (branchIds.length < 1 || branchIds.length > 2 || new Set(branchIds).size !== branchIds.length) throw refused("replay requires one or two distinct branches");
-    if (!(0 <= start && start <= end && end < start + 8)) throw refused("replay interval must contain 1–8 integer boundaries");
-    const records = [];
-    for (const branchId of branchIds) records.push(await this.branch(projectId, runId, branchId));
-    if (start < Math.max(...records.map((record) => record.fork_minute)) || end > Math.min(...records.map((record) => record.computed_until))) {
-      throw refused("replay interval is outside the common computed range");
+    try {
+      if (plan.branchIds().length === 2) return await replayPair(this, projectId, runId, plan);
+      const [record] = JSON.parse(plan.recordsJson());
+      const samples = new this.wasm.Files();
+      try {
+        for (let minute = plan.start(); minute <= plan.end(); minute += 1) samples.addText("", await this.frameText(projectId, runId, record, minute));
+        return core(() => plan.answer(samples));
+      } finally {
+        samples.free();
+      }
+    } finally {
+      plan.free();
     }
-    if (records.length === 2) return replayPair(this, projectId, runId, records, branchIds, start, end);
-    const samples = [];
-    for (let minute = start; minute <= end; minute += 1) samples.push(await this.frameText(projectId, runId, records[0], minute));
-    return `{"branch_ids":${JSON.stringify(branchIds)},"end":${end},"samples":[${samples.join(",")}],"schema_version":1,"start":${start}}`;
   }
 
   /// The frame of a branch at a minute, as JSON text. A Run computed with other model versions

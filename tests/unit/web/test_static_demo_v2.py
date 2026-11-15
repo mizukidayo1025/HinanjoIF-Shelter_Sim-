@@ -34,11 +34,17 @@ const controls = () => {controlled++;}, remember = () => {}, note = () => {};
 const clearTimeout = () => {}, setTimeout = () => 1;
 const refresh = eval("(async function refreshRun() {" + body + ")");
 const branch = {branch_id:"main",checkpoint_hash:"a",computed_until:30,fork_minute:0};
+// While the branch computes, the page waits dimmed (#482): the minute does not follow the
+// computed head and the frame is read again only once the computation ends.
 for (const test of [
   {name:"unchanged",frameMinute:30,minute:30,hash:"a",head:30,expected:[]},
-  {name:"new checkpoint",frameMinute:30,minute:30,hash:"b",head:60,expected:[60]},
+  {name:"new checkpoint while computing",frameMinute:30,minute:30,hash:"b",head:60,expected:[]},
+  {name:"new checkpoint at the end",frameMinute:30,minute:30,hash:"b",head:60,
+    status:"completed",expected:[30]},
   {name:"same past frame",frameMinute:13,minute:13,hash:"a",head:30,expected:[]},
-  {name:"different minute",frameMinute:0,minute:13,hash:"a",head:30,expected:[13]},
+  {name:"different minute while computing",frameMinute:0,minute:13,hash:"a",head:30,expected:[]},
+  {name:"different minute",frameMinute:0,minute:13,hash:"a",head:30,status:"paused",
+    expected:[13]},
   {name:"different run",frameMinute:30,minute:30,hash:"a",head:30,frameRun:"other",expected:[30]},
   {name:"different branch",frameMinute:30,minute:30,hash:"a",head:30,
     frameBranch:"child",expected:[30]},

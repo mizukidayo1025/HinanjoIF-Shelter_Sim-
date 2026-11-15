@@ -128,6 +128,7 @@ SHELTERSIM_LLM_MODE=record SHELTERSIM_LLM_ERROR_POLICY=stop \
 - 先に読み込むファイルのものは、ファイルの始めに`const { … } = app;`で受け取ります。
 - 後に読み込むファイルの関数は`const { … } = app.later;`で受け取ります。呼んだときに`app`から引くので、読み込みの順に関係なく呼べます（すべてのファイルを読み込んでから`init`が動きます）。値（`state`、`metricDefs`など）は`app.later`では受け取れないので、使うファイルより先のファイルに置きます。
 - 別のファイルが読む、書き換わる変数は、そのファイルがgetterで出し、`app.ownId`のように読みます（`ownId`、`fetching`）。
+- `tests/unit/web/test_static_demo_v2.py`が、受け取る名前をどれかのファイルが（`app`なら先のファイル、`app.later`なら後のファイルが）出していること、出す名前をどれかのファイルが受け取っていることを確かめます。`app.later`の名前の誤りは、呼んだときに初めて失敗するためです。
 
 ファイルを足したときは、`demo-v2.html`の`<script>`、`src/sheltersim/web/server.py`の`_STATIC_FILES`（ローカル版・VM版の配信）、`scripts/build_static_site.py`の`SCREEN_FILES`（ブラウザー版のサイト）に足します。`tests/integration/test_demo_v2_routes.py`と`tests/integration/test_static_site.py`が、ページの読み込むファイルがすべて配られることを確かめます。ファイルの関数を確かめる単体は`tests/unit/web/test_static_<ファイル名>.py`です（[testing.md](testing.md)）。
 

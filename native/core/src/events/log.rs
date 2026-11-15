@@ -411,14 +411,9 @@ impl EventLog {
         self.unencoded == 0
     }
 
-    /// The bytes written here of the record at a position, unless taken (`take_written`).
+    /// The bytes written here of the record at a position.
     pub fn written(&self, index: usize) -> Option<&[u8]> {
         self.entries.get(index)?.written.as_deref()
-    }
-
-    /// The bytes written here, taken out.
-    pub fn take_written(&mut self, index: usize) -> Option<Box<[u8]>> {
-        self.entries[index].written.take()
     }
 
     /// The positions before `end` whose objects may be let go: their bytes were written or read
@@ -660,11 +655,6 @@ impl EventLog {
         self.audited = mark.audited;
         self.audit_bounds = mark.audit_bounds;
         self.scanned_types = mark.scanned_types;
-    }
-
-    /// The sizes of the record list and of the ID and sequence indexes.
-    pub fn index_sizes(&self) -> (usize, usize, usize) {
-        (self.entries.len(), self.by_id.len(), self.sequences.len())
     }
 }
 

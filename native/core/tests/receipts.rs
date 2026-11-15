@@ -15,14 +15,14 @@ use sheltersim_core::events::{EventKind, EventRow, EventStatus};
 use sheltersim_core::row::{IdMap, Maybe, Row, ValueRow};
 use sheltersim_core::rules::care_receipts::{self, Transition};
 use sheltersim_core::rules::common_operations::{
-    self as operations, py_eq, Found, Logged, Receipt, Verdict, NOT_THE_PAYLOAD, NO_EVENT, RECORDED, STATE_INVALID,
+    self as operations, py_eq, Change, Found, Logged, Receipt, Verdict, NOT_THE_PAYLOAD, NO_EVENT, RECORDED, STATE_INVALID,
 };
 use sheltersim_core::rules::resources::{self, Applied, Fail, LedgerFault, OperationArg, OperationEvent};
 use sheltersim_core::rules::staff_dynamics;
 use sheltersim_core::state::resource_ledger::{Account, Accounts, Audit, AuditRecord, LedgerRow, UsedIds, AUDIT_SCHEMA_VERSION, NAME as LEDGER};
 use sheltersim_core::state::shared_operations::{CareStatus, Heads, Receipts, SharedOperationsRow, NAME as SHARED, POLICY};
 use sheltersim_core::state::staff_dynamics::{ConfigRow, LastActivity, Recovery, Shift, StaffDynamicsRow, StaffRecord, NAME as DYNAMICS, POLICY_V2};
-use sheltersim_core::state::staff_operations::NAME as OPERATIONS;
+use sheltersim_core::state::staff_operations::{Outcome, NAME as OPERATIONS};
 use sheltersim_core::value::V;
 use sheltersim_core::world::{Fit, Place, ResourcesRow, World, ID_COUNTERS, MODEL_CONFIGS, RESOURCES};
 
@@ -311,8 +311,7 @@ fn ledger_world() -> World {
 }
 
 fn apply(world: &mut World, operation: &str, payload: V, event_id: &str) -> Result<Applied, Fail> {
-    let (source, event) = (string("SRC-OP"), string(event_id));
-    let event = OperationEvent { payload: &payload, source_id: &source, event_id: &event };
+    let event = OperationEvent { payload: &payload, source_id: Some("SRC-OP"), event_id };
     resources::apply_operation(world, &event, OperationArg::Text(operation))
 }
 
@@ -394,15 +393,15 @@ fn what_the_python_rule_turned_down_is_its_text_with_nothing_changed() {
     assert_eq!(
         resources::apply_operation(
             &mut world,
-            &OperationEvent { payload: &water(1), source_id: &string("SRC-OP"), event_id: &string("op-11") },
+            &OperationEvent { payload: &water(1), source_id: Some("SRC-OP"), event_id: "op-11" },
             OperationArg::Other("'spill'".to_owned())
         ),
         Err(Fail::Ledger(LedgerFault::Text("unknown resource operation 'spill'".to_owned())))
     );
     // IDs `ScheduledEvent` turns down, and a source of None.
-    let bad = OperationEvent { payload: &water(1), source_id: &string("not stable"), event_id: &string("op-12") };
+    let bad = OperationEvent { payload: &water(1), source_id: Some("not stable"), event_id: "op-12" };
     assert_eq!(resources::apply_operation(&mut world, &bad, OperationArg::Text("delivery")), Err(Fail::Error(unsupported("not a stable ID"))));
-    let none = OperationEvent { payload: &water(1), source_id: &V::Null, event_id: &string("op-13") };
+    let none = OperationEvent { payload: &water(1), source_id: None, event_id: "op-13" };
     assert_eq!(ledger_text(resources::apply_operation(&mut world, &none, OperationArg::Text("delivery"))), "resource events require a source_id");
     assert_eq!(world.row::<LedgerRow>(LEDGER).unwrap().audit.item_bytes().len(), before);
 }
@@ -691,22 +690,24 @@ fn the_other_receipts_are_applied_records_of_their_events() {
 #[test]
 fn a_staff_operation_receipt_samples_its_changes() {
     let world = world();
-    let outcome = |changes: Vec<V>, measured: bool, status: &str| care_receipts::OperationOutcome {
-        task_id: string("t1"),
-        staff_id: string("s1"),
-        task_kind: string("cleaning"),
-        target_id: V::Null,
-        target_zone_id: string("z0"),
-        reason: string("sanitation is low"),
-        status: string(status),
-        start_minute: V::Int(1),
-        arrival_minute: V::Int(2),
-        travel_minutes: V::Int(1),
+    let outcome = |changes: Vec<Change>, measured: bool, status: Outcome| care_receipts::OperationOutcome {
+        task_id: text("t1"),
+        staff_id: text("s1"),
+        task_kind: text("cleaning"),
+        target_id: None,
+        target_zone_id: text("z0"),
+        reason: text("sanitation is low"),
+        status,
+        start_minute: 1,
+        arrival_minute: Some(2),
+        travel_minutes: 1,
         changes,
         measured,
         causation: text("cause-1"),
     };
-    let made = care_receipts::staff_operation_record(&world, outcome(vec![change(V::Float(0.5), V::Float(0.75)); 300], true, "completed")).unwrap();
+    let change =
+        |before: f64, after: f64| Change { entity_id: text("a1"), entity_kind: text("agent"), field_path: text("stress"), before, after, unit: text("index") };
+    let made = care_receipts::staff_operation_record(&world, outcome(vec![change(0.5, 0.75); 300], true, Outcome::Completed)).unwrap();
     let V::Map(payload) = &made.event.payload else { unreachable!() };
     assert_eq!(payload.get("total_state_change_count"), Some(&V::Int(300)));
     assert_eq!(payload.get("state_changes_truncated"), Some(&V::Bool(true)));
@@ -714,10 +715,10 @@ fn a_staff_operation_receipt_samples_its_changes() {
     assert_eq!(payload.get("outcome_observation"), Some(&string("observed_change")));
     assert_eq!(made.detail, "staff operation completed outcome recorded after state application");
     // A blocked operation reports no change; one that reports a change is refused.
-    let blocked = care_receipts::staff_operation_record(&world, outcome(Vec::new(), true, "blocked")).unwrap();
+    let blocked = care_receipts::staff_operation_record(&world, outcome(Vec::new(), true, Outcome::Blocked)).unwrap();
     assert!(Receipt::of(&blocked.event.payload).is_ok());
     assert_eq!(
-        care_receipts::staff_operation_record(&world, outcome(vec![change(V::Float(0.5), V::Float(0.75))], true, "blocked")).map(|_| ()),
+        care_receipts::staff_operation_record(&world, outcome(vec![change(0.5, 0.75)], true, Outcome::Blocked)).map(|_| ()),
         Err(unsupported("a receipt its contract turns down"))
     );
 }

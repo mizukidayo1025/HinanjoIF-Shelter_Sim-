@@ -81,7 +81,7 @@
   };
   worker.postMessage({ type: "start", examplesUrl });
 
-  // The passphrase the home keeps (demo-v2.js's LLM_KEY), or null.
+  // The passphrase the home keeps (demo-v2-home.js's LLM_KEY), or null.
   function passphrase() {
     try {
       return localStorage.getItem("hinanjo-if-llm-passphrase") || null;

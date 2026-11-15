@@ -1428,6 +1428,15 @@ pub fn held_detached(world: &World, holding: &Holding) -> Result<bool> {
     })
 }
 
+/// A reserved bed's point as `reserved_bed_of` read it from the overlay.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum ReservedBed {
+    /// A plain record of two usable floats, the point `Point2D.model_validate` gives back.
+    Point(Pt),
+    /// Any other value, which a placement turns down.
+    NotAPoint,
+}
+
 /// `Point2D.model_validate` of a plain record: only the case where it gives the same two floats.
 fn plain_point(value: &V) -> Option<Pt> {
     let V::Map(record) = value else {
@@ -1443,14 +1452,14 @@ fn plain_point(value: &V) -> Option<Pt> {
 }
 
 /// `state["positions"][agent_id].update(zone_id=..., point=bed, edge_id=None, progress=1.0,
-/// position_kind="physical")` of a bed's point (a `V`, as `reserved_bed_of` gives it) on the row of a
+/// position_kind="physical")` of a bed's point (as `reserved_bed_of` gives it) on the row of a
 /// detached namespace: false, having written nothing, unless the namespace is held detached, the
 /// row has the record and the point is two usable floats. The caller then writes through the tree.
-pub fn place_at_bed(world: &World, holding: &Holding, agent_id: &str, zone_id: &Arc<str>, bed: &V) -> Result<bool> {
+pub fn place_at_bed(world: &World, holding: &Holding, agent_id: &str, zone_id: &Arc<str>, bed: &ReservedBed) -> Result<bool> {
     if !held_detached(world, holding)? {
         return Ok(false);
     }
-    let Some(point) = plain_point(bed) else {
+    let ReservedBed::Point(point) = *bed else {
         return Ok(false);
     };
     check_held(holding)?;
@@ -1460,8 +1469,8 @@ pub fn place_at_bed(world: &World, holding: &Holding, agent_id: &str, zone_id: &
 /// `positions[agent_id].update({... "point": bed ...})` of `_finish_stopped_journey` as a write of
 /// the row, held detached or attached (an attached tree follows the row, P8-0c; lane P9-1c): false,
 /// having written nothing, where the bed's point is not two floats, which the dispatch refuses.
-pub fn place_at_bed_held(world: &World, holding: &Holding, agent_id: &str, zone_id: &Arc<str>, bed: &V) -> Result<bool> {
-    let Some(point) = plain_point(bed) else {
+pub fn place_at_bed_held(world: &World, holding: &Holding, agent_id: &str, zone_id: &Arc<str>, bed: &ReservedBed) -> Result<bool> {
+    let ReservedBed::Point(point) = *bed else {
         return Err(Error::unsupported(BED_NOT_A_POINT));
     };
     check_held(holding)?;
@@ -1475,9 +1484,9 @@ pub const BED_NOT_A_POINT: &str = "a bed's point is not two floats";
 pub const OVERLAY_NOT_A_DICT: &str = "a part of the overlay is not a dict";
 
 /// `_reserved_bed_of` on the overlay's value (lane P9-1a, from the dispatch glue): `.get(key, {})`
-/// all the way down, a value of another kind refused where Python would raise. The bed's point as
-/// the overlay holds it, or None.
-pub fn reserved_bed_of(overlay: Option<&V>, agent_id: &str) -> Result<Option<V>> {
+/// all the way down, a value of another kind refused where Python would raise. The bed's point, or
+/// None.
+pub fn reserved_bed_of(overlay: Option<&V>, agent_id: &str) -> Result<Option<ReservedBed>> {
     let empty = indexmap::IndexMap::new();
     fn dict_or<'a>(value: Option<&'a V>, empty: &'a indexmap::IndexMap<Arc<str>, V>) -> Result<&'a indexmap::IndexMap<Arc<str>, V>> {
         match value {
@@ -1505,5 +1514,8 @@ pub fn reserved_bed_of(overlay: Option<&V>, agent_id: &str) -> Result<Option<V>>
         Some(V::Big(_)) => return Err(Error::unsupported("an int is too large")),
         _ => return Ok(None),
     };
-    Ok(usize::try_from(index).ok().and_then(|index| beds.get(index)).cloned())
+    Ok(usize::try_from(index).ok().and_then(|index| beds.get(index)).map(|bed| match plain_point(bed) {
+        Some(point) => ReservedBed::Point(point),
+        None => ReservedBed::NotAPoint,
+    }))
 }

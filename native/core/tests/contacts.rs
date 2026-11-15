@@ -366,14 +366,14 @@ fn the_trace_of_a_minute_goes_to_the_host() {
     let (settings, expressiveness, neighbors) = (settings(Model::Channel), social::Table::new(), neighbors());
     let untraced = social::update(&world, &social_inputs(&settings, &expressiveness, &view, &deltas, &neighbors, false)).unwrap();
     let mut host = TestHost::default();
-    social::record_social(&mut host, &untraced, &V::Int(10), &V::Str(text("expressiveness-channel-openness-v1"))).unwrap();
+    social::record_social(&mut host, &untraced, 10, &V::Str(text("expressiveness-channel-openness-v1"))).unwrap();
     assert!(host.calls.is_empty());
 
     let world = social_world(Some(social_row(&[], &[])), false);
     let traced = social::update(&world, &social_inputs(&settings, &expressiveness, &view, &deltas, &neighbors, true)).unwrap();
     // A trace changes no value of the plan.
     assert_eq!(traced.plan.stresses, untraced.plan.stresses);
-    social::record_social(&mut host, &traced, &V::Int(10), &V::Str(text("expressiveness-channel-openness-v1"))).unwrap();
+    social::record_social(&mut host, &traced, 10, &V::Str(text("expressiveness-channel-openness-v1"))).unwrap();
     let [Call::Trace(Trace::SocialContact(V::Map(document)))] = &host.calls[..] else {
         panic!("one social document: {:?}", host.calls);
     };
@@ -582,7 +582,7 @@ fn a_minute_writes_the_row_and_schedules_each_transfer() {
     assert_eq!(&*pending[0], "information-contact-40");
     assert_eq!(world.id_counter("event").unwrap(), Some(40 + pending.len() as i64));
     // The trace keeps every contact with a full trace, 20 at most with a summary.
-    let document = information::information_document(&plan, InfoModel::Sparse, &V::Int(10), TraceLevel::Full);
+    let document = information::information_document(&plan, InfoModel::Sparse, 10, TraceLevel::Full);
     let V::Map(document) = document else { panic!("a document") };
     let keys: Vec<&str> = document.keys().map(|key| &**key).collect();
     assert_eq!(keys, ["minute_index", "policy_version", "selected_contact_count", "truncated_contact_count", "contacts", "proposed_transfer_count"]);
@@ -608,10 +608,10 @@ fn a_minute_writes_the_row_and_schedules_each_transfer() {
         ]
     );
     let mut host = TestHost { level: TraceLevel::Summary, ..TestHost::default() };
-    information::record_information(&mut host, &plan, InfoModel::Sparse, &V::Int(10)).unwrap();
+    information::record_information(&mut host, &plan, InfoModel::Sparse, 10).unwrap();
     assert!(matches!(&host.calls[..], [Call::Trace(Trace::InformationSpread(_))]));
     let mut off = TestHost::default();
-    information::record_information(&mut off, &plan, InfoModel::Sparse, &V::Int(10)).unwrap();
+    information::record_information(&mut off, &plan, InfoModel::Sparse, 10).unwrap();
     assert!(off.calls.is_empty());
 }
 

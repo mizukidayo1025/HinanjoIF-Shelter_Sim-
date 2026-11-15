@@ -33,6 +33,11 @@ pub struct PlainRun {
 }
 
 impl PlainRun {
+    /// The Python object of a Run the store restored (`rules::run_files`).
+    pub(crate) fn of_run(run: plain::PlainRun) -> Self {
+        Self { run }
+    }
+
     /// The core's Run, for the other modules' functions of a Run (`answers`).
     pub(crate) fn core(&self) -> &plain::PlainRun {
         &self.run

@@ -70,8 +70,9 @@ CI's job 「ブラウザー版の計算」 runs these, beside 「Rustの計算�
 
 ## The workspace: the core and the wrapper (Issue #152)
 
-`native/Cargo.toml` is a workspace of two crates. `docs/rust-port/step5-plan.md` records the
-split PR by PR; its last section sums up what is where.
+`native/Cargo.toml` is a workspace of the core, the PyO3 wrapper, the WASM boundary (`wasm/`)
+and the files of a stored Run on a disk (`store/`, #426). `docs/rust-port/step5-plan.md` records
+the split of the first two PR by PR; its last section sums up what is where.
 
 - **`core/` (`sheltersim_core`)**: the simulation without Python. Its `cargo tree` has no pyo3
   (CI checks `cargo tree -p sheltersim_core -e normal,build`). It holds the World (`world.rs`:
@@ -310,7 +311,26 @@ split PR by PR; its last section sums up what is where.
   the same bytes of), encodes every line again byte for byte, writes the same journals and data.pack
   again from the same Runs, and writes one Run with two compressors to the same heads;
   `wasm/tests/node_stored_runs.mjs` checks that the browser still writes them (`--write` writes
-  them again after a change meant to move them).
+  them again after a change meant to move them), and keeps the records of their Projects
+  (`stored_runs/records.json`).
+- **A stored Run on a disk** (#426): `store/` (`sheltersim_store`, not in the WASM build) is the
+  host of `run_store` for the local and VM servers, in the browser's folders and records
+  (`project_store.mjs`): `stored` writes a branch's `data.pack` and `journal.jsonl` (each piece
+  compressed with flate2's deflate-raw, appended and flushed to the disk before its line is, each
+  line flushed before the next) and reads them (the journal up to its last whole line, so a reader
+  in another process reads while a writer appends, and a line a killed writer cut short is not
+  read); `records` the Project, Scenario, Run and Branch records (sorted JSON, written whole
+  through a temporary file, Python's errors); `lock` the Python server's locks on the same files
+  (`.lock`, a Run's and a branch's `worker-lock`: `flock`, or `LockFileEx` on Windows over the
+  byte `msvcrt.locking` takes); `quota` the limit (`--project-storage-gb`) checked before each
+  write; `compute` going on from a branch's head in chunks, a fork, a question's turn and the
+  recovery of interrupted branches, as `compute.mjs` and `interventions.mjs` do.
+  `cargo test -p sheltersim_store` makes the five stored Runs of `node_stored_runs.mjs` again: with
+  the fixtures' stored blocks their journals, data.pack and records are the browser's byte for
+  byte; with flate2 each line has the browser's head hash and pieces (before compression). Python
+  reaches it through `src/rules/run_files.rs` (`sheltersim_native.rules.run_files`: `ProjectFiles`,
+  `Lease`, `StoredRun`, `Computation`); `tests/integration/test_run_files.py` holds Python's and
+  the store's locks against each other and kills a writer process while it holds its branch.
 - **A Project in the browser** (#265): `wasm/js/project_store.mjs` keeps the Project, Run and
   Branch records beside each branch's stored Run (`run_store`, #252), reads the files the
   Project routes of the screen answer from (the answers are the core's, below), and writes and reads one versioned
@@ -366,21 +386,25 @@ split PR by PR; its last section sums up what is where.
   two branches with `interpret::kpi_differences` (WASM `kpiDifferences`, #307), and
   `wasm/js/questions.mjs` the offline answer to a question (#308). `wasm/tests/node_interventions.mjs`
   checks the answers against the Python server's in `core/tests/data/interventions.json`.
-- **A Scenario's world at minute 0** (#249): `initial::entry` builds, from a Scenario's
-  canonical JSON, the bytes `export_world` writes of the world a Run starts from (the rows, the
-  queue, the stock's ledger, each person's, staff member's and zone's records, the floor plan's
-  sections, the zone neighbors). What Python derives from the configs that are the same for every
-  Scenario the screen makes (the Run's policies, the contract-parsed sections, the namespaces'
-  templates) comes from `initial/table.json`, keyed by `initial::fingerprint` of the configs
-  without their data (`DATA_CONFIGS`); `tests/support/core_initial.py` writes it. Configs the table
-  lacks are `Unsupported`. In WASM: `initialEntry`; `core/tests/initial.rs` and
-  `wasm/tests/node_initial.mjs` check `core/tests/data/initial_worlds.json`. A new Run's records
-  come from the same table (#301): `initial::model_versions` (`model_signatures`, with the floor
-  plan's service-point signature computed) and `initial::evidence` (the evidence route's answer,
-  with the Scenario's sources, assumptions and research limits); in WASM `modelVersions` and
-  `runEvidence`.
-- **Out of the core** (decision 4): building a world from a Scenario the screen does not make and
-  restoring a Checkpoint stay in Python and the wrapper. The whole-world validation texts (E6) and the pydantic
+- **A Scenario's world at minute 0** (#249, #429): `initial::entry` builds, from a Scenario's
+  canonical JSON, the bytes `export_world` writes of the world a Run starts from. The core makes
+  the whole world of any Scenario as Python does (`initial/namespaces.rs`: `WorldState.from_scenario`,
+  `initialize_simulator_extensions`, `initialize_declared_states`, then the whole-world
+  validation, with Python's errors and texts), the sections Python's contracts parse
+  (`initial/sections.rs`, `sections` of `world_export.py`), the route capacities and the zone
+  neighbors; `initial::world_entry` is that entry without its Run (`export_world(world)`). What it
+  does not compute yet, the Run's policies, comes from `initial/table.json`, keyed by
+  `initial::fingerprint` of the configs without their data (`DATA_CONFIGS`);
+  `tests/support/core_initial.py` writes it. Configs the table lacks are `Unsupported`. In WASM:
+  `initialEntry`; `core/tests/initial.rs` and `wasm/tests/node_initial.mjs` check
+  `core/tests/data/initial_worlds.json`, and `tests/unit/core/test_world_export.py` checks
+  `initial::world_entry` on every Scenario of `fixtures/initial_corpus.json.xz` (one per
+  configuration the offline tests use; `benchmarks/initial_corpus.py` records it). A new Run's
+  records come from the same table (#301): `initial::model_versions` (`model_signatures`, with the
+  floor plan's service-point signature computed) and `initial::evidence` (the evidence route's
+  answer, with the Scenario's sources, assumptions and research limits); in WASM `modelVersions`
+  and `runEvidence`.
+- **Out of the core** (decision 4): restoring a Checkpoint stays in Python and the wrapper. The whole-world validation texts (E6) and the pydantic
   contracts (E15) stay Python behind `Host` in the native host; a host without Python answers both
   with the core's `validate` (#250, the rules ported so far) and `contracts::validate` (#346).
 

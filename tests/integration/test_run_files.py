@@ -1,0 +1,201 @@
+"""The files of a stored Run on a disk, from Python (`sheltersim_native.rules.run_files`, #426).
+
+The store (`native/store`) writes and reads the browser's folders: the records, a branch's
+`journal.jsonl` and `data.pack` of format v5, computed from its head in chunks. Its locks are the
+Python server's (`ProjectStore.claim_branch`) on the same files, so a holder on either side keeps
+the other out, in this process and in another. A writer process killed while it holds its branch
+leaves the lock free and its record at its last head; a line it left cut short is not read, and
+going on from the head cuts it off and reaches the Run computed straight through. A reader in
+another process reads every piece of the lines it sees while the writer appends. That the store
+writes the browser's Runs byte for byte is `cargo test -p sheltersim_store`'s.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import subprocess
+import sys
+import threading
+from pathlib import Path
+
+import pytest
+from support.paths import CORE_TEST_DATA
+
+from sheltersim import native
+from sheltersim.storage.projects import ProjectStore
+
+# Run on every pull request on Windows and macOS too (pytest --os-subset, #380): files flushed and
+# cut, locks shared with Python's, a process killed while it holds one.
+pytestmark = pytest.mark.os_dependent
+
+FILES = native.rules("run_files")
+PLAIN = native.rules("plain")
+TICK = (CORE_TEST_DATA / "tick_core.json").read_bytes()
+WORLD = "small_replay"
+VERSIONS = json.dumps({"engine:model": "test"})
+BRANCH_BUSY = "^run_worker_busy: another process writes this branch$"
+
+
+def _store(root: Path) -> FILES.ProjectFiles:
+    """A store with Project `p`, Run `r` of tick_core's small_replay world, and its branch `main`
+    at minute 0."""
+    files = FILES.ProjectFiles(root)
+    duration = PLAIN.PlainRun.from_worlds(TICK, WORLD).duration()
+    files.create_project("p")
+    scenario = json.dumps({"duration_minutes": duration, "id": "s", "seed": 1}).encode()
+    files.save_scenario("p", scenario, hashlib.sha256(scenario).hexdigest())
+    files.create_run("p", "r", "s", 1, 1, VERSIONS, b'{"schema_version":1}')
+    with files.claim_branch("p", "r", "main") as lease:
+        files.start_branch(lease, "p", "r", "main", TICK, WORLD)
+    return files
+
+
+def _compute(files, lease, target: int, ticks: int = 60) -> str:
+    computation = files.go_on(lease, "p", "r", "main", target)
+    while (status := computation.chunk(files, ticks)) is None:
+        pass
+    computation.end(files, status)
+    return status
+
+
+def test_a_branch_is_computed_from_its_head_and_read_back(tmp_path):
+    files = _store(tmp_path)
+    record = json.loads(files.branch_record("p", "r", "main"))
+    assert record["computed_until"] == 0 and "status" not in record
+    with files.claim_branch("p", "r", "main") as lease:
+        assert _compute(files, lease, 700) == "paused"
+    record = json.loads(files.branch_record("p", "r", "main"))
+    assert (record["computed_until"], record["status"]) == (700, "paused")
+    assert json.loads(files.run_record("p", "r"))["status"] == "paused"
+
+    reader = files.reader("p", "r", "main")
+    heads = json.loads(reader.heads_json())
+    kinds = [(head["kind"], head["minute"]) for head in heads]
+    assert kinds == [("export", 0), ("saved", 360), ("saved", 700)]
+    assert heads[-1]["head"] == record["checkpoint_hash"]
+    assert not reader.torn() and reader.save_every() == FILES.SAVE_EVERY
+    assert json.loads(reader.model_versions_json()) == json.loads(VERSIONS)
+    assert reader.export_bytes() == TICK
+    assert reader.records("decisions")
+    verified = json.loads(reader.verify_json())
+    assert verified["mismatches"] == [] and not verified["complete"]
+    # A seek restores the saved point at 360 and computes on: the world of the Run straight through.
+    run, start, base = reader.seek(500)
+    straight = PLAIN.PlainRun.from_worlds(TICK, WORLD)
+    straight.advance(500)
+    assert (start, run.minute(), run.digests_json()) == (360, 500, straight.digests_json())
+    assert base == heads[1]["index"]
+
+    raw = b"the bytes of a piece" * 50
+    assert FILES.inflate_raw(FILES.deflate_raw(raw), len(raw)) == raw
+    with pytest.raises(ValueError, match="holds 1000 bytes, not the 999"):
+        FILES.inflate_raw(FILES.deflate_raw(raw), 999)
+
+
+def test_the_store_and_pythons_project_store_hold_the_same_locks(tmp_path):
+    files = _store(tmp_path)
+    lock = Path(files.branch_folder("p", "r", "main")) / "worker-lock"
+    with files.claim_branch("p", "r", "main"):
+        with pytest.raises(ValueError, match=BRANCH_BUSY):
+            files.claim_branch("p", "r", "main")
+        with pytest.raises(ValueError, match="^run_worker_busy: a branch of this Run is being"):
+            files.claim_run("p", "r")
+        with pytest.raises(BlockingIOError):
+            ProjectStore._lock_without_waiting(lock)
+    descriptor = ProjectStore._lock_without_waiting(lock)
+    try:
+        with pytest.raises(ValueError, match=BRANCH_BUSY):
+            files.claim_branch("p", "r", "main")
+    finally:
+        ProjectStore.release_run(descriptor)
+    gate = files.claim_run("p", "r")
+    with pytest.raises(BlockingIOError):
+        ProjectStore._lock_without_waiting(lock.parents[2] / "worker-lock")
+    gate.release()
+    files.claim_branch("p", "r", "main").release()
+
+
+# The writer's process: it goes on with `main` toward minute 1000, says "ready" once its head is
+# past 360 and waits for "go", then computes to 1000 (paused), says so, and waits to be killed with
+# its lease held and its record still `running`.
+WRITER = """
+import sys
+from sheltersim import native
+files = native.rules("run_files").ProjectFiles(sys.argv[1])
+lease = files.claim_branch("p", "r", "main")
+computation = files.go_on(lease, "p", "r", "main", 1000)
+ready = False
+while (status := computation.chunk(files, 10)) is None:
+    if not ready and computation.head()[0] >= 360:
+        ready = True
+        print("ready", flush=True)
+        sys.stdin.readline()
+print(status, computation.head()[0], flush=True)
+sys.stdin.readline()
+"""
+
+
+def test_a_killed_writer_leaves_its_lock_free_and_its_cut_line_unread(tmp_path):
+    files = _store(tmp_path / "store")
+    folder = Path(files.branch_folder("p", "r", "main"))
+    writer = subprocess.Popen(
+        [sys.executable, "-c", WRITER, str(tmp_path / "store")],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        assert writer.stdout.readline().strip() == "ready"
+        with pytest.raises(ValueError, match=BRANCH_BUSY):
+            files.claim_branch("p", "r", "main")
+        with pytest.raises(BlockingIOError):
+            ProjectStore._lock_without_waiting(folder / "worker-lock")
+        # Read while the writer appends, until it says where it stopped.
+        said: list[str] = []
+        listener = threading.Thread(target=lambda: said.append(writer.stdout.readline().strip()))
+        listener.start()
+        writer.stdin.write("go\n")
+        writer.stdin.flush()
+        reads, lines = 0, set()
+        while listener.is_alive() or reads == 0:
+            reader = files.reader("p", "r", "main")
+            assert json.loads(reader.verify_json())["mismatches"] == []
+            lines.add(len(json.loads(reader.lines_json())))
+            reads += 1
+        listener.join()
+        assert said == ["paused 1000"]
+    finally:
+        writer.kill()
+        writer.wait()
+    assert reads >= 1 and max(lines) > 3
+
+    # Killed: its record at its last head, still running; a line it was writing cut short.
+    record = json.loads(files.branch_record("p", "r", "main"))
+    assert (record["computed_until"], record["status"]) == (1000, "running")
+    journal = (folder / "journal.jsonl").read_bytes()
+    last = journal[journal.rstrip(b"\n").rfind(b"\n") + 1 :]
+    with (folder / "data.pack").open("ab") as data:
+        data.write(b"bytes of a piece no line points at")
+    with (folder / "journal.jsonl").open("ab") as cut:
+        cut.write(last[: len(last) // 2])
+    reader = files.reader("p", "r", "main")
+    assert reader.torn()
+    assert len(json.loads(reader.lines_json())) == journal.count(b"\n")
+    verified = json.loads(reader.verify_json())
+    assert verified["torn"] and not verified["complete"] and verified["mismatches"] == []
+    assert files.recover_interrupted() == [("p", "r", "main")]
+    assert json.loads(files.branch_record("p", "r", "main"))["status"] == "interrupted"
+    assert json.loads(files.run_record("p", "r"))["status"] == "interrupted"
+
+    # Going on cuts the line off and reaches the Run computed straight through.
+    with files.claim_branch("p", "r", "main") as lease:
+        assert _compute(files, lease, 1440) == "completed"
+    reader = files.reader("p", "r", "main")
+    verified = json.loads(reader.verify_json())
+    assert not reader.torn() and verified["complete"] and verified["verified"]
+    straight = _store(tmp_path / "straight")
+    with straight.claim_branch("p", "r", "main") as lease:
+        assert _compute(straight, lease, 1440) == "completed"
+    head = json.loads(files.branch_record("p", "r", "main"))["checkpoint_hash"]
+    assert head == json.loads(straight.branch_record("p", "r", "main"))["checkpoint_hash"]

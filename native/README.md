@@ -84,9 +84,7 @@ The files of `core/tests/` are the modules of one test binary, `core` (`core/tes
 #388): Cargo would otherwise build and link the core into a binary per file, and run those one
 after another. `core/Cargo.toml` sets `autotests = false`, so a new file needs its `mod <name>;`
 in `main.rs`; `core/tests/test_files.rs` fails when one is missing. Run one file's tests with
-`cargo test -p sheltersim_core --test core <name>::`. `effect_guard_dispatch.rs` stays a binary
-of its own (`--test effect_guard_dispatch`): it compares the process's dispatch counts before and
-after each case, which the other tests, on other threads of the same process, would move.
+`cargo test -p sheltersim_core --test core <name>::`.
 
 ## The core's feature `parallel` and the wasm32 build
 

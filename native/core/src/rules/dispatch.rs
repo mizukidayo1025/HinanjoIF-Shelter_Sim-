@@ -26,7 +26,6 @@
 //! kernel is labelled with the handler's kernel (`Error::Refused`); any other error ends the phase
 //! as it is. No borrow of the world, and no lock of the Run, is held while the host runs (rule R6).
 
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use crate::config::movement::Movement;
@@ -37,7 +36,7 @@ use crate::events::writer::WriteError;
 use crate::events::{EventRow, EventStatus};
 use crate::host::{ErrorClass, Foreign, Host, HostFailure};
 use crate::rules::care_receipts::{Made, PlannedTransition};
-use crate::rules::kit::{self, Counts, Held};
+use crate::rules::kit::{self, Held};
 use crate::rules::tick::read::is_refusal;
 use crate::rules::tick::{RunCell, Tick};
 use crate::rules::{
@@ -49,71 +48,9 @@ use crate::text::py_repr;
 use crate::value::V;
 use crate::world::WorldCell;
 
-// ---- What ran ---------------------------------------------------------------------------------------
-
-macro_rules! counters {
-    ($($name:ident),* $(,)?) => {
-        /// What the phase did in this process, for the gate and the tests.
-        pub struct Counters { $(pub $name: AtomicU64),* }
-
-        /// The counts of the phase.
-        pub static COUNTS: Counters = Counters { $($name: AtomicU64::new(0)),* };
-
-        impl Counters {
-            /// `(name, times)` of every counter, in their order.
-            pub fn all(&self) -> Vec<(&'static str, u64)> {
-                vec![$((stringify!($name), self.$name.load(Ordering::Relaxed))),*]
-            }
-        }
-    };
-}
-
-counters!(
-    phases_ran,
-    events_core,
-    events_foreign,
-    events_unregistered,
-    events_skipped,
-    events_replaced,
-    replaced_dispatched,
-    replaced_skipped,
-    guard_passed,
-    guard_stopped,
-    outcomes_applied,
-    outcomes_suppressed,
-    outcomes_failed,
-    settled_rows,
-    settled_own,
-    follow_ups,
-    record_social_ran,
-    observe_ran,
-    completion_ran,
-    population_exit_ran,
-    learn_ran,
-    started_ran,
-    interrupted_ran,
-    spaces_refreshed,
-    trips_interrupted,
-    returns_asked,
-    sync_ran,
-    journeys_finished,
-    beds_placed,
-    arrivals_asked,
-    contacts_considered,
-    cooperation_asked,
-    reaction_asked,
-);
-
-/// The handlers' kernels that ran and what they refused, by the label of their refusal.
-pub static KINDS: Counts = Counts::new();
-
 /// A core error as the host's.
 fn core_err<E: From<Error>>(error: Error) -> E {
     error.into()
-}
-
-fn count(counter: &AtomicU64) {
-    counter.fetch_add(1, Ordering::Relaxed);
 }
 
 // ---- Texts ------------------------------------------------------------------------------------------
@@ -184,19 +121,6 @@ fn outcome_of<E: HostFailure>(error: &E) -> Option<(EventStatus, String)> {
         Outcome::Suppressed => Some((EventStatus::Suppressed, error.text())),
         Outcome::Failed => Some((EventStatus::Failed, error.text())),
     }
-}
-
-/// Count a kernel's result under its label in `counts`: a refusal by its reason.
-fn counted<T, E: HostFailure>(counts: &Counts, label: &'static str, result: std::result::Result<T, E>) -> std::result::Result<T, E> {
-    match &result {
-        Ok(_) => counts.ran(label),
-        Err(error) => {
-            if let Some(reason) = is_refusal(error) {
-                counts.refused(label, &reason);
-            }
-        }
-    }
-    result
 }
 
 // ---- Equality by value ------------------------------------------------------------------------------
@@ -297,7 +221,6 @@ pub fn run<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R>) -> s
 where
     H::Error: From<WriteError>,
 {
-    count(&COUNTS.phases_ran);
     tick.host.read_queue_rows()?;
     let minute = tick.minute;
     let due = tick.world(|world| {
@@ -372,13 +295,9 @@ where
     H::Error: From<WriteError>,
 {
     match current(tick, event_id)? {
-        None => {
-            count(&COUNTS.events_skipped);
-            return Ok(());
-        }
+        None => return Ok(()),
         Some(Some(now)) if Arc::ptr_eq(&now, &row) => {}
         Some(now) => {
-            count(&COUNTS.events_replaced);
             let now = match now {
                 Some(now) => now,
                 // The host scheduled it (a foreign handler or a hook): its row is read now.
@@ -388,18 +307,13 @@ where
                 }
             };
             if !same_event(&now, &row) {
-                count(&COUNTS.replaced_skipped);
                 return Ok(());
             }
-            count(&COUNTS.replaced_dispatched);
         }
     }
     let handler = tick.policies.dispatch.handler(&row.event_type).map_err(|fault| Error::unsupported(fault.text.to_string()))?.cloned();
     let handled = match handler {
-        None => {
-            count(&COUNTS.events_unregistered);
-            Handled::Outcome(EventStatus::Failed, format!("no handler registered for event type {}", py_repr(&row.event_type)))
-        }
+        None => Handled::Outcome(EventStatus::Failed, format!("no handler registered for event type {}", py_repr(&row.event_type))),
         Some(handler) => match guard(tick, &row)? {
             Some(stopped) => stopped,
             None => apply(tick, &handler, &row)?,
@@ -409,11 +323,6 @@ where
         Handled::Applied { records, receipt } => (EventStatus::Applied, None, records, receipt),
         Handled::Outcome(status, text) => (status, Some(text), Vec::new(), None),
     };
-    count(match status {
-        EventStatus::Applied => &COUNTS.outcomes_applied,
-        EventStatus::Suppressed => &COUNTS.outcomes_suppressed,
-        EventStatus::Failed => &COUNTS.outcomes_failed,
-    });
     if status == EventStatus::Applied && body_state::records_event(&row.event_type) {
         social_records(tick, &row)?;
     }
@@ -437,17 +346,10 @@ fn guard<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R>, row: &
     let program = holding.held(effects::MARKER, "the world holds another effect_program_v1");
     let ledger = holding.held("resource_ledger_v1", "the world holds another ledger");
     let ins = effects::GuardIn { program: &program, ledger: &ledger };
-    let result = counted(&effects::COUNTS, "dispatch_guard", effects::guard_or_suppress(tick.cell, tick.host, &ins, row));
-    match result {
-        Ok(()) => {
-            count(&COUNTS.guard_passed);
-            Ok(None)
-        }
+    match effects::guard_or_suppress(tick.cell, tick.host, &ins, row) {
+        Ok(()) => Ok(None),
         Err(error) => match outcome_of(&error) {
-            Some((status, text)) => {
-                count(&COUNTS.guard_stopped);
-                Ok(Some(Handled::Outcome(status, text)))
-            }
+            Some((status, text)) => Ok(Some(Handled::Outcome(status, text))),
             None => Err(labelled(GUARD, error)),
         },
     }
@@ -462,18 +364,8 @@ where
         Handler::Native(native) if runs_here(native, row) => native,
         _ => return foreign(tick, row),
     };
-    count(&COUNTS.events_core);
     let label = label_of(native.kind);
-    let result = handled(label, apply_native(tick, native, row));
-    match &result {
-        Ok(_) => KINDS.ran(label),
-        Err(error) => {
-            if let Some(reason) = is_refusal(error) {
-                KINDS.refused(label, &reason);
-            }
-        }
-    }
-    result
+    handled(label, apply_native(tick, native, row))
 }
 
 /// Whether a known handler runs here: its managers are the controller's, its steps after an arrival
@@ -497,7 +389,6 @@ fn runs_here(native: &Native, row: &EventRow) -> bool {
 /// `handler.apply(world, event)` of a handler the core does not run (H4): its outcome, and the records
 /// it gave back.
 fn foreign<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R>, row: &EventRow) -> std::result::Result<Handled, H::Error> {
-    count(&COUNTS.events_foreign);
     let Foreign { status, detail, records } = tick.host.apply_foreign(row)?;
     Ok(match status {
         EventStatus::Applied => Handled::records(records.into_iter().map(Record::from).collect()),
@@ -509,7 +400,6 @@ fn foreign<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R>, row:
 /// applied contact or interaction.
 fn social_records<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R>, row: &EventRow) -> std::result::Result<(), H::Error> {
     record_social_event(tick, row).map_err(|error| labelled("body_state.record_social_event", error))?;
-    count(&COUNTS.record_social_ran);
     let holding = tick.holding()?;
     if !holding.contains(SOCIAL_NETWORK) {
         return Ok(());
@@ -527,7 +417,6 @@ fn social_records<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R
             .and_then(|done| done)
             .map_err(|error| labelled("social_network.observe_event", core_err::<H::Error>(error)))?;
     }
-    count(&COUNTS.observe_ran);
     Ok(())
 }
 
@@ -593,10 +482,8 @@ fn settle<C: WorldCell, H: Host, R: RunCell>(
         tick.host.slots_changed(&[serial])?;
     }
     if recorded {
-        count(&COUNTS.settled_rows);
         return Ok(());
     }
-    count(&COUNTS.settled_own);
     match tick.host.find_record(&row.event_id)? {
         Some(logged) if logged.status == status && same_event(&logged.event, row) => Ok(()),
         _ => Err(Error::Value(RECORD_DISAGREES.to_owned()).into()),
@@ -614,7 +501,6 @@ fn follow_ups<C: WorldCell, H: Host, R: RunCell>(
         return Ok(());
     }
     for record in &records {
-        count(&COUNTS.follow_ups);
         let id = record.event.event_id.clone();
         let written = tick.cell.with(|world| -> crate::events::writer::WriteResult<bool> {
             if world.log()?.has_event_id(&id) {
@@ -722,26 +608,19 @@ where
         }
         HandlerKind::StaffSupportCompletion => staff_support_completion(tick, native, row),
         HandlerKind::ProximityContact => proximity_contact(tick, row),
-        HandlerKind::InformationRumor | HandlerKind::InformationCorrection | HandlerKind::InformationContact => {
-            let name = match native.kind {
-                HandlerKind::InformationRumor => "rumor",
-                HandlerKind::InformationCorrection => "correction",
-                _ => "contact",
-            };
-            counted(&handlers::COUNTS, name, information(tick, native.kind, row))
-        }
+        HandlerKind::InformationRumor | HandlerKind::InformationCorrection | HandlerKind::InformationContact => information(tick, native.kind, row),
         HandlerKind::ResourceLedger => resource_ledger(tick, native, row),
         HandlerKind::FacilityOutage | HandlerKind::FacilityRecovery => facility_units(tick, native, row),
         HandlerKind::InfrastructureEvent => infrastructure_event(tick, row),
         HandlerKind::DeliveryDelay | HandlerKind::WaterOutage | HandlerKind::WaterRestoration | HandlerKind::StaffRestoration => {
             tick.host.read_queue_rows()?;
-            let (name, done) = match native.kind {
-                HandlerKind::DeliveryDelay => ("delivery_delay", handlers::delivery_delay_event(cell, tick.host, row)),
-                HandlerKind::WaterOutage => ("water_outage", handlers::water_outage_event(cell, tick.host, row)),
-                HandlerKind::WaterRestoration => ("water_restoration", handlers::water_restoration_event(cell, tick.host, row)),
-                _ => ("staff_restoration", handlers::staff_restoration_event(cell, tick.host, row)),
+            let done = match native.kind {
+                HandlerKind::DeliveryDelay => handlers::delivery_delay_event(cell, tick.host, row),
+                HandlerKind::WaterOutage => handlers::water_outage_event(cell, tick.host, row),
+                HandlerKind::WaterRestoration => handlers::water_restoration_event(cell, tick.host, row),
+                _ => handlers::staff_restoration_event(cell, tick.host, row),
             };
-            counted(&handlers::COUNTS, name, done).map(|()| Handled::applied())
+            done.map(|()| Handled::applied())
         }
         HandlerKind::StaffUnavailability => staff_unavailability(tick, row),
         HandlerKind::StaffOperationArrival | HandlerKind::StaffOperationRelief | HandlerKind::StaffOperationCompletion => {
@@ -773,7 +652,7 @@ where
     Ok(Handled::applied())
 }
 
-/// `resource_service_cancel`, counted: the cancellation, and the reservation's new balance.
+/// `resource_service_cancel`: the cancellation, and the reservation's new balance.
 fn resource_service_cancellation<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R>, row: &EventRow) -> std::result::Result<Handled, H::Error>
 where
     H::Error: From<WriteError>,
@@ -781,7 +660,7 @@ where
     tick.world(|world| handlers::service_cancellation(world))?;
     let manager = service::manager_in(tick)?;
     let done = tick.cell.with(|world| service::cancel(world, &manager.manager(), row)).map_err(core_err::<H::Error>)?;
-    let done = counted(&handlers::COUNTS, "resource_service_cancel", done.map_err(|failure| service::failure_of::<H>(failure)));
+    let done = done.map_err(|failure| service::failure_of::<H>(failure));
     if let Some(balance) = done? {
         tick.resources_taken(balance)?;
     }
@@ -821,7 +700,7 @@ where
     Ok(Handled::Applied { records: Vec::new(), receipt })
 }
 
-/// `proximity_contact`, counted, under the proximity section of the configs.
+/// `proximity_contact`, under the proximity section of the configs.
 fn proximity_contact<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R>, row: &EventRow) -> std::result::Result<Handled, H::Error>
 where
     H::Error: From<WriteError>,
@@ -835,10 +714,10 @@ where
         let movement = holding.held(MOVEMENT, "the world holds another movement state");
         tick.world(|world| handlers::proximity(world, config.as_ref().as_ref(), &movement, row))
     })();
-    counted(&handlers::COUNTS, "proximity", result).map(|()| Handled::applied())
+    result.map(|()| Handled::applied())
 }
 
-/// A resource ledger operation, counted; its ledger's error is the handler's failure.
+/// A resource ledger operation; its ledger's error is the handler's failure.
 fn resource_ledger<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R>, native: &Native, row: &EventRow) -> std::result::Result<Handled, H::Error>
 where
     H::Error: From<WriteError>,
@@ -858,10 +737,10 @@ where
             Err(crate::rules::resources::Fail::Error(error)) => Err(error.into()),
         }
     })();
-    counted(&handlers::COUNTS, "resource_ledger", result).map(|()| Handled::applied())
+    result.map(|()| Handled::applied())
 }
 
-/// A facility outage or recovery, counted, with the records it made.
+/// A facility outage or recovery, with the records it made.
 fn facility_units<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R>, native: &Native, row: &EventRow) -> std::result::Result<Handled, H::Error>
 where
     H::Error: From<WriteError>,
@@ -874,26 +753,26 @@ where
         let inputs = handlers::FacilityIn { program: &program, infrastructure: &infrastructure, shared_absent: !holding.contains("shared_operations_v1") };
         tick.world(|world| handlers::facility_units(world, &inputs, row, restores))
     })();
-    let made = counted(&handlers::COUNTS, if restores { "facility_recovery" } else { "facility_outage" }, result)?;
+    let made = result?;
     Ok(Handled::records(made.into_iter().map(Record::from).collect()))
 }
 
-/// An infrastructure event, counted, with the records it made and its receipts.
+/// An infrastructure event, with the records it made and its receipts.
 fn infrastructure_event<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R>, row: &EventRow) -> std::result::Result<Handled, H::Error>
 where
     H::Error: From<WriteError>,
 {
     let cell = tick.cell;
-    let (kind, name) = counted(&handlers::COUNTS, "infrastructure", handlers::Infra::of(&row.event_type).map_err(core_err::<H::Error>))?;
+    let (kind, _) = handlers::Infra::of(&row.event_type).map_err(core_err::<H::Error>)?;
     tick.host.read_queue_rows()?;
-    let (previous, followed) = counted(&handlers::COUNTS, name, handlers::infrastructure_event(cell, tick.host, row, kind))?;
+    let (previous, followed) = handlers::infrastructure_event(cell, tick.host, row, kind)?;
     let receipts = handlers::infrastructure_after(cell, tick.host, &previous, row)?;
     let mut records: Vec<Record> = followed.into_iter().map(Record::from).collect();
     records.extend(receipts.into_iter().map(Record::from));
     Ok(Handled::records(records))
 }
 
-/// `staff_unavailable`, counted, reading again what it had not read.
+/// `staff_unavailable`, reading again what it had not read.
 fn staff_unavailability<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R>, row: &EventRow) -> std::result::Result<Handled, H::Error>
 where
     H::Error: From<WriteError>,
@@ -903,11 +782,11 @@ where
     let result = handlers::staff_unavailable_event(cell, tick.host, row);
     let result = read_again(tick, result, handlers::COOLDOWN_UNREAD, SectionId::SupportCooldownMinutes);
     let result = read_again(tick, result, operations::FORMULA_UNREAD, SectionId::StaffOperations);
-    let made = counted(&handlers::COUNTS, "staff_unavailable", result)?;
+    let made = result?;
     Ok(Handled::records(made.into_iter().map(Record::from).collect()))
 }
 
-/// An effect program's facility, environment, temporary space or geometry event, counted.
+/// An effect program's facility, environment, temporary space or geometry event.
 fn effect_program_event<C: WorldCell, H: Host, R: RunCell>(
     tick: &mut Tick<'_, C, H, R>,
     native: &Native,
@@ -918,21 +797,21 @@ where
 {
     let cell = tick.cell;
     let expire = read(native.expire())?;
-    let (name, result) = match native.kind {
-        HandlerKind::EffectProgramFacility => ("facility", effects::facility_event(cell, tick.host, row, expire)),
+    let result = match native.kind {
+        HandlerKind::EffectProgramFacility => effects::facility_event(cell, tick.host, row, expire),
         HandlerKind::EffectProgramEnvironment => {
             // The expiry events are read as rows of the queue.
             tick.host.read_queue_rows()?;
             let result = effects::environment_event(cell, tick.host, row, expire);
-            ("environment", read_again(tick, result, effects::CONFIG_UNREAD, SectionId::ZoneEnvironment))
+            read_again(tick, result, effects::CONFIG_UNREAD, SectionId::ZoneEnvironment)
         }
-        HandlerKind::EffectProgramTemporarySpace => ("temporary_space", effects::temporary_space_event(cell, tick.host, row, expire)),
-        _ => ("geometry", effects::geometry_event(cell, tick.host, row, expire)),
+        HandlerKind::EffectProgramTemporarySpace => effects::temporary_space_event(cell, tick.host, row, expire),
+        _ => effects::geometry_event(cell, tick.host, row, expire),
     };
-    counted(&effects::COUNTS, name, result).map(|()| Handled::applied())
+    result.map(|()| Handled::applied())
 }
 
-/// An effect program's change of the structure, counted, with the record it made.
+/// An effect program's change of the structure, with the record it made.
 fn effect_program_structure<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R>, row: &EventRow) -> std::result::Result<Handled, H::Error>
 where
     H::Error: From<WriteError>,
@@ -944,21 +823,21 @@ where
             structure
         })
     })?;
-    let (name, result): (&'static str, std::result::Result<Option<Made>, H::Error>) = match structure {
+    let result: std::result::Result<Option<Made>, H::Error> = match structure {
         effects::Structure::TaskOrder => {
             tick.host.read_queue_rows()?;
             let result = effects::task_order_event(cell, tick.host, row).map(|()| None);
-            ("structure.staff_task_order", read_again(tick, result, operations::FORMULA_UNREAD, SectionId::StaffOperations))
+            read_again(tick, result, operations::FORMULA_UNREAD, SectionId::StaffOperations)
         }
         effects::Structure::Handoff => {
             tick.host.read_queue_rows()?;
-            ("structure.staff_handoff", effects::handoff_event(cell, tick.host, row))
+            effects::handoff_event(cell, tick.host, row)
         }
-        effects::Structure::Repair => ("structure.facility_repair", effects::repair_event(cell, tick.host, row)),
-        effects::Structure::Role => ("structure.set_staff_role", effects::role_event(cell, tick.host, row).map(|()| None)),
-        effects::Structure::Add => ("structure.add", effects::add_event(cell, tick.host, row).map(|_| None)),
+        effects::Structure::Repair => effects::repair_event(cell, tick.host, row),
+        effects::Structure::Role => effects::role_event(cell, tick.host, row).map(|()| None),
+        effects::Structure::Add => effects::add_event(cell, tick.host, row).map(|_| None),
     };
-    let made = counted(&effects::COUNTS, name, result)?;
+    let made = result?;
     Ok(Handled::records(made.into_iter().map(Record::from).collect()))
 }
 
@@ -1037,7 +916,7 @@ where
             let holding = tick.holding()?;
             let gathered = tick.gathered(&holding, false, false)?;
             let planned = tick.world(|world| operations::arrive(world, &gathered.inputs(), row));
-            match counted(&handlers::COUNTS, "arrive", planned)? {
+            match planned? {
                 None => Ok(Handled::applied()),
                 Some(id) => stop_and_suppress(tick, &id, row, "staff became unavailable before reaching the assigned task"),
             }
@@ -1050,18 +929,18 @@ where
             let result = tick.cell.with(|world| operations::relief(world, &gathered.inputs(), row, &mut taken));
             tick.host.slots_changed(&taken)?;
             let result = result.map_err(core_err::<H::Error>).and_then(|written| tick.written(written));
-            let made = counted(&handlers::COUNTS, "relief", gathered.finish(result))?;
+            let made = gathered.finish(result)?;
             Ok(Handled::records(made.into_iter().map(Record::from).collect()))
         }
         _ => {
             let holding = tick.holding()?;
             let gathered = tick.gathered(&holding, false, false)?;
             let step = tick.world(|world| operations::complete_or_intake(world, &gathered.inputs(), row));
-            match counted(&handlers::COUNTS, "complete", step)? {
+            match step? {
                 operations::Completed::Done(made) => Ok(Handled::records(made.into_iter().map(Record::from).collect())),
                 operations::Completed::Unavailable(id) => stop_and_suppress(tick, &id, row, "staff became unavailable before completing the assigned task"),
                 operations::Completed::Intake(plan) => {
-                    counted(&handlers::COUNTS, "complete", population::check_waiting(tick.cell, tick.host))?;
+                    population::check_waiting(tick.cell, tick.host)?;
                     let minute = tick.world(|world| world.minute_index())?;
                     population::admit_arrivals(tick.cell, tick.host, minute)?;
                     let made = tick.world(|world| operations::write_complete(world, &gathered.inputs(), *plan))?;
@@ -1256,7 +1135,6 @@ fn after_events<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R>,
         record_applied(tick, &outcome.row)?;
     }
     if applied().any(|outcome| matches!(&*outcome.row.event_type, "effect_program_geometry" | "effect_program_geometry_expire" | "effect_program_structure")) {
-        count(&COUNTS.spaces_refreshed);
         // The Run's routers are of the old space: they are built again from the world's tables when
         // next asked (`Routes::refresh`, #368). The host's own views follow.
         tick.on_run(|run| run.routes.refresh())?;
@@ -1292,20 +1170,17 @@ fn record_applied<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R
             tick.cell.with(|world| action_lifecycle::complete_for_event(world, &mut run.actions, &ending, minute)).and_then(|done| done)
         });
         done.and_then(|done| done).map_err(|error| labelled("action_lifecycle.record_applied_action_completion", core_err::<H::Error>(error)))?;
-        count(&COUNTS.completion_ran);
     }
     if event_type == "effect_program_population" {
         let done = tick
             .run
             .with(|run| tick.cell.with(|world| action_lifecycle::population_exit(world, &mut run.actions, &row.event_id, minute)).and_then(|done| done));
         done.and_then(|done| done).map_err(|error| labelled("action_lifecycle.record_applied_population_exit", core_err::<H::Error>(error)))?;
-        count(&COUNTS.population_exit_ran);
     }
     if event_type == "agent_travel_complete" {
         if let (Some(agent_id), Some(facility_id)) = (text_of(row, "agent_id"), text_of(row, "facility_id")) {
             agent_dynamics::learn_facility_through(tick.cell, tick.host, Some(&agent_id), Some(&facility_id))
                 .map_err(|error| labelled("agent_dynamics.learn_facility", error))?;
-            count(&COUNTS.learn_ran);
         }
         if text_of(row, "purpose").as_deref() == Some("staff_support_travel") {
             let event = support_event(row, [true, false, true, false]);
@@ -1314,7 +1189,6 @@ fn record_applied<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R
                 let written = tick.cell.with(|world| support::record_started(world, &inputs, &event)).map_err(core_err::<H::Error>)?;
                 tick.written(written).map_err(|error| labelled("support.record_started", error))?;
             }
-            count(&COUNTS.started_ran);
         }
     }
     if event_type == "support_request_timeout" {
@@ -1324,7 +1198,6 @@ fn record_applied<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R
             let written = tick.cell.with(|world| support::record_interrupted(world, &inputs, &event)).map_err(core_err::<H::Error>)?;
             tick.written(written).map_err(|error| labelled("support.record_interrupted", error))?;
         }
-        count(&COUNTS.interrupted_ran);
     }
     Ok(())
 }
@@ -1340,7 +1213,6 @@ fn interrupt_trips<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, 
     tick.host.slots_changed(&taken)?;
     let result = result.map_err(core_err::<H::Error>).and_then(|written| tick.written(written));
     gathered.finish(result)?;
-    count(&COUNTS.trips_interrupted);
     Ok(())
 }
 
@@ -1358,7 +1230,6 @@ fn admit<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R>, return
     if nothing {
         return Ok(());
     }
-    count(if returns { &COUNTS.returns_asked } else { &COUNTS.arrivals_asked });
     let minute = tick.minute;
     if returns {
         population_lifecycle::admit_returns_through(tick.cell, tick.host, minute).map(drop)
@@ -1395,7 +1266,6 @@ pub fn sync_movement<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H
             Ok(ids)
         })
         .map_err(|error| labelled(SYNC, error))?;
-    count(&COUNTS.sync_ran);
     for id in ids {
         let stopped = tick
             .world(|world| {
@@ -1437,7 +1307,6 @@ fn finish_journey<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R
         None
     };
     movement::finish_through(tick.cell, tick.host, id).map_err(|error| labelled("movement.finish_movement", error))?;
-    count(&COUNTS.journeys_finished);
     let Some(bed) = bed else {
         return Ok(());
     };
@@ -1449,9 +1318,7 @@ fn finish_journey<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R
         };
         movement::place_at_bed_held(world, &holding, id, &zone_id, &bed)
     });
-    if placed.map_err(|error| labelled(SYNC, error))? {
-        count(&COUNTS.beds_placed);
-    }
+    placed.map_err(|error| labelled(SYNC, error))?;
     Ok(())
 }
 
@@ -1462,7 +1329,6 @@ pub fn consider_contact<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C
     if !tick.host.llm()?.social_policy {
         return Ok(());
     }
-    count(&COUNTS.contacts_considered);
     let (Some(sender_id), Some(recipient_id)) = (text_of(row, "sender_agent_id"), text_of(row, "recipient_agent_id")) else {
         return Ok(());
     };
@@ -1487,7 +1353,6 @@ pub fn consider_contact<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C
         return Ok(());
     };
     if same_household && stress >= stress_threshold(tick)? {
-        count(&COUNTS.cooperation_asked);
         tick.host.consider_cooperation(&sender_id, &recipient_id, &row.event_id)?;
     }
     let Some(message_id) = message_id else {
@@ -1509,7 +1374,6 @@ pub fn consider_contact<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C
         Ok(&*message.truth_status == "false" && &*belief.belief == "heard")
     })?;
     if reacts {
-        count(&COUNTS.reaction_asked);
         tick.host.consider_information_reaction(&recipient_id, &sender_id, &message_id, &row.event_id)?;
     }
     Ok(())

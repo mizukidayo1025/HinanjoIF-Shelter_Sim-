@@ -8,8 +8,7 @@
 //!
 //! Errors are the core's.
 
-use std::collections::BTreeMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use indexmap::IndexMap;
 
@@ -40,61 +39,6 @@ pub const PRESENCE: &str = "population_presence_v1";
 pub const DYNAMICS: &str = "population_dynamics_v1";
 /// The source of a population record whose profile names none.
 pub const POPULATION_SOURCE_ID: &str = "ASM-POPULATION-DYNAMICS-V1";
-
-// ---- What ran and what was refused --------------------------------------------------------------
-
-/// The counts a group of kernels keeps of what ran and what it refused, by label (`ran_counts`),
-/// which the tests read.
-pub struct Counts {
-    ran: Mutex<BTreeMap<&'static str, u64>>,
-    refusals: Mutex<BTreeMap<String, u64>>,
-}
-
-impl Counts {
-    pub const fn new() -> Self {
-        Self { ran: Mutex::new(BTreeMap::new()), refusals: Mutex::new(BTreeMap::new()) }
-    }
-
-    /// The kernel of this label ran to its end.
-    pub fn ran(&self, label: &'static str) {
-        if let Ok(mut ran) = self.ran.lock() {
-            *ran.entry(label).or_insert(0) += 1;
-        }
-    }
-
-    /// The kernel of this label refused, for this reason.
-    pub fn refused(&self, label: &'static str, reason: &str) {
-        if let Ok(mut refusals) = self.refusals.lock() {
-            *refusals.entry(format!("{label}: {reason}")).or_insert(0) += 1;
-        }
-    }
-
-    /// Count a kernel's result under its label: a refusal by its reason, any other error not at all.
-    pub fn counted<T>(&self, label: &'static str, result: Result<T>) -> Result<T> {
-        match &result {
-            Ok(_) => self.ran(label),
-            Err(Error::Unsupported(reason)) => self.refused(label, reason),
-            Err(_) => {}
-        }
-        result
-    }
-
-    /// `(label, times)` of what ran, in label order.
-    pub fn ran_counts(&self) -> Vec<(&'static str, u64)> {
-        self.ran.lock().map(|ran| ran.iter().map(|(label, times)| (*label, *times)).collect()).unwrap_or_default()
-    }
-
-    /// `("label: reason", times)` of what was refused, in that text's order.
-    pub fn refusal_counts(&self) -> Vec<(String, u64)> {
-        self.refusals.lock().map(|refusals| refusals.iter().map(|(reason, times)| (reason.clone(), *times)).collect()).unwrap_or_default()
-    }
-}
-
-impl Default for Counts {
-    fn default() -> Self {
-        Self::new()
-    }
-}
 
 // ---- Reading values -----------------------------------------------------------------------------
 

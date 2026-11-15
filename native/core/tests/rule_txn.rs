@@ -457,10 +457,8 @@ const FAILS: &str = "the changed world fails its check";
 // ---- The rule transaction --------------------------------------------------------------------------
 
 #[test]
-fn a_rule_transaction_checks_the_host_then_validates_twice_and_counts() {
+fn a_rule_transaction_checks_the_host_then_validates_twice() {
     let cell = Shard::new(world(None, Vec::new()));
-    let counts = |name: &str| txn::counts().iter().find(|(key, _)| *key == name).unwrap().1;
-    let in_place = counts("in_place");
     let mut host = Recording::default();
     let kept = txn::rule(&cell, &mut host, TxnKind::Effect, |cell, host| {
         assert_eq!(host.steps, ["check", "validate Effect World", "canonicalized", "validate Effect Candidate"]);
@@ -469,7 +467,6 @@ fn a_rule_transaction_checks_the_host_then_validates_twice_and_counts() {
     });
     assert_eq!(kept, Ok(3));
     assert_eq!(host.steps.last().map(String::as_str), Some("committed"));
-    assert!(counts("in_place") > in_place);
     assert_eq!(cell.with(|world| world.rows().unwrap().agents.get("a1").unwrap().stress).unwrap(), 0.7);
 
     // A refused check: nothing is validated, nothing changes.
@@ -494,11 +491,9 @@ fn a_rule_transaction_checks_the_host_then_validates_twice_and_counts() {
 fn a_rule_inside_an_open_transaction_validates_as_a_start_and_leaves_its_end_to_the_outer_one() {
     let cell = Shard::new(world(None, Vec::new()));
     let before = print(&cell);
-    let nested = || txn::counts().iter().find(|(key, _)| *key == "nested").unwrap().1;
     let mut host = Recording::default();
     let outer: Result<(), Fault> = txn::rule(&cell, &mut host, TxnKind::Full, |cell, host| {
         host.steps.clear();
-        let count = nested();
         // The inner rule asks for a rollback: what it wrote stays for the outer transaction.
         let inner = txn::rule(cell, host, TxnKind::Full, |cell, _| {
             cell.with(|world| world.scalars.get_mut().minute_index = Fit::Ok(55))?;
@@ -506,7 +501,6 @@ fn a_rule_inside_an_open_transaction_validates_as_a_start_and_leaves_its_end_to_
         });
         assert_eq!(inner, Ok(()));
         assert_eq!(host.steps, ["validate Full World", "validate Full Candidate"]);
-        assert!(nested() > count);
         assert_eq!(cell.with(|world| world.minute_index()).unwrap(), Ok(55));
         Err(Fault::Core(Error::failed("the outer rule fails")))
     });

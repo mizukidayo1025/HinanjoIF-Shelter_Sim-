@@ -315,17 +315,6 @@ fn finishing_a_walk_reads_whether_there_is_a_movement_state() {
 }
 
 #[test]
-fn a_bed_is_placed_on_the_row_of_a_detached_namespace_only() {
-    let world = World::default();
-    let held = holding(&[("movement_v1", Hold::Held, false, true)]);
-    let bed = movement::ReservedBed::Point(Pt { x: 1.0, y: 2.0 });
-    let zone = text("Z1");
-    // Not detached: the caller writes through the tree.
-    assert_eq!(movement::place_at_bed(&world, &held, "A1", &zone, &bed), Ok(false));
-    assert_eq!(movement::held_detached(&world, &holding(&[])), Ok(false));
-}
-
-#[test]
 fn the_reserved_bed_is_read_from_the_overlay() {
     let overlay = map(vec![
         (

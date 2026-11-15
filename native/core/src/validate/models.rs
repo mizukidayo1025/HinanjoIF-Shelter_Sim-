@@ -1,4 +1,4 @@
-//! The pydantic models `WorldState.validate` reads, built with the contracts' pydantic
+//! The pydantic models the world's validation reads, built with the contracts' pydantic
 //! (`contracts::pydantic`, #346): `ResourceServiceConfig` (`experiments/scenario.py`), whose
 //! `ValidationError` text a refusal shows, and `PresenceState` (the contract of
 //! `population_presence_v1`), of which only whether it passes counts.

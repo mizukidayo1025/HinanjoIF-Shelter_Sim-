@@ -1,8 +1,8 @@
-//! The information_spread block of `WorldState.validate`, with its errors and texts:
+//! The information_spread block of the world's validation, with its errors and texts:
 //! `InformationSpreadConfig.from_mapping` and its canonical form (as in
 //! `scenario_authoring/configs/models.py`), and the check of `information_spread_v1` with its
 //! messages (`TypedMessage.from_dict`) and each person's state (`AgentInformationState.from_dict`).
-//! It raises the `StateInvariantError`s of `WorldState.validate` itself, its own wrapping included.
+//! It raises the `StateInvariantError`s of the validation itself, its own wrapping included.
 
 use std::collections::HashSet;
 use std::sync::Arc;

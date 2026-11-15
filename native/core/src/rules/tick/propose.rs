@@ -229,7 +229,7 @@ pub fn router<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R>, w
     tick.on_run(|run| run.routes.keep(which, epoch, router))
 }
 
-/// A refusal as the KernelRefusal of `label`; any other error as it is.
+/// A refusal as the `Error::Refused` of `label`; any other error as it is.
 pub fn refused<E: crate::host::HostFailure + From<Error>>(label: &'static str, error: E) -> E {
     match is_refusal(&error) {
         Some(reason) => Error::Refused { label: label.to_owned(), reason: reason.into() }.into(),

@@ -54,8 +54,8 @@ pub fn validate(which: &Contract, input: &V) -> Result<V> {
 
 // ---- The contracts the world's validation reads (#351) --------------------------------------------
 
-/// A model `WorldState.validate` reads a world's values with (`validate::zone_environment`,
-/// `validate::effect_program`).
+/// A model the world's validation (`validate::world`) reads a world's values with
+/// (`validate::zone_environment`, `validate::effect_program`).
 pub enum Checked {
     /// `ScenarioZoneEnvironmentConfig`.
     ZoneEnvironment,

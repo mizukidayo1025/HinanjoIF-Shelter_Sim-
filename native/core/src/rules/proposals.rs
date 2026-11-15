@@ -947,7 +947,7 @@ fn plain(error: WriteError) -> Error {
 }
 
 /// `append_applied_care_transition` of the receipt of a request closed at once, as its entry does
-/// it: nothing without the namespace, and a refusal is that entry's KernelRefusal.
+/// it: nothing without the namespace, and a refusal is that entry's `Error::Refused`.
 fn append_interrupted(world: &mut World, shared: &Held, transition: Transition) -> Result<()> {
     let appended = match shared {
         Held::Absent => Ok(()),

@@ -297,11 +297,12 @@ impl World {
         }
     }
 
-    /// Put the world in the order `WorldState.from_dict(world.to_dict())` gives it (design §1.3
-    /// F1, lane 6-2): each table of entities by the entity's ID (`Entities::canonicalize`), the
-    /// keys of every map of every row sorted (`Row::canonicalize`), the queue scheduled again in
-    /// queue order under new serials (`Queue::canonicalize`). Every slot gets a new stamp, as
-    /// every namespace of a new world has one; the scalars and the log are as they were.
+    /// Put the world in its canonical order, the order a world read back from its own document has
+    /// (design §1.3 F1, lane 6-2): each table of entities by the entity's ID
+    /// (`Entities::canonicalize`), the keys of every map of every row sorted (`Row::canonicalize`),
+    /// the queue scheduled again in queue order under new serials (`Queue::canonicalize`). Every
+    /// slot gets a new stamp, as every namespace of a new world has one; the scalars and the log
+    /// are as they were.
     pub fn canonicalize(&mut self) {
         self.entities.get_mut().canonicalize();
         self.queue.get_mut().canonicalize();

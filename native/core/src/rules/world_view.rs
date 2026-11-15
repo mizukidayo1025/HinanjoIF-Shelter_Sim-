@@ -12,9 +12,9 @@
 //! `operational_events_v1`, `infrastructure_v1`, `population_context_v1`, `population_dynamics_v1`,
 //! `population_presence_v1` and `zone_environment_v1` as `V`. A tainted namespace (a value its row
 //! cannot hold) is refused where it is read. Anything this module is not sure of says `Unsupported`
-//! before anything has changed, and the phase's step raises KernelRefusal. A value of another type
-//! than the view's fields hold is refused too: a typed field here could not keep it, and `1` and
-//! `1.0` would hash differently.
+//! before anything has changed, and the phase's step gives it as an `Error::Refused`. A value of
+//! another type than the view's fields hold is refused too: a typed field here could not keep it,
+//! and `1` and `1.0` would hash differently.
 //!
 //! A person's context is parsed by `person_context.rs`, and a zone's conditions come from
 //! `zone_environment.rs`; what they make is kept in a `ViewCache` (on the controller's `Run`) while

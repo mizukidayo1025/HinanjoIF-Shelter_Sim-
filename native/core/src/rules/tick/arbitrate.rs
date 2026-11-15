@@ -165,7 +165,7 @@ impl<C: WorldCell, H: Host, R: RunCell> Tick<'_, C, H, R> {
     }
 
     /// The staff rules' write result: a step's refusal where the floor plan could not be read is
-    /// what reading it raised, as that step's `KernelRefusal` (`finish` of the staff glue).
+    /// what reading it raised, as that step's `Error::Refused` (`finish` of the staff glue).
     fn staff_written<T>(&mut self, result: WriteResult<T>) -> std::result::Result<T, H::Error> {
         let result = match result {
             Err(WriteError::Error(Error::Refused { label, reason })) if reason == PLAN_UNREAD || reason == SNAPSHOT_PLAN_UNREAD => match self.host.floor_plan()

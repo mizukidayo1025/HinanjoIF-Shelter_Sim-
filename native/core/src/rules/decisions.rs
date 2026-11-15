@@ -33,9 +33,9 @@ pub const TRIGGER: &str = "scheduled_decision";
 /// within the 16,384 of `record_decision`. A longer one is left to the host
 /// (`Host::record_host_decision`).
 pub const MAX_OBSERVED_BYTES: usize = 8192;
-/// The label of the KernelRefusal of the lifecycle's rule.
+/// The label of the refusal of the lifecycle's rule.
 pub const LIFECYCLE: &str = "action_lifecycle.record_action_proposal";
-/// The label of the KernelRefusal of the memory's rule.
+/// The label of the refusal of the memory's rule.
 pub const MEMORY: &str = "agent_dynamics.record_proposal";
 
 /// What a decision observed (`observed_state` of the step).

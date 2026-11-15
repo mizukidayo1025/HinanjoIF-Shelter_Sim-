@@ -1,7 +1,7 @@
-//! The event rules of `WorldState.validate`, with their errors and texts: the ID
+//! The event rules of the world's validation, with their errors and texts: the ID
 //! counters, `EventQueue.validate`, `EventLog.validate` (the audit of the realization times, with
 //! the history), and the pending events against the log and the clock. It raises the
-//! `StateInvariantError`s of `WorldState.validate` itself.
+//! `StateInvariantError`s of the validation itself.
 //!
 //! The queue and the log of the core cannot hold an ID or a sequence twice (the loader refuses
 //! such a document), so `EventQueue.validate`'s refusals and the typed containers' check are

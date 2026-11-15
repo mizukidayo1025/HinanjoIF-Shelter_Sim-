@@ -294,8 +294,9 @@ pub fn record_started(world: &mut World, inputs: &Inputs, event: &SupportEvent) 
 }
 
 /// `_record_assigned_support`: the receipts of the requests just assigned, in the order given. What
-/// it writes is not undone, so a refusal past the first change is the care receipts' `KernelRefusal`
-/// (`care_receipts.append_transition`), and one of the person's sources is the caller's.
+/// it writes is not undone, so a refusal past the first change is the care receipts'
+/// `Error::Refused` (`care_receipts.append_transition`), and one of the person's sources is the
+/// caller's.
 pub fn record_assigned(world: &mut World, inputs: &Inputs, assigned: &[Arc<str>]) -> WriteResult<()> {
     for id in assigned {
         let prior = match &inputs.shared {
@@ -342,7 +343,7 @@ pub fn record_assigned(world: &mut World, inputs: &Inputs, assigned: &[Arc<str>]
 }
 
 /// `append_applied_care_transition` of a step past its first change: nothing without the
-/// namespace, and a refusal is that rule's `KernelRefusal`.
+/// namespace, and a refusal is that rule's `Error::Refused`.
 fn append_applied(world: &mut World, inputs: &Inputs, transition: Transition) -> WriteResult<()> {
     let done = match &inputs.shared {
         Held::Absent => Ok(()),

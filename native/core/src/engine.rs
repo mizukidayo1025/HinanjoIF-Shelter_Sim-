@@ -200,7 +200,7 @@ pub fn tick_at<'a, H: Host>(loaded: &'a Loaded, host: &'a mut H, minute: i64) ->
     }
 }
 
-/// `TickEngine.step`: `run_tick` at the world's minute, the minute moved on, the check. The minute
+/// One tick of a Run: `run_tick` at the world's minute, the minute moved on, the check. The minute
 /// the tick ran at.
 pub fn step<H: Host>(loaded: &Loaded, host: &mut H, stepping: &mut Stepping) -> std::result::Result<i64, StepError<H::Error>> {
     let cell = &loaded.cell;

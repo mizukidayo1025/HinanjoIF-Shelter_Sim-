@@ -1,4 +1,4 @@
-//! The resource ledger block of `WorldState.validate`: the identity history of
+//! The resource ledger block of the world's validation: the identity history of
 //! `population_dynamics_v1`, then the ledger's check (with the history: the whole audit trail
 //! replayed; without: the balances and the records of the last tick), with its errors and texts.
 //! `validate::world` calls it only where `resource_ledger_v1` is in `model_state`, and makes a

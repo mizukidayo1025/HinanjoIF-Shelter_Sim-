@@ -26,7 +26,7 @@
 //! not have (not the same as `Option<T>`, a key holding None), and `str_enum!` for a closed set of
 //! strings.
 //!
-//! `canonicalize` puts a row in the order `WorldState.from_dict(world.to_dict())` gives its tree
+//! `canonicalize` puts a row in its canonical order (`World::canonicalize`)
 //! (lane 6-2, design-p5-p6.md §1.3 F1): the keys of every map sorted by their bytes, as
 //! `json.dumps(sort_keys=True)` sorts str by code point; lists and the fields of a record keep
 //! their order. A transaction does it at its start (`World::canonicalize`), so the kernels that

@@ -55,7 +55,7 @@ const MAX_HISTORY: usize = 20_000;
 const RELIEF_POLICY: &str = "same-site-staff-relief-v1";
 const RELIEF_SOURCE: &str = "ASM-STAFF-RELIEF-V1";
 
-/// The label of the `KernelRefusal` of `staff_position_snapshots`.
+/// The label of the refusal of `staff_position_snapshots`.
 pub const SNAPSHOTS: &str = "movement.staff_position_snapshots";
 /// The refusal of a rule that reads the staff operations formula the host could not read: the
 /// caller gives what the read gave, where the rule read it (`Host::read_again`).
@@ -341,7 +341,7 @@ fn suppress(events: &Events<'_>, pending: &[Arc<EventRow>], minute: i64, detail:
 
 /// `staff_position_snapshots(world, boundary_minute=boundary)` where `model_state` holds
 /// `movement_v1`: the staff positions at the boundary written, and every one in ID order. A
-/// refusal is the snapshot's `KernelRefusal`, but for `SNAPSHOT_PLAN_UNREAD`.
+/// refusal is the snapshot's `Error::Refused`, but for `SNAPSHOT_PLAN_UNREAD`.
 pub fn snapshots(world: &World, inputs: &Inputs<'_>, boundary: i64) -> Result<Vec<(Arc<str>, Position)>> {
     let run = || -> Result<Vec<(Arc<str>, Position)>> {
         if let Held::Other(reason) = inputs.movement {

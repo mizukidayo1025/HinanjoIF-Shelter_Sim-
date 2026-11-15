@@ -6,7 +6,7 @@
 //! (`crate::load::loaded`) and the browser's `Simulation` take those bytes.
 //!
 //! The core makes the whole entry of any Scenario (#429): the rows, the event queue, every
-//! namespace (`namespaces`: `WorldState.from_scenario`, `initialize_simulator_extensions` and
+//! namespace (`namespaces`: `from_scenario`, `initialize_simulator_extensions` and
 //! `initialize_declared_states`, in this order), then `world.validate()`
 //! (`crate::validate::world`); the sections the host parses (`sections`); the Run's policies
 //! (`policies`), its route capacities and its zone neighbors. An error is the first one met, with
@@ -312,7 +312,7 @@ fn put_row<T: Row>(world: &mut World, name: &str, row: T) -> Result<()> {
     Ok(())
 }
 
-/// `WorldState.from_scenario` and the controller's set-up: the World at minute 0.
+/// The Scenario's world and the controller's set-up: the World at minute 0.
 fn build_world(scenario: &Scenario) -> Result<World> {
     let mut world = World::default();
     let schema_version = if scenario.configs.contains_key("resource_service") { 6 } else { 5 };
@@ -389,9 +389,9 @@ fn zone_neighbors(scenario: &Scenario) -> V {
     )
 }
 
-/// The entry of the Scenario's world at minute 0 (`export_world(world, controller)`), as the
-/// browser's sample writes it: `json.dumps(entry, sort_keys=True, ensure_ascii=False,
-/// separators=(",", ":"))`.
+/// The entry of the Scenario's world at minute 0, which a Run loads (`load::loaded`, `PlainRun`),
+/// written as `json.dumps(entry, sort_keys=True, ensure_ascii=False, separators=(",", ":"))`
+/// writes it.
 pub fn entry(scenario: &[u8]) -> Result<Vec<u8>> {
     let scenario = read_scenario(scenario)?;
     let world = build_world(&scenario)?;

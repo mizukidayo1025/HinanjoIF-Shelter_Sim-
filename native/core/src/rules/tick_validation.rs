@@ -1,8 +1,8 @@
-//! The entity and event rules of `WorldState.validate` at the end of a tick, in one call: the keys
-//! and IDs, zone edges, people, facilities and their queues, active tasks, staff, the support
-//! requests the memo has not settled, the inventory, the ID counters and the event queue. And the
-//! validators of two namespaces the population rules declare: `population_dynamics_v1` with no one
-//! pending, and `population_presence_v1`.
+//! The entity and event rules of the world's validation (`validate::world`) at the end of a tick,
+//! in one call: the keys and IDs, zone edges, people, facilities and their queues, active tasks,
+//! staff, the support requests the memo has not settled, the inventory, the ID counters and the
+//! event queue. And the validators of two namespaces the population rules declare:
+//! `population_dynamics_v1` with no one pending, and `population_presence_v1`.
 //!
 //! This holds no error text. It returns only if every rule passes, and anything else, including
 //! what the rules would accept but is not plain, is a refusal (`Error::Unsupported`): the

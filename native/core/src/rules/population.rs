@@ -7,8 +7,8 @@
 //! `AgentProfile`, `InitialNeedProfile`, `NeedState`, `AgentState` and `Mobility` make of a saved
 //! profile, with their `ValueError`s.
 //!
-//! Each rule plans, refusing with `Unsupported` before its first write what no valid input holds (a
-//! `KernelRefusal`), and then writes. A rule that raises its text after some writes (`_state`
+//! Each rule plans, refusing with `Unsupported` before its first write what no valid input holds
+//! (an `Error::Refused`), and then writes. A rule that raises its text after some writes (`_state`
 //! making its state, a text of an arrival's item, a completion without its presence) makes the same
 //! writes first. The texts (`EventSuppressed`, `EventApplicationError`, the validation's
 //! `ValueError`s) are saved data, in their order of checks.
@@ -3302,8 +3302,8 @@ pub fn validate(world: &World, inputs: &Inputs) -> Result<()> {
     })
 }
 
-/// `validate_population_dynamics_state`: its ValueErrors in its order of checks. Unsupported (a
-/// `KernelRefusal`) for what the contracts `PersonContext` and `PersonTraits` decide (the plain
+/// `validate_population_dynamics_state`: its ValueErrors in its order of checks. Unsupported (an
+/// `Error::Refused`) for what the contracts `PersonContext` and `PersonTraits` decide (the plain
 /// forms a generated arrival has are read here) and for values of other types than a run writes.
 pub fn validate_facts(facts: &Facts<'_>) -> Result<()> {
     let state = match facts.state {

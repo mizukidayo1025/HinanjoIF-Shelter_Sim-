@@ -15,7 +15,7 @@
 //! which gives back `model_dump(mode="json")`: a check reads that, and the change writes it.
 //!
 //! A rule raises the texts its callers save or show (a `ValueError`), and says Unsupported (a
-//! `KernelRefusal`) only for an input outside its contract (a state of another shape).
+//! labelled `Error::Refused`) only for an input outside its contract (a state of another shape).
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;

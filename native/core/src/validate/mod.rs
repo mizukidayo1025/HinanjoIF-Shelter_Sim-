@@ -55,7 +55,7 @@ use crate::host::{ErrorClass, HostFailure};
 use crate::text::py_repr;
 use crate::world::World;
 
-/// What `WorldState.validate` is asked: its keyword arguments.
+/// What the world's validation is asked.
 #[derive(Clone, Copy, Debug)]
 pub struct Options<'a> {
     /// `validate_event_history` (True by default).
@@ -111,7 +111,7 @@ pub fn extensions(world: &World, history: bool) -> Result<()> {
 }
 
 /// `_txn_validate(world, candidate=True)`: `world.validate()`, an error other than a
-/// `StateInvariantError` wrapped as `WorldState.from_dict` wraps it.
+/// `StateInvariantError` wrapped as reading a world document wraps it.
 pub fn candidate(world: &World) -> Result<()> {
     match self::world(world, &Options::default()) {
         Err(error) if !is_invariant(&error) && (is_value_error(&error) || matches!(error, Error::Key(_) | Error::Type(_))) => {
@@ -121,7 +121,7 @@ pub fn candidate(world: &World) -> Result<()> {
     }
 }
 
-// ---- WorldState.validate --------------------------------------------------------------------------
+// ---- The validation -----------------------------------------------------------------------------
 
 /// The keys of `model_state` whose presence has `validate` check the extensions.
 const EXTENSION_KEYS: [&str; 9] = [
@@ -139,7 +139,7 @@ const EXTENSION_KEYS: [&str; 9] = [
 const SHARED_OPERATIONS: &str = "shared_operations_v1";
 const LEDGER: &str = "resource_ledger_v1";
 
-/// `WorldState.validate`, its parts in their order.
+/// The world's validation, its parts in their order.
 fn validate(view: &View<'_>) -> Result<()> {
     let version = view.schema_version()?;
     if version != 5 && version != 6 {

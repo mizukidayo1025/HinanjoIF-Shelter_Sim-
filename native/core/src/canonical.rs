@@ -261,7 +261,7 @@ pub fn digests_json(digests: &[(&str, String)]) -> Vec<u8> {
     encoder.out
 }
 
-/// `WorldState.canonical_json()` of the world, with its `rng_state` (the document's).
+/// The world's canonical JSON, with its `rng_state` (the document's).
 pub fn canonical_json(world: &World, rng_state: &V) -> Result<Vec<u8>> {
     let mut rng = Encoder::with_capacity(64);
     rng_state.write_json(&mut rng)?;

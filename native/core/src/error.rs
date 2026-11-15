@@ -30,7 +30,7 @@ pub enum Error {
     /// `Unsupported(reason)`: a case the core does not run (`sheltersim_native.Unsupported` in
     /// the PyO3 crate).
     Unsupported(Cow<'static, str>),
-    /// `KernelRefusal`: `{label} refused: {reason}` (`refused_text`), made of an
+    /// A labelled refusal: `{label} refused: {reason}` (`refused_text`), made of an
     /// `Unsupported(reason)` by `Error::refused` (lane L10). `label` is `module.name` of the
     /// kernel.
     Refused { label: String, reason: Cow<'static, str> },
@@ -67,7 +67,7 @@ pub enum Error {
     Clock,
 }
 
-/// The text of `Error::Clock`, as `TickEngine` and the tick driver raise it.
+/// The text of `Error::Clock`, as the tick driver raises it (`rules::tick::clock`).
 pub const CLOCK: &str = "tick phase attempted to change the engine-owned clock";
 
 /// What the core's fallible calls return.
@@ -93,7 +93,7 @@ impl Error {
         Error::Unsupported(reason)
     }
 
-    /// A refusal made a `KernelRefusal` that names the kernel; any other error goes on as it is.
+    /// A refusal made an `Error::Refused` that names the kernel; any other error goes on as it is.
     pub fn refused(label: impl Into<String>, error: Error) -> Self {
         match error {
             Error::Unsupported(reason) => Error::Refused { label: label.into(), reason },

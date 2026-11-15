@@ -183,8 +183,8 @@ impl Queue {
         self.ordered[..end].iter().map(|(_, serial)| self.slots[serial].event_id.clone()).collect()
     }
 
-    /// The queue `EventQueue([...pending...])` makes of the pending events, as
-    /// `WorldState.from_dict(world.to_dict())` does (design §1.3 F1, F3; lane 6-2): scheduled in
+    /// The queue made anew of the pending events, as a world read back from its document has it
+    /// (design §1.3 F1, F3; lane 6-2): scheduled in
     /// queue order, each under a new serial past every serial given before (so a due snapshot
     /// taken earlier finds every event changed), with the keys of its payload and provenance
     /// sorted. A slot keeps its row, if it has one. Returns each old serial with its new one, in

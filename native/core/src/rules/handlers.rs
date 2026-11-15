@@ -2257,7 +2257,7 @@ fn counted_by<T, E: HostFailure>(label: &'static str, result: std::result::Resul
     result
 }
 
-/// A population rule's refusal as the `KernelRefusal` named by its label (`label`).
+/// A population rule's refusal as the `Error::Refused` named by its label (`label`).
 fn rule_refusal<E: HostFailure + From<Error>>(label: &'static str, error: E) -> E {
     if error.class() == crate::host::ErrorClass::Refused {
         return Error::Refused { label: label.to_owned(), reason: error.text().into() }.into();

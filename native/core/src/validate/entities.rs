@@ -1,9 +1,9 @@
-//! The entity rules and the zones' capacity of `WorldState.validate`, with their errors and texts:
+//! The entity rules and the zones' capacity of the world's validation, with their errors and texts:
 //! the clock, the seed, the entity maps, the zone edges, the route capacities, the Agents, the
 //! zones' capacity, the facilities and their queues, the tasks and the events that serve them, the
 //! staff, the support requests and the stocks.
 //!
-//! Lane C of #250 (#348). It raises the `StateInvariantError`s of `WorldState.validate` itself, and
+//! Lane C of #250 (#348). It raises the `StateInvariantError`s of the validation itself, and
 //! the `KeyError` or `TypeError` of reading a broken namespace (`state_part`) as they are.
 //! `rules/tick_validation.rs` holds the same rules without texts (pass or refuse), for the end of a
 //! tick.
@@ -595,7 +595,7 @@ impl<'a> Tasks<'a> {
                 _ => return invariant(format!("resource service task {id} needs one matching completion event")),
             };
             let reservation = ledger_reservation(view, water, &task.id)?;
-            // A v6 world has the config: `WorldState.validate` refused one without it before.
+            // A v6 world has the config: the validation refused one without it before.
             let Some(config) = service else {
                 return Err(Error::unsupported("a resource service task without the resource service config"));
             };

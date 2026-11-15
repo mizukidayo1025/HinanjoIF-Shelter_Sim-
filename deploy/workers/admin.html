@@ -178,13 +178,13 @@
         <h2 id="key-heading">管理用の鍵</h2>
         <form id="key-form">
           <input id="key" type="password" autocomplete="off" spellcheck="false" aria-label="管理用の鍵" required />
-          <button class="primary" type="submit">一覧を読む</button>
+          <button class="primary" type="submit">鍵を確かめる</button>
           <button id="forget" type="button">鍵を消す</button>
         </form>
         <p id="key-note" class="note" role="status"></p>
       </section>
 
-      <section aria-labelledby="issue-heading">
+      <section id="issue-section" aria-labelledby="issue-heading" hidden>
         <h2 id="issue-heading">合言葉を発行する</h2>
         <form id="issue-form">
           <input id="label" type="text" maxlength="40" autocomplete="off" placeholder="相手の名前（例：審査員A）" aria-label="相手の名前" required />
@@ -199,9 +199,9 @@
         </div>
       </section>
 
-      <section aria-labelledby="list-heading">
+      <section id="list-section" aria-labelledby="list-heading" hidden>
         <h2 id="list-heading">相手の一覧</h2>
-        <p id="summary" class="fine">管理用の鍵を入れて「一覧を読む」を押すと表示します。</p>
+        <p id="summary" class="fine">読んでいます…</p>
         <table id="list" hidden>
           <thead>
             <tr>
@@ -234,6 +234,18 @@
           adminKey = value;
           document.querySelector("#issue-form button").disabled = !adminKey;
         }
+        // Issuing and the list show only once the relay has taken the key; a key it refuses, or
+        // one forgotten, hides them again with what they showed.
+        function unlock(on) {
+          $("issue-section").hidden = !on;
+          $("list-section").hidden = !on;
+          if (on) return;
+          $("rows").replaceChildren();
+          $("list").hidden = true;
+          $("issued").hidden = true;
+          $("issued-passphrase").textContent = "";
+          note("issue-note", "");
+        }
         async function call(route, body = {}) {
           let response;
           try {
@@ -254,7 +266,10 @@
           }
           if (!response.ok) {
             // A refused key is not kept: it is typed again.
-            if (response.status === 401) setKey("");
+            if (response.status === 401) {
+              setKey("");
+              unlock(false);
+            }
             throw new Error(data?.error || `このサイトでは管理できません（HTTP ${response.status}）。`);
           }
           return data;
@@ -317,6 +332,7 @@
           note("key-note", "読んでいます…");
           try {
             await load();
+            unlock(true);
             note("key-note", "鍵を確かめました。", "ok");
           } catch (error) {
             note("key-note", error.message, "error");
@@ -324,12 +340,9 @@
         });
         $("forget").addEventListener("click", () => {
           setKey("");
+          unlock(false);
           $("key").value = "";
-          $("rows").replaceChildren();
-          $("list").hidden = true;
-          $("issued").hidden = true;
-          $("issued-passphrase").textContent = "";
-          $("summary").textContent = "管理用の鍵を入れて「一覧を読む」を押すと表示します。";
+          $("summary").textContent = "読んでいます…";
           note("key-note", "鍵を消しました。");
         });
         $("issue-form").addEventListener("submit", async (event) => {

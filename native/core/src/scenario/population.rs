@@ -778,6 +778,75 @@ pub fn generate_population(input: &PopulationInput) -> Result<GeneratedPopulatio
 
     // `HouseholdGenerator.group_indices`.
     let count = input.count as usize;
+    let (household_sizes, household_of) = group_households(count, &draws, &mix);
+    // `HouseholdGenerator.choose_templates`: households are already in the order of their IDs.
+    let chosen = choose_templates(&household_sizes, &household_composition, &draws)?;
+    check_template_bands(&bands, &chosen)?;
+
+    let (source_ids, declared_household_source_ids, operator_composition) = population_source_ids(&bands, &mix, &household_composition);
+
+    let HouseholdLinks {
+        household_members,
+        pattern_of,
+        relationships,
+        child_caregivers,
+        support_caregivers,
+        support_required_by_relationship,
+        explicit_dependents,
+    } = household_links(count, &household_sizes, &household_of, &chosen, profiles, &household_composition);
+
+    let mut ages = vec![0i64; count];
+    for (household, members) in household_members.iter().enumerate() {
+        for (index, age) in sample_household_ages(members, profiles, chosen[household], &bands, &evacuee, &draws)? {
+            ages[index] = age;
+        }
+    }
+
+    let (updated_profiles, people, requirements) = people_and_requirements(PersonContext {
+        count,
+        profiles,
+        household_of: &household_of,
+        household_sizes: &household_sizes,
+        ages: &ages,
+        pattern_of: &pattern_of,
+        child_caregivers: &child_caregivers,
+        support_caregivers: &support_caregivers,
+        support_required_by_relationship: &support_required_by_relationship,
+        explicit_dependents: &explicit_dependents,
+        language_weights: &language_weights,
+        source_ids: &source_ids,
+    })?;
+
+    let (mut assumptions, mut sources) = standard_assumptions(age_assumed, household_assumed, &mix, &language_weights, &bands);
+    let unselected_template_ids = template_assumptions(&chosen, &household_composition, operator_composition, &people, &mut assumptions, &mut sources)?;
+    trait_and_declared_sources(&template, &household_composition, operator_composition, &declared_household_source_ids, &mut assumptions, &mut sources);
+
+    let household_template_ids = chosen
+        .iter()
+        .enumerate()
+        .filter_map(|(household, template)| template.map(|item| (household_sizes[household].0.clone(), item.template_id.clone())))
+        .collect();
+    Ok(GeneratedPopulation {
+        profile_set: ProfileSet { profiles: updated_profiles, manifest: profile_set.manifest.clone() },
+        people,
+        source_ids,
+        household_sizes,
+        age_bands: bands,
+        resident_age_distribution: resident,
+        evacuee_age_distribution: evacuee,
+        household_mix: mix,
+        household_relationships: relationships,
+        household_template_ids,
+        unselected_template_ids,
+        household_composition,
+        person_requirements: requirements,
+        assumptions,
+        sources,
+    })
+}
+
+/// `HouseholdGenerator.group_indices`: each household's ID and size, and each person's household.
+fn group_households(count: usize, draws: &KeyedDraws, mix: &HouseholdSizeMix) -> (Vec<(String, i64)>, Vec<usize>) {
     let mut household_sizes: Vec<(String, i64)> = Vec::new();
     let mut household_of: Vec<usize> = Vec::with_capacity(count);
     let mut index = 0usize;
@@ -789,7 +858,15 @@ pub fn generate_population(input: &PopulationInput) -> Result<GeneratedPopulatio
         household_sizes.push((format!("H{:06}", household_sizes.len() + 1), size as i64));
         index += size;
     }
-    // `HouseholdGenerator.choose_templates`: households are already in the order of their IDs.
+    (household_sizes, household_of)
+}
+
+/// `HouseholdGenerator.choose_templates`: each household's template, drawn among those of its size.
+fn choose_templates<'t>(
+    household_sizes: &[(String, i64)],
+    household_composition: &'t Option<HouseholdComposition>,
+    draws: &KeyedDraws,
+) -> Result<Vec<Option<&'t HouseholdTemplate>>, String> {
     let mut chosen: Vec<Option<&HouseholdTemplate>> = vec![None; household_sizes.len()];
     if let Some(composition) = household_composition.as_ref() {
         for (number, (_, size)) in household_sizes.iter().enumerate() {
@@ -803,6 +880,11 @@ pub fn generate_population(input: &PopulationInput) -> Result<GeneratedPopulatio
             chosen[number] = candidates.into_iter().find(|item| item.template_id == template_id);
         }
     }
+    Ok(chosen)
+}
+
+/// Refuses chosen templates that name an age band the bands do not have.
+fn check_template_bands(bands: &[AgeBand], chosen: &[Option<&HouseholdTemplate>]) -> Result<(), String> {
     let band_labels: BTreeSet<&str> = bands.iter().map(|band| band.label.as_str()).collect();
     let unknown: BTreeSet<&str> = chosen
         .iter()
@@ -814,7 +896,16 @@ pub fn generate_population(input: &PopulationInput) -> Result<GeneratedPopulatio
     if !unknown.is_empty() {
         return Err(format!("household template references unknown age bands: {}", unknown.into_iter().collect::<Vec<_>>().join(", ")));
     }
+    Ok(())
+}
 
+/// The people's source IDs, the household composition's declared source IDs, and whether the
+/// composition is the operator's.
+fn population_source_ids(
+    bands: &[AgeBand],
+    mix: &HouseholdSizeMix,
+    household_composition: &Option<HouseholdComposition>,
+) -> (Vec<String>, BTreeSet<String>, bool) {
     let mut source_id_set: BTreeSet<String> = bands.iter().flat_map(|band| band.source_ids.iter().cloned()).collect();
     source_id_set.extend(mix.source_ids.iter().cloned());
     source_id_set.insert(SYNTHETIC_TRAIT_ASSUMPTION_ID.into());
@@ -838,7 +929,30 @@ pub fn generate_population(input: &PopulationInput) -> Result<GeneratedPopulatio
         source_id_set.insert(OPERATOR_POPULATION_SOURCE_ID.into());
     }
     let source_ids: Vec<String> = source_id_set.into_iter().collect();
+    (source_ids, declared_household_source_ids, operator_composition)
+}
 
+/// What the chosen templates declare of each household: its members, each member's pattern, and
+/// the explicit relationships.
+struct HouseholdLinks<'t> {
+    household_members: Vec<Vec<usize>>,
+    pattern_of: Vec<Option<&'t MemberPattern>>,
+    relationships: Vec<HouseholdRelationship>,
+    child_caregivers: BTreeMap<usize, BTreeSet<usize>>,
+    support_caregivers: BTreeMap<usize, BTreeSet<usize>>,
+    support_required_by_relationship: BTreeSet<usize>,
+    explicit_dependents: BTreeSet<usize>,
+}
+
+/// The households' members, the members' patterns and the templates' relationships.
+fn household_links<'t>(
+    count: usize,
+    household_sizes: &[(String, i64)],
+    household_of: &[usize],
+    chosen: &[Option<&'t HouseholdTemplate>],
+    profiles: &[Profile],
+    household_composition: &Option<HouseholdComposition>,
+) -> HouseholdLinks<'t> {
     let mut household_members: Vec<Vec<usize>> = vec![Vec::new(); household_sizes.len()];
     for (index, household) in household_of.iter().enumerate() {
         household_members[*household].push(index);
@@ -885,14 +999,43 @@ pub fn generate_population(input: &PopulationInput) -> Result<GeneratedPopulatio
             }
         }
     }
+    HouseholdLinks { household_members, pattern_of, relationships, child_caregivers, support_caregivers, support_required_by_relationship, explicit_dependents }
+}
 
-    let mut ages = vec![0i64; count];
-    for (household, members) in household_members.iter().enumerate() {
-        for (index, age) in sample_household_ages(members, profiles, chosen[household], &bands, &evacuee, &draws)? {
-            ages[index] = age;
-        }
-    }
+/// What each person's traits and requirements read.
+#[derive(Clone, Copy)]
+struct PersonContext<'a> {
+    count: usize,
+    profiles: &'a [Profile],
+    household_of: &'a [usize],
+    household_sizes: &'a [(String, i64)],
+    ages: &'a [i64],
+    pattern_of: &'a [Option<&'a MemberPattern>],
+    child_caregivers: &'a BTreeMap<usize, BTreeSet<usize>>,
+    support_caregivers: &'a BTreeMap<usize, BTreeSet<usize>>,
+    support_required_by_relationship: &'a BTreeSet<usize>,
+    explicit_dependents: &'a BTreeSet<usize>,
+    language_weights: &'a [(String, f64)],
+    source_ids: &'a Vec<String>,
+}
 
+/// The updated profiles, each person's traits and each person's requirements, in the profiles'
+/// order.
+fn people_and_requirements(context: PersonContext<'_>) -> Result<(Vec<Profile>, Vec<(String, PersonTraits)>, Vec<PersonRequirements>), String> {
+    let PersonContext {
+        count,
+        profiles,
+        household_of,
+        household_sizes,
+        ages,
+        pattern_of,
+        child_caregivers,
+        support_caregivers,
+        support_required_by_relationship,
+        explicit_dependents,
+        language_weights,
+        source_ids,
+    } = context;
     let mut updated_profiles = Vec::with_capacity(count);
     let mut people = Vec::with_capacity(count);
     let mut requirements = Vec::with_capacity(count);
@@ -966,7 +1109,18 @@ pub fn generate_population(input: &PopulationInput) -> Result<GeneratedPopulatio
         });
         updated_profiles.push(updated);
     }
+    Ok((updated_profiles, people, requirements))
+}
 
+/// The assumptions and sources of the age bands and household sizes (where assumed), the
+/// language, the evacuation selection and the household construction.
+fn standard_assumptions(
+    age_assumed: bool,
+    household_assumed: bool,
+    mix: &HouseholdSizeMix,
+    language_weights: &[(String, f64)],
+    bands: &[AgeBand],
+) -> (Vec<V>, Vec<V>) {
     let mut assumptions = Vec::new();
     let mut sources = Vec::new();
     if age_assumed {
@@ -1027,6 +1181,19 @@ pub fn generate_population(input: &PopulationInput) -> Result<GeneratedPopulatio
          only from explicit household templates; age checks only reject implausible declared links. Unlinked minors \
          remain flagged for operator review.",
     ));
+    (assumptions, sources)
+}
+
+/// The assumptions and sources of the household templates; returns the operator's unselected
+/// template IDs.
+fn template_assumptions(
+    chosen: &[Option<&HouseholdTemplate>],
+    household_composition: &Option<HouseholdComposition>,
+    operator_composition: bool,
+    people: &[(String, PersonTraits)],
+    assumptions: &mut Vec<V>,
+    sources: &mut Vec<V>,
+) -> Result<Vec<String>, String> {
     let selected_ids: BTreeSet<&str> = chosen.iter().flatten().map(|template| template.template_id.as_str()).collect();
     let unselected_template_ids: Vec<String> = household_composition
         .as_ref()
@@ -1071,6 +1238,19 @@ pub fn generate_population(input: &PopulationInput) -> Result<GeneratedPopulatio
             ));
         }
     }
+    Ok(unselected_template_ids)
+}
+
+/// The household-relationship and trait sources and assumption, the operator's conditions, and a
+/// record for each declared household source ID no source describes.
+fn trait_and_declared_sources(
+    template: &ProfileTemplate,
+    household_composition: &Option<HouseholdComposition>,
+    operator_composition: bool,
+    declared_household_source_ids: &BTreeSet<String>,
+    assumptions: &mut Vec<V>,
+    sources: &mut Vec<V>,
+) {
     sources.push(source(
         SYNTHETIC_HOUSEHOLD_CONSTRUCTION_ID,
         "Synthetic household relationship policy",
@@ -1138,27 +1318,4 @@ pub fn generate_population(input: &PopulationInput) -> Result<GeneratedPopulatio
              applicability.",
         ));
     }
-
-    let household_template_ids = chosen
-        .iter()
-        .enumerate()
-        .filter_map(|(household, template)| template.map(|item| (household_sizes[household].0.clone(), item.template_id.clone())))
-        .collect();
-    Ok(GeneratedPopulation {
-        profile_set: ProfileSet { profiles: updated_profiles, manifest: profile_set.manifest.clone() },
-        people,
-        source_ids,
-        household_sizes,
-        age_bands: bands,
-        resident_age_distribution: resident,
-        evacuee_age_distribution: evacuee,
-        household_mix: mix,
-        household_relationships: relationships,
-        household_template_ids,
-        unselected_template_ids,
-        household_composition,
-        person_requirements: requirements,
-        assumptions,
-        sources,
-    })
 }

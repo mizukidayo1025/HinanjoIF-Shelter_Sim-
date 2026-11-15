@@ -14,7 +14,7 @@ use pyo3::create_exception;
 use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
-use sheltersim_core::answers::{frames, history, records, report, routes, Failure};
+use sheltersim_core::answers::{frames, history, interventions, questions, records, report, routes, Failure, Refusal};
 use sheltersim_core::history::KpiTable;
 
 use crate::core::errors::{to_py_err, OrPy};
@@ -410,7 +410,180 @@ fn view_frame<'py>(py: Python<'py>, frame: &[u8], journal: &[u8], scenario: &[u8
     bytes(py, frames::view_frame(frame, &status, saved_minute, requested_minute))
 }
 
+
+/// The checks of comparing branches at a minute (`frames::comparison_range`): the common range.
+#[pyfunction]
+#[pyo3(signature = (branch_ids, minute, project_id, run_id, run, branches))]
+fn comparison_range(branch_ids: Vec<String>, minute: Option<i64>, project_id: &str, run_id: &str, run: Option<Vec<u8>>, branches: Branches) -> PyResult<(i64, i64)> {
+    frames::comparison_range(&branch_ids, minute.map(|minute| minute as f64), project_id, run_id, &run_files(run, branches)).map_err(failed)
+}
+
+/// `POST …/intervention-preview` (`interventions::PreviewPlan`): its checks; then, after the
+/// model versions are checked (`check_typed`), the answer of the branch's Run at `minute` and
+/// the draft to keep.
+#[pyclass(name = "PreviewPlan", module = "sheltersim_native.rules.answers")]
+pub struct PyPreviewPlan {
+    plan: interventions::PreviewPlan,
+}
+
+#[pyfunction]
+#[pyo3(signature = (body, project_id, run_id, run, branches, branch_id))]
+fn preview_plan(body: Option<Vec<u8>>, project_id: &str, run_id: &str, run: Option<Vec<u8>>, branches: Branches, branch_id: &str) -> PyResult<PyPreviewPlan> {
+    let plan = interventions::PreviewPlan::new(body.as_deref(), project_id, run_id, &run_files(run, branches), branch_id).map_err(failed)?;
+    Ok(PyPreviewPlan { plan })
+}
+
+#[pymethods]
+impl PyPreviewPlan {
+    #[getter]
+    fn minute(&self) -> i64 {
+        self.plan.minute()
+    }
+
+    /// The branch's record, as its JSON.
+    fn record_json<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
+        PyBytes::new(py, &records::record_json(self.plan.record()))
+    }
+
+    fn check_typed(&self) -> PyResult<()> {
+        self.plan.check_typed().map_err(failed)
+    }
+
+    /// The answer and the draft to keep (None where the compiler gave no plan), of the branch's
+    /// Run at the minute; `preview_id` the draft's id (a uuid4's hex).
+    fn answer<'py>(&self, py: Python<'py>, run: &mut crate::rules::plain::PlainRun, preview_id: &str) -> PyResult<(Bound<'py, PyBytes>, Option<Bound<'py, PyBytes>>)> {
+        let (answer, draft) = self.plan.answer(run.core_mut(), preview_id).map_err(failed)?;
+        Ok((PyBytes::new(py, &answer), draft.map(|draft| PyBytes::new(py, &draft))))
+    }
+}
+
+/// `POST …/intervention-apply`, its first checks: the draft's id, whose draft the caller reads.
+#[pyfunction]
+fn apply_draft_id(body: Option<Vec<u8>>) -> PyResult<String> {
+    interventions::apply_draft_id(body.as_deref()).map_err(failed)
+}
+
+/// `POST …/intervention-apply` (`interventions::ApplyPlan`): the draft and the approval checked
+/// (`busy` whether the branch computes now); after the model versions, `fork_checks`.
+#[pyclass(name = "ApplyPlan", module = "sheltersim_native.rules.answers")]
+pub struct PyApplyPlan {
+    plan: interventions::ApplyPlan,
+}
+
+#[pyfunction]
+#[pyo3(signature = (body, draft, project_id, run_id, branch_id, busy))]
+fn apply_plan(body: Option<Vec<u8>>, draft: Option<Vec<u8>>, project_id: &str, run_id: &str, branch_id: &str, busy: bool) -> PyResult<PyApplyPlan> {
+    let plan = interventions::ApplyPlan::new(body.as_deref(), draft.as_deref(), project_id, run_id, branch_id, busy).map_err(failed)?;
+    Ok(PyApplyPlan { plan })
+}
+
+#[pymethods]
+impl PyApplyPlan {
+    /// The branch, the minute and the child, from the Run's records: the branch's record (JSON).
+    #[pyo3(signature = (run, branches))]
+    fn fork_checks<'py>(&self, py: Python<'py>, run: Option<Vec<u8>>, branches: Branches) -> PyResult<Bound<'py, PyBytes>> {
+        bytes(py, self.plan.fork_checks(&run_files(run, branches)).map(|record| records::record_json(&record)))
+    }
+
+    #[getter]
+    fn child_id(&self) -> Option<String> {
+        self.plan.child_id().map(str::to_owned)
+    }
+
+    #[getter]
+    fn minute(&self) -> i64 {
+        self.plan.minute()
+    }
+
+    #[getter]
+    fn program_text(&self) -> String {
+        self.plan.program_text().to_owned()
+    }
+
+    #[getter]
+    fn hash(&self) -> Option<String> {
+        self.plan.hash().map(str::to_owned)
+    }
+
+    /// The parent's world at the minute must be the one the preview saw (its digest).
+    fn check_origin(&self, state_hash: &str) -> PyResult<()> {
+        self.plan.check_origin(state_hash).map_err(failed)
+    }
+
+    /// The answer while the child is made.
+    fn answer<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
+        PyBytes::new(py, &self.plan.answer())
+    }
+}
+
+/// The Run's `last_fork` once the child is made.
+#[pyfunction]
+fn created_outcome<'py>(py: Python<'py>, branch_id: &str, minute: i64, state_hash: &str) -> Bound<'py, PyBytes> {
+    PyBytes::new(py, &interventions::created_outcome(branch_id, minute, state_hash))
+}
+
+/// The Run's `last_fork` when making the child failed: `error` its text; `refused` whether the
+/// store refused it (a 409 with `code`, or the text's leading word).
+#[pyfunction]
+#[pyo3(signature = (error, refused, code=None))]
+fn failed_outcome<'py>(py: Python<'py>, error: &str, refused: bool, code: Option<String>) -> Bound<'py, PyBytes> {
+    let refusal = refused.then(|| Refusal { status: 409, error: error.to_owned(), code });
+    PyBytes::new(py, &interventions::failed_outcome(error, refusal.as_ref()))
+}
+
+/// `POST …/questions` (`questions::QuestionPlan`): the request's checks; then the branch's
+/// (`check_branch`), the evidence's (`evidence`, of the Run's Scenario) and the frame's
+/// (`check_frame`); then the answer and the turn to keep.
+#[pyclass(name = "QuestionPlan", module = "sheltersim_native.rules.answers")]
+pub struct PyQuestionPlan {
+    plan: questions::QuestionPlan,
+}
+
+#[pyfunction]
+#[pyo3(signature = (body, project_id, run_id, branch_id))]
+fn question_plan(body: Option<Vec<u8>>, project_id: &str, run_id: &str, branch_id: &str) -> PyResult<PyQuestionPlan> {
+    Ok(PyQuestionPlan { plan: questions::QuestionPlan::new(body.as_deref(), project_id, run_id, branch_id).map_err(failed)? })
+}
+
+#[pymethods]
+impl PyQuestionPlan {
+    #[pyo3(signature = (run, branches))]
+    fn check_branch(&mut self, run: Option<Vec<u8>>, branches: Branches) -> PyResult<()> {
+        self.plan.check_branch(&run_files(run, branches)).map_err(failed)
+    }
+
+    fn evidence(&mut self, scenario: &[u8]) -> PyResult<()> {
+        self.plan.evidence(scenario).map_err(failed)
+    }
+
+    #[getter]
+    fn minute(&self) -> i64 {
+        self.plan.minute()
+    }
+
+    /// The frame's checks: the branches whose comparison the caller then checks (or none).
+    fn check_frame(&self, frame: &[u8]) -> PyResult<Vec<String>> {
+        self.plan.check_frame(frame).map_err(failed)
+    }
+
+    /// The answer and the turn to keep: `random` 24 hex digits, `turn_id` the turn's id.
+    fn answer<'py>(&self, py: Python<'py>, random: &str, turn_id: &str) -> (Bound<'py, PyBytes>, Bound<'py, PyBytes>) {
+        let (answer, turn) = self.plan.answer(random, turn_id);
+        (PyBytes::new(py, &answer), PyBytes::new(py, &turn))
+    }
+}
+
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_class::<PyPreviewPlan>()?;
+    m.add_class::<PyApplyPlan>()?;
+    m.add_class::<PyQuestionPlan>()?;
+    m.add_function(wrap_pyfunction!(comparison_range, m)?)?;
+    m.add_function(wrap_pyfunction!(preview_plan, m)?)?;
+    m.add_function(wrap_pyfunction!(apply_draft_id, m)?)?;
+    m.add_function(wrap_pyfunction!(apply_plan, m)?)?;
+    m.add_function(wrap_pyfunction!(created_outcome, m)?)?;
+    m.add_function(wrap_pyfunction!(failed_outcome, m)?)?;
+    m.add_function(wrap_pyfunction!(question_plan, m)?)?;
     m.add_class::<PyComparePlan>()?;
     m.add_class::<PyReplayPlan>()?;
     m.add_function(wrap_pyfunction!(timeline_plan, m)?)?;

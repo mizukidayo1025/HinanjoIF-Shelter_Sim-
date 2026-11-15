@@ -85,3 +85,28 @@ fn a_stored_run_of_an_older_format_is_refused() {
         other => panic!("{other:?}"),
     }
 }
+
+#[test]
+fn a_fork_s_outcome_is_the_server_s() {
+    use sheltersim_core::answers::interventions::{created_outcome, failed_outcome};
+    assert_eq!(created_outcome("c1", 400, "h"), br#"{"branch_id":"c1","minute":400,"state_hash":"h","status":"created"}"#);
+    let refusal = Refusal::new(409, "source state changed; preview the intervention again", None);
+    assert_eq!(
+        failed_outcome(&refusal.error, Some(&refusal)),
+        br#"{"code":"storage_conflict","error":"source state changed; preview the intervention again","status":"failed"}"#
+    );
+    assert_eq!(failed_outcome("EffectProgram could not be scheduled: x", None), br#"{"code":null,"error":"invalid project request","status":"failed"}"#);
+    assert_eq!(failed_outcome("boom", None), br#"{"code":null,"error":"project operation failed","status":"failed"}"#);
+}
+
+#[test]
+fn a_question_is_checked_before_its_branch() {
+    use sheltersim_core::answers::questions::QuestionPlan;
+    for body in
+        [&br#"{"question":"   "}"#[..], br#"{"question":"x","extra":1}"#, br#"{"question":"x","minute":1.5}"#, br#"{"question":"x","demo_branch_id":"d"}"#]
+    {
+        assert_eq!(refused(QuestionPlan::new(Some(body), "p", "r", "b")), (400, "invalid project request".to_owned()), "{}", String::from_utf8_lossy(body));
+    }
+    let mut plan = QuestionPlan::new(Some(br#"{"question":"x","minute":5.0}"#), "p", "r", "b").unwrap();
+    assert_eq!(refused(plan.check_branch(&RunFiles::default())), (409, "saved artifact is missing or corrupt".to_owned()));
+}

@@ -139,7 +139,7 @@ Pythonの欄のうち、ブラウザーで意味が変わるもの：
 
 ## ブラウザーの介入と子の分岐（#306）
 
-画面の「この時刻から分岐を作る」の`POST …/branches/{branch}/intervention-preview`と`intervention-apply`に、APIキーのないVMと同じ答えを返します（`native/wasm/js/interventions.mjs`）。
+画面の「この時刻から分岐を作る」の`POST …/branches/{branch}/intervention-preview`と`intervention-apply`に、APIキーのないVMと同じ答えを返します（確かめ、答え、下書き、`last_fork`は中核の`sheltersim_core::answers::interventions`。ブラウザーは`native/wasm/js/interventions.mjs`がファイルとRunを読み、子を作ります。#449）。
 
 - プレビューは、Branchのその分の世界から要約（`Simulation.scenarioSummary`、#302）を作り、文をAPIキーなしで読み取ります（`compileInterventionOffline`、#303）。案が`compiled`なら、そのEffectProgram（`effectProgramDump`、#304）を世界で確かめ（`validateEffectProgram`）、承認のhash（programの正規のJSONのsha256）と下書きの`preview_id`を足します。下書きはProjectのフォルダーの`drafts/<preview_id>.json`に置き、Projectの1つのファイル（bundle）には入れません。下書きに伏せるべき文（連絡先、鍵）があれば、serverと同じく409で断ります。
 - 適用は、下書きと承認のhashを確かめ、serverのprocessのworkerと同じ`{"status": "running", "branch_id", "minute"}`を返します。子の分岐は答えの前に作ります。親をその分に戻し、プレビューが見た状態（`state_hash`）と同じことを確かめ、programを予定に入れ（`Simulation.applyEffectProgram`、#305）、子の保存したRunを書きます。結果は、serverと同じくRunの記録（`GET runs/{run}`）の`last_fork`（`{"status": "created", "branch_id", "minute", "state_hash"}`か`{"status": "failed", "error", "code"}`）で返します。子の記録は`paused`、`fork_minute`と`computed_until`は分岐の分です。続きは`resume`で計算します。
@@ -158,9 +158,9 @@ serverと違うのは次のところです。
 
 ## ブラウザーの比較と質問（#307、#308）
 
-`GET runs/{run}/compare?branch_ids=&minute=`と2つの分岐の`GET runs/{run}/replay-frames`は、serverと同じ比較を返します（`native/wasm/js/comparison.mjs`）。各分岐のその分のframe、共通の計算済みの範囲、各分岐の分岐の受領（`fork_origin`。子の保存したRunの`fork`の行から読みます。分岐で作っていない分岐は`null`）、同じ元を持つか、最初の分岐からの指標の差です。差は中核が求めます（`kpiDifferences`）。整数どうしの差は整数、小数を含む差は小数で、Pythonと同じ書き方になります。受領の`checkpoint_hash`は、子を作ったときの親の先頭（目録の行のsha256）で、serverのCheckpointのhashではありません。
+`GET runs/{run}/compare?branch_ids=&minute=`と2つの分岐の`GET runs/{run}/replay-frames`は、serverと同じ比較を返します（中核の`sheltersim_core::answers::frames`。ブラウザーは`native/wasm/js/comparison.mjs`がjournalとframeを読みます。#449）。各分岐のその分のframe、共通の計算済みの範囲、各分岐の分岐の受領（`fork_origin`。子の保存したRunの`fork`の行から読みます。分岐で作っていない分岐は`null`）、同じ元を持つか、最初の分岐からの指標の差です。差は中核が求めます（`kpiDifferences`）。整数どうしの差は整数、小数を含む差は小数で、Pythonと同じ書き方になります。受領の`checkpoint_hash`は、子を作ったときの親の先頭（目録の行のsha256）で、serverのCheckpointのhashではありません。
 
-`POST …/branches/{branch}/questions`は、APIキーのないVMと同じ答えを返します（`native/wasm/js/questions.mjs`）。serverと同じ順に、要求の欄、質問の長さ、分、人、比べる分岐（計算が終わった分岐か、その分のframeにその人がいるか、比較の確かめ）を確かめ、「Claude APIが利用できないため、結果に関する質問へ回答できません。…」と、質問の文脈（`context`）とそのid（`context_id`）を返します。idは、文脈の正規のJSONのsha256の先頭32桁と24桁の乱数で、要求が同じ文脈のidを渡したときはそれを使います。会話はBranchの保存したRunに、`end`の行の後の`conversations`の部分として1つずつ残し（#368。Branchの先頭は変わりません）、質問はserverと同じく連絡先と人などの名前を伏せた文にします（中核の`questionText`）。`history_query`（保存した履歴を根拠にする質問）は#376でなくし、serverもブラウザーも知らない欄として断ります。
+`POST …/branches/{branch}/questions`は、APIキーのないVMと同じ答えを返します（中核の`sheltersim_core::answers::questions`。ブラウザーは`native/wasm/js/questions.mjs`が記録・Scenario・frameを読み、乱数と時刻を渡し、turnを残します。#449）。serverと同じ順に、要求の欄、質問の長さ、分、人、比べる分岐（計算が終わった分岐か、その分のframeにその人がいるか、比較の確かめ）を確かめ、「Claude APIが利用できないため、結果に関する質問へ回答できません。…」と、質問の文脈（`context`）とそのid（`context_id`）を返します。idは、文脈の正規のJSONのsha256の先頭32桁と24桁の乱数で、要求が同じ文脈のidを渡したときはそれを使います。会話はBranchの保存したRunに、`end`の行の後の`conversations`の部分として1つずつ残し（#368。Branchの先頭は変わりません）、質問はserverと同じく連絡先と人などの名前を伏せた文にします（中核の`questionText`）。`history_query`（保存した履歴を根拠にする質問）は#376でなくし、serverもブラウザーも知らない欄として断ります。
 
 `native/wasm/tests/node_interventions.mjs`が、同じRunで、比較と2つの分岐の再生（受領の`checkpoint_hash`は伏せます）と、質問の答え（`context_id`の乱数の部分は伏せます）と残した質問が、serverと同じになることを確かめます。
 

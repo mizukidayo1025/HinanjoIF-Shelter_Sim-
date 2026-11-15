@@ -37,6 +37,10 @@ impl PlainRun {
     pub(crate) fn core(&self) -> &plain::PlainRun {
         &self.run
     }
+
+    pub(crate) fn core_mut(&mut self) -> &mut plain::PlainRun {
+        &mut self.run
+    }
 }
 
 #[pymethods]

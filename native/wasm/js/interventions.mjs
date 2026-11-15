@@ -17,6 +17,10 @@
 //       server's is once its worker ends: {"status": "created", "branch_id", "minute",
 //       "state_hash"} or {"status": "failed", "error", "code"}.
 //
+// The checks, the answers, the draft and the outcome are the core's (`answers::interventions`,
+// #449), which the local and VM versions call through PyO3; this module reads the files and the
+// branch's Run, keeps the draft, and makes the child.
+//
 // A Run computed with other model versions is view-only: both routes refuse it as the server does
 // (409 `run_model_view_only`, compute.mjs `requireCurrentModel`).
 //
@@ -30,40 +34,12 @@
 // - `last_fork` is kept by the page's Worker, as the server keeps it in its process: it is gone
 //   when the page closes.
 
-import { ApiError } from "./api_answers.mjs";
-import { checkFields, requireCurrentModel } from "./compute.mjs";
+import { core } from "./api_answers.mjs";
+import { requireCurrentModel } from "./compute.mjs";
 import * as store from "./project_store.mjs";
 import { RunWriter } from "./run_store.mjs";
 
 const encoder = new TextEncoder();
-const decoder = new TextDecoder();
-const refused = (message) => new store.ProjectStoreError(message);
-const UNSUPPORTED = "ブラウザー版では未対応です";
-const ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/;
-// The fields of a DraftPlan that are an EffectProgram's (`EffectProgram.model_fields`).
-const PROGRAM_FIELDS = ["schema_version", "program_id", "narrative", "source_text", "simulation_start_minute", "effects", "assumptions", "support_mode", "compiler_provenance"];
-
-/// JSON text already written, put into an answer as it is.
-class Raw {
-  constructor(text) {
-    this.text = text;
-  }
-}
-
-/// JSON with sorted keys and no spaces (Python's canonical JSON); a float must come as `Raw`.
-function sortedJson(value) {
-  if (value instanceof Raw) return value.text;
-  if (typeof value === "number") {
-    if (!Number.isSafeInteger(value)) throw new Error(`not an integer: ${value}`);
-    return String(value);
-  }
-  if (Array.isArray(value)) return `[${value.map(sortedJson).join(",")}]`;
-  if (value !== null && typeof value === "object") {
-    const keys = Object.keys(value).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
-    return `{${keys.map((key) => `${JSON.stringify(key)}:${sortedJson(value[key])}`).join(",")}}`;
-  }
-  return JSON.stringify(value);
-}
 
 const draftPath = (projectId, previewId) => [projectId, "drafts", `${previewId}.json`];
 
@@ -72,124 +48,78 @@ function previewId() {
   return crypto.randomUUID().replaceAll("-", "");
 }
 
-/// The branch's record, with the server's checks of the minute (`TimelineStore.seek`).
-async function branchAt(api, projectId, runId, branchId, minute) {
-  const record = await api.branch(projectId, runId, branchId);
-  if (!Number.isInteger(minute) || typeof minute !== "number" || minute < record.fork_minute || minute > record.computed_until) {
-    throw refused("minute is outside this branch's computed range");
-  }
-  return record;
-}
-
-/// `POST …/intervention-preview`: the answer's JSON text.
-export async function interventionPreview(api, projectId, runId, branchId, document) {
+/// `POST …/intervention-preview` (`body` the request's text): the answer's JSON text. The core
+/// checks the request and writes the answer and the draft (`answers::interventions`); this reads
+/// the branch's Run at the minute and keeps the draft.
+export async function interventionPreview(api, projectId, runId, branchId, body) {
   const { wasm, tree } = api;
-  checkFields(document, ["minute"], ["text", "program"]);
-  if (("text" in document) === ("program" in document)) throw refused("provide exactly one of text or program");
-  const minute = document.minute;
-  const record = await branchAt(api, projectId, runId, branchId, minute);
-  await requireCurrentModel(wasm, tree, projectId, runId, branchId);
-  if ("program" in document) throw new ApiError(409, `${UNSUPPORTED}（型つきのEffectProgram）`, "browser_unsupported");
-  const simulation = await api.simulationAt(projectId, runId, record, minute);
-  const summary = decoder.decode(simulation.scenarioSummary());
-  const request = `{"branch_id":${JSON.stringify(branchId)},"scenario_summary":${summary},"selected_minute":${minute},"text":${JSON.stringify(document.text) ?? "null"}}`;
-  const compiled = wasm.compileInterventionOffline(encoder.encode(request));
-  if (compiled === undefined || compiled === null) throw new ApiError(400, "invalid project request");
-  const result = JSON.parse(compiled);
-  if (result.status !== "compiled" || result.draft_plan === null) return compiled;
-  // The offline plan holds no float (its parameters are counts and flags), so JSON.parse keeps it.
-  const program = Object.fromEntries(PROGRAM_FIELDS.map((key) => [key, result.draft_plan[key]]));
-  const dump = wasm.effectProgramDump(encoder.encode(JSON.stringify(program)));
-  const issues = JSON.parse(simulation.validateEffectProgram(dump));
-  const dumpText = decoder.decode(dump);
-  const hash = wasm.sha256Hex(dump);
-  const canApply = issues.length === 0;
-  const content = {
-    kind: "intervention",
-    project_id: projectId,
-    run_id: runId,
-    branch_id: branchId,
-    minute,
-    state_hash: simulation.stateDigest(),
-    program: new Raw(dumpText),
-    hash,
-    can_apply: canApply,
-  };
-  const contentText = sortedJson(content);
-  if (wasm.documentRedacts(encoder.encode(contentText))) throw refused("remove sensitive text before saving or approving a draft");
-  const id = previewId();
-  // The program's text is kept as written as well: its sha256 is the approval's hash.
-  await tree.write(draftPath(projectId, id), encoder.encode(`${sortedJson({ schema_version: 1, draft_id: id, kind: "intervention", content: new Raw(contentText), program_text: dumpText })}\n`));
-  const extra = sortedJson({ approved_program_hash: hash, can_apply: canApply, preview_id: id, program: new Raw(dumpText), validation_issues: issues });
-  return wasm.mergeJson(encoder.encode(compiled), encoder.encode(extra));
-}
-
-/// The draft a preview saved (`ProjectWorkspace._preview`): its content, the program as JSON text.
-async function readDraft(tree, projectId, previewIdValue) {
-  if (typeof previewIdValue !== "string" || !ID.test(previewIdValue)) throw refused("invalid artifact identifier");
-  const bytes = await tree.read(draftPath(projectId, previewIdValue));
-  if (bytes === null) throw refused("saved artifact is missing or corrupt");
-  const text = decoder.decode(bytes);
-  const draft = JSON.parse(text);
-  if (draft?.schema_version !== 1 || typeof draft.content !== "object") throw refused("unsupported saved artifact version; migration required");
-  const content = draft.content;
-  if (content.project_id !== projectId) throw refused("draft belongs to another Project");
-  return { ...content, programText: draft.program_text };
-}
-
-/// `POST …/intervention-apply`: the answer's JSON text. The child is made before it answers.
-export async function interventionApply(api, projectId, runId, branchId, document) {
-  const { tree } = api;
-  checkFields(document, ["preview_id", "approved_program_hash", "approved", "child_id"]);
-  const preview = await readDraft(tree, projectId, document.preview_id);
-  if (preview.kind !== "intervention" || preview.project_id !== projectId || preview.run_id !== runId || preview.branch_id !== branchId) {
-    throw refused("intervention preview expired or has another scope");
-  }
-  if (!preview.can_apply || document.approved_program_hash !== preview.hash) throw refused("intervention approval does not match validated preview");
-  // ProjectAPI.fork, its checks in its order.
-  if (document.approved !== true) throw refused("branch creation needs explicit human approval");
-  if (api.computing.jobs.has(`${projectId}/${runId}/${branchId}`)) throw refused("pause background calculation before forking");
-  // A Run of another model version is view-only: no fork, no EffectProgram.
-  await requireCurrentModel(api.wasm, tree, projectId, runId, branchId);
-  const record = await store.branchRecord(tree, projectId, runId, branchId);
-  const minute = preview.minute;
-  if (!Number.isInteger(minute) || minute < record.fork_minute || minute > record.computed_until) throw refused("minute is outside this branch's computed range");
-  const childId = document.child_id;
-  if (typeof childId !== "string" || !ID.test(childId)) throw refused("invalid artifact identifier");
-  if ((await tree.read([projectId, "runs", runId, "branches", childId, "branch.json"])) !== null) throw refused("child branch already exists");
-  if (api.wasm.sha256Hex(encoder.encode(preview.programText)) !== preview.hash) throw refused("EffectProgram approval hash does not match preview");
-  api.forkOutcomes.delete(`${projectId}/${runId}`);
-  let outcome;
+  const files = await store.runFiles(wasm, tree, projectId, runId);
+  let plan;
   try {
-    outcome = { status: "created", ...(await fork(api, projectId, runId, record, minute, childId, preview)) };
-  } catch (error) {
-    if (error instanceof store.ProjectStoreError) {
-      outcome = { status: "failed", error: error.message, code: error.code ?? storageCode(error.message) };
-    } else if (String(error?.message ?? "").startsWith("EffectProgram could not be scheduled")) {
-      // The server's worker answers a ValueError so (worker_process.py).
-      outcome = { status: "failed", error: "invalid project request", code: null };
-    } else {
-      console.error(error);
-      outcome = { status: "failed", error: "project operation failed", code: null };
-    }
+    plan = core(() => wasm.previewPlan(body ?? undefined, projectId, runId, files, branchId));
+  } finally {
+    files.free();
   }
-  api.forkOutcomes.set(`${projectId}/${runId}`, outcome);
-  return sortedJson({ branch_id: childId, minute, status: "running" });
+  try {
+    await requireCurrentModel(wasm, tree, projectId, runId, branchId);
+    core(() => plan.checkTyped());
+    const simulation = await api.simulationAt(projectId, runId, JSON.parse(plan.recordJson()), plan.minute());
+    const id = previewId();
+    const answer = core(() => plan.answer(simulation, id));
+    const draft = plan.draft();
+    if (draft !== undefined) await tree.write(draftPath(projectId, id), draft);
+    return answer;
+  } finally {
+    plan.free();
+  }
 }
 
-/// StorageError's code: the message's leading word where it is one, else "storage_conflict".
-function storageCode(message) {
-  const candidate = message.split(":", 1)[0];
-  return /^[a-z][a-z0-9_]{1,80}$/.test(candidate) ? candidate : "storage_conflict";
+/// `POST …/intervention-apply` (`body` the request's text): the answer's JSON text. The child is
+/// made before it answers; its outcome is the Run's `last_fork` (the core's JSON).
+export async function interventionApply(api, projectId, runId, branchId, body) {
+  const { wasm, tree } = api;
+  const draftId = core(() => wasm.applyDraftId(body ?? undefined));
+  const draft = (await tree.read(draftPath(projectId, draftId))) ?? undefined;
+  const busy = api.computing.jobs.has(`${projectId}/${runId}/${branchId}`);
+  const plan = core(() => wasm.applyPlan(body ?? undefined, draft, projectId, runId, branchId, busy));
+  try {
+    // A Run of another model version is view-only: no fork, no EffectProgram.
+    await requireCurrentModel(wasm, tree, projectId, runId, branchId);
+    const files = await store.runFiles(wasm, tree, projectId, runId);
+    let record;
+    try {
+      record = JSON.parse(core(() => plan.forkChecks(files)));
+    } finally {
+      files.free();
+    }
+    api.forkOutcomes.delete(`${projectId}/${runId}`);
+    let outcome;
+    try {
+      outcome = await fork(api, projectId, runId, record, plan);
+    } catch (error) {
+      if (error instanceof store.ProjectStoreError) {
+        outcome = wasm.failedOutcome(error.message, 409, error.code ?? undefined);
+      } else {
+        if (!String(error?.message ?? "").startsWith("EffectProgram could not be scheduled")) console.error(error);
+        outcome = wasm.failedOutcome(String(error?.message ?? error), undefined, undefined);
+      }
+    }
+    api.forkOutcomes.set(`${projectId}/${runId}`, outcome);
+    return core(() => plan.answer());
+  } finally {
+    plan.free();
+  }
 }
 
 /// `TimelineStore.fork`: the parent at the minute, checked against the state the preview saw, the
 /// program applied, and the child's stored Run and record. The child's stored Run reads the
 /// parent's pieces up to the line the parent's world was restored from (its base), and stores the
 /// rest from there: the records and decision records to the fork's minute, and a saved point there,
-/// after the program was applied. Returns `last_fork`'s fields.
-async function fork(api, projectId, runId, parent, minute, childId, preview) {
+/// after the program was applied. Returns `last_fork` (the core's JSON).
+async function fork(api, projectId, runId, parent, plan) {
   const { wasm, tree } = api;
+  const minute = plan.minute();
+  const childId = plan.childId();
   // The kept worlds go first: WASM's memory does not shrink.
   api.freeLive();
   const reader = await store.branchReader(wasm, tree, projectId, runId, parent.branch_id);
@@ -197,20 +127,21 @@ async function fork(api, projectId, runId, parent, minute, childId, preview) {
     const { simulation, base } = await reader.seek(minute, { decisions: true });
     try {
       const origin = simulation.stateDigest();
-      if (origin !== preview.state_hash) throw refused("source state changed; preview the intervention again");
-      const receipt = simulation.applyEffectProgram(encoder.encode(preview.programText));
+      store.answered(() => plan.checkOrigin(origin));
+      const programText = plan.programText();
+      const receipt = simulation.applyEffectProgram(encoder.encode(programText));
       const backend = await store.branchBackend(tree, projectId, runId, childId);
       const writer = await RunWriter.create(wasm, backend);
       let head;
       try {
-        writer.core.forkStart(reader.journal, base, minute, parent.branch_id, origin, parent.checkpoint_hash, preview.programText, preview.hash, receipt);
+        writer.core.forkStart(reader.journal, base, minute, parent.branch_id, origin, parent.checkpoint_hash, programText, plan.hash(), receipt);
         await writer.flush();
         head = await writer.save(simulation);
       } finally {
         writer.close();
       }
       await store.writeBranch(tree, projectId, runId, { branch_id: childId, parent_branch_id: parent.branch_id, fork_minute: minute, computed_until: minute, checkpoint_hash: head, status: "paused" });
-      return { branch_id: childId, minute, state_hash: simulation.stateDigest() };
+      return wasm.createdOutcome(childId, minute, simulation.stateDigest());
     } finally {
       simulation.free();
     }

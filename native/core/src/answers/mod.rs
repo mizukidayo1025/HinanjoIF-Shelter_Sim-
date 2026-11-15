@@ -19,7 +19,9 @@
 
 pub mod frames;
 pub mod history;
+pub mod interventions;
 pub mod query;
+pub mod questions;
 pub mod records;
 pub mod report;
 pub mod routes;

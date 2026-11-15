@@ -328,7 +328,11 @@ split PR by PR; its last section sums up what is where.
   last minute), and the answers made of frames (`answers::frames`: `timeline_plan`, `ReplayPlan`,
   `ComparePlan` give the minutes and branches whose frames the caller makes, `Comparison` reads
   the branches' fork receipts from their journals and writes a comparison; `model_view`,
-  `require_current_model` and `view_frame` are the rule of a Run of other model versions), with the server's checks in its order and its refusals (`Refusal`: the
+  `require_current_model` and `view_frame` are the rule of a Run of other model versions), the
+  intervention's preview and apply (`answers::interventions`: `PreviewPlan` reads the text with
+  the offline compiler on the branch's Run and gives the draft to keep, `ApplyPlan` checks the
+  draft, the approval and the child, `created_outcome` and `failed_outcome` are `last_fork`) and
+  the offline answer to a question (`answers::questions`: `QuestionPlan` and the turn to keep), with the server's checks in its order and its refusals (`Refusal`: the
   HTTP status, the text, the code; `Failure` adds the core's errors, a stored Run of an older
   format being 409 `stored_run_outdated`). Reading the files, decompressing, locks, routing and
   computing stay with the caller. The browser calls them through `wasm/src/answers.rs` (a
@@ -356,15 +360,16 @@ split PR by PR; its last section sums up what is where.
   written by `tools/interpret_tables.py` and checked by pytest. In WASM:
   `compileInterventionOffline`; `core/tests/interpret.rs` checks it against Python's answers in
   `core/tests/data/offline_interpreter.json`.
-- **Interventions in the browser** (#306): `wasm/js/interventions.mjs` answers
-  `intervention-preview` and `intervention-apply` with the offline compiler, the EffectProgram's
-  checks and `Simulation.applyEffectProgram`, and stores a child branch's Run in format
+- **Interventions in the browser** (#306): `intervention-preview` and `intervention-apply` are
+  answered with the offline compiler, the EffectProgram's checks and
+  `Simulation.applyEffectProgram` (the answers are the core's `answers`, #449);
+  `wasm/js/interventions.mjs` stores a child branch's Run in format
   `sheltersim-run-v5` (`wasm/js/run_store.mjs`: the Run starts at the fork and reads its parent's
   pieces up to the saved point it was restored from). The core adds
   `interpret::merge_objects`, `document_redacts` and `question_text` (WASM `mergeJson`,
-  `documentRedacts`, `questionText`); `wasm/js/comparison.mjs` answers `compare` and the replay of
-  two branches with `interpret::kpi_differences` (WASM `kpiDifferences`, #307), and
-  `wasm/js/questions.mjs` the offline answer to a question (#308). `wasm/tests/node_interventions.mjs`
+  `documentRedacts`, `questionText`); `compare` and the replay of two branches use
+  `interpret::kpi_differences` (#307, read by `wasm/js/comparison.mjs`), and
+  `wasm/js/questions.mjs` keeps the offline answer to a question (#308). `wasm/tests/node_interventions.mjs`
   checks the answers against the Python server's in `core/tests/data/interventions.json`.
 - **A Scenario's world at minute 0** (#249): `initial::entry` builds, from a Scenario's
   canonical JSON, the bytes `export_world` writes of the world a Run starts from (the rows, the

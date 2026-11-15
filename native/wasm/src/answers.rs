@@ -392,3 +392,171 @@ pub fn fork_receipts(journals: &Files) -> Result<(), JsError> {
     }
     Ok(())
 }
+
+/// `POST …/intervention-preview` (`answers::interventions::PreviewPlan`): its checks; then, after
+/// the model versions are checked (`checkTyped`), the answer of the branch's Run at `minute`.
+#[wasm_bindgen]
+pub struct PreviewPlan {
+    plan: answers::interventions::PreviewPlan,
+    draft: Option<Vec<u8>>,
+}
+
+#[wasm_bindgen(js_name = previewPlan)]
+pub fn preview_plan(body: Option<String>, project_id: &str, run_id: &str, files: &RunFiles, branch_id: &str) -> Result<PreviewPlan, JsError> {
+    let plan = answers::interventions::PreviewPlan::new(body.as_deref().map(str::as_bytes), project_id, run_id, &files.inner, branch_id).map_err(failed)?;
+    Ok(PreviewPlan { plan, draft: None })
+}
+
+#[wasm_bindgen]
+impl PreviewPlan {
+    pub fn minute(&self) -> f64 {
+        self.plan.minute() as f64
+    }
+
+    /// The branch's record, as its JSON.
+    #[wasm_bindgen(js_name = recordJson)]
+    pub fn record_json(&self) -> Result<String, JsError> {
+        text(records::record_json(self.plan.record()))
+    }
+
+    /// A typed program is refused (after the model versions are checked).
+    #[wasm_bindgen(js_name = checkTyped)]
+    pub fn check_typed(&self) -> Result<(), JsError> {
+        self.plan.check_typed().map_err(failed)
+    }
+
+    /// The answer, of the branch's Run at the minute; `previewId` the draft's id. The draft to keep
+    /// is then `draft()`.
+    pub fn answer(&mut self, simulation: &mut Simulation, preview_id: &str) -> Result<String, JsError> {
+        let (answer, draft) = self.plan.answer(&mut simulation.run, preview_id).map_err(failed)?;
+        self.draft = draft;
+        text(answer)
+    }
+
+    /// The draft to keep (`<project>/drafts/<previewId>.json`), or undefined where the compiler
+    /// gave no plan.
+    pub fn draft(&self) -> Option<Vec<u8>> {
+        self.draft.clone()
+    }
+}
+
+/// `POST …/intervention-apply`, its first checks: the draft's id, whose draft the caller reads.
+#[wasm_bindgen(js_name = applyDraftId)]
+pub fn apply_draft_id(body: Option<String>) -> Result<String, JsError> {
+    answers::interventions::apply_draft_id(body.as_deref().map(str::as_bytes)).map_err(failed)
+}
+
+/// `POST …/intervention-apply` (`answers::interventions::ApplyPlan`): the draft and the approval
+/// checked (`busy` whether the branch computes now); after the model versions, `forkChecks`.
+#[wasm_bindgen]
+pub struct ApplyPlan {
+    plan: answers::interventions::ApplyPlan,
+}
+
+#[wasm_bindgen(js_name = applyPlan)]
+pub fn apply_plan(body: Option<String>, draft: Option<Vec<u8>>, project_id: &str, run_id: &str, branch_id: &str, busy: bool) -> Result<ApplyPlan, JsError> {
+    let plan =
+        answers::interventions::ApplyPlan::new(body.as_deref().map(str::as_bytes), draft.as_deref(), project_id, run_id, branch_id, busy).map_err(failed)?;
+    Ok(ApplyPlan { plan })
+}
+
+#[wasm_bindgen]
+impl ApplyPlan {
+    /// The branch, the minute and the child, from the Run's records: the branch's record (JSON).
+    #[wasm_bindgen(js_name = forkChecks)]
+    pub fn fork_checks(&self, files: &RunFiles) -> Result<String, JsError> {
+        answer(self.plan.fork_checks(&files.inner).map(|record| records::record_json(&record)))
+    }
+
+    #[wasm_bindgen(js_name = childId)]
+    pub fn child_id(&self) -> Option<String> {
+        self.plan.child_id().map(str::to_owned)
+    }
+
+    pub fn minute(&self) -> f64 {
+        self.plan.minute() as f64
+    }
+
+    #[wasm_bindgen(js_name = programText)]
+    pub fn program_text(&self) -> String {
+        self.plan.program_text().to_owned()
+    }
+
+    pub fn hash(&self) -> Option<String> {
+        self.plan.hash().map(str::to_owned)
+    }
+
+    /// The parent's world at the minute must be the one the preview saw.
+    #[wasm_bindgen(js_name = checkOrigin)]
+    pub fn check_origin(&self, state_hash: &str) -> Result<(), JsError> {
+        self.plan.check_origin(state_hash).map_err(failed)
+    }
+
+    /// The answer while the child is made.
+    pub fn answer(&self) -> Result<String, JsError> {
+        text(self.plan.answer())
+    }
+}
+
+/// The Run's `last_fork` once the child is made.
+#[wasm_bindgen(js_name = createdOutcome)]
+pub fn created_outcome(branch_id: &str, minute: f64, state_hash: &str) -> Result<String, JsError> {
+    text(answers::interventions::created_outcome(branch_id, minute as i64, state_hash))
+}
+
+/// The Run's `last_fork` when making the child failed: `error` the error's text, `refusal` the
+/// refusal's JSON (`{"code","error","status"}`) where the store refused, or undefined.
+#[wasm_bindgen(js_name = failedOutcome)]
+pub fn failed_outcome(error: &str, refusal_status: Option<u16>, refusal_code: Option<String>) -> Result<String, JsError> {
+    let refusal = refusal_status.map(|status| answers::Refusal { status, error: error.to_owned(), code: refusal_code });
+    text(answers::interventions::failed_outcome(error, refusal.as_ref()))
+}
+
+/// `POST …/questions` (`answers::questions::QuestionPlan`): the request's and the evidence's
+/// checks; then the frame's (`checkFrame`); then the answer and the turn.
+#[wasm_bindgen]
+pub struct QuestionPlan {
+    plan: answers::questions::QuestionPlan,
+    turn: Vec<u8>,
+}
+
+#[wasm_bindgen(js_name = questionPlan)]
+pub fn question_plan(body: Option<String>, project_id: &str, run_id: &str, branch_id: &str) -> Result<QuestionPlan, JsError> {
+    let plan = answers::questions::QuestionPlan::new(body.as_deref().map(str::as_bytes), project_id, run_id, branch_id).map_err(failed)?;
+    Ok(QuestionPlan { plan, turn: Vec::new() })
+}
+
+#[wasm_bindgen]
+impl QuestionPlan {
+    /// The branch's record, from the Run's records.
+    #[wasm_bindgen(js_name = checkBranch)]
+    pub fn check_branch(&mut self, files: &RunFiles) -> Result<(), JsError> {
+        self.plan.check_branch(&files.inner).map_err(failed)
+    }
+
+    /// The evidence's checks, of the Run's Scenario (its JSON).
+    pub fn evidence(&mut self, scenario: &[u8]) -> Result<(), JsError> {
+        self.plan.evidence(scenario).map_err(failed)
+    }
+
+    pub fn minute(&self) -> f64 {
+        self.plan.minute() as f64
+    }
+
+    /// The frame's checks: the branches whose comparison the caller then checks (or none).
+    #[wasm_bindgen(js_name = checkFrame)]
+    pub fn check_frame(&self, frame: &str) -> Result<Vec<String>, JsError> {
+        self.plan.check_frame(frame.as_bytes()).map_err(failed)
+    }
+
+    /// The answer; the turn to keep is then `turn()`.
+    pub fn answer(&mut self, random: &str, turn_id: &str) -> Result<String, JsError> {
+        let (answer, turn) = self.plan.answer(random, turn_id);
+        self.turn = turn;
+        text(answer)
+    }
+
+    pub fn turn(&self) -> Vec<u8> {
+        self.turn.clone()
+    }
+}

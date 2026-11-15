@@ -382,11 +382,24 @@ def fork_frames() -> tuple[dict[str, dict[int, bytes]], tuple[str, int, str, str
     }
     fork = run["fork_minute"]
     for each in runs.values():
-        assert each.advance(fork) == fork
+        assert each.advance(fork - 1) == fork - 1
+    # `main` a minute before the fork, for a question whose comparison is refused there.
+    before = runs["main"].frame(run["run_id"], "main", run["minutes"])
+    for each in runs.values():
+        assert each.advance(1) == 1
     origin = runs[run["child"]].state_digest()
     runs[run["child"]].apply_effect_program(program_text)
-    wanted = {fork, 420, 421, run["minutes"], *range(418, 426), *range(476, run["minutes"] + 1)}
+    wanted = {
+        fork,
+        420,
+        421,
+        450,
+        run["minutes"],
+        *range(418, 426),
+        *range(476, run["minutes"] + 1),
+    }
     frames: dict[str, dict[int, bytes]] = {name: {} for name in runs}
+    frames["main"][fork - 1] = before
     for minute in range(fork, run["minutes"] + 1):
         for name, each in runs.items():
             if each.minute() < minute:
@@ -461,3 +474,109 @@ def test_compare_replay_and_timeline_are_the_server_s(fork_frames: Any) -> None:
         409,
         '{"code":"storage_conflict","error":"minute must be an integer"}',
     )
+
+
+# ---- Interventions and questions (native/core/tests/data/interventions.json) --------------------
+
+
+def _main_only() -> tuple[bytes, list[tuple[str, bytes]]]:
+    """The records of the interventions' Run before the fork: `main` alone."""
+    run, branches = _fork_files()
+    return run, [entry for entry in branches if entry[0] == "main"]
+
+
+def test_previews_and_applies_are_the_server_s() -> None:
+    info = INTERVENTIONS["run"]
+    ids = (info["project_id"], info["run_id"])
+    raw = (CORE_TEST_DATA / "interventions.json").read_bytes()
+    plain = native.rules("plain").PlainRun
+    worlds: dict[int, Any] = {}
+    drafts: dict[str, bytes] = {}
+    applied_preview = None
+    run, branches = _main_only()
+    checked = 0
+    for case in INTERVENTIONS["cases"]:
+        if case["route"] == "preview":
+            body = case["request"].encode() if isinstance(case["request"], str) else case["request"]
+            try:
+                plan = ANSWERS.preview_plan(body, *ids, run, branches, "main")
+                plan.check_typed()
+                if plan.minute not in worlds:
+                    worlds[plan.minute] = plain.from_worlds(raw, "interventions")
+                    worlds[plan.minute].advance(plan.minute)
+                preview_id = f"{len(drafts) + 1:032x}"
+                answer, draft = plan.answer(worlds[plan.minute], preview_id)
+            except ANSWERS.Refused as refused:
+                assert (refused.args[0], refused.args[3].decode()) == (
+                    case["status"],
+                    case["body"],
+                ), case["name"]
+                checked += 1
+                continue
+            assert case["status"] == 200, case["name"]
+            text = _masked(answer)
+            assert hashlib.sha256(text.encode()).hexdigest() == case["sha256"], case["name"]
+            if draft is not None:
+                drafts[preview_id] = draft
+                if applied_preview is None and json.loads(answer)["can_apply"]:
+                    applied_preview = preview_id
+            checked += 1
+        elif case["route"] == "apply":
+            document = dict(case["document"])
+            if document["preview_id"] == "$PREVIEW":
+                document["preview_id"] = applied_preview
+            body = json.dumps(document).encode()
+            try:
+                draft_id = ANSWERS.apply_draft_id(body)
+                plan = ANSWERS.apply_plan(body, drafts.get(draft_id), *ids, "main", False)
+                plan.fork_checks(run, branches)
+            except ANSWERS.Refused as refused:
+                assert (refused.args[0], refused.args[3].decode()) == (
+                    case["status"],
+                    case["body"],
+                ), case["name"]
+                checked += 1
+                continue
+            assert case["status"] == 200, case["name"]
+            assert plan.answer().decode() == case["text"], case["name"]
+            # The child is there from now on.
+            branches = _fork_files()[1]
+            checked += 1
+    assert checked >= 25 and applied_preview is not None
+
+
+def test_questions_are_the_server_s(fork_frames: Any) -> None:
+    frames, _ = fork_frames
+    run, branches = _fork_files()
+    info = INTERVENTIONS["run"]
+    ids = (info["project_id"], info["run_id"])
+    scenario = INTERVENTIONS["scenario_json"].encode()
+    agent = json.loads(frames["main"][info["minutes"]])["people"][0]["id"]
+    first_context = None
+    kept = []
+    for case in [case for case in INTERVENTIONS["cases"] if case["route"] == "questions"]:
+        replaced = {"$AGENT": agent, "$CONTEXT": first_context}
+        document = {
+            key: replaced.get(value, value) if isinstance(value, str) else value
+            for key, value in case["document"].items()
+        }
+        try:
+            plan = ANSWERS.question_plan(json.dumps(document).encode(), *ids, case["branch"])
+            plan.check_branch(run, branches)
+            plan.evidence(scenario)
+            compared = plan.check_frame(frames[case["branch"]][plan.minute])
+            if compared:
+                ANSWERS.comparison_range(compared, plan.minute, *ids, run, branches)
+            answer, turn = plan.answer("0" * 24, "t-1-00000000")
+        except ANSWERS.Refused as refused:
+            assert (refused.args[0], refused.args[3].decode()) == (case["status"], case["body"]), (
+                case["name"]
+            )
+            continue
+        text = _masked(answer)
+        assert hashlib.sha256(text.encode()).hexdigest() == case["sha256"], case["name"]
+        if first_context is None:
+            first_context = json.loads(answer)["context_id"]
+        if case["branch"] == "main":
+            kept.append(json.loads(turn)["question"])
+    assert kept == INTERVENTIONS["stored_questions"]

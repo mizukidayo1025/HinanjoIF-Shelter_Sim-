@@ -25,8 +25,8 @@ use crate::json::Encoder;
 pub const ENGINE_VERSION_KEY: &str = "engine:model";
 /// The RNG algorithm's key.
 pub const RNG_ALGORITHM_KEY: &str = "engine:rng_algorithm";
-/// `ENGINE_VERSION` of model_version.py: the version of the simulation as a whole. A test keeps it
-/// equal to Python's.
+/// The version of the simulation as a whole (`engine:model`), raised when results change for every
+/// Scenario (since #430 the only place that holds it).
 pub const ENGINE_VERSION: &str = "4";
 /// `CounterRNG.algorithm_id`.
 pub const RNG_ALGORITHM: &str = crate::scenario::profiles::RNG_ALGORITHM;

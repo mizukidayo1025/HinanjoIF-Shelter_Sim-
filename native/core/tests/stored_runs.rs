@@ -909,24 +909,12 @@ fn a_run_of_other_model_versions_is_view_only_with_pythons_rule_and_text() {
     assert!(!status.current());
 }
 
+/// The RNG's algorithm is the one the Scenario authoring of Python draws with (`core/rng.py`).
 #[test]
-fn the_engine_version_is_pythons() {
-    let python = fs::read_to_string(format!("{}/../../src/sheltersim/core/model_version.py", env!("CARGO_MANIFEST_DIR"))).unwrap();
-    assert!(python.contains(&format!("ENGINE_VERSION = \"{}\"\n", model_version::ENGINE_VERSION)), "model_version.py's ENGINE_VERSION is not the core's");
-    // The texts of `ModelVersionStatus.message`, which `ModelStatus::message` writes.
-    for text in [
-        "閲覧のみです。保存した時点だけを表示し、続きの計算、分岐、介入の適用はできません。",
-        "f\"このシナリオは{'旧' if older else '別の版の'}モデル\"",
-        "f\"（版 {self.recorded_version}）で計算されました。\"",
-        "f\"今のモデルは版 {self.installed_version} です。{tail}\"",
-        "f\"このシナリオは今と異なるモデルの版（{named(models)}）で計算されました。{tail}\"",
-        "f\"このシナリオは以前の保存の形（{named(shapes)}）で保存されました。{tail}\"",
-        "f\"旧モデルのRunのため、{self.requested_minute}分は計算し直さず、\"",
-        "f\"保存した時点（{self.saved_minute}分）の状態を表示しています。\"",
-    ] {
-        assert!(python.contains(text), "model_version.py's text changed: {text}");
-    }
+fn the_rng_algorithm_is_the_scenario_authoring_s() {
+    let python = fs::read_to_string(format!("{}/../../src/sheltersim/core/rng.py", env!("CARGO_MANIFEST_DIR"))).unwrap();
     assert_eq!(model_version::RNG_ALGORITHM, "sha256-keyed-v1");
+    assert!(python.contains("\"sha256-keyed-v1\""), "core/rng.py's algorithm is not the core's");
 }
 
 #[test]

@@ -57,14 +57,12 @@ pub fn record(zone_id: Arc<str>, point: Option<Pt>, position_kind: Arc<str>, edg
 }
 
 /// A refusal of the plan's route search (`Geo::room_route`).
-#[track_caller]
 pub fn refused(reason: &'static str) -> Error {
     Error::unsupported(reason)
 }
 
 /// A section's value as a read site takes it: a refusal is its `Unsupported`, said here; any other
 /// fault is a corrupt `model_configs`.
-#[track_caller]
 pub fn config_read<T>(value: Read<T>) -> Result<T> {
     match value {
         Ok(value) => Ok(value),

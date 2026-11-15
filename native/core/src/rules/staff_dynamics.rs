@@ -53,7 +53,6 @@ pub fn held_row<'w, T: Row>(world: &'w World, name: &str) -> Result<Held<ShardRe
 
 /// The row of a namespace of the world, as `model_state.get(name)` reads it: None for a name the
 /// world does not have (or holds as None).
-#[track_caller]
 pub fn namespace<'w, T: Row>(world: &'w World, name: &str) -> Result<Option<ShardRef<'w, T>>> {
     match held_row::<T>(world, name)? {
         Held::Absent => Ok(None),
@@ -63,7 +62,6 @@ pub fn namespace<'w, T: Row>(world: &'w World, name: &str) -> Result<Option<Shar
 
 /// A section of `model_configs` as its read site reads it: a refusal keeps its reason, any other
 /// fault is a state no read site lets through.
-#[track_caller]
 pub fn config_read<T>(value: Read<T>) -> Result<T> {
     value.map_err(|fault| {
         if fault.is_refusal() {

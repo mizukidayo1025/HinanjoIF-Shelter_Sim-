@@ -40,7 +40,6 @@ const REPLAN: &str = "movement_replan_count";
 const BLOCKED: &str = "movement_replan_blocked_count";
 const STAFF_SUPPORT_SOURCE: &str = "ASM-STAFF-SUPPORT-LIFECYCLE-V1";
 
-#[track_caller]
 fn refuse<T>(reason: &'static str) -> Result<T> {
     Err(Error::unsupported(reason))
 }

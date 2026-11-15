@@ -30,7 +30,6 @@ use crate::text::py_repr;
 use crate::value::V;
 use crate::world::{World, WorldCell};
 
-#[track_caller]
 fn refuse<T>(reason: &'static str) -> Result<T> {
     Err(Error::unsupported(reason))
 }

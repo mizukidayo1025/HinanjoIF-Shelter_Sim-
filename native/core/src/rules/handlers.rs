@@ -89,13 +89,11 @@ static NULL: V = V::Null;
 
 /// `map.get(key)` of a str key: None (`V::Null`) for a key it does not have. Unsupported for a value
 /// that is not a mapping.
-#[track_caller]
 fn get<'a>(map: &'a V, key: &str) -> Result<&'a V> {
     kit::get(map, key)
 }
 
 /// `map[key]`: `KeyError(key)` for a key it does not have.
-#[track_caller]
 fn item<'a>(map: &'a V, key: &str) -> Result<&'a V> {
     match map {
         V::Map(entries) => entries.get(key).ok_or_else(|| Error::Key(key.to_owned())),
@@ -105,7 +103,6 @@ fn item<'a>(map: &'a V, key: &str) -> Result<&'a V> {
 
 /// `map.get(key)` of any key, as a dict of str keys answers it: None for a key that is not a str.
 /// A key Python cannot hash (a list or a dict) raises `TypeError`, which is refused.
-#[track_caller]
 fn lookup<'a>(map: &'a V, key: &V) -> Result<Option<&'a V>> {
     let V::Map(entries) = map else {
         return Err(Error::unsupported("a value is not a plain dict"));
@@ -118,7 +115,6 @@ fn lookup<'a>(map: &'a V, key: &V) -> Result<Option<&'a V>> {
 }
 
 /// `key in table`, of a table whose keys are str.
-#[track_caller]
 fn contains<R>(table: &Table<R>, key: &V) -> Result<bool> {
     match key {
         V::Str(key) => Ok(table.contains_key(key)),
@@ -183,7 +179,6 @@ fn nonempty_str(value: &V) -> Option<&Arc<str>> {
 }
 
 /// `type(value) is int`: Some(value), None when it isn't.
-#[track_caller]
 fn exactly_int(value: &V) -> Result<Option<i64>> {
     match value {
         V::Int(number) => Ok(Some(*number)),
@@ -194,7 +189,6 @@ fn exactly_int(value: &V) -> Result<Option<i64>> {
 
 /// `not isinstance(value, bool) and isinstance(value, (int, float))`, as `float(value)`. An int a
 /// float can't hold exactly is refused.
-#[track_caller]
 fn real_number(value: &V) -> Result<Option<f64>> {
     match value {
         V::Float(number) => Ok(Some(*number)),
@@ -205,7 +199,6 @@ fn real_number(value: &V) -> Result<Option<f64>> {
 }
 
 /// `repr(value)` of a scalar, for the `{x!r}` of a rule's text.
-#[track_caller]
 fn repr(value: &V) -> Result<String> {
     Ok(match value {
         V::Null => "None".to_owned(),
@@ -220,7 +213,6 @@ fn repr(value: &V) -> Result<String> {
 }
 
 /// `model_state.get(name)` as the row of the namespace the world holds: None for an absent key.
-#[track_caller]
 fn state<'w>(world: &'w World, name: &str, held: &Held) -> Result<Option<ShardRef<'w, V>>> {
     match kit::held_row::<ValueRow>(world, name, held)? {
         None => Ok(None),
@@ -234,7 +226,6 @@ fn state_value(world: &World, name: &str, held: &Held) -> Result<V> {
 }
 
 /// The value at this path of the namespace's row, to write: each step a key of a plain dict.
-#[track_caller]
 fn at_mut<'a>(mut value: &'a mut V, path: &[&str]) -> Result<&'a mut V> {
     for key in path {
         let V::Map(entries) = value else {
@@ -246,7 +237,6 @@ fn at_mut<'a>(mut value: &'a mut V, path: &[&str]) -> Result<&'a mut V> {
 }
 
 /// `record[key] = value` of a plain dict: in place, or at the end for a new key.
-#[track_caller]
 fn put(record: &mut V, key: &str, value: V) -> Result<()> {
     let V::Map(entries) = record else {
         return Err(Error::unsupported("a value is not a plain dict"));
@@ -262,7 +252,6 @@ fn write_record(world: &World, name: &str, path: &[&str], f: impl FnOnce(&mut V)
 }
 
 /// The key of a record a rule found by this value: a str.
-#[track_caller]
 fn exact_key(value: &V) -> Result<Arc<str>> {
     kit::exact_str(value).cloned()
 }

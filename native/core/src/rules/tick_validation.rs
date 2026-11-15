@@ -48,7 +48,6 @@ pub const SERVICE: &str = "resource_service_v1";
 /// The refusal for a pending event without its row.
 pub const NO_ROW: &str = "a pending event has no row";
 
-#[track_caller]
 fn refuse<T>(reason: &'static str) -> Result<T> {
     Err(Error::unsupported(reason))
 }
@@ -78,7 +77,6 @@ pub enum Requests<'a> {
 }
 
 /// The people's tables and the zones', borrowed shared.
-#[track_caller]
 pub fn tables(world: &World) -> Result<ShardRef<'_, Entities>> {
     world.rows()
 }
@@ -213,7 +211,6 @@ fn has_field(event: &EventRow, key: &str) -> bool {
 }
 
 /// A value a section parsed, or its error as the read site says it (`configs::read`).
-#[track_caller]
 fn read(value: &std::result::Result<i64, crate::config::Fault>) -> Result<i64> {
     match value {
         Ok(value) => Ok(*value),

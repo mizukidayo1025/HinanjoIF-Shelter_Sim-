@@ -27,7 +27,6 @@ use crate::world::World;
 
 const SOURCE_ID: &str = "ASM-PROXIMITY-CONTACT-V1";
 
-#[track_caller]
 fn refuse<T>(reason: &'static str) -> Result<T> {
     Err(Error::unsupported(reason))
 }

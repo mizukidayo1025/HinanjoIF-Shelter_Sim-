@@ -298,14 +298,12 @@ impl Change {
     }
 
     /// `check`, where what the contract turns down or can't be told is Unsupported.
-    #[track_caller]
     pub fn of(value: &V) -> Result<Self> {
         Self::check(value).map_err(|_| Error::unsupported("a state change its contract does not take as it is"))
     }
 
     /// `of` of the change's `document`, for a change a kernel built: Unsupported where the contract
     /// turns it down.
-    #[track_caller]
     pub fn validate(&self) -> Result<()> {
         let fits = is_identifier(&self.entity_id)
             && ENTITY_KINDS.contains(&&*self.entity_kind)
@@ -447,7 +445,6 @@ impl Receipt {
 
     /// `check`, where a value the contract turns down, or one it can't tell, is Unsupported: a
     /// receipt in an event a kernel made always passes.
-    #[track_caller]
     pub fn of(value: &V) -> Result<Self> {
         Self::check(value).map_err(|_| Error::unsupported("a receipt its contract does not take as it is"))
     }

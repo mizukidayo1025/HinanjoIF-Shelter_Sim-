@@ -45,7 +45,6 @@ use crate::state::social_propagation::{ContactRecord, SocialRow, NAME, SCHEMA_VE
 use crate::value::V;
 use crate::world::World;
 
-#[track_caller]
 fn unsupported<T>(reason: &'static str) -> Result<T> {
     Err(Error::unsupported(reason))
 }
@@ -265,7 +264,6 @@ struct DeGrootDetails {
     applied: f64,
 }
 
-#[track_caller]
 fn checked<T>(value: Option<T>) -> Result<T> {
     value.ok_or_else(|| Error::unsupported("a minute does not fit"))
 }

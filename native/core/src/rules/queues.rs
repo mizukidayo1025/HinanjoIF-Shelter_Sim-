@@ -222,7 +222,6 @@ fn fifo_trips<'a>(row: &'a MovementRow, facility_id: &'a str, queue_id: Option<&
 }
 
 /// The movement row of a world that holds it, or None without the namespace.
-#[track_caller]
 fn movement_row<'w>(world: &'w World, held: &Held) -> Result<Option<crate::cell::ShardRef<'w, MovementRow>>> {
     held_row::<MovementRow>(world, KEY, held)
 }

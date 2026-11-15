@@ -193,7 +193,6 @@ fn keys_are(mapping: &IndexMap<Arc<str>, V>, names: &[&str]) -> bool {
 
 /// Whether a value is a unit (finite, in 0..1): true, or false for its ValueError. Unsupported for
 /// an int past 64 bits, which `math.isfinite` may refuse with another error.
-#[track_caller]
 fn unit_verdict(value: &V) -> Result<bool> {
     match value {
         V::Float(number) => Ok(number.is_finite() && (0.0..=1.0).contains(number)),

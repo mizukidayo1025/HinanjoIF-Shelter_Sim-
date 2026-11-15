@@ -97,7 +97,6 @@ pub const READ: [&str; 16] = [
 /// The namespaces the memo compares, in the order of `Memo::seen`.
 const COMPARED: [&str; 4] = [PRESENCE, LIFECYCLE, DYNAMICS, OVERLAY];
 
-#[track_caller]
 fn refuse<T>(reason: &'static str) -> Result<T> {
     Err(Error::unsupported(reason))
 }
@@ -128,7 +127,6 @@ impl HeldNamespaces {
         self.0.insert(name, held);
     }
 
-    #[track_caller]
     fn of(&self, name: &str) -> Result<&Held> {
         self.0.get(name).ok_or_else(|| Error::unsupported("a namespace the check reads was not read"))
     }

@@ -177,7 +177,6 @@ pub struct Draws {
 impl Draws {
     /// The draws of a seed's decimal text (`str(int)`). Unsupported for a negative seed, which
     /// `CounterRNG` refuses, and for text that is not an int's.
-    #[track_caller]
     pub fn of_seed(seed: &str) -> crate::error::Result<Self> {
         let Some(parsed) = crate::world::Seed::from_text(seed) else {
             return Err(crate::error::Error::unsupported("a seed is not an int"));
@@ -189,7 +188,6 @@ impl Draws {
     }
 
     /// The draws of the world's seed, which a Run's `CounterRNG(world.seed)` has.
-    #[track_caller]
     pub fn of_world(world: &crate::world::World) -> crate::error::Result<Self> {
         Self::of_seed(&world.seed_text()?)
     }

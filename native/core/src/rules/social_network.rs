@@ -38,7 +38,6 @@ pub fn observes_event(event_type: &str) -> bool {
 }
 
 /// An ID the keys of the rules are built from: one `json.dumps` writes as it is.
-#[track_caller]
 pub fn plain_id(id: &str) -> Result<&str> {
     if !is_plain_id(id) {
         return Err(Error::unsupported("an ID has a character that JSON escapes"));
@@ -65,7 +64,6 @@ pub fn relief(positive: f64, negative: f64, transfer: f64) -> f64 {
 }
 
 /// `config.get("social_action_affect_transfer", 0.02)` of the body row, as `float_or` reads it.
-#[track_caller]
 fn transfer_of(config: &V) -> Result<f64> {
     match config {
         V::Map(map) => match map.get("social_action_affect_transfer") {
@@ -268,7 +266,6 @@ fn get<'a>(payload: &'a V, key: &str) -> Option<&'a V> {
 }
 
 /// `isinstance(observed_minute, int) and not isinstance(observed_minute, bool)`: the int, or None.
-#[track_caller]
 fn int_field(value: Option<&V>) -> Result<Option<i64>> {
     match value {
         Some(V::Int(value)) => Ok(Some(*value)),

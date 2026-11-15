@@ -90,7 +90,6 @@ pub enum Applied {
 
 /// A value of the config as its read site takes it: a refusal its `Unsupported`, any other fault a
 /// corrupt `model_configs`.
-#[track_caller]
 fn read<T>(value: Read<T>) -> Result<T> {
     match value {
         Ok(value) => Ok(value),
@@ -102,7 +101,6 @@ fn read<T>(value: Read<T>) -> Result<T> {
 /// `selected_models(world.model_configs)["information"]`: a selection that is not one refused, one
 /// that raised the corrupt `model_configs` of `SELECTION_RAISED`, and a selection without the key
 /// its `KeyError`.
-#[track_caller]
 pub fn selected_information(selection: &Kept<Selection>) -> Result<Arc<str>> {
     match selection {
         Ok(selection) => selection.get("information").cloned().ok_or_else(|| Error::Key("information".to_owned())),
@@ -283,7 +281,6 @@ fn room(value: i64, adds: i64) -> Result<()> {
 
 /// `isinstance(value, int) and not isinstance(value, bool)`: the int, or None; Unsupported for one
 /// past 64 bits.
-#[track_caller]
 pub fn int_not_bool(value: &V) -> Result<Option<i64>> {
     match value {
         V::Int(number) => Ok(Some(*number)),
@@ -294,7 +291,6 @@ pub fn int_not_bool(value: &V) -> Result<Option<i64>> {
 
 /// `not isinstance(value, bool) and isinstance(value, (int, float))`, as `float(value)`: None when it
 /// isn't one. An int a float can't hold exactly is refused.
-#[track_caller]
 pub fn real_number(value: &V) -> Result<Option<f64>> {
     match value {
         V::Float(number) => Ok(Some(*number)),

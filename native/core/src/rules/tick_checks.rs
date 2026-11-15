@@ -46,7 +46,6 @@ const QUEUES: &str = "facility_queues_v1";
 const MOVEMENT: &str = "movement_v1";
 const OTHER_TREE: &str = "the world holds another tree than the namespace's";
 
-#[track_caller]
 fn refuse<T>(reason: &'static str) -> Result<T> {
     Err(Error::unsupported(reason))
 }
@@ -358,7 +357,6 @@ fn payload_same(event: &EventRow, key: &str, expected: Option<&str>) -> Result<b
     })
 }
 
-#[track_caller]
 fn sum(first: i64, second: i64) -> Result<i64> {
     first.checked_add(second).ok_or_else(|| Error::unsupported("a route's minutes out of range"))
 }

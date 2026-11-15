@@ -116,14 +116,12 @@ struct Config {
 
 pub const CONFIG_REFUSED: &str = "the zone environment config does not parse";
 
-#[track_caller]
 fn config_refused<T>() -> Result<T> {
     Err(Error::unsupported(CONFIG_REFUSED))
 }
 
 /// A field of `Field(strict=True, ge=low, le=high, allow_inf_nan=False)`, which takes an int as its
 /// float and not a bool.
-#[track_caller]
 fn bounded_float(value: &V, low: f64, high: f64) -> Result<f64> {
     let number = match value {
         V::Float(number) => *number,
@@ -137,7 +135,6 @@ fn bounded_float(value: &V, low: f64, high: f64) -> Result<f64> {
     }
 }
 
-#[track_caller]
 fn bounded_int(value: &V, low: i64, high: i64) -> Result<i64> {
     match value {
         V::Int(number) if *number >= low && *number <= high => Ok(*number),
@@ -409,7 +406,6 @@ fn read_formulas(registry: Option<&V>) -> Result<Formulas> {
 
 pub const RECORD_REFUSED: &str = "a zone modifier is not what the rule reads";
 
-#[track_caller]
 fn record_refused<T>() -> Result<T> {
     Err(Error::unsupported(RECORD_REFUSED))
 }
@@ -491,7 +487,6 @@ impl Modifier {
     }
 
     /// A number of the parameters, as `get` reads it.
-    #[track_caller]
     fn number(&self, get: fn(&Parameters) -> Option<f64>) -> Result<f64> {
         match self.parameters.as_ref().map(|parameters| get(parameters)) {
             Some(Some(number)) => Ok(number),
@@ -499,7 +494,6 @@ impl Modifier {
         }
     }
 
-    #[track_caller]
     fn action(&self) -> Result<&Arc<str>> {
         match self.parameters.as_ref().map(|parameters| &parameters.action) {
             Some(Some(action)) => Ok(action),
@@ -507,7 +501,6 @@ impl Modifier {
         }
     }
 
-    #[track_caller]
     fn start_minute(&self) -> Result<i64> {
         match self.start_minute {
             Some(minute) => Ok(minute),
@@ -516,7 +509,6 @@ impl Modifier {
     }
 
     /// `record["op"]`; only a str is one of the operations the rule compares it with.
-    #[track_caller]
     fn op(&self) -> Result<Option<&str>> {
         match &self.op {
             Some(op) => Ok(op.as_deref()),
@@ -524,7 +516,6 @@ impl Modifier {
         }
     }
 
-    #[track_caller]
     fn start_event_id(&self) -> Result<Arc<str>> {
         match &self.start_event_id {
             Some(id) => Ok(id.clone()),
@@ -532,7 +523,6 @@ impl Modifier {
         }
     }
 
-    #[track_caller]
     fn source_id(&self) -> Result<Arc<str>> {
         match &self.source_id {
             Some(id) => Ok(id.clone()),
@@ -540,7 +530,6 @@ impl Modifier {
         }
     }
 
-    #[track_caller]
     fn assumption_ids(&self) -> Result<Vec<Arc<str>>> {
         match &self.assumption_ids {
             Some(ids) => Ok(ids.clone()),

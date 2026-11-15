@@ -206,7 +206,7 @@ impl Phase {
         Phase::CollectMetrics,
     ];
 
-    /// The phase's name, as an observer and the census see it.
+    /// The phase's name, as an observer sees it.
     pub fn name(self) -> &'static str {
         match self {
             Phase::DispatchDueEvents => "dispatch_due_events",

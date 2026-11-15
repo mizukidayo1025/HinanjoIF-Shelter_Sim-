@@ -91,12 +91,10 @@ struct Balances {
     reserved: i64,
 }
 
-#[track_caller]
 fn added(first: i64, second: i64) -> Result<i64> {
     first.checked_add(second).ok_or_else(|| Error::unsupported("a quantity past 64 bits"))
 }
 
-#[track_caller]
 fn taken(first: i64, second: i64) -> Result<i64> {
     first.checked_sub(second).ok_or_else(|| Error::unsupported("a quantity past 64 bits"))
 }
@@ -143,7 +141,6 @@ fn stable_id(value: &V) -> Option<&Arc<str>> {
 }
 
 /// An ID `ScheduledEvent` takes: a stable one.
-#[track_caller]
 fn valid_id(id: &str) -> Result<&str> {
     if is_valid_id(id) {
         Ok(id)

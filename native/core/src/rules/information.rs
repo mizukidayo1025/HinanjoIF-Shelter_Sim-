@@ -38,7 +38,6 @@ use crate::world::World;
 
 use rustc_hash::FxHashMap;
 
-#[track_caller]
 fn unsupported<T>(reason: &'static str) -> Result<T> {
     Err(Error::unsupported(reason))
 }

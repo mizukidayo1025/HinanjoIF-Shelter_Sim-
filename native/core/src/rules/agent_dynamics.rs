@@ -30,7 +30,6 @@ pub struct Decision<'a> {
 }
 
 /// An ID as read: None for a value that is not an exact str, refused where the rule first uses it.
-#[track_caller]
 fn id_of(id: Option<&str>) -> Result<&str> {
     id.ok_or_else(|| Error::unsupported("a value is not a str"))
 }

@@ -49,7 +49,6 @@ pub struct Order<'a> {
     pub source_id: Option<&'a str>,
 }
 
-#[track_caller]
 fn failed<T>(text: &str) -> Result<T> {
     Err(Error::failed(text))
 }

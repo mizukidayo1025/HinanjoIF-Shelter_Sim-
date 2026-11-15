@@ -143,7 +143,6 @@ fn same_text(field: &Option<Arc<str>>, value: &V) -> bool {
 }
 
 /// `hash(value)` of a frozen payload value: a mapping proxy, or a tuple holding one, has none.
-#[track_caller]
 fn hashable(value: &V) -> Result<()> {
     match value {
         V::Map(_) => Err(Error::Type("unhashable type: 'mappingproxy'".to_owned())),
@@ -153,14 +152,12 @@ fn hashable(value: &V) -> Result<()> {
 }
 
 /// `mapping.get(value)` of a mapping of str keys: the key, if the value is a str.
-#[track_caller]
 fn key_of(value: &V) -> Result<Option<&str>> {
     hashable(value)?;
     Ok(str_of(value).map(|text| &**text))
 }
 
 /// `value not in {names}`, as Python's set decides it.
-#[track_caller]
 fn not_in(value: &V, names: &[&str]) -> Result<bool> {
     Ok(!key_of(value)?.is_some_and(|text| names.contains(&text)))
 }

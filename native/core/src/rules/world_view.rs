@@ -56,7 +56,6 @@ pub const POPULATION_CONTEXT: &str = "population_context_v1";
 pub const POPULATION_DYNAMICS: &str = "population_dynamics_v1";
 pub const POPULATION_PRESENCE: &str = "population_presence_v1";
 
-#[track_caller]
 fn unsupported<T>(reason: &'static str) -> Result<T> {
     Err(Error::unsupported(reason))
 }
@@ -232,7 +231,6 @@ fn has_row(world: &World, name: &str) -> Result<bool> {
 }
 
 /// The typed row of a namespace, None without the key.
-#[track_caller]
 fn row_of<'w, T: crate::row::Row>(world: &'w World, name: &str) -> Result<Option<ShardRef<'w, T>>> {
     if has_row(world, name)? {
         world.row::<T>(name).map(Some)
@@ -303,7 +301,6 @@ impl Deref for ModelConfigs<'_> {
 }
 
 /// `record[name]`; a missing one (a `KeyError` in Python) is refused.
-#[track_caller]
 fn field<'a>(record: &'a IndexMap<Arc<str>, V>, name: &str) -> Result<&'a V> {
     match record.get(name) {
         Some(value) => Ok(value),
@@ -312,7 +309,6 @@ fn field<'a>(record: &'a IndexMap<Arc<str>, V>, name: &str) -> Result<&'a V> {
 }
 
 /// The dict a `get(key, {})` gave; a non-dict (on which Python's next read raises) is refused.
-#[track_caller]
 fn required_dict(value: &V) -> Result<&IndexMap<Arc<str>, V>> {
     match value {
         V::Map(map) => Ok(map),
@@ -320,7 +316,6 @@ fn required_dict(value: &V) -> Result<&IndexMap<Arc<str>, V>> {
     }
 }
 
-#[track_caller]
 fn exact_float(value: &V) -> Result<f64> {
     match value {
         V::Float(number) => Ok(*number),
@@ -328,7 +323,6 @@ fn exact_float(value: &V) -> Result<f64> {
     }
 }
 
-#[track_caller]
 fn exact_text(value: &V) -> Result<&Arc<str>> {
     match value {
         V::Str(text) => Ok(text),
@@ -336,7 +330,6 @@ fn exact_text(value: &V) -> Result<&Arc<str>> {
     }
 }
 
-#[track_caller]
 fn optional_text(value: &V) -> Result<Option<Arc<str>>> {
     match value {
         V::Null => Ok(None),
@@ -408,7 +401,6 @@ pub fn presence_people(world: &World) -> Result<Option<FxHashMap<Arc<str>, House
 }
 
 /// A person's `group_id` in a view: the household of the presence record, or the profile's.
-#[track_caller]
 pub fn group_of(people: Option<&FxHashMap<Arc<str>, Household>>, id: &str, profile_group: &Option<Arc<str>>) -> Result<Option<Arc<str>>> {
     match people.and_then(|people| people.get(id)) {
         None | Some(Household::Profile) => Ok(profile_group.clone()),
@@ -1031,7 +1023,6 @@ fn write_texts(out: &mut Vec<u8>, items: &[Arc<str>]) {
 }
 
 /// `model_configs[name]`; a None is refused, as the view's hash refuses it.
-#[track_caller]
 fn hashed_config<'a>(configs: &'a ModelConfigs<'_>, name: &str) -> Result<&'a V> {
     match configs.get(name) {
         None => unsupported("a config is missing"),

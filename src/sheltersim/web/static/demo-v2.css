@@ -292,7 +292,7 @@ hr {
   white-space: nowrap;
 }
 .speed-label select {
-  width: 67px;
+  width: auto;
   margin: 0;
   padding: 9px 4px;
 }

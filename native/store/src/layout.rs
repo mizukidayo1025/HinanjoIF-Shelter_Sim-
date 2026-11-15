@@ -19,20 +19,9 @@ use std::path::{Path, PathBuf};
 
 use crate::{Error, Result};
 
-/// The folder of the Python server's usage accounts, which is not a Project.
-pub const RESERVED: &str = "runtime-accounts";
-
-/// Python's text of an id that is not one.
-pub const INVALID_ID: &str = "invalid artifact identifier";
-
-/// Whether `id` is one of Python's identifiers: `[A-Za-z0-9][A-Za-z0-9._:-]{0,63}`.
-pub fn is_id(id: &str) -> bool {
-    let bytes = id.as_bytes();
-    !bytes.is_empty()
-        && bytes.len() <= 64
-        && bytes[0].is_ascii_alphanumeric()
-        && bytes[1..].iter().all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b':' | b'-'))
-}
+// The ids and the folder of the usage accounts are the core's (`answers::records`), which the
+// browser's store reads with.
+pub use sheltersim_core::answers::records::{is_id, INVALID_ID, RESERVED};
 
 /// `id`, or Python's error for one that is not an identifier.
 pub fn check_id(id: &str) -> Result<&str> {

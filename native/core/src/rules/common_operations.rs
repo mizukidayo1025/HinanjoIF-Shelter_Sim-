@@ -303,6 +303,23 @@ impl Change {
         Self::check(value).map_err(|_| Error::unsupported("a state change its contract does not take as it is"))
     }
 
+    /// `of` of the change's `document`, for a change a kernel built: Unsupported where the contract
+    /// turns it down.
+    #[track_caller]
+    pub fn validate(&self) -> Result<()> {
+        let fits = is_identifier(&self.entity_id)
+            && ENTITY_KINDS.contains(&&*self.entity_kind)
+            && is_field_path(&self.field_path)
+            && self.before.is_finite()
+            && self.after.is_finite()
+            && (1..=80).contains(&self.unit.chars().count());
+        if fits {
+            Ok(())
+        } else {
+            Err(Error::unsupported("a state change its contract does not take as it is"))
+        }
+    }
+
     pub fn document(&self) -> V {
         let mut document = IndexMap::with_capacity(6);
         document.insert(Arc::from("entity_id"), V::Str(self.entity_id.clone()));

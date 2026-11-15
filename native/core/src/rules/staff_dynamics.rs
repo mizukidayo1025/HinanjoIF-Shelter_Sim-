@@ -82,8 +82,8 @@ pub fn config_read<T>(value: Read<T>) -> Result<T> {
 // ---- What the rules read from the rest of the world -------------------------------------------------
 
 /// `state["staff_status"]` of `operational_events_v1`, or None without that namespace (or with None
-/// there): the input of `staff_is_available`, handed to `f`. The namespace and its `staff_status`
-/// are checked here; a member's record where it is read.
+/// there): the input of `StaffStatus::is_available`, handed to `f`. The namespace and its
+/// `staff_status` are checked here; a member's record where it is read.
 pub fn with_staff_status<R>(world: &World, f: impl FnOnce(StaffStatus<'_>) -> Result<R>) -> Result<R> {
     let state = world.slots.try_value(OPERATIONAL)?;
     let status = match state.as_deref() {
@@ -104,7 +104,7 @@ pub fn with_staff_status<R>(world: &World, f: impl FnOnce(StaffStatus<'_>) -> Re
 pub struct StaffStatus<'a>(Option<&'a IndexMap<Arc<str>, V>>);
 
 impl StaffStatus<'_> {
-    /// `staff_is_available` of one member.
+    /// Whether one member's status lets them work.
     pub fn is_available(self, id: &str) -> Result<bool> {
         let Some(status) = self.0 else {
             return Ok(true);
@@ -121,7 +121,8 @@ impl StaffStatus<'_> {
     }
 }
 
-/// `_on_shift`. A config of the oldest schema has no windows, which is refused.
+/// Whether the member is on shift at `minute` by the config's windows. A config of the oldest
+/// schema has no windows, which is refused.
 pub fn on_shift(config: &ConfigRow, id: &str, minute: i64) -> Result<bool> {
     let Some(windows) = &config.shift_windows_by_staff.0 else {
         return Err(Error::unsupported("the config has no shift windows"));
@@ -135,7 +136,7 @@ pub fn on_shift(config: &ConfigRow, id: &str, minute: i64) -> Result<bool> {
 
 // ---- The fatigue formula -----------------------------------------------------------------------
 
-/// `StaffFatigueFormula.fatigue`, or None where Python's result isn't sure to be f64 division.
+/// The fatigue formula's value, or None where Python's result isn't sure to be f64 division.
 #[inline]
 pub fn fatigue(saturating: bool, consecutive: i64, maximum: i64) -> Option<f64> {
     if maximum == 0 || consecutive.unsigned_abs() > FLOAT_EXACT_INT || maximum.unsigned_abs() > FLOAT_EXACT_INT {
@@ -154,7 +155,7 @@ pub fn fatigue(saturating: bool, consecutive: i64, maximum: i64) -> Option<f64> 
 struct Member {
     id: Arc<str>,
     working: bool,
-    /// `staff_is_available`; only asked of who has no task.
+    /// `StaffStatus::is_available`; only asked of who has no task.
     available: bool,
     maximum: Option<i64>,
 }
@@ -168,7 +169,7 @@ struct Parameters {
     minute: i64,
 }
 
-/// One member's next record: the loop body of `update_staff_dynamics`. None when an int leaves what
+/// One member's next record: the loop body of `update`. None when an int leaves what
 /// the kernel holds or a config key the rule reads is not there.
 fn next_record(record: &StaffRecord, working: bool, available_on_shift: bool, maximum: i64, parameters: &Parameters) -> Option<StaffRecord> {
     let mut next = *record;
@@ -222,8 +223,8 @@ fn plan(row: &StaffDynamicsRow, members: &[Member], parameters: &Parameters) -> 
     Ok(planned)
 }
 
-/// `update_staff_dynamics` of a world that has the namespace, with the fatigue formula of its
-/// configs (`create_staff_fatigue_formula`). The staff go in the order of `world.staff`.
+/// The staff dynamics of the minute, for a world that has the namespace, with the fatigue formula
+/// of its configs (`config::staff::StaffFatigue`). The staff go in the order of `world.staff`.
 pub fn update(world: &mut World, minute: i64, formula: &StaffFatigue) -> Result<()> {
     let duration = world.duration_minutes()?;
     let members = with_staff_status(world, |status| {
@@ -261,7 +262,7 @@ pub fn update(world: &mut World, minute: i64, formula: &StaffFatigue) -> Result<
 
 // ---- The readers --------------------------------------------------------------------------------
 
-/// `staff_dynamics_on_shift` of a world that has the namespace.
+/// Whether the member is on shift now, in a world that has the namespace.
 pub fn on_shift_now(world: &World, staff_id: &str, minute: i64) -> Result<bool> {
     let row = world.row::<StaffDynamicsRow>(NAME)?;
     let Some(record) = row.staff.get(staff_id) else {
@@ -284,7 +285,7 @@ pub fn operation_is_idle(world: &World, staff_id: &str, absent: bool) -> Result<
     })
 }
 
-/// `staff_dynamics_is_available` of a world that has the namespace: the operation is read first,
+/// Whether the member can work now, in a world that has the namespace: the operation is read first,
 /// then the shift, and the status last. `operations_absent` as `operation_is_idle`.
 pub fn is_available_now(world: &World, staff_id: &str, minute: i64, operations_absent: bool) -> Result<bool> {
     let idle = operation_is_idle(world, staff_id, operations_absent)?;

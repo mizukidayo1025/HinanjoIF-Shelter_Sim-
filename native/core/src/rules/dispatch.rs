@@ -1,11 +1,11 @@
 //! The dispatch phase in the core (Issue #152, lane P9-1c; design-p9.md section 1.1 and the P9-1c
 //! row of section 5): what is due at the tick's minute, in queue order, and then what follows from
-//! the events that applied, as `EventDispatcher.dispatch_one` and `DispatchPhase` did.
+//! the events that applied.
 //!
 //! For each event of the due snapshot:
 //! 1. where it stands now: gone from the queue (skipped), the same row, or another row of its ID,
-//!    which runs only if it is the same event by value (`current is event or current.to_dict() ==
-//!    event.to_dict()`: numbers by value, `1 == 1.0`, `-0.0 == 0.0`, maps in any order);
+//!    which runs only if it is the same event by value (`same_event`: numbers by value,
+//!    `1 == 1.0`, `-0.0 == 0.0`, maps in any order);
 //! 2. its handler (`Policies.dispatch`, read when the controller started): none is `FAILED` with
 //!    the dispatcher's text; a known class runs here (`HandlerKind`), and any other is the host's
 //!    (`Host::apply_foreign`, H4);
@@ -122,17 +122,17 @@ fn count(counter: &AtomicU64) {
 /// The refusal of a due event its row cannot hold (H6 of design-p9.md: the rows of the pending
 /// events the host holds are read through `Host::read_queue_rows`).
 pub const NO_ROW: &str = "an event a row cannot hold";
-/// `ValueError` of `EventDispatcher.settle`.
+/// The `ValueError` of `settle` where the log's record of the event disagrees.
 pub const RECORD_DISAGREES: &str = "transactional event record disagrees with its dispatch result";
-/// `ValueError` of `dispatch_one` for a follow-up record.
+/// The `ValueError` of `follow_ups` for a follow-up record that disagrees.
 pub const FOLLOW_UP_DISAGREES: &str = "transactional follow-up record disagrees with dispatch result";
 /// The label of the phase's own refusals.
 pub const RUN_PHASE: &str = "dispatch.run_phase";
-/// `_sync_movement_after_events`, a labelled step with no body of its own.
+/// `sync_movement`, a labelled step with no body of its own.
 pub const SYNC: &str = "dispatch.sync_movement";
-/// The label of the guard's refusal (`should_apply_effect_guard`).
+/// The label of the guard's refusal (`guard`).
 pub const GUARD: &str = "effects.should_apply_guard";
-/// The contact gate, a labelled step with no body of its own (`_consider_social_contact_event`).
+/// The contact gate, a labelled step with no body of its own (`consider_contact`).
 pub const CONTACT: &str = "dispatch.consider_contact";
 
 const MOVEMENT: &str = "movement_v1";
@@ -292,7 +292,7 @@ pub struct Dispatched {
 
 // ---- The phase -----------------------------------------------------------------------------------------
 
-/// `_run_dispatch_phase` at the tick's minute, the first phase of the tick
+/// The dispatch phase at the tick's minute, the first phase of the tick
 /// (`rules::tick::run_phases`).
 pub fn run<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R>) -> std::result::Result<(), H::Error>
 where
@@ -321,16 +321,16 @@ where
 
 // ---- A dispatcher a caller holds alone (decision D3, lane P9-3b) -------------------------------------
 
-/// `EventDispatcher.dispatch_one` of a dispatcher a caller holds alone (a test's, or the
-/// tick's dispatch phase; decision D3 of design-p9.md): `row` is the event of a due
-/// snapshot, at `tick.minute`. None where it left the queue, or the queue's event of its ID is no
-/// longer equal to it (`current.to_dict() != event.to_dict()`, `same_event`). Else its handler, by
-/// the dispatcher's own table (`tick.policies.dispatch`, every handler the host's: `apply_foreign`
-/// calls its `apply`), after the EffectProgram's guard; no handler is the FAILED outcome. An
-/// applied contact or interaction is recorded (`record_social_event`, `observe_event`); the event
-/// is settled; and the handler's records are compared with the log's or appended. None of the
-/// controller's steps after an event run here (the receipts of shared operations, the completions
-/// of actions, the movement). Returns the IDs of the records, the event's first.
+/// One event's dispatch by a dispatcher a caller holds alone (a test's, or the tick's dispatch
+/// phase; decision D3 of design-p9.md): `row` is the event of a due snapshot, at `tick.minute`.
+/// None where it left the queue, or the queue's event of its ID is no longer equal to it
+/// (`same_event`). Else its handler, by the dispatcher's own table (`tick.policies.dispatch`, every
+/// handler the host's: `apply_foreign` calls its `apply`), after the EffectProgram's guard; no
+/// handler is the FAILED outcome. An applied contact or interaction is recorded
+/// (`record_social_event`, `observe_event`); the event is settled; and the handler's records are
+/// compared with the log's or appended. None of the controller's steps after an event run here (the
+/// receipts of shared operations, the completions of actions, the movement). Returns the IDs of the
+/// records, the event's first.
 pub fn one_alone<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R>, row: &EventRow) -> std::result::Result<Option<Vec<Arc<str>>>, H::Error>
 where
     H::Error: From<WriteError>,
@@ -392,9 +392,9 @@ where
     Ok(Some(ids))
 }
 
-/// `EventDispatcher.settle` of a dispatcher a caller holds alone (decision D3): the event leaves the
-/// queue if it is there, and its outcome is recorded at `tick.minute`, unless the log holds a record
-/// of its ID, which must then be of the same event and status (`RECORD_DISAGREES`).
+/// `settle` by a dispatcher a caller holds alone (decision D3): the event leaves the queue if it is
+/// there, and its outcome is recorded at `tick.minute`, unless the log holds a record of its ID,
+/// which must then be of the same event and status (`RECORD_DISAGREES`).
 pub fn settle_alone<C: WorldCell, H: Host, R: RunCell>(
     tick: &mut Tick<'_, C, H, R>,
     row: &EventRow,
@@ -503,7 +503,7 @@ where
     }
     settle(tick, &row, status, detail.as_deref())?;
     if let Some(receipt) = receipt {
-        // `dispatch_one` appends the handler's record after the event's own, and the receipt follows.
+        // The dispatch appends the handler's record after the event's own, and the receipt follows.
         let written = tick.cell.with(|world| crate::rules::care_receipts::record_transition(world, receipt)).map_err(core_err::<H::Error>)?;
         tick.written(written)?;
     }
@@ -511,8 +511,8 @@ where
     follow_ups(tick, records, outcomes)
 }
 
-/// `effect_event_guard_or_suppress` of an event with an EffectProgram's marker: None when the
-/// handler goes on, else the event's outcome.
+/// The EffectProgram's guard of an event with its marker: None when the handler goes on, else the
+/// event's outcome.
 fn guard<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R>, row: &EventRow) -> std::result::Result<Option<Handled>, H::Error> {
     if kit::provenance(row, effects::MARKER).is_none() {
         return Ok(None);
@@ -560,8 +560,9 @@ where
     result
 }
 
-/// Whether a known handler runs here: its managers are the controller's, its `_after_arrival` and
-/// `after_complete` are as defined, and its walk's manager has no `request` of its own (a test's).
+/// Whether a known handler runs here: its managers are the controller's, its steps after an arrival
+/// and after a completion are its kind's own, and its walk's manager has no `request` of its own (a
+/// test's).
 fn runs_here(native: &Native, row: &EventRow) -> bool {
     if !native.own_managers || !native.after_arrival_as_defined {
         return false;
@@ -654,9 +655,8 @@ fn record_social_event<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C,
     tick.world(|world| body_state::record_social_event(world, &event, minute, &inputs.selection, &models))
 }
 
-/// `EventDispatcher.settle`: the event leaves the queue if it is there, and its record is appended,
-/// unless the log holds one of its ID, which the handler wrote: that one must be of the same event
-/// and status.
+/// The settle: the event leaves the queue if it is there, and its record is appended, unless the
+/// log holds one of its ID, which the handler wrote: that one must be of the same event and status.
 fn settle<C: WorldCell, H: Host, R: RunCell>(
     tick: &mut Tick<'_, C, H, R>,
     row: &EventRow,
@@ -687,9 +687,8 @@ fn settle<C: WorldCell, H: Host, R: RunCell>(
     }
 }
 
-/// The handler's records: each one the log holds already must be the same event with the same status,
-/// and any other is appended. The shared receipts among them are taken in
-/// (`ingest_applied_shared_operation_records`).
+/// The handler's records: each one the log holds already must be the same event with the same
+/// status, and any other is appended. The shared receipts among them are taken in (`ingest`).
 fn follow_ups<C: WorldCell, H: Host, R: RunCell>(
     tick: &mut Tick<'_, C, H, R>,
     records: Vec<Record>,
@@ -720,9 +719,9 @@ fn follow_ups<C: WorldCell, H: Host, R: RunCell>(
     ingest(tick, &records)
 }
 
-/// `ingest_applied_shared_operation_records` of the handler's records: nothing without the
-/// namespace; each APPLIED receipt not recorded yet goes to `record_shared_operation`. Only the
-/// first can be refused: nothing has changed before it.
+/// The shared receipts of the handler's records: nothing without the namespace; each APPLIED
+/// receipt not recorded yet goes to `common_operations::record_shared_operation`. Only the first
+/// can be refused: nothing has changed before it.
 fn ingest<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R>, records: &[Record]) -> std::result::Result<(), H::Error> {
     let holding = tick.holding()?;
     if !crate::rules::care_receipts::has_namespace(&holding)? {
@@ -755,7 +754,7 @@ fn ingest<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R>, recor
 
 // ---- The handlers -----------------------------------------------------------------------------------
 
-/// The payload's value of `key` when it is a str (`EventRef::text` of a row).
+/// The payload's value of `key` when it is a str.
 fn text_of(row: &EventRow, key: &str) -> Option<Arc<str>> {
     match kit::payload(row, key) {
         Some(V::Str(text)) => Some(text.clone()),
@@ -1157,8 +1156,8 @@ where
     }
 }
 
-/// `interrupt_staff_operation(world, staff_id, event, current_event_id=event.event_id)` and then
-/// `raise EventSuppressed(text)`.
+/// The staff member's operation interrupted by the event (`operations::stop_and_suppress`), and
+/// then the event suppressed with `text`.
 fn stop_and_suppress<C: WorldCell, H: Host, R: RunCell>(
     tick: &mut Tick<'_, C, H, R>,
     staff_id: &str,
@@ -1228,7 +1227,7 @@ fn home_of<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R>, hold
     Ok(Home { graph, plan, section, movement, staff })
 }
 
-/// `AgentTravelCompletionHandler.apply` of a walk, then `_after_arrival` of a walk to a toilet or a
+/// A walk's completion (`travel_completion::apply`), then the arrival of a walk to a toilet or a
 /// resource, with the controller's managers' queues (the core's `toilet::queue_up` and
 /// `service::queue_up`).
 fn travel<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R>, native: &Native, row: &EventRow) -> std::result::Result<Handled, H::Error>
@@ -1281,7 +1280,7 @@ where
     Ok(Handled::applied())
 }
 
-/// The controller's managers' queues, as `_after_arrival` asks them: `toilet::queue_up` and
+/// The controller's managers' queues, as an arrival asks them: `toilet::queue_up` and
 /// `service::queue_up`, each reading what it reads when it is asked (a walk turned away never reads
 /// them). A manager with its own `request` (a test's) made the whole event the host's before this.
 struct CoreManagers<'c, C> {
@@ -1334,7 +1333,7 @@ impl<C: WorldCell, H: Host> travel_completion::Managers<H> for CoreManagers<'_, 
 
 // ---- After the events ---------------------------------------------------------------------------------
 
-/// What follows from the events that applied, in `DispatchPhase`'s order.
+/// What follows from the events that applied, in a fixed order.
 fn after_events<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R>, outcomes: &[Dispatched]) -> std::result::Result<(), H::Error> {
     let applied = || outcomes.iter().filter(|outcome| outcome.applied);
     for outcome in applied() {
@@ -1343,7 +1342,7 @@ fn after_events<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R>,
     if applied().any(|outcome| matches!(&*outcome.row.event_type, "effect_program_geometry" | "effect_program_geometry_expire" | "effect_program_structure")) {
         count(&COUNTS.spaces_refreshed);
         // The Run's routers are of the old space: they are built again from the world's tables when
-        // next asked (`_refresh_space`, #368). The host's own views follow.
+        // next asked (`Routes::refresh`, #368). The host's own views follow.
         tick.on_run(|run| run.routes.refresh())?;
         tick.host.space_refreshed()?;
     }
@@ -1363,7 +1362,7 @@ fn after_events<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R>,
     Ok(())
 }
 
-/// `_record_applied_outcomes` of one applied event.
+/// What one applied event does to the open actions and the population (its outcomes).
 fn record_applied<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R>, row: &EventRow) -> std::result::Result<(), H::Error> {
     let minute = tick.minute;
     let event_type = &*row.event_type;
@@ -1414,7 +1413,7 @@ fn record_applied<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R
     Ok(())
 }
 
-/// `interrupt_staff_trips_on_closed_routes` of a geometry event that closed a route.
+/// The staff trips a geometry event's closed route stops, interrupted.
 fn interrupt_trips<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R>, row: &EventRow) -> std::result::Result<(), H::Error> {
     tick.host.read_queue_rows()?;
     let holding = tick.holding()?;
@@ -1461,7 +1460,7 @@ fn planning<E: From<Error>>(error: Error) -> E {
     }
 }
 
-/// `_sync_movement_after_events`: the journeys of people who stopped moving are finished, in ID
+/// The movement after the events: the journeys of people who stopped moving are finished, in ID
 /// order; a queue trip of a person queued at the service stays.
 pub fn sync_movement<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R>) -> std::result::Result<(), H::Error> {
     let holding = tick.holding()?;
@@ -1507,8 +1506,8 @@ pub fn sync_movement<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H
     Ok(())
 }
 
-/// `_finish_stopped_journey`: `finish_movement`, and a person who walked to a reserved bed is placed
-/// at its point (the row's write; an attached tree follows it).
+/// A stopped journey finished (`movement::finish`), and a person who walked to a reserved bed is
+/// placed at its point (the row's write; an attached tree follows it).
 fn finish_journey<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R>, id: &Arc<str>, purpose: Option<&str>) -> std::result::Result<(), H::Error> {
     let bed = if purpose == Some("sleep_bed") {
         let holding = tick.holding()?;
@@ -1540,9 +1539,9 @@ fn finish_journey<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R
     Ok(())
 }
 
-/// `_consider_social_contact_event` of an applied `information_contact_update` (decision D5): a
-/// contact within a household under stress asks the social policy to consider cooperation; a false
-/// message the recipient has heard asks it to consider a reaction. Nothing without a social policy.
+/// The contact gate of an applied `information_contact_update` (decision D5): a contact within a
+/// household under stress asks the social policy to consider cooperation; a false message the
+/// recipient has heard asks it to consider a reaction. Nothing without a social policy.
 pub fn consider_contact<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R>, row: &EventRow) -> std::result::Result<(), H::Error> {
     if !tick.host.llm()?.social_policy {
         return Ok(());

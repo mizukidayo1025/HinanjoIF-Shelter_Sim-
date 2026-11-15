@@ -1,7 +1,7 @@
 //! Lifecycle receipts of autonomous actions (docs/rust-port/lanes/f-action-lifecycle.md).
 //!
 //! `ActiveActions` holds the open action of each agent as rows. The controller keeps it, and it is
-//! not saved: a restored Run makes it again from the event log (`active_action_index`).
+//! not saved: a restored Run makes it again from the event log (`ActiveActions::of_log`).
 //!
 //! Every kernel plans first: it reads the rows and what it was given and builds each receipt as an
 //! `EventRow`, with the sequence it will get. A receipt the receipts' model would refuse, or decide
@@ -33,7 +33,7 @@ use crate::world::World;
 const SOURCE_ID: &str = "ASM-ACTION-LIFECYCLE-V1";
 const POLICY_VERSION: &str = "applied-action-lifecycle-v2";
 const EVENT_TYPE: &str = "agent_action_lifecycle";
-/// The receipts' schema (`ActionLifecycleReceipt`): 2 since #255, each needs snapshot written once.
+/// The receipts' schema version: 2 since #255, each needs snapshot written once.
 const RECEIPT_SCHEMA_VERSION: i64 = 2;
 const MAX_REASON_CHARS: usize = 120;
 const MAX_ACTIVITY_CHARS: usize = 80;
@@ -100,7 +100,7 @@ const FATIGUE: usize = 3;
 const SLEEP_DEBT: usize = 4;
 
 state_row! {
-    /// One open action, as `active_actions[agent_id]` holds it.
+    /// One open action, as `ActiveActions` holds it under its agent's ID.
     pub struct ActiveAction {
         action_id: Arc<str>,
         agent_id: Arc<str>,
@@ -124,7 +124,7 @@ pub struct ActiveActions {
 }
 
 impl ActiveActions {
-    /// The rows of `active_action_index`, each under its own agent's key; Unsupported otherwise.
+    /// The rows of `of_log`, each under its own agent's key; Unsupported otherwise.
     pub fn from_rows(rows: IdMap<ActiveAction>) -> Result<Self> {
         if rows.iter().any(|(key, action)| *key != action.agent_id) {
             return Err(Error::unsupported("an active action is under another agent's key"));
@@ -144,9 +144,10 @@ impl ActiveActions {
         self.rows.contains_key(agent_id)
     }
 
-    /// `active_action_index`: the open actions the log's agent_action_lifecycle records leave, made
-    /// again after a restore (#251), in the order of the dict that function builds. An error for a
-    /// deciding record the log cannot read back or whose payload is not an action's.
+    /// The open actions the log's agent_action_lifecycle records leave, made again after a restore
+    /// (#251), in the order the records open them (an agent whose action closed moves to the end
+    /// when it opens another). An error for a deciding record the log cannot read back or whose
+    /// payload is not an action's.
     pub fn of_log(log: &EventLog) -> Result<Self> {
         let mut rows = IdMap::default();
         for index in log.active_lifecycle_positions() {
@@ -179,7 +180,7 @@ impl ActiveActions {
 
 // ---- What the rule reads ---------------------------------------------------------------------------
 
-/// `_need_snapshot`, in `NEED_NAMES` order.
+/// A needs snapshot of an agent, in `NEED_NAMES` order.
 type Needs = [f64; 6];
 
 /// `sleep_debt_minutes` and `hygiene_need` of `body_state_v1.agents[id]`, 0.0 without them.
@@ -211,7 +212,7 @@ fn agent_of(world: &World, id: &str) -> Result<Option<Agent>> {
     Ok(Some(Agent { activity: activity.text(), needs: [toilet, hunger, hydration, fatigue, debt, hygiene] }))
 }
 
-/// `_completion_status`, whose cause is always None.
+/// How an open action ends now, if it does (its cause is always None).
 fn completion_status(world: &World, action: &ActiveAction, needs: &Needs) -> Result<&'static str> {
     Ok(match &*action.action {
         "wait" => {
@@ -270,8 +271,8 @@ struct Transition<'a> {
     causation_id: Option<&'a str>,
 }
 
-/// What the event of `_append_transition` is; Unsupported where `_is_plain_receipt` is false, or
-/// where the event or the log would refuse it.
+/// The receipt of a transition of an action; Unsupported where the receipts' model would decide it
+/// with its own text, or where the event or the log would refuse it.
 fn receipt(events: &Events<'_>, action: &ActiveAction, change: Transition<'_>, sequence: i64, current: Option<&Needs>) -> Result<Receipt> {
     let Transition { transition, minute, reason_code, activity, causation_id } = change;
     let plain = 0 <= action.start_minute
@@ -295,7 +296,7 @@ fn receipt(events: &Events<'_>, action: &ActiveAction, change: Transition<'_>, s
     // A receipt of schema 2 writes each needs snapshot once (#255): "started" its needs as
     // `start_needs` only, a closing receipt the needs now as `current_needs` only (its start's are
     // the "started" receipt's of the same action), "continued" both, as the open action is made
-    // again from it on restore (`active_action_index`).
+    // again from it on restore (`ActiveActions::of_log`).
     let (start_needs, current_needs) = match transition {
         "started" => (true, false),
         "continued" => (true, true),
@@ -360,7 +361,7 @@ fn written(result: std::result::Result<(), WriteError>) -> Result<()> {
     }
 }
 
-/// Allocate each receipt's sequence and append it: `allocate_event_sequence` and `EventLog.append`.
+/// Allocate each receipt's sequence and append it to the world's log (`kit::Events`).
 ///
 /// Nothing a world holds can fail here, so receipts are never half written because of data: `receipt`
 /// has refused a repeated ID or sequence, a minute out of range and a value that is not finite, and
@@ -458,8 +459,8 @@ pub fn commit_action(world: &World, active: &mut ActiveActions, proposal: &Propo
 
 // ---- The applied events ------------------------------------------------------------------------------
 
-/// `_COMPLETION_ACTIONS`, `_ABANDONED_ACTIONS` and `_INTERRUPTED_ACTIONS`: what an event of this type
-/// does to an action, and None for an action it does not end.
+/// What an event of this type does to an action (completes, abandons or interrupts it), and None
+/// for an action it does not end.
 fn event_ends(event_type: &str, action: &str) -> Option<&'static str> {
     match (event_type, action) {
         ("toilet_service_complete", "request_toilet")

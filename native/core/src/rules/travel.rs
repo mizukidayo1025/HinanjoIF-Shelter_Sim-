@@ -1,14 +1,14 @@
-//! Where a person walks: `_route`, `_schedule_travel`, `_schedule_staff_support_travel`,
-//! `_schedule_return_to_initial_zone`, the choice of a facility, the loads of the edges, and the
-//! routers of a Run.
+//! Where a person walks: the route (`route`), a trip (`schedule_travel`, also a staff member's
+//! support trip), the walk back to the initial zone (`schedule_return`), the choice of a facility
+//! (`select`), the loads of the edges, and the routers of a Run.
 //!
 //! The rules are functions on the `World`. The route graph is the Run's (`Graph`), built from the
-//! world's zone and edge tables at each `_refresh_space` (`routers_of`): rows are the truth, and
-//! tables that a value did not fit (`zones_tainted`) are refused, with no other graph to fall back
-//! on. Edge capacities count every trip under way (`active_edge_loads`), and a route a full edge
-//! turns down records a capacity wait through the world's writer (`kit::Events`). A trip writes its
-//! task, the person's activity and target, its completion event and the start of its walk in the
-//! row of `movement_v1`.
+//! world's zone and edge tables after each refresh of the Run's routes (`Routes::refresh`,
+//! `routers_of`): rows are the truth, and tables that a value did not fit (`zones_tainted`) are
+//! refused, with no other graph to fall back on. Edge capacities count every trip under way
+//! (`active_edge_loads`), and a route a full edge turns down records a capacity wait through the
+//! world's writer (`kit::Events`). A trip writes its task, the person's activity and target, its
+//! completion event and the start of its walk in the row of `movement_v1`.
 //!
 //! What the rules take besides the rows comes as an input, read before the world is borrowed: the
 //! Run's graph and capacities, whether `model_state` holds `movement_v1` and `staff_operations_v1`
@@ -68,7 +68,7 @@ pub(crate) fn plan(geo: Option<&Arc<Geo>>) -> Result<&Arc<Geo>> {
     geo.ok_or_else(|| Error::unsupported(PLAN_UNREAD))
 }
 
-/// `exact_dict(value)` of a value of the configs.
+/// A value of the configs as a plain dict.
 #[track_caller]
 fn map(value: &V) -> Result<&IndexMap<Arc<str>, V>> {
     match value {
@@ -109,12 +109,11 @@ pub struct Routers {
     pub staff: Result<Arc<Router>>,
 }
 
-/// `_refresh_space` for the kernels: the people's and the staff's routers, from the world's tables
-/// now. What `ZoneGraph.from_states(world.zones, world.zone_edges, edge_capacities=capacities)`
-/// turns down is its ValueError. With a floor plan (`"facility_geometry" in model_configs` and an
-/// edge), the staff's graph keeps the edges the plan finds clear for an independent walker. The
-/// staff's router is a result of its own, so that the people's is kept first, as before. None
-/// where the tables dropped their rows.
+/// The people's and the staff's routers, from the world's tables now. What the graph's constructor
+/// (`Router::of_tables`) turns down is its ValueError. With a floor plan (`"facility_geometry" in
+/// model_configs` and an edge), the staff's graph keeps the edges the plan finds clear for an
+/// independent walker. The staff's router is a result of its own, so that the people's is kept
+/// first, as before. None where the tables dropped their rows.
 pub fn routers_of(world: &World, capacities: &RouteCapacities, geo: Option<&Arc<Geo>>) -> Result<Option<Routers>> {
     let (people, edges) = {
         let rows = world.entities.try_borrow()?;
@@ -134,8 +133,8 @@ pub fn routers_of(world: &World, capacities: &RouteCapacities, geo: Option<&Arc<
     Ok(Some(Routers { people, staff }))
 }
 
-/// `SpaceRouter(ZoneGraph.from_states(zones, edges)).route(...)` with nothing closed, for a rule
-/// that has no controller: what `ZoneGraph` turns down raises its ValueError. `edge_capacities` are
+/// A route on the world's graph (`Router::of_tables`) with nothing closed, for a rule that has no
+/// controller: what the graph's constructor turns down raises its ValueError. The edges' loads are
 /// left out, which read every trip under way.
 pub fn world_route(world: &World, origin: &Arc<str>, destination: &Arc<str>) -> Result<Option<Route>> {
     let graph = {
@@ -145,8 +144,8 @@ pub fn world_route(world: &World, origin: &Arc<str>, destination: &Arc<str>) -> 
     graph.shortest(&HashSet::new(), None, origin, destination)
 }
 
-/// `layout_routing.max_agents_in_transit_by_edge` of `model_configs`, each checked as `ZoneGraph`
-/// checks it: an int from 1 to 100 of an edge of the world.
+/// `layout_routing.max_agents_in_transit_by_edge` of `model_configs`, each checked as the graph's
+/// constructor checks it: an int from 1 to 100 of an edge of the world.
 fn world_capacities(world: &World, has_edge: impl Fn(&str) -> bool) -> Result<HashMap<Arc<str>, i64>> {
     let configs = configs_of(world)?;
     let mut capacities = HashMap::new();
@@ -164,9 +163,9 @@ fn world_capacities(world: &World, has_edge: impl Fn(&str) -> bool) -> Result<Ha
     Ok(capacities)
 }
 
-/// `ZoneGraph.from_states(world.zones, world.zone_edges, edge_capacities=capacities)` as a router,
-/// for the routes `_support_route_wait_reasons` reads, from the world's tables. What the constructor
-/// would turn down for a capacity or an edge is refused.
+/// The world's graph with its edges' capacities as a router (`Router::of_world_tables`), for the
+/// routes the support's wait reasons read (`staff::route_wait_reasons`), from the world's tables.
+/// What the constructor would turn down for a capacity or an edge is refused.
 pub fn world_graph(world: &World) -> Result<Router> {
     let keys: HashSet<Arc<str>> = zone_rows(world)?.zone_edges.iter().map(|(key, _)| key.clone()).collect();
     let capacities = world_capacities(world, |edge| keys.contains(edge))?;
@@ -215,9 +214,9 @@ fn staff_operations<'w>(world: &'w World, staff: &Held) -> Result<Option<ShardRe
     held_row::<StaffOperationsRow>(world, STAFF_OPERATIONS, staff)
 }
 
-/// `_active_route_edge_loads` and the loads of `_support_route_wait_reasons`: every edge of each
-/// trip that ends after this minute, and of each staff member on the way. `staff` says whether the
-/// world holds `staff_operations_v1`.
+/// The loads of the edges under way, as the routes and the support's wait reasons read them: every
+/// edge of each trip that ends after this minute, and of each staff member on the way. `staff` says
+/// whether the world holds `staff_operations_v1`.
 pub fn active_edge_loads(world: &World, staff: &Held, minute: i64) -> Result<EdgeLoads> {
     let mut loads = EdgeLoads::new();
     for (due, row) in pending_rows(world)? {
@@ -240,7 +239,7 @@ pub fn active_edge_loads(world: &World, staff: &Held, minute: i64) -> Result<Edg
     Ok(loads)
 }
 
-/// `_current_journey_edge`, of a journey with these edges and times.
+/// The edge a journey with these edges and times is on at `minute`.
 fn current_edge(rows: &Entities, ids: &[Arc<str>], start: i64, due: i64, minute: i64) -> Result<Option<Arc<str>>> {
     if ids.is_empty() {
         return Ok(None);
@@ -282,7 +281,7 @@ fn current_edge(rows: &Entities, ids: &[Arc<str>], start: i64, due: i64, minute:
     Ok(ids.last().cloned())
 }
 
-/// `shared_passage_edge_loads`: who is on which edge at this minute. `movement` and `staff` say
+/// Who is on which edge at this minute. `movement` and `staff` say
 /// whether the world holds `movement_v1` and `staff_operations_v1`.
 pub fn passage_edge_loads(world: &World, movement: &Held, staff: &Held, minute: i64) -> Result<EdgeLoads> {
     let rows = world.entities.try_borrow()?;
@@ -344,7 +343,7 @@ pub fn passage_edge_loads(world: &World, movement: &Held, staff: &Held, minute: 
     Ok(loads)
 }
 
-// ---- _route ---------------------------------------------------------------------------------------
+// ---- The route ----------------------------------------------------------------------------------
 
 /// What a route reads beside the world.
 #[derive(Clone, Copy)]
@@ -358,7 +357,7 @@ pub struct Routing<'a> {
     pub staff: &'a Held,
 }
 
-/// `_record_route_capacity_wait`, not done yet: a rule plans its route before it writes anything.
+/// A route's capacity wait, not recorded yet: a rule plans its route before it writes anything.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CapacityWait {
     pub agent_id: Arc<str>,
@@ -369,8 +368,8 @@ pub struct CapacityWait {
     pub active: i64,
 }
 
-/// `_record_route_capacity_wait`, of a sequence reserved before (`Events::reserve`): the wait is a
-/// SUPPRESSED record of its own event.
+/// A route's capacity wait recorded, of a sequence reserved before (`Events::reserve`): the wait is
+/// a SUPPRESSED record of its own event.
 pub fn write_capacity_wait(world: &World, events: &Events<'_>, wait: CapacityWait) -> WriteResult<()> {
     let minute = world.minute_index()?;
     let sequence = events.allocate_reserved()?;
@@ -399,7 +398,8 @@ pub fn write_capacity_wait(world: &World, events: &Events<'_>, wait: CapacityWai
     events.record(&event, minute, EventStatus::Suppressed, Some(CAPACITY_DETAIL))
 }
 
-/// The minutes `route_with_movement_time` gives a route of these zones and edges.
+/// The minutes the movement model gives a route of these zones and edges
+/// (`movement::movement_minutes`), where it times routes.
 fn timed(world: &World, routing: &Routing<'_>, agent_id: &str, route: &Route) -> Result<i64> {
     let movement = kit::kept(routing.movement)?;
     if !movement.times_routes() {
@@ -415,7 +415,7 @@ fn timed(world: &World, routing: &Routing<'_>, agent_id: &str, route: &Route) ->
     movement::movement_minutes(world, geo, &model, agent_id, &zones, &edges, route.minutes)
 }
 
-/// `_route`, for a person in the world, changing nothing: the waits it would record go in `waits`.
+/// The route of a person in the world, changing nothing: the waits it would record go in `waits`.
 pub fn route_for(
     world: &World,
     routing: &Routing<'_>,
@@ -471,7 +471,7 @@ pub fn route_for(
     Ok(Some(route))
 }
 
-/// `_route`: the route, after the capacity waits it records.
+/// The route, after the capacity waits it records.
 pub fn route(world: &World, routing: &Routing<'_>, origin: &Arc<str>, destination: &Arc<str>, agent_id: &str) -> WriteResult<Option<Route>> {
     let mut waits = Vec::new();
     let found = route_for(world, routing, origin, destination, agent_id, &mut waits)?;
@@ -495,7 +495,7 @@ pub struct Walking<'a> {
     pub geo: Option<&'a Arc<Geo>>,
 }
 
-/// Who walks into the room of which facility, why, and from which zone (`_schedule_room_approach`'s
+/// Who walks into the room of which facility, why, and from which zone (the approach's
 /// `origin_zone_id`).
 #[derive(Clone, Copy)]
 pub struct RoomApproach<'a> {
@@ -605,7 +605,7 @@ fn routing_source(world: &World) -> Result<Arc<str>> {
     })
 }
 
-/// `_schedule_travel`, changing nothing. None is its False. Its errors, and its refusals, come
+/// A trip planned, changing nothing. None is no trip. Its errors, and its refusals, come
 /// before anything is written: the rule's texts for a route from elsewhere and a support trip
 /// without its IDs (the second after the trip's sequence is read).
 pub fn plan_travel(world: &World, events: &Events<'_>, walking: Walking<'_>, trip: Trip<'_>) -> Result<Option<PlannedTrip>> {
@@ -748,7 +748,7 @@ pub fn plan_travel(world: &World, events: &Events<'_>, walking: Walking<'_>, tri
     Ok(Some(PlannedTrip { agent_id, task_id, task_kind, target_id, minute, due, event, changes }))
 }
 
-/// `_schedule_room_approach`, changing nothing. None is its False.
+/// A walk into the room of a facility planned, changing nothing. None is no walk.
 pub fn plan_room_approach(
     world: &World,
     events: &Events<'_>,
@@ -832,7 +832,7 @@ pub fn plan_room_approach(
     Ok(Some(PlannedTrip { agent_id: agent_id.clone(), task_id, task_kind, target_id: facility_id.clone(), minute, due, event, changes }))
 }
 
-/// The writes of `_schedule_travel` and `_schedule_room_approach`.
+/// The writes of a planned trip or walk into a room (`plan_travel`, `plan_room_approach`).
 pub fn write_travel(world: &World, events: &Events<'_>, trip: PlannedTrip) -> WriteResult<()> {
     let PlannedTrip { agent_id, task_id, task_kind, target_id, minute, due, event, changes } = trip;
     events.allocate_sequence()?;
@@ -859,7 +859,7 @@ pub fn write_travel(world: &World, events: &Events<'_>, trip: PlannedTrip) -> Wr
     Ok(())
 }
 
-/// `_schedule_travel` and its writes: whether a trip was scheduled.
+/// A trip planned and written: whether a trip was scheduled.
 pub fn schedule_travel(world: &World, walking: Walking<'_>, trip: Trip<'_>) -> WriteResult<bool> {
     let events = Events::of(world)?;
     let Some(planned) = plan_travel(world, &events, walking, trip)? else {
@@ -869,7 +869,7 @@ pub fn schedule_travel(world: &World, walking: Walking<'_>, trip: Trip<'_>) -> W
     Ok(true)
 }
 
-/// `_schedule_return_to_initial_zone` of the dispatch phase, after a completion event.
+/// The walk back to the person's initial zone, in the dispatch phase, after a completion event.
 pub fn schedule_return(world: &World, routing: &Routing<'_>, walking: Walking<'_>, event: &EventRow) -> WriteResult<()> {
     let Some(agent_id) = payload_text(event, "agent_id") else {
         return Ok(());
@@ -916,8 +916,8 @@ pub fn schedule_return(world: &World, routing: &Routing<'_>, walking: Walking<'_
 struct QueueCapacities<'a>(Option<&'a IndexMap<Arc<str>, V>>);
 
 impl<'a> QueueCapacities<'a> {
-    /// The config's checks of `_facility_queue_has_capacity`, in its order: no capacities where the
-    /// configs have no queue config, or the config has none.
+    /// The config's checks of a queue's capacity (`queue_has_capacity`), in a fixed order: no
+    /// capacities where the configs have no queue config, or the config has none.
     fn of(configs: &'a V) -> Result<Self> {
         let Some(config) = map(configs)?.get("facility_queues") else {
             return Ok(Self(None));
@@ -954,7 +954,7 @@ impl<'a> QueueCapacities<'a> {
     }
 }
 
-/// `_facility_queue_has_capacity`.
+/// Whether the facility's queue has room under its configured capacity.
 fn queue_has_capacity(capacities: &QueueCapacities<'_>, rows: &Entities, facility_id: &str, facility: &FacilityRow, resource: bool) -> Result<bool> {
     let Some(maximum) = capacities.of_facility(facility_id)? else {
         return Ok(true);
@@ -978,7 +978,7 @@ struct Candidate {
     load: i64,
 }
 
-/// What `_select_resource_facility` found: `(facility, route, rejection)`.
+/// What the choice of a facility (`select`) found: `(facility, route, rejection)`.
 #[derive(Debug, PartialEq)]
 pub enum Selected {
     NoFacility,
@@ -986,10 +986,10 @@ pub enum Selected {
     Found(Arc<str>, Route),
 }
 
-/// `_select_toilet` (no `resource_kind`) and `_select_resource_facility`, which differ in which
+/// The choice of a toilet (no `resource_kind`) or a resource facility, which differ in which
 /// facilities they take, changing nothing: the capacity waits the routes would record go in
 /// `waits`, whose sequences the caller reserves before the trip it plans. `knows` is the section
-/// `knowledge_is_limited` that `agent_knows_facility` reads.
+/// `knowledge_is_limited` that a person's knowledge of a facility reads.
 pub fn select(
     world: &World,
     routing: &Routing<'_>,
@@ -1061,8 +1061,8 @@ pub fn select(
     }
 }
 
-/// `_facility_approach`: its route and path, or None for no route. Without a floor plan the route
-/// takes no time and has no path.
+/// The approach to a facility: its route and path, or None for no route. Without a floor plan the
+/// route takes no time and has no path.
 pub fn approach_route(world: &World, walking: Walking<'_>, movement: &Kept<Movement>, agent_id: &str, facility_id: &str) -> Result<Option<(Route, Vec<Pt>)>> {
     let geo = plan(walking.geo)?;
     if geo.layout.is_none() {

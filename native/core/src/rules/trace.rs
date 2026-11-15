@@ -1,7 +1,8 @@
-//! The trace documents of a Run, with their shape unchanged (docs/rust-port/step4-plan.md, D1):
-//! `AgentPsychologyTrace.to_dict`, `PsychologyUpdateResult.trace_document` and
-//! `SocialPropagationResult.trace_document`. `_record_psychology_trace` of the update phase is here
-//! too (`record_psychology`). A trace does not feed back into the state and draws nothing.
+//! The trace documents of a Run, with their shape unchanged (docs/rust-port/step4-plan.md, D1): a
+//! person's part of the psychology document (`person_document`), the psychology document of a
+//! minute (`psychology_document`) and the social model's (`social_document`). The update phase's
+//! recording of the psychology trace is here too (`record_psychology`). A trace does not feed back
+//! into the state and draws nothing.
 //!
 //! A document is a `V` with its keys in a fixed order, and it goes to the Run's sink through
 //! `Host::trace`; the host writes it or drops it (`PlainHost` keeps none).
@@ -105,7 +106,7 @@ pub struct PersonTrace {
     pub natural_recovery_stress: f64,
     pub life_state_feedback_stress: f64,
     pub information_uncertainty_stress: f64,
-    /// `life_state_before` and `life_state_after`, of the life-state models.
+    /// The life states before and after, of the life-state models.
     pub life_state: Option<(LifeStateTrace, LifeStateTrace)>,
     /// Whether `family_separation_pressure` there is the int `discontent_stress_rate` of the config
     /// (a separated family), which the document keeps as an int.
@@ -119,7 +120,7 @@ pub struct PersonTrace {
 /// The values of `LIFE_STATE_NAMES`.
 pub type LifeStateTrace = [f64; 9];
 
-/// `PsychologyUpdateResult.traces`: the rows `record_psychology` makes the document of, in the
+/// The psychology step's traces: the rows `record_psychology` makes the document of, in the
 /// order of the view's people, and the model's `need_pressure_threshold`.
 #[derive(Clone, Debug)]
 pub struct Traces {
@@ -165,7 +166,7 @@ fn before_after(before: f64, after: f64) -> V {
     item.done()
 }
 
-/// A person's part of the psychology document (`AgentPsychologyTrace.to_dict`).
+/// A person's part of the psychology document.
 fn person_document(data: &ViewData, row: &PersonTrace, threshold: f64, stress_after: f64, social_delta: f64, source_id: &V) -> V {
     let agent = &data.agents[row.index];
     let zone = data.zone_of(agent);
@@ -378,7 +379,7 @@ fn total(values: impl Iterator<Item = f64>) -> Result<f64> {
     py_fsum(&values).ok_or_else(|| Error::unsupported("a total of the trace is not finite"))
 }
 
-/// What `_record_psychology_trace` reads besides the rows: the model's `source_id` as the policy's
+/// What `record_psychology` reads besides the rows: the model's `source_id` as the policy's
 /// value, the result's `policy_version` and the minute.
 pub struct TraceInputs<'a> {
     pub source_id: &'a V,
@@ -386,13 +387,13 @@ pub struct TraceInputs<'a> {
     pub minute: i64,
 }
 
-/// The psychology document of a minute and its `agent_contributions` (`trace_document` on
-/// `traced_result`): each person's stress after is the final delta's (`finals`, ID and stress), so
-/// `social_stress_delta` is what the social step added. A full trace keeps every person, a summary
-/// the 20 whose stress changed most (then by ID); the component totals are over everyone.
+/// The psychology document of a minute and its `agent_contributions`: each person's stress after is
+/// the final delta's (`finals`, ID and stress), so `social_stress_delta` is what the social step
+/// added. A full trace keeps every person, a summary the 20 whose stress changed most (then by ID);
+/// the component totals are over everyone.
 pub fn psychology_document(view: &ViewData, traces: &Traces, finals: &[(&str, f64)], level: TraceLevel, inputs: &TraceInputs<'_>) -> Result<Trace> {
     let rows = &traces.rows;
-    // `final_by_agent`: a later delta of one person replaces an earlier one, as in a dict.
+    // Each person's final delta: a later delta of one person replaces an earlier one, as in a dict.
     let mut by_agent: FxHashMap<&str, f64> = FxHashMap::with_capacity_and_hasher(finals.len(), Default::default());
     for &(id, stress) in finals {
         by_agent.insert(id, stress);
@@ -466,8 +467,9 @@ pub fn psychology_document(view: &ViewData, traces: &Traces, finals: &[(&str, f6
     Ok(Trace::Psychology { document: document.done(), contributions: V::List(contributions) })
 }
 
-/// `_record_psychology_trace` of the update phase: nothing when the Run keeps no trace, otherwise
-/// the minute's document goes to the host's sink. It changes nothing but what the sink keeps.
+/// The update phase's recording of the psychology trace: nothing when the Run keeps no trace,
+/// otherwise the minute's document goes to the host's sink. It changes nothing but what the sink
+/// keeps.
 pub fn record_psychology<H: Host>(
     host: &mut H,
     view: &ViewData,
@@ -485,7 +487,7 @@ pub fn record_psychology<H: Host>(
 
 // ---- Contacts ------------------------------------------------------------------------------------
 
-/// `SocialContactTrace`.
+/// A contact of the social model's trace.
 #[derive(Clone)]
 pub struct SocialContact {
     pub recipient: usize,
@@ -503,7 +505,7 @@ pub struct SocialContact {
     pub aggregate_scale: f64,
 }
 
-/// `contact_basis` of `_contact_buckets`.
+/// The `contact_basis` of a contact's basis.
 fn social_basis(basis: Basis) -> &'static str {
     match basis {
         Basis::Family => "family",
@@ -512,7 +514,7 @@ fn social_basis(basis: Basis) -> &'static str {
     }
 }
 
-/// `SocialPropagationResult.trace_document`, with the bounded sample of contacts it has always had.
+/// The social model's document of a minute, with the bounded sample of contacts it has always had.
 /// `policy_version` is the policy's value, which the document holds as it is.
 pub fn social_document(minute: i64, policy_version: &V, ids: &[&str], contacts: &[SocialContact], contributing: i64, total_added: f64) -> V {
     let contact_of = |contact: &SocialContact| -> V {

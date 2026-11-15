@@ -2,9 +2,8 @@
 //!
 //! The kernels read the row and write the row alone (`World::row_mut`). A request the rule turns
 //! down is a ValueError (`Error::value_error`) with its text, before any write; what else it
-//! doesn't take says Unsupported before any write. The contract of a transition's receipt
-//! (`FacilityQueueTransitionReceipt`) is a check of the same fields (`receipt_takes`), whose
-//! refusal keeps its text.
+//! doesn't take says Unsupported before any write. The contract of a transition's receipt is a
+//! check of the same fields (`receipt_takes`), whose refusal keeps its text.
 //!
 //! What the caller hands in: whether `model_state` holds the namespace (`Held`), the floor plan
 //! (`Geo`), what the configs say (a person's accessibility needs).
@@ -43,7 +42,7 @@ pub fn queues<'w>(world: &'w World, held: &Held) -> Result<Option<ShardRef<'w, Q
     held_row::<QueuesRow>(world, STATE_KEY, held)
 }
 
-/// `facility_has_independent_queues`.
+/// Whether the facility has independent queues.
 pub fn has_independent(row: &QueuesRow, facility_id: &str) -> bool {
     row.queues.values().any(|queue| &*queue.facility_id == facility_id)
 }
@@ -68,12 +67,12 @@ pub fn request_of<'a>(row: &'a QueuesRow, agent_id: &str, queue_id: Option<&str>
     row.requests.values().find(|request| &*request.agent_id == agent_id && queue_id.is_none_or(|queue| &*request.queue_id == queue))
 }
 
-/// `request_for_task`.
+/// The queue request of a task.
 pub fn request_of_task<'a>(row: &'a QueuesRow, task_id: &str) -> Option<&'a QueueRequest> {
     row.requests.get(task_id).or_else(|| row.requests.values().find(|request| &*request.active_task_id == task_id))
 }
 
-/// `point_for_queue`.
+/// The service point of a queue.
 pub fn point_of<'a>(geo: &'a Geo, queue_id: &str) -> Option<&'a ServicePoint> {
     geo.layout.as_ref()?.signed_service_points.iter().find(|point| &*point.queue_id == queue_id)
 }
@@ -111,8 +110,8 @@ pub fn heads_in(world: &World, held: &Held, facility_id: &str) -> Result<Option<
     }
 }
 
-/// `queue_head_agent_ids`: the heads of the independent queues, else the first of the facility's
-/// shared resource queue.
+/// The people at the heads of the facility's queues: the heads of the independent queues, else the
+/// first of the facility's shared resource queue.
 pub fn head_agents(world: &World, held: &Held, facility_id: &str) -> Result<Vec<Arc<str>>> {
     if let Some(heads) = heads_in(world, held, facility_id)? {
         return Ok(heads);
@@ -124,7 +123,7 @@ pub fn head_agents(world: &World, held: &Held, facility_id: &str) -> Result<Vec<
     Ok(facility.resource_queue_agent_ids.first().cloned().into_iter().collect())
 }
 
-/// `queue_ids_for_facility`: sorted by bytes.
+/// The IDs of the facility's queues, sorted by bytes.
 pub fn queue_ids<'a>(geo: &'a Geo, facility_id: &str) -> Vec<&'a str> {
     let mut ids: Vec<&str> = geo
         .layout
@@ -137,8 +136,8 @@ pub fn queue_ids<'a>(geo: &'a Geo, facility_id: &str) -> Vec<&'a str> {
     ids
 }
 
-/// `create_facility_queue_state`, once the configs require independent queues: a queue per signed
-/// point, by queue ID.
+/// The new `facility_queues_v1` state, once the configs require independent queues: a queue per
+/// signed point, by queue ID.
 pub fn create_state(geo: &Geo) -> Result<QueuesRow> {
     let Some(layout) = &geo.layout else {
         return Err(Error::unsupported("no floor plan"));
@@ -161,9 +160,9 @@ pub fn create_state(geo: &Geo) -> Result<QueuesRow> {
     Ok(QueuesRow { schema_version: 1, policy_version: Arc::from(POLICY_VERSION), queues, requests: IdMap::default() })
 }
 
-/// `choose_queue_id`: among the facility's signed points open to someone of these needs, the queue
-/// with the fewest requests, then the smaller ID. None without the namespace or the floor plan.
-/// `needs` are the person's `accessibility_needs` in the configs.
+/// The queue a person joins: among the facility's signed points open to someone of these needs, the
+/// queue with the fewest requests, then the smaller ID. None without the namespace or the floor
+/// plan. `needs` are the person's `accessibility_needs` in the configs.
 pub fn choose_queue(world: &World, held: &Held, geo: &Geo, facility_id: &str, agent_id: &str, needs: &[Arc<str>]) -> Result<Option<Arc<str>>> {
     let loads: Vec<(Arc<str>, i64)> = {
         let Some(row) = queues(world, held)? else {
@@ -261,8 +260,8 @@ pub fn start_row(row: &mut QueuesRow, request_id: &str, queue_id: &str, active_t
     Ok(())
 }
 
-/// `finish_service`'s writes, for the request `request_of_task` found: it leaves its list and the
-/// state, and the queue's stall is cleared.
+/// The writes of a service's completion, for the request `request_of_task` found: it leaves its
+/// list and the state, and the queue's stall is cleared.
 pub fn finish_row(row: &mut QueuesRow, request: &QueueRequest) -> Result<()> {
     let Some(queue) = row.queues.get_mut(&*request.queue_id) else {
         return Err(Error::unsupported("no such queue"));
@@ -316,7 +315,7 @@ pub fn write_start(world: &World, request_id: &str, queue_id: &str, active_task_
     start_row(&mut *row_mut(world)?, request_id, queue_id, active_task_id)
 }
 
-/// `finish_service`'s writes, on the world's row.
+/// The writes of a service's completion, on the world's row.
 pub fn write_finish(world: &World, request: &QueueRequest) -> Result<()> {
     finish_row(&mut *row_mut(world)?, request)
 }
@@ -405,10 +404,10 @@ pub struct Place {
     pub capacity: Option<i64>,
 }
 
-/// What `FacilityQueueTransitionReceipt.model_validate` takes of the payload `transition_record`
-/// makes: its IDs are `Identifier`s, its kinds the contract's, its counts not negative (a place
-/// from 1), the request not from the future, the wait within the time since it, and a queued or
-/// requeued request with its place.
+/// What the contract of a transition's receipt takes of the payload `transition_record` makes: its
+/// IDs are `Identifier`s, its kinds the contract's, its counts not negative (a place from 1), the
+/// request not from the future, the wait within the time since it, and a queued or requeued request
+/// with its place.
 pub fn receipt_takes(event_id: &str, change: &Transition<'_>, place: Place, minute: i64) -> bool {
     let Transition { request, transition, task_id, wait_minutes, causation_id } = *change;
     let Place { queue_position, capacity } = place;
@@ -493,7 +492,7 @@ pub fn transition_record(taken: bool, change: &Transition<'_>, place: Place, seq
     })
 }
 
-/// The event of `record_queue_transition` of a record `transition_record` made.
+/// The event `record_transition` records of a record `transition_record` made.
 pub fn transition_event(record: &TransitionRecord, causation_id: Option<&str>, sequence: i64, minute: i64) -> Result<EventRow> {
     let mut provenance: IndexMap<Arc<str>, V> = IndexMap::with_capacity(3);
     provenance.insert(Arc::from("source_type"), text("assumption"));
@@ -521,15 +520,15 @@ pub fn write_transition(events: &Events<'_>, row: &EventRow, minute: i64) -> Wri
     events.record(row, minute, EventStatus::Applied, None)
 }
 
-/// What `record_queue_transition` reads before it writes.
+/// What `record_transition` reads before it writes.
 pub struct Recording {
     pub sequence: i64,
     pub minute: i64,
     pub record: TransitionRecord,
 }
 
-/// `record_queue_transition`, changing nothing: the payload of the record, with the place of the
-/// request in its queue, the point's capacity and the sequence it will take.
+/// What `record_transition` would record, changing nothing: the payload of the record, with the
+/// place of the request in its queue, the point's capacity and the sequence it will take.
 pub fn plan_record(world: &World, held: &Held, geo: &Geo, change: &Transition<'_>) -> Result<Recording> {
     let request = change.request;
     let events = Events::of(world)?;
@@ -550,13 +549,13 @@ pub fn plan_record(world: &World, held: &Held, geo: &Geo, change: &Transition<'_
     Ok(Recording { sequence, minute, record })
 }
 
-/// `record_queue_transition`: `plan_record`, then its writes (`write_record`), on one borrow.
+/// Records a queue's transition: `plan_record`, then its writes (`write_record`), on one borrow.
 pub fn record_transition(world: &World, held: &Held, geo: &Geo, change: &Transition<'_>) -> WriteResult<()> {
     let recording = plan_record(world, held, geo, change)?;
     write_record(world, recording, change.causation_id)
 }
 
-/// `record_queue_transition`'s writes, of what `plan_record` read.
+/// The writes of `record_transition`, of what `plan_record` read.
 pub fn write_record(world: &World, recording: Recording, causation_id: Option<&str>) -> WriteResult<()> {
     let events = Events::of(world)?;
     let row = transition_event(&recording.record, causation_id, recording.sequence, recording.minute)?;
@@ -650,9 +649,9 @@ fn request_passes(
     true
 }
 
-/// `validate_facility_queue_state` of a world that holds the namespace and requires independent
-/// queues, without the legacy marker: true only for a state that passes. `movement` is whether the
-/// world holds `movement_v1`.
+/// The check of `facility_queues_v1` (`validate::facility_queues`) of a world that holds the
+/// namespace and requires independent queues, without the legacy marker: true only for a state that
+/// passes. `movement` is whether the world holds `movement_v1`.
 pub fn validate(world: &World, held: &Held, geo: &Geo, movement: &Held) -> Result<bool> {
     let Some(layout) = &geo.layout else {
         return Ok(false);

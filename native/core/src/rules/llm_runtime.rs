@@ -1,7 +1,7 @@
 //! The rules that ask an LLM during a tick (in the core since #428): a pending support request's
-//! queue priority (`_prioritize_support_request` of the propose phase) and the event-triggered
-//! social policy (`EventTriggeredSocialPolicy`: a support request's response, a long-waiting
-//! complaint's, a cooperation, an information reaction).
+//! queue priority (`prioritize_support_request`, of the propose phase) and the event-triggered
+//! social policy (a support request's response, a long-waiting complaint's, a cooperation, an
+//! information reaction).
 //!
 //! The rules read and write the world, and ask through a host's `LlmLink` (`crate::llm`), which
 //! only passes the task on: the prompt, the check of the answer and what the answer does are here.
@@ -15,8 +15,8 @@
 //! - `model_state["social_runtime_v1"]`: the social policy's attempts by day, by person and day,
 //!   each person's last attempt, and how many decisions it made; a `social_interaction` event for an
 //!   action it accepted, which `social_interaction.rs` applies.
-//! - The record of each social decision, accepted or not (`SocialDecision.to_dict`, with
-//!   `record_kind` `dialogue`), where the host collects decision records.
+//! - The record of each social decision, accepted or not (`Decision::record`, with `record_kind`
+//!   `dialogue`), where the host collects decision records.
 //! - The tape's entry of each call (`llm::tape_entry`).
 //!
 //! Offline (a link without an API key), nothing is asked and nothing of the world is written: the
@@ -46,19 +46,19 @@ use crate::state::information::{InformationRow, NAME as INFORMATION};
 use crate::value::V;
 use crate::world::{Place, World, WorldCell};
 
-/// `SOCIAL_MODEL_STATE_KEY`.
+/// The key of the social policy's state in `model_state`.
 pub const SOCIAL_STATE: &str = "social_runtime_v1";
-/// `SUPPORT_PRIORITY_STATE_KEY`.
+/// The key of the support priority's state in `model_state`.
 pub const PRIORITY_STATE: &str = "support_priority_runtime_v1";
 /// The namespace that holds the priorities (`model_state["llm"]["support_priorities"]`).
 pub const LLM_STATE: &str = "llm";
-/// `EventTriggeredSocialPolicy.policy_version`.
+/// The policy version of the event-triggered social policy.
 pub const SOCIAL_POLICY_VERSION: &str = "event-triggered-social-v2";
-/// `SUPPORT_PRIORITY_POLICY_VERSION`.
+/// The policy version of the support priority.
 pub const PRIORITY_POLICY_VERSION: &str = "support-priority-v2";
-/// `SOCIAL_LIMITS_SOURCE_ID`.
+/// The source ID of the social policy's limits.
 pub const SOCIAL_LIMITS_SOURCE: &str = "ASM-EVENT-TRIGGERED-SOCIAL-LIMITS-V1";
-/// `SOCIAL_INTERACTIONS_SOURCE_ID`.
+/// The source ID of the social policy's interactions.
 pub const SOCIAL_INTERACTIONS_SOURCE: &str = "ASM-EVENT-TRIGGERED-SOCIAL-INTERACTIONS-V1";
 /// The priority of a `social_interaction` event the policy schedules.
 const EVENT_PRIORITY: i64 = 10;
@@ -120,10 +120,10 @@ impl Runtime {
 
 // ---- The support request's priority ---------------------------------------------------------------
 
-/// `_prioritize_support_request(request_id, proposal)`: offline, nothing. Otherwise the request is
-/// asked about only while its person's stress reaches the limit and the day's attempts are under
-/// the cap (each skip counted by its reason); the answer's priority (0, or 1 for urgent) is kept by
-/// the request's ID.
+/// A pending support request's priority: offline, nothing. Otherwise the request is asked about
+/// only while its person's stress reaches the limit and the day's attempts are under the cap (each
+/// skip counted by its reason); the answer's priority (0, or 1 for urgent) is kept by the request's
+/// ID.
 pub fn prioritize_support_request<C: WorldCell>(cell: &C, runtime: &mut Runtime, request_id: &str, agent_id: &str, observed_state_hash: &str) -> Result<()> {
     if runtime.link.offline() {
         return Ok(());
@@ -220,7 +220,7 @@ fn support_advice_schema() -> V {
 
 // ---- The social policy ----------------------------------------------------------------------------
 
-/// A social decision (`SocialDecision`), written as the record of `to_dict`.
+/// A social decision, written as its record (`record`).
 struct Decision<'a> {
     minute: i64,
     agent_id: &'a str,
@@ -238,8 +238,8 @@ struct Decision<'a> {
 }
 
 impl Decision<'_> {
-    /// `SocialDecision.to_dict()` with `record_kind` `dialogue` and its `speech_status` (the row
-    /// `_IndexedMetricSink.record_social_decision` kept), as canonical JSON.
+    /// The decision's record with `record_kind` `dialogue` and its `speech_status` (the row an
+    /// indexed sink keeps), as canonical JSON.
     fn record(&self) -> Result<Vec<u8>> {
         let optional = |value: Option<&str>| value.map_or(V::Null, text);
         let (input_hash, state_hash, model_id, cache_hit, fallback_used, cost, requests, input_tokens, output_tokens) = match self.call {
@@ -290,7 +290,7 @@ impl Decision<'_> {
     }
 }
 
-/// `_social_effect_code`: the fixed label of what an accepted action does.
+/// The fixed label of what an accepted action does.
 fn effect_code(interaction_type: &str, action: Option<&str>) -> Option<&'static str> {
     Some(match (interaction_type, action?) {
         ("support_request", "offer_reassurance") => "requester_stress_relief_and_trust_increase",
@@ -313,7 +313,7 @@ fn keep(records: &mut Records<'_>, decision: &Decision<'_>) -> Result<()> {
     Ok(())
 }
 
-/// What a rejection names besides its reason (`_reject`'s keywords).
+/// What a rejection names besides its reason.
 #[derive(Clone, Copy)]
 struct Rejected<'a> {
     request_id: Option<&'a str>,
@@ -551,9 +551,9 @@ pub fn consider_complaint_response<C: WorldCell>(cell: &C, runtime: &mut Runtime
     }
 }
 
-/// `consider_cooperation(world, initiator_agent_id=, participant_agent_id=, trigger_event_id=)`:
-/// two people of the same group in the same zone, one of whom is stressed past the limit, are a
-/// typed interaction of both.
+/// A cooperation the social policy considers after a contact (`dispatch::consider_contact`): two
+/// people of the same group in the same zone, one of whom is stressed past the limit, are a typed
+/// interaction of both.
 pub fn consider_cooperation<C: WorldCell>(
     cell: &C,
     runtime: &mut Runtime,
@@ -622,9 +622,9 @@ pub fn consider_cooperation<C: WorldCell>(
     }
 }
 
-/// `consider_information_reaction(world, agent_id=, participant_agent_id=, message_id=,
-/// trigger_event_id=)`: a person who has heard a false claim from someone in the same zone may ask
-/// for it to be verified, a typed interaction of both.
+/// An information reaction the social policy considers after a contact
+/// (`dispatch::consider_contact`): a person who has heard a false claim from someone in the same
+/// zone may ask for it to be verified, a typed interaction of both.
 pub fn consider_information_reaction<C: WorldCell>(
     cell: &C,
     runtime: &mut Runtime,
@@ -698,7 +698,7 @@ pub fn consider_information_reaction<C: WorldCell>(
     }
 }
 
-/// A typed interaction the policy may ask about (`_consider_typed_interaction`'s arguments).
+/// A typed interaction the policy may ask about (what `typed` takes).
 struct Candidate {
     interaction_type: &'static str,
     trigger: &'static str,
@@ -715,7 +715,7 @@ struct Candidate {
     event_payload: IndexMap<Arc<str>, V>,
 }
 
-/// `_consider_typed_interaction`: offline, a response due past the Run's end, and a participant
+/// A typed interaction considered: offline, a response due past the Run's end, and a participant
 /// who has left reject it; then the participants' state is captured into the event's payload, and
 /// the day's cap and each participant's cap and cooldown reject it. Otherwise the policy asks with a
 /// candidate ID made from what it asks about, counts the attempt for every participant, and
@@ -948,8 +948,8 @@ struct PriorityRuntime {
 impl PriorityRuntime {
     const NAMES: [&'static str; 3] = ["schema_version", "attempts_by_day", "skipped_by_reason"];
 
-    /// `support_priority_runtime(world)`: the state, or a new one (`setdefault`, stored by the
-    /// caller's write); an error for one of another shape.
+    /// The support priority's state: the state, or a new one (`setdefault`, stored by the caller's
+    /// write); an error for one of another shape.
     fn read(world: &World) -> Result<Self> {
         let Some(value) = world.slots.try_value(PRIORITY_STATE)? else {
             return Ok(Self { names: Self::NAMES.to_vec(), attempts_by_day: Counts::new(), skipped_by_reason: Counts::new() });
@@ -1012,7 +1012,7 @@ struct SocialRuntime {
 impl SocialRuntime {
     const NAMES: [&'static str; 5] = ["schema_version", "attempts_by_day", "attempts_by_agent_day", "last_attempt_minute", "decision_count"];
 
-    /// `_social_runtime(world)`: the state, or a new one, which is stored at once (`setdefault`);
+    /// The social policy's state: the state, or a new one, which is stored at once (`setdefault`);
     /// an error for one of another shape.
     fn read(world: &mut World) -> Result<Self> {
         let found = world.slots.try_value(SOCIAL_STATE)?.map(|value| Self::of(&value));
@@ -1107,8 +1107,9 @@ impl SocialRuntime {
 
 // ---- Helpers --------------------------------------------------------------------------------------
 
-/// `schedule_event(ScheduledEvent(event_id, ENDOGENOUS, due, 10, sequence, "social_interaction",
-/// payload, source_id=policy_version, causation_id=cause, provenance))`.
+/// A `social_interaction` event scheduled on the world's queue: endogenous, due at `due`, priority
+/// 10, with the payload, the policy version as its source, `cause` as its causation and the
+/// provenance.
 fn schedule(
     events: &Events<'_>,
     event_id: &str,

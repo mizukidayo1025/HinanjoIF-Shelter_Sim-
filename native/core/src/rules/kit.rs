@@ -688,8 +688,8 @@ impl<'w> Events<'w> {
         log_record(self.world, event, realized_minute, status, detail)
     }
 
-    /// What the dispatcher does to a handled event (`EventDispatcher.settle`), on the world's queue
-    /// and log: the pending event of this ID leaves the queue, and its outcome is recorded unless the
+    /// What the dispatcher does to a handled event (`dispatch::settle`), on the world's queue and
+    /// log: the pending event of this ID leaves the queue, and its outcome is recorded unless the
     /// log holds a record of its ID already. `event` is the row as the rule read it. Returns the
     /// serial of the slot taken out, whose view the host lets go (`Host::slots_changed`), and
     /// whether the outcome was recorded.
@@ -780,7 +780,7 @@ pub fn metric_entries_of<'w>(world: &'w World, keys: &[&str]) -> Result<ShardMut
     world.slots.try_row_keys_mut::<MetricRow>(METRIC_STATE, keys)
 }
 
-/// `set_event(metric, get + 1.0)` of `world.metric_state`, on its row.
+/// Adds 1 to an event metric of the world's metric state, on its row.
 pub fn add_metric(world: &World, name: &str) -> Result<()> {
     let Ok(()) = add_one(&mut *metric_entries_of(world, &[name])?, &NoTree, name);
     Ok(())
@@ -804,8 +804,8 @@ pub fn mobility_text(agent: &AgentRow) -> &'static str {
     agent.profile.mobility.text()
 }
 
-/// `current_household_id` as far as the presence ledger answers: Some(household) when it does,
-/// None when the profile's group answers. `presence` is `model_state.get(PRESENCE)`.
+/// A person's current household as far as the presence ledger answers: Some(household) when it
+/// does, None when the profile's group answers. `presence` is `model_state.get(PRESENCE)`.
 #[track_caller]
 pub fn presence_household(presence: Option<&V>, agent_id: &str) -> Result<Option<Option<Arc<str>>>> {
     let Some(V::Map(presence)) = presence else {
@@ -835,7 +835,7 @@ pub fn group_of(entities: &Entities, agent_id: &str) -> Option<Arc<str>> {
     entities.agents.get(agent_id).and_then(|agent| agent.profile.group_id.clone())
 }
 
-/// `current_household_id`: the presence ledger's household, or else the profile's group.
+/// A person's current household: the presence ledger's household, or else the profile's group.
 pub fn household_of(presence: Option<&V>, entities: &Entities, agent_id: &str) -> Result<Option<Arc<str>>> {
     match presence_household(presence, agent_id)? {
         Some(found) => Ok(found),
@@ -843,7 +843,7 @@ pub fn household_of(presence: Option<&V>, entities: &Entities, agent_id: &str) -
     }
 }
 
-/// `current_household_id` of a world whose namespaces are rows (P8-0c on).
+/// A person's current household (`household_of`) in a world whose namespaces are rows.
 pub fn household_in(world: &World, agent_id: &str) -> Result<Option<Arc<str>>> {
     let presence = world.slots.try_value(PRESENCE)?;
     household_of(presence.as_deref(), &*world.rows()?, agent_id)
@@ -856,9 +856,9 @@ pub fn is_toilet(kind: &str) -> bool {
     casefold(kind).contains("toilet")
 }
 
-/// `active_facility_outage`: `bool(infrastructure_event_context_ids(world, facility_id))`, of
-/// `model_state.get("infrastructure_v1")`. A state that is not a dict has no outage; one whose
-/// records lack a key raises that `KeyError`, as Python's `record[key]` does.
+/// Whether an outage of the facility is active in `model_state.get("infrastructure_v1")`. A state
+/// that is not a dict has no outage; one whose records lack a key raises that `KeyError`, as
+/// Python's `record[key]` does.
 #[track_caller]
 pub fn active_outage(infrastructure: Option<&V>, facility_id: &str) -> Result<bool> {
     let Some(state @ V::Map(_)) = infrastructure else {
@@ -881,7 +881,8 @@ pub fn active_outage(infrastructure: Option<&V>, facility_id: &str) -> Result<bo
     Ok(false)
 }
 
-/// `has_active_facility_modifier`, of the row of `effect_program_v1` if the world holds one.
+/// Whether an active EffectProgram modifier targets the facility, of the row of `effect_program_v1`
+/// if the world holds one.
 pub fn has_active_modifier(program: Option<&EffectProgramRow>, facility_id: &str) -> bool {
     program.and_then(|program| program.active_facility_modifiers.get(facility_id)).is_some_and(|record| !record.modifiers.is_empty())
 }
@@ -964,10 +965,10 @@ pub trait Admission {
     fn paths(&mut self, zones: &[&str]) -> std::result::Result<(), Self::Error>;
 }
 
-/// What `admit_inner` asks of the waiting, whoever gets a place: a rule that writes and then admits
-/// asks this first, as the admission can't refuse after the writes. `dynamics` is
-/// `model_state.get(DYNAMICS)`, whose shapes the population validator checked: a shape it never
-/// lets through is a refusal here.
+/// What an admission of the waiting (`population::admit_pending`) asks of them, whoever gets a
+/// place: a rule that writes and then admits asks this first, as the admission can't refuse after
+/// the writes. `dynamics` is `model_state.get(DYNAMICS)`, whose shapes the population validator
+/// checked: a shape it never lets through is a refusal here.
 pub fn check_waiting_for_admission<A: Admission>(dynamics: Option<&V>, admission: &mut A) -> std::result::Result<(), A::Error> {
     let state = match dynamics {
         None | Some(V::Null) => return Ok(()),

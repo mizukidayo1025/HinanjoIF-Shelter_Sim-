@@ -1,4 +1,5 @@
-//! `_apply_effect` of the propose phase: what a decision does to the world before it is recorded.
+//! The effect of a decision in the propose phase: what a decision does to the world before it is
+//! recorded.
 //!
 //! One call plans with nothing changed and then writes: what it doesn't take, anything that isn't
 //! plainly what the step accepts, is refused before any write (docs/rust-port/lanes/m4-service.md).
@@ -187,7 +188,7 @@ impl Action {
     }
 }
 
-/// `interaction_data`: the interaction, its action and its topic.
+/// A social action's interaction, its action and its topic.
 struct Interaction {
     kind: &'static str,
     action: &'static str,
@@ -236,7 +237,7 @@ pub struct Sleep<'a> {
 
 /// The service manager a trip action asks at once.
 pub enum Asked<'a> {
-    /// `controller.toilet_service`: whether its `__dict__` holds a `request` (a test's patch).
+    /// The controller's toilet service: whether a test patched its `request`.
     Toilet { patched: bool },
     /// `controller.resource_service`, which is not None.
     Resource {
@@ -318,7 +319,7 @@ fn agent_place(world: &World, agent_id: &str) -> Result<(Arc<str>, Arc<str>)> {
     Ok((agent.zone_id.clone(), agent.profile.id.clone()))
 }
 
-/// `release_sleep_bed`, not done yet: whether the person holds a reservation to give up.
+/// Whether the person holds a bed's reservation to give up (before `release_bed`).
 fn holds_bed(world: &World, overlay: &Held, agent_id: &str) -> Result<bool> {
     let Some(state) = held_row::<ValueRow>(world, OVERLAY_KEY, overlay)? else {
         return Ok(false);
@@ -333,7 +334,7 @@ fn holds_bed(world: &World, overlay: &Held, agent_id: &str) -> Result<bool> {
     }
 }
 
-/// `release_sleep_bed`.
+/// The person's bed's reservation given up (`overlay::release`).
 fn release_bed(world: &World, overlay: &Held, agent_id: &str) -> Result<()> {
     overlay::release(world, overlay, "bed_reservations", Some(agent_id)).map(drop)
 }
@@ -447,7 +448,8 @@ impl Trips<'_> {
     }
 }
 
-/// `facility_has_independent_queues`; false for a world without `facility_queues_v1`.
+/// Whether the facility has independent queues (`facility_queues::has_independent`); false for a
+/// world without `facility_queues_v1`.
 fn has_independent(world: &World, queues: &Held, facility_id: &str) -> Result<bool> {
     Ok(facility_queues::queues(world, queues)?.is_some_and(|row| facility_queues::has_independent(&row, facility_id)))
 }
@@ -580,7 +582,7 @@ fn queue_at_once(world: &World, inputs: &Inputs<'_>, trips: &Trips<'_>, agent_id
 }
 
 /// Whether the world holds `resource_service_v1`, as a resource action read it. Without a resource
-/// service, the step's `held_mirror` would refuse: it never reads it then.
+/// service, the step's check of the held namespace would refuse: it never reads it then.
 fn service_held<'a>(inputs: &'a Inputs<'_>) -> Result<&'a Held> {
     static NO_SERVICE: Held = Held::Other(OTHER_SERVICE);
     match inputs.trips.as_ref().map(|trips| &trips.asked) {
@@ -717,9 +719,9 @@ fn plan_social<'w>(
     Ok(Some((event, events, participant_id, due)))
 }
 
-/// `_apply_effect` of every action but `seek_help` and `seek_information` (`seek_write`): the
-/// target, the next decision, and whether the decision committed. Refused before any write, but
-/// for the queue's kernel of a request at once, which runs after the capacity waits are written.
+/// The effect of every action but `seek_help` and `seek_information` (`seek_write`): the target,
+/// the next decision, and whether the decision committed. Refused before any write, but for the
+/// queue's kernel of a request at once, which runs after the capacity waits are written.
 pub fn apply(world: &World, inputs: &Inputs<'_>, proposal: &Proposal) -> WriteResult<Applied> {
     let action = proposal.action;
     let agent_id = &proposal.agent_id;
@@ -946,8 +948,8 @@ fn plain(error: WriteError) -> Error {
     }
 }
 
-/// `append_applied_care_transition` of the receipt of a request closed at once, as its entry does
-/// it: nothing without the namespace, and a refusal is that entry's `Error::Refused`.
+/// The care transition (`care_receipts::append`) of the receipt of a request closed at once, as its
+/// entry does it: nothing without the namespace, and a refusal is that entry's `Error::Refused`.
 fn append_interrupted(world: &mut World, shared: &Held, transition: Transition) -> Result<()> {
     let appended = match shared {
         Held::Absent => Ok(()),
@@ -972,8 +974,8 @@ fn transition_of(world: &World, request_id: &Arc<str>, agent_id: &Arc<str>, stat
     })
 }
 
-/// The `seek_help` and `seek_information` branch of `_apply_effect`, up to the request's writes:
-/// `StaffService.request`, the care receipt of a `seek_help`, the bed given up and the person's next
+/// The `seek_help` and `seek_information` branch of the effect, up to the request's writes: the
+/// support request, the care receipt of a `seek_help`, the bed given up and the person's next
 /// decision. Refused before any write.
 pub fn seek_write(world: &mut World, inputs: &Inputs<'_>, proposal: &Proposal) -> WriteResult<Sought> {
     let seek_help = match proposal.action {
@@ -1103,7 +1105,7 @@ pub fn seek_after<C: WorldCell, H: Host>(
     Ok(Applied { target: Some(request_id), next_decision_at: next_now, committed: is_open })
 }
 
-/// `_apply_effect`, whole, for a build that holds its world in Rust: `apply` on the world, or
+/// A decision's effect, whole, for a build that holds its world in Rust: `apply` on the world, or
 /// `seek_write` and `seek_after` of a request. A duplicate event is a `RuntimeError` here.
 pub fn apply_effect<C: WorldCell, H: Host>(cell: &C, host: &mut H, inputs: &Inputs<'_>, proposal: &Proposal) -> std::result::Result<Applied, H::Error> {
     if proposal.action.seeks() {

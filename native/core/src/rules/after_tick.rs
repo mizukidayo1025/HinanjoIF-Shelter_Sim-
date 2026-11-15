@@ -212,7 +212,7 @@ fn starts_with(table: &Table<RequestRow>, kept: &[Arc<str>]) -> bool {
 impl Memo {
     /// The requests that may not be settled, in the order of the table, or None if that is not
     /// known and the caller has to read them all: for the scans during a tick
-    /// (`unsettled_support_requests`).
+    /// (`metrics::sample`'s open support requests).
     ///
     /// What was settled at the last check marks any write, so this needs only the requests open
     /// then, the ones added since, and that no other one was opened since. The result may hold
@@ -270,9 +270,9 @@ struct Checked {
 /// Who wants a validator's yes: what it says if the answer is no.
 #[derive(Clone, Copy)]
 enum Asked {
-    /// A declared namespace (`validate_declared_states`).
+    /// A declared namespace (`validate::declared`).
     Declared,
-    /// A rule of `validate_simulator_extensions` or `validate`.
+    /// A rule of `validate::extensions` or of the rest of `validate::world`.
     Rule,
 }
 
@@ -436,9 +436,9 @@ fn historical_ids(world: &World, held: &HeldNamespaces, with_departures: bool) -
     Ok(ids)
 }
 
-/// The history rule of `validate_body_state`, for the records since the last tick
-/// (`records_since_previous_tick`: from the last one before the tick), past the rows' own check and
-/// the config's.
+/// The history rule of `body_state_v1`'s check (`validate::body_state`), for the records since the
+/// last tick (`records_since_previous_tick`: from the last one before the tick), past the rows' own
+/// check and the config's.
 fn body_history(world: &World, held: &HeldNamespaces, body: &BodyRow, minute: i64) -> Result<()> {
     let items = &body.history.items;
     let parse = |index: usize| -> Result<serde_json::Value> {
@@ -497,7 +497,7 @@ fn body_history(world: &World, held: &HeldNamespaces, body: &BodyRow, minute: i6
     Ok(())
 }
 
-/// `_has_exact_schema` of the zone environment.
+/// The exact shape of the zone environment (`validate::zone_environment`).
 fn environment_schema(state: Option<&V>) -> Result<()> {
     let Some(V::Map(state)) = state else {
         return refuse("the zone environment is the Python rule's");
@@ -508,8 +508,8 @@ fn environment_schema(state: Option<&V>) -> Result<()> {
     Ok(())
 }
 
-/// The first half of `validate_operational_events_state`, which is all of it at a tick. The events
-/// are read by the entity rules' `watch`.
+/// The first half of the check of `operational_events_v1` (`validate::operational_events`), which
+/// is all of it at a tick. The events are read by the entity rules' `watch`.
 fn operational_schema(state: &V) -> Result<()> {
     let V::Map(state) = state else {
         return refuse("the operational events are the Python rule's");
@@ -527,8 +527,8 @@ fn operational_schema(state: &V) -> Result<()> {
     Ok(())
 }
 
-/// `validate_infrastructure_runtime_state` of a tick with its config, past the config's own check
-/// (`tick_plan`): the state's shape and the base capacity of each facility.
+/// The check of `infrastructure_v1` (`validate::infrastructure`) of a tick with its config, past
+/// the config's own check (`tick_plan`): the state's shape and the base capacity of each facility.
 fn infrastructure(world: &World, state: Option<&V>) -> Result<()> {
     let Some(V::Map(state)) = state else {
         return refuse("the infrastructure state is the Python rule's");
@@ -621,10 +621,10 @@ fn first(world: &World, memo: &Memo, inputs: &Inputs<'_>, configs_unchanged: boo
 
     let mut validators: Vec<(Arc<str>, Asked)> = Vec::new();
 
-    // ---- `validate_declared_states`.
+    // ---- The declared states (`validate::declared`).
     let mut declared = declared_states(world, inputs, presence_unchanged)?;
 
-    // ---- `validate_simulator_extensions`.
+    // ---- The simulator's extensions (`validate::extensions`).
     let Extensions { body_rows, body_config, shared_operations } =
         simulator_extensions(world, inputs, minute, dynamics_unchanged, lifecycle_unchanged, overlay_unchanged, &mut validators)?;
 
@@ -656,8 +656,8 @@ fn first(world: &World, memo: &Memo, inputs: &Inputs<'_>, configs_unchanged: boo
     if ledger {
         rule(LEDGER);
     }
-    // `_validate_zone_capacity` of the zones the entity rules leave: their temporary spaces and
-    // rooms count too.
+    // The zones' capacity (`validate::entities`) of the zones the entity rules leave: their
+    // temporary spaces and rooms count too.
     let places = Places { spaces: held.of(SPACES)?, overlay: held.of(OVERLAY)?, schema: inputs.overlay_schema };
     entity::zone_capacity_passes(world, &places, &left)?;
 
@@ -702,8 +702,8 @@ fn requests_to_check(world: &World, memo: &Memo, agents_unchanged: bool) -> Resu
     }
 }
 
-/// `validate_declared_states`: each declared namespace is held, at its version. The result lists
-/// the validators to ask of them, but the presence's while it is unchanged.
+/// The declared states (`validate::declared`): each declared namespace is held, at its version. The
+/// result lists the validators to ask of them, but the presence's while it is unchanged.
 fn declared_states(world: &World, inputs: &Inputs<'_>, presence_unchanged: bool) -> Result<Vec<(Arc<str>, Asked)>> {
     let (plan, held) = (inputs.plan, inputs.held);
     let mut declared: Vec<(Arc<str>, Asked)> = Vec::new();
@@ -741,8 +741,8 @@ struct Extensions {
     shared_operations: bool,
 }
 
-/// `validate_simulator_extensions`: the required namespaces are held, and the rules of the
-/// simulator's namespaces are added to `validators`.
+/// The simulator's extensions (`validate::extensions`): the required namespaces are held, and the
+/// rules of the simulator's namespaces are added to `validators`.
 fn simulator_extensions(
     world: &World,
     inputs: &Inputs<'_>,

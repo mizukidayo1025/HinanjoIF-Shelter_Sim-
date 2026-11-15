@@ -4,7 +4,7 @@
 //! Every kernel plans first: it reads the rows and the plan of the floor and works out each record,
 //! with nothing changed, and says Unsupported for anything it does not decide. Then it writes the
 //! row of `movement_v1` alone. Planning reads only what the tick started with, so one person's
-//! result depends on nobody else's, except in two branches of `advance_movement`: a queue trip that
+//! result depends on nobody else's, except in two branches of `advance`: a queue trip that
 //! must replan, and a person placed in a queue slot. They read the positions the walk has written
 //! so far and take event numbers in its order (docs/rust-port/lanes/i-movement.md). The first walk
 //! stops at either branch, and a second one reads a copy of the positions it keeps up to date, so
@@ -17,7 +17,7 @@
 //!
 //! What the caller reads first (`advance_through`): the floor plan, the movement section of the
 //! configs, and the rows of the pending events of queue trips that replan, which the world's writer
-//! then settles (`EventWriter::settle`).
+//! then settles (`kit::Events::settle`).
 
 use std::sync::Arc;
 
@@ -45,7 +45,7 @@ pub use crate::rules::kit::movement::{Start, EXACT_INT, KEY, POLICY_VERSION};
 
 /// The key of the overlay in `model_state`.
 pub const OVERLAY_KEY: &str = "geometry_overlay_v1";
-/// How near counts as being there, in `agent_is_at_queue_slot` and its siblings, in metres.
+/// How near counts as being there, in `at_queue_slot` and its siblings, in metres.
 const ARRIVED_WITHIN: f64 = 0.05;
 /// The detail of the record of a queue trip's event that a replan suppresses.
 pub const QUEUE_REPLAN_DETAIL: &str = "In-room queue route changed after a wall, obstacle, or equipment update";
@@ -138,7 +138,7 @@ impl<'a> Scene<'a> {
         Ok(minutes)
     }
 
-    /// `_route_point`.
+    /// The point at `progress` along an edge, from the person's current zone.
     pub fn route_point(&self, edge_id: &str, progress: f64, current_zone: &str) -> Result<Option<Pt>> {
         let Some(layout) = &self.geo.layout else {
             return Ok(None);
@@ -173,7 +173,7 @@ impl<'a> Scene<'a> {
         Ok(Some(at(segments)))
     }
 
-    /// `_reserved_bed_point`, of the overlay's value.
+    /// The point of the bed reserved for the person, of the overlay's value.
     fn reserved_bed_point(&self, agent_id: &str) -> Result<Option<Pt>> {
         let overlay = self.world.slots.try_value(OVERLAY_KEY)?;
         let Some(overlay) = overlay.as_deref() else {
@@ -224,7 +224,7 @@ impl<'a> Scene<'a> {
         }
     }
 
-    /// `_facility_move_invalidated_journey`, of the overlay's value.
+    /// Whether a facility's move made the journey invalid, of the overlay's value.
     fn facility_move_invalidates(&self, journey: &Journey) -> Result<bool> {
         let Some(facility_id) = &journey.facility_id else {
             return Ok(false);
@@ -266,13 +266,13 @@ impl<'a> Scene<'a> {
         Ok(())
     }
 
-    /// Whether `_set_stationary_position` reads the positions of the people ahead for this person.
+    /// Whether `stationary` reads the positions of the people ahead for this person.
     fn stands_in_a_slot(&self, agent: &AgentRow) -> bool {
         self.geo.layout.is_some() && agent.activity == Activity::Queued && agent.target_id.as_deref().is_some_and(|target| !target.is_empty())
     }
 
-    /// `_set_stationary_position`'s record. A person in a queue slot reads the people ahead, so
-    /// `slots` is the row they are read from, or None where who walked first would matter.
+    /// The record of a person who does not walk. A person in a queue slot reads the people ahead,
+    /// so `slots` is the row they are read from, or None where who walked first would matter.
     fn stationary(&self, agent_id: &str, agent: &AgentRow, slots: Option<&MovementRow>) -> Result<Position> {
         let mut point = None;
         let target = agent.target_id.as_deref().filter(|target| !target.is_empty());
@@ -472,7 +472,7 @@ pub fn staff_position_snapshots(world: &World, geo: &Geo, staff: &StaffOps, boun
 
 // ---- advance_movement --------------------------------------------------------------------------
 
-/// `_room_path_is_clear`, with its record of the person.
+/// Whether the path in a room is clear for the person, with its record of the person.
 fn room_path_is_clear(geo: &Geo, position: Option<&Position>, zone_id: &str, points: &[Pt], mobility: &str) -> Result<bool> {
     let (Some(constraints), Some(layout)) = (&geo.constraints, &geo.layout) else {
         return Ok(true);
@@ -620,12 +620,12 @@ fn plan_journey(scene: &Scene<'_>, queue: &Queue, row: &MovementRow, agent_id: &
     Ok(Step::Walk { position: record(current_zone.clone(), point, kind, edge_id.cloned(), progress), edge: edge_id.cloned(), completed })
 }
 
-/// `_replan_physical_queue_trip`, planned with the positions the walk has written so far.
+/// The end of a queue trip's replan, planned with the positions the walk has written so far.
 enum QueueReplanEnd {
     /// `facility is None`: the trip only ends.
     NoFacility,
     Blocked,
-    /// `_schedule_queue_trip` gave up: past the end of the Run. The replan still counts.
+    /// The trip's schedule gave up: past the end of the Run. The replan still counts.
     PastTheEnd,
     /// A route that takes no time: the person is placed at its end.
     Placed,
@@ -671,7 +671,8 @@ struct Replanning<'a> {
     events: &'a Events<'a>,
 }
 
-/// `facility_queue_slot_route` or `facility_approach_route`, then what the replan makes of it.
+/// The route to the queue's slot (`queues::slot_route`) or the approach (`approach_route`), then
+/// what the replan makes of it.
 fn plan_queue_replan(
     replanning: Replanning<'_>,
     view: &MovementRow,
@@ -714,7 +715,8 @@ fn plan_queue_replan(
         changes.positions.push((agent_id.clone(), record(facility.zone_id.clone(), Some(target), KINDS.physical.clone(), None, 0.0)));
         return Ok(found(QueueReplanEnd::Placed));
     }
-    // `.index(agent_id)` of the provenance, which `_schedule_queue_trip` builds only if it schedules.
+    // The person's place among the queue's trips, which the trip's provenance holds only if it is
+    // scheduled.
     let index = if fifo.is_some() {
         0
     } else {
@@ -941,7 +943,7 @@ fn write_queue_replan(world: &World, replan: QueueReplan) -> WriteResult<()> {
 
 // ---- start_movement, finish_movement -----------------------------------------------------------
 
-/// What `start_movement` writes, changing nothing.
+/// What `start` writes, changing nothing.
 pub fn plan_start(scene: &Scene<'_>, row: &MovementRow, start: Start<'_>) -> Result<Changes> {
     // The point of a journey without the points of a path, which the scene reads.
     let off_path = if start.points.is_empty() {
@@ -964,7 +966,7 @@ pub fn plan_start_in(world: &World, geo: &Geo, start: Start<'_>) -> Result<Chang
     plan_start(&scene, &row, start)
 }
 
-/// `start_movement`, while the world holds `movement_v1`.
+/// Starts a journey, while the world holds `movement_v1`.
 pub fn start(world: &World, geo: &Geo, start: Start<'_>) -> Result<()> {
     let changes = plan_start_in(world, geo, start)?;
     apply(world, changes)
@@ -1067,14 +1069,14 @@ fn is_near(row: &MovementRow, agent_id: &str, point: Pt) -> Result<bool> {
     Ok(distance(point, current) <= ARRIVED_WITHIN)
 }
 
-/// `_queue_slot_position` of a facility's own queue or of an independent one (`queue_id`).
+/// A person's slot in a facility's own queue or in an independent one (`queue_id`).
 pub fn queue_slot_position(world: &World, at: &Where<'_>, agent_id: &str, facility_id: &str, queue_id: Option<&str>) -> Result<Option<Pt>> {
     let fifo = fifo_of(world, &at.queues, at.geo, queue_id)?;
     let independent = fifo.as_ref().map(Fifo::slot_view);
     with_positions(world, &at.movement, |row| queue_slot_in(at.geo, row, &*world.rows()?, agent_id, facility_id, independent))
 }
 
-/// `agent_is_at_queue_slot`.
+/// Whether the person stands at their queue slot.
 pub fn at_queue_slot(world: &World, at: &Where<'_>, agent_id: &str, facility_id: &str, queue_id: Option<&str>) -> Result<bool> {
     if at.geo.layout.is_none() {
         return Ok(false);
@@ -1093,8 +1095,8 @@ pub fn at_queue_slot(world: &World, at: &Where<'_>, agent_id: &str, facility_id:
     })
 }
 
-/// The zones of the person and of the facility: what `agent_is_at_facility_service_point` and
-/// `facility_approach_route` of a world without a floor plan read.
+/// The zones of the person and of the facility: what `at_service_point` and `approach_route` read
+/// of a world without a floor plan.
 pub fn agent_and_facility(world: &World, agent_id: &str, facility_id: &str) -> Result<(Arc<str>, Arc<str>)> {
     let rows = world.rows()?;
     let (Some(agent), Some(facility)) = (rows.agents.get(agent_id), rows.facilities.get(facility_id)) else {
@@ -1103,7 +1105,7 @@ pub fn agent_and_facility(world: &World, agent_id: &str, facility_id: &str) -> R
     Ok((agent.zone_id.clone(), facility.zone_id.clone()))
 }
 
-/// `facility_approach_route` in a placed world (`kit::movement::approach_point`).
+/// The approach to a facility in a placed world (`kit::movement::approach_point`).
 pub fn approach_route(
     world: &World,
     at: &Where<'_>,
@@ -1115,7 +1117,7 @@ pub fn approach_route(
     with_positions(world, &at.movement, |row| approach_point(at.geo, row, &*world.rows()?, model, agent_id, facility_id, service_point))
 }
 
-/// `agent_is_at_facility_service_point` in a placed world.
+/// Whether the person is at the facility's service point, in a placed world.
 pub fn at_service_point(
     world: &World,
     at: &Where<'_>,
@@ -1128,7 +1130,7 @@ pub fn at_service_point(
     Ok(found.is_some_and(|(minutes, path)| minutes <= 0 || path.len() < 2))
 }
 
-/// `agent_is_at_queue_trip_destination`, of the person's own journey in the row.
+/// Whether the person is at their queue trip's destination, of the person's own journey in the row.
 pub fn at_trip_destination(world: &World, movement: &Held, agent_id: &str) -> Result<bool> {
     with_positions(world, movement, |row| {
         let Some(point) = row.journeys.get(agent_id).and_then(|journey| journey.route_points.last()) else {
@@ -1141,15 +1143,15 @@ pub fn at_trip_destination(world: &World, movement: &Held, agent_id: &str) -> Re
     })
 }
 
-/// `agent_is_at_queue_trip_destination`, of the last point of a journey given.
+/// Whether the person is at a queue trip's destination, of the last point of a journey given.
 pub fn near_point(world: &World, movement: &Held, agent_id: &str, point: Pt) -> Result<bool> {
     with_positions(world, movement, |row| is_near(row, agent_id, point))
 }
 
 // ---- route_with_movement_time ------------------------------------------------------------------
 
-/// The minutes `route_with_movement_time` gives a route of these zones and edges, under the
-/// movement model, where the configs time routes.
+/// The minutes of a route of these zones and edges under the movement model, where the configs time
+/// routes.
 pub fn movement_minutes(world: &World, geo: &Geo, model: &MovementModel, agent_id: &str, zones: &[&str], edges: &[&str], declared: i64) -> Result<i64> {
     let mut wanted: Vec<(&str, i64)> = zones.iter().map(|zone| (*zone, 0)).collect();
     let speed = {
@@ -1221,7 +1223,7 @@ fn position_is_plain(position: &Position, rows: &Entities) -> bool {
     }
 }
 
-/// One journey against what `validate_movement_runtime_state` checks.
+/// One journey against what the check of `movement_v1` (`validate::movement`) checks.
 fn journey_is_valid(world: &World, queues: &Held, rows: &Entities, agent: &AgentRow, journey: &Journey, geo: Option<&Geo>) -> Result<bool> {
     let support = journey.support_request_id.is_some() && journey.support_staff_id.is_some();
     if journey.support_request_id.is_some() != journey.support_staff_id.is_some() {
@@ -1284,8 +1286,8 @@ pub enum Validated {
     Is(bool),
 }
 
-/// `validate_movement_runtime_state` of the row, while the world holds `movement_v1`: true accepts,
-/// false leaves it to the whole validation and its error text.
+/// The check of `movement_v1` (`validate::movement`) of the row, while the world holds it: true
+/// accepts, false leaves it to the whole validation and its error text.
 pub fn validate(world: &World, queues: &Held, geo: Option<&Geo>) -> Result<Validated> {
     let row = world.row::<MovementRow>(KEY)?;
     if geo.is_none() && row.journeys.values().any(|journey| !journey.route_points.is_empty()) {
@@ -1324,8 +1326,8 @@ pub fn validate(world: &World, queues: &Held, geo: Option<&Geo>) -> Result<Valid
 /// The refusal of a movement namespace the world holds another value of.
 pub const OTHER_MOVEMENT: &str = "the world holds another movement state";
 
-/// `mirror_held` as the host's `Holding` answers: `model_state` holds the namespace's tree or its
-/// detached row.
+/// Whether the movement namespace is held, as the host's `Holding` answers: `model_state` holds the
+/// namespace's tree or its detached row.
 pub fn check_held(holding: &Holding) -> Result<()> {
     if !holding.table {
         return Err(Error::unsupported(TABLE_NOT_PLAIN));
@@ -1436,9 +1438,10 @@ fn plain_point(value: &V) -> Option<Pt> {
     usable(*x, *y).then_some(Pt { x: *x, y: *y })
 }
 
-/// `positions[agent_id].update({... "point": bed ...})` of `_finish_stopped_journey` as a write of
-/// the row, held detached or attached (an attached tree follows the row, P8-0c; lane P9-1c): false,
-/// having written nothing, where the bed's point is not two floats, which the dispatch refuses.
+/// The person placed at the bed's point when a stopped journey finishes
+/// (`dispatch::finish_journey`), as a write of the row, held detached or attached (an attached tree
+/// follows the row, P8-0c; lane P9-1c): false, having written nothing, where the bed's point is not
+/// two floats, which the dispatch refuses.
 pub fn place_at_bed_held(world: &World, holding: &Holding, agent_id: &str, zone_id: &Arc<str>, bed: &ReservedBed) -> Result<bool> {
     let ReservedBed::Point(point) = *bed else {
         return Err(Error::unsupported(BED_NOT_A_POINT));
@@ -1453,9 +1456,8 @@ pub const BED_NOT_A_POINT: &str = "a bed's point is not two floats";
 /// The refusal of a part of the overlay that is not a dict.
 pub const OVERLAY_NOT_A_DICT: &str = "a part of the overlay is not a dict";
 
-/// `_reserved_bed_of` on the overlay's value (lane P9-1a, from the dispatch glue): `.get(key, {})`
-/// all the way down, a value of another kind refused where Python would raise. The bed's point, or
-/// None.
+/// The bed reserved for the person on the overlay's value: `.get(key, {})` all the way down, a
+/// value of another kind refused where Python would raise. The bed's point, or None.
 pub fn reserved_bed_of(overlay: Option<&V>, agent_id: &str) -> Result<Option<ReservedBed>> {
     let empty = indexmap::IndexMap::new();
     fn dict_or<'a>(value: Option<&'a V>, empty: &'a indexmap::IndexMap<Arc<str>, V>) -> Result<&'a indexmap::IndexMap<Arc<str>, V>> {

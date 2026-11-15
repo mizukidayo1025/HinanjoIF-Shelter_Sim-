@@ -1,17 +1,15 @@
-//! The staff rules on the rows of a `World`: the support requests' assignment
-//! (`StaffService.assign_pending`), the complaints that come due (`_consider_due_complaints`), what
-//! the metrics read of each open request (`_support_wait_snapshot`), the sanitation of the zones
-//! (`update_staff_operations`), the routed tasks (`assign_staff_operations`) and their relief at a
-//! shift's boundary (`schedule_staff_operation_relief`). The arbitrate and metrics phases
-//! (`rules::tick`) read what these take besides the world (whether `model_state` holds each
-//! namespace, the floor plan, the sections of the configs, the service's parameters, the Run's
-//! router) and call them.
+//! The staff rules on the rows of a `World`: the support requests' assignment (`assign_pending`),
+//! the complaints that come due (`consider_due_complaints`), what the metrics read of each open
+//! request (`open_waits`), the sanitation of the zones (`update_operations`), the routed tasks
+//! (`assign_operations`) and their relief at a shift's boundary (`relief`). The arbitrate and
+//! metrics phases (`rules::tick`) read what these take besides the world (whether `model_state`
+//! holds each namespace, the floor plan, the sections of the configs, the service's parameters, the
+//! Run's router) and call them.
 //!
 //! Each plans with nothing changed and then writes: the entities, `staff_operations_v1`,
 //! `metric_state`, the event counter, the queue and the log are written as their rows.
 //!
-//! The service's route and trip are the controller's own `_route` and
-//! `_schedule_staff_support_travel`, which are the core's `travel::route` and
+//! The service's route and trip are the controller's own, which are the core's `travel::route` and
 //! `travel::schedule_travel`: they are called directly, in a fixed order (a route records its
 //! capacity waits, a trip schedules its event), and their refusal is labelled with their steps
 //! (`ROUTE`, `SCHEDULE`). Another route resolver or travel scheduler than the controller's own is
@@ -70,21 +68,21 @@ const OUTREACH_AT_LEAST: f64 = 0.45;
 const PATROL_AT_LEAST: f64 = 0.6;
 /// Above this an int does not always fit a float.
 const FLOAT_EXACT_INT: i64 = 1 << 53;
-/// The kinds of routed task, in the order `assign_staff_operations` reads their durations.
+/// The kinds of routed task, in the order `assign_operations` reads their durations.
 const TASK_KINDS: [&str; 5] = ["cleaning", "maintenance", "information_outreach", "intake", "patrol"];
 
-/// The label of the refusal of the controller's `_route`.
+/// The label of the refusal of the route (`travel::route`).
 pub const ROUTE: &str = "travel.route";
-/// The label of the refusal of the controller's `_schedule_staff_support_travel`.
+/// The label of the refusal of the support's trip (`travel::schedule_travel`).
 pub const SCHEDULE: &str = "travel.schedule_support_travel";
-/// The label of the refusal of `interrupt_staff_operation`.
+/// The label of the refusal of `staff_operation_events::interrupt`.
 pub const INTERRUPT: &str = "staff_operation_events.interrupt";
-/// The refusal of a route resolver that is not the controller's own `_route`.
+/// The refusal of a route resolver that is not the controller's own (`travel::route`).
 pub const OTHER_RESOLVER: &str = "another route resolver";
-/// The refusal of a travel scheduler that is not the controller's own `_schedule_staff_support_travel`.
+/// The refusal of a travel scheduler that is not the controller's own (`travel::schedule_travel`).
 pub const OTHER_SCHEDULER: &str = "another travel scheduler";
 
-/// `_CARE_SKILL_ALTERNATIVES.get(kind, {"support"})`.
+/// The skills that can give a kind of care: any one of them; `support` for another kind.
 fn required_skills(kind: &str) -> &'static [&'static str] {
     match kind {
         "emotional_support" => &["support"],
@@ -152,18 +150,18 @@ fn world_zones(world: &World) -> Result<Vec<Arc<str>>> {
 
 // ---- What the rules read about the staff ---------------------------------------------------------
 
-/// What `staff_is_available` and `staff_dynamics_*` answer for one member at one minute, and what
-/// `support_wait_reason_codes` reads from the same records.
+/// What the staff's status and dynamics answer for one member at one minute, and what the wait
+/// reasons of a request (`OpenWaits::reasons_of`) read from the same records.
 struct Worker {
     id: Arc<str>,
     zone: Arc<str>,
     skills: Vec<Arc<str>>,
     has_task: bool,
-    /// `staff_is_available`.
+    /// `StaffStatus::is_available`.
     available: bool,
-    /// `staff_dynamics_on_shift`.
+    /// `staff_dynamics::on_shift_now`.
     on_shift: bool,
-    /// `staff_dynamics_is_available`.
+    /// `staff_dynamics::is_available_now`.
     can_start: bool,
     /// The `rest_until_minute` of its `staff_dynamics_v1` record, if it has one.
     rest_until: Option<i64>,
@@ -218,8 +216,8 @@ fn workers_at(world: &World, inputs: &Inputs<'_>, minute: i64) -> Result<Vec<Wor
     Ok(workers)
 }
 
-/// The kind of each request as `_support_kind` reads it, from the heads of `shared_operations_v1`:
-/// `emotional_support` for a request without a head.
+/// The kind of care of each request, from the heads of `shared_operations_v1`: `emotional_support`
+/// for a request without a head.
 struct CareKinds(Option<FxHashMap<Arc<str>, Arc<str>>>);
 
 impl CareKinds {
@@ -238,7 +236,7 @@ impl CareKinds {
     }
 }
 
-/// A priority of `model_state["llm"]["support_priorities"]`, as `_support_priority` reads it: an
+/// A priority of `model_state["llm"]["support_priorities"]`, as `priority_of` reads it: an
 /// int (one past i64 is `Big`), or another value.
 #[derive(Clone, Copy)]
 enum Priority {
@@ -247,8 +245,8 @@ enum Priority {
     Other,
 }
 
-/// `model_state["llm"]["support_priorities"]`, where it is a non-empty dict: what
-/// `_support_priority(world, id)` reads.
+/// `model_state["llm"]["support_priorities"]`, where it is a non-empty dict: what `priority_of`
+/// reads.
 fn priorities_of(world: &World) -> Result<Option<IndexMap<Arc<str>, Priority>>> {
     let Some(state) = world.slots.try_value("llm")? else {
         return Ok(None);
@@ -267,7 +265,7 @@ fn priorities_of(world: &World) -> Result<Option<IndexMap<Arc<str>, Priority>>> 
     Ok((!priorities.is_empty()).then(|| priorities.iter().map(|(id, value)| (id.clone(), read(value))).collect()))
 }
 
-/// `_support_priority`: an int above 0 is urgent; a bool or another value is 0.
+/// A request's priority: an int above 0 is urgent; a bool or another value is 0.
 fn priority_of(priorities: Option<&IndexMap<Arc<str>, Priority>>, id: &str) -> Result<i64> {
     match priorities.and_then(|priorities| priorities.get(id)) {
         Some(Priority::Int(value)) => Ok(*value),
@@ -313,7 +311,7 @@ fn set_metric(world: &World, name: &str, value: f64) -> Result<()> {
     Ok(())
 }
 
-// ---- StaffService.assign_pending -----------------------------------------------------------------
+// ---- The support requests' assignment ------------------------------------------------------------
 
 /// What a route resolver or a travel scheduler of the service is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -436,7 +434,7 @@ fn plan_pending(world: &World, inputs: &Inputs<'_>, fairness: Option<i64>, minut
     if plain.is_some() && minute.abs() >= FLOAT_EXACT_INT {
         return Err(Error::unsupported("the minute does not fit a float"));
     }
-    // `_support_assignment_order`: urgent or aged past fairness first, then by minute and ID.
+    // The order of assignment: urgent or aged past fairness first, then by minute and ID.
     if let Some(fairness) = fairness {
         let key = |open: &Open| (-i64::from(open.priority > 0 || minute - open.requested >= fairness), open.requested);
         ordered.sort_by(|first, second| key(first).cmp(&key(second)).then_with(|| first.id.cmp(&second.id)));
@@ -509,13 +507,15 @@ fn step_error(label: &'static str, error: WriteError) -> WriteError {
     }
 }
 
-/// `route_resolver(origin, destination, agent_id)`, which is the controller's `_route`.
+/// The route from `origin` to `destination` for the person, by the controller's own resolver
+/// (`travel::route`).
 fn resolve(world: &World, travel: Option<&Travel<'_>>, origin: &Arc<str>, destination: &Arc<str>, agent_id: &str) -> WriteResult<Option<Route>> {
     let travel = travel.ok_or_else(|| Error::Runtime("the route's inputs were not given".to_owned()))?;
     travel::route(world, &travel.routing, origin, destination, agent_id).map_err(|error| step_error(ROUTE, error))
 }
 
-/// `StaffService.assign_pending(minute, validate_state=False)`: the IDs of the requests assigned.
+/// The pending support requests assigned at `minute`, without the world's validation: the IDs of
+/// the requests assigned.
 /// A minute other than the world's raises the rule's marked ValueError first. A world whose every
 /// pending request stays pending records the attempt and the minute's exposure; otherwise, without
 /// `full`, nothing is written and `NeedsAll` asks for it. Another route resolver or travel
@@ -750,7 +750,7 @@ struct Assigning<'a> {
     events: &'a Events<'a>,
 }
 
-/// `_preempt_background_staff`: frees one qualified routed worker for an urgent request.
+/// Frees one qualified routed worker for an urgent request.
 fn preempt_worker(assigning: Assigning<'_>, workers: &[Worker], open: &Open, at: i64, duration: i64, taken: &mut Vec<u64>) -> WriteResult<Option<usize>> {
     let Assigning { world, inputs, service, travel, events } = assigning;
     // `model_state.get(NAME)`: no preemption without the namespace.
@@ -809,7 +809,8 @@ fn preempt_worker(assigning: Assigning<'_>, workers: &[Worker], open: &Open, at:
         provenance: kit::assumption(V::Str(Arc::from(PREEMPTION_SOURCE)), PREEMPTION_POLICY),
     })?;
     events.record(&event, at, EventStatus::Applied, Some(PREEMPTION_DETAIL))?;
-    // Its refusal is the `Error::Refused` of `interrupt_staff_operation`, past the record above.
+    // Its refusal is the `Error::Refused` of `staff_operation_events::interrupt`, past the record
+    // above.
     let stopping = Stopping { event_id: &event.event_id, due_minute: event.due_minute };
     let interrupted = operations::interrupt(world, inputs.tasks()?, &worker.id, &stopping, None, taken).map_err(|error| step_error(INTERRUPT, error))?;
     if !interrupted {
@@ -818,10 +819,10 @@ fn preempt_worker(assigning: Assigning<'_>, workers: &[Worker], open: &Open, at:
     Ok(Some(chosen))
 }
 
-// ---- _consider_due_complaints --------------------------------------------------------------------
+// ---- The complaints that come due ----------------------------------------------------------------
 
-/// `_consider_due_complaints`: each pending request that has waited exactly `threshold` minutes, in
-/// ID order, goes to the policy (`Host::consider_complaint_response`), with the world given back
+/// The complaints that come due: each pending request that has waited exactly `threshold` minutes,
+/// in ID order, goes to the policy (`Host::consider_complaint_response`), with the world given back
 /// during the call. A decision before one may have settled it: each is read again first. None for
 /// the threshold is a Run without a social policy, which does nothing.
 pub fn consider_due_complaints<C: WorldCell, H: Host>(cell: &C, host: &mut H, threshold: Option<i64>, minute: i64) -> std::result::Result<(), H::Error> {
@@ -857,13 +858,14 @@ pub fn consider_due_complaints<C: WorldCell, H: Host>(cell: &C, host: &mut H, th
 
 // ---- What the metrics read of each open request --------------------------------------------------
 
-/// What `_support_wait_snapshot` needs of the qualified staff of one kind.
+/// What the open requests' waits (`open_waits`) need of the qualified staff of one kind.
 struct KindWait {
     kind: Arc<str>,
     qualified: bool,
-    /// The sorted blockers of `support_wait_reason_codes` that come from the staff.
+    /// The sorted blockers of the wait reasons that come from the staff.
     blockers: Vec<&'static str>,
-    /// `sorted({person.zone_id for person in _route_candidates(...)})`.
+    /// The zones of the qualified staff free to start now (the route candidates), sorted, without
+    /// repeats.
     destinations: Vec<Arc<str>>,
 }
 
@@ -923,7 +925,7 @@ pub struct WaitRoutes<'a> {
     pub support_minutes: &'a Kept<i64>,
 }
 
-/// What `_support_route_wait_reasons` reads once for all the requests of a snapshot.
+/// What `route_wait_reasons` reads once for all the requests of a snapshot.
 struct RouteReads {
     graph: Router,
     loads: EdgeLoads,
@@ -961,7 +963,7 @@ impl RouteReads {
     }
 }
 
-/// `route_with_movement_time` of a route's minutes.
+/// A route's minutes as the movement model times them (`movement::movement_minutes`).
 fn movement_minutes(world: &World, inputs: &WaitRoutes<'_>, agent_id: &str, route: &Route) -> Result<i64> {
     let section = kit::kept(inputs.movement)?;
     if !section.times_routes() {
@@ -977,7 +979,7 @@ fn movement_minutes(world: &World, inputs: &WaitRoutes<'_>, agent_id: &str, rout
     movement::movement_minutes(world, geo, &model, agent_id, &zones, &edges, route.minutes)
 }
 
-/// `_support_route_wait_reasons`, of a person with candidates: the reasons, and whether a route is
+/// The route's wait reasons of a person with candidates: the reasons, and whether a route is
 /// feasible.
 fn route_wait_reasons(
     world: &World,
@@ -1051,14 +1053,14 @@ pub struct OpenWait {
     reason: WaitReason,
 }
 
-/// The requests of `_support_wait_snapshot`, in the order given.
+/// The requests of `open_waits`, in the order given.
 pub struct OpenWaits {
     pub requests: Vec<OpenWait>,
     waits: Vec<KindWait>,
 }
 
 impl OpenWaits {
-    /// `support_wait_reason_codes` of a request.
+    /// The wait reasons of a request.
     pub fn reasons_of<'a>(&'a self, request: &'a OpenWait) -> Vec<&'a str> {
         match &request.reason {
             WaitReason::OfKind(kind) => {
@@ -1092,7 +1094,7 @@ struct Waiting<'a> {
     last_reason: Option<&'a Arc<str>>,
 }
 
-/// `support_wait_reason_codes` of a pending request whose kind has free staff, past its routes:
+/// The wait reasons of a pending request whose kind has free staff, past its routes:
 /// None where its routes are to be read and `routes` is None.
 fn routed_reasons(
     world: &World,
@@ -1137,9 +1139,9 @@ fn routed_reasons(
     Ok(Some(vec![Arc::from(if attempted { "assignment_failure_reason_not_recorded" } else { "assignment_not_attempted_at_sampled_minute" })]))
 }
 
-/// `support_waited_minutes` and `support_wait_reason_codes` of each request of these IDs, or with
-/// `only_open` of each one that is pending or assigned. None, where a request's routes are to be
-/// read and `routes` is None: the call again with them answers. Nothing is written.
+/// The minutes waited and the wait reasons of each request of these IDs, or with `only_open` of
+/// each one that is pending or assigned. None, where a request's routes are to be read and `routes`
+/// is None: the call again with them answers. Nothing is written.
 pub fn open_waits(
     world: &World,
     staff: &Inputs<'_>,
@@ -1222,7 +1224,7 @@ pub fn open_waits(
     Ok(Some(OpenWaits { requests, waits }))
 }
 
-// ---- update_staff_operations ---------------------------------------------------------------------
+// ---- The sanitation of the zones -----------------------------------------------------------------
 
 /// The config as a dict (`StaffOperationsRow::config_entries`).
 fn config_of(config: Option<Entries<'_>>) -> Result<Entries<'_>> {
@@ -1257,7 +1259,7 @@ fn zone_override(config: Option<Entries<'_>>, table: &str, zone: &str, name: &st
     }
 }
 
-/// `load * rate * elapsed` of `update_staff_operations`, from the left, as the float taken off the
+/// `load * rate * elapsed` of `update_operations`, from the left, as the float taken off the
 /// sanitation. `canonical_staff_operations_config` takes an int rate too (0 or 1 in its range): its
 /// product is an int, exact, which the float subtraction then reads as its float.
 fn used_sanitation(rate: Number, load: i64, elapsed: i64) -> Result<f64> {
@@ -1284,8 +1286,8 @@ fn threshold(value: Option<Number>, default: f64) -> Result<f64> {
     }
 }
 
-/// `update_staff_operations`: each zone's sanitation falls with who is in it. Nothing without the
-/// namespace; a zone whose record does not change is not written.
+/// The sanitation of the minute: each zone's sanitation falls with who is in it. Nothing without
+/// the namespace; a zone whose record does not change is not written.
 pub fn update_operations(world: &World, inputs: &Inputs<'_>, minute: i64) -> Result<()> {
     if matches!(inputs.operations, Held::Absent) {
         return Ok(());
@@ -1334,7 +1336,7 @@ pub fn update_operations(world: &World, inputs: &Inputs<'_>, minute: i64) -> Res
     Ok(())
 }
 
-// ---- assign_staff_operations ---------------------------------------------------------------------
+// ---- The routed tasks ----------------------------------------------------------------------------
 
 /// Both rules of the staff's tasks round each member's fatigue on their way, which raises for this.
 fn every_fatigue_is_finite(world: &World, inputs: &Inputs<'_>) -> Result<()> {
@@ -1450,7 +1452,7 @@ fn a_task_is_open(world: &World, inputs: &Inputs<'_>, row: &StaffOperationsRow, 
     Ok(false)
 }
 
-/// A task a worker could take, with what `_TASK_SKILLS` asks of them.
+/// A task a worker could take, with the skills it asks of them.
 struct OpenTask {
     urgency: f64,
     kind: &'static str,
@@ -1460,7 +1462,7 @@ struct OpenTask {
     skills: &'static [&'static str; 2],
 }
 
-/// One start of `assign_staff_operations`, nothing changed yet.
+/// One start of `assign_operations`, nothing changed yet.
 struct PlannedOperation {
     worker: usize,
     kind: &'static str,
@@ -1493,8 +1495,8 @@ fn workload_of(world: &World, inputs: &Inputs<'_>, row: &StaffOperationsRow, wor
     Ok(workload)
 }
 
-/// The tasks `assign_staff_operations` would list for someone with every skill, in its order,
-/// without the ones `reserved_operations` takes.
+/// The tasks `assign_operations` would list for someone with every skill, in its order, without
+/// the ones already reserved.
 fn open_tasks(world: &World, inputs: &Inputs<'_>, row: &StaffOperationsRow, workers: &[Worker]) -> Result<Vec<OpenTask>> {
     let eligible = |skills: &[&str]| workers.iter().any(|worker| is_free_for_a_task(worker) && has_skill(worker, skills));
     let mut tasks = Vec::new();
@@ -1592,7 +1594,8 @@ fn open_tasks(world: &World, inputs: &Inputs<'_>, row: &StaffOperationsRow, work
     Ok(tasks)
 }
 
-/// `formula.rank_key(...)` compared as Python compares the tuples. The minutes fit a float.
+/// The formula's rank of two tasks, compared as Python compares the tuples. The minutes fit a
+/// float.
 fn ranks_above(first: (f64, f64, &OpenTask), second: (f64, f64, &OpenTask)) -> bool {
     let text = |task: &OpenTask| (task.kind, task.zone.clone(), task.target.clone().unwrap_or_else(|| Arc::from("")));
     if first.0 != second.0 {
@@ -1604,7 +1607,7 @@ fn ranks_above(first: (f64, f64, &OpenTask), second: (f64, f64, &OpenTask)) -> b
     text(first.2) > text(second.2)
 }
 
-/// What `assign_staff_operations` reads only where a free worker has a task to take.
+/// What `assign_operations` reads only where a free worker has a task to take.
 #[derive(Clone, Copy)]
 pub struct Routed<'a> {
     /// The staff's router: the Run's (`Which::Staff`).
@@ -1615,7 +1618,7 @@ pub struct Routed<'a> {
     pub loads_staff: &'a Held,
 }
 
-/// What `assign_staff_operations` led to.
+/// What `assign_operations` led to.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Operations {
     /// The new task IDs.
@@ -1625,8 +1628,8 @@ pub enum Operations {
     NeedsRoutes,
 }
 
-/// `assign_staff_operations`: nothing without the namespace; the plain tick where no free worker has
-/// a task to take changes nothing and reads no route.
+/// The routed tasks assigned: nothing without the namespace; the plain tick where no free worker
+/// has a task to take changes nothing and reads no route.
 pub fn assign_operations(world: &World, inputs: &Inputs<'_>, known: &Kept<()>, minute: i64, routed: Option<&Routed<'_>>) -> WriteResult<Operations> {
     if matches!(inputs.operations, Held::Absent) {
         return Ok(Operations::Done(Vec::new()));
@@ -1647,7 +1650,7 @@ pub fn assign_operations(world: &World, inputs: &Inputs<'_>, known: &Kept<()>, m
     write_operations(world, inputs, minute, starts, &workers)
 }
 
-/// `assign_staff_operations`, changing nothing: who starts what, and on which route.
+/// The routed tasks assigned, changing nothing: who starts what, and on which route.
 fn plan_operations(world: &World, inputs: &Inputs<'_>, at: i64, routed: &Routed<'_>, workers: &[Worker]) -> Result<Vec<PlannedOperation>> {
     let formula: &StaffOperations = inputs.tasks()?.formula.ok_or_else(|| Error::unsupported(FORMULA_UNREAD))?;
     let travel_first = formula.travel_first();
@@ -1729,7 +1732,7 @@ fn text_or_none(text: Option<&Arc<str>>) -> V {
     text.map_or(V::Null, |text| V::Str(text.clone()))
 }
 
-/// What `assign_staff_operations` writes, in its order.
+/// What `assign_operations` writes, in its order.
 fn write_operations(world: &World, inputs: &Inputs<'_>, at: i64, starts: Vec<PlannedOperation>, workers: &[Worker]) -> WriteResult<Operations> {
     let formula: &StaffOperations = inputs.tasks()?.formula.ok_or_else(|| Error::unsupported(FORMULA_UNREAD))?;
     let (source, policy, event_source) = formula.provenance();
@@ -1826,9 +1829,9 @@ fn write_operations(world: &World, inputs: &Inputs<'_>, at: i64, starts: Vec<Pla
     Ok(Operations::Done(assigned))
 }
 
-// ---- schedule_staff_operation_relief -------------------------------------------------------------
+// ---- The relief at a shift's boundary ------------------------------------------------------------
 
-/// One handoff of `schedule_staff_operation_relief`, nothing changed yet.
+/// One handoff of `relief`, nothing changed yet.
 struct PlannedRelief {
     task_id: Arc<str>,
     previous: Arc<str>,
@@ -1854,7 +1857,7 @@ fn handed_tasks(world: &World) -> Result<HashSet<Arc<str>>> {
     Ok(handed)
 }
 
-/// `schedule_staff_operation_relief`, changing nothing.
+/// The relief, changing nothing.
 fn plan_relief(world: &World, inputs: &Inputs<'_>, at: i64, next: i64, duration: i64) -> Result<Vec<PlannedRelief>> {
     let handed = handed_tasks(world)?;
     let workers = workers_at(world, inputs, next)?;
@@ -1926,7 +1929,7 @@ fn plan_relief(world: &World, inputs: &Inputs<'_>, at: i64, next: i64, duration:
     Ok(plans)
 }
 
-/// `schedule_staff_operation_relief`: a replacement already at the task takes it over at the shift's
+/// The relief at a shift's boundary: a replacement already at the task takes it over at the shift's
 /// boundary. With no staff member on a task there is nothing to relieve. The IDs of the events.
 pub fn relief(world: &World, inputs: &Inputs<'_>, minute: i64) -> WriteResult<Vec<Arc<str>>> {
     if matches!(inputs.operations, Held::Absent) {

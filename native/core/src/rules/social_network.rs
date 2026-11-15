@@ -21,7 +21,7 @@ const MAX_SHARED_MESSAGE_IDS: usize = 64;
 const LAST_SAFE_COUNT: i64 = i64::MAX - 4;
 /// `observe_event`: "Cooperation applies the existing +0.01 per-Agent trust update in its handler".
 const COOPERATION_TRUST_DELTA: f64 = 0.01;
-/// `_relationship`'s trust of a record that has none yet, for `record_interaction`.
+/// The trust of a record that has none yet, for an interaction.
 const UNSET_TRUST: f64 = 0.5;
 /// The share of the relief that reaches the participant's and the actor's directed trust.
 const PARTICIPANT_RELIEF_SHARE: f64 = 0.5;
@@ -46,7 +46,7 @@ pub fn plain_id(id: &str) -> Result<&str> {
     Ok(id)
 }
 
-/// `ordered_pair_key` of two plain IDs.
+/// The key of an ordered pair of two plain IDs.
 pub fn pair_key(first: &str, second: &str) -> String {
     let mut key = String::with_capacity(first.len() + second.len() + 7);
     key.push_str("[\"");
@@ -89,7 +89,7 @@ pub fn action_relief(body: Option<&BodyRow>, actor_id: &str) -> Result<f64> {
     Ok(relief(positive, negative, transfer_of(&row.config)?))
 }
 
-/// What `_sync_body_trust` copies for a key: None for no body record, or the body's trust.
+/// The body's trust copied for a key: None for no body record, or the body's trust.
 fn body_trust(body: Option<&BodyRow>, key: &str) -> Option<Option<f64>> {
     body?.relationships.map.get(key).map(|record| record.trust)
 }
@@ -97,17 +97,17 @@ fn body_trust(body: Option<&BodyRow>, key: &str) -> Option<Option<f64>> {
 /// One record's change: `(recipient, source)`, in the order they are recorded.
 struct RecordWrite {
     key: String,
-    /// `record_contact` and `record_observed_contact` count a contact.
+    /// A contact and an observed contact count a contact.
     contact: bool,
-    /// `record_contact` and `record_interaction` count a conversation.
+    /// A contact and an interaction count a conversation.
     conversation: bool,
     minute: i64,
-    /// `record_interaction`'s `last_interaction`.
+    /// An interaction's `last_interaction`.
     interaction: Option<Arc<str>>,
     message: Option<Arc<str>>,
-    /// The directional delta of `record_interaction`.
+    /// The directional delta of an interaction.
     trust_delta: Option<f64>,
-    /// What `_sync_body_trust` then writes over it.
+    /// The body's trust, then copied over it.
     body_trust: Option<Option<f64>>,
 }
 
@@ -224,7 +224,7 @@ impl ObservedContacts {
     }
 }
 
-/// `record_observed_contact` of each (recipient, source), for the social propagation step, checked
+/// An observed contact of each (recipient, source), for the social propagation step, checked
 /// before the step writes its own namespace: Unsupported for a pair of one person or with an ID
 /// JSON escapes, for a namespace without its row, and for a count past what is safe. The bound is a
 /// ValueError, which `apply` raises after the step's own writes.
@@ -300,7 +300,8 @@ pub fn observe_event(world: &World, event_type: &str, payload: &V, minute: i64) 
                 return Ok(());
             };
             let (recipient, sender) = (plain_id(recipient)?, plain_id(sender)?);
-            // `record_contact` returns at once, and `_sync_body_trust` finds no such record.
+            // A contact of one person with themselves is not recorded, and no body's trust is
+            // copied.
             if recipient == sender {
                 return Ok(());
             }
@@ -329,7 +330,8 @@ pub fn observe_event(world: &World, event_type: &str, payload: &V, minute: i64) 
                 return Ok(());
             };
             let (first, second) = (plain_id(first)?, plain_id(second)?);
-            // `record_observed_contact` returns at once, and `_sync_body_trust` finds no record.
+            // An observed contact of one person with themselves is not recorded, and no body's
+            // trust is copied.
             if first == second {
                 return Ok(());
             }
@@ -367,8 +369,8 @@ pub fn observe_event(world: &World, event_type: &str, payload: &V, minute: i64) 
                 return Ok(());
             };
             let (actor, participant) = (plain_id(actor)?, plain_id(participant)?);
-            // `record_interaction` returns at once, and `_sync_body_trust` finds no record. The
-            // relief the rule computes before that is not written anywhere.
+            // An interaction of one person with themselves is not recorded, and no body's trust is
+            // copied. The relief the rule computes before that is not written anywhere.
             if actor == participant {
                 return Ok(());
             }

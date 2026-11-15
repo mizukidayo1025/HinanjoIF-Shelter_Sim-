@@ -1,12 +1,11 @@
-//! `movement_v1`: where people and staff are and the trips under way (`domain/movement.py`). The
-//! rules that run every tick are `rules/movement.rs`; the others write one record at a time through
-//! the forwarded writes (docs/rust-port/lanes/i-movement.md, m4-movement.md).
+//! `movement_v1`: where people and staff are and the trips under way. The rules that run every tick
+//! are `rules/movement.rs`; the others write one record at a time
+//! (docs/rust-port/lanes/i-movement.md, m4-movement.md).
 //!
-//! A value of another type than the rules write taints the namespace, and the Python rules and
-//! their errors run on the tree: an int `progress` or an int coordinate, which validation accepts,
-//! only costs the row.
-//!
-//! The PyO3 crate's `state/movement.rs` reads it from Python.
+//! A value of another type than the rules write (an int `progress` or an int coordinate, which
+//! validation accepts) does not fit the row: a Run refuses to load such a world
+//! (`load::put_namespace`), and the whole validation reads it as a value
+//! (`load::Namespaces::Lenient`).
 
 use std::sync::Arc;
 

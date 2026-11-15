@@ -1,5 +1,4 @@
-//! `validate_agent_dynamics_state(world)` of `domain/agent_dynamics.py`, with Python's errors and
-//! texts (lane D of #250, #349). Raw errors.
+//! The check of `agent_dynamics_v1`, with its errors and texts (lane D of #250, #349). Raw errors.
 
 use super::extension_head::py::{self, eq_int, eq_str, get, keys_are, Held};
 use super::View;
@@ -12,9 +11,8 @@ use crate::value::V;
 const SCHEMA: &str = "agent_dynamics_v1 has an invalid exact schema";
 const RECORD_FIELDS: [&str; 6] = ["known_facility_ids", "last_action", "last_target_id", "last_decision_minute", "decision_due_minute", "decision_reason"];
 
-/// `canonical_agent_dynamics_config(raw)["policy_version"]`, a kernel of Python's
-/// (`kernel_only("agent_dynamics", "canonical_config")`): its ValueError, or its refusal as the
-/// `KernelRefusal` Python raises.
+/// `canonical_agent_dynamics_config(raw)["policy_version"]` (`config::agent_dynamics`): its
+/// ValueError, or its refusal (`Error::Refused`, labelled `agent_dynamics.canonical_config`).
 pub fn canonical_agent_dynamics_policy(raw: Option<&V>) -> Result<&'static str> {
     match canonical_policy(raw) {
         Ok(Ok(policy)) => Ok(policy),
@@ -23,7 +21,7 @@ pub fn canonical_agent_dynamics_policy(raw: Option<&V>) -> Result<&'static str> 
     }
 }
 
-/// The check, as `validate` (`validate/mod.rs`) calls it in Python's order.
+/// The check, as `validate` (`validate/mod.rs`) calls it in its order.
 pub fn validate(view: &View<'_>) -> Result<()> {
     let Some(state) = view.state(NAME)? else {
         return Ok(());

@@ -1,10 +1,10 @@
 //! `effect_program_v1`: the approved programs of a Run and the stack of availability modifiers of
-//! each facility (`events/effects.py`). `rules/effects.rs` reads it and writes it one record at a
-//! time. `schedule_effect_program` adds a program through the forwarded writes, on the copy it
-//! makes of the world (docs/rust-port/lanes/m6-effects.md).
+//! each facility. `rules/effects.rs` reads it and writes it one record at a time.
+//! `program::schedule` adds a program (docs/rust-port/lanes/m6-effects.md).
 //!
-//! A value of another type than the rules write taints the namespace, and the Python rules and
-//! their errors run on the tree.
+//! A value of another type than the rules write does not fit the row: a Run refuses to load such a
+//! world (`load::put_namespace`), and the whole validation reads it as a value
+//! (`load::Namespaces::Lenient`).
 
 use std::sync::Arc;
 

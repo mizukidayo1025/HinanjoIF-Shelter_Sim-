@@ -1,11 +1,11 @@
-//! Python's reading of JSON values, for the validators: numbers (`number`, `finite`), equality
-//! (`equal`) and `validate_unit_interval` (`unit_interval`).
+//! How the validators read JSON values, with Python's semantics: numbers (`number`, `finite`),
+//! equality (`equal`) and the unit interval's check (`unit_interval`).
 
 use crate::error::{Error, Result};
 use crate::value::V;
 
 /// A number as Python compares it: an int (`V::Int`, `V::Big`) or a float; None for any other
-/// value, a bool too. An int too large for a float is left to Python (its `OverflowError`).
+/// value, a bool too. An int too large for a float is unsupported (CPython's `OverflowError`).
 pub fn number(value: &V) -> Result<Option<f64>> {
     match value {
         V::Int(number) => Ok(Some(*number as f64)),
@@ -36,7 +36,7 @@ pub fn equal(first: &V, second: &V) -> bool {
     }
 }
 
-/// `validate_unit_interval(name, value)` of `domain/models.py`.
+/// `validate_unit_interval(name, value)` (as in `scenario_authoring/configs/models.py`).
 pub fn unit_interval(name: &str, value: &V) -> Result<()> {
     match finite(value)? {
         Some(number) if (0.0..=1.0).contains(&number) => Ok(()),
@@ -54,8 +54,8 @@ pub fn is_stable_id(text: &str) -> bool {
 }
 
 /// The name of the Python type of a value the world holds, as an error names it (`'int'`,
-/// `'NoneType'`): a list or a dict of the world is one of its tracked trees (`TrackedList`,
-/// `TrackedDict` of `core/state_mirror.py`), as the native path's texts show.
+/// `'NoneType'`): a list or a dict of the world is named as a tracked tree (`TrackedList`,
+/// `TrackedDict`), as the recorded error texts have it.
 pub fn type_name(value: &V) -> &'static str {
     match value {
         V::Null => "NoneType",
@@ -68,7 +68,7 @@ pub fn type_name(value: &V) -> &'static str {
     }
 }
 
-/// The `TypeError` of `value in a_set` (a lookup that hashes the value) where Python cannot hash
+/// The `TypeError` of `value in a_set` (a lookup that hashes the value) where CPython cannot hash
 /// it: `unhashable type: 'TrackedList'`.
 pub fn unhashable(value: &V) -> Option<Error> {
     match value {
@@ -77,8 +77,8 @@ pub fn unhashable(value: &V) -> Option<Error> {
     }
 }
 
-/// `json.dumps(value, separators=(",", ":"))` of a list of str (`ensure_ascii`): what Python
-/// writes of an Agent pair's key.
+/// `json.dumps(value, separators=(",", ":"))` of a list of str (`ensure_ascii`): an Agent pair's
+/// key.
 pub fn dumps_texts(texts: &[&str]) -> String {
     let mut out = String::from("[");
     for (index, text) in texts.iter().enumerate() {

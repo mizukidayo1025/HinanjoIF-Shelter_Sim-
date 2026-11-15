@@ -1,14 +1,13 @@
-//! The Run's policies at minute 0, as `RunCore.policies_document` writes what the PyO3 crate read
-//! of `OfflineSimulationController(world, artifacts)` (offline, no LLM router, traces off), made
-//! from the configs as the controller's `__init__` makes its policies, managers and event handlers
+//! The Run's policies at minute 0, the document of an offline controller (no LLM router, traces
+//! off), made from the configs as the controller makes its policies, managers and event handlers
 //! (#429). The document is what `crate::load::policies` reads: the controller's object with the
 //! attributes of `run::policies::CONTROLLER`, each `{"value": ...}`, `{"text": ...}`,
 //! `{"object": ...}`, `{"method": ...}` or the `{"fault": [class, text]}` of an attribute the
-//! object lacks; and the dispatch table of `events/handlers.py`.
+//! object lacks; and the dispatch table of the event handlers (`run::dispatch`).
 //!
 //! The Scenario is canonical (`ScenarioSpec` dumped the psychology, resource service and toilet
 //! configs it holds): a config the controller would turn down with an error of its own raises that
-//! error; one only a contract Python runs first could turn down is a refusal.
+//! error; one only a contract run first could turn down is a refusal.
 
 use std::sync::Arc;
 
@@ -645,7 +644,7 @@ const HANDLERS: [(&str, &str, &str); 47] = [
     ("water_restored", "handlers", "WaterRestorationHandler"),
 ];
 
-/// `controller.event_dispatcher` as the PyO3 crate reads it (`read_dispatch`).
+/// `controller.event_dispatcher`, as `load::run`'s `dispatch` reads it.
 fn dispatch(resource_service: bool, cooldown: i64) -> V {
     let manager = |module: &str, class: &str| vmap([("object", object_of(module, class, Vec::new(), Vec::new()))]);
     let service_manager = || manager("sheltersim.domain.resource_service", "ResourceServiceManager");

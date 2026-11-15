@@ -1,6 +1,6 @@
-//! The psychological distress block of `WorldState.validate`: `validate_psychological_state`
-//! (`domain/psychological_state.py`) where a mean-reverting psychology model is selected, and the
-//! state without its model, with Python's errors and texts. It raises the `StateInvariantError`s of
+//! The psychological distress block of `WorldState.validate`: the check of
+//! `psychological_distress_v1` where a mean-reverting psychology model is selected, and the state
+//! without its model, with its errors and texts. It raises the `StateInvariantError`s of
 //! `WorldState.validate` itself, its own wrapping included.
 
 use super::catalog::catalog;
@@ -14,7 +14,7 @@ const PSYCHOLOGY: &str = "psychological_distress_v1";
 const FIELDS: [&str; 6] =
     ["baseline_distress", "long_term_distress", "daily_acute_sum", "daily_high_distress_minutes", "daily_observed_minutes", "completed_days"];
 
-/// The check, as `validate` (`validate/mod.rs`) calls it in Python's order, with the models
+/// The check, as `validate` (`validate/mod.rs`) calls it in its order, with the models
 /// `selected_models` gave.
 pub fn validate(view: &View<'_>, selection: &Selection) -> Result<()> {
     let model = selection.get("psychology").map(|model| &**model).unwrap_or_default();

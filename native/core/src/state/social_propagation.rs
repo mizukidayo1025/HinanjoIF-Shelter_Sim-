@@ -1,6 +1,5 @@
-//! `social_propagation_v1`: the contacts of the last tick and the cooldowns of the social model
-//! (`_read_runtime_state` in `policies/social.py`). The rule that writes it is
-//! `rules/social_propagation.rs`.
+//! `social_propagation_v1`: the contacts of the last tick and the cooldowns of the social model.
+//! The rule that writes it is `rules/social_propagation.rs`.
 
 use crate::row::IdMap;
 use crate::state_row;

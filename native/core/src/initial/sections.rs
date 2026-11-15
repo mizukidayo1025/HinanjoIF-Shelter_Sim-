@@ -1,7 +1,7 @@
-//! The sections of a world's configs that Python parses (`SectionId::parser() == Parser::Host`),
-//! as `sections(world)` of `core/world_export.py` writes them (#429): `{"value": ...}`,
+//! The sections of a world's configs that the host parses (`SectionId::parser() == Parser::Host`),
+//! as an entry holds them (#429; `load::Sections` reads them): `{"value": ...}`,
 //! `{"fault": [class, text]}` for what the parse raised, `{"absent": true}` for a facility geometry
-//! the configs lack, or `{"host_error": text}` where the PyO3 crate raises out of `fill_section`.
+//! the configs lack, or `{"host_error": text}` for an error of the parse that is not a fault.
 //! The class of a fault is `config::FaultClass`'s name: `Value`, `Type`, `Key`, `Validation`,
 //! `Refused` (a refusal kept as one), or the module and name of another class.
 
@@ -24,7 +24,7 @@ use crate::world::World;
 
 type Map = IndexMap<Arc<str>, V>;
 
-/// The attributes of `InformationSpreadConfig` the PyO3 crate reads, but `present`.
+/// The attributes of `InformationSpreadConfig` the section holds, but `present`.
 const INFORMATION_FIELDS: [&str; 12] = [
     "enabled",
     "minimum_contact_minutes",
@@ -464,7 +464,7 @@ fn extensions_enabled(configs: &Map) -> V {
     })
 }
 
-/// `sections(world)`: every section Python parses, by its field of `Configs`.
+/// `sections(world)`: every section the host parses, by its field of `Configs`.
 pub(crate) fn sections(world: &World) -> Result<V> {
     let view = View::new(world, true, None);
     let configs = match &*view.configs()? {

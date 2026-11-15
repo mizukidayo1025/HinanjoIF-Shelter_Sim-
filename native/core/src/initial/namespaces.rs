@@ -1,10 +1,9 @@
-//! The namespaces of `model_state` at minute 0, made as Python makes them, in its order:
+//! The namespaces of `model_state` at minute 0, made in this order:
 //! `WorldState.from_scenario` (the stock's ledger, the resource service, the operational events,
 //! infrastructure, the zone environment, information and the psychological state), then
 //! `initialize_simulator_extensions` (its factories, then `validate_simulator_extensions`), then
 //! `initialize_declared_states` (#429). Each is put into the world as it is made, so a later
-//! factory reads the earlier ones as Python's does; an error is the first one Python raises, with
-//! its class and text.
+//! factory reads the earlier ones; an error is the first one met, with its class and text.
 
 use std::collections::BTreeSet;
 use std::sync::Arc;
@@ -654,7 +653,7 @@ fn presence(scenario: &Scenario) -> V {
     vmap([("schema_version", V::Int(1)), ("people", V::Map(people)), ("history", empty_list())])
 }
 
-// ---- In Python's order ---------------------------------------------------------------------------
+// ---- In order ------------------------------------------------------------------------------------
 
 fn put(world: &mut World, name: &str, state: V) -> Result<()> {
     load::put_namespace(world, name, state)
@@ -740,7 +739,7 @@ pub(crate) fn extensions(world: &mut World, scenario: &Scenario) -> Result<()> {
     if has(scenario, "body_dynamics") && !body {
         return Err(value_error("body_dynamics config requires a life-state psychology policy"));
     }
-    // The factories in the dict's order; its conditions are read as Python builds it.
+    // The factories in the dict's order; its conditions are read in the order the dict is built.
     let mut factories: Vec<&str> = vec!["agent_dynamics_v1", "population_dynamics_v1", "social_network_v1", "staff_dynamics_v1"];
     if let Some(raw) = configs.get("shared_operations") {
         shared_operations_config(raw)?;
@@ -771,7 +770,7 @@ pub(crate) fn extensions(world: &mut World, scenario: &Scenario) -> Result<()> {
         match name {
             "agent_dynamics_v1" => {
                 // The kernel `create_agent_dynamics_state` reads the policy as a rule does
-                // (`config::agent_dynamics::policy`): a config Python's check refuses is its refusal.
+                // (`config::agent_dynamics::policy`): a config the check refuses is its refusal.
                 let refused = |reason: String| Error::Refused { label: "agent_dynamics.create_state".to_owned(), reason: reason.into() };
                 let policy = match canonical_policy(configs.get("agent_dynamics")) {
                     Ok(Ok(policy)) => policy,

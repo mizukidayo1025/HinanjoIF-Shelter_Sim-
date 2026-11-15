@@ -1,8 +1,8 @@
-//! `validate_facility_queue_state(world)` of `domain/facility_queues.py`, with Python's errors and
-//! texts (lane E of #250, #350). Raw errors: `validate_simulator_extensions` passes them on.
+//! The check of `facility_queues_v1`, with its errors and texts (lane E of #250, #350). Raw errors:
+//! `validate_simulator_extensions` passes them on.
 //!
-//! `independent_queues_required`, `is_legacy_queue_checkpoint` and `request_for_agent` are kernels
-//! in Python (`native/src/rules/facility_queues.rs`); here they read the world's values the same way.
+//! `independent_queues_required` (`signatures.rs`), `is_legacy_queue_checkpoint`
+//! (`extension_head.rs`) and `request_for_agent` read the world's values as the tick's rules do.
 
 use std::cmp::Ordering;
 use std::collections::HashSet;
@@ -108,7 +108,7 @@ fn is_legacy(view: &View<'_>, required: bool) -> Result<bool> {
     Ok(eq(&mode, &V::Map(expected)))
 }
 
-/// The check, as `validate` (`validate/mod.rs`) calls it in Python's order.
+/// The check, as `validate` (`validate/mod.rs`) calls it in its order.
 pub fn validate(view: &View<'_>) -> Result<()> {
     let state = view.state(KEY)?;
     let required = independent_required(view)?;
@@ -311,7 +311,7 @@ fn stall_valid(stall: &V) -> Result<bool> {
     in_texts(&stall["reason"], HELD, &STALL_REASONS)
 }
 
-/// The long condition on a request, in Python's order.
+/// The long condition on a request, its parts in order (the first that fails decides).
 fn request_valid(
     request: &Map,
     request_id: &V,
@@ -365,7 +365,7 @@ fn queue_journeys(view: &View<'_>, requests: &Map) -> Result<()> {
             Some(_) => return Err(Error::unsupported("request_for_agent refused: a queue ID is not a str")),
         };
         // The kernel reads the namespace's row: a state no row holds (one the typed row refuses)
-        // is a refusal in Python, which the core's lenient loader holds as a value.
+        // is a refusal, though the lenient loader (`Namespaces::Lenient`) holds it as a value.
         if view.row::<QueuesRow>(KEY)?.is_none() {
             return Err(Error::Refused { label: "facility_queues.request_for_agent".to_owned(), reason: "the namespace has no row".into() });
         }

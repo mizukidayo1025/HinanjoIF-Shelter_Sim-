@@ -1,10 +1,7 @@
 //! `information_spread_v1`: claims, each person's belief in them, the contacts of the last tick,
 //! the signal that makes people ask, and the requests it raised. The rule that writes it each tick
-//! is `rules/information.rs`; `policies/information.py` stays the comparison base. Rumor events,
-//! corrections and arrivals still write single items from Python, which reach the row as forwarded
-//! writes.
-//!
-//! The PyO3 crate's `state/information.rs` reads it from Python and holds its validator.
+//! is `rules/information.rs`; rumor events, corrections and arrivals write single items
+//! (`rules/information_events.rs`, the population rules).
 
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -139,7 +136,7 @@ impl BeliefRow {
 }
 
 impl InformationRow {
-    /// Everything the Python rule parses each tick parses, and each belief's claim exists: then
+    /// Everything the rule parses each tick parses, and each belief's claim exists: then
     /// the rule can't raise on the messages or the beliefs. False says nothing about the state.
     pub fn beliefs_parse(&self) -> bool {
         self.messages.iter().all(|(id, message)| **id == *message.id && message.parses())
@@ -178,7 +175,8 @@ impl InformationRow {
     }
 
     /// Whether validate_information_runtime_state passes the namespace. False says nothing about
-    /// it: the Python rules then say what is wrong. A state of schema 1 goes to them too.
+    /// it: the whole validation (`validate::world`) then says what is wrong. A state of schema 1
+    /// goes to it too.
     pub fn is_valid<E>(&self, agents: &HashSet<&str>, duration: i64, has_zone: impl Fn(&str) -> Result<bool, E>) -> Result<bool, E> {
         if self.schema_version != SCHEMA_VERSION
             || self.messages.len() > MAX_MESSAGES
@@ -207,7 +205,7 @@ impl InformationRow {
 }
 
 /// The two IDs of a key that `json.dumps(pair, separators=(",", ":"))` writes unchanged: printable
-/// ASCII with nothing to escape. Any other key is left to the Python rules.
+/// ASCII with nothing to escape. Any other key is left to the whole validation.
 fn pair_of_key(key: &str) -> Option<(&str, &str)> {
     let inner = key.strip_prefix("[\"")?.strip_suffix("\"]")?;
     let (first, second) = inner.split_once("\",\"")?;

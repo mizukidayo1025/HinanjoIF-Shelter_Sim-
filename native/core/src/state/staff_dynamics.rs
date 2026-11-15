@@ -1,7 +1,6 @@
 //! `staff_dynamics_v1`: shift and fatigue memory of each staff member. The rules that write and
-//! read it are `rules/staff_dynamics.rs`; `domain/staff_dynamics.py` keeps the checks of a config
-//! and of a saved namespace (docs/rust-port/lanes/s-staff-dynamics.md). The PyO3 crate's
-//! `state/staff_dynamics.rs` reads it from Python and holds its validator.
+//! read it are `rules/staff_dynamics.rs`; `validate/staff_dynamics.rs` checks a config and a saved
+//! namespace (docs/rust-port/lanes/s-staff-dynamics.md).
 
 use std::sync::Arc;
 
@@ -45,7 +44,7 @@ state_row! {
 }
 
 /// The off-shift recovery as a config holds it: a float, or an int (0 or 1, its range) that the
-/// Python rule's arithmetic used as the float of the same value. The tree keeps the int, and so does
+/// rule's arithmetic uses as the float of the same value. The tree keeps the int, and so does
 /// the row, for the bytes.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Recovery {
@@ -141,7 +140,7 @@ impl StaffRecord {
     }
 }
 
-/// `[start, end)` intervals of one person the Python rule passes: non-empty, in the week, at most
+/// `[start, end)` intervals of one person the check passes: non-empty, in the week, at most
 /// `MAX_SHIFTS`, and none overlapping.
 pub fn shifts_are_valid(shifts: &[Shift]) -> bool {
     if shifts.len() > MAX_SHIFTS
@@ -198,7 +197,7 @@ impl StaffDynamicsRow {
     }
 
     /// `validate_staff_dynamics_state` for a row of its types (#152; in the core since #250): true
-    /// only if the Python rule passes. A record for each staff member and none else, and the
+    /// only if the whole check passes. A record for each staff member and none else, and the
     /// per-staff limits and shifts only of the world's staff.
     pub fn accepts(&self, rows: &Entities) -> bool {
         if !self.is_valid_without_staff_ids() {

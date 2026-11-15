@@ -265,8 +265,9 @@ class ProjectWorkspace:
         self, project_id: str, run_id: str, branch_id: str, body: bytes
     ) -> bytes:
         """`POST …/intervention-preview` (`{minute, text}`): the branch's Run at the minute, the
-        text read by the offline compiler, the program's checks on the world, and the draft kept
-        for the approval (the browser's `interventionPreview`)."""
+        text read (by the offline compiler, or with an API key by the configured router through
+        the core, #463), the program's checks on the world, and the draft kept for the approval
+        (the browser's `interventionPreview`)."""
         from sheltersim.web.projects import answers
 
         core, files = answers(), self.api.files
@@ -278,11 +279,40 @@ class ProjectWorkspace:
         record = json.loads(plan.record_json())
         run = self.api.live.at(project_id, run_id, record, plan.minute)
         preview_id = uuid.uuid4().hex
-        answer, draft = plan.answer(run, preview_id)
+        answer, draft = self._preview_answer(project_id, run_id, branch_id, plan, run, preview_id)
         if draft is not None:
             with files.transaction():
                 files.keep_draft(project_id, preview_id, draft)
         return answer
+
+    def _preview_answer(
+        self, project_id: str, run_id: str, branch_id: str, plan: Any, run: Any, preview_id: str
+    ) -> tuple[bytes, bytes | None]:
+        """The preview's answer and draft: without an API key the offline compiler's; with one,
+        the core asks the configured router to read the text (one repair at most) and checks the
+        plan, as `compile_natural_language` did (#463)."""
+        from sheltersim.llm.config import LLMErrorPolicy
+        from sheltersim.llm.link import COMPILER_TAPE, analysis_link, ask
+
+        link = analysis_link(
+            self.store,
+            project_id,
+            run_id,
+            operation="compiler",
+            branch_id=branch_id,
+            tape=COMPILER_TAPE,
+        )
+        compiling = (
+            None
+            if link is None
+            else plan.compiling(run, link.router.settings.error_policy is LLMErrorPolicy.STOP)
+        )
+        if compiling is None:
+            return plan.answer(run, preview_id)
+        step, data = compiling.read(ask(link, compiling.task()))
+        while step == "ask":
+            step, data = compiling.read(ask(link, data))
+        return plan.answer_compiled(run, preview_id, data)
 
     def intervention_apply(
         self, project_id: str, run_id: str, branch_id: str, body: bytes
@@ -322,9 +352,10 @@ class ProjectWorkspace:
         return plan.answer()
 
     def question(self, project_id: str, run_id: str, branch_id: str, body: bytes) -> bytes:
-        """`POST …/questions`: the request's and the evidence's checks, the answer without a
-        Provider, and the turn kept in the branch's stored Run (the browser's
-        `questionResponse`)."""
+        """`POST …/questions`: the request's and the evidence's checks, the answer, and the turn
+        kept in the branch's stored Run (the browser's `questionResponse`). Without an API key the
+        answer is the one without a Provider; with one, the core builds the evidence packet and
+        the task, the configured router answers it, and the core checks the answer (#463)."""
         import secrets
         import time
 
@@ -343,12 +374,48 @@ class ProjectWorkspace:
             core.compare_plan(
                 f"branch_ids={','.join(compared)}&minute={minute}", project_id, run_id, *listing
             ).receipts(api.journals(project_id, run_id, compared))
-        answer, turn = plan.answer(
-            secrets.token_hex(12), f"t-{time.time_ns()}-{secrets.token_hex(4)}"
-        )
+        random, turn_id = secrets.token_hex(12), f"t-{time.time_ns()}-{secrets.token_hex(4)}"
+        link = self.analysis_link(project_id, run_id, "questions", branch_id)
+        if link is None:
+            answer, turn = plan.answer(random, turn_id)
+        else:
+            from sheltersim.llm.link import ask
+
+            comparison = None
+            if compared:
+                comparison_plan = core.compare_plan(
+                    f"branch_ids={','.join(compared)}&minute={minute}",
+                    project_id,
+                    run_id,
+                    *listing,
+                )
+                comparison_plan.receipts(api.journals(project_id, run_id, compared))
+                records = json.loads(comparison_plan.records_json())
+                comparison = comparison_plan.answer(
+                    run_id, [api.frame(project_id, run_id, item, minute) for item in records]
+                )
+            asking = plan.ask(
+                api.frame(project_id, run_id, record, minute),
+                comparison,
+                files.run_file(project_id, run_id, "evidence.json"),
+                files.run_scenario_bytes(project_id, run_id),
+                files.conversation_pieces(project_id, run_id, branch_id),
+                random,
+            )
+            reply = ask(link, asking.task())
+            answer, turn = asking.answer(reply, link.router.mode.value, turn_id)
         with files.claim_branch(project_id, run_id, branch_id) as lease, files.transaction():
             files.keep_turn(lease, project_id, run_id, branch_id, turn)
         return answer
+
+    def analysis_link(self, project_id: str, run_id: str, operation: str, branch_id: str) -> Any:
+        """The link a question asks through (`sheltersim.llm.link.analysis_link`), or None
+        without an API key."""
+        from sheltersim.llm.link import analysis_link
+
+        return analysis_link(
+            self.store, project_id, run_id, operation=operation, branch_id=branch_id
+        )
 
     def _require_current_model(self, project_id: str, run_id: str, branch_id: str) -> None:
         from sheltersim.web.projects import answers

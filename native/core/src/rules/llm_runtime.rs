@@ -188,6 +188,7 @@ pub fn prioritize_support_request<C: WorldCell>(cell: &C, runtime: &mut Runtime,
             output_schema: support_advice_schema(),
             fallback_text: r#"{"priority":0,"rationale":"rule-based fallback"}"#.to_owned(),
             max_output_tokens: 96,
+            input_byte_limit: None,
         };
         Ok(Some((minute, task)))
     })??;
@@ -469,6 +470,7 @@ pub fn consider_support_request<C: WorldCell>(cell: &C, runtime: &mut Runtime, m
             )]),
             fallback_text: r#"{"action":"no_interaction"}"#.to_owned(),
             max_output_tokens: 24,
+            input_byte_limit: None,
         };
         Ok(Ok((minute, due, task)))
     })??;
@@ -846,6 +848,7 @@ fn typed<C: WorldCell>(cell: &C, runtime: &mut Runtime, mut records: Records<'_>
             // Runtime proposals include a long candidate ID and strict reason code; 40 tokens can be
             // consumed before the JSON object is complete.
             max_output_tokens: 128,
+            input_byte_limit: None,
         };
         Ok(Ok((minute, due, proposal_id, task)))
     })??;

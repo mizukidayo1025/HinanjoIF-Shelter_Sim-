@@ -124,6 +124,7 @@ fn task() -> Task {
         .unwrap(),
         fallback_text: r#"{"action":"no_interaction"}"#.to_owned(),
         max_output_tokens: 24,
+        input_byte_limit: None,
     }
 }
 

@@ -132,11 +132,11 @@ python benchmarks/wasm_trial_measure.py --bundle sample.shelterproj --pkg wasm-w
 
 ### ブラウザー版のAPI（#266）
 
-ブラウザー版では、画面（`/`、`demo-v2*.js`）を変えずに、同じAPIにページの中で答えます（#263）。ブラウザー版の`index.html`（serverの`demo-v2.html`に1行足したもの）は、画面のscriptより先に`native/wasm/js/api_fetch.js`を読みます。このscriptは`window.fetch`を包み、そのサイトの`/api/v1/...`への要求（画面の`api()`とPDFの`fetch`）を専用のWorker（`native/wasm/js/api_worker.mjs`）へ渡します。ほかの要求は元の`fetch`へ渡します。Workerは、サイト専用の保存（OPFSの`projects/`）とWASMから、Pythonのserverと同じstatusとJSON（誤りは`{"error", "code"}`）で答えます（`native/wasm/js/browser_api.mjs`）。要求と計算のひと区切り（下）は1つずつ順に行い、どれもWeb Lock（`sheltersim-browser-store`）の中で行うので、2つのタブが同じファイルを同時に開くことはありません。
+ブラウザー版では、画面（`/`、`demo-v2*.js`）を変えずに、同じAPIにページの中で答えます（#263）。答えのJSONと誤りは、ローカル版・VM版と同じ中核の関数（`sheltersim_core::answers`。PyO3では`sheltersim_native.rules.answers`）が書きます（#449、表で「中核の答え」とした道）。JSは要求の振り分け、OPFSのファイルの読み書き、計算の順番を受け持ちます。ブラウザー版の`index.html`（serverの`demo-v2.html`に1行足したもの）は、画面のscriptより先に`native/wasm/js/api_fetch.js`を読みます。このscriptは`window.fetch`を包み、そのサイトの`/api/v1/...`への要求（画面の`api()`とPDFの`fetch`）を専用のWorker（`native/wasm/js/api_worker.mjs`）へ渡します。ほかの要求は元の`fetch`へ渡します。Workerは、サイト専用の保存（OPFSの`projects/`）とWASMから、Pythonのserverと同じstatusとJSON（誤りは`{"error", "code"}`）で答えます（`native/wasm/js/browser_api.mjs`）。要求と計算のひと区切り（下）は1つずつ順に行い、どれもWeb Lock（`sheltersim-browser-store`）の中で行うので、2つのタブが同じファイルを同時に開くことはありません。
 
 | 道（`/api/v1/projects`から） | ブラウザー版の答え |
 |---|---|
-| `GET`（一覧）、`POST`（作る）、`GET {project}`、`GET runs`、`GET runs/{run}`、`GET runs/{run}/evidence` | OPFSの記録（`project_store.mjs`の答えの関数、#265） |
+| `GET`（一覧）、`POST`（作る）、`GET {project}`、`GET runs`、`GET runs/{run}`、`GET runs/{run}/evidence` | OPFSの記録（#265）。`project_store.mjs`が記録のファイルを読み、中核の`sheltersim_core::answers`が答えを書きます（#449） |
 | `GET …/branches/{branch}/timeline?minute=` | その分のframe（中核、#264）。`state_hash`は世界のdigest |
 | `GET runs/{run}/replay-frames`（1つの分岐） | 1〜8分のframe |
 | `GET …/history?kind=kpis`、`report`、`llm-status` | `native/wasm/js/api_answers.mjs`（上の段落）。`history`の`kpis`以外の`kind`は「未対応」 |
@@ -144,9 +144,9 @@ python benchmarks/wasm_trial_measure.py --bundle sample.shelterproj --pkg wasm-w
 | `POST …/branches/{branch}/intervention-preview`、`intervention-apply` | APIキーのないVMと同じ介入のプレビューと、子の分岐を作る適用（`native/wasm/js/interventions.mjs`、#306）。`GET runs/{run}`は`last_fork`も返します |
 | `GET runs/{run}/compare`、2つの分岐の`GET runs/{run}/replay-frames` | 比較（`native/wasm/js/comparison.mjs`、#307）。差は中核が求めます（`kpiDifferences`） |
 | `POST …/branches/{branch}/questions` | APIキーのないVMと同じ決まった答え（`native/wasm/js/questions.mjs`、#308） |
-| `POST runs/{run}/delete` | serverと同じ確かめ（`confirmation`がRunのID、そのRunを計算していないこと、状態が`running`でないこと）の後、OPFSのRunのフォルダーを消し、持っているSimulationと時系列の表を手放します（#376） |
-| `GET …/branches/{branch}/conversations` | 分岐の保存したRunの`conversations`の部分（`questions.mjs`が終わりの行の後に書く、#368）の最後の100件を古い順に。serverと同じく各turnに`schema_version`を付けます（#376） |
-| `POST runs/{run}/pdf-report` | serverの確かめの後、APIキーのないVMと同じ409 `pdf_analysis_offline`（#309、[project-persistence.md](project-persistence.md#ブラウザーのpdfレポート309)） |
+| `POST runs/{run}/delete` | 中核の答え（#449）。serverと同じ確かめ（`confirmation`がRunのID、そのRunを計算していないこと、状態が`running`でないこと）の後、OPFSのRunのフォルダーを消し、持っているSimulationと時系列の表を手放します（#376） |
+| `GET …/branches/{branch}/conversations` | 中核の答え（#449）。分岐の保存したRunの`conversations`の部分（`questions.mjs`が終わりの行の後に書く、#368）の最後の100件を古い順に。serverと同じく各turnに`schema_version`を付けます（#376） |
+| `POST runs/{run}/pdf-report` | 中核の答え（#449）。serverの確かめの後、APIキーのないVMと同じ409 `pdf_analysis_offline`（#309、[project-persistence.md](project-persistence.md#ブラウザーのpdfレポート309)） |
 | `scenario-*`、`/api/v1/projects`以外の道 | 409 `{"error": "ブラウザー版では未対応です（…）", "code": "browser_unsupported"}` |
 
 分ごとのframeは、分岐ごとに1つ手元に置いたSimulationから作ります。後の分は、手元のSimulationを進めるほうが途中の点から戻すより安いとき（手元の分がその分以前の一番近い点以後か、差が360分以内）は進め、それ以外は`RunReader.seek`で途中の点に戻してから計算します（#251）。再生（`replay-frames`）は手元のSimulationを進めるだけで、戻しません。手元に置くSimulationは2つまでで、置き換えるものは先に解放します（WASMのメモリーは縮まないため）。digestは、Runが持つログのhashの途中の状態に増えた記録だけを足して求めます（上の段落）。

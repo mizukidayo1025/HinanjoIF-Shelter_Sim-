@@ -583,55 +583,126 @@ export async function verifyBranch(wasm, tree, projectId, runId, record) {
 }
 
 // ---- Responses (#266) ------------------------------------------------------------------------
+//
+// The answers are the core's (`sheltersim_core::answers`, #449): the files a route needs are read
+// here and handed to WASM, which checks them as the server does and writes the answer. A file
+// whose path names an id that is not an identifier is not read (the core refuses the id first).
+
+/// What the message of a refusal of the core's answers starts with (native/wasm/src/answers.rs).
+export const CORE_REFUSED = "answer_refused ";
+
+/// A refusal the core's answers threw, as `{ status, error, code }`; null for another error.
+export function coreRefusal(error) {
+  const message = String(error?.message ?? "");
+  return message.startsWith(CORE_REFUSED) ? JSON.parse(message.slice(CORE_REFUSED.length)) : null;
+}
+
+/// Runs a call of the core's answers; a refusal it throws becomes the store's error (all of the
+/// records' refusals are the server's StorageError, 409).
+export function answered(call) {
+  try {
+    return call();
+  } catch (error) {
+    const refusal = coreRefusal(error);
+    if (refusal !== null) throw new ProjectStoreError(refusal.error, refusal.code);
+    throw error;
+  }
+}
+
+/// Runs `use(object)` on a WASM object, then frees it.
+async function using(object, use) {
+  try {
+    return await use(object);
+  } finally {
+    object.free();
+  }
+}
+
+/// The bytes of a file whose path names `ids`; undefined where it is missing or an id is not an
+/// identifier.
+async function readNamed(wasm, tree, ids, path) {
+  if (!ids.every((id) => wasm.isArtifactId(id))) return undefined;
+  return (await tree.read(path)) ?? undefined;
+}
+
+/// The records of a Run, for the core (`wasm.RunFiles`, which the caller frees): its run.json and
+/// the branch.json of each of its branches' folders.
+export async function runFiles(wasm, tree, projectId, runId) {
+  const files = new wasm.RunFiles(await readNamed(wasm, tree, [projectId, runId], [projectId, "runs", runId, "run.json"]));
+  if (!wasm.isArtifactId(projectId) || !wasm.isArtifactId(runId)) return files;
+  for (const { name, kind } of await tree.list([projectId, "runs", runId, "branches"])) {
+    if (kind !== "directory" || !wasm.isArtifactId(name)) continue;
+    const bytes = await tree.read([projectId, "runs", runId, "branches", name, "branch.json"]);
+    if (bytes !== null) files.addBranch(name, bytes);
+  }
+  return files;
+}
+
+/// A Project's files, for the core (`wasm.ProjectFiles`, which the caller frees): its
+/// project.json, its Scenarios' folders (with `scenarios`) and its Runs' records.
+async function projectFiles(wasm, tree, projectId, { scenarios = false } = {}) {
+  const files = new wasm.ProjectFiles(await readNamed(wasm, tree, [projectId], [projectId, "project.json"]));
+  if (!wasm.isArtifactId(projectId)) return files;
+  if (scenarios) {
+    for (const { name: scenarioId, kind } of await tree.list([projectId, "scenarios"])) {
+      if (kind !== "directory" || !wasm.isArtifactId(scenarioId)) continue;
+      for (const { name, kind: fileKind } of await tree.list([projectId, "scenarios", scenarioId])) {
+        if (fileKind === "file") files.addScenarioFile(scenarioId, name, await tree.read([projectId, "scenarios", scenarioId, name]));
+      }
+    }
+  }
+  for (const { name, kind } of await tree.list([projectId, "runs"])) {
+    if (kind !== "directory" || !wasm.isArtifactId(name)) continue;
+    await using(await runFiles(wasm, tree, projectId, name), (run) => files.addRun(name, run));
+  }
+  return files;
+}
 
 /// `GET /api/v1/projects`: `limitBytes` is what the store may hold (the page: the origin's quota).
-export async function projectsResponse(tree, { limitBytes = null } = {}) {
+export async function projectsResponse(wasm, tree, { limitBytes = null } = {}) {
   const usage = await tree.usage();
-  return JSON.stringify({ projects: await projects(tree), storage: { bytes: usage.bytes, files: usage.files, limit_bytes: limitBytes } });
+  return using(new wasm.Files(), async (files) => {
+    for (const { name, kind } of await tree.list([])) {
+      if (kind !== "directory" || !wasm.isArtifactId(name)) continue;
+      const bytes = await tree.read([name, "project.json"]);
+      if (bytes !== null) files.add(name, bytes);
+    }
+    return answered(() => wasm.projectsAnswer(files, usage.bytes, usage.files, limitBytes ?? undefined));
+  });
 }
 
-async function runDocument(tree, projectId, runId) {
-  const run = await readRecord(tree, [...runPath(projectId, runId), "run.json"]);
-  return { ...run, branches: await branches(tree, projectId, runId) };
+/// `GET /api/v1/projects/{project}`: the Project with its Scenarios (each with its Scenario's JSON
+/// text as Python wrote it) and its Runs.
+export async function projectResponse(wasm, tree, projectId) {
+  return using(await projectFiles(wasm, tree, projectId, { scenarios: true }), (files) => answered(() => wasm.projectAnswer(projectId, files)));
 }
 
-async function runIds(tree, projectId) {
+/// `GET /api/v1/projects/{project}/runs`.
+export async function runsResponse(wasm, tree, projectId) {
+  return using(await projectFiles(wasm, tree, projectId), (files) => answered(() => wasm.runsAnswer(projectId, files)));
+}
+
+/// `GET /api/v1/projects/{project}/runs/{run}`; `lastFork` the outcome of the Run's last fork
+/// (an object), where one is kept.
+export async function runResponse(wasm, tree, projectId, runId, lastFork = null) {
+  const outcome = lastFork === null ? undefined : JSON.stringify(lastFork);
+  return using(await runFiles(wasm, tree, projectId, runId), (files) => answered(() => wasm.runAnswer(projectId, runId, files, outcome)));
+}
+
+/// `GET /api/v1/projects/{project}/runs/{run}/evidence`: the JSON Python wrote.
+export async function evidenceResponse(wasm, tree, projectId, runId) {
+  const run = await readNamed(wasm, tree, [projectId, runId], [projectId, "runs", runId, "run.json"]);
+  const evidence = await readNamed(wasm, tree, [projectId, runId], [projectId, "runs", runId, "evidence.json"]);
+  return answered(() => wasm.evidenceAnswer(projectId, runId, run, evidence));
+}
+
+/// The ids of a Project's Runs: its folders of runs/ that hold a run.json, by name.
+export async function runIds(tree, projectId) {
   const ids = [];
   for (const { name, kind } of await tree.list([checkId(projectId), "runs"])) {
     if (kind === "directory" && ID.test(name) && (await tree.read([...runPath(projectId, name), "run.json"])) !== null) ids.push(name);
   }
   return ids;
-}
-
-/// `GET /api/v1/projects/{project}`: the Project with its Scenarios (each with its Scenario's JSON
-/// text as Python wrote it) and its Runs.
-export async function projectResponse(tree, projectId) {
-  const project = await readRecord(tree, [checkId(projectId), "project.json"]);
-  const scenarioTexts = (await scenarios(tree, projectId)).map(({ record, scenarioText }) => `${JSON.stringify(record).slice(0, -1)},"scenario":${scenarioText.trimEnd()}}`);
-  const runs = [];
-  for (const runId of await runIds(tree, projectId)) runs.push(JSON.stringify(await runDocument(tree, projectId, runId)));
-  return `${JSON.stringify(project).slice(0, -1)},"scenarios":[${scenarioTexts.join(",")}],"runs":[${runs.join(",")}]}`;
-}
-
-/// `GET /api/v1/projects/{project}/runs`.
-export async function runsResponse(tree, projectId) {
-  await readRecord(tree, [checkId(projectId), "project.json"]);
-  const runs = [];
-  for (const runId of await runIds(tree, projectId)) runs.push(await runDocument(tree, projectId, runId));
-  return JSON.stringify({ runs });
-}
-
-/// `GET /api/v1/projects/{project}/runs/{run}`.
-export async function runResponse(tree, projectId, runId) {
-  return JSON.stringify(await runDocument(tree, projectId, runId));
-}
-
-/// `GET /api/v1/projects/{project}/runs/{run}/evidence`: the JSON Python wrote.
-export async function evidenceResponse(tree, projectId, runId) {
-  await readRecord(tree, [...runPath(projectId, runId), "run.json"]);
-  const bytes = await tree.read([...runPath(projectId, runId), "evidence.json"]);
-  if (bytes === null) fail("saved artifact is missing or corrupt");
-  return decoder.decode(bytes).trimEnd();
 }
 
 /// Removes a Run and everything in its folder (`POST runs/{run}/delete`, #376); its records are
@@ -641,17 +712,24 @@ export async function removeRun(tree, projectId, runId) {
   await tree.remove(runPath(projectId, runId));
 }
 
-/// The questions and answers kept in a branch's stored Run (its "conversations" pieces, after its
-/// "end" line: questions.mjs's `keepTurn`), oldest first; at most the last `limit`.
-export async function conversations(wasm, tree, projectId, runId, branchId, limit = 100) {
+/// The "conversations" pieces of a branch's stored Run (the questions and answers kept after its
+/// "end" line: questions.mjs's `keepTurn`), decompressed, in a `wasm.Files` the caller frees.
+export async function conversationPieces(wasm, tree, projectId, runId, branchId) {
+  const pieces = new wasm.Files();
   const journal = await tree.read([...runPath(projectId, runId), "branches", checkId(branchId), "journal.jsonl"]);
-  if (journal === null || journal.length === 0) return [];
-  const reader = await branchReader(wasm, tree, projectId, runId, branchId);
+  if (journal === null || journal.length === 0) return pieces;
   try {
-    return (await reader.records("conversations")).slice(-limit);
-  } finally {
-    reader.close();
+    const reader = await branchReader(wasm, tree, projectId, runId, branchId);
+    try {
+      for (const raw of await reader.rawRecords("conversations")) pieces.add("", raw);
+    } finally {
+      reader.close();
+    }
+  } catch (error) {
+    pieces.free();
+    throw error;
   }
+  return pieces;
 }
 
 /// Keeps a question's turn (its JSON text) in a branch's stored Run computed to its end, after its

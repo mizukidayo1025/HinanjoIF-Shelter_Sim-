@@ -155,7 +155,8 @@ export async function recoverInterrupted({ tree, branchLock }) {
   for (const project of await store.projects(tree)) {
     let runs;
     try {
-      ({ runs } = JSON.parse(await store.runsResponse(tree, project.project_id)));
+      runs = [];
+      for (const runId of await store.runIds(tree, project.project_id)) runs.push({ run_id: runId, branches: await store.branches(tree, project.project_id, runId) });
     } catch {
       continue;
     }
@@ -256,7 +257,7 @@ export class Computing {
     const record = await store.branchRecord(tree, projectId, runId, branchId);
     // A Run of another model version is view-only; say so before any job starts.
     await requireCurrentModel(wasm, tree, projectId, runId, branchId);
-    await store.runResponse(tree, projectId, runId);
+    await store.runResponse(wasm, tree, projectId, runId);
     const scenario = JSON.parse(decoder.decode(await store.runScenarioBytes(tree, projectId, runId)));
     const target = document.target_minute;
     if (!Number.isSafeInteger(target) || !(record.computed_until < target && target <= scenario.duration_minutes)) {
@@ -286,7 +287,7 @@ export class Computing {
     checkFields(document, [], ["branch_id"]);
     const jobs = [...this.jobs.values()].filter((job) => job.projectId === projectId && job.runId === runId && (document.branch_id == null || document.branch_id === job.branchId));
     for (const job of jobs) job.cancel = true;
-    const text = await store.runResponse(this.api.tree, projectId, runId);
+    const text = await store.runResponse(this.api.wasm, this.api.tree, projectId, runId);
     if (jobs.length === 0 && JSON.parse(text).status === RUNNING) throw refused("run_worker_busy: cancellation must reach the owning worker");
     return text;
   }

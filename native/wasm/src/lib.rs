@@ -27,6 +27,8 @@ use sheltersim_core::world::WorldCell;
 use sheltersim_core::{archive, checkpoint, frame, history, model_version, run_store};
 use wasm_bindgen::prelude::*;
 
+mod answers;
+
 fn js_error(error: Error) -> JsError {
     JsError::new(&error.to_string())
 }

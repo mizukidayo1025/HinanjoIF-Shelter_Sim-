@@ -3,7 +3,8 @@
     python scripts/build_static_site.py OUTPUT_DIR --pkg PKG_DIR --bundle SAMPLE.shelterproj
 
 PKG_DIR is the output of `wasm-bindgen --target web` for sheltersim_wasm.wasm, and the bundle the
-sample of scripts/build_project_sample.py --bundle (docs/development.md, "ブラウザー版の静的サイト"). The
+sample of scripts/build_project_sample.py --bundle (docs/development.md,
+"ブラウザー版の静的サイト"). The
 screen's files (src/sheltersim/web/static/demo-v2*) are copied unchanged; the site's index.html is
 the server's demo-v2.html with one more line: the script that wraps `fetch` and answers the
 screen's `/api/v1/...` in a Worker from the browser's store and WASM (native/wasm/js/api_fetch.js),

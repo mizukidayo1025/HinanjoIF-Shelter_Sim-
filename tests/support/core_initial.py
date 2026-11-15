@@ -1,8 +1,8 @@
 """The table and the worlds of the core's minute-0 builder (Issue #249).
 
 The core builds the entry of any Scenario's world at minute 0 (`native/core/src/initial/`, #429)
-from the Scenario's canonical JSON, the bytes `export_world` writes for the browser
-(`scripts/build_project_sample.py`, its browser sample before #427). A new Run's records (`model_versions` and the evidence
+from the Scenario's canonical JSON, the bytes `export_world` writes for the browser. A new Run's
+records (`model_versions` and the evidence
 route's answer, #301) it still makes from a table Python writes,
 `native/core/src/initial/table.json` (`initial_table`): their templates for each fingerprint of
 the configs (`world_export.configs_fingerprint`, `run_records_template`).

@@ -204,7 +204,7 @@ impl PlainRun {
         Ok(PyBytes::new(py, &self.run.frame(&request).or_py()?))
     }
 
-    /// `world.state_digest()` of the world now.
+    /// The state digest of the world now (`sheltersim_core::plain::PlainRun::state_digest`).
     fn state_digest(&self) -> PyResult<String> {
         self.run.state_digest().or_py()
     }
@@ -215,14 +215,14 @@ impl PlainRun {
         Ok(PyBytes::new(py, &self.run.scenario_summary().or_py()?))
     }
 
-    /// `validate_effect_program(world, program)` on the world now, for a program's JSON bytes: the
-    /// issues as a JSON list of strings. It changes nothing.
+    /// The checks of a program on the world now (`sheltersim_core::program::validate`), for a
+    /// program's JSON bytes: the issues as a JSON list of strings. It changes nothing.
     fn validate_effect_program(&mut self, program: &[u8]) -> PyResult<String> {
         self.run.validate_effect_program_json(program).or_py()
     }
 
-    /// `schedule_effect_program(world, program)` on the world now, for a program's JSON bytes: the
-    /// receipt (the `command_log` entry) as JSON.
+    /// A program scheduled on the world now (`sheltersim_core::program::schedule`), for a program's
+    /// JSON bytes: the receipt (the `command_log` entry) as JSON.
     fn apply_effect_program(&mut self, program: &[u8]) -> PyResult<String> {
         self.run.apply_effect_program_json(program).or_py()
     }

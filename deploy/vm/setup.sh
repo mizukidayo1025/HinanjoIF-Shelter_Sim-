@@ -216,11 +216,8 @@ python3 "$HERE/render_landing.py" "$DOMAIN" "$SLOTS" "${SAMPLE_SUMMARY[@]}" \
   for n in $(seq 1 "$SLOTS"); do
     echo "s$n.$DOMAIN {"
     echo "  import auth"
-    # Judges use the screen only: it is at / since #376. Its earlier address /demo-v2 and the
-    # removed older screens' paths (/demo, /admin) go to / with the same query
-    # (?project=...&run=...), as the app itself does. The API and the screen's files pass through.
-    echo "  @older path /demo-v2 /demo /admin /index.html"
-    echo "  redir @older /{?query} 302"
+    # Judges use the screen only: it is at / since #376 (the app sends /index.html there). The
+    # earlier paths are not redirected (#434).
     echo "  reverse_proxy 127.0.0.1:$((8800 + n))"
     echo "}"
   done

@@ -2,12 +2,12 @@
 scripts/serve_static_site.py serves it as a static host would.
 
 The site is built from a stand-in WASM package and a small bundle (only its header and manifest
-are read; the browser checks the rest): the screen's files are copied unchanged, demo-v2.html
-gains the one line that loads the browser's API, the bundle is split into parts no larger than
-asked that join back to it, and `/` is the same page, which opens on its home
-(#371). The server answers `/demo-v2` with
-demo-v2.html and modules and WASM with their types over HTTP. The browser's half is checked by
-native/wasm/tests/node_browser_api.mjs and docs/development.md's browser checks.
+are read; the browser checks the rest): the screen's files are copied unchanged, the site's
+index.html is the server's demo-v2.html with the one line that loads the browser's API, the
+bundle is split into parts no larger than asked that join back to it, and `/` opens on the home
+(#371); the earlier /demo-v2 is not kept (#434). The server answers a path without a file from
+the same path with `.html` and modules and WASM with their types over HTTP. The browser's half
+is checked by native/wasm/tests/node_browser_api.mjs and docs/development.md's browser checks.
 
 The site also holds the licenses of what its WASM holds (#290): the notices of the crates it links,
 made from `cargo tree` and `cargo metadata` (checked on stand-in packages, and on this repository's
@@ -97,7 +97,8 @@ def test_the_site_holds_the_screen_the_browser_api_and_the_sample_in_parts(
     for name in ("demo-v2.css", "demo-v2.js", "demo-v2-map.js", "demo-v2-logo.jpg"):
         assert (output / name).read_bytes() == (STATIC / name).read_bytes()
     server_html = (STATIC / "demo-v2.html").read_text(encoding="utf-8")
-    browser_html = (output / "demo-v2.html").read_text(encoding="utf-8")
+    browser_html = (output / "index.html").read_text(encoding="utf-8")
+    assert not (output / "demo-v2.html").exists()
     added = [line for line in browser_html.splitlines() if line not in server_html.splitlines()]
     assert added == [
         '    <script src="/browser/api_fetch.js" data-worker="/browser/api_worker.mjs"'
@@ -160,7 +161,6 @@ def test_the_site_holds_the_screen_the_browser_api_and_the_sample_in_parts(
     assert "compute" not in summary
     # `/` is the screen itself, which opens on its home: the examples (fetched when chosen,
     # api_fetch.js), one's own Scenarios, and the licenses the site holds.
-    assert (output / "index.html").read_text(encoding="utf-8") == browser_html
     for name in ("LICENSE.txt", *NOTICES):
         assert f'href="/{name}"' in browser_html and (output / name).is_file()
     worker_js = (STATIC.parents[3] / "native" / "wasm" / "js" / "api_worker.mjs").read_text("utf-8")
@@ -239,8 +239,7 @@ def test_the_site_holds_the_relay_s_owner_page_at_one_path_not_linked_from_the_s
     assert re.findall(r"fetch\(`([^`$]*)", page) == ["/llm/v1/admin/"]
     assert "localStorage" not in page and "sessionStorage" not in page
     assert not re.search(r"(sk-ant-|LLM_ADMIN_KEY\s*=|Bearer [A-Za-z0-9_-]{16,})", page)
-    for screen in ("demo-v2.html", "index.html"):
-        assert page_path not in (output / screen).read_text(encoding="utf-8")
+    assert page_path not in (output / "index.html").read_text(encoding="utf-8")
     assert server_module["resolve"](output, f"/{page_path}") == written
 
 
@@ -298,7 +297,7 @@ def test_the_site_holds_the_shelter_index_and_rows_the_browser_s_research_reads(
         "notices": NOTICES,
     }
     with_index = builder["build"](tmp_path / "with-index", shelters=files, **arguments)
-    page = (tmp_path / "with-index" / "demo-v2.html").read_text(encoding="utf-8")
+    page = (tmp_path / "with-index" / "index.html").read_text(encoding="utf-8")
     assert 'data-example-project="sample"></script>' in page
     assert "data-scenarios" not in page
     browser = tmp_path / "with-index" / "browser"
@@ -425,7 +424,7 @@ def test_the_published_config_answers_the_site_s_paths_as_the_local_server_does(
     site: tuple[Path, bytes, dict[str, Any]], builder: dict[str, Any]
 ) -> None:
     """deploy/workers/wrangler.jsonc (#289): a Worker whose files come from `--assets` (the site
-    is built outside the repository), serving `/demo-v2` from demo-v2.html and a missing path
+    is built outside the repository), serving `/admin` from admin.html and a missing path
     with the site's 404.html; its script (the LLM relay, #419) answers `/llm/*` only, so every
     other path is the files' as before. No file is larger than Workers' 25 MiB, and the site
     holds none of the files that would change how Workers answer."""
@@ -468,16 +467,16 @@ def test_the_local_server_answers_as_a_static_host(
     output, _, _ = site
     resolve = server_module["resolve"]
     assert resolve(output, "/") == output / "index.html"
-    assert resolve(output, "/demo-v2?project=sample") == output / "demo-v2.html"
+    assert resolve(output, "/admin") == output / "admin.html"
     assert resolve(output, "/demo-v2.css") == output / "demo-v2.css"
     for path in ("/../secret", "/browser/../../x", "/nope", "/browser/", "/demo-v2/"):
         assert resolve(output, path) is None, path
     server = server_module["start"](output)
     try:
         base = f"http://127.0.0.1:{server.server_port}"
-        status, kind, body = _get(base + "/demo-v2?project=sample&run=run-x")
+        status, kind, body = _get(base + "/?project=sample&run=run-x")
         assert (status, kind) == (200, "text/html; charset=utf-8")
-        assert body == (output / "demo-v2.html").read_bytes()
+        assert body == (output / "index.html").read_bytes()
         assert _get(base + "/browser/api_worker.mjs")[1] == "text/javascript; charset=utf-8"
         assert _get(base + "/browser/pkg/sheltersim_wasm_bg.wasm")[1] == "application/wasm"
         assert _get(base + "/sample/sample.json")[1] == "application/json; charset=utf-8"

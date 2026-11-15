@@ -162,16 +162,6 @@ def test_setup_builds_the_sample_where_reset_slot_and_the_slots_read_it() -> Non
     assert "--demo-scenario" not in unit
 
 
-def test_the_redirects_to_the_screen_keep_the_query() -> None:
-    """The screen is at / (#376): its earlier address and the older screens' paths go there."""
-    setup = (KIT / "setup.sh").read_text(encoding="utf-8")
-    matcher = next(line for line in setup.splitlines() if "@older path" in line)
-    redirect = next(line for line in setup.splitlines() if "redir @older" in line)
-    assert all(path in matcher for path in ("/demo-v2", "/demo", "/admin", "/index.html"))
-    assert " / " not in matcher.split("path", 1)[1] + " "
-    assert "redir @older /{?query} 302" in redirect
-
-
 def test_the_landing_page_gives_the_computing_time_this_vm_measured(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

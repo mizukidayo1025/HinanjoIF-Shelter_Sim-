@@ -4,8 +4,8 @@
 
 PKG_DIR is the output of `wasm-bindgen --target web` for sheltersim_wasm.wasm, and the bundle the
 sample of scripts/build_browser_sample.py (docs/development.md, "ブラウザー版の静的サイト"). The
-screen's files (src/sheltersim/web/static/demo-v2*) are copied unchanged; the browser build's
-demo-v2.html is the server's with one more line: the script that wraps `fetch` and answers the
+screen's files (src/sheltersim/web/static/demo-v2*) are copied unchanged; the site's index.html is
+the server's demo-v2.html with one more line: the script that wraps `fetch` and answers the
 screen's `/api/v1/...` in a Worker from the browser's store and WASM (native/wasm/js/api_fetch.js),
 and names the list of examples and the example's Project for the screen's home.
 
@@ -15,10 +15,6 @@ The site is served at the root of its domain, as the screen loads `/demo-v2.css`
     /                       index.html: the screen, which opens on its home (#371): the examples
                             fetched, 「計算済みの例を取得する」 (#411), and the licenses
     (a missing path)        404.html, with status 404
-    /demo-v2                demo-v2.html, the same page at the screen's earlier address, which the
-                            page turns into / (a host serving `/demo-v2` from `demo-v2.html`, as
-                            Cloudflare Workers' static assets (deploy/workers/wrangler.jsonc, #289),
-                            Cloudflare Pages, GitHub Pages and Netlify do; for others see the docs)
     /demo-v2.css, /demo-v2*.js, /demo-v2-logo.jpg   the screen's files
     /admin                  admin.html (ADMIN_PAGE): the LLM relay's owner page, to issue,
                             list and revoke passphrases (deploy/workers/admin.html, #433); not
@@ -433,8 +429,7 @@ def build(
         project_id,
         scenarios=shelters is not None,
     )
-    (output / "demo-v2.html").write_text(page, encoding="utf-8")
-    # `/` is the same page, which opens on its home (#371).
+    # `/` is the screen, which opens on its home (#371); the earlier /demo-v2 is not kept (#434).
     (output / "index.html").write_text(page, encoding="utf-8")
     (output / "browser" / "pkg").mkdir(parents=True)
     for name in browser_modules():

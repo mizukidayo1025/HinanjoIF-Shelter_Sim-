@@ -76,6 +76,9 @@ def _computed_until(run_state: dict[str, Any], branch_id: str) -> int:
     )
 
 
+# A Run the core keeps (`PlainRun`) is dropped on the thread that made it: one dropped on another
+# thread is not freed, and PyO3 reports it as an unraisable exception (#507).
+@pytest.mark.filterwarnings("error::pytest.PytestUnraisableExceptionWarning")
 def test_arrivals_typed_on_the_project_screen_show_in_the_comparison(
     client, generated_request
 ) -> None:

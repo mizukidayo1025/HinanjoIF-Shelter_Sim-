@@ -5,7 +5,7 @@ use serde_json::Value;
 
 use super::query::no_query;
 use super::records::RunFiles;
-use super::{check_fields, js_integer, post_document, write_value, Answer, Failure, Refusal};
+use super::{check_fields, js_integer, post_document, write_value, Answer, Failure, Obj, Refusal};
 use crate::error::Error;
 use crate::json::write_json_string;
 
@@ -28,6 +28,72 @@ pub fn llm_status_answer(query: &str, project_id: &str, run_id: &str, branch_id:
 before its fork\",\"schema_version\":1}",
     );
     Ok(out)
+}
+
+/// `GET …/branches/{branch}/llm-status` of a Run computed with an LLM (#463): the Run's LLM mode
+/// (`record`, `replay`, from its `llm.json`) and the outcomes of the calls its stored tape holds
+/// (its `llm_tape` records, from the Run's start: a child branch's include its parent's before the
+/// fork), counted as `summarize_call_outcomes` (src/sheltersim/llm/outcomes.py) counts a router's
+/// records. A Run without an LLM answers `llm_status_answer`'s.
+pub fn llm_run_status_answer(query: &str, project_id: &str, run_id: &str, branch_id: &str, branch: Option<&[u8]>, mode: &str, tape: &[Vec<u8>]) -> Answer {
+    no_query(query)?;
+    let files = RunFiles { run: None, branches: branch.map(|bytes| vec![(branch_id.to_owned(), bytes.to_vec())]).unwrap_or_default() };
+    let record = files.branch_record(project_id, run_id, branch_id)?;
+    let mut accepted = 0i64;
+    let mut offline = 0i64;
+    let mut calls = 0i64;
+    let mut by_reason = std::collections::BTreeMap::<String, i64>::new();
+    let mut by_prompt = std::collections::BTreeMap::<String, i64>::new();
+    let mut first: Option<i64> = None;
+    for raw in tape {
+        let entry = crate::llm::Entry::from_json(raw).map_err(Failure::from)?;
+        calls += 1;
+        let outcome = entry.reply.outcome.as_str();
+        if outcome == "offline" {
+            offline += 1;
+            continue;
+        }
+        if matches!(outcome, "recorded" | "cache_hit") && !entry.reply.fallback_used {
+            accepted += 1;
+            continue;
+        }
+        *by_reason.entry(outcome.to_owned()).or_default() += 1;
+        *by_prompt.entry(entry.prompt_version.clone()).or_default() += 1;
+        first.get_or_insert(calls - 1);
+    }
+    let fallback: i64 = by_reason.values().sum();
+    let status = if calls == 0 {
+        "not_requested"
+    } else if accepted + fallback == 0 {
+        "offline_rules"
+    } else if fallback == 0 {
+        "all_accepted"
+    } else if accepted == 0 {
+        "all_fallback"
+    } else {
+        "degraded"
+    };
+    let counts = |counts: &std::collections::BTreeMap<String, i64>| {
+        let mut object = Obj::new();
+        for (key, count) in counts {
+            object.int(key, *count);
+        }
+        object.finish()
+    };
+    let mut outcomes = Obj::new();
+    outcomes.int("accepted_count", accepted).int("call_count", calls).raw("fallback_by_error_kind", counts(&by_reason));
+    outcomes.raw("fallback_by_prompt_version", counts(&by_prompt)).raw("fallback_by_reason", counts(&by_reason)).int("fallback_count", fallback);
+    outcomes.raw("first_fallback_call_index", first.map_or(b"null".to_vec(), |index| index.to_string().into_bytes()));
+    outcomes.int("offline_rule_count", offline).str("status", status).int("summary_schema_version", 1);
+    let mut answer = Obj::new();
+    let mut hash = Vec::new();
+    write_value(&mut hash, record.get("checkpoint_hash").unwrap_or(&Value::Null));
+    let mut until = Vec::new();
+    write_integer(&mut until, record.get("computed_until"))?;
+    answer.str("branch_id", branch_id).raw("checkpoint_hash", hash).raw("computed_until", until).str("mode", mode).object("outcomes", outcomes);
+    answer.str("record_scope", "LLM tape entries of the branch's stored Run; a child branch includes the parent's entries before its fork");
+    answer.int("schema_version", 1);
+    Ok(answer.finish())
 }
 
 /// An integer of an answer the browser wrote with its keys sorted: a safe integer, else the

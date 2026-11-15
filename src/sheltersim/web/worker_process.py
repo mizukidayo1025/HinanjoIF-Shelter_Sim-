@@ -10,6 +10,7 @@ the branch's final status.
 from __future__ import annotations
 
 import contextlib
+import json
 import multiprocessing
 from collections.abc import Callable
 from multiprocessing.connection import Connection
@@ -120,6 +121,11 @@ def finish(
     status = "failed"
     try:
         status = compute(files, lease, project_id, run_id, branch_id, target_minute, cancelled)
+        if status == "completed":
+            # The review is a part of the report, not of the result: a failure keeps the
+            # branch completed, and its report is then the rule fallback.
+            with contextlib.suppress(Exception):
+                review(files, project_id, run_id, branch_id)
     except Exception:
         # A Provider's error may hold secrets; the branch is only marked failed.
         status = "failed"
@@ -159,6 +165,39 @@ def compute(
             ended = computation.chunk(files, CHUNK_TICKS)
         if ended is not None:
             return ended
+
+
+def review(files: Any, project_id: str, run_id: str, branch_id: str) -> None:
+    """The review of a branch the Run's LLM has just completed (#463, Python's `finish_review`):
+    the core builds the task from the Run at its end, the Run's router answers it, the core
+    checks the codes against the evidence, and the report is kept. A Run without a Provider (the
+    screen's offline Run, an offline experiment) gets its report when it is first read, without
+    an LLM; so does this one where the review was not kept."""
+    from sheltersim.llm.config import LLMSettings
+    from sheltersim.llm.link import analysis_link, ask
+    from sheltersim.web.projects import answers
+    from sheltersim.web.stored_runs import llm_settings
+
+    store = ProjectStore(files.root(), max_bytes=files.limit() or DEFAULT_MAX_BYTES)
+    saved = llm_settings(store, project_id, run_id)
+    if saved is None or saved["mode"] == "offline":
+        return
+    if files.branch_file(project_id, run_id, branch_id, "report.json") is not None:
+        return
+    settings = LLMSettings.from_env()
+    if settings.effective_mode.value != saved["mode"]:
+        return
+    link = analysis_link(
+        store, project_id, run_id, operation="report", branch_id=branch_id, settings=settings
+    )
+    if link is None:
+        return
+    record = json.loads(files.branch_record(project_id, run_id, branch_id))
+    run, _, _ = files.reader(project_id, run_id, branch_id).seek(record["computed_until"])
+    reviewing = answers().review(run, files.run_scenario_bytes(project_id, run_id), branch_id)
+    report = reviewing.report(ask(link, reviewing.task()))
+    with files.transaction():
+        files.keep_report(project_id, run_id, branch_id, report + b"\n")
 
 
 def runtime_link(files: Any, project_id: str, run_id: str, branch_id: str) -> Any:

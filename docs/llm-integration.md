@@ -37,7 +37,7 @@ runtimeの呼出しは、Run（CLIでは1回のrun）の利用枠の上限から
 
 - 地域情報の公式ドメイン検索は、応答本文の引用に加えて、web searchが返した検索結果そのもの（URLとタイトル）を出典候補にします。JSONだけを返す応答には引用がほとんど付かず、以前は検索が成功しても候補が常に0件でした。候補は許可ドメイン（go.jp、lg.jp）に限り、重複を除いて最大25件です。ページ本文は取得・照合しません。
 - Project Runの完了時は、reportを書き込んでから（生成できなかった場合はその旨を書き込んでから）Runを`completed`にします。画面は`running`から状態が変わった時点で一度だけreportを取得するためです。
-- 利用記録は、同じ依頼（同じ入力・状態・prompt版）に二度課金しません。Webの下書きプレビューとProject Runの分析（report・結果質問）は、採用された応答を`usage-tapes/<draft>.json`と`runs/<run>/analysis-tape.json`に保存し、同じ依頼にはAPIを呼ばずに保存済みの応答を使います。以前は応答を保存していなかったため、同じ依頼を繰り返すと重複として拒否され、ruleの結果になっていました。保存するのは応答だけで、promptは保存しません。連絡先や秘密情報に見える文字列を含む応答は、保存せずにその場限りで使います。介入の自然言語指示（compiler）は、この保存の対象外です。
+- 利用記録は、同じ依頼（同じ入力・状態・prompt版）に二度課金しません。Webの下書きプレビューとProject Runの分析（report・結果質問）は、採用された応答を`usage-tapes/<draft>.json`と`runs/<run>/analysis-tape.json`に保存し、同じ依頼にはAPIを呼ばずに保存済みの応答を使います。以前は応答を保存していなかったため、同じ依頼を繰り返すと重複として拒否され、ruleの結果になっていました。保存するのは応答だけで、promptは保存しません。連絡先や秘密情報に見える文字列を含む応答は、保存せずにその場限りで使います。介入の文章の読み取り（compiler）の応答は、`runs/<run>/compiler-tape.json`に分けて保存します（#463）。
 - 結果質問では、各根拠の値が記録値の完全な写しである必要があります。数値はJSONの値として、文字列はJSON形式（引用符付き）でもそのままでも受け付けます。丸めた値、型を変えた値、言い換えた文字列は拒否します。
 
 ### thinkingと出力上限
@@ -91,7 +91,7 @@ fallbackの理由はoutcome別（max_api_calls、shared_allowance_unavailable、
 
 - CLI Run manifestのllm_usage.outcomes。llm_usage.failuresはoffline以外のfallback件数です。以前のmanifestは呼出し上限や利用枠拒否を数えていなかったため、outcomes項目がない古いRunのfailuresは過少な値の可能性があります。
 - sheltersim runの出力JSONのllm_status。degradedまたはall_fallbackのときはstderrに1行の警告を出します。終了codeは0のままです。
-- Project Branchは GET /api/v1/projects/{project}/runs/{run}/branches/{branch}/llm-status。head Checkpointに保存済みのrouter記録から読み取り時に集計します。read-onlyで、Checkpoint形式は変えません。forkしたchild Branchの値には、fork前に親から引き継いだ記録も含みます。
+- Project Branchは GET /api/v1/projects/{project}/runs/{run}/branches/{branch}/llm-status。LLMで計算したRun（`runs/{run}/llm.json`のmodeが`offline`でないもの）は、保存したRunのLLMのテープ（形式v5の`llm_tape`の部品）の項目を、読み取り時に同じ規則で集計します（#463）。テープにはerror_kindがないので、`fallback_by_error_kind`はoutcome別と同じ数です。forkしたchild Branchの値には、fork前に親から引き継いだ項目も含みます。LLMなしのRunとブラウザー版は、何も問い合わせていない形（`mode: "offline"`、`not_requested`）を返します。
 
 受理したresponse tapeはstate/input hash、model、prompt、schema版に結び付きます。対応runtime状態はCheckpointに保存できます。過去seekは記録結果を使い、暗黙にProviderを呼びません。Branch stateが変わった場合、異なるinputにresponseを再利用しません。
 
@@ -107,6 +107,18 @@ tickの中でLLMに問い合わせる規則（支援要請の優先度`_prioriti
 - 保存した点の間の分を開くときは、前の保存した点に戻し、その点の件数より後のテープの項目で計算し直します（`PlainRun.set_llm_replay`、中核の`llm::Replay`）。順が違う問い合わせや、テープより先の問い合わせはtickを止めます。過去の計算でProviderを呼ぶことはありません。続きを計算するときは、テープの後に渡した口へ進みます。
 - 社会の方針の上限（`SocialRuntimeLimits`、`SupportPriorityLimits`）の値はPythonと同じで、出典も同じです（ASM-EVENT-TRIGGERED-SOCIAL-LIMITS-V1、ASM-SUPPORT-PRIORITY-LIMITS-V1）。テストだけが`set_llm`の`limits`で変えます。
 - ブラウザー版の中継（#287）も、同じ作業と答えのJSONで口を作れます。まだつないでいません（tickの中から呼ぶには同期の呼び出しが要るためです）。
+
+## 結果の分析を中核で行う（#463）
+
+結果への質問の回答、計算の終わりのレビュー、介入の文章の読み取りも、tickの中の問い合わせと同じ口（`LlmLink::complete(task) -> reply`）を使います。証拠の組み立て、作業（プロンプト・schema）、答えの確かめは中核（`native/core/src/answers/`）にあり、外は作業を口へ渡して答えを返すだけです。PythonのWorldStateや履歴の索引から証拠を作る処理（#427で消した`web/results_chat.py`など）は戻していません。
+
+- 2つの手順：中核が作業のJSONを作り（`Asking.task()`、`Reviewing.task()`、`Compiling.task()`）、外が口に渡して答えのJSONを返し、中核が答えを読みます（`Asking.answer(reply, mode, turn_id)`、`Reviewing.report(reply)`、`Compiling.read(reply)`。介入の読み取りは、直してもらう作業を返すことがあります）。口が答えを後で返す場合（ブラウザーの`fetch`）も同じ作業を使えるよう、口を持ったまま呼ぶ形にはしていません。共通の部分は`answers/asking.rs`です。
+- 答えは信頼しない入力です。中核は、まず作業のschemaで読み（`llm::check_answer`。Pythonの`validate_task_output`と同じschemaの範囲：配列とその要素・長さ、`$ref`、`anyOf`、`oneOf`、`const`、数の上下限、型のある`additionalProperties`、文字列の`pattern`）、合わない答えは代替（`invalid_output`）にします。そのあと、機能ごとに証拠と照らします。
+- 結果への質問（`answers::questions`）：証拠は、Branchのその分のframe（KPI、選んだ人、最近の記録イベント）、比べるBranchがあれば比較の答え（`Comparison::answer`）、Runの`evidence.json`（モデルとその解釈）、Scenarioの出典、同じ会話の最近の質問と回答（保存したRunの`conversations`）です。事実（claims）は、引用した値が記録値の完全な写しのときだけ採り、1つでも違えば事実をすべて捨てます。説明（explanations）は、数字や人・IDの名前を含まず、引用が記録と合うものだけを「仮説」「検討案」「架空の合成会話」と明記して出します。何も裏付けられないときは「提示された記録だけでは回答を裏付けられません。」と答え、質問が1つの項目を名指ししていれば、その記録値をシステムが直接引用します。作業名は`result_question`、プロンプトの版は`read-only-results-chat-v2-grounded-explanations`です。回答の`usage`には、routerの`error_kind`と予算の残り（`budget_remaining_usd`）は入りません（口の答えにないため）。
+- 計算の終わりのレビュー（`answers::report`）：LLMで計算したRunのBranchが終わったとき、計算のworkerが、終わりの分のRunから証拠（最後のKPI、重要なイベント、Scenarioの仮定のID）と作業（`run_review`、`evidence-review-v1`）を作り、Runのrouterに問い合わせ、答えの符号を証拠と照らしてreportを保存してから、Branchを`completed`にします（`web/worker_process.py`の`review`）。合えば`validated`、合わなければ`rejected`（理由つき）、代替なら`rule_fallback`です。markdownは証拠の値と決まった語だけで作り、モデルの文は入りません。比べるBranchのない証拠なので、増減（`increase`など）を答えた符号は`rejected`になります。問い合わせに失敗してもBranchは`completed`のままで、reportは最初に読まれたときにLLMなしで作ります。LLMなしのRun（画面のofflineのRun、offlineの実験）は、今までどおり最初に読まれたときに作ります。
+- 介入の文章の読み取り（`interpret::Compiling`、`answers::interventions::PreviewPlan::compiling`）：APIキーのあるサーバーでは、`compile_natural_language`と同じ作業（`intervention_compiler`、介入のstage、`geometry-population-effect-compiler-v2`、入力の上限64 KiB）で読みます。LLMに示す作用は、中核が確かめて予定できる6つ（`facility_outage`、`add_staff`、`add_toilet`、`water_outage`、`add_evacuees`、`depart_evacuees`、`program::supports`）のうち、その分岐の方策と対象で使えるものだけです。ほかの作用の案は、プレビューも適用もできないためです。答えは、状態ごとの決まり、作用の対象・時刻・上限（`_validate_model_effects`）、中核のEffectProgramの契約で確かめ、断られた案は誤りを添えて1回だけ直してもらいます（`intervention_repair`、`h07-opus-effect-compiler-v1-repair1`）。受け付けた案がないときは規則で読み、その理由を`limitations`に書きます。routerが止める設定（`SHELTERSIM_LLM_ERROR_POLICY=stop`）では、規則に替えず409 `intervention_compiler_unavailable`で断ります。Opusが区域を聞き返し、規則がシナリオのデータから区域を決められるときは、規則の案を使います（#35）。採用した応答はRunの`compiler-tape.json`に保存します。
+- ローカル版・VM版の口は、Runの利用枠で数える`RouterLink`です（`sheltersim.llm.link.analysis_link`）。採用した応答はRunの`analysis-tape.json`に保存するので、replay modeでは、同じ証拠への同じ問い合わせにProviderを呼ばずに同じ答えを返します。APIキーがない（effective modeがofflineの）サーバーは口を作らず、今までと同じbytesの答え（ブラウザー版と同じ）を返します。
+- ブラウザー版はまだ中継につないでいません。中継（#287）は作業ごとにプロンプトを中継の中で作る決まりなので、中核の作業をそのまま送るか、中継で作り直すかを決めてからつなぎます。
 
 ## ブラウザー版の中継（#419）
 

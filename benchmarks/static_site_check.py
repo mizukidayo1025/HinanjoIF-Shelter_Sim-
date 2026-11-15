@@ -25,9 +25,10 @@ SITE_DIR is the output of scripts/build_static_site.py; it is served as a static
    profile: `pieces` starts computing to the end, cancels after a day, resumes, closes the
    page after three days and opens it again (the Run shows `interrupted` and its last head), and
    resumes to the end; `full` computes the 7 days at once and times it. While it computes, the
-   screen's clock must move. Then seeking, playing and the history graph work on the computed Run,
-   and its frames (1, 4321 and 10080 minutes) and KPI history are the sample's but for the Run's
-   id: the same Scenario and seed computed in the browser reach the same worlds.
+   minutes computed must move and the page must stay dimmed until the end (#482). Then seeking,
+   playing and the history graph work on the computed Run, and its frames (1, 4321 and 10080
+   minutes) and KPI history are the sample's but for the Run's id: the same Scenario and seed
+   computed in the browser reach the same worlds.
 
 Playwright and its browsers are not dependencies of the project: install them where you check
 (`python -m playwright install chromium firefox`). The result's figures go to the Issue, not to
@@ -367,7 +368,7 @@ COMPUTED = """() => {
   const match = /([0-9]+)分まで計算済み/.exec(label);
   return {
     computed: match ? Number(match[1]) : null,
-    clock: document.getElementById("seek-label").textContent,
+    uncomputed: document.body.classList.contains("is-uncomputed"),
     mode: document.getElementById("play").dataset.mode,
     label: document.querySelector("#play .play-label").textContent,
     cancel: document.getElementById("play").dataset.mode === "cancel",
@@ -388,7 +389,7 @@ def _record(page: Any) -> dict[str, Any]:
 def _watch(
     page: Any, until: Any, watched: list[dict[str, Any]], problems: list[str], what: str
 ) -> dict[str, Any]:
-    """Polls the screen every 0.5 s (its clock and the minutes computed) until `until(state)`."""
+    """Polls the screen every 0.5 s (its button and the minutes computed) until `until(state)`."""
     started = time.perf_counter()
     while True:
         state = page.evaluate(COMPUTED)
@@ -507,10 +508,16 @@ def computing(
         problems.append(f"at the end: the Run is {steps['finished']['status']}")
     if final.get("mode") != "play":
         problems.append(f"at the end, the button is {final.get('mode')!r}, not the replay")
-    clocks = sorted({state["clock"] for state in watched})
-    steps["clocks"] = len(clocks)
-    if len(clocks) < 5:
-        problems.append(f"the clock did not move while computing: {clocks}")
+    # The minutes computed move while the page waits dimmed for the end (#482).
+    computed = sorted({state["computed"] or 0 for state in watched})
+    steps["computed_seen"] = len(computed)
+    if len(computed) < 5:
+        problems.append(f"the minutes computed did not move while computing: {computed}")
+    shown = [state for state in watched if state["mode"] != "play"]
+    if any(not state["uncomputed"] for state in shown):
+        problems.append("the page was not dimmed while the Run was not computed to its end")
+    if final.get("uncomputed"):
+        problems.append("the page is still dimmed after computing to the end")
     steps["watched"] = watched[:: max(1, len(watched) // 40)] + [final]
     if screenshots:
         page.screenshot(path=str(screenshots / f"{name}-{mode}-computed.png"))

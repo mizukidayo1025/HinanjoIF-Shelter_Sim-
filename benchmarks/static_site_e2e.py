@@ -774,7 +774,8 @@ class PythonSide:
         path = f"{_run_path(s.project, s.run)}/resume"
         self._memo(stage, name, "POST", path, {"branch_id": branch, "target_minute": end})
         self._open().wait_idle()
-        reached = self.api.store.branch_reference(s.project, s.run, branch).computed_until
+        record = self.api.get([s.project, "runs", s.run], {})
+        reached = next(b["computed_until"] for b in record["branches"] if b["branch_id"] == branch)
         if reached != end:
             raise RuntimeError(f"Python computed {branch} to {reached}, not {end}")
 

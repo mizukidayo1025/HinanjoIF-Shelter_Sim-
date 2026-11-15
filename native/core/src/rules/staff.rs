@@ -594,14 +594,7 @@ fn assign_work(
         }
         let Some(person) = person else {
             if record_metrics {
-                let rows = world.rows()?;
-                let (mut any_busy, mut any_away) = (false, false);
-                for worker in &workers {
-                    if qualifies(worker, &open.kind) {
-                        any_busy |= rows.staff.get(&worker.id).is_some_and(|staff| staff.active_task_id.is_some());
-                        any_away |= !worker.on_shift || !worker.available;
-                    }
-                }
+                let (any_busy, any_away) = why_unserved(world, &workers, &open)?;
                 busy += i64::from(any_busy);
                 off_shift += i64::from(any_away);
             }
@@ -673,30 +666,7 @@ fn assign_work(
             causation_id: Some(open.id.clone()),
             provenance,
         })?;
-        {
-            let mut rows = world.rows_mut()?;
-            rows.active_tasks.insert(
-                task_id.clone(),
-                TaskRow {
-                    id: task_id.clone(),
-                    kind: Arc::from("staff_support"),
-                    agent_id: Some(open.agent_id.clone()),
-                    resource_id: None,
-                    start_minute: at + travel_minutes,
-                    due_minute: due,
-                    staff_id: Some(staff_id.clone()),
-                },
-            );
-            let staff = rows.staff.get_mut(&staff_id).ok_or_else(|| left("a staff member"))?;
-            staff.active_task_id = Some(task_id.clone());
-            staff.work_queue = vec![task_id.clone()];
-            staff.busy_until = due;
-            let request = rows.support_requests.get_mut(&open.id).ok_or_else(|| left("a request"))?;
-            request.status = RequestStatus::Assigned;
-            request.assigned_staff_id = Some(staff_id.clone());
-            request.task_id = Some(task_id.clone());
-            request.last_assignment_wait_reason_code = None;
-        }
+        write_assignment(world, &open, &staff_id, &task_id, at + travel_minutes, due)?;
         events.schedule(event)?;
         if promoted {
             add_to_metric(world, PROMOTED_METRIC, 1.0)?;
@@ -713,6 +683,48 @@ fn assign_work(
         set_metric(world, ATTEMPT_METRIC, at as f64)?;
     }
     Ok(assigned)
+}
+
+/// Why a request no worker took waits: whether a qualified worker is busy, and whether one is off
+/// shift or unavailable.
+fn why_unserved(world: &World, workers: &[Worker], open: &Open) -> Result<(bool, bool)> {
+    let rows = world.rows()?;
+    let (mut any_busy, mut any_away) = (false, false);
+    for worker in workers {
+        if qualifies(worker, &open.kind) {
+            any_busy |= rows.staff.get(&worker.id).is_some_and(|staff| staff.active_task_id.is_some());
+            any_away |= !worker.on_shift || !worker.available;
+        }
+    }
+    Ok((any_busy, any_away))
+}
+
+/// The support task assigned: the task from `start` to `due`, the staff member busy with it, and
+/// the request assigned to them.
+fn write_assignment(world: &World, open: &Open, staff_id: &Arc<str>, task_id: &Arc<str>, start: i64, due: i64) -> Result<()> {
+    let mut rows = world.rows_mut()?;
+    rows.active_tasks.insert(
+        task_id.clone(),
+        TaskRow {
+            id: task_id.clone(),
+            kind: Arc::from("staff_support"),
+            agent_id: Some(open.agent_id.clone()),
+            resource_id: None,
+            start_minute: start,
+            due_minute: due,
+            staff_id: Some(staff_id.clone()),
+        },
+    );
+    let staff = rows.staff.get_mut(staff_id).ok_or_else(|| left("a staff member"))?;
+    staff.active_task_id = Some(task_id.clone());
+    staff.work_queue = vec![task_id.clone()];
+    staff.busy_until = due;
+    let request = rows.support_requests.get_mut(&open.id).ok_or_else(|| left("a request"))?;
+    request.status = RequestStatus::Assigned;
+    request.assigned_staff_id = Some(staff_id.clone());
+    request.task_id = Some(task_id.clone());
+    request.last_assignment_wait_reason_code = None;
+    Ok(())
 }
 
 /// What the assignment of the pending requests reads and writes besides the plan: the world, the

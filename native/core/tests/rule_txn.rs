@@ -374,8 +374,20 @@ fn world(op: Option<&str>, namespaces: Vec<(&str, V)>) -> World {
     }
     world.hold_queue(Arc::new(Queue::new()));
     world.hold_log(Arc::new(EventLog::new()));
-    let earlier =
-        EventRow::new(text("earlier"), EventKind::Exogenous, 5, 0, 3, text("note"), IndexMap::new(), Some(text("scenario")), None, IndexMap::new()).unwrap();
+    let earlier = EventRow {
+        event_id: text("earlier"),
+        kind: EventKind::Exogenous,
+        due_minute: 5,
+        priority: 0,
+        sequence: 3,
+        event_type: text("note"),
+        payload: V::Map(IndexMap::new()),
+        source_id: Some(text("scenario")),
+        causation_id: None,
+        provenance: V::Map(IndexMap::new()),
+    }
+    .checked()
+    .unwrap();
     sheltersim_core::rules::kit::log_record(&world, &earlier, 5, sheltersim_core::events::EventStatus::Applied, None).unwrap();
     world
 }
@@ -396,24 +408,37 @@ fn marker(op: &str, dependencies: &[&str]) -> V {
 }
 
 fn effect_event(event_id: &str, event_type: &str, payload: Vec<(&str, V)>, marker: V) -> EventRow {
-    EventRow::new(
-        text(event_id),
-        EventKind::Intervention,
-        10,
-        0,
-        41,
-        text(event_type),
-        entries(payload),
-        Some(text("SRC-1")),
-        None,
-        entries(vec![("effect_program_v1", marker)]),
-    )
+    EventRow {
+        event_id: text(event_id),
+        kind: EventKind::Intervention,
+        due_minute: 10,
+        priority: 0,
+        sequence: 41,
+        event_type: text(event_type),
+        payload: V::Map(entries(payload)),
+        source_id: Some(text("SRC-1")),
+        causation_id: None,
+        provenance: V::Map(entries(vec![("effect_program_v1", marker)])),
+    }
+    .checked()
     .unwrap()
 }
 
 fn exogenous(event_id: &str, sequence: i64, event_type: &str, payload: Vec<(&str, V)>) -> EventRow {
-    EventRow::new(text(event_id), EventKind::Exogenous, 10, 0, sequence, text(event_type), entries(payload), Some(text("scenario")), None, IndexMap::new())
-        .unwrap()
+    EventRow {
+        event_id: text(event_id),
+        kind: EventKind::Exogenous,
+        due_minute: 10,
+        priority: 0,
+        sequence,
+        event_type: text(event_type),
+        payload: V::Map(entries(payload)),
+        source_id: Some(text("scenario")),
+        causation_id: None,
+        provenance: V::Map(IndexMap::new()),
+    }
+    .checked()
+    .unwrap()
 }
 
 /// Run `handler` on `world` with a host that fails the changed world's check: the outcome's text,
@@ -527,18 +552,19 @@ fn an_environment_modifier_rolls_back_on_the_world_s_check() {
         marker("set_ambient_noise", &["zone_environment_v1"]),
     );
     let built = world(Some("set_ambient_noise"), vec![("zone_environment_v1", map(vec![("modifiers", map(Vec::new()))]))]);
-    let expiry = EventRow::new(
-        text("ev-end"),
-        EventKind::Intervention,
-        60,
-        0,
-        50,
-        text("effect_program_environment_expire"),
-        entries(vec![("modifier_id", s(MODIFIER))]),
-        Some(text("SRC-1")),
-        None,
-        IndexMap::new(),
-    )
+    let expiry = EventRow {
+        event_id: text("ev-end"),
+        kind: EventKind::Intervention,
+        due_minute: 60,
+        priority: 0,
+        sequence: 50,
+        event_type: text("effect_program_environment_expire"),
+        payload: V::Map(entries(vec![("modifier_id", s(MODIFIER))])),
+        source_id: Some(text("SRC-1")),
+        causation_id: None,
+        provenance: V::Map(IndexMap::new()),
+    }
+    .checked()
     .unwrap();
     built.queue_mut().unwrap().add(text("ev-end"), (60, 0, 50), Some(Arc::new(expiry)));
     // The environment wraps the check's value error; an outcome goes on as it is.

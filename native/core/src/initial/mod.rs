@@ -250,18 +250,19 @@ fn edge(json: &Value) -> Result<EdgeRow> {
 /// A planned event as `ScheduledEvent`, with its checks.
 fn event(json: &Value) -> Result<EventRow> {
     let kind = EventKind::parse(str_of(&json["kind"], "kind")?).ok_or_else(|| bad("kind is not an event kind"))?;
-    EventRow::new(
-        text(str_of(&json["id"], "an event's id")?),
+    EventRow {
+        event_id: text(str_of(&json["id"], "an event's id")?),
         kind,
-        int_of(&json["due_minute"], "due_minute")?,
-        int_of(&json["priority"], "priority")?,
-        int_of(&json["sequence"], "sequence")?,
-        text(str_of(&json["event_type"], "event_type")?),
-        map_of(&json["payload"], "payload")?,
-        opt_str(&json["source_id"], "source_id")?,
-        opt_str(&json["causation_id"], "causation_id")?,
-        map_of(&json["provenance"], "an event's provenance")?,
-    )
+        due_minute: int_of(&json["due_minute"], "due_minute")?,
+        priority: int_of(&json["priority"], "priority")?,
+        sequence: int_of(&json["sequence"], "sequence")?,
+        event_type: text(str_of(&json["event_type"], "event_type")?),
+        payload: V::Map(map_of(&json["payload"], "payload")?),
+        source_id: opt_str(&json["source_id"], "source_id")?,
+        causation_id: opt_str(&json["causation_id"], "causation_id")?,
+        provenance: V::Map(map_of(&json["provenance"], "an event's provenance")?),
+    }
+    .checked()
     .ok_or_else(|| bad("an event ScheduledEvent refuses"))
 }
 

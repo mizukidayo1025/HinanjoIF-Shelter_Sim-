@@ -276,55 +276,10 @@ impl Step<'_, '_> {
         let Some(request_id) = journey.support_request_id.clone() else {
             return Err(lost().into());
         };
-        struct Found {
-            staff_id: Arc<str>,
-            staff_zone: Arc<str>,
-            task_id: Arc<str>,
-            start: i64,
-            due: i64,
-            timeout: i64,
-        }
-        let found = {
-            let rows = world.rows()?;
-            let Some(request) = rows.support_requests.get(&request_id) else {
-                return Err(lost().into());
-            };
-            let (Some(staff_id), Some(task_id)) = (&request.assigned_staff_id, &request.task_id) else {
-                return Err(lost().into());
-            };
-            let (Some(staff), Some(task)) = (rows.staff.get(staff_id), rows.active_tasks.get(task_id)) else {
-                return Err(lost().into());
-            };
-            if request.status != RequestStatus::Assigned || &*task.kind != "staff_support" {
-                return Err(lost().into());
-            }
-            Found {
-                staff_id: staff_id.clone(),
-                staff_zone: staff.zone_id.clone(),
-                task_id: task_id.clone(),
-                start: task.start_minute,
-                due: task.due_minute,
-                timeout: request.timeout_minute,
-            }
-        };
+        let found = assigned_support(world, &request_id)?;
         let events = Events::of(world)?;
         // The completion of this task, which must be one and due with it.
-        let mut completions = Vec::new();
-        {
-            let queue = world.queue()?;
-            for (_, serial) in queue.ordered() {
-                let Some(row) = &queue.slot(*serial).row else {
-                    return Err(Error::unsupported("a pending event has no row").into());
-                };
-                let V::Map(payload) = &row.payload else {
-                    continue;
-                };
-                let names_it = matches!(payload.get("task_id"), Some(V::Str(task)) if **task == *found.task_id);
-                if &*row.event_type == "staff_support_complete" && names_it {
-                    completions.push(row.clone());
-                }
-            }
-        }
+        let mut completions = completions_of(world, &found.task_id)?;
         if completions.len() != 1 || completions[0].due_minute != found.due {
             return Err(Error::value_error("replanned resident trip has inconsistent support completion").into());
         }
@@ -399,37 +354,7 @@ impl Step<'_, '_> {
             events.settle(&previous, minute, EventStatus::Suppressed, Some("support completion was cancelled because the staff route is unavailable"))?.taken,
         );
         let unresolved = found.timeout <= minute;
-        {
-            let mut rows = world.rows_mut()?;
-            rows.active_tasks.remove_row(&found.task_id);
-            if let Some(staff) = rows.staff.get_mut(&found.staff_id) {
-                staff.work_queue.clear();
-                staff.active_task_id = None;
-                staff.busy_until = 0;
-            }
-            if let Some(request) = rows.support_requests.get_mut(&request_id) {
-                request.assigned_staff_id = None;
-                request.task_id = None;
-                if unresolved {
-                    request.status = RequestStatus::Unresolved;
-                    request.resolved_minute = Some(minute);
-                    request.cooldown_until = until;
-                } else {
-                    request.status = RequestStatus::Pending;
-                }
-            }
-            if let Some(agent) = rows.agents.get_mut(&**agent_id) {
-                agent.target_id = None;
-                if unresolved {
-                    agent.activity = Activity::Idle;
-                    agent.support_request_id = None;
-                    agent.support_cooldown_until = until;
-                } else {
-                    agent.activity = Activity::SeekingHelp;
-                    agent.support_request_id = Some(request_id.clone());
-                }
-            }
-        }
+        write_support_dropped(world, &found, &request_id, agent_id, unresolved, (minute, until))?;
         if unresolved {
             add_metric(world, "support_unresolved_count")?;
         }
@@ -448,6 +373,105 @@ impl Step<'_, '_> {
         log_record(world, &made.event, made.minute, EventStatus::Applied, Some(&made.detail))?;
         Ok(Support::Lost { event: made.event, minute: made.minute, taken })
     }
+}
+
+/// The assigned support of a replanned trip: its staff member and their zone, its task with its
+/// start and due minute, and the request's timeout.
+struct Found {
+    staff_id: Arc<str>,
+    staff_zone: Arc<str>,
+    task_id: Arc<str>,
+    start: i64,
+    due: i64,
+    timeout: i64,
+}
+
+/// The support a replanned trip is to, as its request assigns it; the Python rule's ValueError for
+/// a support lost.
+fn assigned_support(world: &World, request_id: &Arc<str>) -> Result<Found> {
+    let lost = || Error::value_error("replanned resident trip lost its assigned support task");
+    let rows = world.rows()?;
+    let Some(request) = rows.support_requests.get(&request_id) else {
+        return Err(lost().into());
+    };
+    let (Some(staff_id), Some(task_id)) = (&request.assigned_staff_id, &request.task_id) else {
+        return Err(lost().into());
+    };
+    let (Some(staff), Some(task)) = (rows.staff.get(staff_id), rows.active_tasks.get(task_id)) else {
+        return Err(lost().into());
+    };
+    if request.status != RequestStatus::Assigned || &*task.kind != "staff_support" {
+        return Err(lost().into());
+    }
+    Ok(Found {
+        staff_id: staff_id.clone(),
+        staff_zone: staff.zone_id.clone(),
+        task_id: task_id.clone(),
+        start: task.start_minute,
+        due: task.due_minute,
+        timeout: request.timeout_minute,
+    })
+}
+
+/// The pending completions of the task, in the queue's order.
+fn completions_of(world: &World, task_id: &Arc<str>) -> Result<Vec<Arc<EventRow>>> {
+    let mut completions = Vec::new();
+    let queue = world.queue()?;
+    for (_, serial) in queue.ordered() {
+        let Some(row) = &queue.slot(*serial).row else {
+            return Err(Error::unsupported("a pending event has no row").into());
+        };
+        let V::Map(payload) = &row.payload else {
+            continue;
+        };
+        let names_it = matches!(payload.get("task_id"), Some(V::Str(task)) if **task == **task_id);
+        if &*row.event_type == "staff_support_complete" && names_it {
+            completions.push(row.clone());
+        }
+    }
+    Ok(completions)
+}
+
+/// The support called off: its task gone, its staff member free, its request back to pending (or
+/// unresolved, until `until`) and its person seeking help again (or idle in the cooldown).
+fn write_support_dropped(
+    world: &World,
+    found: &Found,
+    request_id: &Arc<str>,
+    agent_id: &Arc<str>,
+    unresolved: bool,
+    (minute, until): (i64, i64),
+) -> Result<()> {
+    let mut rows = world.rows_mut()?;
+    rows.active_tasks.remove_row(&found.task_id);
+    if let Some(staff) = rows.staff.get_mut(&found.staff_id) {
+        staff.work_queue.clear();
+        staff.active_task_id = None;
+        staff.busy_until = 0;
+    }
+    if let Some(request) = rows.support_requests.get_mut(&request_id) {
+        request.assigned_staff_id = None;
+        request.task_id = None;
+        if unresolved {
+            request.status = RequestStatus::Unresolved;
+            request.resolved_minute = Some(minute);
+            request.cooldown_until = until;
+        } else {
+            request.status = RequestStatus::Pending;
+        }
+    }
+    if let Some(agent) = rows.agents.get_mut(&**agent_id) {
+        agent.target_id = None;
+        if unresolved {
+            agent.activity = Activity::Idle;
+            agent.support_request_id = None;
+            agent.support_cooldown_until = until;
+        } else {
+            agent.activity = Activity::SeekingHelp;
+            agent.support_request_id = Some(request_id.clone());
+        }
+    }
+    Ok(())
 }
 
 /// The IDs of a staff support: its request, its person, its staff member and its task.
@@ -473,17 +497,18 @@ fn reschedule_event(support: SupportIds<'_>, service_minutes: i64, due: i64, seq
     provenance.insert(Arc::from("source_id"), V::Str(Arc::from(STAFF_SUPPORT_SOURCE)));
     provenance.insert(Arc::from("policy_version"), V::Str(policy.clone()));
     provenance.insert(Arc::from("rescheduled_after_route_change"), V::Bool(true));
-    EventRow::new(
-        Arc::from(format!("staff-support-complete-{sequence}")),
-        EventKind::Completion,
-        due,
-        0,
+    EventRow {
+        event_id: Arc::from(format!("staff-support-complete-{sequence}")),
+        kind: EventKind::Completion,
+        due_minute: due,
+        priority: 0,
         sequence,
-        Arc::from("staff_support_complete"),
-        payload,
-        Some(task_id.clone()),
-        Some(journey.event_id.clone()),
-        provenance,
-    )
+        event_type: Arc::from("staff_support_complete"),
+        payload: V::Map(payload),
+        source_id: Some(task_id.clone()),
+        causation_id: Some(journey.event_id.clone()),
+        provenance: V::Map(provenance),
+    }
+    .checked()
     .ok_or_else(|| Error::unsupported("the event's values are not what an event takes"))
 }

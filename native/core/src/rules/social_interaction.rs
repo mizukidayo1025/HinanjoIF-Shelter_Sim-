@@ -297,27 +297,7 @@ pub fn apply_event(world: &World, event: &EventRow, inputs: &Inputs) -> Result<S
     let helps = interaction != "reassurance_exchange";
 
     // The rows: read, decide, write.
-    enum Pair {
-        Together,
-        Apart,
-        NoActor,
-    }
-    let pair = {
-        let rows = world.rows()?;
-        match rows.agents.get(actor_id) {
-            None => Pair::NoActor,
-            Some(actor) => match participant_id.and_then(|id| rows.agents.get(id).map(|participant| (id, participant))) {
-                // An ID that is not a str, an unknown person, or the actor themselves.
-                None => Pair::Apart,
-                Some((id, _)) if id == actor_id => Pair::Apart,
-                Some((_, participant)) if actor.profile.id == participant.profile.id => {
-                    return Err(Error::unsupported("two people of one profile"));
-                }
-                Some((_, participant)) if zone != Some(&*actor.zone_id) || participant.zone_id != actor.zone_id => Pair::Apart,
-                Some(_) => Pair::Together,
-            },
-        }
-    };
+    let pair = pair_of(world, actor_id, participant_id, zone)?;
     match pair {
         Pair::Together => {}
         Pair::Apart => return suppression(NOT_COLOCATED),
@@ -339,6 +319,38 @@ pub fn apply_event(world: &World, event: &EventRow, inputs: &Inputs) -> Result<S
             return suppression(NOT_SAME_HOUSEHOLD);
         }
     }
+    write_pair(world, interaction, actor_id, participant_id, relief, helps)
+}
+
+/// Where the two people of a typed social interaction are.
+enum Pair {
+    Together,
+    Apart,
+    NoActor,
+}
+
+/// The rows' read of a typed social interaction: whether the actor is known, and with the
+/// participant in the event's zone.
+fn pair_of(world: &World, actor_id: &str, participant_id: Option<&str>, zone: Option<&str>) -> Result<Pair> {
+    let rows = world.rows()?;
+    Ok(match rows.agents.get(actor_id) {
+        None => Pair::NoActor,
+        Some(actor) => match participant_id.and_then(|id| rows.agents.get(id).map(|participant| (id, participant))) {
+            // An ID that is not a str, an unknown person, or the actor themselves.
+            None => Pair::Apart,
+            Some((id, _)) if id == actor_id => Pair::Apart,
+            Some((_, participant)) if actor.profile.id == participant.profile.id => {
+                return Err(Error::unsupported("two people of one profile"));
+            }
+            Some((_, participant)) if zone != Some(&*actor.zone_id) || participant.zone_id != actor.zone_id => Pair::Apart,
+            Some(_) => Pair::Together,
+        },
+    })
+}
+
+/// The rows' decision and write of a typed social interaction: the participant's relief and the
+/// helper's cost and trust, unless a voluntary support is no longer needed.
+fn write_pair(world: &World, interaction: &str, actor_id: &str, participant_id: &str, relief: f64, helps: bool) -> Result<Said> {
     let mut rows = world.rows_mut()?;
     let (Some(actor), Some(participant)) = (rows.agents.get(actor_id), rows.agents.get(participant_id)) else {
         return Err(Error::unsupported("an unknown person"));

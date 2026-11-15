@@ -386,18 +386,19 @@ impl Host for WritingHost<'_> {
                 world.rows_mut()?.agents.get_mut(agent_id).unwrap().next_decision_at = 42;
                 let events = Events::of(&world)?;
                 let sequence = events.allocate_sequence()?;
-                let event = EventRow::new(
-                    text(&format!("host-event-{sequence}")),
-                    EventKind::Endogenous,
-                    20,
-                    10,
+                let event = EventRow {
+                    event_id: text(&format!("host-event-{sequence}")),
+                    kind: EventKind::Endogenous,
+                    due_minute: 20,
+                    priority: 10,
                     sequence,
-                    text("llm_note"),
-                    IndexMap::new(),
-                    None,
-                    None,
-                    IndexMap::new(),
-                )
+                    event_type: text("llm_note"),
+                    payload: V::Map(IndexMap::new()),
+                    source_id: None,
+                    causation_id: None,
+                    provenance: V::Map(IndexMap::new()),
+                }
+                .checked()
                 .unwrap();
                 events.schedule(event).map_err(|_| Error::Runtime("not scheduled".to_owned()))?;
                 Ok(())

@@ -38,7 +38,20 @@ fn text(value: &str) -> Arc<str> {
 
 fn event(id: &str, sequence: i64) -> EventRow {
     let provenance = IndexMap::from([(text("source_type"), V::Str(text("assumption")))]);
-    EventRow::new(text(id), EventKind::Endogenous, MINUTE, 0, sequence, text("probe"), IndexMap::new(), Some(text("probe-1")), None, provenance).unwrap()
+    EventRow {
+        event_id: text(id),
+        kind: EventKind::Endogenous,
+        due_minute: MINUTE,
+        priority: 0,
+        sequence,
+        event_type: text("probe"),
+        payload: V::Map(IndexMap::new()),
+        source_id: Some(text("probe-1")),
+        causation_id: None,
+        provenance: V::Map(provenance),
+    }
+    .checked()
+    .unwrap()
 }
 
 /// A world at `minute` whose queue holds `events` and whose log is empty.

@@ -1,6 +1,7 @@
-"""Pre-run scenario preview, freezing, and the offline run inspector through the CLI.
+"""Pre-run scenario preview and freezing through the CLI, and `run` taking only a frozen
+preview whose Scenario is the one approved.
 
-Running a frozen Scenario from the CLI is checked in tests/e2e/test_cli_run.py.
+Computing a frozen Scenario from the CLI is checked in tests/e2e/test_cli_run.py.
 """
 
 from __future__ import annotations
@@ -10,15 +11,9 @@ from pathlib import Path
 
 import pytest
 from support.paths import SCENARIO_100_AGENTS
-from support.world import decisions_of
 
 from sheltersim.__main__ import main
-from sheltersim.core.engine import TraceLevel
-from sheltersim.core.world import WorldState
-from sheltersim.events.handlers import EventDispatcher
 from sheltersim.experiments.scenario import ScenarioSpec
-from sheltersim.inspection.traces import RunArtifactWriter
-from sheltersim.policies.behavior import UtilityBehaviorPolicy
 
 # Run on every pull request on Windows and macOS too (pytest --os-subset, #380): the CLI writes
 # files and reads them back.
@@ -44,21 +39,6 @@ def make_scenario_file(path: Path) -> Path:
     scenario = ScenarioSpec.model_validate(scenario_data)
     scenario.save(path)
     return path
-
-
-def make_run(directory: Path) -> tuple[Path, str]:
-    scenario = ScenarioSpec.load(make_scenario_file(directory.parent / "scenario.json"))
-    world = WorldState.from_scenario(scenario)
-    writer = RunArtifactWriter(scenario, directory, trace_level=TraceLevel.FULL)
-    writer.write_initial(world)
-    proposal = decisions_of(world, UtilityBehaviorPolicy())["A001"]
-    writer.record_decision(proposal)
-    first_event = scenario.scheduled_events[0]
-    world.minute_index = first_event.due_minute
-    EventDispatcher().dispatch_due(world, first_event.due_minute)
-    writer.capture_metric(world, minute=first_event.due_minute)
-    writer.finalize(world)
-    return directory, first_event.id
 
 
 def test_prepare_previews_all_profiles_and_planned_events_offline(tmp_path: Path, capsys) -> None:
@@ -142,8 +122,12 @@ def test_freeze_records_manual_generated_field_edits_and_checks_content_hash(
                 "--offline",
                 "--scenario",
                 str(frozen_path),
-                "--output",
-                str(tmp_path / "tampered-run"),
+                "--root",
+                str(tmp_path / "projects"),
+                "--project-id",
+                "p",
+                "--run-id",
+                "tampered",
             ]
         )
     assert raised.value.code == 2
@@ -183,8 +167,12 @@ def test_run_rejects_a_preview_that_was_not_frozen(tmp_path: Path, capsys) -> No
                 "--offline",
                 "--scenario",
                 str(preview_path),
-                "--output",
-                str(tmp_path / "run"),
+                "--root",
+                str(tmp_path / "projects"),
+                "--project-id",
+                "p",
+                "--run-id",
+                "r",
             ]
         )
 
@@ -201,120 +189,14 @@ def test_run_requires_explicitly_frozen_scenario_input(tmp_path: Path, capsys) -
                 "--offline",
                 "--scenario",
                 str(scenario_path),
-                "--output",
-                str(tmp_path / "run"),
+                "--root",
+                str(tmp_path / "projects"),
+                "--project-id",
+                "p",
+                "--run-id",
+                "r",
             ]
         )
 
     assert raised.value.code == 2
     assert "reviewed frozen preview" in capsys.readouterr().err
-
-
-def test_inspect_profiles_and_planned_events_show_full_pre_run_inputs(
-    tmp_path: Path, capsys
-) -> None:
-    run_directory, _ = make_run(tmp_path / "run")
-
-    assert main(["inspect", "--run", str(run_directory), "--profiles"]) == 0
-    profiles = json.loads(capsys.readouterr().out)["profiles"]
-    assert len(profiles) == 100
-    assert profiles[0]["id"] == "A001"
-
-    assert main(["inspect", "--run", str(run_directory), "--events", "--planned"]) == 0
-    event_list = json.loads(capsys.readouterr().out)
-    assert event_list["event_type"] == "planned"
-    assert event_list["events"]
-
-
-def test_inspect_agent_decisions_support_inclusive_ranges_and_clear_unknown_ids(
-    tmp_path: Path, capsys
-) -> None:
-    run_directory, _ = make_run(tmp_path / "run")
-
-    assert (
-        main(["inspect", "--run", str(run_directory), "--agent", "A001", "--range", "0", "0"]) == 0
-    )
-    result = json.loads(capsys.readouterr().out)
-    assert [record["agent_id"] for record in result["decisions"]] == ["A001"]
-    assert result["decisions"][0]["candidates"]
-
-    assert (
-        main(["inspect", "--run", str(run_directory), "--agent", "A001", "--range", "1", "20"]) == 0
-    )
-    assert json.loads(capsys.readouterr().out)["decisions"] == []
-
-    with pytest.raises(SystemExit) as raised:
-        main(["inspect", "--run", str(run_directory), "--agent", "A999"])
-    assert raised.value.code == 2
-    assert "does not exist" in capsys.readouterr().err
-
-
-def test_inspect_rejects_invalid_range_bounds(tmp_path: Path, capsys) -> None:
-    run_directory, _ = make_run(tmp_path / "run")
-
-    with pytest.raises(SystemExit) as raised:
-        main(
-            [
-                "inspect",
-                "--run",
-                str(run_directory),
-                "--agent",
-                "A001",
-                "--range",
-                "5",
-                "2",
-            ]
-        )
-
-    assert raised.value.code == 2
-    assert "cannot be after" in capsys.readouterr().err
-
-
-def test_inspect_event_returns_planned_provenance_and_realized_outcome(
-    tmp_path: Path, capsys
-) -> None:
-    run_directory, event_id = make_run(tmp_path / "run")
-
-    assert main(["inspect", "--run", str(run_directory), "--event", event_id]) == 0
-    event = json.loads(capsys.readouterr().out)
-
-    assert event["event_id"] == event_id
-    assert len(event["planned"]) == 1
-    assert len(event["realized"]) == 1
-    assert event["realized"][0]["status"] == "failed"
-    assert "no handler" in event["realized"][0]["detail"]
-
-
-def test_inspect_rejects_an_unknown_event(tmp_path: Path, capsys) -> None:
-    run_directory, _ = make_run(tmp_path / "run")
-
-    with pytest.raises(SystemExit) as raised:
-        main(["inspect", "--run", str(run_directory), "--event", "missing-event"])
-
-    assert raised.value.code == 2
-    assert "does not exist" in capsys.readouterr().err
-
-
-def test_inspect_causal_trace_by_event_connects_resource_reference(tmp_path: Path, capsys) -> None:
-    run_directory, event_id = make_run(tmp_path / "causal-run")
-
-    assert (
-        main(
-            [
-                "inspect",
-                "--run",
-                str(run_directory),
-                "--cause",
-                "--focus-event",
-                event_id,
-            ]
-        )
-        == 0
-    )
-
-    trace = json.loads(capsys.readouterr().out)
-    node_ids = {node["id"] for node in trace["nodes"]}
-    edge_kinds = {edge["relationship"] for edge in trace["edges"]}
-    assert f"event:{event_id}" in node_ids
-    assert "facility:toilet_1" in node_ids
-    assert "resource" in edge_kinds

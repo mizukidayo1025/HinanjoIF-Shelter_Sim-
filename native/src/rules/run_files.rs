@@ -1,8 +1,8 @@
 //! The files of the stored Runs on a disk (`sheltersim_store`, #426) for Python callers: a store's
 //! records in the browser's shapes, its locks (the Python server's, on the same files), its limit,
 //! a branch's stored Run of format v6 written and read, a branch computed from its head in chunks,
-//! a fork and a question's turn. The local and VM servers compute into and read from these in
-//! #427; nothing in Python calls them yet.
+//! a fork and a question's turn. The local and VM servers compute into and read from these
+//! (#427).
 //!
 //! Each method reads its arguments, calls one function of the store and converts what it gives: a
 //! record as its JSON text (sorted keys, as the file holds it), bytes as `bytes`. A refusal of the
@@ -179,13 +179,13 @@ impl ProjectFiles {
         Ok(Lease { inner: Some(lease) })
     }
 
-    /// The lease of a branch's writer (Python's `claim_branch`).
+    /// The lease of a branch's writer (`sheltersim_store::lock::claim_branch`).
     fn claim_branch(&self, py: Python<'_>, project: &str, run: &str, branch: &str) -> PyResult<Lease> {
         let lease = py.allow_threads(|| self.inner.claim_branch(project, run, branch)).or_store()?;
         Ok(Lease { inner: Some(lease) })
     }
 
-    /// The lease of a whole Run (Python's `claim_run`).
+    /// The lease of a whole Run (`sheltersim_store::lock::claim_run`).
     fn claim_run(&self, py: Python<'_>, project: &str, run: &str) -> PyResult<Lease> {
         let lease = py.allow_threads(|| self.inner.claim_run(project, run)).or_store()?;
         Ok(Lease { inner: Some(lease) })
@@ -391,8 +391,8 @@ impl ProjectFiles {
         Ok(self.inner.conversation_pieces(project, run, branch).or_store()?.iter().map(|piece| PyBytes::new(py, piece)).collect())
     }
 
-    /// Sets a branch's status and keeps the Run's their summary (Python's `set_branch_status`):
-    /// the branch's record.
+    /// Sets a branch's status and keeps the Run's status their summary
+    /// (`sheltersim_store::records::ProjectFiles::set_branch_status`): the branch's record.
     #[pyo3(signature = (project, run, branch, status, run_status=None))]
     fn set_branch_status(&self, project: &str, run: &str, branch: &str, status: &str, run_status: Option<&str>) -> PyResult<String> {
         Ok(record_text(&self.inner.set_branch_status(project, run, branch, status, run_status).or_store()?))

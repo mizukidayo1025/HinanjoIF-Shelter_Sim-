@@ -1,12 +1,12 @@
-//! The core of 避難所IF！ for the browser (Issue #244, PR 4-4; stage 4 of #132): a Run of a world
-//! Python built and exported (`sheltersim.core.world_export.export_world`, route A), run on the
-//! host without Python (`sheltersim_core::plain`), behind a JS boundary made with wasm-bindgen
+//! The core of 避難所IF！ for the browser (Issue #244, PR 4-4; stage 4 of #132): a Run of an
+//! exported world (the entry `initialEntry` gives, `sheltersim_core::initial::entry`), run on the
+//! core's host (`sheltersim_core::plain`), behind a JS boundary made with wasm-bindgen
 //! (decision 8). It runs on one thread (decision 5: the core without its feature `parallel`).
 //!
-//! `Simulation` reads the export's JSON bytes, runs the ticks (`advance`) and gives the digests of
-//! the world's parts as `tests/support/core_tick.py` writes them (`digests_json`) and of the
-//! metric samples (`metrics_digest`): what the Node test (`tests/node_digests.mjs`) and the
-//! measuring page of PR 4-5 compare with the native path's.
+//! `Simulation` reads the entry's JSON bytes, runs the ticks (`advance`) and gives the digests of
+//! the world's parts (`digests_json`, `sheltersim_core::canonical::run_digests`) and of the
+//! metric samples (`metrics_digest`): what the Node test (`tests/node_digests.mjs`) checks against
+//! the digests `native/core/tests/data/tick_core.json` holds.
 //!
 //! It also gives the page the format of the Run it stores (#252, #251; `sheltersim_core::run_store`
 //! since #368): `RunWriter` decides what to store and when and writes the journal's lines,
@@ -73,8 +73,8 @@ impl Simulation {
         self.run.advance(u64::from(ticks)).map(|ran| ran as u32).map_err(|stopped| JsError::new(&stopped.to_string()))
     }
 
-    /// The digests of the world's parts, as a JSON object in the order of `core_tick.py`'s
-    /// `world_digests` (`PlainRun::run_digests_json`).
+    /// The digests of the world's parts, as a JSON object in their order
+    /// (`PlainRun::run_digests_json`, `canonical::run_digests`).
     pub fn digests_json(&self) -> Result<String, JsError> {
         self.run.run_digests_json().map_err(js_error)
     }
@@ -85,7 +85,7 @@ impl Simulation {
         self.run.part_digests_json().map_err(js_error)
     }
 
-    /// The digest of the metric samples so far (`core_tick.py`'s `metrics_digest`).
+    /// The digest of the metric samples so far (`PlainHost::metrics_digest`).
     pub fn metrics_digest(&self) -> String {
         self.run.host.metrics_digest()
     }
@@ -109,7 +109,7 @@ impl Simulation {
 }
 
 /// The frame of a minute (#264): the map and the indicators the API's `timeline` gives, made by the
-/// core (`sheltersim_core::frame`), byte for byte the native path's.
+/// core (`sheltersim_core::frame`), byte for byte what the local and VM versions give.
 #[wasm_bindgen]
 impl Simulation {
     /// The frame of the world now, as its canonical JSON bytes (a `TimelineFrame`): `computedUntil`
@@ -120,9 +120,10 @@ impl Simulation {
         self.run.frame(&request).map_err(js_error)
     }
 
-    /// `world.state_digest()` of the world now: the `state_hash` of a frame without one. The
-    /// Simulation keeps the node of its log between calls (#266), so a call after `advance` reads
-    /// only the records added since; the first call (after `new` or a restore) reads them all.
+    /// The state digest of the world now (`PlainRun::state_digest`): the `state_hash` of a frame
+    /// without one. The Simulation keeps the node of its log between calls (#266), so a call after
+    /// `advance` reads only the records added since; the first call (after `new` or a restore)
+    /// reads them all.
     #[wasm_bindgen(js_name = stateDigest)]
     pub fn state_digest(&self) -> Result<String, JsError> {
         self.run.state_digest().map_err(js_error)
@@ -133,8 +134,8 @@ impl Simulation {
 #[wasm_bindgen]
 impl Simulation {
     /// The summary of the world now (`ScenarioSummary`, `sheltersim_core::summary`), as its
-    /// canonical JSON bytes: those of `scenario_summary_from_world(world).model_dump(mode="json")`
-    /// that the server's `intervention-preview` reads. It changes nothing.
+    /// canonical JSON bytes (`summary::scenario_summary`): what the server's `intervention-preview`
+    /// reads. It changes nothing.
     #[wasm_bindgen(js_name = scenarioSummary)]
     pub fn scenario_summary(&self) -> Result<Vec<u8>, JsError> {
         self.run.scenario_summary().map_err(js_error)
@@ -144,8 +145,9 @@ impl Simulation {
 /// The EffectProgram of an intervention before it is scheduled (#304, under #292).
 #[wasm_bindgen]
 impl Simulation {
-    /// `validate_effect_program(world, program)` on the world now, for a program's JSON bytes:
-    /// the issues as a JSON list of strings, in Python's order and texts (`sheltersim_core::program`).
+    /// The checks of a program on the world now (`PlainRun::validate_effect_program`,
+    /// `sheltersim_core::program::validate`), for a program's JSON bytes: the issues as a JSON list
+    /// of strings, in the order the checks run, with their texts.
     /// An error for a program the contract refuses or the browser does not check. It changes
     /// nothing.
     #[wasm_bindgen(js_name = validateEffectProgram)]
@@ -157,12 +159,12 @@ impl Simulation {
 /// A program scheduled on the world (#305, under #292): what a fork does to its child.
 #[wasm_bindgen]
 impl Simulation {
-    /// `schedule_effect_program(world, program)` on the world now, for a program's JSON bytes, as
-    /// `BranchRuntime.apply_effect_program` calls it on a fork's child: its record and events are
-    /// written, all or none. The receipt is the `command_log` entry Python appends, as JSON
-    /// (`{"command": "effect_program", "program_id", "program_hash", "event_ids", "minute"}`). An
-    /// error, with nothing changed, for a program with issues (their text, as Python's
-    /// `EffectProgram could not be scheduled: ...`), one the contract refuses, or one the browser
+    /// A program scheduled on the world now, for a program's JSON bytes, as a fork does to its
+    /// child (`PlainRun::apply_effect_program`, `sheltersim_core::program::schedule`): its record
+    /// and events are written, all or none. The receipt is the program's `command_log` entry, as
+    /// JSON (`{"command": "effect_program", "program_id", "program_hash", "event_ids", "minute"}`).
+    /// An error, with nothing changed, for a program with issues (their text, after
+    /// `EffectProgram could not be scheduled: `), one the contract refuses, or one the browser
     /// does not check.
     #[wasm_bindgen(js_name = applyEffectProgram)]
     pub fn apply_effect_program(&mut self, program: &[u8]) -> Result<String, JsError> {
@@ -170,8 +172,9 @@ impl Simulation {
     }
 }
 
-/// `EffectProgram.model_validate(json).model_dump(mode="json")` of a program's JSON bytes, as its
-/// canonical JSON (#304): the bytes whose sha256 is the approval's hash (`approved_program_hash`).
+/// A program's JSON bytes read by its contract and written again (`program::EffectProgram::of_json`
+/// and `dump_json`), as canonical JSON (#304): the bytes whose sha256 is the approval's hash
+/// (`approved_program_hash`).
 /// An error for a program the contract refuses (the text is the core's, not pydantic's).
 #[wasm_bindgen(js_name = effectProgramDump)]
 pub fn effect_program_dump(program: &[u8]) -> Result<Vec<u8>, JsError> {
@@ -241,7 +244,7 @@ pub fn engine_signatures() -> String {
 /// How the model versions a Run was computed with (`recorded`, JSON) compare with the installed
 /// ones (`installed`, JSON, or undefined for configs the core cannot sign:
 /// `ModelStatus::unreadable`), as JSON: `current`, `view_only`, `recorded_version`,
-/// `installed_version`, `differences`, `message` (Python's text, or null) and `error` (the
+/// `installed_version`, `differences`, `message` (`ModelStatus::message`, or null) and `error` (the
 /// refusal's text, `run_model_view_only: …`, or null).
 #[wasm_bindgen(js_name = modelStatus)]
 pub fn model_status(recorded: &str, installed: Option<String>) -> Result<String, JsError> {
@@ -794,8 +797,8 @@ pub fn is_saved_point_minute(minute: f64, every: f64) -> Result<bool, JsError> {
 /// What the server's `scenario-preview` reads of a Scenario text without an API key
 /// (`sheltersim_core::scenario::text::parse`, #294), as JSON: `request` (its dump, or null),
 /// `missing_fields`, `source`, `warnings` and `input_sha256`. An error whose message starts with
-/// `invalid: ` is what Python refuses (the server's 400); `unsupported: `, what the browser does
-/// not compute.
+/// `invalid: ` is what the parse refuses (`Refusal::Invalid`, the server's 400); `unsupported: `,
+/// what the browser does not compute.
 #[wasm_bindgen(js_name = parseScenarioText)]
 pub fn parse_scenario_text(text: &str) -> Result<String, JsError> {
     use sheltersim_core::scenario::request::Refusal;
@@ -856,11 +859,10 @@ pub fn casefold(text: &str) -> String {
 }
 
 /// The entry of a Scenario's world at minute 0, from the Scenario's canonical JSON
-/// (`sheltersim_core::initial::entry`, #249, #429): the bytes Python's `export_world` writes of it,
-/// which `new Simulation(entry)` runs. A Scenario Python refuses to build is the error Python
-/// raises; what the core leaves to a contract Python runs first (a config `ScenarioSpec` would not
-/// have made canonical, and the like) is an error whose message starts with `unsupported: `; any
-/// other error is input that is not a Scenario.
+/// (`sheltersim_core::initial::entry`, #249, #429), which `new Simulation(entry)` runs. A Scenario
+/// the core refuses to build is the core's error; what the core does not compute (a config
+/// `ScenarioSpec` would not have made canonical, and the like: `Error::Unsupported`) is an error
+/// whose message starts with `unsupported: `; any other error is input that is not a Scenario.
 #[wasm_bindgen(js_name = initialEntry)]
 pub fn initial_entry(scenario: &[u8]) -> Result<Vec<u8>, JsError> {
     sheltersim_core::initial::entry(scenario).map_err(initial_error)
@@ -1017,7 +1019,7 @@ impl KpiPage {
 
 #[wasm_bindgen]
 impl Simulation {
-    /// The record `index` of the log, as its canonical JSON (`EventRecord.to_dict()`), or None past
+    /// The record `index` of the log, as its canonical JSON (the record's JSON form), or None past
     /// the last.
     pub fn log_record(&self, index: f64) -> Result<Option<String>, JsError> {
         let mut out = Vec::new();
@@ -1134,8 +1136,8 @@ pub fn build_scenario(request: &[u8], research: &[u8], input_sha256: &str, extra
 
 /// What the offline intervention compiler answers (#303, `sheltersim_core::interpret`): the
 /// canonical JSON of the `CompilerResult` for the JSON of a `ParseRequest` (`text`, `branch_id`,
-/// `selected_minute`, `scenario_summary`), or None where Python refuses the request with a
-/// ValueError (the server's 400 "invalid project request").
+/// `selected_minute`, `scenario_summary`), or None where the compiler refuses the request
+/// (`Error::Value`: the server's 400 "invalid project request").
 #[wasm_bindgen(js_name = compileInterventionOffline)]
 pub fn compile_intervention_offline(request: &[u8]) -> Result<Option<String>, JsError> {
     match sheltersim_core::interpret::compile_offline(request) {

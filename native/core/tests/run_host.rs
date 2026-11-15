@@ -136,11 +136,8 @@ fn policies_of_a_controller_know_its_models_and_sinks() {
     assert_eq!(policies.proximity.known, Ok(false));
     assert_eq!(policies.social.policy, Ok(None));
     assert_eq!(policies.social.complaint_wait_minutes(), Ok(None));
-    assert_eq!(policies.services.toilet.known, Ok(true));
     assert_eq!(policies.services.toilet.object().unwrap().int("max_service_minutes"), Ok(8));
     assert_eq!(policies.services.resource.is_none(), Ok(true));
-    assert_eq!(policies.services.resource.known, Ok(false));
-    assert_eq!(policies.services.staff.known, Ok(true));
     assert_eq!(policies.services.staff.object().unwrap().get("route_resolver"), Ok(&Held::Opaque { callable: true }));
     assert_eq!(policies.sinks.decision_sink, Ok(DecisionSink::Artifacts));
     assert_eq!(policies.sinks.trace_level, Ok(TraceLevel::Summary));
@@ -254,7 +251,7 @@ fn a_run_without_a_controller_refuses_every_policy() {
     assert_eq!(run.policies.behavior.rule, Err(refused.clone()));
     assert_eq!(run.policies.sinks.trace_level, Err(refused.clone()));
     assert_eq!(run.policies.llm(), Err(refused.clone()));
-    assert_eq!(run.policies.services.staff.known, Err(refused));
+    assert_eq!(run.policies.services.staff.is_none(), Err(refused));
     assert!(run.scratch.is_empty());
 }
 
@@ -366,10 +363,7 @@ fn the_test_host_gives_contracts_back_and_draws_only_when_told() {
 }
 
 #[test]
-fn contracts_name_their_models_and_phases_their_names() {
-    assert_eq!(Contract::Guard.model(), ("sheltersim.events.effects", "GuardExpression"));
-    assert_eq!(Contract::EffectParameters(text("set_privacy")).model(), ("sheltersim.events.effects", "_PARAMETER_MODELS"));
-    assert_eq!(Contract::TemporaryRoom.model(), ("sheltersim.contracts.operations", "TemporaryRoomGeometry"));
+fn phases_say_their_names() {
     let names: Vec<&str> = Phase::ORDER.iter().map(|phase| phase.name()).collect();
     assert_eq!(
         names,

@@ -16,7 +16,6 @@ use super::arbitrate::Staff;
 use super::read::is_refusal;
 use super::{Labelled, RunCell, Step, Tick};
 
-pub const CAPTURE: &str = "metrics.capture";
 pub const FINALIZE: &str = "action_lifecycle.finalize_active_actions";
 
 /// The metrics phase.
@@ -26,10 +25,7 @@ pub fn metrics<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R>) 
         // The core's sample goes to the recorder through the host. A refusal leaves the sample to
         // the sink, which says what is wrong.
         MetricSink::Recorder => match capture(tick) {
-            Err(error) if is_refusal(&error).is_some() => {
-                crate::census::caught(CAPTURE, is_refusal(&error).unwrap_or_default());
-                tick.host.capture_by_sink(minute).bare()?;
-            }
+            Err(error) if is_refusal(&error).is_some() => tick.host.capture_by_sink(minute).bare()?,
             other => other.bare()?,
         },
         MetricSink::Sink => tick.host.capture_by_sink(minute).bare()?,

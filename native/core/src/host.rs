@@ -162,29 +162,6 @@ pub enum Contract {
     SpatialConstraints,
 }
 
-impl Contract {
-    /// The module and the name of the model; for `EffectParameters`, of the table of models.
-    pub fn model(&self) -> (&'static str, &'static str) {
-        match self {
-            Contract::RouteAccess => ("sheltersim.domain.geometry_overlay", "RouteAccessParameters"),
-            Contract::EquipmentTransfer => ("sheltersim.contracts.operations", "EquipmentTransferParameters"),
-            Contract::MoveFacility => ("sheltersim.domain.geometry_overlay", "MoveFacilityParameters"),
-            Contract::Partition => ("sheltersim.domain.geometry_overlay", "PartitionParameters"),
-            Contract::TemporaryRoom => ("sheltersim.contracts.operations", "TemporaryRoomGeometry"),
-            Contract::EffectParameters(_) => ("sheltersim.events.effects", "_PARAMETER_MODELS"),
-            Contract::Guard => ("sheltersim.events.effects", "GuardExpression"),
-            Contract::ZoneEnvironment => ("sheltersim.domain.environment", "ScenarioZoneEnvironmentConfig"),
-            Contract::Infrastructure => ("sheltersim.domain.infrastructure", "ScenarioInfrastructureSpec"),
-            Contract::PopulationSpec => ("sheltersim.contracts.extensions", "PopulationSpec"),
-            Contract::ArrivalContext => ("sheltersim.contracts.population", "DynamicArrivalPersonContext"),
-            Contract::PersonTraits => ("sheltersim.contracts.extensions", "PersonTraits"),
-            Contract::PresenceCommand => ("sheltersim.domain.population_lifecycle", "PopulationPresenceCommand"),
-            Contract::FacilityGeometry => ("sheltersim.contracts.extensions", "FacilityGeometry"),
-            Contract::SpatialConstraints => ("sheltersim.contracts.spatial", "SpatialConstraints"),
-        }
-    }
-}
-
 /// A trace document, as `artifacts.record_*_trace` takes it.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Trace {

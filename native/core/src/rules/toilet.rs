@@ -705,27 +705,8 @@ fn rng_key(start: &Start<'_>, facility_arc: &Arc<str>, agent_id: &Arc<str>, head
 #[derive(Debug, PartialEq, Eq)]
 pub struct ScheduleReturn;
 
-/// `ToiletServiceCompletionHandler.apply` up to `after_complete`, with the completion (`complete`).
-/// `body` says whether the world holds `body_state_v1`. `complete`, then, where `home` is given and
-/// the completion asks for it, the walk home on the same borrow (`travel::schedule_return`, for the
-/// controller's own `after_complete`). The walk home's result is None where it did not run.
-pub fn complete_then_home(
-    world: &World,
-    event: &EventRow,
-    queues: &Held,
-    geo: &Geo,
-    body: &Held,
-    metric_state_held: bool,
-    home: Option<(crate::rules::travel::Routing<'_>, crate::rules::travel::Walking<'_>)>,
-) -> (WriteResult<ScheduleReturn>, Option<WriteResult<()>>) {
-    let completed = complete(world, event, queues, geo, body, metric_state_held);
-    let returned = match (&completed, home) {
-        (Ok(ScheduleReturn), Some((routing, walking))) => Some(crate::rules::travel::schedule_return(world, &routing, walking, event)),
-        _ => None,
-    };
-    (completed, returned)
-}
-
+/// `ToiletServiceCompletionHandler.apply` up to `after_complete`: the completion of a toilet's
+/// service. `body` says whether the world holds `body_state_v1`.
 pub fn complete(world: &World, event: &EventRow, queues: &Held, geo: &Geo, body: &Held, metric_state_held: bool) -> WriteResult<ScheduleReturn> {
     let ids = (payload_text(event, "facility_id"), payload_text(event, "agent_id"), payload_text(event, "task_id"));
     let (Some(facility_id), Some(agent_id), Some(task_id)) = ids else {

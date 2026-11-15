@@ -1,7 +1,7 @@
 //! The files the core's answers read (`sheltersim_core::answers`, #449), gathered as the
 //! browser's `project_store.mjs` gathers them for WASM (`readNamed`, `runFiles`, `projectFiles`):
 //! a file's bytes, or None where it is missing or an id that names it is not an identifier (the
-//! core then refuses as Python does), and the folders of a listing that are identifiers, by name.
+//! core's answer then refuses it), and the folders of a listing that are identifiers, by name.
 //! The local and VM versions hand them to the same answers through PyO3 (#427).
 
 use std::fs;

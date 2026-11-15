@@ -1,58 +1,16 @@
-//! The core's Checkpoint byte kernels (`checkpoint::chunk_hashes`, `content_chunk_starts`,
-//! `split_json_array`) and events. The expected values were recorded before #430 and pin the core's
-//! output now. The queue's order is: due minute, priority, sequence, and for equal keys the order
-//! scheduled.
+//! The core's events: the queue, the writer's checks and the log's records. The expected values
+//! were recorded before #430 and pin the core's output now. The queue's order is: due minute,
+//! priority, sequence, and for equal keys the order scheduled.
 
 use std::sync::Arc;
 
 use indexmap::IndexMap;
-use sheltersim_core::checkpoint::{chunk_hashes, content_chunk_starts, dumps_length, sha256_hex, split_json_array};
 use sheltersim_core::error::Error;
 use sheltersim_core::events::log::{fields_of_bytes, EventLog};
 use sheltersim_core::events::queue::Queue;
 use sheltersim_core::events::writer::{self, WriteError};
 use sheltersim_core::events::{EventKind, EventRow, EventStatus};
 use sheltersim_core::value::V;
-
-const ITEMS: [&[u8]; 8] = [br#"{"a":1}"#, br#""x""#, b"[1,2,3]", b"null", br#"{"event_id":"e-1","n":12345678}"#, b"true", b"0.5", br#""\u00e9t\u00e9""#];
-
-#[test]
-fn chunk_hashes_are_the_sha256_of_the_joined_items() {
-    let chunks: Vec<Vec<&[u8]>> = [(0, 3), (3, 2), (5, 3), (0, 0)].iter().map(|&(start, count)| ITEMS[start..start + count].to_vec()).collect();
-    assert_eq!(
-        chunk_hashes(&chunks),
-        [
-            "a05ff4df262798097c4b8ce8bdf2716913d2acd3d4f722874b4d8203e1f5d6ac",
-            "55ba65d7ff93ce4a69e997b027b5aba8f3692dc8cdb8d4ea5cba95b79e0f97ab",
-            "adc939b804d10a6d74700759375e0ad258dc58a1568ce133a032654768e62f3e",
-            "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-        ]
-    );
-    assert_eq!(sha256_hex(br#"[{"a":1},"x",[1,2,3]]"#), chunk_hashes(&chunks[..1])[0]);
-}
-
-#[test]
-fn content_chunk_starts_depend_only_on_the_items() {
-    let texts: Vec<String> = (0..600).map(|index| format!("{{\"i\":{index}}}")).collect();
-    let items: Vec<&[u8]> = texts.iter().map(|text| text.as_bytes()).collect();
-    assert_eq!(content_chunk_starts(&items, 128, 512).unwrap(), [0, 7, 221, 336, 541, 563, 595]);
-    assert_eq!(content_chunk_starts(&items, 4, 8).unwrap()[..20], [0, 1, 3, 7, 10, 14, 18, 24, 31, 35, 38, 39, 42, 50, 52, 54, 57, 58, 59, 60]);
-    assert_eq!(content_chunk_starts(&ITEMS, 2, 3).unwrap(), [0, 1, 3, 6, 7]);
-    assert_eq!(content_chunk_starts(&ITEMS, 0, 3), Err(Error::Value("chunk sizes must be positive".into())));
-}
-
-#[test]
-fn split_json_array_cuts_at_top_level_commas() {
-    let raw = br#"[{"a":[1,2]},"x,y",3,"q\""]"#;
-    let items = split_json_array(raw).unwrap();
-    assert_eq!(items, [&br#"{"a":[1,2]}"#[..], br#""x,y""#, b"3", br#""q\"""#]);
-    assert!(split_json_array(b"[]").unwrap().is_empty());
-    for bad in [&b""[..], b"[", b"[}]", br#"["x]"#, b"{}"] {
-        assert_eq!(split_json_array(bad), Err(Error::Value("not a JSON array".into())));
-    }
-    // json.dumps({"a": [1, "x,y"], "b": None}, ensure_ascii=False) is 28 bytes.
-    assert_eq!(dumps_length(br#"{"a":[1,"x,y"],"b":null}"#), 28);
-}
 
 fn row(event_id: &str, due: i64, priority: i64, sequence: i64) -> EventRow {
     let mut payload = IndexMap::new();
@@ -149,6 +107,4 @@ fn the_writer_schedules_and_records_with_the_recorded_errors() {
     let (read, minute, status, detail) = EventRow::from_saved_record(&written).expect("a saved record");
     assert_eq!((read, minute, status, detail), (event, 10, EventStatus::Applied, None));
     assert!(log.all_encoded());
-    assert_eq!(log.take_written(0).as_deref(), Some(&written[..]));
-    assert!(log.written(0).is_none());
 }

@@ -5,10 +5,10 @@
 use std::sync::Arc;
 
 use crate::config::{Configs, Fault, Lazy, Section, SectionId};
-use crate::error::{Error, Result};
+use crate::error::Error;
 use crate::geometry::Geo;
 use crate::host::{Again, Holding, Host};
-use crate::rules::kit::{self, Held, Kept};
+use crate::rules::kit::{self, Kept};
 use crate::world::{WorldCell, MODEL_CONFIGS};
 
 use super::{RunCell, Tick};
@@ -109,12 +109,4 @@ impl<E> Plan<E> {
 /// Whether a host error is the refusal with this text.
 pub fn is_refusal<E: crate::host::HostFailure>(error: &E) -> Option<String> {
     (error.class() == crate::host::ErrorClass::Refused).then(|| error.text())
-}
-
-/// A namespace held as the step reads it, the refusal raised where the step raised it.
-pub fn held_now(held: Held) -> Result<Held> {
-    match held {
-        Held::Other(reason) => Err(Error::unsupported(reason)),
-        held => Ok(held),
-    }
 }

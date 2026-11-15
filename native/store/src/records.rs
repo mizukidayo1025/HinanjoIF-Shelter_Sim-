@@ -1,22 +1,21 @@
 //! The Project, Scenario, Run and Branch records of a store, in the browser's shapes and folders
-//! (`native/wasm/js/project_store.mjs`, which takes Python's `ProjectStore` shapes; `layout` lists
-//! the folders), with Python's errors:
+//! (`native/wasm/js/project_store.mjs`; `layout` lists the folders), with the store's refusals:
 //!
 //! ```text
 //!   project.json            {schema_version, project_id, archived}
 //!   v<n>.json               {schema_version, scenario_id, scenario_version, scenario_hash, approved}
-//!   v<n>.scenario.json      the Scenario's canonical JSON as Python wrote it; its sha256 is the hash
+//!   v<n>.scenario.json      the Scenario's canonical JSON as it was saved; its sha256 is the hash
 //!   run.json                {schema_version, project_id, scenario_id, scenario_version,
 //!                            scenario_hash, run_id, seed, model_versions, status, archived,
 //!                            created_at}; schema version 2 (#447), 1 without created_at
-//!   evidence.json           evidence_context(scenario) as Python wrote it
+//!   evidence.json           the Run's evidence (`sheltersim_core::initial::evidence`)
 //!   branch.json             {schema_version, run_id, branch_id, parent_branch_id, fork_minute,
 //!                            computed_until, checkpoint_hash, status}; no status before the
 //!                            branch's first computation
 //! ```
 //!
-//! A record is JSON with its keys sorted, no spaces, and a newline: the same bytes as the browser's
-//! and Python's. A file is written whole (a temporary file flushed, renamed over the record, and the
+//! A record is JSON with its keys sorted, no spaces, and a newline: the same bytes as the browser's.
+//! A file is written whole (a temporary file flushed, renamed over the record, and the
 //! folder flushed, as Python's `ProjectStore._write`), after the store's limit is checked
 //! (`quota`). A record written once (project.json) may be written again only with the same bytes.
 //! The records are not locked here: a caller that must keep another process out of a change holds
@@ -38,7 +37,7 @@ use crate::lock::{self, Lease};
 use crate::quota::{self, Quota, Usage};
 use crate::{Error, Result};
 
-/// A Run's statuses (Python's).
+/// A Run's statuses.
 pub const STATUSES: [&str; 7] = ["queued", "running", "paused", "completed", "cancelled", "failed", "interrupted"];
 
 // The texts of a record that is not there or is not JSON, and of one of another schema version:
@@ -88,8 +87,7 @@ pub fn record_bytes(record: &Record) -> Vec<u8> {
     text.into_bytes()
 }
 
-/// The record of `bytes`: a JSON object of schema version 1, or Python's errors (the core's
-/// `record_of`).
+/// The record of `bytes`: a JSON object of schema version 1, or the core's refusal (`record_of`).
 pub fn parse_record(bytes: &[u8]) -> Result<Record> {
     record_of(bytes).map_err(Error::refused)
 }
@@ -139,9 +137,9 @@ pub struct NewRun<'a> {
     pub scenario_id: &'a str,
     pub scenario_version: i64,
     pub seed: i64,
-    /// The model versions as Python's RunReference has them: a JSON object of strings.
+    /// The model versions (`sheltersim_core::initial::model_versions`): a JSON object of strings.
     pub model_versions: &'a Value,
-    /// The JSON of `evidence_context(scenario)`, as Python wrote it.
+    /// The JSON bytes of the Run's evidence (`sheltersim_core::initial::evidence`).
     pub evidence: &'a [u8],
     /// When the Run is created, UTC to the second (`YYYY-MM-DDTHH:MM:SSZ`): the caller's clock.
     pub created_at: &'a str,
@@ -386,8 +384,8 @@ impl ProjectFiles {
         Ok(record)
     }
 
-    /// The Scenario records of a Project in Python's order (by Scenario id, then file name), each
-    /// with the Scenario's bytes as Python wrote them.
+    /// The Scenario records of a Project in order (by Scenario id, then file name), each with the
+    /// Scenario's bytes as they were saved.
     pub fn scenarios(&self, project: &str) -> Result<Vec<(Record, Vec<u8>)>> {
         let mut listed_scenarios = Vec::new();
         for id in listed(&self.layout.scenarios(project)?, true)? {
@@ -469,7 +467,7 @@ impl ProjectFiles {
         Ok(ids)
     }
 
-    /// Sets a Run's status (Python's `set_status`).
+    /// Sets a Run's status.
     pub fn set_run_status(&self, project: &str, run: &str, status: &str) -> Result<Record> {
         if !STATUSES.contains(&status) {
             return Err(Error::refused("unsupported run status"));
@@ -481,8 +479,7 @@ impl ProjectFiles {
         Ok(record)
     }
 
-    /// Sets a branch's status and keeps the Run's status their summary (Python's
-    /// `set_branch_status`, #48): the Run is `running` while any of its branches is queued or
+    /// Sets a branch's status and keeps the Run's status their summary (#48): the Run is `running` while any of its branches is queued or
     /// running, else `run_status`, or this branch's status. The branch's record.
     pub fn set_branch_status(&self, project: &str, run: &str, branch: &str, status: &str, run_status: Option<&str>) -> Result<Record> {
         if !STATUSES.contains(&status) {
@@ -496,13 +493,13 @@ impl ProjectFiles {
     }
 
     /// Sets a Run's status to `running` while any of its branches is queued or running, else to
-    /// `idle` (Python's `settle_run_status`). The Run's record.
+    /// `idle`. The Run's record.
     pub fn settle_run_status(&self, project: &str, run: &str, idle: &str) -> Result<Record> {
         let busy = self.branches(project, run)?.iter().any(|record| matches!(record.get("status").and_then(Value::as_str), Some("queued" | "running")));
         self.set_run_status(project, run, if busy { "running" } else { idle })
     }
 
-    /// The Scenario of a Run, as the bytes Python wrote.
+    /// The Scenario of a Run, as the bytes saved.
     pub fn run_scenario_bytes(&self, project: &str, run: &str) -> Result<Vec<u8>> {
         let record = self.run_record(project, run)?;
         let scenario = record.get("scenario_id").and_then(Value::as_str).ok_or_else(|| Error::refused(MISSING))?;
@@ -510,7 +507,7 @@ impl ProjectFiles {
         read_if_there(&self.layout.scenario(project, scenario)?.join(format!("v{version}.scenario.json")))?.ok_or_else(|| Error::refused(MISSING))
     }
 
-    /// A Run's evidence, as the bytes Python wrote.
+    /// A Run's evidence, as the bytes saved.
     pub fn evidence_bytes(&self, project: &str, run: &str) -> Result<Vec<u8>> {
         self.run_record(project, run)?;
         read_if_there(&self.layout.run_file(project, run, "evidence.json")?)?.ok_or_else(|| Error::refused(MISSING))

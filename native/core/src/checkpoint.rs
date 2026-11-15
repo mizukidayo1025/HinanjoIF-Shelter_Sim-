@@ -1,10 +1,7 @@
-//! Checkpoint save kernels over bytes (docs/rust-port.md, stage B3): the privacy check's
-//! candidates, the content-defined chunk starts, the chunk hashes, the length `json.dumps` gives,
-//! and the items of a saved JSON array. A stored Run's privacy check (`sensitive`) reads the
-//! candidates; the chunk kernels were for the Python Checkpoint, which #430 removed, and only the
-//! core's tests call them now. Without the `parallel` feature (the wasm32 build),
-//! `sensitive_candidates` and `chunk_hashes` read their inputs one after another on the calling
-//! thread, with the same result.
+//! Kernels over saved bytes (docs/rust-port.md, stage B3): the privacy check's candidates, which a
+//! stored Run's privacy check (`sensitive`) reads, and the hex digests. Without the `parallel`
+//! feature (the wasm32 build), `sensitive_candidates` reads its inputs one after another on the
+//! calling thread, with the same result.
 //!
 //! `candidates` reads a chunk's canonical JSON bytes and returns what the privacy check must look
 //! at: the distinct object keys, and the distinct string values that its patterns could match. The
@@ -24,8 +21,6 @@
 use rayon::prelude::*;
 use rustc_hash::FxHashSet;
 use sha2::{Digest, Sha256};
-
-use crate::error::{Error, Result};
 
 /// The keys and the strings of `candidates`.
 pub type Candidates = (FxHashSet<String>, FxHashSet<String>);
@@ -152,78 +147,6 @@ fn merge_candidates((mut keys, mut strings): Candidates, (more_keys, more_string
     Ok((keys, strings))
 }
 
-/// A 64-bit hash of one item's bytes that decides content-defined chunk ends. It is part of
-/// how the archive lays out chunks, not of any Checkpoint hash: eight bytes at a time,
-/// little-endian, then the length, then a final mix (splitmix64), the same on every OS.
-fn item_cut_hash(item: &[u8]) -> u64 {
-    let mut hash: u64 = 0x9e37_79b9_7f4a_7c15;
-    let mut words = item.chunks_exact(8);
-    for word in &mut words {
-        let value = u64::from_le_bytes(word.try_into().expect("eight bytes"));
-        hash = (hash.rotate_left(5) ^ value).wrapping_mul(0x517c_c1b7_2722_0a95);
-    }
-    let mut tail = [0u8; 8];
-    let rest = words.remainder();
-    tail[..rest.len()].copy_from_slice(rest);
-    hash = (hash.rotate_left(5) ^ u64::from_le_bytes(tail)).wrapping_mul(0x517c_c1b7_2722_0a95);
-    hash ^= item.len() as u64;
-    hash = (hash ^ (hash >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
-    hash = (hash ^ (hash >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
-    hash ^ (hash >> 31)
-}
-
-/// `ValueError` unless both chunk sizes of `content_chunk_starts` are positive.
-pub fn chunk_sizes_valid(average: u64, maximum: usize) -> Result<()> {
-    if average == 0 || maximum == 0 {
-        return Err(Error::Value("chunk sizes must be positive".into()));
-    }
-    Ok(())
-}
-
-/// Where each chunk of items starts when a chunk ends after an item whose hash is
-/// `average - 1` modulo `average`, or once it holds `maximum` items. The ends depend only
-/// on the items themselves, so dropping items from the front or putting one in the middle
-/// moves only the chunks around the change (#138).
-pub fn content_chunk_starts(items: &[&[u8]], average: u64, maximum: usize) -> Result<Vec<usize>> {
-    chunk_sizes_valid(average, maximum)?;
-    let mut starts = Vec::new();
-    let mut size = 0;
-    for (index, item) in items.iter().enumerate() {
-        if size == 0 {
-            starts.push(index);
-        }
-        size += 1;
-        if size == maximum || item_cut_hash(item) % average == average - 1 {
-            size = 0;
-        }
-    }
-    Ok(starts)
-}
-
-/// The SHA-256 hex digest of `[item,item,...]` for each chunk of items, computed in parallel
-/// without joining the items, in the chunks' order.
-pub fn chunk_hashes(chunks: &[Vec<&[u8]>]) -> Vec<String> {
-    #[cfg(feature = "parallel")]
-    let hashes = chunks.par_iter().map(|chunk| chunk_hash(chunk)).collect();
-    #[cfg(not(feature = "parallel"))]
-    let hashes = chunks.iter().map(|chunk| chunk_hash(chunk)).collect();
-    hashes
-}
-
-/// The SHA-256 hex digest of `[item,item,...]`, without joining the items.
-pub fn chunk_hash(chunk: &[&[u8]]) -> String {
-    let mut hasher = Sha256::new();
-    hasher.update(b"[");
-    for (index, item) in chunk.iter().enumerate() {
-        if index > 0 {
-            hasher.update(b",");
-        }
-        hasher.update(item);
-    }
-    hasher.update(b"]");
-    hex(&hasher.finalize())
-}
-
 /// Lowercase hex digits of bytes, as `hashlib`'s `hexdigest` writes them.
 pub fn hex(digest: &[u8]) -> String {
     const DIGITS: &[u8; 16] = b"0123456789abcdef";
@@ -238,64 +161,4 @@ pub fn hex(digest: &[u8]) -> String {
 /// `hashlib.sha256(raw).hexdigest()`.
 pub fn sha256_hex(raw: &[u8]) -> String {
     hex(&Sha256::digest(raw))
-}
-
-/// `len(json.dumps(value, ensure_ascii=False).encode())` of a value whose canonical JSON is `raw`:
-/// one more byte for each separator, which only json.dumps' default separators have a space in.
-pub fn dumps_length(raw: &[u8]) -> usize {
-    let mut length = raw.len();
-    let mut in_text = false;
-    let mut index = 0;
-    while index < raw.len() {
-        match raw[index] {
-            b'\\' if in_text => index += 1,
-            b'"' => in_text = !in_text,
-            b',' | b':' if !in_text => length += 1,
-            _ => {}
-        }
-        index += 1;
-    }
-    length
-}
-
-/// The bytes of each item of a JSON array, split where JSON does: at commas outside strings and
-/// nested values. raw must be one canonical JSON array; `ValueError` otherwise.
-pub fn split_json_array(raw: &[u8]) -> Result<Vec<&[u8]>> {
-    let bad = || Error::Value("not a JSON array".into());
-    let length = raw.len();
-    if length < 2 || raw[0] != b'[' || raw[length - 1] != b']' {
-        return Err(bad());
-    }
-    let mut items = Vec::new();
-    let (mut depth, mut in_string, mut escaped) = (0usize, false, false);
-    let mut start = 1;
-    for (index, &byte) in raw.iter().enumerate().take(length - 1).skip(1) {
-        if in_string {
-            if escaped {
-                escaped = false;
-            } else if byte == b'\\' {
-                escaped = true;
-            } else if byte == b'"' {
-                in_string = false;
-            }
-            continue;
-        }
-        match byte {
-            b'"' => in_string = true,
-            b'[' | b'{' => depth += 1,
-            b']' | b'}' => depth = depth.checked_sub(1).ok_or_else(bad)?,
-            b',' if depth == 0 => {
-                items.push(&raw[start..index]);
-                start = index + 1;
-            }
-            _ => {}
-        }
-    }
-    if in_string || depth != 0 {
-        return Err(bad());
-    }
-    if start < length - 1 {
-        items.push(&raw[start..length - 1]);
-    }
-    Ok(items)
 }

@@ -5,8 +5,8 @@
 //!
 //! A record a rule appends (`append_row`) has its bytes written here; a record read back from a
 //! saved point is added with bytes checked by its reader (`add` with `has_bytes`, `archive`). The
-//! log may hold the records in a binary form instead (`pack_records`, #252). `take_written` and
-//! a record without bytes were for the Python objects of the records, which #430 removed.
+//! log may hold the records in a binary form instead (`pack_records`, #252). A record without
+//! bytes was for the Python objects of the records, which #430 removed.
 //!
 //! The bytes are what restoring the record reads, so a log whose every record has bytes written
 //! or checked here (`all_encoded`) is its own restored log.
@@ -31,7 +31,7 @@ struct Entry {
     event_id: Arc<str>,
     /// For `rollback`, which takes it out of `sequences`.
     sequence: i64,
-    /// The bytes written here, until taken (`take_written`).
+    /// The bytes written here, until packed (`pack_records`).
     written: Option<Box<[u8]>>,
     event_type: u32,
     applied: bool,
@@ -411,14 +411,9 @@ impl EventLog {
         self.unencoded == 0
     }
 
-    /// The bytes written here of the record at a position, unless taken (`take_written`).
+    /// The bytes written here of the record at a position.
     pub fn written(&self, index: usize) -> Option<&[u8]> {
         self.entries.get(index)?.written.as_deref()
-    }
-
-    /// The bytes written here, taken out.
-    pub fn take_written(&mut self, index: usize) -> Option<Box<[u8]>> {
-        self.entries[index].written.take()
     }
 
     /// The positions before `end` whose objects may be let go: their bytes were written or read
@@ -617,8 +612,7 @@ impl EventLog {
     }
 
     /// Take out the records appended since the mark, last first, with what each added to the
-    /// indexes: the log is then what it was at the mark. The bytes of an earlier record taken
-    /// since (`take_written`) stay taken.
+    /// indexes: the log is then what it was at the mark.
     pub fn rollback(&mut self, mark: LogMark) {
         let len = mark.len.min(self.entries.len());
         let mut removed: HashSet<Arc<str>> = HashSet::with_capacity(self.entries.len() - len);
@@ -660,11 +654,6 @@ impl EventLog {
         self.audited = mark.audited;
         self.audit_bounds = mark.audit_bounds;
         self.scanned_types = mark.scanned_types;
-    }
-
-    /// The sizes of the record list and of the ID and sequence indexes.
-    pub fn index_sizes(&self) -> (usize, usize, usize) {
-        (self.entries.len(), self.by_id.len(), self.sequences.len())
     }
 }
 

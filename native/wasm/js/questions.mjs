@@ -1,6 +1,6 @@
 // The browser's answer to a question about a branch's results (Issue #308, under #292):
 // `POST runs/{run}/branches/{branch}/questions`, as the Python server answers it without an API key
-// (src/sheltersim/web/results_chat.py `_ask` and `_project_evidence`): the request's checks, the
+// (src/sheltersim/web/workspace.py `question`): the request's checks, the
 // evidence's checks (a completed branch, the minute, the selected person, the branches compared),
 // the fixed answer that no question can be answered without the Claude API, the context of the
 // question and its id, and the turn kept beside the branch.

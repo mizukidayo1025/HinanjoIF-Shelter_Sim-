@@ -3,7 +3,7 @@
 //!
 //! - With the fixtures' compressor (deflate's stored blocks, the same bytes everywhere), each
 //!   branch's journal and data.pack are the browser's byte for byte, and the Projects' records are
-//!   the ones `records.json` holds.
+//!   the ones `records.json` holds, and the Project's bundle of them has a pinned sha256.
 //! - With flate2's deflate-raw, the store's own, each journal has the same lines but where each piece
 //!   is in data.pack and how long it is: each line's head hash and each piece's bytes before
 //!   compression (its sha256 and length) are the browser's, so are the branches' records (their
@@ -54,6 +54,10 @@ fn the_store_writes_the_browsers_stored_runs_and_records_byte_for_byte() {
         let written = fs::read_to_string(dir.path().join("store").join(&path)).unwrap();
         assert_eq!(written, text, "{path}");
     }
+    // The Project's bundle of these files (`export_project`, the file a person downloads): its
+    // manifest and the order of its entries are pinned too (#489).
+    let bundle = made.files.export_project("p1", &serde_json::json!({"tool": "test"})).unwrap();
+    assert_eq!(sha256_hex(&bundle), "8b2dd9884ed2296210c7322faaf797f81cd6036748fb8697c9fd3b788947f2d4");
     seeks_reach_the_browsers_worlds(&made);
 }
 

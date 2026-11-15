@@ -15,7 +15,7 @@ import pytest
 from support.isolation import _isolate
 
 # The structured form the demo-v2 Scenario screen posts (scenarioRequest in
-# demo-v2.js): only the fields an operator types, each marked as user input.
+# demo-v2-scenario.js): only the fields an operator types, each marked as user input.
 # Small enough that running the whole Scenario takes seconds.
 GENERATED_SCENARIO_REQUEST: dict[str, Any] = {
     "municipality": "合成市",
@@ -209,8 +209,8 @@ def place_three_at_facility() -> Callable[[Any, str], None]:
     """
 
     def place(world: Any, facility_id: str) -> None:
-        from sheltersim.domain.geometry_overlay import effective_geometry
-        from sheltersim.domain.movement import MOVEMENT_STATE_KEY
+        from sheltersim.scenario_authoring.configs.geometry_overlay import effective_geometry
+        from sheltersim.scenario_authoring.configs.movement import MOVEMENT_STATE_KEY
 
         zone_id = world.facilities[facility_id].zone_id
         zone = next(row for row in effective_geometry(world).zones if row.zone_id == zone_id)

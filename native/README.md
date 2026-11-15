@@ -68,7 +68,8 @@ each one carries `#[rustfmt::skip]`.
     checks the reading; `tests/integration/test_llm_answers.py` asks through the Project API with
     a fake Provider.
   - `initial_entry`, `initial_model_versions`, `initial_evidence`, `scenario_text_parse`,
-    `set_people_per_helper`, `parallel_state`, and the exception `Unsupported`.
+    `model_catalog` (the Model Catalog's JSON, `validate/model-catalog.json`), `selected_models`
+    (the models a Scenario's configs select, #475), `set_people_per_helper`, `parallel_state`, and the exception `Unsupported`.
   - `core/errors.rs` makes the core's errors Python's exceptions; `core/llm_link.rs` calls a
     Python link (`sheltersim.llm.link.RouterLink`) from the core's port.
 

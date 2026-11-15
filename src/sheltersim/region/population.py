@@ -10,8 +10,6 @@ from typing import Iterable, Literal
 from pydantic import Field, model_validator
 
 from sheltersim.contracts.extensions import PersonTraits, PopulationSpec
-from sheltersim.core.rng import CounterRNG
-from sheltersim.domain.models import Mobility
 from sheltersim.experiments.profiles import (
     GeneratedProfileSet,
     ProfileTemplate,
@@ -19,6 +17,8 @@ from sheltersim.experiments.profiles import (
 )
 from sheltersim.experiments.scenario import ProfileSpec
 from sheltersim.region.models import RegionModel, StatisticalObservation
+from sheltersim.scenario_authoring.configs.models import Mobility
+from sheltersim.scenario_authoring.rng import CounterRNG
 
 SYNTHETIC_AGE_ASSUMPTION_ID = "ASM-SYNTHETIC-AGE-BANDS-V1"
 SYNTHETIC_HOUSEHOLD_ASSUMPTION_ID = "ASM-SYNTHETIC-HOUSEHOLD-SIZES-V1"

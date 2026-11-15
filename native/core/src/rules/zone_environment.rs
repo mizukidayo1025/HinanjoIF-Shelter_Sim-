@@ -415,64 +415,138 @@ fn record_refused<T>() -> Result<T> {
     Err(Error::unsupported(RECORD_REFUSED))
 }
 
-/// A modifier record: its ID, and the document in `zone_environment_v1.modifiers`.
+/// A modifier record: its ID, and the fields of its document in `zone_environment_v1.modifiers`
+/// that the rule reads. A field the rule would refuse is None, refused where the rule reads it.
 struct Modifier {
     id: Arc<str>,
     zone_id: Option<Arc<str>>,
-    record: IndexMap<Arc<str>, V>,
+    start_minute: Option<i64>,
+    /// `record["op"]`: None for no key; Some(None) for a value that is not a str, which is none of
+    /// the operations the rule compares it with.
+    op: Option<Option<Arc<str>>>,
+    start_event_id: Option<Arc<str>>,
+    source_id: Option<Arc<str>>,
+    assumption_ids: Option<Vec<Arc<str>>>,
+    /// None for no `parameters`, or one that is not a mapping.
+    parameters: Option<Parameters>,
+}
+
+/// The parameters the rule reads, each None where it is missing or of another type.
+struct Parameters {
+    action: Option<Arc<str>>,
+    effectiveness: Option<f64>,
+    level: Option<f64>,
+    temperature_c: Option<f64>,
+    probability_multiplier: Option<f64>,
+    duration_multiplier: Option<f64>,
+}
+
+/// A float and nothing else.
+fn float_of(value: Option<&V>) -> Option<f64> {
+    match value {
+        Some(V::Float(number)) => Some(*number),
+        _ => None,
+    }
+}
+
+/// A str and nothing else.
+fn text_of(value: Option<&V>) -> Option<Arc<str>> {
+    match value {
+        Some(V::Str(text)) => Some(text.clone()),
+        _ => None,
+    }
 }
 
 impl Modifier {
-    #[track_caller]
-    fn field(&self, name: &str) -> Result<&V> {
-        match self.record.get(name) {
-            Some(value) => Ok(value),
-            None => record_refused(),
+    /// The fields of a record, as the rule reads them.
+    fn read(id: &Arc<str>, zone_id: Option<Arc<str>>, record: &IndexMap<Arc<str>, V>) -> Self {
+        let start_minute = match record.get("start_minute") {
+            Some(V::Int(minute)) => Some(*minute),
+            _ => None,
+        };
+        let assumption_ids = match record.get("assumption_ids") {
+            Some(V::List(items)) => items.iter().map(|item| text_of(Some(item))).collect(),
+            _ => None,
+        };
+        let parameters = match record.get("parameters") {
+            Some(V::Map(parameters)) => Some(Parameters {
+                action: text_of(parameters.get("action")),
+                effectiveness: float_of(parameters.get("effectiveness")),
+                level: float_of(parameters.get("level")),
+                temperature_c: float_of(parameters.get("temperature_c")),
+                probability_multiplier: float_of(parameters.get("probability_multiplier")),
+                duration_multiplier: float_of(parameters.get("duration_multiplier")),
+            }),
+            _ => None,
+        };
+        Modifier {
+            id: id.clone(),
+            zone_id,
+            start_minute,
+            op: record.get("op").map(|op| text_of(Some(op))),
+            start_event_id: text_of(record.get("start_event_id")),
+            source_id: text_of(record.get("source_id")),
+            assumption_ids,
+            parameters,
         }
     }
 
+    /// A number of the parameters, as `get` reads it.
     #[track_caller]
-    fn text(&self, name: &str) -> Result<Arc<str>> {
-        match self.field(name)? {
-            V::Str(text) => Ok(text.clone()),
+    fn number(&self, get: fn(&Parameters) -> Option<f64>) -> Result<f64> {
+        match self.parameters.as_ref().map(|parameters| get(parameters)) {
+            Some(Some(number)) => Ok(number),
             _ => record_refused(),
         }
     }
 
     #[track_caller]
-    fn parameter(&self, name: &str) -> Result<&V> {
-        match self.field("parameters")? {
-            V::Map(parameters) => match parameters.get(name) {
-                Some(value) => Ok(value),
-                None => record_refused(),
-            },
-            _ => record_refused(),
-        }
-    }
-
-    #[track_caller]
-    fn number(&self, name: &str) -> Result<f64> {
-        match self.parameter(name)? {
-            V::Float(number) => Ok(*number),
+    fn action(&self) -> Result<&Arc<str>> {
+        match self.parameters.as_ref().map(|parameters| &parameters.action) {
+            Some(Some(action)) => Ok(action),
             _ => record_refused(),
         }
     }
 
     #[track_caller]
     fn start_minute(&self) -> Result<i64> {
-        match self.field("start_minute")? {
-            V::Int(minute) => Ok(*minute),
-            _ => record_refused(),
+        match self.start_minute {
+            Some(minute) => Ok(minute),
+            None => record_refused(),
         }
     }
 
     /// `record["op"]`; only a str is one of the operations the rule compares it with.
     #[track_caller]
     fn op(&self) -> Result<Option<&str>> {
-        Ok(match self.field("op")? {
-            V::Str(text) => Some(text),
-            _ => None,
-        })
+        match &self.op {
+            Some(op) => Ok(op.as_deref()),
+            None => record_refused(),
+        }
+    }
+
+    #[track_caller]
+    fn start_event_id(&self) -> Result<Arc<str>> {
+        match &self.start_event_id {
+            Some(id) => Ok(id.clone()),
+            None => record_refused(),
+        }
+    }
+
+    #[track_caller]
+    fn source_id(&self) -> Result<Arc<str>> {
+        match &self.source_id {
+            Some(id) => Ok(id.clone()),
+            None => record_refused(),
+        }
+    }
+
+    #[track_caller]
+    fn assumption_ids(&self) -> Result<Vec<Arc<str>>> {
+        match &self.assumption_ids {
+            Some(ids) => Ok(ids.clone()),
+            None => record_refused(),
+        }
     }
 }
 
@@ -512,7 +586,7 @@ impl ZoneInputs {
                 Some(_) => None,
                 None => return record_refused(),
             };
-            modifiers.push(Modifier { id: id.clone(), zone_id, record: record.clone() });
+            modifiers.push(Modifier::read(id, zone_id, record));
         }
         Ok(Self { parts: Some((config, formulas, modifiers)) })
     }
@@ -544,19 +618,19 @@ impl ZoneInputs {
         let privacy_records = of_op("set_privacy")?;
         let temperature_records = of_op("set_temperature")?;
         let ventilation = match ventilation_records.last() {
-            Some(record) => record.number("effectiveness")?,
+            Some(record) => record.number(|parameters| parameters.effectiveness)?,
             None => baseline.ventilation_effectiveness,
         };
         let lighting = match lighting_records.last() {
-            Some(record) => record.number("level")?,
+            Some(record) => record.number(|parameters| parameters.level)?,
             None => baseline.lighting_level,
         };
         let privacy = match privacy_records.last() {
-            Some(record) => record.number("level")?,
+            Some(record) => record.number(|parameters| parameters.level)?,
             None => baseline.privacy_level,
         };
         let temperature = match temperature_records.last() {
-            Some(record) => record.number("temperature_c")?,
+            Some(record) => record.number(|parameters| parameters.temperature_c)?,
             None => baseline.temperature_c,
         };
         let mut condition_event_ids = Vec::new();
@@ -565,8 +639,8 @@ impl ZoneInputs {
         for records in [&ventilation_records, &lighting_records, &privacy_records, &temperature_records] {
             for record in records {
                 has_condition_records = true;
-                condition_event_ids.push(record.text("start_event_id")?);
-                condition_sources.push(record.text("source_id")?);
+                condition_event_ids.push(record.start_event_id()?);
+                condition_sources.push(record.source_id()?);
             }
         }
         // Not a set in the Python rule: an event that started two records shows twice.
@@ -577,7 +651,7 @@ impl ZoneInputs {
         let noise_entries = of_op("set_ambient_noise")?;
         let mut noise_level: Option<f64> = None;
         for record in &noise_entries {
-            let level = record.number("level")?;
+            let level = record.number(|parameters| parameters.level)?;
             noise_level = Some(noise_level.map_or(level, |largest| py_max(largest, level)));
         }
         let noise_level = noise_level.unwrap_or(0.0);
@@ -585,9 +659,7 @@ impl ZoneInputs {
 
         let mut by_action: Vec<(Arc<str>, Vec<&Modifier>)> = Vec::new();
         for modifier in of_op("modify_demand_rate")? {
-            let V::Str(action) = modifier.parameter("action")? else {
-                return record_refused();
-            };
+            let action = modifier.action()?;
             match by_action.iter_mut().find(|(known, _)| known == action) {
                 Some((_, records)) => records.push(modifier),
                 None => by_action.push((action.clone(), vec![modifier])),
@@ -599,17 +671,17 @@ impl ZoneInputs {
             // `math.prod`: in order, from 1.
             let (mut probability, mut duration) = (1.0_f64, 1.0_f64);
             for record in &records {
-                probability *= record.number("probability_multiplier")?;
+                probability *= record.number(|parameters| parameters.probability_multiplier)?;
             }
             for record in &records {
-                duration *= record.number("duration_multiplier")?;
+                duration *= record.number(|parameters| parameters.duration_multiplier)?;
             }
             let mut sources = vec![config.source_id.clone()];
             let mut event_ids = Vec::with_capacity(records.len());
             for record in &records {
-                event_ids.push(record.text("start_event_id")?);
-                sources.extend(assumption_ids(record)?);
-                sources.push(record.text("source_id")?);
+                event_ids.push(record.start_event_id()?);
+                sources.extend(record.assumption_ids()?);
+                sources.push(record.source_id()?);
             }
             let duration_multiplier = if matches!(&*action, "rest" | "sleep") { py_min(2.0, py_max(0.5, duration)) } else { 1.0 };
             demand_modifiers.push(DemandModifier {
@@ -624,9 +696,9 @@ impl ZoneInputs {
         let mut noise_sources = vec![config.source_id.clone()];
         let mut noise_event_ids = Vec::with_capacity(noise_entries.len());
         for record in &noise_entries {
-            noise_event_ids.push(record.text("start_event_id")?);
-            noise_sources.push(record.text("source_id")?);
-            noise_sources.extend(assumption_ids(record)?);
+            noise_event_ids.push(record.start_event_id()?);
+            noise_sources.push(record.source_id()?);
+            noise_sources.extend(record.assumption_ids()?);
         }
         Ok(ZoneConditions {
             ambient_noise_level: noise_level,
@@ -647,18 +719,4 @@ impl ZoneInputs {
             condition_assumption_ids: if has_condition_records || config.is_v2 { sorted_set(condition_sources) } else { Vec::new() },
         })
     }
-}
-
-#[track_caller]
-fn assumption_ids(record: &Modifier) -> Result<Vec<Arc<str>>> {
-    let V::List(items) = record.field("assumption_ids")? else {
-        return record_refused();
-    };
-    items
-        .iter()
-        .map(|item| match item {
-            V::Str(text) => Ok(text.clone()),
-            _ => record_refused(),
-        })
-        .collect()
 }

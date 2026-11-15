@@ -17,7 +17,7 @@ g(\rho)=\min(g_{max},1+c_\rho\max(0,\rho-0.5)).
 
 ## 実装・連携
 
-`src/sheltersim/policies/space.py` はZone最短経路、`src/sheltersim/domain/movement.py` は `route_with_movement_time`、物理位置、進捗、version `spatial-route-and-room-waypoint-v2` を管理します。施設・スタッフ・Agent移動はイベント完了時に更新し、閉鎖edgeはroute graphから外れます。
+`src/sheltersim/policies/space.py` はZone最短経路、`src/sheltersim/scenario_authoring/configs/movement.py` は `route_with_movement_time`、物理位置、進捗、version `spatial-route-and-room-waypoint-v2` を管理します。施設・スタッフ・Agent移動はイベント完了時に更新し、閉鎖edgeはroute graphから外れます。
 
 ## 内部検証と限界
 

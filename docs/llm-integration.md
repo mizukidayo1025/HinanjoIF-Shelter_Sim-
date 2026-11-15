@@ -155,7 +155,7 @@ live連携testは標準testとは別で、`tests/live/test_live_api.py`にあり
 
 - モデル別確認：3 call、0.15ドル。runtimeの呼び出しは分析用の枠（`ANALYSIS_RESERVED_CALLS`）を残す必要があるので、Haiku（runtime）を最初に、Opus・Sonnetをその後に呼びます。上限は実行ごとの口座（`live-task-qa-<乱数>`）に掛かり、全実行の合計は端末の共有上限（task-global-v1）が抑えます。この設定と順番が、2回続けても台帳の上限に収まることは、`tests/unit/llm/test_accounting.py`がAPIを呼ばずに確かめます（#148）。
 - 公式ドメイン検索：2 call分の枠。モデル別確認と同じく実行ごとの口座（`live-source-search-stream-qa-<乱数>`）に掛かり、続けて実行しても予約できることを`tests/unit/llm/test_accounting.py`が確かめます（#152）。
-- 機能の通し確認：12 call、2ドル
+- 機能の通し確認：各LLMの段階を今の道で1回ずつ通します。Scenarioの下書き（`generate_scenario_draft`、Opus）、中核のtickの中のruntimeの問い（`PlainRun.set_llm`と`RouterLink`、Haiku。全員のストレスを高くし、問いは1日に社会の判断1件と支援の優先度1件まで）と、そのLLMテープからの再計算（Providerを呼ばず、同じworld）、LLMつきで計算したProject Runのレビュー（Opus）、介入文の読み取り（`POST …/intervention-preview`、Sonnet。下書きだけで、承認するまでBranchは変わりません）、質問（`POST …/questions`、Opus）と、replayモードでの同じ質問（Runの分析テープから答え、Providerを呼ばない）です。利用枠は、準備とruntimeの口座（`live-feature-<乱数>`）とProject Runの口座に、それぞれ12 call・1ドルです。同じ手順（`tests/support/llm.py`の`live_feature_route`）を、`tests/integration/test_llm_answers.py`が偽のProviderでAPIを呼ばずに毎回実行します。手順が使う道がなくなったとき、ゲートを開く前に気づけます（#522）。
 
 実際の費用は、予約額よりずっと小さくなります。実行前に実効上限を確認し、その時点でのオーナー承認を得てください。
 

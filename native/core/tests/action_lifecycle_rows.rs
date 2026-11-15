@@ -1,16 +1,11 @@
 //! The rules of `agent_dynamics_v1` and of the open actions (`rules::agent_dynamics`,
-//! `rules::action_lifecycle`) on the worlds of `integration/test_action_lifecycle_rows.py`: the
-//! Project screen's generated Scenario at minute 0 (`people_rows.json`, written by
-//! `tests/support/core_people_rows.py`), with the inputs that file made with `random.Random`
-//! (Issue #225, lane M5). The PyO3 entries (`native/src/rules/agent_dynamics.rs`,
-//! `action_lifecycle.rs`) read their arguments and call these kernels; the pytest file keeps an
-//! entry test for each, and the tests of the boundary: the rows and their trees, what taints them,
-//! the store's Python object, and the Python validation of a saved namespace.
+//! `rules::action_lifecycle`) on the Project screen's generated Scenario at minute 0
+//! (`data/people_rows.json`, with inputs made with `random.Random`; Issue #225, lane M5).
 //!
-//! The digests the pytest file pinned from the Python rules (`PYTHON_DIGESTS`, of `json.dumps` of
-//! the log's bytes, of the namespace's tree and of the store's snapshot) are kept: the tests write
-//! the same text with `Dumps`, the trees with each record's fields in the order of the tree
-//! (`NAMES`), as the PyO3 crate gives them to Python.
+//! The tests pin what the kernels give: the policy or the refusal's text of each config, and the
+//! digests of the log's bytes, of the namespace's tree and of the open actions, written as
+//! `json.dumps` writes them (`Dumps`), each record's fields in the order of the tree (`NAMES`). The
+//! values were recorded before #430 and pin the core's output now.
 
 use crate::support;
 
@@ -102,8 +97,8 @@ fn record(names: &[&str], values: impl IntoIterator<Item = V>) -> V {
     V::Map(names.iter().zip(values).map(|(name, value)| (Arc::from(*name), value)).collect())
 }
 
-/// The namespace's tree as Python holds it: each record's fields in the order of the tree
-/// (`NAMES`), the agents in the row's order.
+/// The namespace's tree: each record's fields in the order of the tree (`NAMES`), the agents in the
+/// row's order.
 fn dynamics_tree(row: &AgentDynamicsRow) -> V {
     let agents = row
         .agents
@@ -123,19 +118,16 @@ fn dynamics_tree(row: &AgentDynamicsRow) -> V {
     record(AgentDynamicsRow::NAMES, [V::Int(row.schema_version), text(&row.policy_version), V::Map(agents)])
 }
 
-/// `_text` of the namespace: `json.dumps` of its tree.
+/// The namespace as text: `json.dumps` of its tree.
 fn dynamics_text(row: &AgentDynamicsRow) -> V {
     V::Str(Arc::from(Dumps::default().text(&dynamics_tree(row))))
 }
 
 // ---- agent_dynamics_v1: the configs ---------------------------------------------------------------
 
-/// `test_the_canonical_config_is_the_python_rules` and
-/// `test_a_config_the_python_rule_refuses_gets_its_text`: the policy of each config, or the text
-/// of its ValueError, written down from the Python rule. (A config of a key that is not a str, which
-/// JSON cannot hold, stays in the pytest file, as does the dict the PyO3 entry builds of the policy.)
+/// The policy of each config, or the recorded text of its refusal.
 #[test]
-fn the_canonical_config_is_the_python_rule_s_policy_or_its_text() {
+fn the_canonical_config_gives_the_recorded_policy_or_text() {
     let read = |raw: Value| canonical_policy(Some(&load::v(&raw))).unwrap();
     assert_eq!(canonical_policy(None), Ok(Ok(POLICY_V1)));
     for raw in [json!({}), json!({"schema_version": 1}), json!({"policy_version": POLICY_V1}), json!({"schema_version": 1.0}), json!({"schema_version": true})]
@@ -173,9 +165,7 @@ fn the_canonical_config_is_the_python_rule_s_policy_or_its_text() {
     }
 }
 
-/// `test_an_awareness_config_the_model_decides_is_left_to_it`: each config the model decides is
-/// refused, so the Python rule (its model) decides it. (A tuple, which JSON cannot hold, stays in
-/// the pytest file.)
+/// Each awareness config the model decides is refused, for the model to decide.
 #[test]
 fn an_awareness_config_the_model_decides_is_refused() {
     for config in [
@@ -193,11 +183,10 @@ fn an_awareness_config_the_model_decides_is_refused() {
 
 // ---- agent_dynamics_v1: the writers -------------------------------------------------------------
 
-/// `test_a_new_namespace_and_agent_are_the_python_rules`: the namespace `create_state` makes for
-/// each awareness config (with the last facility known from the start) and each policy: the digest
-/// of `json.dumps` of `json.dumps` of its tree.
+/// The namespace `create_state` makes for each awareness config (with the last facility known from
+/// the start) and each policy: the digest of `json.dumps` of `json.dumps` of its tree.
 #[test]
-fn a_new_namespace_is_the_one_the_python_rule_made() {
+fn a_new_namespace_is_the_recorded_one() {
     let world = world("start");
     let last = facilities(&world).pop().unwrap();
     let awareness_configs = [
@@ -239,12 +228,11 @@ fn a_new_namespace_is_the_one_the_python_rule_made() {
     assert_eq!(found, recorded);
 }
 
-/// `test_the_writers_are_the_python_rules_on_random_calls`: 400 random calls of the writers (the
-/// announced policy, and the first person knowing nothing), and after each the namespace: the
-/// digest of `json.dumps` of the list of each answer of `agent_knows_facility` (`str(bool)`) and
-/// each `json.dumps` of the namespace's tree.
+/// 400 random calls of the writers (the announced policy, and the first person knowing nothing),
+/// and after each the namespace: the digest of `json.dumps` of the list of each answer of
+/// `knows_facility` (`str(bool)`) and each `json.dumps` of the namespace's tree.
 #[test]
-fn the_writers_on_random_calls_are_the_python_rules() {
+fn the_writers_on_random_calls_give_the_recorded_namespaces() {
     let (cell, mut host) = held("announced");
     let policy_kept = dynamics::Configs::policy(&cell, &mut host).unwrap();
     let limited = dynamics::Configs::knowledge_is_limited(&cell, &mut host).unwrap();
@@ -282,11 +270,10 @@ fn the_writers_on_random_calls_are_the_python_rules() {
     assert_eq!(digest(Dumps::default().text(&V::List(texts)).as_bytes()), "e83cfb888c9bc24f");
 }
 
-/// `test_a_known_list_out_of_order_is_sorted_as_the_python_rule_does`: the list comes out as
-/// `sorted(set(known) | discovered)`, which the pytest file computed in Python, and nothing else
-/// of the namespace changes.
+/// The list comes out as `sorted(set(known) | discovered)` (recorded in the fixture), and nothing
+/// else of the namespace changes.
 #[test]
-fn a_known_list_out_of_order_is_sorted_as_the_python_rule_does() {
+fn a_known_list_out_of_order_comes_out_sorted() {
     let (cell, mut host) = held("start");
     let (agent, two) = cell.with(|world| (agents(world)[0].clone(), facilities(world)[..2].to_vec())).unwrap();
     let before = cell
@@ -304,7 +291,6 @@ fn a_known_list_out_of_order_is_sorted_as_the_python_rule_does() {
     assert_eq!(cell.with(|world| dynamics_json(world)).unwrap(), json_of(&expected));
 }
 
-/// `test_without_a_config_every_facility_is_known_to_older_scenarios`.
 #[test]
 fn without_a_config_every_facility_is_known() {
     let configs = load::v(&json!({}));
@@ -318,7 +304,7 @@ fn event(name: &str) -> EventRow {
     load::event(&inputs()["events"][name])
 }
 
-/// `_applied`: the log holds the event applied, and the event counter is past its sequence.
+/// The log holds the event applied, and the event counter is past its sequence.
 fn applied(world: &World, event: &EventRow, minute: i64) {
     let next = world.id_counter("event").unwrap().unwrap_or(0).max(event.sequence + 1);
     world::set_id_counter(&mut world.row_mut::<ValueRow>(world::ID_COUNTERS).unwrap(), "event", next).unwrap();
@@ -348,9 +334,8 @@ fn rows_json(active: &ActiveActions) -> String {
     String::from_utf8(json_of::<IdMap<ActiveAction>>(&active.rows)).unwrap()
 }
 
-/// `store.snapshot()`: the open actions as Python's dicts hold them, by agent in the store's order,
-/// each with its fields in the order of the tree (`ActiveAction::NAMES`) and its needs in the order
-/// the rule took them.
+/// The open actions as a tree, by agent in the store's order, each with its fields in the order of
+/// the tree (`ActiveAction::NAMES`) and its needs in the order the rule took them.
 fn snapshot(active: &ActiveActions) -> V {
     let mut out = indexmap::IndexMap::new();
     for (agent_id, action) in &active.rows {
@@ -373,8 +358,8 @@ fn snapshot(active: &ActiveActions) -> V {
     V::Map(out)
 }
 
-/// What a rule wrote from the log's record `from` on, as `_receipts` took it: the digest of
-/// `json.dumps` of its receipts' bytes, the event counter and `json.dumps` of the open actions.
+/// What a rule wrote from the log's record `from` on: the digest of `json.dumps` of its receipts'
+/// bytes, the event counter and `json.dumps` of the open actions.
 fn receipts_digest(world: &World, from: usize, active: &ActiveActions) -> String {
     let counter = world.id_counter("event").unwrap().unwrap_or(0);
     let open = Dumps::default().text(&snapshot(active));
@@ -382,11 +367,10 @@ fn receipts_digest(world: &World, from: usize, active: &ActiveActions) -> String
     digest(Dumps::default().text(&value).as_bytes())
 }
 
-/// `test_a_sequence_of_actions_gives_the_python_rules_receipts`: 300 random proposals of six people
-/// (a random fatigue now and then), and the end of the Run. The log is the one the Python rules
-/// wrote: the digest of `json.dumps` of its records' bytes is the pytest file's, kept.
+/// 300 random proposals of six people (a random fatigue now and then), and the end of the Run: the
+/// digest of `json.dumps` of the log's records' bytes.
 #[test]
-fn a_sequence_of_actions_gives_the_python_rules_receipts() {
+fn a_sequence_of_actions_gives_the_recorded_receipts() {
     let mut world = world("start");
     let mut active = ActiveActions::default();
     for step in inputs()["sequence"].as_array().unwrap() {
@@ -407,11 +391,10 @@ fn a_sequence_of_actions_gives_the_python_rules_receipts() {
     assert_eq!(digest(Dumps::default().text(&all).as_bytes()), "90b4ecdbfbe2e89f");
 }
 
-/// `test_an_applied_event_gives_the_python_rules_receipt`: an action open since minute 2 for the
-/// target T1, and an applied event of each type that may end it, from its agent or its sender.
-/// The same for an agent and a sender.
+/// An action open since minute 2 for the target T1, and an applied event of each type that may end
+/// it, from its agent or its sender. The same for an agent and a sender.
 #[test]
-fn an_applied_event_gives_the_python_rules_receipt() {
+fn an_applied_event_gives_the_recorded_receipt() {
     let actions = ["request_toilet", "fetch_water", "seek_help", "seek_help", "socialize", "collect_meal", "collect_meal", "collect_meal", "rest", "rest"];
     let recorded = [
         "5154550349c8fb9e",
@@ -440,9 +423,7 @@ fn an_applied_event_gives_the_python_rules_receipt() {
     }
 }
 
-/// The part of `test_events_that_end_nothing_change_nothing` that reaches the kernel: an event due
-/// before the action started, and one whose agent ID is not a str, end nothing. (A failed event and
-/// one the log lacks are turned away by the PyO3 entry, and stay in the pytest file.)
+/// An event due before the action started, and one whose agent ID is not a str, end nothing.
 #[test]
 fn events_that_end_nothing_change_nothing() {
     let world = world("start");
@@ -462,7 +443,6 @@ fn events_that_end_nothing_change_nothing() {
     assert_eq!(rows_json(&active), open);
 }
 
-/// `test_an_agent_gone_from_the_world_closes_without_needs`.
 #[test]
 fn an_agent_gone_from_the_world_closes_without_needs() {
     let mut world = world("start");
@@ -480,11 +460,10 @@ fn an_agent_gone_from_the_world_closes_without_needs() {
     assert_eq!(receipts_digest(&world, from, &active), "7e0c0993216c31f4");
 }
 
-/// `test_a_population_exit_gives_the_python_rules_receipts`: four open actions, and the population's
-/// event that took the second away (transferred, gone from the world) and the fourth (a temporary
-/// exit).
+/// Four open actions, and the population's event that took the second away (transferred, gone from
+/// the world) and the fourth (a temporary exit).
 #[test]
-fn a_population_exit_gives_the_python_rules_receipts() {
+fn a_population_exit_gives_the_recorded_receipts() {
     let mut world = world("start");
     let people = agents(&world);
     let mut active = ActiveActions::default();
@@ -508,18 +487,14 @@ fn a_population_exit_gives_the_python_rules_receipts() {
 
 // ---- What the kernels refuse, with nothing changed ----------------------------------------------
 
-/// `_refused`: the proposal is refused, and the log, the counters and the open actions are as they
-/// were.
+/// The proposal is refused, and the log, the counters and the open actions are as they were.
 fn refused(world: &World, active: &mut ActiveActions, proposal: &Proposal<'_>) {
     let before = (log_len(world), world.id_counter("event").unwrap(), rows_json(active));
     assert!(matches!(lifecycle::commit_action(world, active, proposal), Err(Error::Unsupported(_))));
     assert_eq!((log_len(world), world.id_counter("event").unwrap(), rows_json(active)), before);
 }
 
-/// The part of `test_a_reason_the_receipts_model_decides_is_refused` and
-/// `test_a_target_the_receipts_model_decides_is_refused` that reaches the kernel: a reason or a
-/// target the receipts' model decides. (An int or None, which the PyO3 entry refuses itself, stays
-/// in the pytest file.)
+/// A reason or a target the receipts' model decides is refused.
 #[test]
 fn a_reason_or_a_target_the_receipts_model_decides_is_refused() {
     let world = world("start");
@@ -534,7 +509,6 @@ fn a_reason_or_a_target_the_receipts_model_decides_is_refused() {
     }
 }
 
-/// `test_a_transition_before_its_start_is_refused`.
 #[test]
 fn a_transition_before_its_start_is_refused() {
     let world = world("start");
@@ -544,7 +518,6 @@ fn a_transition_before_its_start_is_refused() {
     refused(&world, &mut active, &Proposal { agent_id: &agent, action: "wait", target_id: None, minute: 4, trigger: "t" });
 }
 
-/// `test_a_sequence_the_log_holds_is_refused`.
 #[test]
 fn a_sequence_the_log_holds_is_refused() {
     let world = world("start");
@@ -554,7 +527,6 @@ fn a_sequence_the_log_holds_is_refused() {
     refused(&world, &mut active, &Proposal { agent_id: &agent, action: "wait", target_id: None, minute: 0, trigger: "t" });
 }
 
-/// `test_a_counter_a_rule_could_overflow_is_refused`.
 #[test]
 fn a_counter_a_rule_could_overflow_is_refused() {
     let world = world("start");

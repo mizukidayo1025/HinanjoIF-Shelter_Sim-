@@ -1,9 +1,9 @@
 //! Lane P8 a4: the social model (`rules::social_propagation`) and the information model's contacts
-//! (`rules::information`) in the core, on worlds built here, with no Python.
+//! (`rules::information`) in the core, on worlds built here.
 //!
-//! `data/social_plan.json` holds what the PyO3 kernel before this lane (`main` `6694e74`) gave for
-//! the plain inputs of `social_plan` (its `plan_of_values`, the script in the lane's notes): the
-//! stresses' bits, the contacts in their order, the cooldowns and the observed pairs.
+//! `data/social_plan.json` holds the recorded plan of the social model for the plain inputs of
+//! `a_plan_has_the_recorded_bits`: the stresses' bits, the contacts in their order, the cooldowns
+//! and the observed pairs. The values were recorded before #430 and pin the core's output now.
 
 use crate::support;
 
@@ -197,7 +197,7 @@ fn social_inputs<'a>(
 }
 
 #[test]
-fn a_plan_has_the_bits_of_the_kernel_before() {
+fn a_plan_has_the_recorded_bits() {
     let expected: Value = serde_json::from_str(include_str!("data/social_plan.json")).unwrap();
     let ids = ["a1", "a2", "a3", "a4", "a5", "a6"];
     let rows: [(Option<&str>, &str, f64, f64, f64, f64); 6] = [
@@ -315,7 +315,7 @@ fn the_first_tick_plans_and_writes_once_the_namespace_is_there() {
     let mut planned = social::update(&world, &social_inputs(&settings, &expressiveness, &view, &deltas, &neighbors, false)).unwrap();
     assert!(planned.first_use && !planned.is_written());
     assert!(written(&mut world).is_empty());
-    // Python stores the empty namespace; then the plan is written.
+    // The empty namespace is stored; then the plan is written.
     world.slots.get(SOCIAL).unwrap().try_borrow_mut().unwrap().row = Some(Box::new(social_row(&[], &[])));
     social::write(&world, &mut planned).unwrap();
     assert!(planned.is_written() && !planned.first_use);
@@ -719,7 +719,7 @@ fn the_config_is_read_as_the_kernel_read_it() {
 }
 
 #[test]
-fn a_probability_keeps_the_order_of_the_python_expression() {
+fn a_probability_keeps_the_order_of_its_expression() {
     let settings = InfoSettings { duration_scale: 5.0, base_probability: 0.3, trust_sensitivity: 0.5, family_multiplier: 1.5, ..certain() };
     let plain = information::transmission_probability(&settings, InfoModel::Sparse, 0.75, Basis::Family, 3, true).unwrap();
     let expected = py_min(1.0, 0.3 * py_min(1.0, 3.0 / 5.0) * (1.0 + 0.5 * (2.0 * 0.75 - 1.0)) * 1.5 * 1.25);

@@ -1,8 +1,7 @@
-//! The core's Checkpoint byte kernels and events give what the Python-visible functions gave before
-//! they moved. The expected values come from `sheltersim_native.chunk_hashes`,
-//! `content_chunk_starts` and `split_json_array` of the build of `main` at `0085254`, run with
-//! CPython 3.12; the queue's order is `EventQueue.pending()`'s: due minute, priority, sequence, and
-//! for equal keys the order scheduled (`bisect.insort`).
+//! The core's Checkpoint byte kernels (`checkpoint::chunk_hashes`, `content_chunk_starts`,
+//! `split_json_array`) and events. The expected values were recorded before #430 and pin the core's
+//! output now. The queue's order is: due minute, priority, sequence, and for equal keys the order
+//! scheduled.
 
 use std::sync::Arc;
 
@@ -116,7 +115,7 @@ fn a_repeated_identity_from_the_constructor_is_refused() {
 }
 
 #[test]
-fn the_writer_schedules_and_records_with_the_python_errors() {
+fn the_writer_schedules_and_records_with_the_recorded_errors() {
     let mut queue = Queue::new();
     let mut log = EventLog::new();
     assert_eq!(writer::schedule(&mut queue, &log, 60, row("e-1", 10, 0, 0)), Ok(1));

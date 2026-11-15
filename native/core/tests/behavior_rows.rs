@@ -1,22 +1,17 @@
-//! The proposals of the behavior rule (`rules::behavior::due`, the kernel of `propose_due`) and the
-//! observed state of a person (`behavior::observed_value`, of `observed_state`), on the worlds of
-//! `integration/test_behavior_row.py`, without Python (Issue #225, lane M10b).
+//! The proposals of the behavior rule (`rules::behavior::due`) and the observed state of a person
+//! (`behavior::observed_value`) (Issue #225, lane M10b).
 //!
-//! `data/behavior_rows.json` (`tests/support/core_fixtures_reads.py`) holds the world a drawn world
-//! starts from (the generated Scenario at minute 0, with its body state), the world of the
-//! requests' test, the world of a Run of 90 minutes, and what the test of seeds past 64 bits drew
-//! with `random.Random`: its world's values (`draw_world`, numbers only) and its policy (the values
-//! the Run reads of it). The pytest file's tests of many drawn worlds stay in pytest (decision 5 of
-//! #225: their inputs are too large to export). A test writes the drawn values into the world (`drawn`),
-//! makes the view the propose phase makes (`view_for_proposals` of a new controller: the core's
-//! `world_view::build` with a new cache, and its audit hash), and makes the policy's objects as the
-//! Run read them (`Behavior::of`).
+//! `data/behavior_rows.json` holds the world a drawn world starts from (the generated Scenario at
+//! minute 0, with its body state), the world of the requests' test, the world of a Run of 90
+//! minutes, and, for the test of seeds past 64 bits, a world's values drawn with `random.Random`
+//! (numbers only) and its policy (the values the Run reads of it). A test writes the drawn values
+//! into the world (`drawn`), builds the view of the propose phase (`world_view::build` with a new
+//! cache, and its audit hash), and makes the policy's objects as the Run reads them
+//! (`Behavior::of`).
 //!
-//! Each value the kernel made is added to `Bits` as `json.dumps` of `_exact` of the Python object
-//! the PyO3 crate makes of it (an `ActionProposal`, the observed dict): each type's name, each
-//! dataclass's fields in the order the crate sets them, each float as `float.hex`. The digest is the
-//! one the pytest file pinned, taken from the deleted Python rules (45a9bc9) or, for what model
-//! version 2 changed, from the kernels of that model (that file's docstring).
+//! Each value the kernel made is added to `Bits` as `json.dumps` of its exact form (`exact`, an
+//! `ActionProposal` record or the observed map): each type's name, each record's fields in order,
+//! each float as `float.hex`. The digests were recorded before #430 and pin the core's output now.
 
 use crate::support;
 
@@ -80,7 +75,7 @@ fn map(entries: Vec<(&str, V)>) -> V {
     V::Map(entries.into_iter().map(|(key, value)| (Arc::from(key), value)).collect())
 }
 
-// ---- `_exact` and `_Bits` ------------------------------------------------------------------------
+// ---- The exact form and `Bits` ------------------------------------------------------------------
 
 /// `float.hex` of CPython.
 fn hex(value: f64) -> String {
@@ -111,7 +106,7 @@ fn string(value: &str) -> V {
     typed("str", text(value))
 }
 
-/// `_exact` of the Python value a `V` becomes (a list is a list).
+/// The exact form of a value: its type's name and its value (a list is a list).
 fn exact(value: &V) -> V {
     match value {
         V::Null => V::Null,
@@ -127,7 +122,7 @@ fn exact(value: &V) -> V {
     }
 }
 
-/// `_exact` of a dataclass: its class's name, then each field and its value.
+/// The exact form of a record: its class's name, then each field and its value.
 fn dataclass(name: &str, fields: Vec<(&str, V)>) -> V {
     V::List(std::iter::once(text(name)).chain(fields.into_iter().map(|(field, value)| V::List(vec![text(field), value]))).collect())
 }
@@ -154,7 +149,7 @@ fn candidate(data: &ViewData, proposal: &Proposal, item: &Scored) -> V {
     )
 }
 
-/// `_exact` of the `ActionProposal` the PyO3 crate makes (`proposal_of_data`).
+/// The exact form of a proposal, as an `ActionProposal` record.
 fn proposal(data: &ViewData, proposal: &Proposal) -> V {
     let outcome = &proposal.outcome;
     let key = proposal.rng_key(data).into_iter().map(|part| match part {
@@ -180,7 +175,7 @@ fn proposal(data: &ViewData, proposal: &Proposal) -> V {
     )
 }
 
-/// The pytest file's `_Bits`: the sha256 of `json.dumps(_exact(value))` of each value added.
+/// The sha256 of `json.dumps` of the exact form of each value added.
 #[derive(Default)]
 struct Bits(String);
 
@@ -232,7 +227,7 @@ fn f(value: &Value) -> f64 {
     value.as_f64().unwrap()
 }
 
-/// Write what `draw_world` drew (`drawn_record`) into the world it started from.
+/// Write the drawn values (a record of the fixture) into the world they start from.
 fn drawn(world: &mut World, record: &str) {
     let record: Value = serde_json::from_str(record).unwrap();
     let ids = people(world);
@@ -322,7 +317,7 @@ fn drawn(world: &mut World, record: &str) {
     }
 }
 
-/// The selection of the world's configs, as Python parsed it (the export's section).
+/// The selection of the world's configs (the fixture's section).
 fn selection(entry: &Value) -> Result<Arc<Selection>, Fault> {
     match sections::section(entry, SectionId::Selection).selection.get().unwrap() {
         Section::Ok(selection) => Ok(selection.clone()),
@@ -338,7 +333,7 @@ fn extensions_enabled(entry: &Value) -> bool {
     }
 }
 
-/// `view_for_proposals` of a new controller: a view built with a new cache, and its audit hash.
+/// A view built with a new cache, and its audit hash.
 fn view_of(entry: &Value, cell: &Shard<World>) -> (ViewData, Arc<str>) {
     let selection = selection(entry);
     let enabled = extensions_enabled(entry);
@@ -369,8 +364,8 @@ fn utility(values: &Value, as_policy: bool) -> Arc<Obj> {
     behavior_object("UtilityBehaviorPolicy", attrs)
 }
 
-/// What the Run reads of a controller whose `decisions` run the policy of this record
-/// (`PolicyRecords`): its values, or a priority rule's version and its scorer's values.
+/// What the Run reads of a controller whose `decisions` run the policy of this record: its values,
+/// or a priority rule's version and its scorer's values.
 fn behavior(record: &str) -> Behavior {
     let record: Value = serde_json::from_str(record).unwrap();
     let policy = match record.as_array().unwrap().len() {
@@ -386,7 +381,7 @@ fn behavior(record: &str) -> Behavior {
     Behavior::of(&controller)
 }
 
-/// `propose_due`: the kernel's proposals, added to `bits` (an empty tuple when nobody is due).
+/// `behavior::due`: the kernel's proposals, added to `bits` (an empty tuple when nobody is due).
 fn proposals(bits: &mut Bits, data: &ViewData, hash: &Arc<str>, policy: &str, seed: &str) -> Vec<Proposal> {
     let behavior = behavior(policy);
     let scoring = behavior::scoring_of(&behavior).unwrap_or_else(|bad| panic!("{bad:?}"));
@@ -395,7 +390,7 @@ fn proposals(bits: &mut Bits, data: &ViewData, hash: &Arc<str>, policy: &str, se
     made
 }
 
-/// `observed_state`: the kernel's observed state of a person, added to `bits`.
+/// `behavior::observed_value`: the kernel's observed state of a person, added to `bits`.
 fn observed(bits: &mut Bits, data: &ViewData, agent_id: &str) -> V {
     let value = behavior::observed_value(data, data.index_of(agent_id).expect("a person of the view"));
     bits.add(&exact(&value));
@@ -418,8 +413,8 @@ fn drawn_view(name: &str, record: &str) -> (Value, ViewData, Arc<str>) {
 }
 
 #[test]
-fn a_seed_past_64_bits_has_the_bits_of_python() {
-    // A Scenario's seed is any int from 0, and CounterRNG keys its draws with `str(seed)`.
+fn a_seed_past_64_bits_gives_the_recorded_bits() {
+    // A Scenario's seed is any int from 0, and the keyed draws key on `str(seed)`.
     let data = load::data(FILE);
     let case = &data["past_64"];
     let (_, view, hash) = drawn_view("generated", case["world"].as_str().unwrap());
@@ -440,7 +435,7 @@ fn get<'a>(value: &'a V, path: &[&str]) -> &'a V {
 }
 
 #[test]
-fn requests_cooldowns_and_queued_tasks_are_read_as_python_reads_them() {
+fn requests_cooldowns_and_queued_tasks_are_read_as_recorded() {
     // No gate scenario has someone due with a request or a queued task, so these are here.
     let data = load::data(FILE);
     let entry = cases::resolve(&data["worlds"], "requests");
@@ -467,9 +462,9 @@ fn requests_cooldowns_and_queued_tasks_are_read_as_python_reads_them() {
     assert_eq!(get(&snapshots[9], &["queue", "task_id"]), &text("T3"));
 }
 
-/// `proposal_view` of the pytest files at the world's minute, before the propose phase: the update
-/// phase's view (the Run's scratch) with what that phase wrote read again, or a new view; with its
-/// audit hash. The Run keeps its view for the propose phase.
+/// The view at the world's minute, before the propose phase: the update phase's view (the Run's
+/// scratch) with what that phase wrote read again, or a new view; with its audit hash. The Run
+/// keeps its view for the propose phase.
 fn proposal_view(loaded: &Loaded, entry: &Value) -> (ViewData, Arc<str>) {
     let minute = loaded.cell.with(|world| world.minute_index().unwrap()).unwrap();
     let prior = match loaded.run.borrow().scratch.get::<Prior>() {
@@ -499,9 +494,9 @@ struct Counts {
 }
 
 #[test]
-fn each_proposal_of_a_run_has_the_bits_of_python() {
-    // The steps' kernels on the view each tick's propose phase makes, before that phase, through the
-    // Run's ticks (`TickEngine.step`: `run_tick`, then the minute moved on).
+fn each_proposal_of_a_run_gives_the_recorded_bits() {
+    // The steps' kernels on the view each tick's propose phase makes, before that phase, through
+    // the Run's ticks (`tick::run_tick`, then the minute moved on).
     let entry = cases::entry(FILE, "run");
     let loaded = Rc::new(load::loaded(&entry));
     let mut host = load::following_host(&entry, &loaded);

@@ -1,7 +1,7 @@
 //! The inputs the dispatch's kernels read through the host (lane P9-1a, design-p9.md §5): whether
-//! the world holds each namespace (`Holding`, H1), the configs' sections (H2), the EventLog's records
-//! (`Host::find_record`) and the floor plan (`Host::floor_plan`), each with the texts the PyO3
-//! crate's per-call reads said.
+//! the world holds each namespace (`Holding`, H1), the configs' sections (H2), the EventLog's
+//! records (`Host::find_record`) and the floor plan (`Host::floor_plan`), each with its recorded
+//! texts.
 
 use crate::support;
 
@@ -326,7 +326,7 @@ fn a_bed_is_placed_on_the_row_of_a_detached_namespace_only() {
 }
 
 #[test]
-fn the_reserved_bed_is_read_as_python_reads_the_overlay() {
+fn the_reserved_bed_is_read_from_the_overlay() {
     let overlay = map(vec![
         (
             "bed_reservations",
@@ -355,7 +355,7 @@ fn the_reserved_bed_is_read_as_python_reads_the_overlay() {
     assert_eq!(movement::reserved_bed_of(Some(&past), "A1"), Ok(None));
 }
 
-// ---- A walk's end and `_after_arrival` --------------------------------------------------------------
+// ---- A walk's end and its arrival ---------------------------------------------------------------
 
 struct Recording {
     own: bool,

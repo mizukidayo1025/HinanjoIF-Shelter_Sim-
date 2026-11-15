@@ -1,18 +1,13 @@
 //! The columns of `MetricSnapshot` and the entity rules on the worlds of a Run (Issue #225, lane
-//! M7; moved from `tests/integration/test_entity_rules_kernel.py`).
+//! M7).
 //!
-//! `rules::metrics::sample` is the kernel `metrics._snapshot_fields` calls through the PyO3 crate
-//! (`snapshot_fields`), and the tick's metrics phase takes it the same way (`tick::metrics`). The
-//! pytest file took the worlds every 20 minutes of a Run of the generated Scenario the Project
-//! screen makes (`run_scenario`); here the core runs the same world's ticks
-//! (`generated_texts.json`'s `generated`, `support/ticks.rs`) and samples it at the same minutes,
-//! with the metrics phase on the world after the tick, as `_snapshot_fields(world, unsettled,
-//! world.minute_index)` did. The columns of the Python rule (`kernel_only` since lane L10) were
-//! recorded once from it as a digest of `json.dumps` of the columns of every world: `Dumps` writes
-//! the same text, so that digest stays. The other cases change a world of the Run (the first, at
-//! minute 20) as the pytest file did and read the columns again; the last reads which zones the
-//! entity rules (`tick_validation::entity_rules`, the kernel of `_entity_rules_kernel`) leave to the
-//! check of a zone's capacity.
+//! `rules::metrics::sample` gives the columns, as the tick's metrics phase takes them
+//! (`tick::metrics`). The core runs the ticks of the generated Scenario the Project screen makes
+//! (`generated_texts.json`'s `generated`, `support/ticks.rs`) and samples the world after the tick
+//! every 20 minutes. The columns of every world are pinned by a digest of `json.dumps` of them
+//! (`SNAPSHOTS_OF_THE_RUN`), recorded before #430. The other cases change a world of the Run (the
+//! first, at minute 20) and read the columns again; the last reads which zones the entity rules
+//! (`tick_validation::entity_rules`) leave to the check of a zone's capacity.
 
 use crate::support;
 
@@ -37,8 +32,8 @@ use support::texts::sha;
 use support::ticks::{self, tick_at};
 use support::{cases, Call, TestHost};
 
-/// `SNAPSHOTS_OF_THE_RUN` of the pytest file: the first 16 hex of the sha256 of `json.dumps` of the
-/// columns of the worlds at minutes 20, 40, ... 360, recorded from the Python rule.
+/// The first 16 hex of the sha256 of `json.dumps` of the columns of the worlds at minutes 20, 40,
+/// ... 360, as recorded.
 const SNAPSHOTS_OF_THE_RUN: &str = "b486e7a17d3d3943";
 
 fn generated() -> Value {
@@ -91,7 +86,7 @@ fn fields(sample: &MetricSample, minute: i64) -> V {
 }
 
 /// The generated world's ticks in the core, 20 at a time, with `at` called on the world after each
-/// 20 (the pytest file's `documents`, every 20 minutes), until it says to stop or the Run ends.
+/// 20, until it says to stop or the Run ends.
 fn documents(mut at: impl FnMut(&Loaded, &mut TestHost) -> bool) {
     let entry = generated();
     let loaded = Rc::new(load::loaded(&entry));
@@ -106,7 +101,7 @@ fn documents(mut at: impl FnMut(&Loaded, &mut TestHost) -> bool) {
 }
 
 #[test]
-fn the_snapshot_is_the_python_rules_on_the_worlds_of_a_run() {
+fn the_snapshot_is_the_recorded_one_on_the_worlds_of_a_run() {
     let mut columns = Vec::new();
     documents(|loaded, host| {
         let minute = loaded.cell.with(|world| world.minute_index().unwrap()).unwrap();
@@ -130,13 +125,13 @@ fn edit<T>(loaded: &Loaded, f: impl FnOnce(&mut World) -> T) -> T {
     loaded.cell.with(f).unwrap()
 }
 
-/// The snapshot's IDs (`json.loads(fields[14])`).
+/// The snapshot's IDs (`source_ids_json`).
 fn source_ids(sample: &MetricSample) -> Value {
     serde_json::from_str(&sample.source_ids_json).unwrap()
 }
 
 #[test]
-fn the_stress_threshold_is_where_the_python_rule_has_it() {
+fn the_stress_threshold_takes_0_7_and_above() {
     let (loaded, mut host) = first_world();
     let ids: Vec<Arc<str>> = edit(&loaded, |world| {
         let mut rows = world.rows_mut().unwrap();
@@ -146,7 +141,7 @@ fn the_stress_threshold_is_where_the_python_rule_has_it() {
         }
         ids
     });
-    // The Python rule: `agent.stress >= 0.7`.
+    // The threshold: `stress >= 0.7`.
     let mut high: Vec<String> =
         edit(&loaded, |world| world.rows().unwrap().agents.iter().filter(|(_, agent)| agent.stress >= 0.7).map(|(id, _)| id.to_string()).collect());
     high.sort();
@@ -158,8 +153,8 @@ fn the_stress_threshold_is_where_the_python_rule_has_it() {
 
 #[test]
 fn a_person_with_two_open_requests_is_the_last_in_the_snapshot() {
-    // The Python rule's dict by agent: the later of two requests of one person, in the order of the
-    // unsettled requests, is the one kept; the list of who waits names the person twice.
+    // By agent: the later of two requests of one person, in the order of the unsettled requests, is
+    // the one kept; the list of who waits names the person twice.
     let mut found = false;
     documents(|loaded, host| {
         let active: Vec<(Arc<str>, Arc<str>)> = edit(loaded, |world| {
@@ -243,7 +238,7 @@ fn left(loaded: &Loaded, host: &mut TestHost) -> Vec<(Arc<str>, i64)> {
 }
 
 #[test]
-fn a_zone_with_temporary_space_is_left_to_the_python_rule() {
+fn a_zone_with_temporary_space_is_left_to_the_capacity_check() {
     let (loaded, mut host) = first_world();
     left(&loaded, &mut host);
     let zone = edit(&loaded, |world| world.rows().unwrap().zones.iter().next().unwrap().0.clone());

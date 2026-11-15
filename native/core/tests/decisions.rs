@@ -1,12 +1,10 @@
-//! The decisions of lane P8 a5 (`rules::behavior`, `rules::decisions`) over a world built here, with
-//! no Python.
+//! The decisions of lane P8 a5 (`rules::behavior`, `rules::decisions`) over a world built here.
 //!
-//! The world is the one `decision_world.py` builds in Python (lane notes of P8 a5): the world of
-//! `psychology.rs` at the last minute of a day, with everyone idle and due, a third person in the
-//! hall and two zone demand modifiers. `data/decisions.json` holds what the PyO3 kernels before this
-//! lane (the build of PR #184) gave for it with three policies: each proposal's action, target, next
-//! decision, draw and probabilities (as `float.hex`), its candidates with their trigger texts and
-//! the draw's key, and the bytes of its indexed record. Here the core gives the same.
+//! The world is the one of `psychology.rs` at the last minute of a day, with everyone idle and due,
+//! a third person in the hall and two zone demand modifiers. `data/decisions.json` holds, for three
+//! policies, each proposal's action, target, next decision, draw and probabilities (as
+//! `float.hex`), its candidates with their trigger texts and the draw's key, and the bytes of its
+//! indexed record. The values were recorded before #430 and pin the core's output now.
 
 use crate::support;
 
@@ -38,7 +36,7 @@ use sheltersim_core::world::{Fit, Place, World, WorldCell, ID_COUNTERS, METRIC_S
 use support::{Call, TestHost};
 
 const MINUTE: i64 = 1439;
-/// `CounterRNG(world.seed)` of the world: its seed is 7.
+/// The seed of the world's draws: 7.
 const SEED: &str = "7";
 const MODULE: &str = "sheltersim.policies.behavior";
 
@@ -196,8 +194,7 @@ fn body_record(values: [f64; 7]) -> BodyRecord {
     BodyRecord { sleep_debt_minutes, uncertainty, reassurance, discontent, positive_affect, negative_affect, hygiene_need }
 }
 
-/// The world of `decision_world.py`: `psych_world.py`'s of lane a3, with A1 idle, A3 in the hall
-/// and two demand modifiers.
+/// The world of `psychology.rs` (lane a3), with A1 idle, A3 in the hall and two demand modifiers.
 fn world() -> World {
     let mut world = World::default();
     {
@@ -359,7 +356,7 @@ fn value(value: V) -> Result<Held, Fault> {
     Ok(Held::Value(value))
 }
 
-/// The fields of `scorer(**more)` of `decision_world.py`, in the dataclass's order.
+/// The fields of the utility scorer, with `more` changed, in the record's order.
 fn scorer_fields(more: &[(&str, V)]) -> Vec<(&'static str, Result<Held, Fault>)> {
     let mut fields: Vec<(&'static str, V)> = vec![
         ("temperature", V::Float(0.35)),
@@ -400,7 +397,7 @@ fn utility(fields: Vec<(&'static str, Result<Held, Fault>)>) -> Behavior {
     Behavior::of(&controller_of(runner_of(Ok(Held::Object(object(MODULE, "UtilityBehaviorPolicy", fields))))))
 }
 
-/// The policy `name` of `decision_world.py`.
+/// The policy `name`: `utility`, `sleep` or `priority`.
 fn behavior_of(name: &str) -> Behavior {
     match name {
         "utility" => utility(scorer_fields(&[])),
@@ -434,7 +431,7 @@ fn refusal<T: std::fmt::Debug>(got: Got<T>) -> String {
 // ---- The tests -----------------------------------------------------------------------------------
 
 #[test]
-fn the_proposals_and_records_are_the_kernels_before() {
+fn the_proposals_and_records_are_the_recorded_ones() {
     let expected = expected();
     for name in ["utility", "sleep", "priority"] {
         let entry = &expected[name];
@@ -715,8 +712,8 @@ fn the_lifecycle_and_the_memory_are_called_after_the_record() {
     let mut host = TestHost::default();
     // Nothing committed and no memory: only the record.
     assert_eq!(decisions::record_outcome(&cell, &mut host, &mut active, &recording(&data, &proposal, &observed)), Ok(Sunk::Recorded));
-    // What the rules refuse is the KernelRefusal of their Python entries, after the record: the
-    // world keeps no event queue for the lifecycle, and no `agent_dynamics_v1` for the memory.
+    // What the rules refuse is an `Error::Refused`, after the record: the world keeps no event
+    // queue for the lifecycle, and no `agent_dynamics_v1` for the memory.
     let committing = Recording { committed: true, ..recording(&data, &proposal, &observed) };
     let mut indexed = TestHost { sink: DecisionSink::Indexed, ..TestHost::default() };
     assert_eq!(
@@ -730,7 +727,7 @@ fn the_lifecycle_and_the_memory_are_called_after_the_record() {
         Err(Error::Refused { label, .. }) => assert_eq!(label, MEMORY),
         other => panic!("{other:?}"),
     }
-    // A sink in Python: nothing is done here.
+    // A `DecisionSink::Python` sink: nothing is done here.
     let mut python = TestHost { sink: DecisionSink::Python, ..TestHost::default() };
     assert_eq!(decisions::record_outcome(&cell, &mut python, &mut active, &committing), Ok(Sunk::Python));
     assert!(python.calls.is_empty() && active.is_empty());

@@ -1,11 +1,11 @@
-//! The input contracts (policy E15) without Python (Issue #346): `contracts::validate` gives, for
-//! each input of `tests/data/contracts_*.json`, what the native host's pydantic gave (recorded by
-//! `tests/support/core_contracts.py`): the same dump, or the same class of error with the same
-//! text, byte for byte.
+//! The input contracts (policy E15; Issue #346): `contracts::validate` gives, for each input of
+//! `data/contracts_*.json`, the recorded answer: the same dump, or the same class of error with the
+//! same text, byte for byte. The answers were recorded (with pydantic) before #430 and pin the
+//! core's output now.
 //!
 //! A case's input is its own (`input`) or a valid input of the file (`bases`) with a patch: each
-//! change a path and the value to set there (a new key goes last, as Python's dict puts it; the
-//! index past a list's end appends), or a path alone to remove.
+//! change a path and the value to set there (a new key goes last; the index past a list's end
+//! appends), or a path alone to remove.
 
 use crate::support;
 
@@ -17,7 +17,7 @@ use sheltersim_core::value::V;
 
 use support::load;
 
-/// The contract `host_call` names (`call_on` of native/src/host.rs).
+/// The contract a case names.
 fn contract(name: &str) -> Contract {
     match name {
         "route_access" => Contract::RouteAccess,
@@ -93,8 +93,8 @@ fn class(error: &Error) -> (&'static str, String) {
     }
 }
 
-/// Each case of the file: `validate` gives what Python gave.
-fn answers_as_python(file: &str) {
+/// Each case of the file: `validate` gives the recorded answer.
+fn answers_as_recorded(file: &str) {
     let data = load::data(file);
     assert_eq!(data["pydantic"], "2.11.9", "the fixture was recorded with another pydantic");
     let cases = data["cases"].as_array().unwrap();
@@ -133,23 +133,23 @@ fn answers_as_python(file: &str) {
 }
 
 #[test]
-fn the_guard_effects_and_presence_contracts_answer_as_python() {
-    answers_as_python("contracts_effects");
+fn the_guard_effects_and_presence_contracts_answer_as_recorded() {
+    answers_as_recorded("contracts_effects");
 }
 
 #[test]
-fn the_overlay_and_room_contracts_answer_as_python() {
-    answers_as_python("contracts_overlay");
+fn the_overlay_and_room_contracts_answer_as_recorded() {
+    answers_as_recorded("contracts_overlay");
 }
 
 #[test]
-fn the_geometry_contracts_answer_as_python() {
-    answers_as_python("contracts_geometry");
+fn the_geometry_contracts_answer_as_recorded() {
+    answers_as_recorded("contracts_geometry");
 }
 
 #[test]
-fn the_population_and_config_contracts_answer_as_python() {
-    answers_as_python("contracts_population");
+fn the_population_and_config_contracts_answer_as_recorded() {
+    answers_as_recorded("contracts_population");
 }
 
 /// Each contract of `Contract` has cases (the files name them all).

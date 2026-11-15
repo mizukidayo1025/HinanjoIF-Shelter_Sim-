@@ -1,10 +1,8 @@
-//! The geometry of lane 7-2 without Python: the pure functions, the plan of a floor with the
-//! overlay's moves and partitions, the routes in a room, and the plans a configs stamp keeps.
+//! The geometry of lane 7-2: the pure functions, the plan of a floor with the overlay's moves and
+//! partitions, the routes in a room, and the plans a configs stamp keeps.
 //!
-//! The expected values in `data/geometry.json` are what the build of `main` (`720be8b`) gave for
-//! the same inputs through the Python functions of `domain/movement.py` and
-//! `contracts/extensions.py` and the kernels `route_is_physically_clear` and `plan_in_room_route`
-//! (a script in the PR's notes made them). Floats are compared exactly.
+//! The expected values in `data/geometry.json` were recorded before #430 and pin the core's output
+//! now. Floats are compared exactly.
 
 use std::sync::Arc;
 
@@ -139,7 +137,7 @@ fn route_list(route: &Option<Arc<[Pt]>>) -> Option<Vec<Pt>> {
 }
 
 #[test]
-fn the_pure_functions_give_the_python_values() {
+fn the_pure_functions_give_the_recorded_values() {
     let reference = reference();
     let room = points(&reference["geometry"]["zones"][0]["polygon"]);
     for probe in reference["in_polygon"].as_array().unwrap() {
@@ -166,7 +164,7 @@ fn the_pure_functions_give_the_python_values() {
 }
 
 #[test]
-fn a_plan_gives_the_python_routes_with_each_overlay() {
+fn a_plan_gives_the_recorded_routes_with_each_overlay() {
     let reference = reference();
     let facility = plan(&reference["geometry"]);
     let constraints = spatial(&reference["spatial"]);

@@ -181,12 +181,12 @@ pub fn make_browser_runs(root: &Path, files: ProjectFiles) -> Made {
     let fork_line = fork_line();
     let lease = files.claim_branch(project, run_id, "c1").unwrap();
     let request = ForkRequest {
-        parent: "main",
-        child: "c1",
+        parent: "main".to_owned(),
+        child: "c1".to_owned(),
         minute: 400,
-        program: fork_line["program"].as_str().unwrap(),
-        approved_program_hash: fork_line["approved_program_hash"].as_str().unwrap(),
-        state_hash: Some(fork_line["fork_origin"]["state_hash"].as_str().unwrap()),
+        program: fork_line["program"].as_str().unwrap().to_owned(),
+        approved_program_hash: fork_line["approved_program_hash"].as_str().unwrap().to_owned(),
+        state_hash: Some(fork_line["fork_origin"]["state_hash"].as_str().unwrap().to_owned()),
     };
     let forked = files.fork(&lease, project, run_id, &request).unwrap();
     lease.release();

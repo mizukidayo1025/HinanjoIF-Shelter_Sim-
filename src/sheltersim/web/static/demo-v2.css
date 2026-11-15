@@ -2991,38 +2991,6 @@ h2 {
   height: 22px;
 }
 
-/* レポート：計算途中の簡易版であることを色付きで明示 */
-.draft-note {
-  display: flex;
-  gap: 12px;
-  align-items: flex-start;
-  margin: 0 0 12px;
-  padding: 12px 16px;
-  border: 2px solid #f0a020;
-  border-left-width: 6px;
-  border-radius: 8px;
-  background: #fff6e2;
-  color: #6b4500;
-  font-size: 13px;
-  line-height: 1.6;
-}
-.draft-note[hidden] {
-  display: none;
-}
-.draft-note strong {
-  flex-shrink: 0;
-  padding: 2px 10px;
-  border-radius: 999px;
-  background: #f0a020;
-  color: #fff;
-  font-size: 12px;
-}
-#report-status.draft-badge {
-  background: #fff1cc;
-  color: #8a5a00;
-  border: 1px solid #f0a020;
-}
-
 /* 避難者・スタッフの状態パネルを広げ、文字を大きく */
 /* 地図の右の2つの欄（課題・人物、#496）は、地図の欄の高さまで伸ばす（1列になる幅では並べるだけ） */
 .simulation-side {
@@ -3574,6 +3542,33 @@ body.is-loading main > .page.active {
   opacity: 0.4;
   pointer-events: none;
   transition: opacity 0.15s 0.12s;
+}
+/* 最後まで計算するまで（#482）：シミュレーションと分岐比較の画面を薄くし、ヘッダーの「計算する」へ目を向ける */
+body.is-uncomputed main > .page.active {
+  opacity: 0.3;
+  pointer-events: none;
+  user-select: none;
+}
+.compute-first {
+  position: fixed;
+  z-index: 30;
+  top: calc(var(--header-height) + 24px);
+  left: calc(var(--sidebar-width) + 24px);
+  right: 24px;
+  max-width: 560px;
+  margin: 0 auto;
+  padding: 14px 18px;
+  border-radius: 10px;
+  background: #fff;
+  border: 1px solid #b9d3f7;
+  box-shadow: 0 6px 20px rgb(10 40 90 / 15%);
+  color: #12305a;
+  font-size: 14px;
+  font-weight: 700;
+  text-align: center;
+}
+.compute-first[hidden] {
+  display: none;
 }
 @keyframes page-loading-in {
   to {

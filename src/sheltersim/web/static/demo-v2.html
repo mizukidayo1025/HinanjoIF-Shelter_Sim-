@@ -63,6 +63,7 @@
     <main aria-busy="true">
       <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
       <div class="page-loading" aria-hidden="true"></div>
+      <p id="compute-first" class="compute-first" role="status" hidden></p>
       <section id="page-home" class="page active" aria-labelledby="home-heading">
         <div class="home-hero panel">
           <div>
@@ -683,12 +684,6 @@
             ><button id="report-refresh" disabled>↻ 結果を更新</button
             ><button id="save-report" disabled>↓ レポート保存</button>
           </div>
-        </div>
-        <div id="report-draft-note" class="draft-note" hidden>
-          <strong>簡易版レポート</strong>
-          <span
-            >シミュレーションが最後の時刻まで計算されていないため、AIによるレポート本文はまだ作られていません。ここに出ているのは、計算済みの範囲の数値の要約です。「終了まで計算」すると正式なレポートに切り替わります。</span
-          >
         </div>
         <div id="report-kpis" class="kpi-strip" aria-label="表示中の時刻の指標"></div>
         <div class="report-grid">

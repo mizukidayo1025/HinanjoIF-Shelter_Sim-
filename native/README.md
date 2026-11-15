@@ -70,8 +70,9 @@ CI's job 「ブラウザー版の計算」 runs these, beside 「Rustの計算�
 
 ## The workspace: the core and the wrapper (Issue #152)
 
-`native/Cargo.toml` is a workspace of two crates. `docs/rust-port/step5-plan.md` records the
-split PR by PR; its last section sums up what is where.
+`native/Cargo.toml` is a workspace of the core, the PyO3 wrapper, the WASM boundary (`wasm/`)
+and the files of a stored Run on a disk (`store/`, #426). `docs/rust-port/step5-plan.md` records
+the split of the first two PR by PR; its last section sums up what is where.
 
 - **`core/` (`sheltersim_core`)**: the simulation without Python. Its `cargo tree` has no pyo3
   (CI checks `cargo tree -p sheltersim_core -e normal,build`). It holds the World (`world.rs`:
@@ -310,7 +311,26 @@ split PR by PR; its last section sums up what is where.
   the same bytes of), encodes every line again byte for byte, writes the same journals and data.pack
   again from the same Runs, and writes one Run with two compressors to the same heads;
   `wasm/tests/node_stored_runs.mjs` checks that the browser still writes them (`--write` writes
-  them again after a change meant to move them).
+  them again after a change meant to move them), and keeps the records of their Projects
+  (`stored_runs/records.json`).
+- **A stored Run on a disk** (#426): `store/` (`sheltersim_store`, not in the WASM build) is the
+  host of `run_store` for the local and VM servers, in the browser's folders and records
+  (`project_store.mjs`): `stored` writes a branch's `data.pack` and `journal.jsonl` (each piece
+  compressed with flate2's deflate-raw, appended and flushed to the disk before its line is, each
+  line flushed before the next) and reads them (the journal up to its last whole line, so a reader
+  in another process reads while a writer appends, and a line a killed writer cut short is not
+  read); `records` the Project, Scenario, Run and Branch records (sorted JSON, written whole
+  through a temporary file, Python's errors); `lock` the Python server's locks on the same files
+  (`.lock`, a Run's and a branch's `worker-lock`: `flock`, or `LockFileEx` on Windows over the
+  byte `msvcrt.locking` takes); `quota` the limit (`--project-storage-gb`) checked before each
+  write; `compute` going on from a branch's head in chunks, a fork, a question's turn and the
+  recovery of interrupted branches, as `compute.mjs` and `interventions.mjs` do.
+  `cargo test -p sheltersim_store` makes the five stored Runs of `node_stored_runs.mjs` again: with
+  the fixtures' stored blocks their journals, data.pack and records are the browser's byte for
+  byte; with flate2 each line has the browser's head hash and pieces (before compression). Python
+  reaches it through `src/rules/run_files.rs` (`sheltersim_native.rules.run_files`: `ProjectFiles`,
+  `Lease`, `StoredRun`, `Computation`); `tests/integration/test_run_files.py` holds Python's and
+  the store's locks against each other and kills a writer process while it holds its branch.
 - **A Project in the browser** (#265): `wasm/js/project_store.mjs` keeps the Project, Run and
   Branch records beside each branch's stored Run (`run_store`, #252), reads the files the
   Project routes of the screen answer from (the answers are the core's, below), and writes and reads one versioned

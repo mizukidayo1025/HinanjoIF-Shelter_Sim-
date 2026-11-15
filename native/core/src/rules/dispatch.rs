@@ -1531,8 +1531,11 @@ pub fn consider_contact<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C
     Ok(())
 }
 
-/// `social_policy.limits.stress_threshold`, as the Run read it.
+/// `social_policy.limits.stress_threshold`, as the Run read it, or the host's limits (#428).
 fn stress_threshold<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R>) -> std::result::Result<f64, H::Error> {
+    if let Some(limits) = tick.host.social_limits() {
+        return Ok(limits.stress_threshold);
+    }
     let policies = tick.policies.clone();
     let limits = match policies.social.limits() {
         Ok(Some(limits)) => limits.clone(),

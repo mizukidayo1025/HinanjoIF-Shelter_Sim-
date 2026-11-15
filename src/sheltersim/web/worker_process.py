@@ -27,7 +27,8 @@ _CONTEXT = multiprocessing.get_context("spawn")
 # the bound only ends a start that hangs.
 _START_TIMEOUT_SECONDS = 120.0
 # Ticks per chunk: the computation stops between chunks when asked (about a tenth of a second
-# for 100 people), and holds the store's lock while a chunk may move the branch's head.
+# for 100 people), and holds the store's lock while a chunk's files may move the branch's head
+# (not while its ticks run, #465).
 CHUNK_TICKS = 60
 
 
@@ -161,8 +162,12 @@ def compute(
         if cancelled():
             with files.transaction():
                 return computation.stop(files)
+        # The ticks run outside the store's transaction: the Run's LLM link reserves each call
+        # in the usage ledger, which takes that transaction itself (#465). The writer lease keeps
+        # other writers of the branch out; the files of the chunk are written under it.
+        computation.advance(CHUNK_TICKS)
         with files.transaction():
-            ended = computation.chunk(files, CHUNK_TICKS)
+            ended = computation.store(files)
         if ended is not None:
             return ended
 

@@ -22,6 +22,7 @@ import pytest
 from support.paths import CORE_TEST_DATA
 
 from sheltersim import native
+from sheltersim.storage.projects import ProjectStore
 
 # Run on every pull request on Windows and macOS too (pytest --os-subset, #380): files flushed and
 # cut, locks shared with Python's, a process killed while it holds one.

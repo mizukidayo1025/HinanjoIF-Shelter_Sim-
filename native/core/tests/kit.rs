@@ -1,7 +1,6 @@
 //! P8-0a: the helpers the rules share (`rules::kit`), over worlds and values built here: what each
 //! reads, and the texts of what each refuses.
 
-use std::cell::RefCell;
 use std::sync::Arc;
 
 use indexmap::IndexMap;
@@ -13,8 +12,8 @@ use sheltersim_core::events::writer::WriteError;
 use sheltersim_core::events::{EventKind, EventStatus};
 use sheltersim_core::geometry::Pt;
 use sheltersim_core::rng::{label, Draws, Key, KeyedDraws};
-use sheltersim_core::row::{Atom, IdMap, TreeSink, ValueRow};
-use sheltersim_core::rules::kit::{self, Admission, Counts, Events, NewEvent, NoTree, Placed};
+use sheltersim_core::row::{IdMap, ValueRow};
+use sheltersim_core::rules::kit::{self, Admission, Counts, Events, NewEvent, Placed};
 use sheltersim_core::state::effect_program::{EffectProgramRow, FacilityModifiers, Modifier};
 use sheltersim_core::state::metric_state::MetricRow;
 use sheltersim_core::state::movement::{MovementRow, Point, Position};
@@ -251,35 +250,14 @@ fn a_world_whose_events_a_rule_cannot_write_is_refused_before_any_write() {
 
 // ---- Metrics -------------------------------------------------------------------------------------
 
-/// A tree that writes down what it was given.
-#[derive(Default)]
-struct Written(RefCell<Vec<String>>);
-
-impl TreeSink for Written {
-    type Error = ();
-
-    fn set_field(&self, key: &'static str, value: Atom<'_>) -> Result<(), ()> {
-        self.0.borrow_mut().push(format!("field {key} {value:?}"));
-        Ok(())
-    }
-
-    fn set_entry(&self, key: &str, value: Atom<'_>) -> Result<(), ()> {
-        self.0.borrow_mut().push(format!("entry {key} {value:?}"));
-        Ok(())
-    }
-}
-
 #[test]
-fn a_metric_counts_one_more_on_the_row_and_the_tree() {
+fn a_metric_counts_one_more_on_its_row() {
     let mut row = MetricRow::default();
     row.insert(text("b"), 2.0);
-    let tree = Written::default();
-    kit::add_one(&mut row, &tree, "a").unwrap();
-    kit::add_one(&mut row, &tree, "b").unwrap();
-    kit::add_one(&mut row, &tree, "a").unwrap();
+    kit::add_one(&mut row, "a");
+    kit::add_one(&mut row, "b");
+    kit::add_one(&mut row, "a");
     assert_eq!(row.iter().map(|(key, value)| (&**key, *value)).collect::<Vec<_>>(), [("b", 3.0), ("a", 2.0)]);
-    assert_eq!(*tree.0.borrow(), ["entry a Float(1.0)", "entry b Float(3.0)", "entry a Float(2.0)"]);
-    let Ok(()) = kit::add_one(&mut row, &NoTree, "c");
 
     let mut world = World::default();
     assert_eq!(kit::add_metric(&world, "x"), Err(unsupported("the namespace is not owned")));

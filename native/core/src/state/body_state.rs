@@ -29,23 +29,23 @@ const MAX_TOPIC_CHARS: usize = 64;
 state_row! {
     #[derive(Copy)]
     pub struct BodyRecord {
-        sleep_debt_minutes: f64 => set_sleep_debt_minutes,
-        uncertainty: f64 => set_uncertainty,
-        reassurance: f64 => set_reassurance,
-        discontent: f64 => set_discontent,
-        positive_affect: f64 => set_positive_affect,
-        negative_affect: f64 => set_negative_affect,
-        hygiene_need: f64 => set_hygiene_need,
+        sleep_debt_minutes: f64,
+        uncertainty: f64,
+        reassurance: f64,
+        discontent: f64,
+        positive_affect: f64,
+        negative_affect: f64,
+        hygiene_need: f64,
     }
 }
 
 state_row! {
     pub struct Relationship {
-        contact_count: i64 => set_contact_count,
-        trust: Option<f64> => set_trust,
-        contact_minutes: i64 => set_contact_minutes,
-        last_contact_minute: Option<i64> => set_last_contact_minute,
-        last_interaction: Option<Arc<str>> => set_last_interaction,
+        contact_count: i64,
+        trust: Option<f64>,
+        contact_minutes: i64,
+        last_contact_minute: Option<i64>,
+        last_interaction: Option<Arc<str>>,
         topic_ids: Vec<Arc<str>>,
     }
 }

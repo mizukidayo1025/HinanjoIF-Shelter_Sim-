@@ -34,7 +34,7 @@ use crate::host::Host;
 use crate::mathx::{py_fsum, py_max, py_round_int};
 use crate::routes::{EdgeLoads, Route, Router};
 use crate::row::{map_set, ValueRow};
-use crate::rules::kit::{self, Events, Held, Kept, NewEvent, NoTree};
+use crate::rules::kit::{self, Events, Held, Kept, NewEvent};
 use crate::rules::movement;
 use crate::rules::staff_dynamics::{self, on_shift};
 use crate::rules::staff_operation_events::{self as operations, relief_skills, Stopping, FORMULA_UNREAD};
@@ -297,14 +297,14 @@ fn kind_exposure(workers: &[Worker], kind: &str) -> Option<(bool, bool, bool)> {
 fn add_to_metric(world: &World, name: &str, count: f64) -> Result<()> {
     let mut metrics = kit::metrics_of(world)?;
     let sum = metrics.get(name).copied().unwrap_or(0.0) + count;
-    let Ok(()) = map_set(&mut metrics, &NoTree, name, sum);
+    map_set(&mut metrics, name, sum);
     Ok(())
 }
 
 /// `metric_state[name] = value`, of the row.
 fn set_metric(world: &World, name: &str, value: f64) -> Result<()> {
     let mut metrics = kit::metrics_of(world)?;
-    let Ok(()) = map_set(&mut metrics, &NoTree, name, value);
+    map_set(&mut metrics, name, value);
     Ok(())
 }
 

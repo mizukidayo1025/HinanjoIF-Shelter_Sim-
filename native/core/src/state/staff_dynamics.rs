@@ -26,12 +26,12 @@ str_enum! {
 state_row! {
     #[derive(Copy)]
     pub struct StaffRecord {
-        consecutive_work_minutes: i64 => set_consecutive_work_minutes,
-        total_work_minutes: i64 => set_total_work_minutes,
-        total_rest_minutes: i64 => set_total_rest_minutes,
-        fatigue: f64 => set_fatigue,
-        rest_until_minute: i64 => set_rest_until_minute,
-        last_activity: LastActivity => set_last_activity,
+        consecutive_work_minutes: i64,
+        total_work_minutes: i64,
+        total_rest_minutes: i64,
+        fatigue: f64,
+        rest_until_minute: i64,
+        last_activity: LastActivity,
     }
 }
 

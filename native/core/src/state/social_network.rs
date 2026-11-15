@@ -29,13 +29,13 @@ const MAX_UNCHECKED_KEYS: usize = 4096;
 
 state_row! {
     pub struct Relationship {
-        contact_count: i64 => set_contact_count,
-        conversation_count: i64 => set_conversation_count,
-        cooperation_count: i64 => set_cooperation_count,
-        trust: Option<f64> => set_trust,
+        contact_count: i64,
+        conversation_count: i64,
+        cooperation_count: i64,
+        trust: Option<f64>,
         shared_message_ids: Vec<Arc<str>>,
-        last_contact_minute: Option<i64> => set_last_contact_minute,
-        last_interaction: Option<Arc<str>> => set_last_interaction,
+        last_contact_minute: Option<i64>,
+        last_interaction: Option<Arc<str>>,
     }
 }
 
@@ -151,8 +151,8 @@ state_row! {
         schema_version: i64,
         policy_version: Arc<str>,
         relationships: Relationships,
-        interaction_count: i64 => set_interaction_count,
-        information_transfer_count: i64 => set_information_transfer_count,
+        interaction_count: i64,
+        information_transfer_count: i64,
     }
 }
 

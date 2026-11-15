@@ -17,11 +17,11 @@ pub const ORIENTATION_SOURCE: &str = "ASM-INTAKE-FACILITY-ORIENTATION-V1";
 state_row! {
     pub struct AgentMemory {
         known_facility_ids: Vec<Arc<str>>,
-        last_action: Option<Arc<str>> => set_last_action,
-        last_target_id: Option<Arc<str>> => set_last_target_id,
-        last_decision_minute: Option<i64> => set_last_decision_minute,
-        decision_due_minute: i64 => set_decision_due_minute,
-        decision_reason: Option<Arc<str>> => set_decision_reason,
+        last_action: Option<Arc<str>>,
+        last_target_id: Option<Arc<str>>,
+        last_decision_minute: Option<i64>,
+        decision_due_minute: i64,
+        decision_reason: Option<Arc<str>>,
     }
 }
 

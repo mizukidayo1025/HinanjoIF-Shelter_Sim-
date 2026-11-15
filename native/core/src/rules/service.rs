@@ -28,7 +28,7 @@ use crate::mathx::py_max;
 use crate::row::{map_set, ValueRow};
 use crate::rules::facility_queues::{self as fifo, point_of, position_in, request_of_task};
 use crate::rules::kit::movement::config_read;
-use crate::rules::kit::{add_metric, check_metric_state, held_row, kept, metrics_of, namespace_absent, payload, set_agent, Events, Held, Kept, NoTree};
+use crate::rules::kit::{add_metric, check_metric_state, held_row, kept, metrics_of, namespace_absent, payload, set_agent, Events, Held, Kept};
 use crate::rules::queues::{self as queues, Walk};
 use crate::rules::resources::{apply_planned, Applied, Fail, LedgerFault, Operation};
 use crate::rules::staff_dynamics;
@@ -404,11 +404,11 @@ pub(crate) fn record_wait(world: &World, key: &str, wait: i64) -> Result<()> {
     let (count, total, maximum) = (format!("{key}_count"), format!("{key}_total_minutes"), format!("{key}_max_minutes"));
     let mut row = metrics_of(world)?;
     let value = row.get(&*count).copied().unwrap_or(0.0) + 1.0;
-    let Ok(()) = map_set(&mut row, &NoTree, &count, value);
+    map_set(&mut row, &count, value);
     let value = row.get(&*total).copied().unwrap_or(0.0) + wait as f64;
-    let Ok(()) = map_set(&mut row, &NoTree, &total, value);
+    map_set(&mut row, &total, value);
     let value = py_max(row.get(&*maximum).copied().unwrap_or(0.0), wait as f64);
-    let Ok(()) = map_set(&mut row, &NoTree, &maximum, value);
+    map_set(&mut row, &maximum, value);
     Ok(())
 }
 

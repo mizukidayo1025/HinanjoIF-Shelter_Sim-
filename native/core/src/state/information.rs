@@ -29,17 +29,17 @@ state_row! {
 state_row! {
     pub struct BeliefRow {
         message_id: Arc<str>,
-        belief: Arc<str> => set_belief,
+        belief: Arc<str>,
         source: Arc<str>,
         last_contact: i64,
         last_event_id: Arc<str>,
         exposed: bool,
         belief_strength: f64,
-        share_propensity: f64 => set_share_propensity,
+        share_propensity: f64,
         correction_exposed: bool,
         correction_accepted: bool,
         ever_misbelieved: bool,
-        ever_forgotten: bool => set_ever_forgotten,
+        ever_forgotten: bool,
         last_correction_accepted: bool,
     }
 }
@@ -63,7 +63,7 @@ state_row! {
 
 state_row! {
     pub struct CountersRow {
-        contact_attempts: i64 => set_contact_attempts,
+        contact_attempts: i64,
         contact_deliveries: i64,
         correction_deliveries: i64,
         support_requests: i64,

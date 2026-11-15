@@ -1,7 +1,5 @@
-//! Lane d3: the rules of an EffectProgram's events (`rules::effects`) on a world built here with no
-//! Python. The PyO3 crate's effects are glue over these, so the gate and the offline tests run them
-//! against the texts and digests of the deleted Python rules; these say what each reads, decides,
-//! refuses and writes, and what it asks the host.
+//! Lane d3: the rules of an EffectProgram's events (`rules::effects`) on a world built here: what
+//! each reads, decides, refuses and writes, and what it asks the host.
 
 use crate::support;
 
@@ -310,7 +308,7 @@ fn what_other_rules_ask_of_the_modifiers() {
     assert_eq!(effects::has_pending_modifier(&built, "toilet_2"), Ok(false));
     assert_eq!(effects::has_active_modifier(&built, &Held::Held, "toilet_1"), Ok(false));
     assert_eq!(effects::has_active_modifier(&built, &Held::Absent, "toilet_1"), Ok(false));
-    // A pending event without its row: the PyO3 crate reads the rows and asks again.
+    // A pending event without its row is refused (`PENDING_UNREAD`).
     built.queue_mut().unwrap().add(text("ev3"), (60, 0, 42), None);
     assert_eq!(effects::has_pending_modifier(&built, "toilet_2"), Err(Error::Unsupported(effects::PENDING_UNREAD.into())));
 }
@@ -603,7 +601,7 @@ fn the_tick_s_check_of_the_state_passes_or_refuses() {
     let cell = Shard::new(world("set_facility_availability", Vec::new()));
     let mut host = TestHost::default();
     assert_eq!(effects::check_state(&cell, &mut host, &Held::Held, false), Ok(()));
-    // Without the state, a pending event with a marker is for Python to word.
+    // Without the state, a pending event with a marker is refused.
     let built = world("set_facility_availability", Vec::new());
     let marked = event("ev1", 10, "effect_program_apply", Vec::new(), marker("set_facility_availability", None, &[]));
     built.queue_mut().unwrap().add(text("ev1"), (10, 0, 41), Some(Arc::new(marked)));

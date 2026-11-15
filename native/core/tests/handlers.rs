@@ -1,6 +1,5 @@
-//! Lane d2: the rest of the event handlers (`rules::handlers`) on a world built here with no Python.
-//! The PyO3 crate's handlers are glue over these, so the gate and the offline tests run them; these
-//! say what each reads, decides, refuses and writes, and what it asks the host.
+//! Lane d2: the rest of the event handlers (`rules::handlers`) on a world built here: what each
+//! reads, decides, refuses and writes, and what it asks the host.
 
 use crate::support;
 
@@ -357,7 +356,7 @@ fn a_delivery_delay_moves_the_pending_delivery_and_keeps_its_identity() {
     let mut taken = Vec::new();
     assert_eq!(failed(handlers::delivery_delay(&world, &Held::Held, &early, &mut taken)), "shipment delay must move a not-yet-due delivery forward");
     handlers::delivery_delay(&world, &Held::Held, &delay, &mut taken).unwrap();
-    // The slot has a new row, whose object the PyO3 crate makes again.
+    // The slot has a new row.
     assert_eq!(taken.len(), 1);
     let queue = world.queue().unwrap();
     let serial = queue.serial_of("delivery-1").unwrap();

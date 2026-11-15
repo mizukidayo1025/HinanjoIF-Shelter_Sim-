@@ -1,19 +1,16 @@
-//! The decisions a Run records, in the core (Issue #225, lane M11; moved from
-//! `tests/integration/test_decisions_row.py`).
+//! The decisions a Run records, in the core (Issue #225, lane M11).
 //!
 //! The world is the generated Scenario the Project screen makes, at minute 0 with the Run's
-//! policies (`generated_texts.json`'s `generated`). The core runs its first 90 ticks as
-//! `TickEngine.run(steps=90)` does (`support/ticks.rs`), with a host whose sink is an indexed one
-//! (`_IndexedMetricSink`: each decision's record as JSON bytes). The policy of this Run is not in
-//! the model catalog, so the sink keeps no source for it (`source_id` null), as the host answers.
+//! policies (`generated_texts.json`'s `generated`). The core runs its first 90 ticks
+//! (`support/ticks.rs`) with a host whose sink is an indexed one (`DecisionSink::Indexed`: each
+//! decision's record as JSON bytes). The policy of this Run is not in the model catalog, so the
+//! sink keeps no source for it (`source_id` null), as the host answers.
 //!
-//! The digests are the pytest file's: what the Python steps `_propose_due`, `_observed_state` and
-//! `_record_outcome` recorded of the same Run on 45a9bc9 (model version 2 re-recorded some digests
-//! of that file from the kernels): the first 16 hex of the sha256 of `json.dumps(value,
-//! sort_keys=True)`, of `_exact` of each record (each dict as its pairs in order, the types' names,
-//! the floats' `float.hex`) and of the world's `canonical_json()`. The core writes the same texts
-//! (`Dumps`, `support/canonical.rs`, with the `rng_state` the engine gives the world it steps), so
-//! the digests are the original ones.
+//! The test pins two digests (`ROWS`, `WORLD`): the first 16 hex of the sha256 of
+//! `json.dumps(value, sort_keys=True)`, of the exact form of each record (`exact`: each map as its
+//! pairs in order, the types' names, the floats' `float.hex`) and of the world's canonical JSON
+//! (`support/canonical.rs`, with the `rng_state` the engine gives the world it steps). The values
+//! were recorded before #430 and pin the core's output now.
 
 use crate::support;
 
@@ -31,7 +28,7 @@ use support::load;
 use support::texts::sha;
 use support::{cases, ticks, Call};
 
-/// `_python_s` of the records and of the world in `test_a_run_gives_the_rows_and_world_of_python`.
+/// The recorded digests of the records and of the world.
 const ROWS: &str = "33be50e2458c9bf3";
 const WORLD: &str = "ae0c6872ec1e5041";
 
@@ -48,7 +45,7 @@ fn float_hex(value: f64) -> String {
     }
 }
 
-/// `_exact` of `test_decisions_row.py` of a value `json.loads` read.
+/// The exact form of a value `json.loads` read.
 fn exact(value: &V) -> V {
     let named = |name: &str, value: V| V::List(vec![V::Str(Arc::from(name)), value]);
     match value {
@@ -136,13 +133,13 @@ fn parse(raw: &[u8], at: &mut usize) -> V {
     }
 }
 
-/// `_digest`: the first 16 hex of the sha256 of `json.dumps(value, sort_keys=True)`.
+/// The first 16 hex of the sha256 of `json.dumps(value, sort_keys=True)`.
 fn digest(value: &V) -> String {
     sha(&Dumps::default().sorted().text(value))[..16].to_owned()
 }
 
 #[test]
-fn a_run_gives_the_records_and_the_world_of_python() {
+fn a_run_gives_the_recorded_records_and_world() {
     let entry = cases::entry("generated_texts", "generated");
     let loaded = Rc::new(load::loaded(&entry));
     let mut host = load::following_host(&entry, &loaded);
@@ -159,7 +156,7 @@ fn a_run_gives_the_records_and_the_world_of_python() {
         .collect();
     assert!(!records.is_empty());
     assert_eq!(digest(&V::List(records)), ROWS);
-    // The `rng_state` the engine gives the world it steps: its `CounterRNG`'s state.
+    // The `rng_state` the engine gives the world it steps: its keyed draws' state.
     let rng_state = serde_json::json!({"algorithm": "sha256-keyed-v1", "seed": entry["world"]["seed"]});
     let canonical = loaded.cell.with(|world| canonical_json(world, &rng_state)).unwrap();
     assert_eq!(digest(&V::Str(Arc::from(String::from_utf8(canonical).unwrap()))), WORLD);

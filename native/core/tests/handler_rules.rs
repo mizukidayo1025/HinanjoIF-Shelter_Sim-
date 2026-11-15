@@ -1,16 +1,14 @@
-//! The handlers' kernels and the steps around them, on worlds the Python side built (Issue #225, lane
-//! M4; moved from `tests/integration/test_handler_rules.py` and `test_handler_rest_rules.py`).
+//! The handlers' kernels and the steps around them, on recorded worlds (Issue #225, lane M4).
 //!
 //! The toilet's queue and service (`rules::toilet`), the care receipts (`rules::care_receipts`), a
-//! seek (`_apply_effect`, the propose phase's `apply_alone`), the end of a request or of a staff
+//! seek (the propose phase's `tick::propose::apply_alone`), the end of a request or of a staff
 //! member's support (`rules::support`), the walk home (`travel::schedule_return`), the arrival at a
 //! toilet (`travel_completion::arrive`), the handlers of the operations and of the social events,
-//! and the draws of a claim (`information_events`). Each test is the pytest test of the same name,
-//! on the world it built (`tests/support/core_fixtures_handlers.py`: the generated Scenario of
-//! `generated_scenario` after 5 minutes, edited in Python): the same inputs, and what it expected.
-//! Where the pytest file compared the kernel's world with a copy it edited as the deleted Python
-//! rule did, that copy is the fixture's `after` world and the core must leave the same bytes
-//! (`canonical::parts`); a handler's case goes through `support/cases.rs`.
+//! and the draws of a claim (`information_events`). The worlds of `data/handler_rules.json` are the
+//! generated Scenario after 5 minutes, edited for each case, with the case's inputs and what it
+//! expects. Where a case expects a changed world, that world is the fixture's `after` world and the
+//! core must leave the same bytes (`canonical::parts`); a handler's case goes through
+//! `support/cases.rs`. The values were recorded before #430 and pin the core's output now.
 
 use crate::support;
 
@@ -192,8 +190,8 @@ fn record_of(event: &EventRow, realized_minute: i64, status: EventStatus, detail
     V::Map(record)
 }
 
-/// What the handler of a call returned where it applied, as the PyO3 entry returns it: its records,
-/// or the record of its care receipt.
+/// What the handler of a call returned where it applied: its records, or the record of its care
+/// receipt.
 fn handled(loading: &mut Loading, call: &Value) -> Vec<V> {
     let native = cases::native(&loading.loaded, &call["handler"]);
     let event = load::event(&call["event"]);
@@ -208,8 +206,8 @@ fn handled(loading: &mut Loading, call: &Value) -> Vec<V> {
     out
 }
 
-/// test_handler_rest_rules.py's `_digest` of what a handler returned and the world it left:
-/// `json.dumps({"records": [...], "world": canonical_text}, sort_keys=True, ensure_ascii=False)`.
+/// The digest of what a handler returned and the world it left: `json.dumps({"records": [...],
+/// "world": canonical_text}, sort_keys=True, ensure_ascii=False)`.
 fn records_digest(records: Vec<V>, loading: &Loading) -> String {
     let mut value = indexmap::IndexMap::new();
     value.insert(Arc::from("records"), V::List(records));
@@ -221,18 +219,18 @@ fn digest(value: &V) -> String {
     sha256_hex(Dumps::default().unicode().sorted().text(value).as_bytes())[..16].to_owned()
 }
 
-// ==== integration/test_handler_rules.py ===========================================================
+// ==== The toilet, the care receipts, a seek and a staff member's support =========================
 
 #[test]
-fn a_loaded_world_writes_python_s_canonical_json() {
+fn a_loaded_world_writes_the_recorded_canonical_json() {
     let loading = Loading::of(&Value::from("generated"));
     let wanted = data()["canonical_sha256"]["generated"].as_str().unwrap();
     assert_eq!(sha256_hex(loading.canonical().as_bytes()), wanted);
 }
 
-// ---- ToiletServiceManager.request ----------------------------------------------------------------
+// ---- toilet::request ----------------------------------------------------------------------------
 
-/// `ToiletServiceManager.request` without the world's validation, with what the PyO3 entry reads.
+/// `toilet::request` without the world's validation, with what the rule reads through the host.
 fn toilet_request(loading: &mut Loading, agent_id: &str, facility_id: &str) -> Result<toilet::Receipt, Error> {
     loading.tick(|tick| {
         let holding = tick.holding()?;
@@ -256,8 +254,8 @@ fn a_toilet_request_puts_the_person_last_in_the_queue() {
     let call = &calls("a_toilet_request_puts_the_person_last_in_the_queue", 1)[0];
     let mut loading = Loading::of(&call["world"]);
     let receipt = toilet_request(&mut loading, s(&call["agent_id"]), s(&call["facility_id"])).unwrap();
-    // The deleted rule: a queue task of the request's minute, the person last in the facility's
-    // list, queued with the facility as target; the receipt has the place.
+    // A queue task of the request's minute, the person last in the facility's list, queued with the
+    // facility as target; the receipt has the place.
     let wanted = &call["receipt"];
     assert_eq!(&*receipt.agent_id, s(&wanted[0]));
     assert_eq!(&*receipt.facility_id, s(&wanted[1]));
@@ -267,7 +265,7 @@ fn a_toilet_request_puts_the_person_last_in_the_queue() {
     loading.is(&call["after"]);
 }
 
-/// The request refuses with the Python rule's error, class and text, and changes nothing.
+/// The request refuses with the recorded error, class and text, and changes nothing.
 fn toilet_refusals(group: &str, count: usize) {
     for call in calls(group, count) {
         let mut loading = Loading::of(&call["world"]);
@@ -279,9 +277,9 @@ fn toilet_refusals(group: &str, count: usize) {
 }
 
 /// What the request refuses, in the rule's order and with its texts: a walk's arrival saves the
-/// text as its event's detail (`_after_arrival`).
+/// text as its event's detail (`travel_completion::arrive`).
 #[test]
-fn what_a_toilet_request_refuses_is_python_s_text() {
+fn a_refused_toilet_request_gives_the_recorded_text() {
     toilet_refusals("what_a_toilet_request_refuses_is_python_s_text", 4);
 }
 
@@ -305,7 +303,7 @@ fn the_facilities_to_serve_leave_out_only_an_empty_queue() {
 }
 
 /// A pass of `arbitrate` at the facility's shared queue, with the manager the Run read and the
-/// world's CounterRNG: whether it has room, and what started.
+/// world's keyed draws: whether it has room, and what started.
 fn start_head(loading: &mut Loading, facility_id: &str) -> (bool, toilet::Started) {
     let seed = loading.entry["world"]["seed"].to_string();
     loading.tick(|tick| {
@@ -338,8 +336,8 @@ fn start_head(loading: &mut Loading, facility_id: &str) -> (bool, toilet::Starte
     })
 }
 
-/// The deleted rule: a uniform duration of whole minutes drawn at the head's key, a service task and
-/// its completion of the next sequence, the person in service, and the wait counted.
+/// A uniform duration of whole minutes drawn at the head's key, a service task and its completion
+/// of the next sequence, the person in service, and the wait counted.
 #[test]
 fn the_head_starts_its_service() {
     let call = &calls("the_head_starts_its_service", 1)[0];
@@ -360,13 +358,12 @@ fn a_head_that_cannot_finish_stays_in_line() {
     unchanged(&before, &loading);
 }
 
-// ---- ToiletServiceCompletionHandler --------------------------------------------------------------
+// ---- The toilet's completion (`toilet::complete`) -----------------------------------------------
 
-/// The Python rule (`complete_toilet_service` and the handler, gone in lane L10): the slot, the
-/// task, the person and the count; 0.2 off the hygiene need (a change of 1% of it shows here); a
-/// person not in a queue has no queue record to finish.
+/// The slot, the task, the person and the count; 0.2 off the hygiene need (a change of 1% of it
+/// shows here); a person not in a queue has no queue record to finish.
 #[test]
-fn a_toilet_completion_is_python_s() {
+fn a_toilet_completion_is_the_recorded_one() {
     check_group(FILE, "a_toilet_completion_is_python_s", 4);
 }
 
@@ -376,16 +373,15 @@ fn a_facility_kind_beyond_ascii_is_folded_as_python_folds_it() {
     check_group(FILE, "a_facility_kind_beyond_ascii_is_folded_as_python_folds_it", 2);
 }
 
-/// `complete_toilet_service`'s ValueError, as the handler wraps it.
+/// The completion's ValueError, as the handler wraps it.
 #[test]
-fn a_toilet_completion_that_does_not_fit_is_python_s() {
+fn a_toilet_completion_that_does_not_fit_is_the_recorded_one() {
     check_group(FILE, "a_toilet_completion_that_does_not_fit_is_python_s", 1);
 }
 
 // ---- care receipts -------------------------------------------------------------------------------
 
-/// `append_applied_care_transition` of each transition in turn, as its PyO3 entry calls the core;
-/// the first error stops.
+/// `care_receipts::append` of each transition in turn; the first error stops.
 fn append_transitions(loading: &mut Loading, transitions: &Value) -> Result<(), Error> {
     for transition in transitions.as_array().unwrap() {
         loading.tick(|tick| {
@@ -415,11 +411,10 @@ fn append_transitions(loading: &mut Loading, transitions: &Value) -> Result<(), 
     Ok(())
 }
 
-/// What the Python rule made of it (it has none left, lane L10), by the digest of the world:
-/// `sha256(canonical_json)[:16]`, which the pytest test of the same name pinned (the core writes
-/// the same bytes); sorted sources without repeats, with the producer's own.
+/// The recorded digest of the world, `sha256(canonical_json)[:16]`; sorted sources without repeats,
+/// with the producer's own.
 #[test]
-fn a_care_transition_is_python_s() {
+fn a_care_transition_is_the_recorded_one() {
     let call = &calls("a_care_transition_is_python_s", 1)[0];
     let mut loading = Loading::of(&call["world"]);
     append_transitions(&mut loading, &call["transitions"]).unwrap();
@@ -431,8 +426,8 @@ fn a_care_transition_is_python_s() {
     assert_eq!(head["latest_event_id"], last["event"]["event_id"]);
 }
 
-/// A transition the core refuses or the rule turns down with its text changes nothing, its
-/// counters neither: the Python rule appended the event and took its sequence first.
+/// A transition the core refuses or the rule turns down with its text changes nothing, its counters
+/// neither.
 fn refused_transitions(group: &str, count: usize) {
     for call in calls(group, count) {
         let mut loading = Loading::of(&call["world"]);
@@ -450,12 +445,12 @@ fn what_a_care_transition_refuses_changes_nothing() {
 }
 
 #[test]
-fn a_transition_out_of_order_has_the_python_text_and_changes_nothing() {
+fn a_transition_out_of_order_has_the_recorded_text_and_changes_nothing() {
     refused_transitions("a_transition_out_of_order_has_the_python_text_and_changes_nothing", 1);
 }
 
 #[test]
-fn a_request_id_used_before_is_python_s_error() {
+fn a_request_id_used_before_is_the_recorded_error() {
     refused_transitions("a_request_id_used_before_is_python_s_error", 1);
 }
 
@@ -470,8 +465,8 @@ fn without_the_namespace_nothing_happens() {
 
 // ---- seek_help and seek_information --------------------------------------------------------------
 
-/// `_apply_effect` of the call's proposal (no observed state hash, as the pytest file's proposal
-/// had none), and the digest of the world after: `sha256(canonical_json)[:16]`.
+/// `tick::propose::apply_alone` of the call's proposal (no observed state hash), and the digest of
+/// the world after: `sha256(canonical_json)[:16]`.
 fn seek(call: &Value) -> (Applied, String, Value) {
     let mut loading = Loading::of(&call["world"]);
     let proposal = Proposal {
@@ -493,11 +488,9 @@ fn asked(applied: &Applied) -> (Option<&str>, i64, bool) {
 }
 
 /// The world of each seek is pinned by `sha256(canonical_json)[:16]`, recorded from the core in
-/// #225 lane M4; on the same kernel the pytest test of the same name in test_handler_rules.py,
-/// with its `world_digest` (`b97278e44a15…`, `77396644fe07…`, `15ff1c01a90e…`, `1b1b58c7ce93…`,
-/// `cddd80dc1bf4…`, `1b05e9d54a04…`, `76415054a733…`, `a149ba7dc717…`, in this order) passed.
+/// #225 lane M4.
 #[test]
-fn what_a_seek_reads_of_a_person_is_python_s() {
+fn what_a_seek_reads_of_a_person_is_the_recorded_one() {
     let digests = [
         "3577412dda5be40c",
         "b2aec716721dd837",
@@ -515,10 +508,9 @@ fn what_a_seek_reads_of_a_person_is_python_s() {
     }
 }
 
-/// Recorded from the core in #225 lane M4; on the same kernel the pytest test of the same name, with
-/// its `world_digest` `5d20d2e22d7a…` (seek_help) and `9f3389377a05…` (seek_information), passed.
+/// Recorded from the core in #225 lane M4.
 #[test]
-fn a_seek_is_python_s() {
+fn a_seek_is_the_recorded_one() {
     let digests = ["46f9441bd237dc0b", "d26a051a688ff46c"];
     for (call, wanted) in calls("a_seek_is_python_s", 2).iter().zip(digests) {
         let (applied, digest, document) = seek(call);
@@ -530,8 +522,7 @@ fn a_seek_is_python_s() {
     }
 }
 
-/// Recorded from the core in #225 lane M4; on the same kernel the pytest test of the same name, with
-/// its `world_digest` `f53692cd3b44…`, passed.
+/// Recorded from the core in #225 lane M4.
 #[test]
 fn a_seek_in_cooldown_counts_as_rejected() {
     let call = &calls("a_seek_in_cooldown_counts_as_rejected", 1)[0];
@@ -541,8 +532,7 @@ fn a_seek_in_cooldown_counts_as_rejected() {
     assert_eq!(digest, "51b75ffbda42d798");
 }
 
-/// Recorded from the core in #225 lane M4; on the same kernel the pytest test of the same name, with
-/// its `world_digest` `dbe1888452f6…`, passed.
+/// Recorded from the core in #225 lane M4.
 #[test]
 fn a_seek_reaches_the_information_rule_above_its_threshold() {
     let call = &calls("a_seek_reaches_the_information_rule_above_its_threshold", 1)[0];
@@ -553,28 +543,28 @@ fn a_seek_reaches_the_information_rule_above_its_threshold() {
 
 // ---- the timeout ---------------------------------------------------------------------------------
 
-/// The Python rule (`timeout_support_request`, gone in lane L10): unresolved, with a cooldown.
+/// `support::timeout`: unresolved, with a cooldown.
 #[test]
-fn a_timeout_is_python_s() {
+fn a_timeout_is_the_recorded_one() {
     check_group(FILE, "a_timeout_is_python_s", 1);
 }
 
-/// An assigned request goes on in service: the Python rule's suppression.
+/// An assigned request goes on in service: the recorded suppression.
 #[test]
-fn a_timeout_of_what_has_left_pending_says_python_s_text() {
+fn a_timeout_of_what_has_left_pending_says_the_recorded_text() {
     check_group(FILE, "a_timeout_of_what_has_left_pending_says_python_s_text", 1);
 }
 
 #[test]
-fn a_timeout_of_another_person_s_request_is_python_s_error() {
+fn a_timeout_of_another_person_s_request_is_the_recorded_error() {
     check_group(FILE, "a_timeout_of_another_person_s_request_is_python_s_error", 1);
 }
 
 // ---- a staff member's support ends ---------------------------------------------------------------
 
-/// What `complete_support_task` did (the task gone, the staff member free, the request resolved with
-/// the cooldown, the person idle, one more resolved request) and the care the deleted rule
-/// recorded, with the body state's configured amounts: the facts the pytest test checked.
+/// What `support::complete_support` does (the task gone, the staff member free, the request
+/// resolved with the cooldown, the person idle, one more resolved request) and the care it records,
+/// with the body state's configured amounts: the recorded facts.
 fn support_ends(group: &str, count: usize) {
     for call in calls(group, count) {
         let mut loading = Loading::of(&call["world"]);
@@ -592,16 +582,15 @@ fn the_end_of_support_resolves_and_records_the_care() {
     support_ends("the_end_of_support_resolves_and_records_the_care", 3);
 }
 
-/// The rule read and wrote the body only when it was a dict: without the body state (a Run of no
-/// body model), emotional support relieves nothing and its care is not measured. Recorded once from
-/// the deleted rule.
+/// The rule reads and writes the body only when it is a map: without the body state (a Run of no
+/// body model), emotional support relieves nothing and its care is not measured.
 #[test]
 fn the_end_of_support_without_a_body_state_measures_nothing() {
     support_ends("the_end_of_support_without_a_body_state_measures_nothing", 1);
 }
 
 #[test]
-fn the_end_of_support_that_does_not_fit_is_python_s() {
+fn the_end_of_support_that_does_not_fit_is_the_recorded_one() {
     check_group(FILE, "the_end_of_support_that_does_not_fit_is_python_s", 1);
 }
 
@@ -624,8 +613,8 @@ fn support_event(row: &EventRow, keys: &[&str]) -> care::SupportEvent {
     }
 }
 
-/// `_record_request_interrupted` (`started`: `_record_staff_support_started`) of the call's event, as
-/// the dispatch phase runs it after the event applied: nothing for an event without a request.
+/// `support::record_interrupted` (`started`: `support::record_started`) of the call's event, as the
+/// dispatch phase runs it after the event applied: nothing for an event without a request.
 fn record_receipt(call: &Value, started: bool) {
     let mut loading = Loading::of(&call["world"]);
     let before = loading.parts();
@@ -648,7 +637,7 @@ fn record_receipt(call: &Value, started: bool) {
     }
 }
 
-/// What the Python rule appended: the receipt's household and kind, the timeout as the cause.
+/// The recorded receipt: the household and kind, the timeout as the cause.
 #[test]
 fn a_timeout_records_the_interruption_of_a_care_request() {
     for call in calls("a_timeout_records_the_interruption_of_a_care_request", 2) {
@@ -657,8 +646,8 @@ fn a_timeout_records_the_interruption_of_a_care_request() {
 }
 
 /// Nothing without the request, for another staff member, for a request not there, or for a person
-/// not seeking help; else what the Python rule appended: the assigned staff member, the request's
-/// task as the cause.
+/// not seeking help; else the recorded receipt: the assigned staff member, the request's task as
+/// the cause.
 #[test]
 fn a_staff_arrival_records_the_start_of_care() {
     for call in calls("a_staff_arrival_records_the_start_of_care", 5) {
@@ -678,7 +667,7 @@ fn an_arrival_s_refused_toilet_request_is_its_text() {
     let mut loading = Loading::of(&call["world"]);
     let before = loading.parts();
     let refused = loading.tick(|tick| {
-        /// The controller's toilet queue, as `_after_arrival` asks it (the dispatch phase's).
+        /// The controller's toilet queue, as the arrival asks it (the dispatch phase's).
         struct Queue<'c, C>(&'c C);
         impl<C: WorldCell> travel_completion::Managers<TestHost> for Queue<'_, C> {
             fn own(&mut self, _toilet: bool) -> Result<bool, Error> {
@@ -723,9 +712,8 @@ fn an_arrival_s_refused_toilet_request_is_its_text() {
     unchanged(&before, &loading);
 }
 
-/// `_schedule_return_to_initial_zone` of the event, as the toilet's completion runs it: nothing for
-/// an unknown person or one at home; else the controller's route home and a "return" trip on it,
-/// what the Python rule did.
+/// `travel::schedule_return` of the event, as the toilet's completion runs it: nothing for an
+/// unknown person or one at home; else the controller's route home and a "return" trip on it.
 #[test]
 fn the_journey_home_after_a_toilet_is_a_return_trip() {
     for call in calls("the_journey_home_after_a_toilet_is_a_return_trip", 3) {
@@ -753,33 +741,32 @@ fn the_journey_home_after_a_toilet_is_a_return_trip() {
     }
 }
 
-// ==== integration/test_handler_rest_rules.py ======================================================
+// ==== The outages, contacts, care and social events, and the draws ===============================
 
 #[test]
-fn a_failed_outage_changes_nothing_and_says_python_s_text() {
+fn a_failed_outage_changes_nothing_and_says_the_recorded_text() {
     check_group(FILE, "a_failed_outage_changes_nothing_and_says_python_s_text", 7);
 }
 
 #[test]
-fn a_stale_proximity_sample_is_failed_in_python_s_text() {
+fn a_stale_proximity_sample_is_failed_with_the_recorded_text() {
     check_group(FILE, "a_stale_proximity_sample_is_failed_in_python_s_text", 1);
 }
 
 #[test]
-fn a_contact_that_no_longer_applies_says_python_s_text() {
+fn a_contact_that_no_longer_applies_says_the_recorded_text() {
     check_group(FILE, "a_contact_that_no_longer_applies_says_python_s_text", 1);
 }
 
 #[test]
-fn a_restoration_of_no_outage_says_python_s_text() {
+fn a_restoration_of_no_outage_says_the_recorded_text() {
     check_group(FILE, "a_restoration_of_no_outage_says_python_s_text", 1);
 }
 
 // ---- Care that a selected formula decides --------------------------------------------------------
 
-/// What the Python rule gave, by care outcome formula and kind: the digest of what the kernel
-/// returned and left (`records_digest`), which test_handler_rest_rules.py pinned from the deleted
-/// rule (model version 2 re-recorded some, from the kernels of that model).
+/// The recorded digests, by care outcome formula and kind, of what the kernel returned and left
+/// (`records_digest`).
 const CARE_DIGESTS: [(&str, &str, &str); 24] = [
     ("hygiene-support-fixed-relief-v1", "caregiver_assistance", "81e48ab9b68232ec"),
     ("hygiene-support-fixed-relief-v1", "dependent_assistance", "5574059f51f389dc"),
@@ -822,7 +809,7 @@ fn payload_of(record: &V) -> Value {
 }
 
 #[test]
-fn a_kind_a_selected_formula_decides_is_python_s() {
+fn a_kind_a_selected_formula_decides_is_the_recorded_one() {
     let calls = calls("a_kind_a_selected_formula_decides_is_python_s", 24);
     for (model, kind, wanted) in CARE_DIGESTS {
         let call = calls.iter().find(|call| call["model_id"] == model && call["kind"] == kind).unwrap();
@@ -833,7 +820,7 @@ fn a_kind_a_selected_formula_decides_is_python_s() {
 }
 
 #[test]
-fn care_with_a_dependent_is_python_s() {
+fn care_with_a_dependent_is_the_recorded_one() {
     let call = &calls("care_with_a_dependent_is_python_s", 1)[0];
     let (records, digest) = care(call);
     assert_eq!(digest, "1aaa2e06433b2a25");
@@ -860,7 +847,7 @@ fn a_care_delta_1_percent_off_shows() {
     assert_ne!(stress[0], stress[1]);
 }
 
-/// What the Python rule gave without configured amounts, by kind: `records_digest`.
+/// The recorded digests without configured amounts, by kind: `records_digest`.
 #[test]
 fn care_without_configured_amounts_uses_the_formula_s_defaults() {
     let digests = [
@@ -882,11 +869,10 @@ fn care_without_configured_amounts_uses_the_formula_s_defaults() {
 
 // ---- What else the handlers ask ------------------------------------------------------------------
 
-/// What the Python rule made of it (it has none left, lane L10), by the digest of the world, which
-/// test_handler_rest_rules.py pinned: `sha256(json.dumps(canonical_text))[:16]`; recorded once:
-/// the second time it is found.
+/// The recorded digest of the world, `sha256(json.dumps(canonical_text))[:16]`: the second time it
+/// is found.
 #[test]
-fn ingest_of_a_record_of_this_tick_is_python_s() {
+fn ingest_of_a_record_of_this_tick_is_the_recorded_one() {
     let call = &calls("ingest_of_a_record_of_this_tick_is_python_s", 1)[0];
     let mut loading = Loading::of(&call["world"]);
     let row = load::event(&call["event"]);
@@ -904,28 +890,27 @@ fn ingest_of_a_record_of_this_tick_is_python_s() {
 
 // ---- The other social events: their fixed amounts, which few runs reach --------------------------
 
-/// The kernel applies the event and writes only the stress and trust of the people it names, whose
-/// values each test wrote down from the deleted Python rule.
+/// The kernel applies the event and writes only the stress and trust of the people it names, to the
+/// recorded values.
 #[test]
-fn a_complaint_response_is_python_s() {
+fn a_complaint_response_is_the_recorded_one() {
     check_group(FILE, "a_complaint_response_is_python_s", 3);
 }
 
 #[test]
-fn an_untyped_social_event_is_python_s() {
+fn an_untyped_social_event_is_the_recorded_one() {
     check_group(FILE, "an_untyped_social_event_is_python_s", 2);
 }
 
 #[test]
-fn cooperation_is_python_s() {
+fn cooperation_is_the_recorded_one() {
     check_group(FILE, "cooperation_is_python_s", 1);
 }
 
-/// The receipt and the world are the Python rule's: the digest of what it gave (lane L10), which
-/// test_handler_rest_rules.py pinned. The zone is as clean as it gets already: the cleaning's
-/// receipt measures, and nothing changed.
+/// The receipt and the world are pinned by the recorded digest. The zone is as clean as it gets
+/// already: the cleaning's receipt measures, and nothing changed.
 #[test]
-fn a_finished_operation_is_python_s() {
+fn a_finished_operation_is_the_recorded_one() {
     let digests = [
         ("cleaning", "7bb434e07202a409", &[][..]),
         ("information_outreach", "989b5abd395d3d49", &["trust"][..]),
@@ -954,11 +939,11 @@ fn bits(text: &Value) -> Vec<bool> {
 }
 
 /// 1% in a coefficient flips few draws: these settings put the probability near the middle. The
-/// draws are Python's `CounterRNG` (the fixture's bits): the belief is 1.0 when the draw is below
-/// the clamped probability, else 0.0; a correction is accepted below 0.95. Model version 2 keys the
+/// draws are the recorded ones (the fixture's bits): the belief is 1.0 when the draw is below the
+/// clamped probability, else 0.0; a correction is accepted below 0.95. Model version 2 keys the
 /// draws by the minute and the people, the source and the message, without the event's ID.
 #[test]
-fn many_draws_of_a_claim_and_a_correction_are_python_s() {
+fn many_draws_of_a_claim_and_a_correction_are_the_recorded_ones() {
     let call = &calls("many_draws_of_a_claim_and_a_correction_are_python_s", 1)[0];
     let loading = Loading::of(&call["world"]);
     let (believing, accepting) = (spread(&call["believing"]), spread(&call["accepting"]));
@@ -981,9 +966,9 @@ fn many_draws_of_a_claim_and_a_correction_are_python_s() {
         .unwrap();
 }
 
-/// A Scenario's seed is any int from 0; CounterRNG keys its draws by `str(seed)`.
+/// A Scenario's seed is any int from 0; the keyed draws key on `str(seed)`.
 #[test]
-fn a_claim_s_draw_keys_a_seed_past_64_bits_as_python_does() {
+fn a_claim_s_draw_keys_a_seed_past_64_bits_by_its_text() {
     let call = &calls("a_claim_s_draw_keys_a_seed_past_64_bits_as_python_does", 1)[0];
     let loading = Loading::of(&call["world"]);
     assert_eq!(loading.entry["world"]["seed"].to_string(), "1180591620717411303427");

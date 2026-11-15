@@ -1,7 +1,7 @@
 //! The sections of lane 7-5a, parsed from the configs as a `V`: movement, routing, the queue
 //! policy, the overlay's schema, the resource service and the population's needs. Each gives the
-//! value the kernels read, or the refusal (or the constructor's `ValueError`) they said when they
-//! read the Python tree, in the same order of checks.
+//! value the kernels read, or the recorded refusal (or the constructor's `ValueError`), checked in
+//! a fixed order.
 
 use std::sync::Arc;
 

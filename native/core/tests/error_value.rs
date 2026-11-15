@@ -1,6 +1,6 @@
-//! The core's errors give the texts the Python exceptions had, and `V` writes the bytes of
-//! Python's canonical JSON: `json.dumps(value, sort_keys=True, separators=(",", ":"),
-//! ensure_ascii=False, allow_nan=False).encode()` in CPython 3.12.
+//! The core's errors give their recorded texts, and `V` writes the bytes of Python's canonical
+//! JSON: `json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False,
+//! allow_nan=False).encode()` in CPython 3.12.
 
 use std::sync::Arc;
 
@@ -52,7 +52,7 @@ fn v_writes_pythons_canonical_json() {
 }
 
 #[test]
-fn v_leaves_non_finite_floats_to_python() {
+fn v_refuses_non_finite_floats() {
     for number in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
         let mut encoder = Encoder::default();
         let error = V::List(vec![V::Float(number)]).write_json(&mut encoder).unwrap_err();

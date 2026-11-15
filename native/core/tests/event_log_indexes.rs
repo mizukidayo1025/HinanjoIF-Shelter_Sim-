@@ -1,12 +1,11 @@
-//! A rule's record of an outcome fills the log's indexes as a record Python appends does (Issue
-//! #225, lane M7; moved from `tests/integration/test_event_rows.py`).
+//! A rule's record of an outcome fills the log's indexes as an appended record does (Issue #225,
+//! lane M7).
 //!
-//! A rule writes an outcome with `writer::record` (the PyO3 crate's `EventWriter::record`, and the
-//! core's `kit::Events::record`); `EventLog.append` of a record Python made reaches the log as
-//! `EventLog::append_row`. Both logs answer what the readers of `events/queue.py` ask
-//! (`event_types`, `has_prior_care_request`, `completed_support_kinds`,
-//! `applied_facility_event_ids`, `with_provenance_object`, `at_minute`,
-//! `active_lifecycle_records`) the same, from the event's type, payload, provenance and status.
+//! A rule writes an outcome with `writer::record` (also behind `kit::Events::record`); a record
+//! made elsewhere reaches the log as `EventLog::append_row`. Both logs answer the readers
+//! (`event_types`, `first_care_request_event_of`, `completed_kinds`, `applied_facility_event_ids`,
+//! `with_provenance_object`, `at_minute`, `active_lifecycle_positions`) the same, from the event's
+//! type, payload, provenance and status.
 
 use std::sync::Arc;
 
@@ -36,8 +35,8 @@ fn map(value: Value) -> IndexMap<Arc<str>, V> {
     }
 }
 
-/// The pytest file's event: a completion of this type and payload at minute 0, with a provenance
-/// whose `marker` is an object and `plain` is not.
+/// A completion of this type and payload at minute 0, with a provenance whose `marker` is an object
+/// and `plain` is not.
 fn event(event_type: &str, payload: Value) -> EventRow {
     EventRow {
         event_id: Arc::from("a"),
@@ -56,7 +55,7 @@ fn event(event_type: &str, payload: Value) -> EventRow {
 }
 
 #[test]
-fn a_rule_s_record_fills_the_indexes_of_a_python_record() {
+fn a_rule_s_record_fills_the_indexes_of_an_appended_record() {
     let care = json!({"request_id": "r", "agent_id": "A", "support_kind": "k", "status": "completed"});
     let cases = [
         ("care_support_transition", care.clone(), EventStatus::Applied),
@@ -71,12 +70,12 @@ fn a_rule_s_record_fills_the_indexes_of_a_python_record() {
         let row = event(event_type, payload);
         let mut rules = EventLog::new();
         writer::record(&mut rules, &row, 0, status, None).unwrap();
-        let mut python = EventLog::new();
-        assert_eq!(python.append_row(&row, 0, status, None).unwrap(), 0);
+        let mut appended = EventLog::new();
+        assert_eq!(appended.append_row(&row, 0, status, None).unwrap(), 0);
         let care = event_type == "care_support_transition";
         let applied = status == EventStatus::Applied;
         let facility = matches!(event_type, "facility_outage" | "facility_recovery");
-        for log in [&rules, &python] {
+        for log in [&rules, &appended] {
             assert_eq!(log.event_types(), [event_type], "{event_type}");
             // A care request is known by its first event whatever its outcome.
             let first = log.first_care_request_event_of("r");
@@ -89,8 +88,8 @@ fn a_rule_s_record_fills_the_indexes_of_a_python_record() {
             assert!(log.with_provenance_object("plain").is_empty(), "{event_type}");
             assert_eq!(log.at_minute(0), [0], "{event_type}");
         }
-        assert_eq!(rules.active_lifecycle_positions(), python.active_lifecycle_positions(), "{event_type}");
-        assert_eq!(rules.written(0), python.written(0), "{event_type}");
+        assert_eq!(rules.active_lifecycle_positions(), appended.active_lifecycle_positions(), "{event_type}");
+        assert_eq!(rules.written(0), appended.written(0), "{event_type}");
     }
 }
 

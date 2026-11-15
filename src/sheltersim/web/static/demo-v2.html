@@ -45,15 +45,15 @@
         <button class="nav-item active" data-page="home">
           <span data-icon="home"></span>ホーム</button
         ><button class="nav-item" data-page="scenario">
-          <span data-icon="scenario"></span>シナリオ設定</button
+          <span data-icon="scenario"></span>シナリオ作成</button
         ><button class="nav-item" data-page="simulation" disabled>
           <span data-icon="simulation"></span>シミュレーション</button
         ><button class="nav-item" data-page="comparison" disabled>
           <span data-icon="comparison"></span>分岐比較</button
         ><button class="nav-item" data-page="report" disabled>
-          <span data-icon="report"></span>レポート・対話</button
+          <span data-icon="report"></span>レポート・質問</button
         ><button class="nav-item" data-page="detail" disabled>
-          <span data-icon="detail"></span>詳細
+          <span data-icon="detail"></span>記録・出典
         </button>
       </nav>
     </aside>
@@ -87,7 +87,7 @@
           <article id="home-api" class="panel home-card" hidden>
             <h2>AIの機能（API）</h2>
             <p class="fine">
-              配布した合言葉を入れると、シナリオ設定の文をAIが読み取ります（ほかのAIの機能は順に対応します）。合言葉はこのブラウザーにだけ保存します。
+              配布した合言葉を入れると、シナリオ作成の文をAIが読み取ります（ほかのAIの機能は順に対応します）。合言葉はこのブラウザーにだけ保存します。
             </p>
             <p id="home-api-status" class="home-api-status" role="status">まだ有効にしていません。</p>
             <div class="home-actions">
@@ -144,32 +144,8 @@
         aria-labelledby="scenario-heading"
       >
         <h1 id="scenario-heading" class="sr-only">
-          シナリオ設定・AIプレビュー
+          シナリオ作成・AIプレビュー
         </h1>
-        <article id="scenario-open" class="panel scenario-open" hidden>
-          <div class="panel-title">
-            <h2>開いているシナリオの条件</h2>
-            <button id="scenario-new" class="primary compact" type="button">
-              ＋ 新しいシナリオを作る
-            </button>
-          </div>
-          <div id="scenario-open-chips" class="chips"></div>
-          <p class="fine">
-            作ったシナリオの条件は変えられません。条件を変えて試すときは、新しいシナリオを作るか、シミュレーション画面のある時刻から分岐を作ります。
-          </p>
-          <details>
-            <summary>構造化された設定を確認</summary>
-            <pre id="scenario-open-json"></pre>
-          </details>
-          <div class="scenario-open-actions">
-            <button id="scenario-copy" type="button">同じ条件で新しいシナリオを作る</button>
-          </div>
-          <p id="scenario-actions-note" class="fine"></p>
-        </article>
-        <article id="scenario-unavailable" class="panel scenario-unavailable" hidden>
-          <h2>このサイトでは新しいシナリオを作れません</h2>
-          <p id="scenario-unavailable-reason" class="fine"></p>
-        </article>
         <div class="steps">
           <div class="step current">
             <b>1</b>
@@ -785,15 +761,27 @@
       <section id="page-detail" class="page" aria-labelledby="detail-heading">
         <div class="page-heading">
           <div>
-            <small>DETAILS / 記録の出どころ</small>
-            <h1 id="detail-heading">このシナリオの詳細</h1>
+            <small>RECORDS / 記録の出どころ</small>
+            <h1 id="detail-heading">このシナリオの記録と出典</h1>
           </div>
         </div>
         <p id="detail-empty" class="quiet-message">シナリオを開くと、その記録・モデル・出典を表示します。</p>
         <div id="detail-body" class="detail-grid" hidden>
           <article class="panel">
             <h2>シナリオの記録</h2>
+            <div id="scenario-open-chips" class="chips"></div>
             <dl id="detail-record" class="detail-facts"></dl>
+            <p class="fine">
+              作ったシナリオの条件は変えられません。条件を変えて試すときは、新しいシナリオを作るか、シミュレーション画面のある時刻から分岐を作ります。
+            </p>
+            <details>
+              <summary>構造化された設定を確認</summary>
+              <pre id="scenario-open-json"></pre>
+            </details>
+            <div class="scenario-open-actions">
+              <button id="scenario-copy" type="button">同じ条件で新しいシナリオを作る</button>
+            </div>
+            <p id="scenario-actions-note" class="fine"></p>
             <details>
               <summary>モデルの版（記録された署名）</summary>
               <pre id="detail-versions"></pre>

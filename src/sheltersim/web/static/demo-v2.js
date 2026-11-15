@@ -519,8 +519,8 @@
       closed = "シナリオを開くと使えます";
     switch (page) {
       case "scenario":
-        // A site that cannot make Scenarios has no scenario page until a Run is open.
-        return site.scenarios === "unavailable" && !state.run
+        // A site built without the shelter index cannot make Scenarios (api_fetch.js).
+        return site.scenarios === "unavailable"
           ? "このサイトでは条件から新しいシナリオを作れません"
           : "";
       case "simulation":
@@ -576,7 +576,6 @@
           loading(loadDetail),
         );
     }
-    if (page === "scenario") renderScenarioPage();
     if (page === "comparison") {
       renderMultiChoices();
       openComparison();
@@ -999,18 +998,9 @@
           ? "記録したAPIの応答を再生して回答します"
           : "APIキーのない環境のため、質問にはAIの回答を作れません。レポートと記録は確かめられます";
   }
-  // The scenario page: the open Run's conditions, or the form for a new Scenario, or why this
-  // site cannot make one (a browser site built without the shelter index, api_fetch.js).
-  function renderScenarioPage() {
-    const open = Boolean(state.run && state.scenario),
-      unavailable = !open && site.scenarios === "unavailable";
-    document.body.dataset.scenario = open ? "open" : unavailable ? "unavailable" : "new";
-    $("scenario-open").hidden = !open;
-    $("scenario-unavailable").hidden = !unavailable;
-    $("scenario-unavailable-reason").textContent = unavailable
-      ? "このブラウザー版のサイトは、地域の避難所の一覧を入れずに作られているため、条件から新しいシナリオを作れません。計算済みの例を開いてください。"
-      : "";
-    if (!open) return;
+  // The open Run's conditions on the records page (#502): the scenario page makes new ones only.
+  function renderScenarioRecord() {
+    if (!state.scenario) return;
     const scenario = state.scenario,
       request =
         scenario.provenance?.natural_language_input ||
@@ -2850,6 +2840,7 @@
       ["記録のID", run.run_id],
       ["承認", "プレビューを確かめて明示承認した条件だけから作ります（承認の時刻は記録していません）"],
     ]);
+    renderScenarioRecord();
     $("detail-versions").textContent = json(run.model_versions);
     table(
       $("detail-branches"),
@@ -3367,7 +3358,6 @@
     show("home");
   });
   $("home-new").addEventListener("click", newScenario);
-  $("scenario-new").addEventListener("click", newScenario);
   on("scenario-copy", async () => {
     await copyScenario();
     show("simulation");

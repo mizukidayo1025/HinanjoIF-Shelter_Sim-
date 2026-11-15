@@ -28,7 +28,7 @@ const RELATIONSHIP_FIELDS: [&str; 6] = ["contact_count", "trust", "contact_minut
 const HISTORY_FIELDS: [&str; 7] = ["event_id", "minute", "kind", "actor_ids", "topic_id", "causation_id", "deltas"];
 const AFFECT_MODELS: [&str; 2] = ["linear-positive-negative-v1", "trust-weighted-positive-negative-v1"];
 
-/// `_DEFAULTS`, in its order (only the names are read here).
+/// `_DEFAULTS`, in its order.
 const DEFAULTS: [&str; 38] = [
     "awake_sleep_debt_minutes_per_minute",
     "rest_sleep_debt_recovery_per_minute",
@@ -68,6 +68,12 @@ const DEFAULTS: [&str; 38] = [
     "dependent_assistance_reassurance_gain",
     "correction_uncertainty_reduction",
     "correction_reassurance_gain",
+];
+
+/// The values of `_DEFAULTS`, in its order (`canonical_body_config` of a new world, #429).
+const DEFAULT_VALUES: [f64; 38] = [
+    1.0, 0.25, 1.0, 0.001, 2e-05, 5e-05, 0.001, 0.0005, 0.0002, 0.0003, 0.0001, 0.001, 5e-05, 0.0001, 0.002, 0.05, 0.0005, 0.002, 0.05, 0.03, 0.02, 0.03, 0.01,
+    0.02, 0.02, 0.01, 0.15, 0.03, 0.02, 0.02, 0.03, 0.05, 0.02, 0.01, 0.04, 0.03, 0.05, 0.01,
 ];
 
 /// The per-Agent maps and the label of their errors, in `canonical_body_config`'s order.
@@ -121,9 +127,8 @@ fn is_plain_id(text: &str) -> bool {
         && bytes[1..].iter().all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b':' | b'-'))
 }
 
-/// `canonical_body_config(raw)`: the config (the defaults' values are not read, only which names it
-/// has), or its ValueError.
-fn canonical_body_config(raw: &V) -> Result<Map> {
+/// `canonical_body_config(raw)`: the config, or its ValueError.
+pub(crate) fn canonical_body_config(raw: &V) -> Result<Map> {
     let empty = Map::new();
     let raw = match raw {
         V::Null => &empty,
@@ -142,9 +147,8 @@ fn canonical_body_config(raw: &V) -> Result<Map> {
     config.insert("schema_version".into(), V::Int(1));
     config.insert("policy_version".into(), V::Str(POLICY.into()));
     config.insert("source_id".into(), V::Str(SOURCE.into()));
-    for name in DEFAULTS {
-        // A default is within 0..1; its value is not read where the config has none.
-        config.insert(name.into(), V::Float(0.0));
+    for (name, value) in DEFAULTS.into_iter().zip(DEFAULT_VALUES) {
+        config.insert(name.into(), V::Float(value));
     }
     config.insert("social_interaction_minutes".into(), V::Int(5));
     config.insert("affect_policy".into(), V::Str(AFFECT_MODELS[0].into()));

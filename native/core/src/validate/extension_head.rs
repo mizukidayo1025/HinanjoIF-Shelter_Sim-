@@ -15,7 +15,7 @@ use crate::value::V;
 
 /// What the extensions' Python rules do with a value of any type, which every port of lane D reads.
 #[path = "extension_py.rs"]
-pub(super) mod py;
+pub(crate) mod py;
 
 /// `FACILITY_QUEUES_LEGACY_MODE_KEY`.
 pub const LEGACY_MODE: &str = "facility_queues_legacy_mode_v1";

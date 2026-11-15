@@ -4,11 +4,11 @@ The core builds the entry of a Scenario's world at minute 0 (`native/core/src/in
 Scenario's canonical JSON, the bytes `export_world` writes for the browser
 (`scripts/build_browser_sample.py`). What it does not compute it reads from a table Python writes,
 `native/core/src/initial/table.json` (`initial_table`): for each fingerprint of the configs
-(`world_export.configs_fingerprint`), the Run's policies, the sections Python's contracts parse
-and the namespaces' templates (`world_export.initial_table_entry`). The table is made from the
-Scenarios of `TABLE_REQUESTS`, the requests of the Scenario screen (the structured form and the
-example text's), with edge values; two Scenarios of one fingerprint must give the same entry, so a
-config the fingerprint leaves out that changes what the table holds fails here.
+(`world_export.configs_fingerprint`), the Run's policies (`world_export.initial_table_entry`).
+The table is made from the Scenarios of `TABLE_REQUESTS`, the requests of the Scenario screen
+(the structured form and the example text's), with edge values; two Scenarios of one fingerprint
+must give the same entry, so a config the fingerprint leaves out that changes what the table
+holds fails here.
 
 `initial_worlds.json` (`initial_worlds_fixture`) holds generated Scenarios' canonical JSON with the
 sha256 of the entry `export_world` writes of their worlds at minute 0, and the digests of the
@@ -25,7 +25,7 @@ from typing import Any
 from sheltersim.core.world_export import configs_fingerprint, export_world, initial_table_entry
 from support.core_fixtures import run_world
 
-TABLE_SCHEMA_VERSION = 2
+TABLE_SCHEMA_VERSION = 3
 # The model signature that depends on the floor plan: the core adds it (`initial::model_versions`).
 SERVICE_POINTS_SIGNATURE = "operator:facility_service_points"
 # The requests whose Scenarios the table is made of: the screen's form with edge values and the

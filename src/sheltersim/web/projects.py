@@ -348,15 +348,7 @@ class ProjectAPI:
             )
         if action == "history":
             plan = core.history_plan(query, project_id, run_id, branch_id, branch)
-            table = core.KpiTable()
-            if plan.anchor() is not None:
-                reader = files.reader(project_id, run_id, branch_id)
-                for kind, raw in reader.sample_pieces():
-                    if kind == "sample_tables":
-                        table.read_sample_tables(raw)
-                    else:
-                        table.read_sample_block(raw)
-            return plan.answer(table)
+            return plan.answer(self.kpi_table(project_id, run_id, branch_id, plan))
         if action == "report":
             kept = files.branch_file(project_id, run_id, branch_id, "report.json")
             answer = core.report_answer(query, project_id, run_id, branch_id, branch, kept)
@@ -373,6 +365,19 @@ class ProjectAPI:
                 files.keep_report(project_id, run_id, branch_id, text + b"\n")
             return text
         raise StorageError("unknown project route or query")
+
+    def kpi_table(self, project_id: str, run_id: str, branch_id: str, plan: Any) -> Any:
+        """The branch's metric samples a history plan reads (`KpiTable`): those of its head,
+        none for a branch without one."""
+        table = answers().KpiTable()
+        if plan.anchor() is not None:
+            reader = self.files.reader(project_id, run_id, branch_id)
+            for kind, raw in reader.sample_pieces():
+                if kind == "sample_tables":
+                    table.read_sample_tables(raw)
+                else:
+                    table.read_sample_block(raw)
+        return table
 
     def frame(self, project_id: str, run_id: str, record: dict[str, Any], minute: int) -> bytes:
         """The frame of a branch at a minute (the browser's `frameText`). A Run computed with

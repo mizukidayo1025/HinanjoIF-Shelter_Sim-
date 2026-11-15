@@ -83,7 +83,7 @@ Scenarioから0分の世界を作る処理も、中核にあります（`shelter
 
 ブラウザーのRunは、途中の点を`saved`の部分として、既定で6時間（360分）ごとと最後に残します（`runAndStore`の`saveEvery`、0で残さない。#263）。目録の行は、点の分、記録と標本の数、判断の記録・会話・LLMのテープの数、点の版、それまでに保存したログと標本の塊の数を持ちます。分へ飛ぶときは（`RunReader.open`のあと`seek(minute)`。どの点から何を読むかは中核の`Journal::seek`と`next_restore_read`が決めます）、その分以前で一番近い点に戻し、保存したログと標本を点の数まで読んでから、残りの分（最大359 tick）を計算します。点がなければ0分の世界から計算します。資源の台帳のある世界の指標の標本は、その時点の台帳の指標の列（水と食事の初期量・配送・提供・損失・残り・予約。ネイティブの経路の`resource_snapshots`）も持ちます（#266）。台帳の列を持つ標本は1 byte目が1で、持たない標本は1 byte目が分のzigzagで偶数です。今の形は`sheltersim-run-v5`です（#368）。v4（介入の子の分岐を足した形、#306）からの違いは、先頭のhashを圧縮前の中身から取ること、途中の点の前にいつも塊を閉じること、`run`の行のモデルの版・エンジンの版・縮め方、判断の記録・会話・LLMのテープの部分とその数、保存する前の機微な文字列の確かめ、子が親の部分を参照すること（[project-persistence.md](project-persistence.md#ブラウザーの介入と子の分岐306)）です。v1〜v4のRunは読まず、`stored_run_outdated`（計算し直してください）の誤りにします。ほかの形と別の版の点も誤りにします。Nodeのテスト`native/wasm/tests/node_saved_points.mjs`は、メモリーの置き場で、各点、点の間、最初の点の前、終わりの分へ飛んで、止めずに進めたRunと同じdigestになることを確かめます。100人・7日で計った大きさと時間は#251に記録しています。
 
-ブラウザーでの時間とメモリは、試しの世界（Projectの画面の生成Scenario、1日、seed 2026、20人と100人）で計ります。`benchmarks/wasm_trial_worlds.py`が0分の世界を書き出し、ネイティブの経路のdigestと時間を記録します。`benchmarks/wasm_trial_measure.py`は、計測のページ（`benchmarks/wasm_trial/index.html`）をPlaywrightのChromiumとFirefoxで開き、WASMで同じ世界を進めます。Playwrightとそのbrowserはprojectの依存ではないので、計る環境に入れます。書き出しと結果は生成物なので、リポジトリーの外に置きます。
+ブラウザーでの時間とメモリは、試しの世界（Projectの画面の生成Scenario、1日、seed 2026、20人と100人）で計ります。`benchmarks/wasm_trial_worlds.py`が中核の作る0分の世界を書き出し、ネイティブの`PlainRun`のdigestと時間を記録します。`benchmarks/wasm_trial_measure.py`は、計測のページ（`benchmarks/wasm_trial/index.html`）をPlaywrightのChromiumとFirefoxで開き、WASMで同じ世界を進めます。Playwrightとそのbrowserはprojectの依存ではないので、計る環境に入れます。書き出しと結果は生成物なので、リポジトリーの外に置きます。
 
 この節と下の静的サイトの道具（`wasm_trial_measure.py`、`static_site_check.py`、`static_site_e2e.py`）は、`--browsers webkit`でWebKitでも動きます（`python -m playwright install webkit`と、`python -m playwright install-deps webkit`が入れるOSのライブラリが要ります）。PlaywrightのWebKitは、使い捨てのcontext（`browser.new_context()`）ではOPFSを開けず、`navigator.storage.getDirectory()`が`UnknownError`になります（#253）。そのため道具は、WebKitだけ、contextごとに新しい空のディレクトリーをprofileにして開き（persistent context、`benchmarks/browser_profiles.py`）、閉じるときに消します。ChromiumとFirefoxは、これまでの計測と比べられるように、使い捨てのcontextのままです。
 
@@ -94,7 +94,7 @@ python benchmarks/wasm_trial_measure.py --worlds wasm-trial --pkg wasm-web --out
 python benchmarks/wasm_trial_measure.py --worlds wasm-trial --pkg wasm-web --store --output wasm-trial/store.json
 ~~~
 
-`wasm_trial_worlds.py`の`--minutes`は、Scenarioの長さを変えます（既定は1日。7日なら`--minutes 10080`。世界の名前は`trial-100-7d`のようになります）。7日分はProjectの経路の計算に時間がかかるので、要らなければ`--skip-project`で省きます。
+`wasm_trial_worlds.py`の`--minutes`は、Scenarioの長さを変えます（既定は1日。7日なら`--minutes 10080`。世界の名前は`trial-100-7d`のようになります）。Projectの経路の計算（保存したRunへの計算）が要らなければ`--skip-project`で省きます。
 
 `--store`は、計測のページの代わりに保存のページ（`benchmarks/wasm_trial/store.html`）を開きます。世界ごとに1回、WorkerのWASMで進めながらOPFSに残し、読み戻してdigestを確かめ、時間（tick、圧縮、書き込み、読み戻し）、WASMのメモリ、保存の大きさを書きます。途中の点は`--save-every`分ごとに残し（既定360）、点から一番遠い分へ飛ぶ時間（戻す、計算する）と、点の大きさと残す時間も書きます。`--chain`を付けると、各点に戻して次の点まで計算し、残した点と同じになるかも確かめます。
 
@@ -365,8 +365,8 @@ export SHELTERSIM_LLM_MODE=offline
 sheltersim --help
 sheltersim model-catalog --scenario fixtures/scenarios/h00_small_replay.json
 sheltersim prepare --scenario fixtures/scenarios/h00_small_replay.json --freeze --output /tmp/approved.json
-sheltersim run --offline --scenario /tmp/approved.json --output /tmp/sheltersim-run
-sheltersim inspect --run /tmp/sheltersim-run --events
+sheltersim run --offline --scenario /tmp/approved.json --project-id study --run-id first
+sheltersim inspect --project-id study --run-id first --kpis --limit 10
 sheltersim compare --help
 sheltersim project --help
 ~~~

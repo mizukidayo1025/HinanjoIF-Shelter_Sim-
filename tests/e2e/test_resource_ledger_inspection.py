@@ -1,5 +1,4 @@
-"""A Run's resource ledger is saved the same at every trace level and read back
-through the Run inspector (the CLI's `inspect`).
+"""A Run's resource ledger is saved the same at every trace level.
 
 The ledger's accounting, reservations and checks are tested in
 tests/unit/domain/test_resources.py.
@@ -14,7 +13,6 @@ from pathlib import Path
 from sheltersim.core.engine import TraceLevel
 from sheltersim.domain.resources import RESOURCE_LEDGER_KEY
 from sheltersim.experiments.runner import run_scenario
-from sheltersim.inspection.query import RunInspector
 
 
 def test_resource_metrics_logs_and_state_are_trace_level_independent(
@@ -83,5 +81,3 @@ def test_resource_metrics_logs_and_state_are_trace_level_independent(
     ledger = json.loads((off_directory / "resource_ledger.json").read_text(encoding="utf-8"))
     assert ledger == off_world.model_state[RESOURCE_LEDGER_KEY]
     assert ledger["warehouse_id"] == "warehouse-main"
-    query = RunInspector(off_directory).resource_ledger()
-    assert query == ledger

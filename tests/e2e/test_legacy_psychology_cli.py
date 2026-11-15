@@ -11,7 +11,6 @@ import json
 from support.paths import SMALL_REPLAY
 
 from sheltersim.__main__ import main
-from sheltersim.experiments.comparison import compare_run_sets, render_comparison_markdown
 from sheltersim.experiments.scenario import ScenarioSpec
 
 
@@ -31,21 +30,8 @@ def test_cli_reports_and_warns_about_a_legacy_psychology_model(tmp_path, capsys)
     assert "warning: psychology model causal-stress-v1 is a legacy model" in (
         capsys.readouterr().err
     )
-    run_directory = tmp_path / "run"
-    assert (
-        main(["run", "--offline", "--scenario", str(frozen), "--output", str(run_directory)]) == 0
-    )
+    project = ["--root", str(tmp_path / "projects"), "--project-id", "p", "--run-id", "r"]
+    assert main(["run", "--offline", "--scenario", str(frozen), *project]) == 0
     captured = capsys.readouterr()
     assert json.loads(captured.out)["psychology_model"] == "causal-stress-v1"
     assert "warning: psychology model causal-stress-v1 is a legacy model" in captured.err
-
-    report = compare_run_sets([run_directory], [run_directory])
-    assert report["psychology_models"] == {
-        "baseline": "causal-stress-v1",
-        "candidate": "causal-stress-v1",
-    }
-    markdown = render_comparison_markdown(report)
-    assert "- Psychology model: baseline `causal-stress-v1`, candidate `causal-stress-v1`" in (
-        markdown
-    )
-    assert markdown.count("- Warning: psychology model causal-stress-v1") == 1

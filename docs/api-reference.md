@@ -22,12 +22,13 @@ Scenario JSON、Run manifest、CheckpointはJSONを使います。eventとdecisi
 完全なcommand一覧は sheltersim --help で確認できます。
 
 - prepare: Scenarioを検証し、previewを作成します。--freezeはpreview hashと結び付いた承認記録を作ります。
-- run: 凍結済みScenarioを実行し、Run成果物を書きます。--offlineはProvider呼び出しを無効にします。
-- inspect: profile、予定・実行済みevent、Agent履歴、証拠に結び付いた原因を検索します。
-- compare: 保存済みRun directoryを比較します。
-- project: Project、Run、Checkpoint、Branch、履歴の永続操作を行います。
+- run: 凍結済みScenarioを、Project（`--root`、既定`runs/.projects`。`--project-id`）のRun（`--run-id`）として、画面と同じ道で最後まで計算します（`POST {project}/runs`と`resume`。保存したRunの形v5、#450）。Projectがなければ作り、同じ内容のScenarioの版があればそれを使います。--offlineはProviderを呼ばないofflineの実験にします。出力はBranch `main`の記録、LLMの状態、心理モデルです。
+- inspect: Runを画面と同じ答えで読みます。--record（Runの記録とBranch）、--evidence（モデル・出典・仮定）、--kpis（Branchの指標の時系列の1ページ。--start、--end、--step、--limit、--cursor）、--conversations（質問の記録）のどれか1つです。行動・判断の履歴、人ごとの履歴、原因のたどりは、#368の決定（履歴はkpisとconversationsだけ）でなくしました。
+- compare: ProjectのBranch（`RUN`か`RUN/BRANCH`）を、指標の記録（`kind=kpis`の答え）で比べます。--baselineと--candidateはseedで組にし、同じ人のRunに限ります。組ごとに、指標が最初に違う分と、共通の最後の分の値と差を、組全体で各指標の差の要約（平均、標本標準偏差、近似95%区間）を出します。--metricで指標を絞り、--outputでJSONを書きます。
+- review: 計算を終えたBranchのレビュー（画面の`GET …/branches/{branch}/report`と同じ）を出します。--comparisonに`compare`のJSONを渡すと、そのBranchを含む組を一緒に出します。
+- project: Project、Run、Branch、履歴の永続操作を行います。
 - model-catalog: 選択モデル、係数、単位、範囲、source分類を表示します。
-- evaluate-models: 明示的に依頼されたoffline対応比較実験を実行します。
+- evaluate-models: 明示的に依頼されたoffline対応比較実験を、ProjectのRun（`<variant>-seed-<seed>`）として計算し、--outputに結果のJSONを書きます。
 - web: ローカルのブラウザーの画面（`/`）とProject APIを起動します。Projectは`--runs-dir`の下の`.projects`に保存します。
 - usage: CLI/Demoの利用記録と、PC全体の累積上限の記録を表示します。--unfreeze ACCOUNT_ID --confirm ACCOUNT_ID --reason TEXT で、凍結された利用記録を解除します（llm-integration.md参照）。
 
@@ -62,7 +63,7 @@ Project APIは登録モデル・契約（`GET …/contracts`）と、LLMの利�
 - 今と違うモデルの版で計算したRunは閲覧のみです。timeline frame、replay-frames、比較の各frameには`model_view`（`view_only`、`recorded_version`、`installed_version`、`differences`、`message`）が付き、保存の間の時刻は直前の保存の時点を返して`saved_point_rounding`（`requested_minute`、`saved_minute`、`message`）を付けます。`minute`は表示した保存の時点です。resume、intervention-preview・applyは409、`code: run_model_view_only`で拒否します（[project-persistence.md](project-persistence.md#旧モデルのrun閲覧のみ)）。
 - Branchへの質問は保存Run/Branchの証拠を読むだけで、simulation stateを変更しません。詳細はproject-persistence.md、adaptive-event-compiler.md、effect-program.mdを参照してください。
 
-ブラウザーrouteは / だけです（画面のファイルは`demo-v2*`）。Project APIと承認契約を利用します（[対応表](ui-backup.md)）。`/index.html`は、クエリを保ったまま / へ302で送ります。前の道の`/demo-v2`と、以前の画面の道（`/demo`、`/admin`）は、旧版を使う人がいないので転送しません（#434）。以前の画面だけが使った `/api/v1/runs`（`sheltersim run --output` の成果物の参照）、`/api/v1/demo`、`/api/v1/nl`、`/api/v1/jobs`、`/api/v1/results-chat` はありません。CLIのRunは `sheltersim inspect` で確かめます。ブラウザー版（静的サイト、#266）では、画面の中のWorkerが計算済みのRunの道（Project・Run・Branchの記録、timeline、1つの分岐のreplay-frames、evidenceなど）に同じJSONで答え、それ以外の道は「ブラウザー版では未対応」（409、`code`は`browser_unsupported`）を返します（[development.md](development.md#ブラウザー版のapi266)）。serverは既定で127.0.0.1にbindし、認証機能を持ちません。信頼できないnetworkへ公開しないでください。
+ブラウザーrouteは / だけです（画面のファイルは`demo-v2*`）。Project APIと承認契約を利用します（[対応表](ui-backup.md)）。`/index.html`は、クエリを保ったまま / へ302で送ります。前の道の`/demo-v2`と、以前の画面の道（`/demo`、`/admin`）は、旧版を使う人がいないので転送しません（#434）。以前の画面だけが使った `/api/v1/runs`（`sheltersim run --output` の成果物の参照）、`/api/v1/demo`、`/api/v1/nl`、`/api/v1/jobs`、`/api/v1/results-chat` はありません。CLIの`run`もProjectにRunを作るので、画面で開けます。ブラウザー版（静的サイト、#266）では、画面の中のWorkerが計算済みのRunの道（Project・Run・Branchの記録、timeline、1つの分岐のreplay-frames、evidenceなど）に同じJSONで答え、それ以外の道は「ブラウザー版では未対応」（409、`code`は`browser_unsupported`）を返します（[development.md](development.md#ブラウザー版のapi266)）。serverは既定で127.0.0.1にbindし、認証機能を持ちません。信頼できないnetworkへ公開しないでください。
 
 POSTはsame-origin確認、JSON content type、request size上限、厳密なfield allowlistを使います。正確な上限とvalidatorはsource契約および回帰testで管理します。
 

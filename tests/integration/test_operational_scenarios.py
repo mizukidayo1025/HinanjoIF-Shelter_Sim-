@@ -1,5 +1,4 @@
-"""H05 operational scenarios: a seven-day combined Run keeps its invariants, and
-paired comparisons extract event windows and refuse changed profiles or models.
+"""H05 operational scenarios: a seven-day combined Run keeps its invariants.
 
 That the six scenario files stay frozen is checked in
 tests/unit/repo/test_scenario_fixtures.py.
@@ -16,34 +15,12 @@ from support.paths import SCENARIOS
 
 from sheltersim.core.engine import TraceLevel
 from sheltersim.domain.resources import RESOURCE_LEDGER_KEY, validate_resource_ledger
-from sheltersim.experiments.comparison import (
-    compare_run_artifacts,
-    render_comparison_markdown,
-)
 from sheltersim.experiments.runner import run_scenario
 from sheltersim.experiments.scenario import ScenarioSpec
 
 
 def _load(name: str) -> ScenarioSpec:
     return ScenarioSpec.load(SCENARIOS / f"{name}.json")
-
-
-def _short_scenario(name: str, *, initial_food: int | None = None) -> ScenarioSpec:
-    document = _load(name).model_dump(mode="json")
-    document["duration_minutes"] = 180
-    if initial_food is not None:
-        document["initial_stock"]["food_meal_units"] = initial_food
-    for event in document["scheduled_events"]:
-        if event["event_type"] == "resource_delivery":
-            event["due_minute"] = 20
-        elif event["event_type"] == "delivery_delayed":
-            event["due_minute"] = 10
-            event["payload"]["to_minute"] = 100
-        elif event["event_type"] == "water_outage":
-            event["due_minute"] = 60
-        elif event["event_type"] == "water_restored":
-            event["due_minute"] = 80
-    return ScenarioSpec.model_validate(document)
 
 
 @pytest.mark.long_simulation
@@ -113,53 +90,3 @@ def test_100_agent_seven_day_combined_scenario_preserves_operational_invariants(
         "delivery-delay-day1",
         "water-outage-day4",
     }
-
-
-def test_comparison_pairs_event_schedule_variants_and_extracts_event_windows(
-    tmp_path: Path,
-) -> None:
-    baseline = _short_scenario("baseline_multi_operational", initial_food=5)
-    candidate = _short_scenario("delivery_delay", initial_food=5)
-    baseline_dir = tmp_path / "baseline"
-    candidate_dir = tmp_path / "candidate"
-
-    run_scenario(baseline, baseline_dir, trace_level=TraceLevel.SUMMARY)
-    run_scenario(candidate, candidate_dir, trace_level=TraceLevel.SUMMARY)
-
-    report = compare_run_artifacts(baseline_dir, candidate_dir)
-
-    assert report["seed"] == 2026
-    assert report["scenario_family_hash"]
-    assert report["scenario_definition_hash"] != report["candidate_scenario_definition_hash"]
-    assert "not statistical or causal proof" in report["interpretation"]
-    event = next(
-        window
-        for window in report["event_windows"]["candidate"]
-        if window["event_id"] == "delivery-delay-day1"
-    )
-    assert event["source_id"] == "ASM-H05-OPERATIONAL-SCHEDULE-V1"
-    assert event["realized_status"] == "applied"
-    assert event["kpi_before"] is not None and event["kpi_after"] is not None
-    assert event["representative_agent_logs"]["after"]
-    markdown = render_comparison_markdown(report)
-    assert "Scenario family hash" in markdown
-    assert "delivery-delay-day1" in markdown
-
-
-def test_comparison_rejects_changed_profile_or_model_family(tmp_path: Path) -> None:
-    baseline = _short_scenario("baseline_multi_operational")
-    changed_document = baseline.model_dump(mode="json")
-    changed_document["initial_stock"]["food_meal_units"] += 1
-    changed = ScenarioSpec.model_validate(changed_document)
-    paths = []
-    for scenario, name in ((baseline, "baseline"), (changed, "changed")):
-        destination = tmp_path / name
-        run_scenario(scenario, destination, trace_level=TraceLevel.OFF)
-        paths.append(destination)
-
-    try:
-        compare_run_artifacts(*paths)
-    except ValueError as exc:
-        assert "scenario family" in str(exc)
-    else:
-        raise AssertionError("comparison accepted a different initial inventory")

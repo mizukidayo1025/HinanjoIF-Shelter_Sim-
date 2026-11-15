@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import csv
 import hashlib
 import json
 import math
@@ -16,10 +15,8 @@ from pydantic import Field, model_validator
 
 from sheltersim.contracts.extensions import ExtensionModel, Identifier
 from sheltersim.contracts.policies import model_catalog, model_signatures, selected_models
-from sheltersim.core.engine import TraceLevel
 from sheltersim.domain.models import InformationSpreadConfig
 from sheltersim.domain.staff import default_support_fairness_minutes
-from sheltersim.experiments.runner import run_scenario
 from sheltersim.experiments.scenario import (
     RESOURCE_SERVICE_POLICY_ID,
     PsychologyModelConfig,
@@ -28,7 +25,7 @@ from sheltersim.experiments.scenario import (
     ToiletServiceConfig,
 )
 from sheltersim.policies.social import SocialPropagationParameters
-from sheltersim.storage.projects import canonical, digest, safe_document
+from sheltersim.storage.projects import digest, safe_document
 
 LEGEND = {
     "A": "対象・単位・期間が一致する実測資料。適用条件の確認が必要です。",
@@ -551,49 +548,55 @@ def _variant_scenario(base: ScenarioSpec, variant: EvaluationVariant, seed: int)
 def evaluate_models(
     base: ScenarioSpec,
     plan: EvaluationPlan,
-    destination: Path,
+    api: Any,
+    project_id: str,
     *,
     source_manifest: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Execute the requested offline matrix; call only at final QA or user analysis."""
-    if destination.exists() and any(destination.iterdir()):
-        raise ValueError("evaluation output must be empty; prior results are immutable")
-    destination.mkdir(parents=True, exist_ok=True)
+    """Execute the requested offline matrix; call only at final QA or user analysis. Each variant
+    and seed is a Run of the Project (`<variant>-seed-<seed>`, its Scenario a revision there),
+    computed offline to the end; its metrics are its last KPI row (experiments/project_runs.py).
+    A Run that is there already is refused: prior results are immutable."""
+    from sheltersim.experiments.project_runs import compute_run, final_kpis, metrics_of
+
     initial = json.loads(base.canonical_json())
     initial.pop("seed")
     # Variants may change only registered model settings in this function.
     initial.pop("model_configs")
     input_hash = digest(initial)
-    rows = []
+    # Every variant is checked, and every Run must be new, before any is computed.
+    cells = []
     for variant in plan.variants:
         for seed in plan.seeds:
-            scenario = _variant_scenario(base, variant, seed)
-            path = destination / variant.id / f"seed-{seed}"
-            world = run_scenario(scenario, path, trace_level=TraceLevel.OFF, llm_router=None)
-            with (path / "metrics.csv").open(newline="", encoding="utf-8") as stream:
-                last = None
-                for row in csv.DictReader(stream):
-                    last = row
-            if last is None or any(metric not in last for metric in plan.metrics):
-                raise ValueError("requested evaluation metric is missing")
-            metrics = {metric: float(last[metric]) for metric in plan.metrics}
-            context = evidence_context(scenario, source_manifest)
-            rows.append(
-                {
-                    "variant_id": variant.id,
-                    "seed": seed,
-                    "input_hash": input_hash,
-                    "scenario_hash": digest(json.loads(scenario.canonical_json())),
-                    "model_versions": model_signatures(scenario.model_configs),
-                    "model_configs": scenario.model_configs,
-                    "metrics": metrics,
-                    "final_state_hash": world.state_digest(),
-                    "dataset_checks": [
-                        check_dataset(data, scenario, metrics)
-                        for data in context["dataset_registry"]["datasets"]
-                    ],
-                }
-            )
+            run_id = f"{variant.id}-seed-{seed}"
+            if api.files.run_file(project_id, run_id, "run.json") is not None:
+                raise ValueError(f"run {run_id} exists; prior results are immutable")
+            cells.append((variant, seed, run_id, _variant_scenario(base, variant, seed)))
+    rows = []
+    for variant, seed, run_id, scenario in cells:
+        branch = compute_run(api, project_id, run_id, scenario, offline=True)
+        last = metrics_of(final_kpis(api, project_id, run_id, branch))
+        if any(metric not in last for metric in plan.metrics):
+            raise ValueError("requested evaluation metric is missing")
+        metrics = {metric: last[metric] for metric in plan.metrics}
+        context = evidence_context(scenario, source_manifest)
+        rows.append(
+            {
+                "variant_id": variant.id,
+                "seed": seed,
+                "run_id": run_id,
+                "input_hash": input_hash,
+                "scenario_hash": digest(json.loads(scenario.canonical_json())),
+                "model_versions": model_signatures(scenario.model_configs),
+                "model_configs": scenario.model_configs,
+                "metrics": metrics,
+                "head_hash": branch["checkpoint_hash"],
+                "dataset_checks": [
+                    check_dataset(data, scenario, metrics)
+                    for data in context["dataset_registry"]["datasets"]
+                ],
+            }
+        )
     baseline_id = plan.variants[0].id
     baseline = [r for r in rows if r["variant_id"] == baseline_id]
     comparisons = [
@@ -619,7 +622,4 @@ def evaluate_models(
             "seed variation."
         ),
     }
-    (destination / "evaluation.json").write_text(
-        canonical(safe_document(report)) + "\n", encoding="utf-8"
-    )
-    return report
+    return safe_document(report)

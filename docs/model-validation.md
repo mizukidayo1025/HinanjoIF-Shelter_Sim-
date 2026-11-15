@@ -90,7 +90,7 @@
 
 ## 交換モデルと評価の読み方
 
-`contracts/model-catalog.json` は登録済み演算器の式・参照文献を定義し、
+中核のModel Catalog（`native/core/src/validate/model-catalog.json`）は登録済み演算器の式・参照文献を定義し、
 `model_configs.policy_registry` で心理・社会・情報の実装を交換できます。
 論文から着想した演算器と、避難所向けの未校正係数は別物です。
 参照文献は係数の実測根拠として扱いません。

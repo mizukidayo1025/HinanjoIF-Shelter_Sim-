@@ -240,9 +240,18 @@ impl CareKinds {
     }
 }
 
+/// A priority of `model_state["llm"]["support_priorities"]`, as `_support_priority` reads it: an
+/// int (one past i64 is `Big`), or another value.
+#[derive(Clone, Copy)]
+enum Priority {
+    Int(i64),
+    Big,
+    Other,
+}
+
 /// `model_state["llm"]["support_priorities"]`, where it is a non-empty dict: what
 /// `_support_priority(world, id)` reads.
-fn priorities_of(world: &World) -> Result<Option<IndexMap<Arc<str>, V>>> {
+fn priorities_of(world: &World) -> Result<Option<IndexMap<Arc<str>, Priority>>> {
     let Some(state) = world.slots.try_value("llm")? else {
         return Ok(None);
     };
@@ -252,15 +261,20 @@ fn priorities_of(world: &World) -> Result<Option<IndexMap<Arc<str>, V>>> {
     let Some(V::Map(priorities)) = state.get("support_priorities") else {
         return Ok(None);
     };
-    Ok((!priorities.is_empty()).then(|| priorities.clone()))
+    let read = |value: &V| match value {
+        V::Int(value) => Priority::Int(*value),
+        V::Big(_) => Priority::Big,
+        _ => Priority::Other,
+    };
+    Ok((!priorities.is_empty()).then(|| priorities.iter().map(|(id, value)| (id.clone(), read(value))).collect()))
 }
 
 /// `_support_priority`: an int above 0 is urgent; a bool or another value is 0.
-fn priority_of(priorities: Option<&IndexMap<Arc<str>, V>>, id: &str) -> Result<i64> {
+fn priority_of(priorities: Option<&IndexMap<Arc<str>, Priority>>, id: &str) -> Result<i64> {
     match priorities.and_then(|priorities| priorities.get(id)) {
-        Some(V::Int(value)) => Ok(*value),
-        Some(V::Big(_)) => Err(Error::unsupported("an int is too large")),
-        _ => Ok(0),
+        Some(Priority::Int(value)) => Ok(*value),
+        Some(Priority::Big) => Err(Error::unsupported("an int is too large")),
+        Some(Priority::Other) | None => Ok(0),
     }
 }
 

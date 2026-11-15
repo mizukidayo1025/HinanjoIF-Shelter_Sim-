@@ -349,6 +349,15 @@ enum Writing {
     Line,
 }
 
+/// What the writer queues of the Run, one at a time: each is written before the next is queued, so
+/// the queue holds one saved point or world at most (`RunWriter::take`, `save`, `finish`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Act {
+    Take { last: bool },
+    Save,
+    Finish,
+}
+
 /// What a seek goes on to once the Run is restored.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Then {
@@ -418,6 +427,8 @@ enum Phase {
     RecoverUnlocked,
     // set a status
     Status,
+    // the writer's acts queued, then the phase after them
+    Acting(Box<Phase>),
     Done,
 }
 
@@ -466,6 +477,7 @@ pub struct Procedure {
     children: VecDeque<String>,
     kept_through: Option<usize>,
     status: Option<&'static str>,
+    acts: VecDeque<Act>,
     // ---- fork
     fork: Option<ForkRequest>,
     parent_head: Option<String>,
@@ -525,6 +537,7 @@ impl Procedure {
             children: VecDeque::new(),
             kept_through: None,
             status: None,
+            acts: VecDeque::new(),
             fork: None,
             parent_head: None,
             receipt: String::new(),
@@ -925,28 +938,27 @@ impl Procedure {
                 Ok(Some(Step::Compute))
             }
             Phase::GoTicked => {
+                let minute = self.run_ref().minute()?;
                 let schedule = Schedule { every: self.save_every };
-                let (target, duration) = (self.target, self.duration);
-                let mut run = self.run.take().expect("the Run");
-                let queued = Self::queue_chunk(&mut self.writer, &mut run, schedule, target, duration);
-                self.run = Some(run);
-                self.phase = match queued? {
-                    Some(status) => Phase::GoCommitted(status),
-                    None => Phase::GoReady,
+                self.acts.push_back(Act::Take { last: false });
+                let then = if minute == self.duration {
+                    self.acts.extend([Act::Save, Act::Finish]);
+                    Phase::GoCommitted(Some("completed"))
+                } else if minute == self.target || schedule.is_point(minute) {
+                    self.acts.push_back(Act::Save);
+                    Phase::GoCommitted((minute == self.target).then_some("paused"))
+                } else {
+                    Phase::GoReady
                 };
-                self.flush();
+                self.phase = Phase::Acting(Box::new(then));
                 Ok(None)
             }
             Phase::GoStop => {
                 let minute = self.run_ref().minute()?;
                 let status = if minute == self.duration { "completed" } else { "paused" };
                 if minute > self.head_minute {
-                    let mut run = self.run.take().expect("the Run");
-                    let saved = self.writer.save(&mut run);
-                    self.run = Some(run);
-                    saved?;
-                    self.phase = Phase::GoCommitted(Some(status));
-                    self.flush();
+                    self.acts.push_back(Act::Save);
+                    self.phase = Phase::Acting(Box::new(Phase::GoCommitted(Some(status))));
                     return Ok(None);
                 }
                 Ok(Some(self.done(Some(status))))
@@ -1020,17 +1032,14 @@ impl Procedure {
                 self.writer = RunWriter::new();
                 let parent = self.chain.as_ref().expect("the chain").leaf();
                 self.writer.fork_start(parent, self.sought_base, fork)?;
+                self.chain = None;
                 self.phase = Phase::ForkStarted;
                 self.flush();
                 Ok(None)
             }
             Phase::ForkStarted => {
-                let mut run = self.run.take().expect("the Run");
-                let saved = self.writer.save(&mut run);
-                self.run = Some(run);
-                saved?;
-                self.phase = Phase::ForkSaved;
-                self.flush();
+                self.acts.push_back(Act::Save);
+                self.phase = Phase::Acting(Box::new(Phase::ForkSaved));
                 Ok(None)
             }
             Phase::ForkSaved => {
@@ -1149,26 +1158,22 @@ impl Procedure {
             }
             Phase::FromTicked { last } => {
                 let schedule = Schedule { every: self.save_every };
-                let duration = self.duration;
-                let mut run = self.run.take().expect("the Run");
-                let queued = (|| -> Answer<bool> {
-                    self.writer.take(&mut run, false)?;
-                    if last {
-                        self.writer.take(&mut run, true)?;
-                        if schedule.every > 0 {
-                            self.writer.save(&mut run)?;
-                        }
-                        self.writer.finish(&mut run)?;
-                        return Ok(true);
+                let minute = self.run_ref().minute()?;
+                self.acts.push_back(Act::Take { last: false });
+                let then = if last {
+                    self.acts.push_back(Act::Take { last: true });
+                    if schedule.every > 0 {
+                        self.acts.push_back(Act::Save);
                     }
-                    if schedule.due(run.minute()?, duration) {
-                        self.writer.save(&mut run)?;
+                    self.acts.push_back(Act::Finish);
+                    Phase::FromEnded
+                } else {
+                    if schedule.due(minute, self.duration) {
+                        self.acts.push_back(Act::Save);
                     }
-                    Ok(false)
-                })();
-                self.run = Some(run);
-                self.phase = if queued? { Phase::FromEnded } else { Phase::FromReady };
-                self.flush();
+                    Phase::FromReady
+                };
+                self.phase = Phase::Acting(Box::new(then));
                 Ok(None)
             }
             Phase::FromEnded => {
@@ -1267,6 +1272,23 @@ impl Procedure {
                 Self::nothing(given)?;
                 Ok(Some(self.done(None)))
             }
+            Phase::Acting(then) => {
+                let Some(act) = self.acts.pop_front() else {
+                    self.phase = *then;
+                    return Ok(None);
+                };
+                let mut run = self.run.take().expect("the Run");
+                let acted = match act {
+                    Act::Take { last } => self.writer.take(&mut run, last),
+                    Act::Save => self.writer.save(&mut run),
+                    Act::Finish => self.writer.finish(&mut run),
+                };
+                self.run = Some(run);
+                acted?;
+                self.phase = Phase::Acting(then);
+                self.flush();
+                Ok(None)
+            }
             Phase::Done => {
                 self.phase = Phase::Done;
                 Ok(Some(Step::Done))
@@ -1287,24 +1309,6 @@ impl Procedure {
     fn versions_of_record(bytes: &[u8]) -> Answer<Versions> {
         let record: Value = serde_json::from_slice(bytes).map_err(|_| refused("saved artifact is missing or corrupt"))?;
         Ok(versions_of_json(record.get("model_versions").unwrap_or(&Value::Null).to_string().as_bytes())?)
-    }
-
-    /// The writes of a chunk of `go_on` that ended at the Run's minute: the blocks sealed since, and
-    /// at the clock's end, the target or a saved point's minute a saved point (at the end the
-    /// "world" and "end" lines too). Some(the status once it ends) where the branch's record moves.
-    fn queue_chunk(writer: &mut RunWriter, run: &mut PlainRun, schedule: Schedule, target: i64, duration: i64) -> Answer<Option<Option<&'static str>>> {
-        let minute = run.minute()?;
-        writer.take(run, false)?;
-        if minute == duration {
-            writer.save(run)?;
-            writer.finish(run)?;
-            return Ok(Some(Some("completed")));
-        }
-        if minute == target || schedule.is_point(minute) {
-            writer.save(run)?;
-            return Ok(Some((minute == target).then_some("paused")));
-        }
-        Ok(None)
     }
 
     /// The journal of the next branch forked from the one going on, or the branch's own.
@@ -1475,6 +1479,10 @@ impl Procedure {
             return Err(refused("the Run restored at the branch's head does not hold what its stored Run holds there"));
         }
         self.head_minute = head.minute;
+        // What was read to restore the Run is not needed to go on.
+        self.chain = None;
+        self.seek = None;
+        self.tape_positions = Vec::new();
         self.phase = Phase::GoReady;
         Ok(Some(Step::Compute))
     }

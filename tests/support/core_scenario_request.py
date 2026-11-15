@@ -170,7 +170,8 @@ def _python(request: Any) -> dict[str, Any]:
 
 
 def _screen_requests() -> list[tuple[str, dict[str, Any]]]:
-    """Requests as `/demo-v2` sends them (`scenarioRequest` in demo-v2-scenario.js), and echoed dumps."""
+    """Requests as `/demo-v2` sends them (`scenarioRequest` in demo-v2-scenario.js), and echoed
+    dumps."""
     full = {
         "municipality": "墨田区",
         "disaster": "earthquake",

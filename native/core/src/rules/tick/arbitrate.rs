@@ -322,6 +322,9 @@ fn assign_operations<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H
 /// `_consider_due_complaints`: the policy's threshold as the Run read it, its decision through the
 /// host.
 fn consider_due_complaints<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R>) -> std::result::Result<(), H::Error> {
+    if let Some(limits) = tick.host.social_limits() {
+        return staff::consider_due_complaints(tick.cell, tick.host, Some(limits.complaint_wait_minutes), tick.minute);
+    }
     let policies = tick.policies.clone();
     let threshold = match policies.social.complaint_wait_minutes() {
         Ok(threshold) => threshold,

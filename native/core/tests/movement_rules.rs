@@ -1,24 +1,18 @@
-//! The rules of `domain/movement.py` on the generated Scenario's world (Issue #225, lane M9): the
-//! tests of `tests/integration/test_movement_rules.py` that check the core's rules and that
-//! `movement.rs` (hand-built worlds) does not check already, moved here.
+//! The movement rules (`rules::movement`) on the generated Scenario's world (Issue #225, lane M9),
+//! where `movement.rs` (hand-built worlds) does not check them already.
 //!
-//! Each world is the pytest's just before its call, read from `tests/data/movement_rules.json`
-//! (`tests/support/core_fixtures_movement.py` writes it): the generated Scenario after 5 ticks
-//! through `TickEngine`, with someone put on a two-edge walk (`walker`) or the people and configs
-//! edited as the pytest did. A test calls the core's rule that the kernel of the same name calls
-//! (`advance_through`, `start`, `finish_through`, `movement_minutes`, `approach_route` of
-//! `rules::movement`) through a host that follows the world (`support/steps.rs`), and edits the
-//! world between two calls as the pytest did. The values the pytest computed in Python (the journey
-//! and the first position `start_movement` writes, by the deleted rule's arithmetic; each queued
-//! person's place; the deleted rule's minutes of a route) are in the fixture.
+//! Each world is read from `tests/data/movement_rules.json`: the generated Scenario after 5 ticks,
+//! with someone put on a two-edge walk (`walker`) or the people and configs edited for the test. A
+//! test calls the core's rule (`advance_through`, `start`, `finish_through`, `movement_minutes`,
+//! `approach_route` of `rules::movement`) through a host that follows the world
+//! (`support/steps.rs`), and edits the world between two calls. The fixture holds the values a
+//! test compares with (the journey and the first position `start` writes, each queued person's
+//! place, the minutes of a route).
 //!
-//! For `advance_movement` and the walk to a footprint, the pytest chained each call's answer into a
-//! digest of Python's `repr` and compared it with the deleted Python rule's (`ANSWERS`, recorded at
-//! 2d8fb46, and `FOOTPRINT_WALKS`). Those digests are recorded again here from the core (decision 1
-//! of #225): `Answers` chains each call's result and the whole world after it
-//! (`support/answers.rs`); the walks are their `Debug` texts. Each was recorded from the core in
-//! #225 lane M9; on the same kernel the pytest of the same name passed with the digest whose first
-//! 12 hex digits its doc comment gives.
+//! For `advance_through` and the walk to a footprint, the test compares a digest in it: `Answers`
+//! chains each call's result and the whole world after it (`support/answers.rs`); the walks are
+//! their `Debug` texts. The values were recorded before #430 (the digests from the core in #225
+//! lane M9) and pin the core's output now.
 
 use crate::support;
 
@@ -53,7 +47,7 @@ fn text(value: &str) -> Arc<str> {
     Arc::from(value)
 }
 
-/// The world of a test, with the host that follows it, and what the test read in Python.
+/// The world of a test, with the host that follows it, and the test's inputs in the fixture.
 fn setup(name: &str) -> (Case, Value) {
     let test = data()["inputs"].get(name).unwrap_or_else(|| panic!("{FILE} has no test {name}")).clone();
     let entry = cases::resolve(&data()["worlds"], test["world"].as_str().unwrap());
@@ -68,7 +62,7 @@ fn walk(case: &mut Case, minute: i64) -> Result<Vec<Arc<str>>, Error> {
     result
 }
 
-/// The movement state's row, changed by `f`, as the pytest changed the Python state.
+/// The movement state's row, changed by `f`.
 fn change(case: &Case, f: impl FnOnce(&mut MovementRow)) {
     case.loaded.cell.with(|world| f(&mut world.row_mut::<MovementRow>(MOVEMENT).unwrap())).unwrap();
 }
@@ -108,7 +102,6 @@ fn section(case: &mut Case) -> Arc<Movement> {
 
 // ---- advance_movement --------------------------------------------------------------------------------
 
-/// Pytest digest `37fd3fbb3bf7`.
 #[test]
 fn a_walk_along_two_edges_both_ways() {
     let (mut case, test) = setup("a_walk_along_two_edges_both_ways");
@@ -127,7 +120,6 @@ fn a_walk_along_two_edges_both_ways() {
     assert_eq!(case.hex(), "5888ca86f5b05e7eb2830c6ab23a518c5cdcc9eccc9ddb4d16649e611e857029");
 }
 
-/// Pytest digest `bcfb106dc3be`.
 #[test]
 fn someone_with_no_position_gets_one_first() {
     let (mut case, test) = setup("someone_with_no_position_gets_one_first");
@@ -140,7 +132,7 @@ fn someone_with_no_position_gets_one_first() {
 }
 
 /// In service at a facility (and at none), asleep at a reserved bed (one past the room's beds, in a
-/// room that is not there, of a bool index), and queued for nothing. Pytest digest `ced987274e0d`.
+/// room that is not there, of a bool index), and queued for nothing.
 #[test]
 fn in_service_and_sleeping_stand_at_their_places() {
     let (mut case, test) = setup("in_service_and_sleeping_stand_at_their_places");
@@ -161,7 +153,6 @@ fn in_service_and_sleeping_stand_at_their_places() {
 }
 
 /// The Scenario's world at minute 0 without its floor plan, a zone of which has no display point.
-/// Pytest digest `34d3e98ffbbe`.
 #[test]
 fn without_a_floor_plan_people_have_display_points() {
     let (mut case, _) = setup("without_a_floor_plan_people_have_display_points");
@@ -174,7 +165,6 @@ fn without_a_floor_plan_people_have_display_points() {
     }
 }
 
-/// Pytest digest `81736be1ce83`.
 #[test]
 fn a_room_walk_follows_its_points_and_stops_at_what_blocks_them() {
     let name = "a_room_walk_follows_its_points_and_stops_at_what_blocks_them";
@@ -189,7 +179,7 @@ fn a_room_walk_follows_its_points_and_stops_at_what_blocks_them() {
     }
     assert!(walked > 0);
     // An obstacle by the walk's second point: the configs' spatial constraints of the export that
-    // has it, as the pytest set them.
+    // has it.
     let (blocked, _) = setup(&format!("{name}/blocked"));
     case.entry["sections"] = blocked.entry["sections"].clone();
     case.edit(|doc| {
@@ -214,7 +204,7 @@ fn finish(case: &mut Case, agent: &str) {
 
 /// One person in one call: nobody else moves during it, so the kernel decides it. A queued person
 /// at the end of a queue trip keeps the point they walked to; one on another trip stands in the
-/// slot behind those placed already, as the queue's slots placed them in Python.
+/// slot behind those placed already, in the queue's slots.
 #[test]
 fn finishing_one_trip_may_read_the_slots() {
     let (mut case, test) = setup("finishing_one_trip_may_read_the_slots");
@@ -269,8 +259,8 @@ fn opt(value: &Value, key: &str) -> Option<Arc<str>> {
 
 /// The journey and the first position `start_movement` writes for each kind of journey (along an
 /// edge, on room points, on neither, with support, with a queue), starting at, one minute after and
-/// one minute before the last update of the walk: what the pytest computed in Python by the deleted
-/// rule's arithmetic. The rest of the state stays as it was.
+/// one minute before the last update of the walk, as the fixture records them. The rest of the
+/// state stays as it was.
 #[test]
 fn start_movement_writes_the_journey_and_the_first_position() {
     let name = "start_movement_writes_the_journey_and_the_first_position";
@@ -313,8 +303,8 @@ fn start_movement_writes_the_journey_and_the_first_position() {
 
 /// The minutes of each route (each edge of the world, a long one, and one of no edge) for people of
 /// each mobility, with no movement model, one of floats and one of whole numbers, in uncrowded and
-/// crowded rooms: the deleted rule's, computed in Python (the longer of the declared and the
-/// surveyed walk, at the person's speed, slowed by the most crowded zone of the route).
+/// crowded rooms, as the fixture records them (the longer of the declared and the surveyed walk, at
+/// the person's speed, slowed by the most crowded zone of the route).
 #[test]
 fn a_route_s_minutes_follow_speed_and_crowding() {
     let mut checked = 0;
@@ -345,12 +335,10 @@ fn a_route_s_minutes_follow_speed_and_crowding() {
 
 /// The points around a footprint, for each mobility: its clearances are in Rust too. For each
 /// facility of the floor plan, by ID, a square footprint around its point in the spatial
-/// constraints, and three people of each mobility at the centre of its zone. The pytest took the
-/// Scenario's world at minute 2; here it is the world at minute 5, which the other tests of this file
-/// share (the walks of both are the same: their digest was recorded on each). Pytest digest
-/// `f6bffc4d4625`.
+/// constraints, and three people of each mobility at the centre of its zone, on the world at
+/// minute 5 that the other tests of this file share.
 #[test]
-fn the_walk_to_a_facility_with_a_footprint_is_the_deleted_rule_s() {
+fn the_walk_to_a_facility_with_a_footprint_is_the_recorded_one() {
     let prefix = "the_walk_to_a_facility_with_a_footprint_is_the_deleted_rule_s/";
     let names: Vec<&String> = data()["inputs"].as_object().unwrap().keys().filter(|name| name.starts_with(prefix)).collect();
     assert!(!names.is_empty());

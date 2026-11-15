@@ -1,7 +1,6 @@
-//! The metric samples of a Run without Python, packed (`plain::MetricSamples`, #252 PR 6-4): each
-//! sample comes back as it was taken and writes the line it wrote, the IDs behind its counts packed
-//! when their text comes back the same and kept as text otherwise; the digest is the one of the
-//! lines.
+//! The metric samples of a Run, packed (`plain::MetricSamples`, #252 PR 6-4): each sample comes
+//! back as it was taken and writes the line it wrote, the IDs behind its counts packed when their
+//! text comes back the same and kept as text otherwise; the digest is the one of the lines.
 
 use sheltersim_core::checkpoint::sha256_hex;
 use sheltersim_core::engine::metric_line;

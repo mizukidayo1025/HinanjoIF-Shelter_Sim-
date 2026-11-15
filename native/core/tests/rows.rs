@@ -33,7 +33,7 @@ state_row! {
     }
 }
 
-/// The writes a setter made, as the PyO3 crate's tree would store them.
+/// The writes a setter made, as a tree would store them.
 #[derive(Default)]
 struct Writes(RefCell<Vec<(String, String)>>);
 

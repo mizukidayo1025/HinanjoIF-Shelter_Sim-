@@ -1,19 +1,13 @@
-//! Each person's minute (`rules::psychology::update`, the kernel of the PyO3 entry
-//! `update_psychology`) and its trace's document (`rules::trace::record_psychology`, the kernel of
-//! `record_psychology_trace`) on the worlds of `integration/test_psychology_update.py` and
-//! `test_trace_documents.py`: the Project screen's generated Scenario at minute 0 whose people
-//! those files shuffled with `random.Random` (`model_steps.json`'s `psychology-<seed>` and
-//! `trace-<seed>`), and the policies they drew (`tests/support/core_model_steps.py` writes them;
-//! Issue #225, lane M10a). Each policy is what the Run reads of `controller.psychology`
-//! (`RunCore.policies_document`). The pytest files keep an entry test each
-//! (`test_people_of_a_group_are_separated_as_the_deleted_rule_said`,
-//! `test_int_values_of_a_scenario_give_the_deleted_rule_s_document`), what the PyO3 entries turn
-//! down, the writing of the values, and the Runs.
+//! Each person's minute (`rules::psychology::update`) and its trace's document
+//! (`rules::trace::record_psychology`) on the Project screen's generated Scenario at minute 0, with
+//! its people shuffled with `random.Random` (`model_steps.json`'s `psychology-<seed>` and
+//! `trace-<seed>`), under the policies drawn for them (Issue #225, lane M10a). Each policy is what
+//! the Run reads of the controller's `psychology` (`load::run`).
 //!
-//! The digests are the ones the pytest files pinned from the deleted Python rules
-//! (`policies/psychology.py`, `policies/alternatives.py` and the update phase's Python steps at
-//! 45a9bc9): the tests write the same texts with `Dumps` (`json.dumps` of each delta's fields, and
-//! of each trace's document with its contributions), so each value is still the Python rule's.
+//! The tests write, with `Dumps`, `json.dumps` of each delta's fields and of each trace's document
+//! with its contributions, and compare the sha256 of the texts with `RECORDED` and
+//! `RECORDED_DOCUMENTS`. The values were recorded before #430 (at 45a9bc9) and pin the core's
+//! output now.
 
 use crate::support;
 
@@ -36,8 +30,8 @@ use support::{cases, load, sections, texts, Call, TestHost};
 
 const FILE: &str = "model_steps";
 
-/// What the deleted Python rules answered, as `test_psychology_update.py` pinned it (`ANSWERS`).
-const ANSWERS: &[(&str, &str)] = &[
+/// The recorded digests of the deltas.
+const RECORDED: &[(&str, &str)] = &[
     ("ints-0", "fb6093685a0aa159c4b2e34c33d8ef488d2d6cfab9824db8d154f4ae4bf4e266"),
     ("ints-1", "b5123a4fdd6fda5f6037c332e421c683a21100f62637c045a7a92860660154a4"),
     ("ints-2", "81330efb55356eb79d75658b9f7100999f40d621f77a20106bef2345e76c553f"),
@@ -52,9 +46,8 @@ const ANSWERS: &[(&str, &str)] = &[
     ("one-percent", "747ac51334eb2003d4a5e5f7cd53df787172656c655d9ca0ea3f0299829fc413"),
 ];
 
-/// What the deleted Python steps wrote as the trace, as `test_trace_documents.py` pinned it
-/// (`PSYCHOLOGY_ANSWERS`), by seed and level.
-const DOCUMENT_ANSWERS: &[(&str, &str)] = &[
+/// The recorded digests of the trace's documents, by seed and level.
+const RECORDED_DOCUMENTS: &[(&str, &str)] = &[
     ("models-0-full", "640ed4e7a101957606fcddcd486c7030758ff4658be73a39bf25370877272c81"),
     ("models-0-summary", "640ed4e7a101957606fcddcd486c7030758ff4658be73a39bf25370877272c81"),
     ("models-1-full", "cfa05fafeec31e3646ed5207a524a17be226b2eb2f6eab428ffbc628c49ef0e5"),
@@ -74,7 +67,7 @@ fn digest(texts: &[String]) -> String {
     texts::sha(&joined)
 }
 
-/// `_answers`: the sha256 of the texts, each with a newline, against the pinned digest.
+/// The sha256 of the texts, each with a newline, against the recorded digest.
 fn answers(table: &[(&str, &str)], name: &str, texts: &[String]) {
     let wanted = table.iter().find(|(key, _)| *key == name).unwrap_or_else(|| panic!("no answer {name}")).1;
     assert_eq!(digest(texts), wanted, "{name}");
@@ -87,8 +80,8 @@ fn data() -> &'static Value {
     DATA.get_or_init(|| load::data(FILE))
 }
 
-/// A named world of the file, in a cell, with its update phase's view (`view_of(world,
-/// include_state_hash=False)`, or `controller._view_after_movement(world)`: built anew).
+/// A named world of the file, in a cell, with its update phase's view (`world_view::build`: built
+/// anew).
 fn world(name: &str) -> (Shard<World>, ViewData) {
     let entry = cases::resolve(&data()["worlds"], name);
     let cell = texts::cell(&entry);
@@ -118,14 +111,14 @@ fn got<T>(read: Result<T, Bad>) -> T {
     read.unwrap_or_else(|bad| panic!("the policy was not read: {bad:?}"))
 }
 
-/// One call of the PyO3 entry `update_psychology` at minute 0, with a trace or not.
+/// One call of `psychology::update` at minute 0, with a trace or not.
 fn update(cell: &Shard<World>, view: &ViewData, psychology: &Psychology, traced: bool) -> PsychologyResult {
     let model = got(psychology::model_of(psychology));
     let params = got(psychology::params(psychology, model, Some(view.resource_service_enabled), traced));
     cell.with(|world| psychology::update(world, view, &params, 0, traced)).unwrap().unwrap()
 }
 
-/// `_text`: a delta's fields in their order, so a float's bits and 1 against 1.0 show.
+/// A delta's fields in their order, so a float's bits and 1 against 1.0 show.
 fn delta_text(delta: &Delta) -> String {
     let mut fields = vec![
         V::Str(delta.agent_id.clone()),
@@ -143,7 +136,7 @@ fn delta_text(delta: &Delta) -> String {
     Dumps::default().text(&V::List(fields))
 }
 
-/// `_texts_of_models`: each policy's deltas, without a trace.
+/// Each policy's deltas, without a trace.
 fn texts_of_models(seed: usize, policies: &Value) -> Vec<String> {
     let (cell, view) = world(&format!("psychology-{seed}"));
     let mut out = Vec::new();
@@ -157,40 +150,37 @@ fn texts_of_models(seed: usize, policies: &Value) -> Vec<String> {
 
 // ---- Each person's minute -----------------------------------------------------------------------
 
-/// `test_every_model_gives_the_bits_of_the_deleted_rules`: eleven models and settings drawn on
-/// worlds whose values no scenario reaches.
+/// Eleven models and settings drawn on worlds whose values no scenario reaches.
 #[test]
-fn every_model_gives_the_bits_of_the_deleted_rules() {
+fn every_model_gives_the_recorded_bits() {
     for (seed, policies) in data()["psychology"]["models"].as_array().unwrap().iter().enumerate() {
-        answers(ANSWERS, &format!("models-{seed}"), &texts_of_models(seed, policies));
+        answers(RECORDED, &format!("models-{seed}"), &texts_of_models(seed, policies));
     }
 }
 
-/// `test_a_one_percent_change_shows`.
 #[test]
 fn a_one_percent_change_shows() {
     let policies = data()["psychology"]["one_percent"].as_array().unwrap();
     let same = texts_of_models(1, &Value::Array(vec![policies[0].clone()]));
-    answers(ANSWERS, "one-percent", &same);
+    answers(RECORDED, "one-percent", &same);
     let other = texts_of_models(1, &Value::Array(vec![policies[1].clone()]));
     assert_ne!(other, same);
 }
 
-/// `test_int_values_of_a_scenario_give_the_bits_of_the_deleted_rules`: the ints a Scenario may
-/// write meet floats in every expression, where they are the same f64.
+/// The ints a Scenario may write meet floats in every expression, where they are the same f64.
 #[test]
-fn int_values_of_a_scenario_give_the_bits_of_the_deleted_rules() {
+fn int_values_of_a_scenario_give_the_recorded_bits() {
     for (seed, policies) in data()["psychology"]["ints"].as_array().unwrap().iter().enumerate() {
-        answers(ANSWERS, &format!("ints-{seed}"), &texts_of_models(seed, policies));
+        answers(RECORDED, &format!("ints-{seed}"), &texts_of_models(seed, policies));
     }
 }
 
 // ---- The trace's document -----------------------------------------------------------------------
 
-/// `test_the_document_of_each_model_is_the_deleted_rule_s`: each model's document of the minute
-/// and its contributions, at each level, after the social step changed every other delta's stress.
+/// Each model's document of the minute and its contributions, at each level, after the social
+/// step changed every other delta's stress.
 #[test]
-fn the_document_of_each_model_is_the_deleted_rule_s() {
+fn the_document_of_each_model_is_the_recorded_one() {
     for case in data()["trace"].as_array().unwrap() {
         let seed = case["seed"].as_u64().unwrap();
         let (cell, view) = world(case["world"].as_str().unwrap());
@@ -220,7 +210,7 @@ fn the_document_of_each_model_is_the_deleted_rule_s() {
                 };
                 documents.push(Dumps::default().unicode().text(&V::List(vec![document.clone(), contributions.clone()])));
             }
-            answers(DOCUMENT_ANSWERS, &format!("models-{seed}-{label}"), &documents);
+            answers(RECORDED_DOCUMENTS, &format!("models-{seed}-{label}"), &documents);
         }
     }
 }

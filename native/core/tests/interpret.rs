@@ -1,7 +1,7 @@
 //! The offline intervention compiler (#303): `sheltersim_core::interpret::compile_offline` answers
-//! each request of `tests/data/offline_interpreter.json` (written by
-//! `tests/support/core_interpret.py`) with the bytes whose sha256 Python's `compile_natural_language`
-//! gave without an API key, or refuses it (`Error::Value`) where Python raised a ValueError.
+//! each request of `tests/data/offline_interpreter.json` with the bytes whose sha256 the file
+//! records, or refuses it (`Error::Value`) where the file records `invalid`. The values were
+//! recorded before #430 and pin the core's output now.
 
 use std::fs;
 
@@ -11,7 +11,7 @@ use sheltersim_core::error::Error;
 use sheltersim_core::interpret::compile_offline;
 
 #[test]
-fn offline_answers_are_pythons() {
+fn offline_answers_are_the_recorded_ones() {
     let bytes = fs::read(format!("{}/tests/data/offline_interpreter.json", env!("CARGO_MANIFEST_DIR"))).unwrap();
     let fixture: Value = serde_json::from_slice(&bytes).unwrap();
     let mut failures = Vec::new();
@@ -38,10 +38,10 @@ fn offline_answers_are_pythons() {
     assert!(failures.is_empty(), "{} of {} differ:\n{}", failures.len(), cases.len(), failures.join("\n"));
 }
 
-/// `safe_document`'s redaction of a draft's text and the question a result question stores
-/// (#306, #308) are Python's.
+/// The redaction of a draft's text (`safe_document`'s, in `storage.projects`) and the question a
+/// result question stores (#306, #308) are the recorded ones.
 #[test]
-fn redaction_and_questions_are_pythons() {
+fn redaction_and_questions_are_the_recorded_ones() {
     let bytes = fs::read(format!("{}/tests/data/offline_interpreter.json", env!("CARGO_MANIFEST_DIR"))).unwrap();
     let fixture: Value = serde_json::from_slice(&bytes).unwrap();
     for item in fixture["safety"].as_array().unwrap() {
@@ -55,8 +55,8 @@ fn redaction_and_questions_are_pythons() {
     assert_eq!(merged, br#"{"a":2,"b":0.0,"c":[1.0]}"#);
 }
 
-/// A comparison's differences keep Python's types: int minus int is an int, anything with a
-/// float a float, written as Python writes it; a KPI that is not a number in both is left out.
+/// A comparison's differences keep the types: int minus int is an int, anything with a float a
+/// float, written as Python's `repr` writes it; a KPI that is not a number in both is left out.
 #[test]
 fn kpi_differences_keep_ints_and_floats() {
     let base = br#"{"kpis":{"a":3,"b":1.5,"c":2,"d":0.1,"e":true,"f":"x","g":1,"h":1.0},"x":1}"#;

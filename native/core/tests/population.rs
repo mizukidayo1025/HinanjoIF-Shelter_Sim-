@@ -1,8 +1,5 @@
-//! Lane c5: the rules of `domain/population.py` (`rules::population`) on a world built here with no
-//! Python. The PyO3 crate's kernels of the same names are glue over these, so the gate and the
-//! offline tests run them on every Run (and `tests/integration/test_population_agents.py` compares
-//! `build_agent` with the Python constructors); these say what each reads, decides and writes,
-//! and what it asks of the host (the input contracts, policy E15).
+//! Lane c5: the population rules (`rules::population`) on a world built here: what each reads,
+//! decides and writes, and what it asks of the host (the input contracts, policy E15).
 
 use crate::support;
 
@@ -213,7 +210,7 @@ fn w(cell: &Shard<World>) -> ShardRef<'_, World> {
     cell.try_borrow().unwrap()
 }
 
-/// `plan_arrivals` and `write_arrivals` on the world, as the PyO3 crate runs them.
+/// `plan_arrivals` and `write_arrivals` on the world, one after the other.
 fn arrive(cell: &Shard<World>, host: &mut TestHost, inputs: &Inputs, event: &EventRow, args: ArrivalArgs) -> Result<i64, Error> {
     let plan = population::plan_arrivals(cell, host, inputs, event, args)?;
     assert!(plan.new_state.is_none() && plan.fails.is_none());
@@ -417,7 +414,7 @@ fn an_arrival_the_rule_refuses_says_its_text_in_its_order() {
     let mut mobility = args("z0", 1);
     mobility.mobility = Some(Ok(None));
     assert_eq!(plan(mobility, &mut host), Some(failed("population arrival mobility is invalid")));
-    // A refusal the PyO3 crate read for an argument is raised where the rule reads it.
+    // A refusal read for an argument is raised where the rule reads it.
     let mut both = args("z0", 0);
     both.mobility = Some(Err(unsupported("a mobility of another type")));
     assert_eq!(plan(both, &mut host), Some(failed("population arrival count is outside its supported range")));
@@ -455,7 +452,7 @@ fn a_first_arrival_makes_the_state_through_the_population_contract() {
     assert_eq!(get(&made, &["initial_agent_ids"]), &list(vec![s("a1"), s("a2")]));
     let V::Map(traits) = get(&made, &["profile_traits"]) else { panic!("a map") };
     assert_eq!(traits.keys().map(|key| &**key).collect::<Vec<_>>(), ["a", "b"]);
-    // The PyO3 crate puts the state in, and the rule writes on it.
+    // The host puts the state in, and the rule writes on it.
     {
         let world = w(&cell);
         world.slots.at(world.slots.index_of(DYNAMICS).unwrap()).unwrap().try_borrow_mut().unwrap().row = Some(Box::new(ValueRow(made)));

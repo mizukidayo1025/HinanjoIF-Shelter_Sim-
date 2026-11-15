@@ -1,14 +1,13 @@
-//! The routers of lane 7-4: built from the zone and zone-edge tables with `ZoneGraph`'s checks and
-//! words (`domain/zones.py`), instead of from the Python graph a controller's `_refresh_space` made.
+//! The routers of lane 7-4: built from the zone and zone-edge tables with the zone graph's checks
+//! and words (`Router::of_tables`, `Router::of_world_tables`).
 //!
-//! The expected routes in `data/zone_graphs.json` are what the build of `main` (`70bae46`) gave
-//! through the old snapshot path: `ZoneGraph.from_states` of the world's zones and edges with the
-//! controller's route capacities, and `ShortestTravelTimePolicy` over `controller.space` and
-//! `controller.staff_space` (whose floor plan keeps the edges `route_is_physically_clear` takes for
-//! an independent walker). The worlds are the gate's floor plans (`benchmarks/gate_scenarios.py`):
-//! the generated Scenario, with an edge closed, with a route of the plan too narrow, with route
-//! capacities (and loads that fill one), and the fixtures' plan (all of `fixtures/scenarios` share
-//! one). A script in the PR's notes made them.
+//! The expected routes in `data/zone_graphs.json` were recorded from `main` (`70bae46`), with the
+//! controller's route capacities, for the people's router and the staff's (whose floor plan keeps
+//! the edges `route_is_physically_clear` takes for an independent walker). The values were recorded
+//! before #430 and pin the core's output now. The worlds are the gate's floor plans
+//! (`benchmarks/gate_scenarios.py`): the generated Scenario, with an edge closed, with a route of
+//! the plan too narrow, with route capacities (and loads that fill one), and the fixtures' plan
+//! (all of `fixtures/scenarios` share one).
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -130,7 +129,7 @@ fn compare(name: &str, router: &Router, loads: Option<&EdgeLoads>, routes: &Valu
 }
 
 #[test]
-fn the_tables_give_the_routes_of_the_python_graph() {
+fn the_tables_give_the_recorded_routes() {
     let reference = reference();
     let graphs = reference["graphs"].as_array().unwrap();
     assert_eq!(graphs.len(), 5);

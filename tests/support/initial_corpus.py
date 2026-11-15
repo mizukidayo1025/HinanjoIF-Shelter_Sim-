@@ -4,10 +4,10 @@
 Scenario that `WorldState.from_scenario` built while `tests/unit` and `tests/integration` ran,
 one per fingerprint of their configs (`world_export.configs_fingerprint`, the smallest Scenario of
 each), so that each installed model, extension and config the tests use is there once. Each case
-holds the Scenario's canonical JSON and the sha256 and length of what `export_world(world)` writes
-of its world at minute 0 (sorted keys, no spaces; the entry without its Run).
-`tests/unit/core/test_world_export.py` checks that the core builds the same bytes
-(`sheltersim_native.initial_world_entry`), against Python and against the recorded digest.
+holds the Scenario's canonical JSON and the sha256 and length of what
+`export_world(world, controller)` writes of its world at minute 0 with the Run's controller
+(sorted keys, no spaces). `tests/unit/core/test_world_export.py` checks that the core builds the
+same bytes (`sheltersim_native.initial_entry`), against Python and against the recorded digest.
 
 `python benchmarks/initial_corpus.py` records it again: it runs the suite with this module as a
 pytest plugin (`-p support.initial_corpus`), which writes each Scenario to the directory named by
@@ -26,21 +26,29 @@ from typing import Any
 
 from support.paths import INITIAL_CORPUS
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 RECORD_DIRECTORY = "SHELTERSIM_RECORD_SCENARIOS"
 
 
-def world_entry_bytes(scenario: Any) -> bytes:
-    """`export_world(world)` of the Scenario's world at minute 0 as a Run starts it (its random
-    state set by `TickEngine`), as the browser's sample writes an entry (sorted keys, no spaces,
-    not ASCII-escaped)."""
-    from sheltersim.core.engine import TickEngine
+def entry_bytes(scenario: Any) -> bytes:
+    """`export_world(world, controller)` of the Scenario's world at minute 0, set up for a Run as
+    `run_scenario` sets it up (offline, traces off), as the browser's sample writes an entry
+    (sorted keys, no spaces, not ASCII-escaped)."""
+    import tempfile
+
+    from sheltersim.core.engine import TickEngine, TraceLevel
     from sheltersim.core.world import WorldState
     from sheltersim.core.world_export import export_world
+    from sheltersim.experiments.runner import OfflineSimulationController
+    from sheltersim.inspection.traces import RunArtifactWriter
 
     world = WorldState.from_scenario(scenario)
-    TickEngine(world)
-    entry = export_world(world)
+    with tempfile.TemporaryDirectory(prefix="initial-corpus-") as directory:
+        artifacts = RunArtifactWriter(scenario, directory, trace_level=TraceLevel.OFF)
+        artifacts.write_initial(world, execution_mode="offline")
+        controller = OfflineSimulationController(world, artifacts)
+        TickEngine(world, phase_handler=controller)
+        entry = export_world(world, controller)
     return json.dumps(entry, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode()
 
 
@@ -69,7 +77,7 @@ def corpus_of(directory: Path) -> dict[str, Any]:
     for text in sorted(smallest.values(), key=lambda text: hashlib.sha256(text.encode()).digest()):
         try:
             scenario = ScenarioSpec.model_validate_json(text)
-            entry = world_entry_bytes(scenario)
+            entry = entry_bytes(scenario)
         except Exception:  # noqa: BLE001 - a Scenario only a test's own registrations accept
             continue
         if scenario.canonical_json() != text:
@@ -77,8 +85,8 @@ def corpus_of(directory: Path) -> dict[str, Any]:
         cases.append(
             {
                 "scenario": text,
-                "world_entry_sha256": hashlib.sha256(entry).hexdigest(),
-                "world_entry_bytes": len(entry),
+                "entry_sha256": hashlib.sha256(entry).hexdigest(),
+                "entry_bytes": len(entry),
             }
         )
     return {"schema_version": SCHEMA_VERSION, "cases": cases}

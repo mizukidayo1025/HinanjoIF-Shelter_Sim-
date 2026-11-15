@@ -46,8 +46,7 @@ WebのScenario previewが使う初期Scenario生成器は、利用者が入力�
 `causal-stress-v1`と`life-state-feedback-v1`は研究モデル導入前のモデルです。保存済みRun・Checkpointの再生と、研究モデルとの比較対照のために残しています。新しい分析で意図せず使わないよう、次の場所に使用中の心理モデルを表示します。
 
 - `sheltersim prepare`と`sheltersim run`は、旧来モデルを選んだScenarioでstderrに1行の警告を出します。終了codeは0のままです。
-- `sheltersim run`の出力JSONに`psychology_model`を含めます。保存Runのmanifestでは`policy_implementations.psychology`に記録されます。
-- `sheltersim compare`のレポートに`psychology_models`（baselineとcandidate）を含め、Markdownの先頭に表示します。旧来モデルなら警告行を加えます。
+- `sheltersim run`の出力JSONに`psychology_model`を含めます。
 
 旧来モデルの印はmodel-catalog.jsonではなく`src/sheltersim/contracts/policies.py`の`LEGACY_PSYCHOLOGY_MODELS`に置きます。catalogの項目はPolicy署名に含まれるため、変更すると保存済みCheckpointの照合が変わるからです。
 

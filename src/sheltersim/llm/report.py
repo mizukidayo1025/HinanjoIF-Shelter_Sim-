@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-import csv
 import hashlib
 import json
 from dataclasses import asdict, dataclass
-from pathlib import Path
 from typing import Any, Literal
 
 from sheltersim.experiments.metrics import MetricSnapshot
@@ -446,45 +444,6 @@ def build_review_evidence(
     )
 
 
-def evidence_from_run_artifacts(
-    run_directory: str | Path,
-    *,
-    comparison_report: dict[str, Any] | None = None,
-) -> ReviewEvidence:
-    """Load only aggregate and allowlisted run evidence; never read decision/profile details."""
-    directory = Path(run_directory)
-    metrics_path = directory / "metrics.csv"
-    with metrics_path.open(encoding="utf-8", newline="") as handle:
-        metric_rows = list(csv.DictReader(handle))
-    numeric_rows: list[dict[str, Any]] = []
-    for row in metric_rows:
-        normalized: dict[str, Any] = {"minute_index": _parse_integer(row.get("minute_index"))}
-        for metric_id in _METRIC_IDS:
-            raw = row.get(metric_id)
-            if raw is None or raw == "":
-                continue
-            try:
-                value = float(raw)
-            except ValueError:
-                continue
-            if value == value and abs(value) != float("inf"):
-                normalized[metric_id] = value
-        numeric_rows.append(normalized)
-    realized = _read_jsonl(directory / "events_realized.jsonl")
-    manifest = _read_json(directory / "manifest.json")
-    initial = _read_json(directory / "agents_initial.json")
-    if comparison_report is not None:
-        _validate_comparison_manifest_scope(manifest, comparison_report)
-    profile_records = initial.get("profiles", [])
-    assumptions = _scenario_assumption_ids(manifest.get("model_configs", {}), profile_records)
-    return build_review_evidence(
-        metrics=numeric_rows,
-        realized_events=realized,
-        assumptions=assumptions,
-        comparison_report=comparison_report,
-    )
-
-
 def scenario_assumption_ids(scenario: ScenarioSpec) -> list[str]:
     """Return only known model assumption IDs implicated by this scenario's features."""
     ids: list[str] = []
@@ -569,38 +528,6 @@ def validate_comparison_scope(
         ).hexdigest()
         if definition_hash != expected:
             raise ValueError("comparison report scenario definition does not match this run")
-
-
-def review_saved_run(
-    run_directory: str | Path,
-    router: LLMRouter,
-    *,
-    comparison_report: dict[str, Any] | None = None,
-) -> ReviewResult:
-    """Review a completed run offline or with Opus, updating only review/usage artifacts."""
-    from sheltersim.inspection.traces import _llm_usage_summary
-
-    directory = Path(run_directory)
-    evidence = evidence_from_run_artifacts(directory, comparison_report=comparison_report)
-    starting_record_count = len(router.records)
-    result = generate_evidence_review(evidence, router)
-    _write_atomic(directory / "review.md", render_review_markdown(result))
-    _write_atomic(directory / "review.json", _pretty_json(result.to_dict()))
-    call_path = directory / "llm_calls.jsonl"
-    current_calls = _read_jsonl(call_path) if call_path.exists() else []
-    current_calls.extend(record.to_dict() for record in router.records[starting_record_count:])
-    _write_atomic(
-        call_path,
-        ""
-        if not current_calls
-        else "\n".join(_compact_json(item) for item in current_calls) + "\n",
-    )
-    manifest = _read_json(directory / "manifest.json")
-    manifest["llm_usage"] = _llm_usage_summary(current_calls)
-    manifest["review_status"] = result.status
-    manifest["review_input_hash"] = result.input_hash
-    _write_atomic(directory / "manifest.json", _pretty_json(manifest) + "\n")
-    return result
 
 
 def generate_evidence_review(
@@ -861,16 +788,6 @@ def _validate_review(review: dict[str, Any], evidence: ReviewEvidence) -> str | 
     return None
 
 
-def _validate_comparison_manifest_scope(
-    manifest: dict[str, Any], comparison_report: dict[str, Any]
-) -> None:
-    for field in ("scenario_hash", "scenario_definition_hash", "scenario_id", "seed"):
-        expected = manifest.get(field)
-        value = comparison_report.get(field)
-        if value is not None and expected is not None and value != expected:
-            raise ValueError(f"comparison report {field} does not match the saved run")
-
-
 def _empty_review() -> dict[str, Any]:
     return {
         "observed": [],
@@ -924,41 +841,6 @@ def _comparison_deltas(report: dict[str, Any] | None) -> dict[str, float]:
     return deltas
 
 
-def _scenario_assumption_ids(model_configs: Any, profiles: Any) -> list[str]:
-    ids: set[str] = set()
-    if isinstance(profiles, list) and profiles:
-        if all(
-            isinstance(item, dict)
-            and isinstance(item.get("provenance"), dict)
-            and item["provenance"].get("source_kind") in ("synthetic", "llm", "assumption")
-            for item in profiles
-        ):
-            ids.add("ASM-SYNTHETIC-PROFILES-V1")
-    if isinstance(model_configs, dict):
-        if "behavior" in model_configs:
-            behavior = model_configs["behavior"]
-            ids.add(
-                "ASM-PRIORITY-RULE-BEHAVIOR-V1"
-                if isinstance(behavior, dict) and behavior.get("policy") == "priority-rule-v1"
-                else (
-                    "ASM-SLEEP-AWARE-BEHAVIOR-V2"
-                    if isinstance(behavior, dict)
-                    and behavior.get("policy") == "sleep-aware-utility-softmax-v2"
-                    else "ASM-UTILITY-BEHAVIOR-V1"
-                )
-            )
-        if "toilet_service" in model_configs or "staff" in model_configs:
-            ids.add("ASM-TOILET-SERVICE-DURATION-V1")
-        information_config = model_configs.get("information_spread")
-        if isinstance(information_config, dict) and information_config.get("enabled") is True:
-            ids.add("ASM-INFORMATION-SPREAD-V1")
-        if model_configs:
-            ids.add("ASM-SPACE-AND-STAFF-CAPACITY-V1")
-    ids.add("ASM-SIMPLE-PSYCHOLOGY-RATES-V1")
-    ids.add("ASM-H04-CAUSAL-STRESS-V1")
-    return sorted(ids & _ASSUMPTION_LABELS.keys())
-
-
 def _render_references(item: dict[str, Any], alias_map: dict[str, str]) -> str:
     refs = [
         alias_map[reference] for reference in item.get("event_refs", []) if reference in alias_map
@@ -969,44 +851,6 @@ def _render_references(item: dict[str, Any], alias_map: dict[str, str]) -> str:
     citations.extend(f"event `{event}`" for event in refs)
     citations.extend(f"assumption `{assumption}`" for assumption in assumptions)
     return " Evidence: " + ", ".join(citations) + "." if citations else ""
-
-
-def _read_json(path: Path) -> dict[str, Any]:
-    value = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(value, dict):
-        raise ValueError(f"{path.name} must contain a JSON object")
-    return value
-
-
-def _read_jsonl(path: Path) -> list[dict[str, Any]]:
-    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line]
-
-
-def _write_atomic(path: Path, contents: str) -> None:
-    temporary = path.with_name(path.name + ".tmp")
-    temporary.write_text(contents, encoding="utf-8", newline="")
-    temporary.replace(path)
-
-
-def _pretty_json(value: Any) -> str:
-    return json.dumps(value, ensure_ascii=False, sort_keys=True, indent=2, allow_nan=False) + "\n"
-
-
-def _compact_json(value: Any) -> str:
-    return json.dumps(
-        value,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-        allow_nan=False,
-    )
-
-
-def _parse_integer(value: Any) -> int | None:
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return None
 
 
 def _finite(value: float) -> bool:

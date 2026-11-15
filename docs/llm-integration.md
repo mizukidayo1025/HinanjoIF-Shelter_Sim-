@@ -89,8 +89,7 @@ fallbackしたtaskはruleの既定値で進むため、その分の結果はoffl
 
 fallbackの理由はoutcome別（max_api_calls、shared_allowance_unavailable、invalid_outputなど）、error_kind別、prompt版別に数えます。集計の表示先は次のとおりです。
 
-- CLI Run manifestのllm_usage.outcomes。llm_usage.failuresはoffline以外のfallback件数です。以前のmanifestは呼出し上限や利用枠拒否を数えていなかったため、outcomes項目がない古いRunのfailuresは過少な値の可能性があります。
-- sheltersim runの出力JSONのllm_status。degradedまたはall_fallbackのときはstderrに1行の警告を出します。終了codeは0のままです。
+- sheltersim runの出力JSONのllm_status（RunのLLMの利用記録〔`GET …/runs/{run}/usage`〕の`outcomes`。offlineのRunは`not_requested`）。degradedまたはall_fallbackのときはstderrに1行の警告を出します。終了codeは0のままです。
 - Project Branchは GET /api/v1/projects/{project}/runs/{run}/branches/{branch}/llm-status。head Checkpointに保存済みのrouter記録から読み取り時に集計します。read-onlyで、Checkpoint形式は変えません。forkしたchild Branchの値には、fork前に親から引き継いだ記録も含みます。
 
 受理したresponse tapeはstate/input hash、model、prompt、schema版に結び付きます。対応runtime状態はCheckpointに保存できます。過去seekは記録結果を使い、暗黙にProviderを呼びません。Branch stateが変わった場合、異なるinputにresponseを再利用しません。
@@ -137,7 +136,7 @@ API keyはprocess環境変数から読みます。.env.exampleは設定名の参
 
 CLI usage commandと/api/v1/usage/runtimeは上限付きusage receiptを表示します。Project RunにもRun単位の会計情報と操作recordが保存されます。
 
-CLIはprepareとrunのたびに新しい利用枠（cli-prepare-…、cli-run-…）を作り、その時点の設定を上限として固定します。reviewは対象Runの利用枠を引き継ぎます。以前は全CLI実行が固定の cli-default を共有していました。一度使い切ると、それ以降はAPIを呼ばずに全taskがfallbackしていました。既存の cli-default は使われなくなるだけで、記録は残ります。Run間の合計は、既定50ドルまたは端末台帳の監査済み増額により制限されます。
+CLIはprepareのたびに新しい利用枠（cli-prepare-…）を作り、その時点の設定を上限として固定します。runはProjectのRunを作るので、画面のRunと同じくRunの利用枠を使います（#450）。以前は全CLI実行が固定の cli-default を共有していました。一度使い切ると、それ以降はAPIを呼ばずに全taskがfallbackしていました。既存の cli-default は使われなくなるだけで、記録は残ります。Run間の合計は、既定50ドルまたは端末台帳の監査済み増額により制限されます。
 
 live連携testは標準testとは別で、`tests/live/test_live_api.py`にあります。ANTHROPIC_API_KEYとSHELTERSIM_ALLOW_LIVE_API_TESTS=1の両方が必要で、pytest実行中にAPIキーを使えるのはこのファイルのテストだけです。設定の既定値は2 call、test budget 0.01ドルですが、OpusとSonnetの呼出しはthinking用の余裕を予約するため、この既定値ではOpusを1回も呼べません。そのため各testは、上限を自分で設定します。
 

@@ -1815,11 +1815,10 @@
   function renderPeople() {
     const f = state.frame;
     $("people-list").replaceChildren();
+    // Everyone, in the panel's height (#496); a group chosen on the map, alone.
     const group = state.selectedGroup?.length
       ? f.people.filter((p) => state.selectedGroup.includes(p.id))
-      : $("people-panel").classList.contains("expanded")
-        ? f.people
-        : f.people.slice(0, 8);
+      : f.people;
     if (state.selectedGroup?.length > 1)
       $("people-list").append(
         el("span", `同じ記録位置の${group.length}人`, "group-caption"),

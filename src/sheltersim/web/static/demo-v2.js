@@ -404,6 +404,8 @@
       state.page === "comparison" && comparing() ? pairIds() : [state.branch];
     return ids.filter((id) => reference(id) && reference(id).computed_until < duration());
   }
+  const computedToEnd = (id = state.branch) =>
+    Boolean(reference(id)) && reference(id).computed_until >= duration();
   function mainButtonMode() {
     if (state.data?.status === "running") return "cancel";
     return state.run && state.frame && computeTargets().length ? "compute" : "play";
@@ -434,6 +436,21 @@
     button.querySelector(".play-icon").textContent = icon;
     button.querySelector(".play-label").textContent = label;
     button.setAttribute("aria-label", label);
+  }
+  // Until the shown branch (on the comparison page, the pair) is computed to its end, the
+  // simulation and comparison pages are dimmed and cannot be used (#482): no half-computed
+  // view, only the header's button that computes it, and how far it is.
+  function showUncomputed(mode) {
+    const page = ["simulation", "comparison"].includes(state.page) && state.page,
+      waiting = Boolean(page && state.run && state.data) && mode !== "play";
+    document.body.classList.toggle("is-uncomputed", waiting);
+    for (const id of ["simulation", "comparison"])
+      $(`page-${id}`).inert = waiting && id === page;
+    $("compute-first").hidden = !waiting;
+    $("compute-first").textContent =
+      mode === "cancel"
+        ? "計算しています。最後まで計算すると、ここに結果が出ます。"
+        : "右上の「計算する」で最後まで計算すると、ここに結果が出ます。";
   }
   function stopPlayback(preserve = false) {
     state.playing = false;
@@ -510,19 +527,16 @@
       case "detail":
         return open ? "" : closed;
       case "comparison":
-        // A branch is made on the comparison page (「この時刻から分岐を作る」), and a pair is
-        // computed there; with neither, nothing computed has nothing to compare.
+        // A branch is made on the comparison page (「この時刻から分岐を作る」) from a branch
+        // computed to its end, and a pair is computed there.
         if (!open) return closed;
-        return state.forkFrom ||
-          branches.length > 1 ||
-          branches.some((b) => b.computed_until > 0)
+        return state.forkFrom || branches.length > 1 || computedToEnd()
           ? ""
-          : "シナリオを計算すると使えます";
+          : "シナリオを最後まで計算すると使えます";
       case "report":
+        // The report is of a branch computed to its end (#482).
         if (!open) return closed;
-        return reference()?.computed_until > 0
-          ? ""
-          : "開いている分岐を計算すると使えます";
+        return computedToEnd() ? "" : "開いている分岐を最後まで計算すると使えます";
       default:
         return "";
     }
@@ -1144,6 +1158,7 @@
     const single = !has || state.busy || upper() <= lower(),
       mode = mainButtonMode();
     setPlayLabels();
+    showUncomputed(mode);
     $("play").disabled =
       mode === "cancel"
         ? false
@@ -1591,7 +1606,6 @@
   }
   async function refreshRun() {
     const scope = state.scope,
-      atHead = state.minute === upper(),
       previousHead = reference()?.checkpoint_hash,
       data = await api(runBase());
     if (scope !== state.scope) return;
@@ -1633,18 +1647,18 @@
     );
     if (!$("compare-branch").value && branches.length > 1)
       $("compare-branch").value = branches[1].branch_id;
-    state.minute =
-      atHead && data.status === "running"
-        ? upper()
-        : Math.max(lower(), Math.min(upper(), state.minute));
+    state.minute = Math.max(lower(), Math.min(upper(), state.minute));
     // A saved boundary is immutable. Poll status cheaply while its checkpoint
     // and displayed target stay unchanged; full reconstruction can be expensive.
+    // While the branch computes, the page is dimmed (#482) and its minute does not follow
+    // the computed head; the frame is read again once the computation ends.
     if (
       !state.frame ||
       state.frame.run_id !== state.run ||
       state.frame.branch_id !== state.branch ||
-      state.frame.minute !== state.minute ||
-      previousHead !== reference()?.checkpoint_hash
+      (data.status !== "running" &&
+        (state.frame.minute !== state.minute ||
+          previousHead !== reference()?.checkpoint_hash))
     ) await seek(state.minute);
     remember();
     controls();
@@ -2151,7 +2165,7 @@
     }
   }
   // Waits for the computation of `branch` to end, reading the Run as the screen does (refreshRun),
-  // so the clock follows the computed head while it is shown there.
+  // so the header's button shows how far it is.
   async function followComputing(branch) {
     const scope = state.scope;
     for (;;) {
@@ -2658,13 +2672,8 @@
     state.report = report;
     state.evidence = evidence;
     showMode(llm);
-    const draft = report.status === "not_generated";
-    $("report-draft-note").hidden = !draft;
-    $("report-status").classList.toggle("draft-badge", draft);
     $("report-status").textContent =
-      draft
-        ? "簡易版 · 計算途中のためAIレポート未生成"
-        : report.status === "rule_fallback"
+      report.status === "rule_fallback"
           ? "規則による代替レポート"
           : report.status === "unavailable"
             ? "レポート生成不可"
@@ -2733,11 +2742,9 @@
       $("report-summary").append(
         el(
           "p",
-          report.status === "not_generated"
-            ? "終了まで計算すると分岐のレポートを取得できます。途中の記録と指標は参照できます。"
-            : report.limitation ||
-                report.limits ||
-                "AIレポートは生成されていません。記録済みの数値を確認してください。",
+          report.limitation ||
+            report.limits ||
+            "AIレポートは生成されていません。記録済みの数値を確認してください。",
           "fine",
         ),
       );

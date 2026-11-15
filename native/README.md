@@ -42,10 +42,13 @@ each one carries `#[rustfmt::skip]`.
   the validation and the input contracts (`validate/`, `contracts/`), the minute-0 world of any
   Scenario (`initial/`, #429), the Run without Python (`plain.rs`, `PlainRun` and `PlainHost`), the
   LLM's port (`llm.rs`, `LlmLink::complete`, #428), the saved points and the stored Run's format
-  (`archive.rs`, `run_store/`), the answers of the API (`answers/`, #449) and the Scenario
+  (`archive.rs`, `run_store/`), the computing procedure of a stored Run as steps without I/O
+  (`compute.rs`, #476: going on from a branch's head in chunks, a fork, a question's turn, the
+  start, the recovery of an interrupted branch), the answers of the API (`answers/`, #449) and the Scenario
   authoring of the browser (`scenario/`).
 - **`store/` (`sheltersim_store`)**: the files of a stored Run on a disk (#426): the records, the
-  journal and the pieces, the locks, the capacity, the readers of another process.
+  journal and the pieces, the locks, the capacity, the readers of another process, and the steps of
+  the core's computing procedure done with them (`compute.rs`, #476).
 - **`wasm/` (`sheltersim_wasm`)**: the browser's boundary to the core (wasm-bindgen).
 - **`src/` (`sheltersim_native`)**: the thin PyO3 wrapper. Each entry reads its arguments, calls the
   core and converts the result:

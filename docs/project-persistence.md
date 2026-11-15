@@ -85,7 +85,8 @@ Pythonの欄のうち、ブラウザーで意味が変わるもの：
 ローカル版・VM版がブラウザーと同じ置き場に計算を書き、同じ置き場から読むための部品が、`native/store`（crate `sheltersim_store`）です。中核（`sheltersim_core`）はファイルを読み書きせず、WASMの build にも入らないので、ファイル・圧縮・lock・容量の処理はこのcrateに置きます。Pythonからは`sheltersim_native.rules.run_files`（`ProjectFiles`、`Lease`、`StoredRun`、`Computation`）で呼びます。Pythonのserverの計算と読み出しは、#427からこれを使います（上の「Projectの永続化」）。
 
 - **フォルダーと記録**：上の表と同じです（`records.rs`）。記録は鍵を並べたJSONと改行で、ブラウザー・Pythonと同じbytesです。ファイルは一時ファイルに書いて flush してから名前を替え、フォルダーも flush します（Pythonの`ProjectStore._write`と同じ）。誤りの文はPythonの`StorageError`と同じです。
-- **保存したRun**：部品をdeflate-raw（flate2）で圧縮して`data.pack`の末尾に書き、ディスクまで flush してから、目録の行を`journal.jsonl`に書いて flush します（`stored.rs`）。圧縮後のbytesはブラウザーと違うことがありますが、先頭のhashと圧縮前の中身は同じです。
+- **計算の段取り**：Branchの先頭まで戻して（切り落とし、戻し、判断の記録を集める）区切って進めること、保存する点・目標・終わりで記録の先頭を動かすこと、止めること、中断したBranchを`interrupted`にすること、分岐を作ること、質問の会話を残すこと、0分から最後まで計算することは、中核の`sheltersim_core::compute`（#476）がI/Oをしない「段取りの機械」（`Procedure`）として決めます。機械は「この記録を読む」「この部品を読む」「この部品を書く」「この行を足す」「この記録を書く」「計算する」といった指示（`Step`）を返し、ホストが行った結果を受け取って次へ進みます。`compute.rs`はその指示をファイル・flush・lock・容量で行うだけです。tickは`Computation::advance`だけで進み、その後の指示（`store`）だけを置き場のtransactionの中で行います（#465）。
+- **保存したRun**：部品をdeflate-raw（flate2）で圧縮して`data.pack`の末尾に書き、ディスクまで flush してから、目録の行を`journal.jsonl`に書いて flush します（`compute.rs`、`stored.rs`）。圧縮後のbytesはブラウザーと違うことがありますが、先頭のhashと圧縮前の中身は同じです。
 - **別のプロセスの読み手**：目録を1度読み、最後の欠けていない行までを読みます。書き手が追記している途中の行や、強制終了で欠けた行は読みません。読んだ行が指すbytesは、もうディスクにあります。続きの計算は、Branchの記録の先頭より後の行（欠けた行を含む）を切り落としてから始めます。
 - **lock**：Pythonの`claim_branch`・`claim_run`・`transaction`と同じファイル（`.lock`、Runと各Branchの`worker-lock`）に、同じ種類のlockをかけます（Linux・macOSは`flock`、Windowsは`msvcrt.locking`が取る先頭のbyteに重なる`LockFileEx`）。PythonとRustのどちらが持っていても、もう一方は断られます。同じBranchの計算は1つです。
 - **容量の上限**：`--project-storage-gb`の上限を、書く前に確かめます（`quota.rs`）。書き手は始めに置き場を測り、その後は自分の書いた量を足していきます。上限で止まった計算は、書き終えた行までが残り、記録は最後の先頭のままです。
@@ -94,7 +95,7 @@ Pythonの欄のうち、ブラウザーで意味が変わるもの：
 - **古い形のRun**：#427より前にPythonのserverが保存したRun（Runのフォルダーに`checkpoints/`があり、Branchに目録がないもの）は、ブラウザーの形v1〜v4と同じく`stored_run_outdated`の誤り（「古い保存の形（Python の Checkpoint）…計算し直してください」）にします。
 - **LLMの記録**：APIキーのあるサーバーの計算は、中核のLLMの口（`Computation.set_llm`、PythonのLLMRouterを`RouterLink`で、#428）を使い、問い合わせを保存したRunのLLMのテープ（`llm_tape`の部品）に残します。テープのあるRunを途中の分に戻すときは、戻した点より後の問い合わせにテープから答えます（Providerは呼びません）。
 - **1つのファイル**：Projectを1つのファイル（`.shelterproj`、ブラウザーの`exportProject`と同じ形の版2）に書きます（`bundle.rs`）。Pythonのserverだけが持つファイル（lock、下書き、LLMの利用の記録・テープ・設定）は入れません。それ以外の知らないファイルは、ブラウザーと同じく断ります。
-- **確かめ**：`cargo test -p sheltersim_store`は、`native/wasm/tests/node_stored_runs.mjs`の5つの保存したRunを、この置き場で作り直します。fixtureと同じ圧縮（deflateのstored block）では、目録・`data.pack`・記録（`stored_runs/records.json`）がブラウザーとbyteまで同じです。flate2では、各行の先頭のhashと圧縮前の部品が同じです。`tests/integration/test_run_files.py`は、PythonとRustのlockが互いに断ること、追記中に別のプロセスが読めること、Branchを持ったまま強制終了した書き手のlockが外れ、欠けた行が読まれず、続きの計算で最後まで同じ結果になることを確かめます。
+- **確かめ**：`cargo test -p sheltersim_core --test core compute::`は、メモリーのホストで段取りの機械を動かし、0分から計算したRunと区切って計算したRunがブラウザーの保存したRunとbyteまで同じになること、記録の先頭の動き、欠けた行の切り落とし、途中で止めたときの保存、分岐・質問・中断の手順、断る文を確かめます。`cargo test -p sheltersim_store`は、`native/wasm/tests/node_stored_runs.mjs`の5つの保存したRunを、この置き場で作り直します。fixtureと同じ圧縮（deflateのstored block）では、目録・`data.pack`・記録（`stored_runs/records.json`）がブラウザーとbyteまで同じです。flate2では、各行の先頭のhashと圧縮前の部品が同じです。`tests/integration/test_run_files.py`は、PythonとRustのlockが互いに断ること、追記中に別のプロセスが読めること、Branchを持ったまま強制終了した書き手のlockが外れ、欠けた行が読まれず、続きの計算で最後まで同じ結果になることを確かめます。
 
 ## ブラウザーの時系列・レポート・LLMの状態（#266）
 

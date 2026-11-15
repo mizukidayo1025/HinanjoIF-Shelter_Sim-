@@ -21,7 +21,7 @@ use sheltersim_core::archive::Restore;
 use sheltersim_core::llm::{Limits, Replay};
 use sheltersim_core::model_version::Versions;
 use sheltersim_core::plain::PlainRun;
-use sheltersim_core::run_store::{self, Chain, Journal, Next, RecordKind, RunWriter, Schedule, Storing, Verified, Verify};
+use sheltersim_core::run_store::{self, Chain, Journal, Next, RecordKind, RunWriter, Verified, Verify};
 
 use crate::compress::{deflate_raw, inflate_raw, Compress, COMPRESSION};
 use crate::files::{read_at, sync_dir, AppendFile};
@@ -47,7 +47,7 @@ pub struct Size {
 }
 
 impl Sizes {
-    fn add(&mut self, kind: &'static str, raw: u64, stored: u64) {
+    pub(crate) fn add(&mut self, kind: &'static str, raw: u64, stored: u64) {
         let at = match self.kinds.iter().position(|(each, _)| *each == kind) {
             Some(at) => at,
             None => {
@@ -214,37 +214,9 @@ pub struct FromStart<'a> {
 
 /// Runs `start` for its whole clock and stores it in `folder` as it goes, with its decision
 /// records and saved points, its "run" line recording `model_versions` (the browser's
-/// `runAndStore`).
+/// `runAndStore`; the core's procedure, `compute::run_and_store`).
 pub fn run_and_store(folder: &Path, start: &FromStart<'_>, model_versions: Versions, quota: Quota, compress: Compress) -> Result<Stored> {
-    let FromStart { export, world, ticks, save_every } = *start;
-    let mut writer = StoredRunWriter::create(folder, quota)?.with_compress(compress);
-    let mut run = match world {
-        Some(name) => PlainRun::of_worlds_json(export, name)?,
-        None => PlainRun::of_json(export)?,
-    };
-    run.collect_decisions(true);
-    let duration = run.duration()?;
-    let storing = Storing { model_versions, compression: COMPRESSION.to_owned(), save_every };
-    writer.core.start(&run, export.to_vec(), world.map(str::to_owned), &storing)?;
-    writer.flush(None)?;
-    let schedule = Schedule { every: save_every };
-    loop {
-        let step = schedule.step(run.minute()?, ticks.max(1), None);
-        let ran = run.advance(step).map_err(|stopped| Error::refused(stopped.to_string()))?;
-        writer.take(&mut run, false)?;
-        if ran < step {
-            break;
-        }
-        if schedule.due(run.minute()?, duration) {
-            writer.save(&mut run)?;
-        }
-    }
-    writer.take(&mut run, true)?;
-    if save_every > 0 {
-        writer.save(&mut run)?;
-    }
-    let head = writer.finish(&mut run)?;
-    Ok(Stored { head, minute: run.minute()?, sizes: writer.sizes })
+    crate::compute::run_and_store(folder.to_path_buf(), start, model_versions, quota, compress)
 }
 
 /// A stored Run opened to read: the branch's journal and chain (with a fork's parents'), and each

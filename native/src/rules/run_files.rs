@@ -347,7 +347,14 @@ impl ProjectFiles {
         approved_program_hash: &str,
         state_hash: Option<&str>,
     ) -> PyResult<(String, String, String)> {
-        let request = ForkRequest { parent, child, minute, program, approved_program_hash, state_hash };
+        let request = ForkRequest {
+            parent: parent.to_owned(),
+            child: child.to_owned(),
+            minute,
+            program: program.to_owned(),
+            approved_program_hash: approved_program_hash.to_owned(),
+            state_hash: state_hash.map(str::to_owned),
+        };
         let forked = self.inner.fork(lease_of(lease)?, project, run, &request).or_store()?;
         Ok((record_text(&forked.record), forked.receipt, forked.state_hash))
     }
@@ -367,11 +374,6 @@ impl ProjectFiles {
     /// journal (what `answers.conversations_answer` reads).
     fn conversation_pieces<'py>(&self, py: Python<'py>, project: &str, run: &str, branch: &str) -> PyResult<Vec<Bound<'py, PyBytes>>> {
         Ok(self.inner.conversation_pieces(project, run, branch).or_store()?.iter().map(|piece| PyBytes::new(py, piece)).collect())
-    }
-
-    /// The latest line of a branch's stored Run a branch forked from it reads up to, or None.
-    fn kept_through(&self, project: &str, run: &str, branch: &str) -> PyResult<Option<usize>> {
-        self.inner.kept_through(project, run, branch).or_store()
     }
 
     /// Sets a branch's status and keeps the Run's their summary (Python's `set_branch_status`):
@@ -575,7 +577,7 @@ impl Computation {
 impl Computation {
     /// The minute the Run got to.
     fn minute(&mut self) -> PyResult<i64> {
-        self.get()?.run.minute().or_py()
+        self.get()?.run().minute().or_py()
     }
 
     fn target(&mut self) -> PyResult<i64> {
@@ -600,7 +602,7 @@ impl Computation {
     fn set_llm(&mut self, py: Python<'_>, link: Py<PyAny>, limits: Option<&[u8]>) -> PyResult<()> {
         let limits = limits.map_or(Ok(Limits::default()), |raw| Limits::from_json(raw).or_py())?;
         let link = PyLink::new(py, link, &self.raised)?;
-        self.get()?.run.set_llm(Box::new(link), limits).or_py()
+        self.get()?.run_mut().set_llm(Box::new(link), limits).or_py()
     }
 
     /// One chunk of at most `ticks` ticks: the status once the computation ends ("completed",

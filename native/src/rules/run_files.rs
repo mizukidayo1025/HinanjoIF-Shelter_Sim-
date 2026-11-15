@@ -56,6 +56,9 @@ impl<T> OrStore<T> for sheltersim_store::Result<T> {
 /// Files of a listing: `[(name, bytes)]`.
 type Named<'py> = Vec<(String, Bound<'py, PyBytes>)>;
 
+/// A Project's records: its project.json (or None), its Scenarios' files and its Runs' records.
+type ProjectListing<'py> = (Option<Bound<'py, PyBytes>>, Vec<(String, Named<'py>)>, Vec<(String, Option<Bound<'py, PyBytes>>, Named<'py>)>);
+
 fn named(py: Python<'_>, files: Vec<(String, Vec<u8>)>) -> Named<'_> {
     files.into_iter().map(|(name, bytes)| (name, PyBytes::new(py, &bytes))).collect()
 }
@@ -221,6 +224,8 @@ impl ProjectFiles {
     /// Creates a Run of a saved Scenario revision, queued (`model_versions`: a JSON object of
     /// strings; `evidence`: the JSON bytes of `evidence_context`; `created_at`: the caller's
     /// clock, UTC to the second, `YYYY-MM-DDTHH:MM:SSZ`).
+    // Kept (#493): a method of the Python class, whose arguments are the Python call's (with their
+    // keyword defaults); the store's own call takes them as a struct.
     #[allow(clippy::too_many_arguments)]
     fn create_run(
         &self,
@@ -263,6 +268,8 @@ impl ProjectFiles {
     }
 
     /// Writes a branch's record (the browser's `writeBranch`).
+    // Kept (#493): a method of the Python class, whose arguments are the Python call's (with their
+    // keyword defaults); the store's own call takes them as a struct.
     #[allow(clippy::too_many_arguments)]
     #[pyo3(signature = (project, run, branch_id, parent_branch_id=None, fork_minute=0, computed_until=None, checkpoint_hash=None, status=None))]
     fn write_branch(
@@ -303,6 +310,8 @@ impl ProjectFiles {
 
     /// Starts a branch's stored Run at minute 0 of the exported world `export` (the world `world`
     /// of a file of named worlds): the branch's record at that head.
+    // Kept (#493): a method of the Python class, whose arguments are the Python call's (with their
+    // keyword defaults); the store's own call takes them as a struct.
     #[allow(clippy::too_many_arguments)]
     #[pyo3(signature = (lease, project, run, branch, export, world=None, save_every=360))]
     fn start_branch(&self, lease: &Lease, project: &str, run: &str, branch: &str, export: &[u8], world: Option<&str>, save_every: u64) -> PyResult<String> {
@@ -311,6 +320,8 @@ impl ProjectFiles {
     }
 
     /// Computes a branch from minute 0 of `export` in one go and stores it: its record.
+    // Kept (#493): a method of the Python class, whose arguments are the Python call's (with their
+    // keyword defaults); the store's own call takes them as a struct.
     #[allow(clippy::too_many_arguments)]
     #[pyo3(signature = (lease, project, run, branch, export, world=None, ticks=1440, save_every=360))]
     fn compute_branch(
@@ -335,6 +346,8 @@ impl ProjectFiles {
 
     /// Makes the branch `child` of `parent` at `minute` with the EffectProgram `program` (its JSON
     /// text): `(the child's record, the receipt's JSON text, the child's state hash)`.
+    // Kept (#493): a method of the Python class, whose arguments are the Python call's (with their
+    // keyword defaults); the store's own call takes them as a struct.
     #[allow(clippy::too_many_arguments)]
     #[pyo3(signature = (lease, project, run, parent, child, minute, program, approved_program_hash, state_hash=None))]
     fn fork(
@@ -405,13 +418,7 @@ impl ProjectFiles {
 
     /// A Project's records: `(project.json or None, [(scenario id, [(file, bytes)])] where
     /// `scenarios`, [(run folder, run.json or None, [(branch folder, branch.json)])])`.
-    #[allow(clippy::type_complexity)]
-    fn project_listing<'py>(
-        &self,
-        py: Python<'py>,
-        project: &str,
-        scenarios: bool,
-    ) -> PyResult<(Option<Bound<'py, PyBytes>>, Vec<(String, Named<'py>)>, Vec<(String, Option<Bound<'py, PyBytes>>, Named<'py>)>)> {
+    fn project_listing<'py>(&self, py: Python<'py>, project: &str, scenarios: bool) -> PyResult<ProjectListing<'py>> {
         let (record, listed_scenarios, runs) = self.inner.project_listing(project, scenarios).or_store()?;
         Ok((
             record.map(|bytes| PyBytes::new(py, &bytes)),

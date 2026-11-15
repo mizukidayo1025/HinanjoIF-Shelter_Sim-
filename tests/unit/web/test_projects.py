@@ -1,15 +1,19 @@
 """The Project API's checks before a computation starts, a computation that fails on a corrupt
-stored Run, and the end of a job a client may see (format v5, #427)."""
+stored Run, the end of a job a client may see (format v5, #427), and a new Run's creation time
+(#447)."""
 
 from __future__ import annotations
 
 import json
+import re
+from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
 
 from sheltersim.storage.projects import StorageError
 from sheltersim.web.projects import ProjectAPI
+from sheltersim.web.stored_runs import created_at_of
 
 
 def _record(api: ProjectAPI) -> dict:
@@ -30,6 +34,31 @@ def test_resume_is_refused_outside_the_uncomputed_range(tmp_path, monkeypatch, s
         assert api.get(["p", "runs", "r"])["status"] == status
     finally:
         api.close()
+
+
+def test_a_new_run_keeps_its_creation_time_from_the_api_s_clock(
+    tmp_path, monkeypatch, saved_project
+):
+    """`POST runs` records when the Run was made (#447), UTC to the second, from the clock the API
+    is given; the Run made without one has the time it was made."""
+    monkeypatch.setenv("SHELTERSIM_LLM_MODE", "offline")
+    tokyo = timezone(timedelta(hours=9))
+    api = ProjectAPI(
+        saved_project(tmp_path), clock=lambda: datetime(2026, 11, 15, 10, 30, 59, 999, tokyo)
+    )
+    try:
+        first = api.get(["p", "runs", "r"])
+        assert re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ", first["created_at"])
+        api.post(
+            ["p", "runs"],
+            {"run_id": "r2", "scenario_id": first["scenario_id"], "scenario_version": 1},
+        )
+        second = api.get(["p", "runs", "r2"])
+        assert (second["schema_version"], second["created_at"]) == (2, "2026-11-15T01:30:59Z")
+    finally:
+        api.close()
+    assert created_at_of(datetime(2026, 1, 2, 3, 4, 5)) == "2026-01-02T03:04:05Z"
+    assert created_at_of(datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC)) == "2026-01-02T03:04:05Z"
 
 
 def test_a_corrupt_stored_run_fails_the_computation_at_its_head(

@@ -107,7 +107,7 @@ if (bundlePath === null) {
   await store.saveScenario(tree, PROJECT, { scenarioBytes, scenarioHash: await store.sha256Hex(scenarioBytes) });
   // The core cannot sign this Scenario: only the engine's items are compared (compute.mjs).
   const modelVersions = { ...JSON.parse(wasm.engineSignatures()), m: "1" };
-  await store.createRun(tree, PROJECT, { runId: SAMPLE, scenarioId: "trial", scenarioVersion: 1, seed: 7, modelVersions, evidenceBytes: encoder.encode('{"schema_version":1,"weight":0.50}') });
+  await store.createRun(tree, PROJECT, { runId: SAMPLE, scenarioId: "trial", scenarioVersion: 1, seed: 7, modelVersions, evidenceBytes: encoder.encode('{"schema_version":1,"weight":0.50}'), createdAt: "2026-11-15T01:30:00Z" });
   await store.computeBranch({ wasm, tree, projectId: PROJECT, runId: SAMPLE, branchId: "main", run: { exportBytes: raw, world: "small_replay", ticks: 120 } });
   await store.setRunStatus(tree, PROJECT, SAMPLE, "completed");
 } else {
@@ -349,7 +349,7 @@ let stoppedAt;
   const raw = bundlePath === null ? readFileSync(join(here, "..", "..", "core", "tests", "data", "tick_core.json")) : null;
   if (raw !== null) {
     const old = "r-old-model";
-    await store.createRun(tree, PROJECT, { runId: old, scenarioId: "trial", scenarioVersion: 1, seed: 7, modelVersions: { m: "1" }, evidenceBytes: encoder.encode('{"schema_version":1}') });
+    await store.createRun(tree, PROJECT, { runId: old, scenarioId: "trial", scenarioVersion: 1, seed: 7, modelVersions: { m: "1" }, evidenceBytes: encoder.encode('{"schema_version":1}'), createdAt: "2026-11-15T01:30:00Z" });
     await store.computeBranch({ wasm, tree, projectId: PROJECT, runId: old, branchId: "main", run: { exportBytes: raw, world: "small_replay", ticks: 720, saveEvery: 720 } });
     const branch = await store.writeBranch(tree, PROJECT, old, { ...(await store.branchRecord(tree, PROJECT, old, "main")), status: "paused" });
     const at = `/api/v1/projects/${PROJECT}/runs/${old}`;

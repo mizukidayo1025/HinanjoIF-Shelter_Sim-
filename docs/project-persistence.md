@@ -40,7 +40,7 @@ approved hashは確認した正準ScenarioSpecそのものに結び付きます�
 | `project.json` | `schema_version`、`project_id`、`archived`（アーカイブは#376でなくしたので、いつも`false`） |
 | `scenarios/<scenario>/v<n>.json` | Scenarioの記録（`schema_version`、`scenario_id`、`scenario_version`、`scenario_hash`、`approved`）。Scenario自体は持たない |
 | `scenarios/<scenario>/v<n>.scenario.json` | Pythonが書いたScenarioの正準JSONのbytes。sha256が`scenario_hash` |
-| `runs/<run>/run.json` | Runの記録（Pythonの`RunReference`の欄と`status`、`archived`） |
+| `runs/<run>/run.json` | Runの記録（Pythonの`RunReference`の欄と`status`、`archived`、`created_at`）。`schema_version`は2で、`created_at`はRunを作った時刻（UTC、秒まで、`YYYY-MM-DDTHH:MM:SSZ`、#447）。時刻は作る側が渡します（ブラウザーは`ScenarioRoutes`の`now`、ローカル版・VM版は`ProjectAPI`の`clock`）。#447より前の記録は`schema_version`1で`created_at`を持たず、そのまま読みます |
 | `runs/<run>/evidence.json` | Pythonのserverが`runs/{run}/evidence`に返すJSONのbytes（`evidence_context`と、その道が足す一覧） |
 | `runs/<run>/branches/<branch>/branch.json` | Branchの記録（Pythonの`BranchReference`の欄と`status`） |
 | `runs/<run>/branches/<branch>/journal.jsonl`、`data.pack` | Branchの保存したRun（#252。形は中核の`sheltersim_core::run_store`、読み書きは`run_store.mjs`） |

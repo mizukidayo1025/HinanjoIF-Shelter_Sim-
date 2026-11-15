@@ -44,9 +44,18 @@ async function makeProject(tree) {
   await assert.rejects(store.saveScenario(tree, "p1", { scenarioBytes, scenarioHash: "0".repeat(64) }), /hash does not match/);
   const scenario = await store.saveScenario(tree, "p1", { scenarioBytes, scenarioHash });
   assert.deepEqual(scenario, { schema_version: 1, scenario_id: "trial", scenario_version: 1, scenario_hash: scenarioHash, approved: true });
-  const run = await store.createRun(tree, "p1", { runId: "r1", scenarioId: "trial", scenarioVersion: 1, seed: 7, modelVersions: { "engine:core": "3" }, evidenceBytes });
+  const run = await store.createRun(tree, "p1", { runId: "r1", scenarioId: "trial", scenarioVersion: 1, seed: 7, modelVersions: { "engine:core": "3" }, evidenceBytes, createdAt: "2026-11-15T01:30:00Z" });
   assert.equal(run.status, "queued");
   assert.equal(run.scenario_hash, scenarioHash);
+  // Schema version 2 keeps the creation time the caller gives (#447); a bad one is refused.
+  assert.deepEqual([run.schema_version, run.created_at], [2, "2026-11-15T01:30:00Z"]);
+  assert.equal(store.createdAtOf(new Date(Date.UTC(2026, 10, 15, 1, 30, 0, 999))), "2026-11-15T01:30:00Z");
+  for (const createdAt of [undefined, "2026-11-15T01:30:00", "2026-11-15T01:30:00.000Z"]) {
+    await assert.rejects(
+      store.createRun(tree, "p1", { runId: "r-bad", scenarioId: "trial", scenarioVersion: 1, seed: 7, modelVersions: {}, evidenceBytes, createdAt }),
+      /invalid creation time/,
+    );
+  }
   const ticks = (name) => fixture.worlds[name].expected.ticks;
   const main = await store.computeBranch({ wasm, tree, projectId: "p1", runId: "r1", branchId: "main", run: { exportBytes: raw, world: mainWorld, ticks: 60 } });
   // The second branch stands for a fork (#251, #250): its own stored Run, with a parent.
@@ -76,7 +85,7 @@ const before = await responses(tree);
 
 // The answers have the Python server's shapes.
 const run = JSON.parse(before.run);
-assert.deepEqual(Object.keys(run).sort(), ["archived", "branches", "model_versions", "project_id", "run_id", "scenario_hash", "scenario_id", "scenario_version", "schema_version", "seed", "status"]);
+assert.deepEqual(Object.keys(run).sort(), ["archived", "branches", "created_at", "model_versions", "project_id", "run_id", "scenario_hash", "scenario_id", "scenario_version", "schema_version", "seed", "status"]);
 assert.deepEqual(run.branches.map((branch) => [branch.branch_id, branch.parent_branch_id, branch.status]), [["child", "main", "completed"], ["main", null, "completed"]]);
 assert.deepEqual(Object.keys(run.branches[0]).sort(), ["branch_id", "checkpoint_hash", "computed_until", "fork_minute", "parent_branch_id", "run_id", "schema_version", "status"]);
 const project = JSON.parse(before.project);
@@ -109,6 +118,25 @@ for (const branch of imported.branches) {
 await assert.rejects(store.importProject({ wasm, tree: empty, bundle: bytes }), (error) => error.code === "project_exists");
 await store.importProject({ wasm, tree: empty, bundle: bytes, replace: true });
 assert.deepEqual(await responses(empty), before);
+
+// A Run's record of schema version 1 (before #447, no creation time) is read as it is; version 2
+// without its creation time, or another version, is refused.
+{
+  const path = ["p1", "runs", "r1", "run.json"];
+  const written = JSON.parse(new TextDecoder().decode(await empty.read(path)));
+  const put = (record) => empty.write(path, new TextEncoder().encode(`${JSON.stringify(record)}\n`));
+  const { created_at: _, ...old } = { ...written, schema_version: 1 };
+  await put(old);
+  assert.equal(JSON.parse(await store.runResponse(wasm, empty, "p1", "r1")).created_at, undefined);
+  assert.equal((await store.setRunStatus(empty, "p1", "r1", "paused")).schema_version, 1);
+  await put({ ...old, schema_version: 2 });
+  await assert.rejects(store.runResponse(wasm, empty, "p1", "r1"), /missing or corrupt/);
+  await assert.rejects(store.setRunStatus(empty, "p1", "r1", "paused"), /missing or corrupt/);
+  await put({ ...written, schema_version: 3 });
+  await assert.rejects(store.runResponse(wasm, empty, "p1", "r1"), /unsupported saved artifact version/);
+  await put(written);
+  assert.deepEqual(await responses(empty), before);
+}
 
 // Bundles that are not right are refused, and leave nothing.
 async function refused(bad, pattern, code) {

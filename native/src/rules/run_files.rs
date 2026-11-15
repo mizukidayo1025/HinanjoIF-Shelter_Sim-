@@ -219,7 +219,8 @@ impl ProjectFiles {
     }
 
     /// Creates a Run of a saved Scenario revision, queued (`model_versions`: a JSON object of
-    /// strings; `evidence`: the JSON bytes of `evidence_context`).
+    /// strings; `evidence`: the JSON bytes of `evidence_context`; `created_at`: the caller's
+    /// clock, UTC to the second, `YYYY-MM-DDTHH:MM:SSZ`).
     #[allow(clippy::too_many_arguments)]
     fn create_run(
         &self,
@@ -230,9 +231,10 @@ impl ProjectFiles {
         seed: i64,
         model_versions: &str,
         evidence: &[u8],
+        created_at: &str,
     ) -> PyResult<String> {
         let model_versions = json_of(model_versions)?;
-        let run = NewRun { run_id, scenario_id, scenario_version, seed, model_versions: &model_versions, evidence };
+        let run = NewRun { run_id, scenario_id, scenario_version, seed, model_versions: &model_versions, evidence, created_at };
         Ok(record_text(&self.inner.create_run(project, &run).or_store()?))
     }
 

@@ -593,27 +593,30 @@
       total: scenario?.duration_minutes,
     };
   }
-  // The screen calls every Run a シナリオ (#373). Runs of the same conditions (a rerun, another
-  // seed) are told apart by their seed, and then by the end of their id.
-  function runNames(runs, scenarios) {
+  // The screen calls every Run a シナリオ (#373), named by its conditions. One's own Runs of the
+  // same conditions are told apart by when they were made (#447): 「11/15 10:30 作成」 in local
+  // time, from the record's `created_at` (a Run made before #447 has none). An example's Runs are
+  // named by their conditions alone: its rows carry the 「例」 mark instead.
+  function runNames(runs, scenarios, { example = false } = {}) {
     const titled = runs.map((r) => {
       const { name, size } = runTitle(r, scenarios);
       return { run: r, name: [name, size].filter(Boolean).join(" · ") };
     });
-    const many = (key, value) =>
-      titled.filter((t) => key(t) === value).length > 1;
-    const byName = (t) => t.name,
-      bySeed = (t) => `${t.name}/${t.run.seed}`;
+    const count = new Map();
+    for (const t of titled) count.set(t.name, (count.get(t.name) || 0) + 1);
     return new Map(
       titled.map((t) => {
-        let label = t.name;
-        if (many(byName, byName(t))) {
-          label += ` · seed ${t.run.seed ?? "—"}`;
-          if (many(bySeed, bySeed(t))) label += ` · ${t.run.run_id.slice(-4)}`;
-        }
-        return [t.run.run_id, label];
+        const made = example || count.get(t.name) < 2 ? null : createdLabel(t.run.created_at);
+        return [t.run.run_id, made ? `${t.name} · ${made}` : t.name];
       }),
     );
+  }
+  // When a Run was made, in local time: 「11/15 10:30 作成」; null without a creation time.
+  function createdLabel(createdAt) {
+    const date = createdAt ? new Date(createdAt) : null;
+    if (!date || Number.isNaN(date.getTime())) return null;
+    const two = (n) => String(n).padStart(2, "0");
+    return `${date.getMonth() + 1}/${date.getDate()} ${two(date.getHours())}:${two(date.getMinutes())} 作成`;
   }
   // How far a Run is computed, in words.
   function runProgress(run, total) {
@@ -688,7 +691,7 @@
   // be deleted. The server's example cannot be fetched again, so it has none there (#440).
   function homeRows(projectId, project, { example, deletable }) {
     const runs = project?.runs || [],
-      names = runNames(runs, project?.scenarios || []);
+      names = runNames(runs, project?.scenarios || [], { example });
     return runs.map((run) => {
       const name = names.get(run.run_id),
         row = el("div", undefined, "home-item"),
@@ -1279,7 +1282,7 @@
       await api("/api/v1/projects", { project_id: id });
   }
   // The open Run's name in the header, the one place it is shown (#442): as the home names it,
-  // told apart from Runs of the same conditions. Nothing is shown while no Run is open.
+  // one's own told apart from Runs of the same conditions. Nothing is shown while no Run is open.
   function showOpenName(name) {
     $("scenario-name").textContent = name;
     $("scenario-name").title = name;
@@ -1287,7 +1290,9 @@
   }
   async function refreshRuns() {
     const project = await api(base());
-    const names = runNames(project.runs, project.scenarios);
+    const names = runNames(project.runs, project.scenarios, {
+      example: !(ownId && state.project === ownId),
+    });
     showOpenName((state.run && names.get(state.run)) || "");
   }
   function scenarioRequest() {

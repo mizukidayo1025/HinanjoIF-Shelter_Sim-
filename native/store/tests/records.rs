@@ -4,7 +4,7 @@
 use std::fs;
 
 use serde_json::json;
-use sheltersim_store::records::{parse_record, Branch, NewRun, ProjectFiles, MISSING, UNSUPPORTED};
+use sheltersim_store::records::{parse_record, parse_run_record, Branch, NewRun, ProjectFiles, MISSING, UNSUPPORTED};
 
 use crate::support::{engine, TempDir};
 
@@ -32,9 +32,22 @@ fn the_records_are_sorted_json_with_a_newline_and_read_back() {
         [(1, scenario.to_vec()), (2, scenario.to_vec())]
     );
     let engine = engine();
-    let new = NewRun { run_id: "r", scenario_id: "s", scenario_version: 1, seed: 1, model_versions: &engine, evidence: br#"{"schema_version":1}"# };
+    let new = NewRun {
+        run_id: "r",
+        scenario_id: "s",
+        scenario_version: 1,
+        seed: 1,
+        model_versions: &engine,
+        evidence: br#"{"schema_version":1}"#,
+        created_at: "2026-11-15T01:30:00Z",
+    };
     let run = files.create_run("p", &new).unwrap();
     assert_eq!(run["status"], "queued");
+    // Schema version 2 keeps the creation time the caller gives (#447).
+    assert_eq!((run["schema_version"].as_i64(), run["created_at"].as_str()), (Some(2), Some("2026-11-15T01:30:00Z")));
+    for created_at in ["2026-11-15T01:30:00", "2026-11-15 01:30:00Z", "2026-11-15T01:30:00.000Z", ""] {
+        assert_eq!(text(files.create_run("p", &NewRun { run_id: "r2", created_at, ..new.clone() })), "invalid creation time");
+    }
     assert_eq!(files.create_run("p", &new).unwrap(), run);
     assert_eq!(text(files.create_run("p", &NewRun { scenario_version: 2, ..new.clone() })), "run_id_conflict");
     assert_eq!(text(files.create_run("p", &NewRun { run_id: "r2", seed: -1, ..new.clone() })), "invalid seed");
@@ -82,6 +95,13 @@ fn ids_records_and_paths_are_refused_as_python_refuses_them() {
     assert_eq!(text(parse_record(b"{")), MISSING);
     assert_eq!(text(parse_record(b"{\"schema_version\":2}")), UNSUPPORTED);
     assert_eq!(text(parse_record(b"[1]")), UNSUPPORTED);
+    // A Run's record: version 1 (before #447, no creation time) is read as it is; version 2 must
+    // have its creation time; another version is refused.
+    assert!(parse_run_record(b"{\"schema_version\":1}").is_ok());
+    assert!(parse_run_record(b"{\"created_at\":\"2026-11-15T01:30:00Z\",\"schema_version\":2}").is_ok());
+    assert_eq!(text(parse_run_record(b"{\"schema_version\":2}")), MISSING);
+    assert_eq!(text(parse_run_record(b"{\"created_at\":\"11/15\",\"schema_version\":2}")), MISSING);
+    assert_eq!(text(parse_run_record(b"{\"schema_version\":3}")), UNSUPPORTED);
     assert_eq!(text(files.run_record("p", "r")), MISSING);
     assert_eq!(text(ProjectFiles::new(dir.path(), Some(0))), "max_bytes must be positive");
     #[cfg(unix)]

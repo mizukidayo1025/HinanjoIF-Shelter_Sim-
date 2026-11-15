@@ -55,6 +55,7 @@ export async function makeComputeRun({ wasm, tree, projectId, runId = COMPUTE_RU
     seed: source.seed,
     modelVersions: source.model_versions,
     evidenceBytes: evidence,
+    createdAt: source.created_at,
   });
   await store.writeBranch(tree, projectId, runId, { branch_id: "main", parent_branch_id: null, fork_minute: 0, computed_until: 0, checkpoint_hash: head, status: "queued" });
   return { runId, source: source.run_id };

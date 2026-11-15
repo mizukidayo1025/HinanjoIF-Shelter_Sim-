@@ -81,7 +81,15 @@ fn a_run_the_python_server_stored_before_427_is_refused_as_an_older_format() {
     let scenario = br#"{"duration_minutes":60,"id":"s","seed":1}"#;
     files.save_scenario("p", scenario, &sha256_hex(scenario)).unwrap();
     let engine = engine();
-    let run = NewRun { run_id: "r", scenario_id: "s", scenario_version: 1, seed: 1, model_versions: &engine, evidence: br#"{"schema_version":1}"# };
+    let run = NewRun {
+        run_id: "r",
+        scenario_id: "s",
+        scenario_version: 1,
+        seed: 1,
+        model_versions: &engine,
+        evidence: br#"{"schema_version":1}"#,
+        created_at: "2026-11-15T01:30:00Z",
+    };
     files.create_run("p", &run).unwrap();
     // The Python server's Run: its Checkpoints beside the records, a branch's pointer, no journal.
     fs::create_dir_all(dir.path().join("p/runs/r/checkpoints")).unwrap();

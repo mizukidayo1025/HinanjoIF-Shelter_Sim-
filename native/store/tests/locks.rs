@@ -14,7 +14,18 @@ fn store(dir: &TempDir) -> ProjectFiles {
     files.save_scenario("p", scenario, &sheltersim_core::checkpoint::sha256_hex(scenario)).unwrap();
     let engine = engine();
     files
-        .create_run("p", &NewRun { run_id: "r", scenario_id: "s", scenario_version: 1, seed: 1, model_versions: &engine, evidence: br#"{"schema_version":1}"# })
+        .create_run(
+            "p",
+            &NewRun {
+                run_id: "r",
+                scenario_id: "s",
+                scenario_version: 1,
+                seed: 1,
+                model_versions: &engine,
+                evidence: br#"{"schema_version":1}"#,
+                created_at: "2026-11-15T01:30:00Z",
+            },
+        )
         .unwrap();
     files
 }

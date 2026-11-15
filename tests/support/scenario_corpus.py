@@ -201,7 +201,7 @@ def recorded_world(directory: Path) -> Iterator[RecordedPublicData]:
 
 
 def form(**fields: Any) -> dict[str, Any]:
-    """The structured form as `scenarioRequest()` of demo-v2.js sends it: the given fields, each
+    """The structured form as `scenarioRequest()` of demo-v2-scenario.js sends it: the given fields, each
     marked as user input, in the screen's order; `facility_type` and `food`/`water_l` as the
     screen turns them into `facility_conditions` and `operational_conditions`."""
     request: dict[str, Any] = {}

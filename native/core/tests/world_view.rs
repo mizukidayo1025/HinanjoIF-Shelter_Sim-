@@ -10,7 +10,7 @@ use std::sync::Arc;
 use indexmap::IndexMap;
 use serde_json::{json, Value};
 use sheltersim_core::config::{Fault, Selection};
-use sheltersim_core::entities::{Activity, AgentRow, AnyTable, FacilityRow, Mobility, NeedRow, ProfileRow, RequestRow, RequestStatus, Table, TaskRow, ZoneRow};
+use sheltersim_core::entities::{Activity, AgentRow, FacilityRow, Mobility, NeedRow, ProfileRow, RequestRow, RequestStatus, Table, TaskRow, ZoneRow};
 use sheltersim_core::error::Error;
 use sheltersim_core::row::{IdMap, ValueRow};
 use sheltersim_core::rules::person_context::{self, PersonFields};
@@ -44,9 +44,7 @@ fn v(value: Value) -> V {
 }
 
 fn put<R: Clone>(table: &mut Table<R>, id: &str, row: R) {
-    let slot = table.reserve_slot();
-    table.fill_slot(slot, row);
-    assert_eq!(table.bind(text(id), slot), None);
+    table.insert(text(id), row);
 }
 
 fn needs(toilet_urgency: f64, hunger: f64, fatigue: f64, hydration_need: f64) -> NeedRow {

@@ -284,10 +284,7 @@ fn agent(id: &str) -> AgentRow {
 }
 
 fn put<R: Clone>(table: &mut Table<R>, id: &str, row: R) -> u32 {
-    let slot = table.reserve_slot();
-    table.fill_slot(slot, row);
-    assert_eq!(table.bind(text(id), slot), None);
-    slot
+    table.insert(text(id), row)
 }
 
 fn row_json(row: &AgentRow) -> Vec<u8> {
@@ -297,11 +294,12 @@ fn row_json(row: &AgentRow) -> Vec<u8> {
 }
 
 #[test]
-fn a_table_orders_its_keys_by_the_entity_id_and_touches_nothing() {
+fn a_table_orders_its_keys_by_the_entity_id_and_marks_nothing() {
     let mut table: Table<AgentRow> = Table::default();
     let ids = ["a10", "a2", "A1", "a1"];
     let slots: Vec<u32> = ids.iter().map(|id| put(&mut table, id, agent(id))).collect();
     let bytes: Vec<Vec<u8>> = ids.iter().map(|id| row_json(table.get(id).unwrap())).collect();
+    table.take_marked();
     table.canonicalize();
     assert_eq!(table.key_order().iter().map(|key| &**key).collect::<Vec<_>>(), ["A1", "a1", "a10", "a2"]);
     // Each key keeps its slot and its row, whose maps are sorted, with the same bytes.
@@ -310,12 +308,8 @@ fn a_table_orders_its_keys_by_the_entity_id_and_touches_nothing() {
         let row = table.get(id).unwrap();
         assert_eq!(value_keys(&row.profile.provenance), SORTED);
         assert_eq!(&row_json(row), bytes);
-        // The view keeps what the object holds, which compares equal in any order.
-        let view = table.view_at(*slot).unwrap();
-        assert_eq!(value_keys(&view.profile.provenance), SHUFFLED);
-        assert!(view.profile.provenance.same(&row.profile.provenance));
     }
-    assert!(!table.has_changes());
+    assert!(table.marked().is_empty());
     // The same ID twice (keys that are not their IDs) keeps the dict's order between them.
     let mut doubled: Table<AgentRow> = Table::default();
     put(&mut doubled, "k2", agent("b"));
@@ -546,9 +540,6 @@ fn a_snapshot_keeps_the_world_and_restore_gives_it_back() {
     let restored = slot_state(&mut world);
     assert_eq!(restored[..2], slots[..]);
     assert_eq!(restored[2].1, None);
-    // The rows' document bytes are to be written again.
-    let rows = world.entities.get_mut();
-    assert!(rows.agents.slots().all(|(_, slot)| rows.agents.changed(slot)));
 }
 
 #[test]
@@ -838,9 +829,10 @@ fn entities_copy_and_sort_as_a_whole() {
     let mut rows = Entities::default();
     put(&mut rows.agents, "b", agent("b"));
     put(&mut rows.agents, "a", agent("a"));
+    rows.agents.take_marked();
     let copy = rows.clone();
     rows.canonicalize();
     assert_eq!(rows.agents.key_order().iter().map(|key| &**key).collect::<Vec<_>>(), ["a", "b"]);
     assert_eq!(copy.agents.key_order().iter().map(|key| &**key).collect::<Vec<_>>(), ["b", "a"]);
-    assert!(!rows.has_changes());
+    assert!(rows.agents.marked().is_empty());
 }

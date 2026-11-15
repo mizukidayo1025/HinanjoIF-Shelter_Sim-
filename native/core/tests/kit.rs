@@ -5,7 +5,7 @@ use std::cell::RefCell;
 use std::sync::Arc;
 
 use indexmap::IndexMap;
-use sheltersim_core::entities::{Activity, AgentRow, AnyTable, Entities, Mobility, NeedRow, ProfileRow, Table};
+use sheltersim_core::entities::{Activity, AgentRow, Entities, Mobility, NeedRow, ProfileRow, Table};
 use sheltersim_core::error::Error;
 use sheltersim_core::events::log::EventLog;
 use sheltersim_core::events::queue::Queue;
@@ -71,9 +71,7 @@ fn agent(id: &str, group: Option<&str>, mobility: Mobility) -> AgentRow {
 }
 
 fn put<R: Clone>(table: &mut Table<R>, id: &str, row: R) {
-    let slot = table.reserve_slot();
-    table.fill_slot(slot, row);
-    assert_eq!(table.bind(text(id), slot), None);
+    table.insert(text(id), row);
 }
 
 fn people() -> Entities {
@@ -291,23 +289,24 @@ fn a_metric_counts_one_more_on_the_row_and_the_tree() {
     assert_eq!(kit::add_metric(&world, "x"), Err(unsupported("the namespace is not owned")));
     let index = world.slots.add(text(METRIC_STATE), Place::Field).unwrap();
     world.slots.at(index).unwrap().try_borrow_mut().unwrap().row = Some(Box::new(MetricRow::default()));
+    crate::support::written(&world);
     kit::add_metric(&world, "x").unwrap();
     kit::add_metric(&world, "x").unwrap();
     assert_eq!(kit::metrics_of(&world).unwrap().get("x"), Some(&2.0));
-    // The row alone was written: its slot is marked, for the tree to follow (lane P8-0c).
-    assert_eq!(world.slots.take_written(), [index]);
+    // The row alone was written.
+    assert_eq!(crate::support::written(&world), [METRIC_STATE]);
 }
 
 #[test]
 fn an_event_sequence_marks_the_counters_slot_and_a_read_does_not() {
-    let mut world = event_world(Some(V::Int(4)));
+    let world = event_world(Some(V::Int(4)));
+    crate::support::written(&world);
     let events = Events::of(&world).unwrap();
     assert_eq!(events.next_sequence(), Ok(4));
     assert!(events.is_taken("e-x", None).is_ok());
-    assert!(world.slots.written_names().is_empty());
+    assert!(crate::support::written(&world).is_empty());
     assert_eq!(events.allocate_sequence(), Ok(4));
-    assert_eq!(world.slots.written_names().iter().map(|name| &**name).collect::<Vec<_>>(), [ID_COUNTERS]);
-    assert_eq!(world.slots.take_written(), [0]);
+    assert_eq!(crate::support::written(&world), [ID_COUNTERS]);
 }
 
 // ---- People --------------------------------------------------------------------------------------

@@ -7,7 +7,7 @@ use indexmap::IndexMap;
 use sheltersim_core::config::geometry::FacilityPlan;
 use sheltersim_core::config::movement::MovementModel;
 use sheltersim_core::config::queues::QueuePolicy;
-use sheltersim_core::entities::{Activity, AgentRow, AnyTable, Entities, FacilityRow, Mobility, NeedRow, ProfileRow, Table, TaskRow};
+use sheltersim_core::entities::{Activity, AgentRow, Entities, FacilityRow, Mobility, NeedRow, ProfileRow, Table, TaskRow};
 use sheltersim_core::error::Error;
 use sheltersim_core::events::log::EventLog;
 use sheltersim_core::events::queue::Queue;
@@ -76,9 +76,7 @@ fn task(id: &str, agent_id: &str, start: i64) -> TaskRow {
 }
 
 fn put<R: Clone>(table: &mut Table<R>, id: &str, row: R) {
-    let slot = table.reserve_slot();
-    table.fill_slot(slot, row);
-    assert_eq!(table.bind(text(id), slot), None);
+    table.insert(text(id), row);
 }
 
 /// Three people queued at a toilet, in this order, with the needs given.
@@ -184,10 +182,9 @@ fn counter(world: &World) -> i64 {
     world.id_counter("event").unwrap().unwrap()
 }
 
-fn written(world: &mut World) -> Vec<Arc<str>> {
-    let mut names = world.slots.written_names();
+fn written(world: &mut World) -> Vec<String> {
+    let mut names = crate::support::written(world);
     names.sort();
-    world.slots.take_written();
     names
 }
 
@@ -212,7 +209,7 @@ fn the_fifo_is_written_on_the_row_and_marks_its_slot() {
         .unwrap();
     fifo::write_enqueue(&world, &left, fifo::NewRequest { request_id: "t2", task_id: "t2", agent_id: "a2", service_kind: "toilet", requested_minute: 2 })
         .unwrap();
-    assert_eq!(written(&mut world), [text(fifo::STATE_KEY)]);
+    assert_eq!(written(&mut world), [fifo::STATE_KEY]);
     {
         let row = fifo::queues(&world, &Held::Held).unwrap().unwrap();
         assert_eq!(fifo::members_of(&row, "q-left").unwrap(), [text("a1"), text("a2")]);
@@ -556,7 +553,7 @@ fn someone_past_their_limit_gives_up_with_their_events_and_counts() {
     assert_eq!(counter(&world), 11);
     assert!(world.log().unwrap().has_event_id("facility-queue-abandon-10"));
     assert_eq!(world.metric_state().unwrap().get("facility_queue_abandon_count"), Some(&1.0));
-    assert_eq!(written(&mut world), [text(ID_COUNTERS), text(METRIC_STATE)]);
+    assert_eq!(written(&mut world), [ID_COUNTERS, METRIC_STATE]);
 }
 
 #[test]
@@ -606,7 +603,7 @@ fn the_head_walks_to_the_service_point_with_its_event_and_journey() {
     assert_eq!((&*journey.purpose, &*journey.task_id, journey.due_minute), ("toilet_queue_service", "t1", 6));
     assert_eq!(xy(&journey.route_points), [(10.0, 10.0), (10.0, 2.0)]);
     drop(movement);
-    assert_eq!(written(&mut world), [text(ID_COUNTERS), text(MOVEMENT)]);
+    assert_eq!(written(&mut world), [ID_COUNTERS, MOVEMENT]);
     // While the head walks, the next call writes nothing.
     assert_eq!(queues::head_to_service(&world, &walk(&geo, &MODEL, Held::Absent), TOILET, false, 5, None), Ok(true));
     assert_eq!(counter(&world), 11);

@@ -74,9 +74,7 @@ fn agent(id: &str, zone: &str, activity: Activity) -> AgentRow {
 }
 
 fn put<R: Clone>(table: &mut Table<R>, id: &str, row: R) {
-    let slot = table.reserve_slot();
-    table.fill_slot(slot, row);
-    assert_eq!(table.bind(text(id), slot), None);
+    table.insert(text(id), row);
 }
 
 fn square(x: f64) -> Vec<Pt> {
@@ -203,6 +201,7 @@ fn world() -> World {
     assert_eq!(queue.schedule_row(event("ev1", 3)), 0);
     world.hold_queue(Arc::new(queue));
     world.hold_log(Arc::new(EventLog::new()));
+    crate::support::written(&world);
     world
 }
 
@@ -215,10 +214,9 @@ fn row(world: &World) -> MovementRow {
     world.row::<MovementRow>(MOVEMENT).unwrap().clone()
 }
 
-fn written(world: &mut World) -> Vec<Arc<str>> {
-    let mut names = world.slots.written_names();
+fn written(world: &mut World) -> Vec<String> {
+    let mut names = crate::support::written(world);
     names.sort();
-    world.slots.take_written();
     names
 }
 
@@ -256,7 +254,7 @@ fn a_journey_walks_its_edge_to_the_next_boundary() {
     assert_eq!(xy(&row.positions["a2"]), Some((15.0, 5.0)));
     assert_eq!(row.staff_positions.keys().map(|id| &**id).collect::<Vec<_>>(), ["s1"]);
     assert_eq!(xy(&row.staff_positions["s1"]), Some((15.0, 5.0)));
-    assert_eq!(written(&mut world), [text(MOVEMENT)]);
+    assert_eq!(written(&mut world), [MOVEMENT]);
     // The same minute again changes nothing, and the slot keeps its stamp.
     let stamp = world.stamp_of(MOVEMENT).unwrap();
     assert!(done(advance(&world, &geo, &StaffOps::None, 1).unwrap()).is_empty());
@@ -437,6 +435,7 @@ fn staff_world(started: Option<i64>) -> World {
             history: Vec::new(),
         }),
     );
+    crate::support::written(&world);
     world
 }
 
@@ -448,12 +447,12 @@ fn a_travelling_staff_member_is_on_their_route() {
     let (id, record) = &records[0];
     assert_eq!((&**id, xy(record), record.edge_id.as_deref(), record.progress, &*record.zone_id), ("s1", Some((10.0, 5.0)), Some("e1"), 0.5, "z0"));
     assert_eq!(xy(&row(&world).staff_positions["s1"]), Some((10.0, 5.0)));
-    assert_eq!(written(&mut world), [text(MOVEMENT)]);
+    assert_eq!(written(&mut world), [MOVEMENT]);
     // Past the travel minutes: progress 1.0 on the last edge, in the zone it ends in. The edge is
     // read from that zone, so backwards: its point is the far end.
     let records = movement::staff_position_snapshots(&world, &geo(), &StaffOps::Row, 9).unwrap();
     assert_eq!((xy(&records[0].1), records[0].1.progress, &*records[0].1.zone_id), (Some((5.0, 5.0)), 1.0, "z1"));
-    assert_eq!(written(&mut world), [text(MOVEMENT)]);
+    assert_eq!(written(&mut world), [MOVEMENT]);
     // The same records once more: the slot is not written.
     movement::staff_position_snapshots(&world, &geo(), &StaffOps::Row, 9).unwrap();
     assert!(written(&mut world).is_empty());
@@ -486,7 +485,7 @@ fn a_journey_starts_at_its_origin_or_one_minute_along_it() {
     let at_start = start(&world, 1);
     assert_eq!((xy(&at_start), at_start.progress), (Some((5.0, 5.0)), 0.0));
     assert!(row(&world).journeys.contains_key("a1"));
-    assert_eq!(written(&mut world), [text(MOVEMENT)]);
+    assert_eq!(written(&mut world), [MOVEMENT]);
 }
 
 #[test]
@@ -515,7 +514,7 @@ fn a_bed_place_is_written_only_where_it_changes_the_record() {
     let placed = row(&world).positions["a2"].clone();
     assert_eq!((xy(&placed), placed.progress, &*placed.position_kind), (Some((12.0, 3.0)), 1.0, "physical"));
     assert_eq!(row(&world).positions.keys().map(|id| &**id).collect::<Vec<_>>(), ["a1", "a2"]);
-    assert_eq!(written(&mut world), [text(MOVEMENT)]);
+    assert_eq!(written(&mut world), [MOVEMENT]);
     assert!(movement::place_at_point(&world, "a2", &zone, Pt { x: 12.0, y: 3.0 }).unwrap());
     assert!(written(&mut world).is_empty());
 }

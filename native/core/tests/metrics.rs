@@ -11,7 +11,7 @@ use indexmap::IndexMap;
 use sheltersim_core::cell::{Shard, BORROWED};
 use sheltersim_core::config::movement::Movement;
 use sheltersim_core::entities::{
-    Activity, AgentRow, AnyTable, FacilityRow, Mobility, NeedRow, ProfileRow, RequestRow, RequestStatus, Skills, StaffRow, Table, TaskRow, ZoneRow,
+    Activity, AgentRow, FacilityRow, Mobility, NeedRow, ProfileRow, RequestRow, RequestStatus, Skills, StaffRow, Table, TaskRow, ZoneRow,
 };
 use sheltersim_core::error::Error;
 use sheltersim_core::events::log::EventLog;
@@ -111,9 +111,7 @@ fn task(id: &str, start_minute: i64, due_minute: i64) -> TaskRow {
 }
 
 fn put<R: Clone>(table: &mut Table<R>, id: &str, row: R) {
-    let slot = table.reserve_slot();
-    table.fill_slot(slot, row);
-    assert_eq!(table.bind(text(id), slot), None);
+    table.insert(text(id), row);
 }
 
 /// A world at minute 30 of 100 that holds its queue, log and event counter: agents in this dict

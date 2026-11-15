@@ -9,7 +9,7 @@ use std::sync::Arc;
 use indexmap::IndexMap;
 use sheltersim_core::cell::Shard;
 use sheltersim_core::config::population::AccessibilityNeeds;
-use sheltersim_core::entities::{Activity, AgentRow, AnyTable, Entities, FacilityRow, Mobility, NeedRow, ProfileRow, Skills, StaffRow, Table};
+use sheltersim_core::entities::{Activity, AgentRow, Entities, FacilityRow, Mobility, NeedRow, ProfileRow, Skills, StaffRow, Table};
 use sheltersim_core::error::Error;
 use sheltersim_core::events::log::EventLog;
 use sheltersim_core::events::queue::Queue;
@@ -42,9 +42,7 @@ fn unsupported(reason: &str) -> Error {
 }
 
 fn put<R: Clone>(table: &mut Table<R>, id: &str, row: R) {
-    let slot = table.reserve_slot();
-    table.fill_slot(slot, row);
-    assert_eq!(table.bind(text(id), slot), None);
+    table.insert(text(id), row);
 }
 
 fn needs(value: f64) -> NeedRow {

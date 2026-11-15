@@ -165,8 +165,8 @@ fn fatigue_is_the_formula_s() {
 #[test]
 fn a_tick_works_rests_and_recovers_on_the_row_alone() {
     let mut world = world();
-    let index = slot(&mut world, DYNAMICS, Place::Namespace, Box::new(dynamics(0.25)));
-    world.slots.take_written();
+    slot(&mut world, DYNAMICS, Place::Namespace, Box::new(dynamics(0.25)));
+    crate::support::written(&world);
     let formula = StaffFatigue::parse(&map(&[])).unwrap();
     // s1 works; s2 is on shift and idle.
     for minute in 0..4 {
@@ -178,8 +178,8 @@ fn a_tick_works_rests_and_recovers_on_the_row_alone() {
     let idle = record(&world, "s2");
     assert_eq!((idle.consecutive_work_minutes, idle.total_rest_minutes), (0, 0));
     assert_eq!(idle.last_activity, LastActivity::OffDuty);
-    // Only the row was written, and its slot is marked for the tree to follow (lane P8-0c).
-    assert_eq!(world.slots.take_written(), [index]);
+    // Only the row was written.
+    assert_eq!(crate::support::written(&world), [DYNAMICS]);
 
     // s1 has finished its task: at its limit, it rests until minute + 30.
     world.entities.get_mut().staff.get_mut("s1").unwrap().active_task_id = None;
@@ -200,10 +200,10 @@ fn an_update_that_can_t_be_planned_changes_nothing() {
     let mut row = dynamics(0.0);
     row.staff.shift_remove("s2");
     slot(&mut world, DYNAMICS, Place::Namespace, Box::new(row));
-    world.slots.take_written();
+    crate::support::written(&world);
     let formula = StaffFatigue::parse(&map(&[])).unwrap();
     assert_eq!(staff_dynamics::update(&mut world, 0, &formula), Err(unsupported("a member has no record")));
-    assert!(world.slots.take_written().is_empty());
+    assert!(crate::support::written(&world).is_empty());
     assert_eq!(record(&world, "s1").total_work_minutes, 0);
 }
 
@@ -349,12 +349,11 @@ fn reservation(quantity: Option<i64>, id: &str, agent: &str) -> V {
 #[test]
 fn operations_change_the_balances_and_the_audit() {
     let mut world = ledger_world();
-    world.slots.take_written();
+    crate::support::written(&world);
     assert_eq!(apply(&mut world, "delivery", water(500), "op-1"), Ok(Applied { index: 0, remaining: 1500 }));
     // `world.resources` is the host's to replace: its row is not written here.
     assert_eq!(world.resources().unwrap().get("water_ml"), Some(&1000));
-    let written: Vec<_> = world.slots.written_names().iter().map(|name| name.to_string()).collect();
-    assert_eq!(written, [LEDGER]);
+    assert_eq!(crate::support::written(&world), [LEDGER]);
     world.row_mut::<ResourcesRow>(RESOURCES).unwrap().insert(text("water_ml"), 1500);
     assert_eq!(operate(&mut world, "reserve", reservation(Some(100), "r1", "a1"), "op-2"), Ok(Applied { index: 0, remaining: 1500 }));
     assert_eq!(operate(&mut world, "consume", reservation(Some(60), "r1", "a1"), "op-3"), Ok(Applied { index: 0, remaining: 1440 }));
@@ -553,8 +552,8 @@ fn logged(document: &V, event_id: &str, minute: i64) -> Logged {
 #[test]
 fn a_recovery_receipt_is_recorded_once_with_the_rule_s_texts() {
     let mut world = world();
-    let index = slot(&mut world, SHARED, Place::Namespace, Box::new(shared()));
-    world.slots.take_written();
+    slot(&mut world, SHARED, Place::Namespace, Box::new(shared()));
+    crate::support::written(&world);
     let document = recovery_document("e-1", 5, 3);
     let receipt = Receipt::of(&document).unwrap();
     assert_eq!(operations::needed_records(&world, &receipt), [text("e-1")]);
@@ -564,11 +563,11 @@ fn a_recovery_receipt_is_recorded_once_with_the_rule_s_texts() {
     // An event whose payload is another.
     let other = Found(vec![(text("e-1"), Some(logged(&recovery_document("e-1", 5, 2), "e-1", 5)))]);
     assert_eq!(operations::record_shared_operation(&mut world, &receipt, &other), Err(Error::Value(NOT_THE_PAYLOAD.to_owned())));
-    assert!(world.slots.take_written().is_empty());
+    assert!(crate::support::written(&world).is_empty());
 
     let found = Found(vec![(text("e-1"), Some(logged(&document, "e-1", 5)))]);
     operations::record_shared_operation(&mut world, &receipt, &found).unwrap();
-    assert_eq!(world.slots.take_written(), [index]);
+    assert_eq!(crate::support::written(&world), [SHARED]);
     {
         let row = world.row::<SharedOperationsRow>(SHARED).unwrap();
         let [record] = row.history.items.iter().collect::<Vec<_>>()[..] else { panic!() };

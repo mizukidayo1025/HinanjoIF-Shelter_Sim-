@@ -13,7 +13,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use serde_json::Value;
-use sheltersim_core::entities::{AnyTable, EdgeRow, Table, ZoneRow};
+use sheltersim_core::entities::{EdgeRow, Table, ZoneRow};
 use sheltersim_core::error::Error;
 use sheltersim_core::routes::{is_stable_id, EdgeLoads, Route, Router, Routes, Which};
 use sheltersim_core::run::{Capacity, RouteCapacities};
@@ -25,9 +25,7 @@ fn id(text: &str) -> Arc<str> {
 fn table<R: Clone>(rows: Vec<(&str, R)>) -> Table<R> {
     let mut table = Table::default();
     for (key, row) in rows {
-        let slot = table.reserve_slot();
-        table.fill_slot(slot, row);
-        assert_eq!(table.bind(id(key), slot), None);
+        table.insert(id(key), row);
     }
     table
 }

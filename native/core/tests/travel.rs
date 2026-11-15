@@ -9,7 +9,7 @@ use indexmap::IndexMap;
 use serde_json::{json, Value};
 use sheltersim_core::config::movement::Movement;
 use sheltersim_core::config::Fault;
-use sheltersim_core::entities::{Activity, AgentRow, AnyTable, EdgeRow, Entities, FacilityRow, Mobility, NeedRow, ProfileRow, Table, TaskRow, ZoneRow};
+use sheltersim_core::entities::{Activity, AgentRow, EdgeRow, Entities, FacilityRow, Mobility, NeedRow, ProfileRow, Table, TaskRow, ZoneRow};
 use sheltersim_core::error::Error;
 use sheltersim_core::events::log::EventLog;
 use sheltersim_core::events::queue::Queue;
@@ -76,9 +76,7 @@ fn agent(id: &str, zone: &str, home: &str) -> AgentRow {
 }
 
 fn put<R: Clone>(table: &mut Table<R>, id: &str, row: R) {
-    let slot = table.reserve_slot();
-    table.fill_slot(slot, row);
-    assert_eq!(table.bind(text(id), slot), None);
+    table.insert(text(id), row);
 }
 
 fn facility(id: &str, kind: &str, zone: &str) -> FacilityRow {

@@ -1,7 +1,6 @@
 //! The entity rows from outside the core: the bytes of each kind of row in a WorldState document of
-//! v5 and v6, the order of a table's rows in a document, the order of its keys as entities come and
-//! go, and what the views of the rows follow (PR 6-1): the fields that differ, the core's inserts
-//! and removals.
+//! v5 and v6, the order of a table's rows in a document, and the order of its keys as entities come
+//! and go.
 //!
 //! The expected bytes were recorded before #430 (those of the zones and zone edges, PR 5-2, as
 //! CPython 3.12's `json.dumps` writes them) and pin the core's output now.
@@ -10,11 +9,11 @@ use std::sync::Arc;
 
 use indexmap::IndexMap;
 use sheltersim_core::entities::{
-    is_zone_kind, Activity, AgentRow, AnyTable, Change, EdgeRow, Entities, EntityField, EntityRow, FacilityRow, Mobility, NeedRow, ProfileRow, RequestRow,
-    RequestStatus, RowFields, Skills, StaffRow, Table, TaskRow, ZoneRow, ACTIVITIES, AGENT, EDGE, MOBILITIES, NEEDS, STATUSES, TASK, ZONE,
+    is_zone_kind, Activity, AgentRow, EdgeRow, Entities, EntityField, EntityRow, FacilityRow, Mobility, NeedRow, ProfileRow, RequestRow, RequestStatus, Skills,
+    StaffRow, Table, TaskRow, ZoneRow, ACTIVITIES, AGENT, EDGE, MOBILITIES, NEEDS, STATUSES, TASK, ZONE,
 };
 use sheltersim_core::json::Encoder;
-use sheltersim_core::row::{IdMap, StrEnum};
+use sheltersim_core::row::StrEnum;
 use sheltersim_core::value::V;
 
 fn text(value: &str) -> Arc<str> {
@@ -254,10 +253,7 @@ fn same_compares_floats_by_their_bits() {
 fn table_of(rows: Vec<RequestRow>) -> Table<RequestRow> {
     let mut table = Table::default();
     for row in rows {
-        let slot = table.reserve_slot();
-        let key = text(row.id());
-        table.fill_slot(slot, row);
-        assert_eq!(table.bind(key, slot), None);
+        table.insert(text(row.id()), row);
     }
     table
 }
@@ -275,162 +271,22 @@ fn keys_keep_the_dict_order_as_entities_come_and_go() {
     let mut table = table_of(vec![request("r3"), request("r1"), request("r2")]);
     assert_eq!(keys(&table), ["r3", "r1", "r2"]);
     // shift_remove: the others keep their order, and the slot is free again.
-    let removed = table.remove("r1").expect("r1 is there");
+    let removed = table.slot_of("r1").expect("r1 is there");
+    assert!(table.remove_row("r1"));
     assert_eq!(keys(&table), ["r3", "r2"]);
     assert!(table.row_at(removed).is_none());
-    assert_eq!(table.remove("r1"), None);
+    assert!(!table.remove_row("r1"));
     // A new key goes to the end, in the free slot.
-    let slot = table.reserve_slot();
-    assert_eq!(slot, removed);
-    table.fill_slot(slot, request("r1"));
-    table.bind(text("r1"), slot);
+    assert_eq!(table.insert(text("r1"), request("r1")), removed);
     assert_eq!(keys(&table), ["r3", "r2", "r1"]);
-    // A key already there keeps its place and takes the new slot.
-    let replacement = table.reserve_slot();
-    table.fill_slot(replacement, RequestRow { cooldown_until: 9, ..request("r3") });
-    let old = table.bind(text("r3"), replacement).expect("r3 had a slot");
-    table.release_slot(old);
+    // A key already there keeps its place and takes a new row.
+    table.insert(text("r3"), RequestRow { cooldown_until: 9, ..request("r3") });
     assert_eq!(keys(&table), ["r3", "r2", "r1"]);
     assert_eq!(table.get("r3").map(|row| row.cooldown_until), Some(9));
     assert_eq!(table.len(), 3);
     // A document orders the rows by their own IDs, whatever the dict's order.
     let ids: Vec<&str> = table.document_slots().into_iter().map(|slot| table.row_at(slot).expect("a row").id()).collect();
     assert_eq!(ids, ["r1", "r2", "r3"]);
-}
-
-#[test]
-fn keys_can_be_replaced_and_reordered() {
-    let mut table = table_of(vec![request("r1"), request("r2"), request("r3")]);
-    table.reorder_keys(&["r3", "unknown", "r1"]);
-    // r2 is left out of the order: it leaves the keys.
-    assert_eq!(keys(&table), ["r3", "r1"]);
-    let mut kept = IdMap::<u32>::default();
-    kept.insert(text("r1"), 0);
-    table.set_keys(kept);
-    assert_eq!(keys(&table), ["r1"]);
-}
-
-#[test]
-fn a_write_marks_the_row_changed_until_its_bytes_are_kept() {
-    let mut table = table_of(vec![request("r1")]);
-    let slot = table.document_slots()[0];
-    assert!(table.changed(slot));
-    table.mark_written(slot);
-    assert!(!table.changed(slot));
-    let _ = table.get("r1");
-    assert!(!table.changed(slot));
-    table.get_mut("r1").expect("r1").cooldown_until = 5;
-    assert!(table.changed(slot));
-}
-
-// ---- Views (PR 6-1) -------------------------------------------------------------------------
-
-#[test]
-fn diff_has_a_bit_per_field_that_differs_and_copy_fields_takes_them() {
-    let base = request("r1");
-    let changed = RequestRow { status: RequestStatus::Resolved, resolved_minute: Some(4), ..request("r1") };
-    let names = RequestRow::NAMES;
-    let mask = changed.diff(&base);
-    let bits: Vec<&str> = (0..names.len()).filter(|index| mask & (1 << index) != 0).map(|index| names[index]).collect();
-    assert_eq!(bits, ["status", "resolved_minute"]);
-    assert_eq!(base.diff(&base), 0);
-    let mut view = base.clone();
-    changed.copy_fields(mask, &mut view);
-    assert!(view.same(&changed));
-    // Floats by their bits: -0.0 is not 0.0.
-    let needs = NeedRow { hunger: -0.0, ..plain_agent().needs };
-    assert_eq!(needs.diff(&NeedRow { hunger: 0.0, ..needs.clone() }), 1 << 1);
-}
-
-#[test]
-fn a_write_touches_its_slot_once_until_the_touched_are_taken() {
-    let mut table = table_of(vec![request("r1"), request("r2")]);
-    assert!(!table.has_changes());
-    let _ = table.get("r1");
-    assert!(!table.has_changes());
-    table.get_mut("r2").expect("r2").cooldown_until = 3;
-    table.get_mut("r1").expect("r1").cooldown_until = 4;
-    table.get_mut("r2").expect("r2").cooldown_until = 5;
-    assert!(table.has_changes());
-    let slots: Vec<u32> = table.take_touched();
-    let ids: Vec<&str> = slots.iter().map(|slot| table.row_at(*slot).expect("a row").id()).collect();
-    assert_eq!(ids, ["r2", "r1"]);
-    assert!(!table.has_changes());
-    // The view still holds what the object holds until the owner copies the fields.
-    let slot = slots[0];
-    let (row, view) = table.row_and_view(slot).expect("a row and a view");
-    assert_eq!(row.diff(view), 1 << 8);
-    row.clone().copy_fields(1 << 8, view);
-    assert_eq!(table.view_at(slot).expect("a view").cooldown_until, 5);
-    // A write that reached the view already does not touch the slot.
-    let (row, view) = table.row_and_view_mut(slot).expect("a row");
-    row.cooldown_until = 6;
-    view.expect("a view").cooldown_until = 6;
-    assert!(!table.has_changes());
-}
-
-#[test]
-fn the_core_puts_in_and_takes_out_keys_in_the_dict_order_with_a_journal() {
-    let mut table = table_of(vec![request("r1"), request("r2"), request("r3")]);
-    let slot = table.insert(text("r4"), request("r4"));
-    assert_eq!(keys(&table), ["r1", "r2", "r3", "r4"]);
-    // A new row has no view until its owner makes one.
-    assert!(table.view_at(slot).is_none());
-    assert!(table.remove_row("r2"));
-    assert!(!table.remove_row("r2"));
-    assert_eq!(keys(&table), ["r1", "r3", "r4"]);
-    // A key replaced keeps its place; the old row goes to the journal first.
-    table.insert(text("r1"), RequestRow { cooldown_until: 7, ..request("r1") });
-    assert_eq!(keys(&table), ["r1", "r3", "r4"]);
-    assert_eq!(table.get("r1").map(|row| row.cooldown_until), Some(7));
-    let journal = table.take_journal();
-    let seen: Vec<String> = journal
-        .iter()
-        .map(|change| match change {
-            Change::Inserted { key, .. } => format!("+{key}"),
-            Change::Removed { key, view, replaced, .. } => {
-                format!("-{key}{}{}", if view.is_some() { " seen" } else { "" }, if *replaced { " replaced" } else { "" })
-            }
-        })
-        .collect();
-    assert_eq!(seen, ["+r4", "-r2 seen", "-r1 seen replaced", "+r1"]);
-    assert!(table.take_journal().is_empty());
-    // The owner made the view of the new row.
-    let slot = table.slot_of("r4").expect("r4");
-    table.set_view(slot);
-    assert!(table.view_at(slot).is_some_and(|view| view.same(table.row_at(slot).expect("a row"))));
-}
-
-#[test]
-fn a_removed_row_keeps_its_last_values_and_its_slot_is_free_again() {
-    let mut table = table_of(vec![request("r1"), request("r2")]);
-    table.get_mut("r1").expect("r1").cooldown_until = 9;
-    let slot = table.slot_of("r1").expect("r1");
-    assert!(table.remove_row("r1"));
-    assert!(table.row_at(slot).is_none() && table.view_at(slot).is_none());
-    let Some(Change::Removed { row, view: Some(view), replaced: false, .. }) = table.take_journal().pop() else {
-        panic!("a removal with a view");
-    };
-    assert_eq!(row.cooldown_until, 9);
-    assert_eq!(row.diff(&view), 1 << 8);
-    // The touched slot has no row now: nothing to follow there.
-    assert_eq!(table.take_touched(), [slot]);
-    assert!(table.row_and_view(slot).is_none());
-    assert_eq!(table.insert(text("r3"), request("r3")), slot);
-}
-
-#[test]
-fn entities_have_changes_while_any_table_has() {
-    let mut rows = Entities::default();
-    assert!(!rows.has_changes());
-    rows.active_tasks.insert(text("t1"), task());
-    assert!(rows.has_changes());
-    rows.active_tasks.take_journal();
-    assert!(!rows.has_changes());
-    rows.zones.insert(text("z1"), zone("z1"));
-    assert!(rows.has_changes());
-    rows.taint_zones("why".to_owned());
-    assert!(!rows.has_changes());
 }
 
 // ---- Zones and zone edges (PR 5-2) ---------------------------------------------------------
@@ -464,13 +320,9 @@ fn zone(id: &str) -> ZoneRow {
 fn with_rows() -> Entities {
     let mut rows = Entities::default();
     for id in ["b", "a"] {
-        let slot = rows.zones.reserve_slot();
-        rows.zones.fill_slot(slot, zone(id));
-        rows.zones.bind(text(id), slot);
+        rows.zones.insert(text(id), zone(id));
     }
-    let slot = rows.active_tasks.reserve_slot();
-    rows.active_tasks.fill_slot(slot, task());
-    rows.active_tasks.bind(text("t1"), slot);
+    rows.active_tasks.insert(text("t1"), task());
     rows
 }
 

@@ -222,6 +222,28 @@ def test_the_list_of_examples_says_what_a_bundle_holds_before_it_is_fetched(
     }
 
 
+def test_the_site_holds_the_relay_s_owner_page_at_one_path_not_linked_from_the_screen(
+    site: tuple[Path, bytes, dict[str, Any]], builder: dict[str, Any], server_module: dict[str, Any]
+) -> None:
+    """The owner's page of the LLM relay (#433): written at ADMIN_PAGE (the one place naming its
+    path, which the summary repeats for the deploy workflow's check), not indexed, holding no key,
+    calling only the relay's admin routes, and not linked from the screen."""
+    output, _, summary = site
+    page_path = builder["ADMIN_PAGE"]
+    assert summary["admin_page"] == f"/{page_path}"
+    assert not page_path.startswith("llm/")
+    written = output / f"{page_path}.html"
+    assert written.read_bytes() == builder["ADMIN_SOURCE"].read_bytes()
+    page = written.read_text(encoding="utf-8")
+    assert '<meta name="robots" content="noindex, nofollow" />' in page
+    assert re.findall(r"fetch\(`([^`$]*)", page) == ["/llm/v1/admin/"]
+    assert "localStorage" not in page and "sessionStorage" not in page
+    assert not re.search(r"(sk-ant-|LLM_ADMIN_KEY\s*=|Bearer [A-Za-z0-9_-]{16,})", page)
+    for screen in ("demo-v2.html", "index.html"):
+        assert page_path not in (output / screen).read_text(encoding="utf-8")
+    assert server_module["resolve"](output, f"/{page_path}") == written
+
+
 def test_the_site_is_built_only_outside_the_repository_into_an_empty_directory(
     builder: dict[str, Any], site: tuple[Path, bytes, dict[str, Any]], tmp_path: Path
 ) -> None:

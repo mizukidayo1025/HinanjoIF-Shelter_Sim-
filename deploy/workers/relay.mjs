@@ -14,13 +14,23 @@
 //                          stop_reason, usage: { input_tokens, output_tokens, cost_usd },
 //                          remaining_usd } is answered. The output is the model's text as it is:
 //                          the page treats it as untrusted input and checks it (AGENTS.md).
+//   /llm/v1/admin/recipients   the owner's list (#433): each recipient's label, where it comes
+//                          from ("secret": LLM_PASSPHRASES, "issued": issued on /admin), when it
+//                          was issued and revoked, and its calls, cost and tokens today and in all
+//   /llm/v1/admin/issue    { label } → a new passphrase for the label, answered once and kept
+//                          nowhere (only its SHA-256, in the ledger)
+//   /llm/v1/admin/revoke   { label } → the issued passphrase of the label is no longer let in
+//   The admin routes take the owner's key (the secret LLM_ADMIN_KEY) as `Authorization: Bearer
+//   <key>` instead of a passphrase; too many wrong keys from one address are refused for a while,
+//   counted apart from wrong passphrases. The page /admin (admin.html) calls them.
 // Refusals are { error, code } with an error the screen shows as it is (Japanese).
 //
 // Passphrases: LLM_PASSPHRASES is a JSON array of { label, sha256 }, the SHA-256 of each
 // passphrase (new_passphrase.mjs makes one). One per recipient; removing an entry (and putting the
 // secret again) shuts that recipient out. The label is what the ledger and the logs record; the
-// passphrase is never stored, logged or answered. A presented passphrase's digest is compared
-// with every entry in full (no early exit). Too many wrong passphrases from one address
+// passphrase is never stored, logged or answered. Passphrases issued on /admin (#433) are let in
+// the same way: the ledger keeps their labels and digests until they are revoked. A presented
+// passphrase's digest is compared with every entry in full (no early exit). Too many wrong passphrases from one address
 // (FAILURE_LIMIT in FAILURE_WINDOW_MS) are refused for the rest of the window.
 //
 // Spending (as Python's LLMRouter, src/sheltersim/llm/provider.py): before a call the ledger
@@ -52,6 +62,13 @@ export const THINKING_HEADROOM_TOKENS = 4096;
 export const BODY_LIMIT = 64 * 1024;
 export const FAILURE_LIMIT = 10;
 export const FAILURE_WINDOW_MS = 15 * 60 * 1000;
+/// Labels of recipients: at most this many characters (the secret's entries and issued ones).
+export const LABEL_LIMIT = 40;
+/// A passphrase: four groups of five letters and digits not easily mistaken for one another (about
+/// 99 bits), as new_passphrase.mjs makes them.
+export const PASSPHRASE_ALPHABET = "abcdefghjkmnpqrstuvwxyz23456789";
+const ADMIN = "/llm/v1/admin/";
+const ADMIN_ROUTES = new Set(["recipients", "issue", "revoke"]);
 const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
 const ANTHROPIC_VERSION = "2023-06-01";
 const CAP_MICRO = DAILY_CAP_USD * 1_000_000;
@@ -72,6 +89,33 @@ function hex(bytes) {
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
+/// A new passphrase (crypto.getRandomValues, each character uniform over PASSPHRASE_ALPHABET).
+export function newPassphrase() {
+  const size = PASSPHRASE_ALPHABET.length;
+  const limit = 256 - (256 % size);
+  const chars = [];
+  while (chars.length < 20) {
+    for (const byte of crypto.getRandomValues(new Uint8Array(32))) {
+      if (byte < limit && chars.length < 20) chars.push(PASSPHRASE_ALPHABET[byte % size]);
+    }
+  }
+  return [0, 5, 10, 15].map((at) => chars.slice(at, at + 5).join("")).join("-");
+}
+
+/// A label given on /admin, trimmed; null when it is empty, longer than LABEL_LIMIT or holds
+/// control characters.
+export function checkLabel(value) {
+  if (typeof value !== "string") return null;
+  const label = value.trim();
+  if (!label || [...label].length > LABEL_LIMIT || /\p{Cc}/u.test(label)) return null;
+  return label;
+}
+
+/// Digests (hex) as the recipients recipientFor compares: [{ label, digest }].
+function fromHex(entries) {
+  return entries.map(({ label, sha256: digest }) => ({ label, digest: Uint8Array.from(digest.match(/../g), (pair) => parseInt(pair, 16)) }));
+}
+
 /// The recipients of LLM_PASSPHRASES: [{ label, digest }]; entries not of the form are left out
 /// (and said so in the log, without their content).
 export function parsePassphrases(secret) {
@@ -87,13 +131,20 @@ export function parsePassphrases(secret) {
   for (const entry of list) {
     const label = entry?.label;
     const digest = entry?.sha256;
-    if (typeof label !== "string" || !label || label.length > 40 || typeof digest !== "string" || !/^[0-9a-f]{64}$/.test(digest)) {
+    if (typeof label !== "string" || !label || label.length > LABEL_LIMIT || typeof digest !== "string" || !/^[0-9a-f]{64}$/.test(digest)) {
       console.error(JSON.stringify({ event: "llm_relay_passphrase_entry_skipped" }));
       continue;
     }
-    out.push({ label, digest: Uint8Array.from(digest.match(/../g), (pair) => parseInt(pair, 16)) });
+    out.push(...fromHex([{ label, sha256: digest }]));
   }
   return out;
+}
+
+/// Whether two digests are the same, looking at every byte.
+function sameDigest(a, b) {
+  let diff = a.length ^ b.length;
+  for (let i = 0; i < a.length; i++) diff |= a[i] ^ (b[i] ?? 0);
+  return diff === 0;
 }
 
 /// The recipient whose digest is the passphrase's, or null; every entry is compared in full.
@@ -101,9 +152,7 @@ export async function recipientFor(passphrase, recipients) {
   const digest = await sha256(passphrase);
   let found = null;
   for (const recipient of recipients) {
-    let diff = 0;
-    for (let i = 0; i < digest.length; i++) diff |= digest[i] ^ recipient.digest[i];
-    if (diff === 0 && found === null) found = recipient;
+    if (sameDigest(digest, recipient.digest) && found === null) found = recipient;
   }
   return found;
 }
@@ -186,11 +235,13 @@ export function createWorker({ now = () => Date.now(), fetchProvider = (url, ini
 
     const session = url.pathname === "/llm/v1/session";
     const taskName = /^\/llm\/v1\/tasks\/([a-z][a-z0-9_]{0,40})$/.exec(url.pathname)?.[1];
-    if (!session && !taskName) return refuse(404, "llm_route_unknown", "中継にこの道はありません。");
+    const adminRoute = url.pathname.startsWith(ADMIN) ? url.pathname.slice(ADMIN.length) : null;
+    if (!session && !taskName && !ADMIN_ROUTES.has(adminRoute)) return refuse(404, "llm_route_unknown", "中継にこの道はありません。");
 
     const ledger = env.LEDGER.get(env.LEDGER.idFromName("global"));
     const at = now();
     const day = jstDay(at);
+    if (adminRoute) return admin(adminRoute, request, env, body, ledger, at, day);
     const auth = request.headers.get("Authorization") ?? "";
     const passphrase = auth.startsWith("Bearer ") ? auth.slice(7) : "";
     if (!passphrase) return refuse(401, "llm_passphrase_required", "合言葉を入れてください。");
@@ -198,7 +249,7 @@ export function createWorker({ now = () => Date.now(), fetchProvider = (url, ini
     if (await ledger.locked(address, at)) {
       return refuse(429, "llm_passphrase_locked", "合言葉の誤りが続いたため、しばらく受け付けません。15分ほど後に、もう一度試してください。");
     }
-    const recipient = await recipientFor(passphrase, parsePassphrases(env.LLM_PASSPHRASES));
+    const recipient = await recipientFor(passphrase, [...parsePassphrases(env.LLM_PASSPHRASES), ...fromHex(await ledger.activeRecipients())]);
     if (!recipient) {
       await ledger.failed(address, at);
       return refuse(401, "llm_passphrase_invalid", "合言葉が違います。");
@@ -296,6 +347,62 @@ export function createWorker({ now = () => Date.now(), fetchProvider = (url, ini
     });
   }
 
+  // The owner's routes (#433): the key, then the list, an issue or a revoke.
+  async function admin(route, request, env, body, ledger, at, day) {
+    if (!env.LLM_ADMIN_KEY) {
+      return refuse(503, "llm_admin_unconfigured", "中継に管理用の鍵が設定されていません。最初に一度だけ、コマンドで secret LLM_ADMIN_KEY を入れてください（docs/development.md の「LLMの中継」）。");
+    }
+    const auth = request.headers.get("Authorization") ?? "";
+    const key = auth.startsWith("Bearer ") ? auth.slice(7) : "";
+    if (!key) return refuse(401, "llm_admin_key_required", "管理用の鍵を入れてください。");
+    const address = `admin:${hex(await sha256(`address:${request.headers.get("CF-Connecting-IP") ?? "unknown"}`)).slice(0, 32)}`;
+    if (await ledger.locked(address, at)) {
+      return refuse(429, "llm_admin_locked", "管理用の鍵の誤りが続いたため、しばらく受け付けません。15分ほど後に、もう一度試してください。");
+    }
+    if (!sameDigest(await sha256(key), await sha256(env.LLM_ADMIN_KEY))) {
+      await ledger.failed(address, at);
+      return refuse(401, "llm_admin_key_invalid", "管理用の鍵が違います。");
+    }
+    const secretLabels = new Set(parsePassphrases(env.LLM_PASSPHRASES).map((entry) => entry.label));
+    if (route === "recipients") {
+      const listed = await ledger.recipientList(day);
+      const sums = (rows, label) => {
+        const row = rows.find((item) => item.recipient === label);
+        return {
+          calls: Number(row?.calls ?? 0),
+          spent_usd: usd(Number(row?.spent_micro ?? 0)),
+          input_tokens: Number(row?.input_tokens ?? 0),
+          output_tokens: Number(row?.output_tokens ?? 0),
+        };
+      };
+      const time = (ms) => (ms === null || ms === undefined ? null : new Date(Number(ms)).toISOString());
+      const recipients = [
+        ...[...secretLabels].map((label) => ({ label, source: "secret", issued_at: null, revoked_at: null, active: true })),
+        ...listed.issued.map((row) => ({ label: row.label, source: "issued", issued_at: time(row.issued_at), revoked_at: time(row.revoked_at), active: row.revoked_at === null })),
+      ].map((item) => ({ ...item, today: sums(listed.today, item.label), total: sums(listed.total, item.label) }));
+      return answer(200, { day, cap_usd: DAILY_CAP_USD, remaining_usd: usd(CAP_MICRO - (await ledger.used(day))), recipients });
+    }
+    const label = checkLabel(body.label);
+    if (!label) return refuse(400, "llm_admin_label_invalid", `相手の名前は、1〜${LABEL_LIMIT}文字で入れてください。`);
+    if (route === "issue") {
+      if (secretLabels.has(label)) return refuse(409, "llm_admin_label_taken", "この名前は secret LLM_PASSPHRASES の一覧にあります。別の名前にしてください。");
+      const passphrase = newPassphrase();
+      const issued = await ledger.issue({ label, sha256: hex(await sha256(passphrase)), at });
+      if (!issued) return refuse(409, "llm_admin_label_taken", "この名前の合言葉はすでに有効です。先に止めるか、別の名前にしてください。");
+      console.log(JSON.stringify({ event: "llm_relay_admin", action: "issue", recipient: label }));
+      return answer(200, { label, passphrase, issued_at: new Date(at).toISOString() });
+    }
+    // revoke
+    if (await ledger.revoke({ label, at })) {
+      console.log(JSON.stringify({ event: "llm_relay_admin", action: "revoke", recipient: label }));
+      return answer(200, { label, revoked_at: new Date(at).toISOString() });
+    }
+    if (secretLabels.has(label)) {
+      return refuse(409, "llm_admin_secret_entry", "この相手は secret LLM_PASSPHRASES の一覧にあるため、ここでは止められません。一覧から消して、secret を入れ直してください。");
+    }
+    return refuse(404, "llm_admin_label_unknown", "この名前の有効な合言葉はありません。");
+  }
+
   return {
     async fetch(request, env) {
       const url = new URL(request.url);
@@ -322,7 +429,9 @@ function log({ recipient, task, outcome, micro }) {
 ///   spend(day, spent_micro)                         settled costs of a day
 ///   reservations(id, day, recipient, task, micro, at)   calls not settled yet (counted in full)
 ///   usage(day, recipient, calls, spent_micro, input_tokens, output_tokens)   per recipient
-///   failures(address, window_start, count)          wrong passphrases per hashed address
+///   failures(address, window_start, count)          wrong passphrases (and, under "admin:", wrong
+///                                                   owner's keys) per hashed address
+///   recipients(id, label, sha256, issued_at, revoked_at)   passphrases issued on /admin (#433)
 export class LlmLedger extends DurableObject {
   constructor(ctx, env) {
     super(ctx, env);
@@ -331,6 +440,44 @@ export class LlmLedger extends DurableObject {
     this.sql.exec("CREATE TABLE IF NOT EXISTS reservations (id TEXT PRIMARY KEY, day TEXT NOT NULL, recipient TEXT NOT NULL, task TEXT NOT NULL, micro INTEGER NOT NULL, at INTEGER NOT NULL)");
     this.sql.exec("CREATE TABLE IF NOT EXISTS usage (day TEXT NOT NULL, recipient TEXT NOT NULL, calls INTEGER NOT NULL, spent_micro INTEGER NOT NULL, input_tokens INTEGER NOT NULL, output_tokens INTEGER NOT NULL, PRIMARY KEY (day, recipient))");
     this.sql.exec("CREATE TABLE IF NOT EXISTS failures (address TEXT PRIMARY KEY, window_start INTEGER NOT NULL, count INTEGER NOT NULL)");
+    this.sql.exec("CREATE TABLE IF NOT EXISTS recipients (id INTEGER PRIMARY KEY AUTOINCREMENT, label TEXT NOT NULL, sha256 TEXT NOT NULL, issued_at INTEGER NOT NULL, revoked_at INTEGER)");
+  }
+
+  /// The issued passphrases not revoked: [{ label, sha256 }].
+  activeRecipients() {
+    return this.sql.exec("SELECT label, sha256 FROM recipients WHERE revoked_at IS NULL ORDER BY id").toArray();
+  }
+
+  /// Keeps a new passphrase's digest for `label`; false when the label has one not revoked.
+  issue({ label, sha256, at }) {
+    return this.ctx.storage.transactionSync(() => {
+      const taken = this.sql.exec("SELECT id FROM recipients WHERE label = ? AND revoked_at IS NULL", label).toArray();
+      if (taken.length > 0) return false;
+      this.sql.exec("INSERT INTO recipients (label, sha256, issued_at, revoked_at) VALUES (?, ?, ?, NULL)", label, sha256, at);
+      return true;
+    });
+  }
+
+  /// Revokes the issued passphrase of `label`; false when it has none not revoked.
+  revoke({ label, at }) {
+    return this.ctx.storage.transactionSync(() => {
+      const rows = this.sql.exec("SELECT id FROM recipients WHERE label = ? AND revoked_at IS NULL", label).toArray();
+      if (rows.length === 0) return false;
+      this.sql.exec("UPDATE recipients SET revoked_at = ? WHERE id = ?", at, rows[0].id);
+      return true;
+    });
+  }
+
+  /// The owner's list: the issued passphrases (without their digests) and each recipient's sums
+  /// today and in all.
+  recipientList(day) {
+    return {
+      issued: this.sql.exec("SELECT label, issued_at, revoked_at FROM recipients ORDER BY id").toArray(),
+      today: this.sql.exec("SELECT recipient, calls, spent_micro, input_tokens, output_tokens FROM usage WHERE day = ?", day).toArray(),
+      total: this.sql
+        .exec("SELECT recipient, SUM(calls) AS calls, SUM(spent_micro) AS spent_micro, SUM(input_tokens) AS input_tokens, SUM(output_tokens) AS output_tokens FROM usage GROUP BY recipient")
+        .toArray(),
+    };
   }
 
   usedSync(day) {

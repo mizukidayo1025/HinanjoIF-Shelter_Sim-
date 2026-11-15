@@ -2,12 +2,13 @@
 // its Durable Object on node:sqlite (the SQL of `ctx.storage.sql`), and Anthropic replaced by
 // the answers the script gives, so no request leaves the machine.
 //
-// stdin: { env: { ANTHROPIC_API_KEY?, LLM_PASSPHRASES? }, tasks: { name: { model, promptVersion,
+// stdin: { env: { ANTHROPIC_API_KEY?, LLM_PASSPHRASES?, LLM_ADMIN_KEY? }, tasks: { name: { model, promptVersion,
 //          maxOutputTokens, maxPromptBytes, effort?, rejectInput? } } or real_tasks: true (the
 //          relay's own, relay_tasks.mjs), steps: [{ now, request:
 //          { method, path, headers, body }, provider?: { status, body } | "unreachable" }] }
 // stdout: { answers: [{ status, body, provider_request? }], ledger: { spend, reservations, usage,
-//           failures }, logs: [lines] }
+//           failures, recipients }, logs: [lines] }
+// A header's "{issued}" is replaced by the passphrase the last admin issue answered (#433).
 // A task's `build` puts the input into one user message (rejectInput: the input "bad" is
 // refused); the provider request a step caused is answered with its headers but the API key's
 // value replaced by whether it was the env's.
@@ -101,7 +102,10 @@ const answers = [];
 for (step of script.steps) {
   clock = step.now ?? clock;
   providerRequest = null;
-  const { method = "POST", path, headers = {}, body } = step.request;
+  const { method = "POST", path, body } = step.request;
+  // "{issued}" in a header is the passphrase the last /llm/v1/admin/issue answered (#433).
+  const issued = answers.findLast((item) => typeof item.body?.passphrase === "string")?.body.passphrase;
+  const headers = Object.fromEntries(Object.entries(step.request.headers ?? {}).map(([name, value]) => [name, String(value).replace("{issued}", issued ?? "")]));
   const request = new Request(`https://hinanjo-if.example${path}`, {
     method,
     headers,
@@ -122,7 +126,7 @@ const table = (name) => db.prepare(`SELECT * FROM ${name}`).all();
 process.stdout.write(
   JSON.stringify({
     answers,
-    ledger: { spend: table("spend"), reservations: table("reservations"), usage: table("usage"), failures: table("failures") },
+    ledger: { spend: table("spend"), reservations: table("reservations"), usage: table("usage"), failures: table("failures"), recipients: table("recipients") },
     logs,
   }),
 );

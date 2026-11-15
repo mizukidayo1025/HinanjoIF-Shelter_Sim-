@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import math
-from contextlib import AbstractContextManager, nullcontext
 from contextvars import ContextVar
 from copy import deepcopy
 from importlib.resources import files
@@ -14,7 +12,6 @@ from typing import Any, Literal
 from pydantic import ConfigDict, Field, model_validator
 
 from sheltersim.contracts.extensions import ExtensionModel, Identifier
-from sheltersim.core.context import ContextScope
 from sheltersim.domain.psychological_state import (
     INTEGRATED_PSYCHOLOGY_POLICY_VERSION,
     LIFE_STATE_PSYCHOLOGY_POLICIES,
@@ -62,10 +59,6 @@ CORE_MODEL_SUITES = {
     CORE_MODEL_SUITE_V1: CORE_MODEL_SUITE_MODELS_V1,
     CORE_MODEL_SUITE_V2: CORE_MODEL_SUITE_MODELS,
 }
-# Runtime code once read these selectors from policy_registry itself, so a suite
-# that left one implicit ran a legacy default instead of the declared model (#169).
-# Such a suite is signed model_suite@2, which refuses Checkpoints captured before.
-SUITE_RUNTIME_RESOLVED_DOMAINS = frozenset({"psychology", "queue", "relationship"})
 
 # Pre-research psychology models stay installed so saved Runs and Checkpoints
 # replay exactly and remain usable as comparison controls. The mark lives here,
@@ -159,19 +152,6 @@ class PolicyModelDefinition(ExtensionModel):
 _SELECTION_SCOPE: ContextVar[list[tuple[Any, dict[str, str]]] | None] = ContextVar(
     "selected_models_scope", default=None
 )
-
-
-def selected_models_scope(
-    selections: list[tuple[Any, dict[str, str]]] | None = None,
-) -> AbstractContextManager[None]:
-    """Reuse the selection of each model_configs object while it cannot change.
-
-    ``selections`` carries the results of an earlier scope; the caller clears it when the
-    configs may have changed.
-    """
-    if _SELECTION_SCOPE.get() is not None:
-        return nullcontext()
-    return ContextScope(_SELECTION_SCOPE, [] if selections is None else selections)
 
 
 def selected_models(configs: dict[str, dict[str, Any]]) -> dict[str, str]:
@@ -424,200 +404,3 @@ def model_catalog() -> dict[str, dict[str, Any]]:
             **checked,
         }
     return catalog
-
-
-def _model_parameter_config(
-    configs: dict[str, dict[str, Any]], definition: dict[str, Any]
-) -> dict[str, Any]:
-    """Fingerprint every installed config namespace declared by the model manifest."""
-    sections = sorted({path.split(".", 1)[0] for path in definition.get("parameters", {})})
-    return {section: deepcopy(configs.get(section, {})) for section in sections}
-
-
-def model_signatures(configs: dict[str, dict[str, Any]]) -> dict[str, str]:
-    from sheltersim.contracts.runtime import state_signatures
-    from sheltersim.core.model_version import engine_signatures
-    from sheltersim.domain.simulator_state import simulator_signatures
-
-    catalog = model_catalog()
-    registry_version = configs.get("policy_registry", {}).get("schema_version", 1)
-    suite_id = configs.get("policy_registry", {}).get("suite_id")
-    policies: dict[str, str] = {}
-    for domain, model_id in selected_models(configs).items():
-        definition = catalog[model_id]
-        base = (
-            f"{model_id}@{definition['implementation_version']}:state"
-            f"{definition['state_schema_version']}"
-        )
-        if registry_version >= 2:
-            signature_definition = deepcopy(definition)
-            signature_inputs = _model_parameter_config(configs, definition)
-            # The service-scoped shape is an additive request contract. The
-            # configured facility_queues values already sign actual behavior;
-            # omit this metadata-only marker to preserve v1 Checkpoint signatures.
-            if domain == "queue":
-                service_limit = signature_definition["parameters"].get(
-                    "facility_queues.abandon_after_minutes_by_service.*"
-                )
-                if isinstance(service_limit, dict):
-                    service_limit.pop("scope", None)
-                if model_id == "strict-fifo-queue-v1":
-                    # Before catalog applicability was enforced, Strict FIFO
-                    # advertised NeedWeighted's unused fields. Rebuild that
-                    # historical manifest solely for old Checkpoint signatures;
-                    # the live catalog and override path correctly expose none.
-                    assumption = signature_definition["assumption_source_id"]
-                    legacy_defaults = {
-                        "facility_queues.abandon_after_minutes_by_service.*": (
-                            "minute",
-                            {"toilet": 120, "water": 240, "meal": 360},
-                            1,
-                            10080,
-                        ),
-                        "facility_queues.retry_delay_minutes": ("minute", 15, 1, 1440),
-                        "facility_queues.persistence_urgency_threshold": (
-                            "normalized_0_1",
-                            0.8,
-                            0.0,
-                            1.0,
-                        ),
-                    }
-                    signature_definition["parameters"] = {
-                        path: {
-                            "unit": unit,
-                            "default": default,
-                            "lower": lower,
-                            "upper": upper,
-                            "lower_exclusive": False,
-                            "source_id": assumption,
-                            "evidence_grade": "C",
-                            "applicability": "Uncalibrated installed model assumption.",
-                        }
-                        for path, (unit, default, lower, upper) in legacy_defaults.items()
-                    }
-                    signature_inputs = {
-                        "facility_queues": deepcopy(configs.get("facility_queues", {}))
-                    }
-            if domain == "zone_environment":
-                # The complete zone_environment config (including any prior
-                # baseline_by_zone values) was already fingerprinted. Hide this
-                # metadata-only catalog addition to preserve legacy signatures;
-                # the actual configured baseline remains covered by config_hash.
-                signature_definition["parameters"].pop("zone_environment.baseline_by_zone.*", None)
-            if domain == "body_dynamics":
-                body_config = configs.get("body_dynamics", {})
-                # Per-Agent coefficient metadata is additive. Preserve default
-                # Checkpoint signatures until a Scenario actually configures it.
-                for field in (
-                    "sleep_debt_stress_rate_by_agent",
-                    "negative_affect_stress_rate_by_agent",
-                    "discontent_stress_rate_by_agent",
-                    "complaint_reassurance_gain_by_agent",
-                ):
-                    if not body_config.get(field):
-                        signature_definition["parameters"].pop(f"body_dynamics.{field}.*", None)
-            if domain == "psychology":
-                psychology_config = configs.get("psychology", {})
-                # The resident-specific need rates are additive metadata. Empty
-                # maps are omitted so existing Checkpoint signatures stay stable.
-                for field in (
-                    "toilet_growth_by_agent",
-                    "hunger_growth_by_agent",
-                    "awake_fatigue_growth_by_agent",
-                ):
-                    if not psychology_config.get(field):
-                        signature_definition["parameters"].pop(f"psychology.{field}.*", None)
-                        if isinstance(signature_inputs.get("psychology"), dict):
-                            signature_inputs["psychology"].pop(field, None)
-            if domain == "behavior":
-                behavior_config = configs.get("behavior", {})
-                # Per-Agent behavior maps add new fingerprint inputs without
-                # changing hashes for Scenarios that use the shared defaults.
-                for field in (
-                    "decision_interval_minutes_by_agent",
-                    "temperature_by_agent",
-                ):
-                    if not behavior_config.get(field):
-                        signature_definition["parameters"].pop(f"behavior.{field}.*", None)
-                        if isinstance(signature_inputs.get("behavior"), dict):
-                            signature_inputs["behavior"].pop(field, None)
-            if domain == "care_outcome" and not configs.get("body_dynamics", {}).get(
-                "hygiene_support_relief_by_agent"
-            ):
-                # Resident-specific care metadata is additive to legacy care
-                # signatures; configured maps are also included in config_hash.
-                signature_definition["parameters"].pop(
-                    "body_dynamics.hygiene_support_relief_by_agent.*", None
-                )
-            # The staff-specific fatigue threshold is additive. Keep the original
-            # signature for legacy/default configurations so their Checkpoints
-            # remain byte-compatible; customized maps sign both the new metadata
-            # and their actual per-staff values.
-            if domain == "staff_fatigue":
-                staff_config = configs.get("staff_dynamics", {})
-                per_staff = staff_config.get("max_continuous_work_minutes_by_staff", {})
-                if not per_staff:
-                    signature_definition["parameters"].pop(
-                        "staff_dynamics.max_continuous_work_minutes_by_staff.*", None
-                    )
-                    if isinstance(signature_inputs.get("staff_dynamics"), dict):
-                        signature_inputs["staff_dynamics"].pop(
-                            "max_continuous_work_minutes_by_staff", None
-                        )
-            if domain == "staff_operations":
-                staff_config = configs.get("staff_operations", {})
-                thresholds = staff_config.get("thresholds_by_zone", {})
-                effects = staff_config.get("effects_by_zone", {})
-                task_durations = signature_definition["parameters"].get(
-                    "staff_operations.task_duration_minutes.*"
-                )
-                if isinstance(task_durations, dict):
-                    # The task-kind scope makes an existing coefficient overrideable;
-                    # only the actual configured durations belong in the signature.
-                    task_durations.pop("scope", None)
-                    task_durations.pop("replaceable", None)
-                    task_durations.pop("applicability", None)
-                if not thresholds:
-                    signature_definition["parameters"].pop(
-                        "staff_operations.thresholds_by_zone.*", None
-                    )
-                    if isinstance(signature_inputs.get("staff_operations"), dict):
-                        signature_inputs["staff_operations"].pop("thresholds_by_zone", None)
-                if not effects:
-                    signature_definition["parameters"].pop(
-                        "staff_operations.effects_by_zone.*", None
-                    )
-                    if isinstance(signature_inputs.get("staff_operations"), dict):
-                        signature_inputs["staff_operations"].pop("effects_by_zone", None)
-            metadata_hash = hashlib.sha256(
-                json.dumps(
-                    signature_definition, sort_keys=True, separators=(",", ":"), allow_nan=False
-                ).encode()
-            ).hexdigest()
-            config_hash = hashlib.sha256(
-                json.dumps(
-                    signature_inputs,
-                    sort_keys=True,
-                    separators=(",", ":"),
-                    allow_nan=False,
-                ).encode()
-            ).hexdigest()
-            base += f":manifest={metadata_hash}:inputs={config_hash}"
-        policies[f"policy:{domain}"] = base
-    signatures = {
-        **policies,
-        **simulator_signatures(configs),
-        **state_signatures(configs),
-        # The whole-model version and the RNG algorithm (core/model_version.py).
-        **engine_signatures(),
-    }
-    if suite_id is not None:
-        implicit = SUITE_RUNTIME_RESOLVED_DOMAINS - set(configs["policy_registry"])
-        signatures["model_suite"] = f"{suite_id}@{2 if implicit else 1}"
-    return signatures
-
-
-def configuration_hash(configs: dict[str, dict[str, Any]]) -> str:
-    return hashlib.sha256(
-        json.dumps(configs, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
-    ).hexdigest()

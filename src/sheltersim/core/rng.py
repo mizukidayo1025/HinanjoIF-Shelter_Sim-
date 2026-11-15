@@ -5,22 +5,12 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from typing import Protocol
 
 RNGKeyPart = str | int
 
 # Text that JSON writes between quotes unchanged (ensure_ascii=False escapes only
 # control characters, backslashes and quotes).
 _PLAIN_TEXT = re.compile(r'[^\x00-\x1f\\"]*')
-
-
-class KeyedRandom(Protocol):
-    """Interface injected into simulation phases that need random values."""
-
-    @property
-    def metadata(self) -> dict[str, str | int]: ...
-
-    def random(self, *key_parts: RNGKeyPart) -> float: ...
 
 
 class CounterRNG:

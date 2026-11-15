@@ -1,18 +1,12 @@
-"""Generated Scenarios with entered food and water stock run a whole day.
-
-The stall record, request-history and in-room routing checks behind this are unit
-tests in tests/unit/domain/test_queueing.py, tests/unit/core/test_world.py and
-tests/unit/domain/test_movement.py.
-"""
+"""Generated Scenarios with entered food and water stock run a whole day in the core."""
 
 from __future__ import annotations
 
 import copy
-import json
 
 import pytest
 
-from sheltersim.experiments.runner import run_scenario
+from sheltersim import native
 from sheltersim.experiments.scenario import ScenarioSpec
 
 
@@ -37,6 +31,7 @@ def test_generated_scenario_with_entered_stock_completes_a_day(
         },
     )
     assert preview["approval_blockers"] == []
-    run_scenario(ScenarioSpec.model_validate(copy.deepcopy(preview["scenario"])), tmp_path)
-    manifest = json.loads((tmp_path / "manifest.json").read_text("utf-8"))
-    assert manifest["final_minute"] == 1440
+    del tmp_path
+    scenario = ScenarioSpec.model_validate(copy.deepcopy(preview["scenario"]))
+    run = native.rules("plain").PlainRun.from_scenario(scenario.canonical_json().encode())
+    assert run.advance(1440) == 1440

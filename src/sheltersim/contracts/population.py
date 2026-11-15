@@ -8,7 +8,6 @@ from pydantic import Field, model_validator
 
 from sheltersim.contracts.extensions import ExtensionModel, Identifier
 from sheltersim.contracts.operations import SupportKind
-from sheltersim.core.state_mirror import read_only_part
 
 
 class PersonContext(ExtensionModel):
@@ -45,43 +44,12 @@ class HouseholdContext(ExtensionModel):
     source_ids: tuple[Identifier, ...] = ()
 
 
-class DynamicArrivalPersonContext(ExtensionModel):
-    """Optional per-member support request context for a typed arrival batch."""
-
-    member_index: int = Field(strict=True, ge=0, le=999)
-    care_support_needs: tuple[SupportKind, ...] = Field(default=(), max_length=8)
-
-    @model_validator(mode="after")
-    def unique_nonempty_support_needs(self) -> DynamicArrivalPersonContext:
-        if len(self.care_support_needs) != len(set(self.care_support_needs)):
-            raise ValueError("dynamic arrival care support kinds cannot contain duplicates")
-        if not self.care_support_needs:
-            raise ValueError("dynamic arrival context override requires a care support kind")
-        return self
-
-
 class PopulationContext(ExtensionModel):
     schema_version: Literal[1] = 1
     people: dict[Identifier, PersonContext]
     households: dict[Identifier, HouseholdContext] = Field(default_factory=dict)
     resident_distribution_source_ids: tuple[Identifier, ...] = ()
     evacuation_selection_source_ids: tuple[Identifier, ...] = ()
-
-
-def population_context_people(world: Any) -> dict[str, dict[str, Any]]:
-    """Merge immutable Scenario context with persisted context for dynamic arrivals."""
-    configured = world.model_configs.get("population_context", {})
-    people = configured.get("people", {}) if isinstance(configured, dict) else {}
-    merged = dict(people) if isinstance(people, dict) else {}
-    saved_context = world.model_state.get("population_context_v1", {})
-    saved_people = saved_context.get("people", {}) if isinstance(saved_context, dict) else {}
-    if isinstance(saved_people, dict):
-        merged.update(saved_people)
-    # A detached namespace gives a new document of that one part of its row.
-    dynamic_people = read_only_part(world, "population_dynamics_v1", "profile_context", {})
-    if isinstance(dynamic_people, dict):
-        merged.update(dynamic_people)
-    return merged
 
 
 def validate_population_context(scenario: Any) -> None:

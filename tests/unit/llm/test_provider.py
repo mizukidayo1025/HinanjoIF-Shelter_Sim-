@@ -23,7 +23,17 @@ from sheltersim.llm.contracts import (
 )
 from sheltersim.llm.generation import generate_initial_needs
 from sheltersim.llm.provider import AnthropicProvider, LLMExecutionError, LLMRouter
-from sheltersim.llm.schemas import SUPPORT_ADVICE_SCHEMA
+
+# A small runtime output contract for the router's tests.
+SUPPORT_ADVICE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "priority": {"type": "integer", "enum": [0, 1]},
+        "rationale": {"type": "string", "maxLength": 160},
+    },
+    "required": ["priority", "rationale"],
+    "additionalProperties": False,
+}
 
 
 class FakeProvider:

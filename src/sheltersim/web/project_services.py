@@ -1,5 +1,6 @@
-"""The Project routes of the local and VM versions that the browser has not: the catalog of the
-contracts and the LLM usage of a Project and of a Run (the Python server's LLM Provider)."""
+"""The Project routes of the local and VM versions that the browser has not: the EffectProgram
+operations the core schedules, and the LLM usage of a Project and of a Run (the Python server's LLM
+Provider)."""
 
 from __future__ import annotations
 
@@ -9,6 +10,61 @@ from urllib.parse import parse_qs
 from sheltersim.storage.projects import StorageError, digest
 from sheltersim.storage.usage import UsageLedger
 from sheltersim.web.project_queries import page
+
+# The EffectProgram operations the core schedules (`native/core/src/program.rs`, `primitive`): the
+# ones the reading of an intervention's text gives.
+EFFECT_PRIMITIVES = [
+    {
+        "op": "add_evacuees",
+        "target_kinds": ["zone"],
+        "units": ["evacuee"],
+        "required_policies": ["population_dynamics_v1"],
+        "timed": False,
+        "description": "Generate synthetic household arrivals and admit them within zone capacity.",
+    },
+    {
+        "op": "add_staff",
+        "target_kinds": ["zone"],
+        "units": ["staff_member"],
+        "required_policies": ["staff_operations"],
+        "timed": False,
+        "description": "Add a bounded number of ordinary support staff to an existing zone.",
+    },
+    {
+        "op": "add_toilet",
+        "target_kinds": ["zone"],
+        "units": ["toilet_stall"],
+        "required_policies": ["facility_capacity"],
+        "timed": False,
+        "description": "Add bounded single-unit toilet facilities to an existing zone.",
+    },
+    {
+        "op": "depart_evacuees",
+        "target_kinds": ["zone"],
+        "units": ["evacuee"],
+        "required_policies": ["population_dynamics_v1"],
+        "timed": False,
+        "description": (
+            "Remove admitted dynamic residents and defer departure while tasks are active."
+        ),
+    },
+    {
+        "op": "facility_outage",
+        "target_kinds": ["facility"],
+        "units": ["facility_unit"],
+        "required_policies": ["facility_capacity"],
+        "timed": True,
+        "description": "Compatibility primitive that removes a bounded number of working units.",
+    },
+    {
+        "op": "water_outage",
+        "target_kinds": ["facility", "zone"],
+        "units": ["water_supply"],
+        "required_policies": ["operational_events_v1", "resource_service_v1"],
+        "timed": True,
+        "description": "Block new water-service starts at an existing water station or its zone.",
+    },
+]
 
 
 def one_query(query: str, allowed: set[str]) -> dict[str, str]:
@@ -32,121 +88,7 @@ class ProjectServices:
         project_id = parts[0]
         if len(parts) == 2 and parts[1] == "contracts" and not query:
             self.api.files.project(project_id)
-            from sheltersim.contracts.evidence import operator_evidence_catalog
-            from sheltersim.contracts.extensions import FacilityServicePoint as GeometryServicePoint
-            from sheltersim.contracts.operations import (
-                ActionLifecycleReceipt,
-                CareTransitionReceipt,
-                EquipmentTransferParameters,
-                FacilityRecoveryReceipt,
-                FacilityRepairParameters,
-                OperationalDemandSnapshot,
-                SharedOperationsConfig,
-                SharedOperationsState,
-                StaffHandoffParameters,
-                StaffHandoffReceipt,
-                StaffSupportContinuityReceipt,
-                TemporaryRoomGeometry,
-            )
-            from sheltersim.contracts.policies import model_catalog
-            from sheltersim.contracts.population import PopulationContext
-            from sheltersim.contracts.presence import PresenceState, PresenceTransition
-            from sheltersim.contracts.runtime import ModelStateProposal, state_catalog
-            from sheltersim.contracts.spatial import PopulationTransition, SpatialConstraints
-            from sheltersim.contracts.workspace import HistoryQuery, StateDescriptor
-            from sheltersim.domain.simulator_state import simulator_state_catalog
-            from sheltersim.events.effects import available_primitives
-
-            return {
-                "schema_version": 1,
-                "history_query": HistoryQuery.model_json_schema(),
-                "spatial_constraints": SpatialConstraints.model_json_schema(),
-                "population_transition": PopulationTransition.model_json_schema(),
-                "population_context": PopulationContext.model_json_schema(),
-                "presence_state": PresenceState.model_json_schema(),
-                "presence_transition": PresenceTransition.model_json_schema(),
-                "state_descriptor": StateDescriptor.model_json_schema(),
-                "model_state_proposal": ModelStateProposal.model_json_schema(),
-                "states": state_catalog(),
-                "simulator_states": simulator_state_catalog(),
-                "operator_evidence": operator_evidence_catalog(),
-                "models": model_catalog(),
-                "policy_registry_schema_versions": [1, 2, 3],
-                "policy_models": model_catalog(),
-                "facility_service_point": GeometryServicePoint.model_json_schema(),
-                "shared_operations_config": SharedOperationsConfig.model_json_schema(),
-                "shared_operations_state": SharedOperationsState.model_json_schema(),
-                "action_lifecycle_receipt": ActionLifecycleReceipt.model_json_schema(),
-                "care_transition_receipt": CareTransitionReceipt.model_json_schema(),
-                (
-                    "staff_support_continuity_receipt"
-                ): StaffSupportContinuityReceipt.model_json_schema(),
-                "staff_handoff_receipt": StaffHandoffReceipt.model_json_schema(),
-                "facility_recovery_receipt": FacilityRecoveryReceipt.model_json_schema(),
-                "operational_demand_snapshot": OperationalDemandSnapshot.model_json_schema(),
-                "executable_effect_primitives": available_primitives(),
-                "typed_effect_contracts_only": {
-                    "execution_status": "schemas_with_registered_effect_program_handlers",
-                    "schemas": {
-                        "temporary_room_geometry": TemporaryRoomGeometry.model_json_schema(),
-                        "equipment_transfer": EquipmentTransferParameters.model_json_schema(),
-                        "staff_handoff": StaffHandoffParameters.model_json_schema(),
-                        "facility_repair": FacilityRepairParameters.model_json_schema(),
-                    },
-                    "temporary_room_beds": {
-                        "policy_version": "exclusive-physical-sleep-beds-v1",
-                        "enabled_by": "geometry_overlay.schema_version=2, 3 or 4",
-                        "route_scope": "same_zone_in_room_route",
-                    },
-                    "temporary_room_intake": {
-                        "policy_version": "physical-temporary-room-intake-v1",
-                        "enabled_by": "geometry_overlay.schema_version=3 or 4",
-                        "arrival_parameters": {
-                            "admission_zone_ids": "explicit ordered fallback zones",
-                            "approach_route_id": (
-                                "optional FacilityGeometry.arrival_approach_routes ID ending at "
-                                "the preferred zone"
-                            ),
-                        },
-                        "capacity": (
-                            "active room people_capacity; assignments persist through expiry"
-                        ),
-                        "arrival_movement": (
-                            "optional operator/source-supplied route with explicit metric "
-                            "coordinates and walking speed, checkpointed progress, entrance "
-                            "waiting, and admission history; route-free arrivals retain direct "
-                            "admission"
-                        ),
-                    },
-                },
-                "time_semantics": {
-                    "operation_receipts": (
-                        "event realized_minute; transition occurs at this boundary"
-                    ),
-                    "timeline_frames": "before_tick",
-                    "operational_demand": "before_tick observed state only",
-                },
-                "errors": {
-                    "operation_receipts": [
-                        "contract_not_enabled",
-                        "unapplied_or_unmatched_event",
-                        "event_payload_mismatch",
-                        "identity_or_transition_mismatch",
-                        "unobserved_state_result",
-                    ],
-                    "service_point": [
-                        "geometry_schema_invalid",
-                        "service_point_unknown_facility",
-                        "service_point_outside_zone",
-                        "service_point_in_obstacle",
-                        "service_point_on_wall",
-                        "service_point_outside_equipment",
-                        "service_point_in_other_equipment",
-                        "service_point_access_route_missing",
-                        "service_point_capacity_exceeds_facility",
-                    ],
-                },
-            }
+            return {"schema_version": 2, "executable_effect_primitives": EFFECT_PRIMITIVES}
         if len(parts) == 2 and parts[1] == "usage":
             values = one_query(query, {"limit", "cursor"})
             limit = int(values.get("limit", "25"))

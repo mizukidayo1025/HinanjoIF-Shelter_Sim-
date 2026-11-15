@@ -1,92 +1,26 @@
 """The corpus of Scenarios the core's minute-0 builder is checked on (#429).
 
-`fixtures/initial_corpus.json.xz` holds Scenarios recorded from the offline test suite: every
-Scenario that `WorldState.from_scenario` built while `tests/unit` and `tests/integration` ran,
-one per fingerprint of their configs (`configs_fingerprint`, the smallest Scenario of each), so
-that each installed model, extension and config the tests use is there once. Each case
-holds the Scenario's canonical JSON, the sha256 and length of what
-`export_world(world, controller)` writes of its world at minute 0 with the Run's controller
-(sorted keys, no spaces), and the sha256 of a new Run's records (`model_signatures` and the
-evidence route's answer, as canonical JSON), or the class and text of the error the evidence
-route raises. `tests/unit/core/test_world_export.py` checks that
-the core builds the same bytes (`sheltersim_native.initial_entry`, `initial_model_versions`,
-`initial_evidence`), against Python and against the recorded digests.
-
-`python benchmarks/initial_corpus.py` records it again: it runs the suite with this module as a
-pytest plugin (`-p support.initial_corpus`), which writes each Scenario to the directory named by
-`SHELTERSIM_RECORD_SCENARIOS`, then keeps those Python builds. The file is xz-compressed: the
-Scenarios share most of their text.
+`fixtures/initial_corpus.json.xz` holds Scenarios recorded from the offline test suite before
+#430: every Scenario that Python's `WorldState.from_scenario` built while `tests/unit` and
+`tests/integration` ran, one per fingerprint of their configs, so that each installed model,
+extension and config the tests used is there once. Each case holds the Scenario's canonical JSON,
+the sha256 and length of the entry Python exported of its world at minute 0 with the Run's
+controller, and the sha256 of a new Run's records (the model versions and the evidence route's
+answer), or the class and text of the error the evidence route raised. The core built the same
+bytes when they were recorded; `integration/test_initial_corpus.py` checks that it still does. The
+file is xz-compressed: the Scenarios share most of their text. Nothing records it again since the
+Python builder was removed (#430).
 """
 
 from __future__ import annotations
 
-import gc
-import hashlib
 import json
 import lzma
-import os
-from pathlib import Path
 from typing import Any
 
 from support.paths import INITIAL_CORPUS
 
 SCHEMA_VERSION = 3
-# The configs whose contents are a Scenario's own data (its floor plan and its people): the
-# fingerprint keeps only that they are there.
-DATA_CONFIGS = ("facility_geometry", "population", "population_context", "spatial_constraints")
-RECORD_DIRECTORY = "SHELTERSIM_RECORD_SCENARIOS"
-
-
-def entry_bytes(scenario: Any) -> bytes:
-    """`export_world(world, controller)` of the Scenario's world at minute 0, set up for a Run as
-    `run_scenario` sets it up (offline, traces off), as the browser's sample writes an entry
-    (sorted keys, no spaces, not ASCII-escaped)."""
-    import tempfile
-
-    from sheltersim.core.engine import TickEngine, TraceLevel
-    from sheltersim.core.world import WorldState
-    from sheltersim.core.world_export import export_world
-    from sheltersim.experiments.runner import OfflineSimulationController
-    from sheltersim.inspection.traces import RunArtifactWriter
-
-    world = WorldState.from_scenario(scenario)
-    # The artifacts' trace spool (SQLite) stays open while the controller lives, which Windows does
-    # not let the cleanup remove.
-    with tempfile.TemporaryDirectory(
-        prefix="initial-corpus-", ignore_cleanup_errors=True
-    ) as directory:
-        artifacts = RunArtifactWriter(scenario, directory, trace_level=TraceLevel.OFF)
-        artifacts.write_initial(world, execution_mode="offline")
-        controller = OfflineSimulationController(world, artifacts)
-        TickEngine(world, phase_handler=controller)
-        entry = export_world(world, controller)
-        del controller, artifacts
-        gc.collect()
-    return json.dumps(entry, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode()
-
-
-def canonical_bytes(value: Any) -> bytes:
-    return json.dumps(value, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode()
-
-
-def configs_fingerprint(configs: dict[str, Any]) -> str:
-    """The sha256 of the canonical JSON of the configs, each of `DATA_CONFIGS` there as `true`."""
-    masked = {key: True if key in DATA_CONFIGS else value for key, value in configs.items()}
-    return hashlib.sha256(canonical_bytes(masked)).hexdigest()
-
-
-def versions_bytes(scenario: Any) -> bytes:
-    """A new Run's `model_signatures`, as canonical JSON."""
-    from sheltersim.contracts.policies import model_signatures
-
-    return canonical_bytes(model_signatures(scenario.model_configs))
-
-
-def evidence_bytes(scenario: Any) -> bytes:
-    """The evidence route's answer for a new Run, as canonical JSON."""
-    from support.core_initial import evidence_answer
-
-    return canonical_bytes(evidence_answer(scenario))
 
 
 def error_text(error: BaseException) -> str:
@@ -99,73 +33,3 @@ def load_corpus() -> list[dict[str, Any]]:
     if document["schema_version"] != SCHEMA_VERSION:
         raise ValueError("the corpus has another schema_version")
     return document["cases"]
-
-
-def corpus_of(directory: Path) -> dict[str, Any]:
-    """The corpus of the Scenarios recorded in `directory`: one per fingerprint of the configs,
-    the smallest, among those Python builds a world of."""
-    from sheltersim.experiments.scenario import ScenarioSpec
-
-    smallest: dict[str, str] = {}
-    for path in sorted(directory.glob("*.json")):
-        text = path.read_text(encoding="utf-8")
-        fingerprint = configs_fingerprint(json.loads(text)["model_configs"])
-        known = smallest.get(fingerprint)
-        if known is None or (len(text), text) < (len(known), known):
-            smallest[fingerprint] = text
-    cases = []
-    for text in sorted(smallest.values(), key=lambda text: hashlib.sha256(text.encode()).digest()):
-        try:
-            scenario = ScenarioSpec.model_validate_json(text)
-            entry = entry_bytes(scenario)
-            versions = versions_bytes(scenario)
-        except Exception:  # noqa: BLE001 - a Scenario only a test's own registrations accept
-            continue
-        if scenario.canonical_json() != text:
-            continue
-        case = {
-            "scenario": text,
-            "entry_sha256": hashlib.sha256(entry).hexdigest(),
-            "entry_bytes": len(entry),
-            "model_versions_sha256": hashlib.sha256(versions).hexdigest(),
-        }
-        try:
-            case["evidence_sha256"] = hashlib.sha256(evidence_bytes(scenario)).hexdigest()
-        except Exception as error:  # noqa: BLE001 - the route's error is what the core must raise
-            case["evidence_error"] = error_text(error)
-        cases.append(case)
-    return {"schema_version": SCHEMA_VERSION, "cases": cases}
-
-
-def write_corpus(directory: Path) -> Path:
-    document = json.dumps(corpus_of(directory), sort_keys=True, separators=(",", ":"))
-    INITIAL_CORPUS.write_bytes(lzma.compress(document.encode(), preset=9 | lzma.PRESET_EXTREME))
-    return INITIAL_CORPUS
-
-
-# ---- The recording plugin ----------------------------------------------------------------------
-
-
-def pytest_configure(config: Any) -> None:
-    """With `SHELTERSIM_RECORD_SCENARIOS` set, write each Scenario `WorldState.from_scenario` is
-    given to that directory, named by the sha256 of its canonical JSON."""
-    directory = os.environ.get(RECORD_DIRECTORY)
-    if not directory:
-        return
-    from sheltersim.core.world import WorldState
-
-    original = WorldState.from_scenario.__func__  # type: ignore[attr-defined]
-
-    def from_scenario(cls: Any, scenario: Any) -> Any:
-        try:
-            text = scenario.canonical_json()
-        except Exception:  # noqa: BLE001 - a test's broken Scenario is not recorded
-            return original(cls, scenario)
-        path = Path(directory) / f"{hashlib.sha256(text.encode()).hexdigest()}.json"
-        if not path.exists():
-            partial = path.with_suffix(f".{os.getpid()}.part")
-            partial.write_text(text, encoding="utf-8")
-            partial.replace(path)
-        return original(cls, scenario)
-
-    WorldState.from_scenario = classmethod(from_scenario)  # type: ignore[method-assign]

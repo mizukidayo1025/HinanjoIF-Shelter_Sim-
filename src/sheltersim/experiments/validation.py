@@ -13,8 +13,9 @@ from typing import Any, Literal
 
 from pydantic import Field, model_validator
 
+from sheltersim import native
 from sheltersim.contracts.extensions import ExtensionModel, Identifier
-from sheltersim.contracts.policies import model_catalog, model_signatures, selected_models
+from sheltersim.contracts.policies import model_catalog, selected_models
 from sheltersim.domain.models import InformationSpreadConfig
 from sheltersim.domain.staff import default_support_fairness_minutes
 from sheltersim.experiments.scenario import (
@@ -321,7 +322,7 @@ def evidence_context(
             }
             for domain, key in models.items()
         },
-        "model_versions": model_signatures(scenario.model_configs),
+        "model_versions": native.model_versions(scenario),
         "parameters": parameter_catalog(scenario),
         "source_manifest_hash": digest(source_manifest) if source_manifest else None,
         "sources_available": bool(source_manifest),
@@ -587,7 +588,7 @@ def evaluate_models(
                 "run_id": run_id,
                 "input_hash": input_hash,
                 "scenario_hash": digest(json.loads(scenario.canonical_json())),
-                "model_versions": model_signatures(scenario.model_configs),
+                "model_versions": native.model_versions(scenario),
                 "model_configs": scenario.model_configs,
                 "metrics": metrics,
                 "head_hash": branch["checkpoint_hash"],

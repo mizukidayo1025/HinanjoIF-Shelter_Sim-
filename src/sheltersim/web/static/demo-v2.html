@@ -34,7 +34,6 @@
       </div>
       <div class="clock">
         <small>シミュレーション時刻</small><strong id="clock">開始前</strong>
-        <small id="replay-status">計算済みの記録を再生</small>
       </div>
       <label class="speed-label"
         >再生速度<select id="speed">
@@ -499,15 +498,6 @@
               </p>
               <div id="issues"></div>
             </article>
-            <article class="panel branch-here-panel">
-              <h2><span data-icon="comparison" class="inline-icon"></span>ここから別の「もしも」を試す</h2>
-              <p class="fine">
-                この時刻から条件を変えた分岐を作り、分岐比較の画面で元のシナリオと並べて比べます。
-              </p>
-              <button id="branch-here" class="primary full" type="button" disabled>
-                この時刻から分岐を作る →
-              </button>
-            </article>
             <article id="people-panel" class="panel people-panel">
               <div class="people-panel-head">
                 <h2>♟ 避難者・スタッフの状態（抜粋）</h2>
@@ -529,31 +519,6 @@
             </article>
           </aside>
         </div>
-        <article id="compute-panel" class="panel compute-panel">
-          <h2>シミュレーションを計算する <small>マップやタイムラインに出るのは、ここで計算した時刻までです</small></h2>
-          <div class="compute-controls">
-            <label
-              >計算を進める時刻（経過分）<input
-                id="target"
-                type="number"
-                min="1"
-                step="1"
-                placeholder="例：60" /></label
-            ><button id="compute" class="primary" disabled>
-              ▶ この時刻まで計算</button
-            ><button id="compute-end" disabled>終了まで計算</button
-            ><button id="cancel" class="danger" disabled>計算を停止</button
-            ><progress
-              id="progress"
-              max="1"
-              value="0"
-              aria-label="計算進捗"
-            ></progress
-            ><span id="compute-status" class="fine"
-              >「計算」で結果を作り、「シミュレーションを再生」で計算済みの結果を見ます。</span
-            >
-          </div>
-        </article>
         <article class="panel timeline-panel">
           <div class="panel-title">
             <h2>
@@ -570,7 +535,10 @@
               value="0"
               aria-label="計算済み時刻に移動"
               disabled
-            /><output id="seek-label">開始前</output>
+            /><output id="seek-label">開始前</output
+            ><button id="branch-here" type="button" disabled>
+              この時刻から分岐を作る →
+            </button>
           </div>
           <h3 class="events-heading">
             発生したスタッフ対応・避難者支援など
@@ -593,19 +561,22 @@
             <small>BRANCH COMPARISON / 同じ時刻で、違いを見る</small>
             <h1 id="comparison-heading">その一手で、何が変わる？</h1>
           </div>
-          <button id="compare-refresh" class="primary" disabled>
-            共通の計算済み時刻で比較
-          </button>
         </div>
         <div class="comparison-top">
           <article id="intervention-panel" class="panel intervention-panel">
             <div class="panel-title">
               <h2><span data-icon="comparison" class="inline-icon"></span>この時刻から分岐を作る</h2>
-              <span id="intervention-base" class="badge"></span>
             </div>
             <p class="fine">
               計算済みの時刻から、作用・対象・時刻を確かめて分岐を作ります。計算中は作れません。
             </p>
+            <div class="fork-time">
+              <span id="intervention-base" class="fine"></span>
+              <label
+                >分岐する時刻<select id="fork-day" aria-label="分岐する日"></select
+                ><input id="fork-clock" type="time" step="60" aria-label="分岐する時刻" /></label
+              ><span id="fork-range" class="fine"></span>
+            </div>
             <label for="intervention-text">介入の指示</label
             ><textarea
               id="intervention-text"
@@ -652,15 +623,6 @@
               <option value="health">健康・ニーズ</option>
               <option value="operations">運営</option>
             </select></label
-          ><label class="compare-target-label"
-            >計算目標（経過分）<input
-              id="compare-target"
-              type="number"
-              min="1"
-              step="1"
-              placeholder="終了までの範囲" /></label
-          ><button id="compute-pair" class="primary" disabled>
-            目標まで両分岐を計算</button
           ><button data-zoom="in">＋ 両マップ拡大</button
           ><button data-zoom="out">− 両マップ縮小</button
           ><button data-zoom="reset">⌖ リセット</button
@@ -714,10 +676,6 @@
             緑：指標の減少 /
             赤：増加。介入の改善を保証するものではありません。同一起点の記述的比較であり、現実の因果効果を証明しません。
           </p>
-          <details>
-            <summary>分岐の起点（保存した時点）の根拠</summary>
-            <pre id="comparison-provenance"></pre>
-          </details>
         </article>
         <article id="multi-compare" class="panel multi-compare">
           <h2>ほかの分岐とも並べる <small>2〜8の分岐を同じ時刻の指標で比べます</small></h2>

@@ -369,9 +369,11 @@ COMPUTED = """() => {
   return {
     computed: match ? Number(match[1]) : null,
     clock: document.getElementById("clock").textContent,
-    status: document.getElementById("compute-status").textContent,
-    cancel: !document.getElementById("cancel").disabled,
-    computeEnd: !document.getElementById("compute-end").disabled,
+    mode: document.getElementById("play").dataset.mode,
+    label: document.querySelector("#play .play-label").textContent,
+    cancel: document.getElementById("play").dataset.mode === "cancel",
+    computeReady: document.getElementById("play").dataset.mode === "compute"
+      && !document.getElementById("play").disabled,
     noticeError: document.getElementById("notice").classList.contains("error")
       && !document.getElementById("notice").hidden,
     notice: document.getElementById("notice").textContent,
@@ -454,7 +456,8 @@ def computing(
     page.goto(base + f"/?project={PROJECT}&run={COMPUTE_RUN}&branch=main#simulation")
     page.wait_for_function(
         "() => document.body.dataset.view === 'simulation'"
-        " && !document.getElementById('compute-end').disabled",
+        " && document.getElementById('play').dataset.mode === 'compute'"
+        " && !document.getElementById('play').disabled",
         timeout=TIMEOUT_MS,
     )
     steps["open_s"] = round(time.perf_counter() - started, 2)
@@ -463,15 +466,19 @@ def computing(
         problems.append(f"the compute Run is not new: {steps['created']['status']}")
     done = lambda state: state["computed"] == 10080 and not state["cancel"]  # noqa: E731
     started = time.perf_counter()
-    page.click("#compute-end")
+    # The header's one button (#441): 「計算する」 computes to the end, 「中止」 cancels,
+    # 「続きから計算する」 goes on.
+    page.click("#play")
     if mode == "pieces":
         _watch(page, lambda state: (state["computed"] or 0) >= 1440, watched, problems, "a day")
-        page.click("#cancel")
-        _watch(page, lambda state: not state["cancel"], watched, problems, "cancel")
+        page.click("#play")
+        cancelled = _watch(page, lambda state: state["computeReady"], watched, problems, "cancel")
         steps["cancelled"] = _record(page)
         if steps["cancelled"]["status"] != "paused":
             problems.append(f"cancelled: the Run is {steps['cancelled']['status']}")
-        page.click("#compute-end")
+        if cancelled["label"] != "続きから計算する":
+            problems.append(f"after cancelling, the button says {cancelled['label']!r}")
+        page.click("#play")
         _watch(page, lambda state: (state["computed"] or 0) >= 4320, watched, problems, "3 days")
         if screenshots:
             page.screenshot(path=str(screenshots / f"{name}-{mode}-computing.png"))
@@ -488,12 +495,19 @@ def computing(
             problems.append(
                 f"reopened: {reopened['status']} at {reopened['branches'][0]['computed_until']}"
             )
-        page.click("#compute-end")
+        page.wait_for_function(
+            "() => document.getElementById('play').dataset.mode === 'compute'"
+            " && !document.getElementById('play').disabled",
+            timeout=TIMEOUT_MS,
+        )
+        page.click("#play")
     final = _watch(page, done, watched, problems, "the end")
     steps["compute_s"] = round(time.perf_counter() - started, 2)
     steps["finished"] = _record(page)
     if steps["finished"]["status"] != "completed":
         problems.append(f"at the end: the Run is {steps['finished']['status']}")
+    if final.get("mode") != "play":
+        problems.append(f"at the end, the button is {final.get('mode')!r}, not the replay")
     clocks = sorted({state["clock"] for state in watched})
     steps["clocks"] = len(clocks)
     if len(clocks) < 5:

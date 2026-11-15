@@ -110,7 +110,7 @@ Branchの指標の時系列（`GET …/history?kind=kpis`）、レポート（`G
 node native/wasm/tests/node_api_answers.mjs wasm-pkg
 ~~~
 
-APIキーなしの介入の読み取り（画面の「ここから別の『もしも』を試す」の文、#303）は、中核の`sheltersim_core::interpret`（WASMの`compileInterventionOffline`）が、Pythonの`compile_natural_language`がAPIキーなしで返す`CompilerResult`と同じbytesで答えます。規則の読み取り、節の網羅、6つの作用の検証、結果の文、usageのhashを移しました。正規表現はPythonの書き方のまま、Pythonの`\w`・`\b`・`\d`・`\s`の意味で動かします（`native/core/src/interpret/text.rs`）。primitiveの説明とschema、10進の数字の表はPythonが書き（`native/core/tools/interpret_tables.py`）、pytestが古くないか確かめます。`native/wasm/tests/node_interpret.mjs`が、`native/core/tests/data/offline_interpreter.json`の文と要約の組で、Pythonの答えと同じsha256になることを確かめます。CIの`ブラウザー版の計算`のjobも動かします。
+APIキーなしの介入の読み取り（画面の「この時刻から分岐を作る」の介入の文、#303）は、中核の`sheltersim_core::interpret`（WASMの`compileInterventionOffline`）が、Pythonの`compile_natural_language`がAPIキーなしで返す`CompilerResult`と同じbytesで答えます。規則の読み取り、節の網羅、6つの作用の検証、結果の文、usageのhashを移しました。正規表現はPythonの書き方のまま、Pythonの`\w`・`\b`・`\d`・`\s`の意味で動かします（`native/core/src/interpret/text.rs`）。primitiveの説明とschema、10進の数字の表はPythonが書き（`native/core/tools/interpret_tables.py`）、pytestが古くないか確かめます。`native/wasm/tests/node_interpret.mjs`が、`native/core/tests/data/offline_interpreter.json`の文と要約の組で、Pythonの答えと同じsha256になることを確かめます。CIの`ブラウザー版の計算`のjobも動かします。
 
 ~~~shell
 node native/wasm/tests/node_interpret.mjs wasm-pkg
@@ -159,7 +159,7 @@ node native/wasm/tests/node_browser_api.mjs wasm-pkg
 
 #### ブラウザーで計算する（#267の段階B）
 
-計算するRunは、Scenarioから作ります（`scenario_routes.mjs`の`POST runs`。シナリオの承認と同じく、WASMが0分の世界を作ります）。#411の前は、Workerが例を読み込んだ後に、例のRunと同じScenarioの計算していないRun（`run-browser-compute`）を作り、ホームの「このブラウザーで計算」に出していました。開発者が計算時間を見るためのものだったので、画面とWorkerから外しました。計算時間は`benchmarks/static_site_check.py --compute`で計ります（下の段落）。頁がブラウザーの「戻る」のcache（back-forward cache）から出たときは、読み直します。サイトを上げ直した後に古い頁が残らないようにするためです。画面では、Runを開き、「終了まで計算」（`#compute-end`）か、分を決めて「この時刻まで計算」を押します。
+計算するRunは、Scenarioから作ります（`scenario_routes.mjs`の`POST runs`。シナリオの承認と同じく、WASMが0分の世界を作ります）。#411の前は、Workerが例を読み込んだ後に、例のRunと同じScenarioの計算していないRun（`run-browser-compute`）を作り、ホームの「このブラウザーで計算」に出していました。開発者が計算時間を見るためのものだったので、画面とWorkerから外しました。計算時間は`benchmarks/static_site_check.py --compute`で計ります（下の段落）。頁がブラウザーの「戻る」のcache（back-forward cache）から出たときは、読み直します。サイトを上げ直した後に古い頁が残らないようにするためです。画面では、Runを開き、ヘッダーの「計算する」（`#play`、#441）で最後まで計算します。計算中は同じボタンが「中止」になります。
 
 | 道 | 答え |
 |---|---|
@@ -224,7 +224,7 @@ python scripts/serve_static_site.py ../hinanjo-if-site --port 8000
 
 サイトが画面の道に正しく答えるかは、`benchmarks/static_site_check.py`で確かめます。サイトを上のserverで配り、PlaywrightのChromiumとFirefoxで、それぞれ空のOPFSから開きます。`/`のホームで「計算済みの例を取得する」から例を選んで読み込み、時刻の帯で分へ飛び、240×で数秒再生し、レポートの頁の時系列のグラフが出ること、ページの誤り・consoleの誤り・お知らせ欄の誤りがないことを確かめます。`--python-projects`に、`scripts/build_project_sample.py`で作ったProjectStore（例のmainと同じScenarioをPythonのProjectの経路で計算したもの）を渡すと、記録、保存した点とその間の分のtimeline、飛んだ後と続く再生の窓、いくつかの`step`とページ送りの時系列、report、llm-statusについて、ブラウザーの答えのJSONとPythonのserverの答え（同じプロセスの`ProjectAPI`）を、値の型まで比べます。違って当然の項目（置き場の大きさ、Branchの`checkpoint_hash`と時系列の`anchor_hash`・cursorの中のanchor）は除き、除いた項目と理由を結果に書きます。Runの記録とRunの一覧も、そのまま比べます。0分の`state_hash`も比べます。Scenarioから作った世界は、0分から乱数の名前（`rng_state`、`CounterRNG`の`algorithm`と`seed`）を持つので（#281）、PythonのProjectの経路の最初の保存と、ブラウザーが始める書き出した世界は同じです。PlaywrightとそのbrowserはProjectの依存ではないので、確かめる環境に入れます。計った時間は#266に記録しています。
 
-`--compute pieces full`を付けると、ブラウザーで計算するRunも確かめます（#267）。どちらも空のOPFSから始め、例を取り寄せてから、例のScenarioのRun（`run-check-compute`）を`POST runs`で作ります。`pieces`は、「終了まで計算」を押し、1日を過ぎたら止め、続け、3日を過ぎたらページを閉じ、開き直して`interrupted`と先頭の分を確かめ、最後まで続けます。`full`は7日を一度に計算して時間を計ります。計算中に画面の時計が進むこと、計算したRunで分へ飛ぶ・再生する・時系列のグラフが出ること、1分・4321分・10080分のframeとKPIの時系列が例のRunとRunのID以外同じ（同じScenarioとseedから同じ世界になる）ことを確かめます。計った時間は#267に記録しています。
+`--compute pieces full`を付けると、ブラウザーで計算するRunも確かめます（#267）。どちらも空のOPFSから始め、例を取り寄せてから、例のScenarioのRun（`run-check-compute`）を`POST runs`で作ります。`pieces`は、「計算する」を押し、1日を過ぎたら「中止」で止め、「続きから計算する」で続け、3日を過ぎたらページを閉じ、開き直して`interrupted`と先頭の分を確かめ、最後まで続けます。`full`は7日を一度に計算して時間を計ります。計算中に画面の時計が進むこと、計算したRunで分へ飛ぶ・再生する・時系列のグラフが出ること、1分・4321分・10080分のframeとKPIの時系列が例のRunとRunのID以外同じ（同じScenarioとseedから同じ世界になる）ことを確かめます。計った時間は#267に記録しています。
 
 ~~~shell
 SHELTERSIM_LLM_MODE=offline python scripts/build_project_sample.py sample-projects

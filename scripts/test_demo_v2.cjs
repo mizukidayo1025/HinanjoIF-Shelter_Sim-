@@ -128,10 +128,11 @@ async function main() {
       "offline",
       "test server must explicitly run offline",
     );
-    await page.locator("#target").fill("15");
-    await page.locator("#compute").click();
-    await idle();
-    await computed("main", 15);
+    // The header's one button computes to the end (#441).
+    const end = (await request(`/api/v1/projects/${project}`)).scenarios[0].scenario
+      .duration_minutes;
+    await page.locator("#play").click();
+    await computed("main", end);
     await page.locator("#seek").fill("5");
     await page.locator("#seek").dispatchEvent("change");
     await idle();
@@ -192,11 +193,15 @@ async function main() {
       parentBefore,
       "fork cannot change parent",
     );
-    await page.locator('[data-page="simulation"]').click();
-    await page.locator("#target").fill("36");
-    await page.locator('[data-page="comparison"]').click();
-    assert.equal(await page.locator("#compare-target").inputValue(), "36");
-    await page.locator("#compute-pair").click();
+    // The new branch computes to the end by itself (#441); then the comparison is read again.
+    await computed(child, end);
+    await page.waitForFunction(
+      (m) => Number(document.querySelector("#compare-seek").max) >= m,
+      end,
+      { timeout: 60000 },
+    );
+    await page.locator("#compare-seek").fill("36");
+    await page.locator("#compare-seek").dispatchEvent("change");
     await idle();
     const compare = await request(
       `${root}/compare?branch_ids=main,${child}&minute=36`,
@@ -212,8 +217,6 @@ async function main() {
       () => Number(document.querySelector("#compare-seek").value) > 5,
     );
     await page.locator("#play").click();
-    await page.locator("#compare-refresh").click();
-    await idle();
     await page.locator('[data-page="simulation"]').click();
     await page.locator("#seek").fill("36");
     await page.locator("#seek").dispatchEvent("change");

@@ -198,7 +198,6 @@ def main() -> None:
 
         page.locator('[data-page="comparison"]').click()
         page.locator("#compare-branch").select_option(args.branch)
-        page.locator("#compare-refresh").click()
         idle()
         page.locator("#compare-seek").fill(str(minute))
         page.locator("#compare-seek").dispatch_event("change")

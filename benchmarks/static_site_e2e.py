@@ -12,14 +12,16 @@ as a person would, in five stages:
 1. scenario: on `/?project=e2e#scenario`, 「例文を使う」 → preview → approve (a Run), then
    one form-input variant → preview → approve (a second Run); then `POST runs` of the first
    Scenario under another id, and of another Scenario under that id (409 run_id_conflict).
-2. compute: the first Run computed on the screen to its end: at once in the first browser
-   (`--modes`, full), a day, cancel, resume to the end in the second (pieces).
+2. compute: the first Run computed on the screen to its end with the header's one button (#441):
+   「計算する」 at once in the first browser (`--modes`, full); 「計算する」, 「中止」 after a day,
+   「続きから計算する」 to the end in the second (pieces).
 3. intervention: at Day 4 14:00 (minute 5160), 「この時刻から分岐を作る」 opens the comparison
    page, where the screen previews a few sentences (SENTENCES: the
    offline parser's add_staff, whose Zone is then picked with the screen's chip, add_toilet,
    water_outage, one it cannot read, and facility_outage), then applies "Day 4 14:00 toilet_01
-   outage" and computes the child to the end.
-4. compare: the screen's comparison of the two branches, then `compare` at several minutes and
+   outage"; the screen computes the child to the end by itself (#441).
+4. compare: the screen's comparison of the two branches as the page opens, then `compare` at
+   several minutes and
    two-branch replay windows.
 5. report: the report page (report, evidence, llm-status, the KPI history), a question (the
    offline fixed answer) and the PDF (409 pdf_analysis_offline, as the offline VM).
@@ -963,7 +965,10 @@ SCREEN = """() => ({
     && !document.getElementById("notice").hidden,
   computed: (/([0-9]+)分まで計算済み/.exec(
     document.getElementById("computed-label").textContent) || [])[1] ?? null,
-  cancel: !document.getElementById("cancel").disabled,
+  mode: document.getElementById("play").dataset.mode,
+  cancel: document.getElementById("play").dataset.mode === "cancel",
+  computeReady: document.getElementById("play").dataset.mode === "compute"
+    && !document.getElementById("play").disabled,
   seek: document.getElementById("seek").value,
   seekLabel: document.getElementById("seek-label").textContent,
 })"""
@@ -1174,17 +1179,20 @@ class Walk:
         self.page.evaluate("window.HinanjoBrowserApi.ready")
         self.view(view)
 
-    def open_comparison(self) -> None:
+    def open_comparison(self) -> dict[str, Any] | None:
         """The child branch's comparison page, as a person reaches it: the Run opened on the
-        child, then the comparison tab (the screen does not open on `#comparison`)."""
+        child, then the comparison tab (the screen does not open on `#comparison`). The page
+        reads the pair's comparison as it opens (#441: no 「比較を更新」); that request."""
         s = self.subject
         assert s is not None
         self.open(
             f"/?project={s.project}&run={s.run}&branch={quote(s.child)}#simulation",
             "simulation",
         )
+        since = self.mark()
         self.page.click("[data-page=comparison]")
         self.view("comparison")
+        return self.wait_caught(since, "GET", r"/compare$", timeout_s=120)
 
     # The stages.
     def stage_scenario(self) -> bool:
@@ -1313,17 +1321,27 @@ class Walk:
         self.probes(stage, compute_routes(s))
         return True
 
-    def compute(self, stage: str, project: str, run: str, branch: str, mode: str) -> bool:
+    def compute(
+        self, stage: str, project: str, run: str, branch: str, mode: str, since: int | None = None
+    ) -> bool:
         """Computes `branch` to its end on the screen (`mode` full: at once; pieces: a day,
-        cancel, then the rest)."""
+        cancel, then the rest) with the header's one button (#441: 「計算する」, 「中止」,
+        「続きから計算する」). With `since`, the screen started it itself (a new branch is computed
+        as it is made) after that mark of its requests."""
         path = _run_path(project, run)
 
         def computed(at_least: int) -> Callable[[dict[str, Any]], bool]:
             return lambda state: int(state["computed"] or 0) >= at_least and not state["cancel"]
 
-        since = self.mark()
-        self.page.click("[data-page=simulation]")
-        self.page.click("#compute-end")
+        if since is None:
+            since = self.mark()
+            self.page.click("[data-page=simulation]")
+            self.wait(
+                "() => document.getElementById('play').dataset.mode === 'compute'"
+                " && !document.getElementById('play').disabled",
+                "「計算する」",
+            )
+            self.page.click("#play")
         resume = self.wait_caught(since, "POST", r"/resume$", timeout_s=60)
         started = time.perf_counter()
         # Python's answer to the same resume (none for the site's compute Run).
@@ -1341,14 +1359,14 @@ class Walk:
             if not self.watch(stage, lambda state: int(state["computed"] or 0) >= 1440, "a day"):
                 return False
             since = self.mark()
-            self.page.click("#cancel")
+            self.page.click("#play")
             self.wait_caught(since, "POST", r"/cancel$", timeout_s=60)
-            if not self.watch(stage, lambda state: not state["cancel"], "cancel"):
+            if not self.watch(stage, lambda state: state["computeReady"], "cancel"):
                 return False
             status = json.loads(self.fetch(path)["text"]).get("status")
             if status != "paused":
                 self.problem(stage, f"cancelled: the Run is {status}")
-            self.page.click("#compute-end")
+            self.page.click("#play")
         if not self.watch(stage, computed(10080), "the end"):
             return False
         self.stages[stage].setdefault("compute_s", {})[branch] = round(
@@ -1432,6 +1450,7 @@ class Walk:
         self.page.check("#intervention-check")
         since = self.mark()
         self.page.click("#intervention-apply")
+        applied_since = since
         apply = self.wait_caught(since, "POST", r"/intervention-apply$")
         item = self.check(stage, "apply", f"{branch}/intervention-apply", apply)
         if self.unavailable(stage, item):
@@ -1442,7 +1461,8 @@ class Walk:
             return False
         self.view("comparison")
         self.screen_error(stage, "apply")
-        if not self.compute(stage, s.project, s.run, s.child, "full"):
+        # The new branch is computed to the end as it is made (#441).
+        if not self.compute(stage, s.project, s.run, s.child, "full", since=applied_since):
             return False
         self.child_ready = True
         self.probes(stage, intervention_routes(s))
@@ -1452,10 +1472,7 @@ class Walk:
         s = self.subject
         assert s is not None
         stage = "compare"
-        self.open_comparison()
-        since = self.mark()
-        self.page.click("#compare-refresh")
-        shown = self.wait_caught(since, "GET", r"/compare$", timeout_s=120)
+        shown = self.open_comparison()
         path = _run_path(s.project, s.run)
         route = f"{path}/compare?branch_ids={quote(f'main,{s.child}')}&minute=10080"
         if shown is not None:
@@ -1484,9 +1501,6 @@ class Walk:
         if self.child_ready:
             # From the comparison: the question and the PDF are of the two branches.
             self.open_comparison()
-            since = self.mark()
-            self.page.click("#compare-refresh")
-            self.wait_caught(since, "GET", r"/compare$", timeout_s=120)
         else:
             self.open(f"/?project={s.project}&run={s.run}&branch=main#simulation", "simulation")
         since = self.mark()

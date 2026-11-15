@@ -1,17 +1,17 @@
-//! A host without Python (`PlainHost`) and a Run of an exported world on it (`PlainRun`): Issue
-//! #244, PR 4-3, for the browser prototype of #132 (stage 4), which runs the ticks of a world Python
-//! built and exported (route A). The WASM crate's `Simulation` and, from #368, the PyO3 crate's
+//! The host of a Run (`PlainHost`) and a Run of an exported world on it (`PlainRun`): Issue #244,
+//! PR 4-3, first for the browser prototype of #132 (stage 4). The exported world is the entry a Run
+//! starts from (`initial::entry` of a Scenario, or a fixture of `native/core/tests/data/`). The
+//! WASM crate's `Simulation` and, from #368, the PyO3 crate's
 //! `sheltersim_native.rules.plain.PlainRun` are its two wrappers; what both hand out is made here.
 //!
-//! What it does where the native host calls Python (decision 4 of #244, the rest left to stage 6):
-//! - The Python-parsed sections of the configs are the exported world's (`load::Sections`), and
-//!   the floor plan is built from them with the world's overlay now, again when the overlay's
-//!   facility moves or partitions change (`load::FloorPlans`).
-//! - A contract (policy E15) answers as the native host's pydantic does (`contracts::validate`,
-//!   #346): the model's dump, or the `ValidationError` with pydantic's text.
-//! - The whole world's validation (policy E6) is the core's (`validate`, #250), with Python's
-//!   classes and texts. Each tick ends as `validate_after_tick` ends it
-//!   (`engine::EndCheck::Whole`): the kernel's check with the core's validators of the namespaces
+//! What the host does (decision 4 of #244):
+//! - The parsed sections of the configs are the exported world's (`load::Sections`), and the floor
+//!   plan is built from them with the world's overlay now, again when the overlay's facility moves
+//!   or partitions change (`load::FloorPlans`).
+//! - A contract (policy E15) answers as pydantic does (`contracts::validate`, #346): the model's
+//!   dump, or the `ValidationError` with pydantic's text.
+//! - The whole world's validation (policy E6) is the core's (`validate`, #250). Each tick ends with
+//!   `engine::EndCheck::Whole`: the kernel's check with the core's validators of the namespaces
 //!   (`rules::tick_checks`), and where it refuses, the validation without the event history.
 //! - The LLM is a link the host is given (`PlainRun::set_llm`, #428): the core's rules ask it
 //!   (`rules::llm_runtime`) and keep the tape of its calls (`PlainRun::take_tape`). Without one the
@@ -19,15 +19,14 @@
 //!   no foreign handler runs. No decision record goes out either
 //!   (`DecisionSink::Silent`) unless the Run collects them (`PlainRun::collect_decisions`, #368):
 //!   then the sink is an indexed one, which keeps the JSON bytes the core writes of each decision
-//!   (`Decision::Indexed`), the rows `_IndexedMetricSink.observations` holds as bytes on the native
-//!   path (`Decisions`). Collecting changes nothing of the world. Only the core's tests collect
-//!   them, to see what the rules decided and why; no Run stores them (#478).
+//!   (`Decision::Indexed`, `Decisions`). Collecting changes nothing of the world. Only the core's
+//!   tests collect them, to see what the rules decided and why; no Run stores them (#478).
 //! - The records of the log are the world's (`load::find_record`). The log holds them in the binary
 //!   form (`EventLog::pack_records`, `events::packed`, #252); their JSON is written when asked
-//!   for (the digests, `find_record`), the same bytes as the native path's.
+//!   for (the digests, `find_record`), the same bytes as the record's JSON form.
 //! - The metric samples are kept packed (`MetricSamples`, #252), and their lines, which
 //!   `engine::metric_line` writes, are written again when asked for; `metrics_digest` is the digest
-//!   `tests/support/core_tick.py` writes of a Run's samples. Where the world has a resource ledger,
+//!   of a Run's samples. Where the world has a resource ledger,
 //!   each sample also holds its KPI columns then (`Balances`, #266), which the API's KPI history
 //!   answers with (`history`).
 //! - The core writes `world.resources` and the namespaces it starts itself (decision 2): the host
@@ -69,7 +68,7 @@ use crate::validate;
 use crate::value::V;
 use crate::world::WorldCell;
 
-/// The host of a loaded world without Python.
+/// The host of a loaded world.
 pub struct PlainHost {
     loaded: Rc<Loaded>,
     sections: Sections,
@@ -84,10 +83,8 @@ pub struct PlainHost {
 
 /// The decision records a Run collects (#368, off unless asked for): the JSON bytes the core
 /// writes of each decision for an indexed sink (`Decision::Indexed`, `rules::decisions::decision_bytes`),
-/// which are the rows `_IndexedMetricSink.observations` holds as bytes on the native path, in the
-/// same order; and how many decisions the core left to a sink in Python (`Sunk::Python`: an
-/// observed state longer than the core writes, a household no row reads, ...), whose row,
-/// `_IndexedMetricSink.record_decision`'s dict, a host without Python does not write.
+/// in order; and how many decisions the core wrote no record of (`Sunk::Python`: an observed state
+/// longer than the core writes, a household no row reads, ...).
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Decisions {
     pub records: Vec<Vec<u8>>,
@@ -105,8 +102,8 @@ impl PlainHost {
         self.plans.builds()
     }
 
-    /// The sha256 of the metric lines joined by `\n`, in hex (`metrics_digest` of
-    /// `tests/support/core_tick.py`).
+    /// The sha256 of the metric lines joined by `\n`, in hex: what the WASM crate's and the PyO3
+    /// crate's `metrics_digest` give, and a stored Run keeps (`RunWriter`).
     pub fn metrics_digest(&self) -> String {
         self.samples.digest()
     }
@@ -124,11 +121,11 @@ impl PlainHost {
 /// for a text the packed value would not write again.
 ///
 /// A sample of a world with a resource ledger (#266) also holds the ledger's KPI columns then
-/// (`Balances`, the native path's `resource_snapshots`): it starts with the byte 1 (`WITH_BALANCES`),
+/// (`Balances`): it starts with the byte 1 (`WITH_BALANCES`),
 /// and the twelve columns follow its last field as zigzag varints. A minute is never negative, so
 /// the first byte of a sample without them, its minute's, is even: samples stored before (format v2
-/// of `run_store.mjs`) read as they did. A Run's samples all have them or none do, as the native
-/// path's recorder requires.
+/// of `run_store.mjs`) read as they did. A Run's samples all have them or none do (`push` refuses a
+/// mix).
 #[derive(Clone, Debug, Default)]
 pub struct MetricSamples {
     packer: Packer,
@@ -150,7 +147,7 @@ const WITH_BALANCES: u8 = 1;
 impl MetricSamples {
     /// Takes a sample, with the ledger's columns where the world has a ledger: its line goes into
     /// the digest, and the sample is held packed. An error for a negative minute, and where the
-    /// ledger came or went after the first sample (the native path's recorder refuses it too).
+    /// ledger came or went after the first sample.
     pub fn push(&mut self, sample: &MetricSample, minute: i64, balances: Option<&Balances>) -> Result<()> {
         if minute < 0 {
             return Err(Error::Value("a sample's minute is negative".to_owned()));
@@ -432,7 +429,7 @@ impl Host for PlainHost {
         crate::contracts::validate(which, input)
     }
 
-    /// A router and a social policy where the Run has a link, as a Python Run with a router has.
+    /// A router and a social policy where the Run has a link (`PlainRun::set_llm`).
     fn llm(&self) -> Result<Llm> {
         let linked = self.llm.is_some();
         Ok(Llm { router: linked, social_policy: linked })
@@ -487,9 +484,8 @@ impl Host for PlainHost {
         }
     }
 
-    /// The sample, with the ledger's columns where the world has a ledger (the native path's
-    /// `resource_snapshots`, #266), read as the native host reads them: after the sample, with the
-    /// world as the sample saw it.
+    /// The sample, with the ledger's columns where the world has a ledger (#266), read after the
+    /// sample, with the world as the sample saw it.
     fn capture_metric(&mut self, sample: &MetricSample, minute: i64) -> Result<()> {
         let balances = self.loaded.cell.with(|world| -> Result<Option<Balances>> {
             if Holding::of_world(world)?.is_absent(LEDGER).map_err(Error::unsupported)? {
@@ -521,7 +517,7 @@ impl Host for PlainHost {
         Ok(Some(catalog.models.get(policy_version).map(|model| model.assumption_source_id.clone())))
     }
 
-    /// A decision the core leaves to a sink in Python. A collecting Run counts it (`Decisions`) and
+    /// A decision the core writes no record of. A collecting Run counts it (`Decisions`) and
     /// goes on, as a silent sink would, so that collecting changes nothing; a decision due no later
     /// than its own minute is refused whether or not the Run collects, as the silent sink refuses it.
     fn record_decision_python(
@@ -589,7 +585,7 @@ pub struct PlainRun {
 }
 
 impl PlainRun {
-    /// The Run of an exported entry (`export_world`'s document).
+    /// The Run of an exported entry (`initial::entry`'s document).
     pub fn of_entry(entry: &Value) -> Result<Self> {
         let loaded = Rc::new(load::loaded(entry)?);
         // The log holds its records in the binary form (#252): about a seventh of their JSON.
@@ -661,7 +657,7 @@ impl PlainRun {
     }
 
     /// Gives the Run an LLM (#428): the core's rules ask `link` within `limits`
-    /// (`rules::llm_runtime`), as a Python Run with a router and its social policy does. A Run
+    /// (`rules::llm_runtime`) for the social policy and the support priority. A Run
     /// restored from a saved point is given a link again; the rules' state is the world's.
     pub fn set_llm(&mut self, link: Box<dyn LlmLink>, limits: Limits) -> Result<()> {
         self.host.llm = Some(Runtime::new(link, limits, self.rng_state.clone())?);
@@ -679,7 +675,7 @@ impl PlainRun {
         self.host.llm.as_ref().map_or(0, Runtime::calls)
     }
 
-    /// How many decisions since the Run began to collect them were left to a sink in Python
+    /// How many decisions since the Run began to collect them the core wrote no record of
     /// (`Decisions::missed`).
     pub fn decisions_missed(&self) -> u64 {
         self.host.decisions.as_ref().map_or(0, |decisions| decisions.missed)
@@ -696,8 +692,8 @@ impl PlainRun {
         utf8(crate::canonical::digests_json(&self.digests()?))
     }
 
-    /// The digests of the world as `tests/support/core_tick.py` writes them
-    /// (`canonical::run_digests`), as a JSON object in its order.
+    /// The digests of the world by part (`canonical::run_digests`), as a JSON object in their
+    /// order: `world_digests` of the WASM crate's `Simulation` and the PyO3 crate's `PlainRun`.
     pub fn run_digests_json(&self) -> Result<String> {
         let digests = self.loaded.cell.with(|world| crate::canonical::run_digests(world))??;
         utf8(crate::canonical::digests_json(&digests))
@@ -722,7 +718,8 @@ impl PlainRun {
     }
 
     /// `validate_effect_program(world, program)` on the world now (`program::validate`, #304): the
-    /// issues, in Python's order and texts. It changes nothing: the toilets an addition would place
+    /// issues, in the order the checks run, with their texts. It changes nothing: the toilets an
+    /// addition would place
     /// are placed on a copy of the world, on the floor plan of that copy.
     pub fn validate_effect_program(&mut self, program: &crate::program::EffectProgram) -> Result<Vec<String>> {
         let enabled = self.placement_enabled()?;

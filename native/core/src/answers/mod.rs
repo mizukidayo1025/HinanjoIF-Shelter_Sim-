@@ -10,12 +10,12 @@
 //! missing) and hands them over; a function checks what the server checks, in its order, and
 //! writes the answer.
 //!
-//! An answer is JSON bytes: keys and values as the Python server writes them (sorted keys, no
-//! spaces) where the browser always did so, and as `JSON.stringify` of the records where the
-//! browser gave its records as they are. A refusal is a `Refusal`: the server's `StorageError` is
-//! 409 with the leading word of its text as its code (or `storage_conflict`), a request it cannot
-//! read 400. Anything else is the core's `Error`: the server's 500, but a stored Run of an older
-//! format, 409 `stored_run_outdated` (`Failure::from`).
+//! An answer is JSON bytes: keys and values as the Python server wrote them before #449 (sorted
+//! keys, no spaces) where the browser always did so, and as `JSON.stringify` of the records where
+//! the browser gave its records as they are. A refusal is a `Refusal`: the server's `StorageError`
+//! is 409 with the leading word of its text as its code (or `storage_conflict`), a request it
+//! cannot read 400. Anything else is the core's `Error`: the server's 500, but a stored Run of an
+//! older format, 409 `stored_run_outdated` (`Failure::from`).
 
 pub mod asking;
 pub mod frames;

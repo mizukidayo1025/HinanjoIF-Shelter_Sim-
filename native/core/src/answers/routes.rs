@@ -189,8 +189,8 @@ fn pdf_report_checks(project_id: &str, run_id: &str, body: Option<&[u8]>, files:
     Ok(())
 }
 
-/// `POST runs/{run}/delete` (Python's ProjectAPI and `ProjectStore.delete_run`): the Run's id as
-/// the confirmation, no computation of it running (`active`, which the caller knows), and a
+/// `POST runs/{run}/delete` (`ProjectAPI.delete_run` of src/sheltersim/web/projects.py): the Run's
+/// id as the confirmation, no computation of it running (`active`, which the caller knows), and a
 /// status that is not running. The answer, once the caller has removed the Run's folder.
 pub fn delete_answer(project_id: &str, run_id: &str, body: Option<&[u8]>, active: bool, files: &RunFiles) -> Answer {
     let document = post_document(body)?;

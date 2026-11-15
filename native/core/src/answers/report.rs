@@ -1,7 +1,7 @@
 //! `GET …/branches/{branch}/report` (#266): the report the server writes when an offline Run of
-//! the screen completes (web/workspace.py `finish_review` with the offline router:
-//! `generate_evidence_review` falls back to the empty review), or `{"status":"not_generated"}`
-//! before. A store keeps the report it made as the branch's `report.json`.
+//! the screen completes (the review with the offline router, which falls back to the empty
+//! review), or `{"status":"not_generated"}` before. A store keeps the report it made as the
+//! branch's `report.json`.
 //!
 //! Two steps: `report_answer` checks the request and answers from what is kept (the report made
 //! before, or that there is none yet); where it gives None, the caller restores the branch's Run
@@ -19,7 +19,7 @@ use crate::llm::{Task, RUN_REVIEW};
 use crate::plain::PlainRun;
 use crate::world::WorldCell;
 
-// src/sheltersim/llm/report.py.
+// The assumptions the report lists.
 const ASSUMPTION_IDS: [&str; 26] = [
     "ASM-SYNTHETIC-PROFILES-V1",
     "ASM-SIMPLE-PSYCHOLOGY-RATES-V1",

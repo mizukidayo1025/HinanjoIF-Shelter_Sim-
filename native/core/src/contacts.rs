@@ -1,7 +1,6 @@
 //! What the per-tick contact models share: sampling keyed partners and the keys of pairs.
-//! The models are in `rules/social_propagation.rs` and `rules/information.rs` of the PyO3
-//! crate, which also reads the exact Python numbers (`native/src/contacts.rs`). Each returns the
-//! same floats, draws and JSON keys as the Python code: every float operation keeps its order.
+//! The models are `rules::social_propagation` and `rules::information`. Every float operation
+//! keeps its order, so the floats, draws and JSON keys stay those of the recorded Runs.
 
 use std::collections::HashMap;
 

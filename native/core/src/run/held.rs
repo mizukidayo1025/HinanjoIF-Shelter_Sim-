@@ -1,12 +1,13 @@
-//! What the PyO3 crate read of a controller's objects for its `Policies`, without Python (Issue
-//! #152, lane P8-0b; policies E7 and E14 of docs/rust-port/step5-plan.md).
+//! What a Run read of a controller's objects for its `Policies` (Issue #152, lane P8-0b; policies
+//! E7 and E14 of docs/rust-port/step5-plan.md).
 //!
 //! The kernels read the controller's policies and managers with `getattr` at every tick:
 //! `psychology.parameters`, `decisions.policy.scorer`, `social_policy.limits` and so on. A `Spec`
-//! names what a rule reads of an object; the PyO3 crate walks it once per controller and keeps each
-//! attribute as a `Held`: a JSON value (`V`), a str of a str subclass, an object it descends into,
-//! or an opaque value. Reading never raises: what an attribute read raised is kept as a `Fault`,
-//! and the read site raises it as it does today, a refusal by its text and any other error by a
+//! names what a rule reads of an object; the entry's policies document holds each attribute
+//! (`initial::policies`), which the loader reads as a `Held` (`load::policies`): a JSON value
+//! (`V`), a str of a str subclass, an object it descends into, or an opaque value. Reading never
+//! raises: what an attribute read raised is kept as a `Fault`, and the read site raises it, a
+//! refusal by its text and any other error by a
 //! second read (policy E14).
 //!
 //! A class is kept by `__module__` and `__qualname__` and whether that name finds this very class
@@ -118,7 +119,7 @@ pub enum Held {
     /// Anything else, which a rule may only call or compare.
     Opaque { callable: bool },
     /// A method bound to the controller the Run read, whose function is the controller's step of
-    /// this name as the driver installed it (`segments.py`): `staff_service.route_resolver` is
+    /// this name as the driver installed it: `staff_service.route_resolver` is
     /// `controller._route` (lane b3).
     Method(Arc<str>),
 }

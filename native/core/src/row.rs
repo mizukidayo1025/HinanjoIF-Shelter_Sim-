@@ -1,4 +1,4 @@
-//! Typed rows without Python: `Field`, what a value of a row can do, and `state_row!`, which writes
+//! Typed rows: `Field`, what a value of a row can do, and `state_row!`, which writes
 //! it for a record from its list of fields (docs/rust-port/lanes/p5-template-namespace.md).
 //!
 //! ```ignore
@@ -15,16 +15,12 @@
 //! writes, for the struct:
 //! - `NAMES`: the fields in the order they are listed, which is the tree's order.
 //! - `write_json`: the bytes of `canonical_json` of the tree, keys sorted by bytes.
-//! - `from_value`: the record read from the `V` of that JSON, with the checks of the PyO3 crate's
-//!   reader (`Field::from_value`). `str_enum!` writes it for its set too, so no row lacks one.
+//! - `from_value`: the record read from the `V` of that JSON, with its checks
+//!   (`Field::from_value`). `str_enum!` writes it for its set too, so no row lacks one.
 //! - `set_level(&mut self, tree, value)`: the mirrored setter a rule uses: the row and the tree, or
 //!   neither when the value has the same bits. Only a `Scalar` field can have one, because storing
-//!   a scalar over a scalar leaves the tree's table of nodes as it is. The tree is a `TreeSink`,
-//!   which the PyO3 crate implements for the Python tree.
-//!
-//! What needs Python is in the PyO3 crate (`native/src/core/row.rs`): reading a row from a Python
-//! value, making one, and applying a forwarded write. Its `py_row!` writes that for a struct of
-//! this macro, from the same field names.
+//!   a scalar over a scalar leaves the tree's table of nodes as it is. The tree is a `TreeSink`;
+//!   since #430 removed the Python trees, the rules give `kit::NoTree`, which keeps nothing.
 //!
 //! Also here, for what most namespaces need beside the fields: `Maybe<T>` for a key the tree may
 //! not have (not the same as `Option<T>`, a key holding None), and `str_enum!` for a closed set of
@@ -62,12 +58,11 @@ pub trait Field: Sized + Clone + Send + Sync + 'static {
     fn write_json(&self, encoder: &mut Encoder) -> Result<()>;
     /// The value read from JSON, as a `V`: what `write_json` wrote, or a namespace of a world's
     /// canonical document, read with a float where the JSON has a point or an exponent (`1.0`) and
-    /// an int where it has neither (`1`), as Python's `json` reads them. It takes what the PyO3
-    /// crate's `PyField::from_py` takes of the same value in Python, and refuses with a `Misfit`
-    /// what that refuses: an int for a float and the other way round, a missing key of a record
-    /// unless `when_missing` allows it, a key the record does not have, a text outside a
-    /// `str_enum!` set, and the ranges and the checks a hand-written reader there has. Nothing
-    /// in a tick reads a row this way; it is for a world read from a file without Python.
+    /// an int where it has neither (`1`), as Python's `json` reads them. It refuses with a `Misfit`
+    /// an int for a float and the other way round, a missing key of a record unless
+    /// `when_missing` allows it, a key the record does not have, a text outside a `str_enum!` set,
+    /// and what the ranges and the checks of a hand-written reader refuse. Nothing in a tick reads
+    /// a row this way; it is for a world read from its entry (`load`).
     fn from_value(value: &V) -> std::result::Result<Self, Misfit>;
     /// Sort the keys of every map inside by their bytes, as a copy through canonical JSON does;
     /// lists keep their order. A value with no map inside does nothing.
@@ -197,8 +192,9 @@ pub trait Scalar: Field {
     fn atom(&self) -> Atom<'_>;
 }
 
-/// The dict of a namespace's tree that a mirrored setter writes, if the namespace has a tree: the
-/// PyO3 crate's `Tree`. A detached namespace has none, and its sink does nothing.
+/// The dict of a namespace's tree that a mirrored setter writes, if the namespace has a tree. A
+/// detached namespace has none, and its sink does nothing (`kit::NoTree`, which the rules give
+/// since #430 removed the Python trees).
 pub trait TreeSink {
     type Error;
     /// d[key] = value, where key is a field of a record.
@@ -401,7 +397,7 @@ impl Field for V {
     }
 }
 
-/// The text of `Maybe`'s error for a key it does not have; a `ValueError` in Python.
+/// The text of `Maybe`'s error for a key it does not have (`Error::Value`).
 pub const ABSENT_KEY: &str = "an absent key has no value";
 
 /// Why `from_value` refuses an int outside i64 where a row holds an i64.
@@ -410,7 +406,7 @@ const BIG_INT: &str = "an int too large";
 const TOO_DEEP: &str = "value nests too deeply";
 
 /// The canonical JSON of a value read whole: an item of a list a row keeps as its bytes (a
-/// history), as the PyO3 crate's `canonical_json` writes the Python value.
+/// history), as `V::write_json` writes it.
 pub fn value_bytes(value: &V) -> std::result::Result<Box<[u8]>, Misfit> {
     if !value.depth_fits() {
         return Err(Misfit::new(TOO_DEEP));
@@ -603,8 +599,8 @@ pub const fn sorted_order<const N: usize>(names: &[&str]) -> [usize; N] {
     order
 }
 
-/// Whether two lists of names are the same, in the same order: for the PyO3 crate's `py_row!`,
-/// which must list a struct's fields as `state_row!` did.
+/// Whether two lists of names are the same, in the same order: for a macro that must list a
+/// struct's fields as `state_row!` did (`tree!` of `rules::population_lifecycle`).
 pub const fn same_names(first: &[&str], second: &[&str]) -> bool {
     if first.len() != second.len() {
         return false;
@@ -627,8 +623,7 @@ pub const fn same_names(first: &[&str], second: &[&str]) -> bool {
     true
 }
 
-/// A record of a row: the struct, its `NAMES`, its `Field` and its mirrored setters. The PyO3
-/// crate's `py_row!` gives it the Python side.
+/// A record of a row: the struct, its `NAMES`, its `Field` and its mirrored setters.
 #[macro_export]
 macro_rules! state_row {
     (

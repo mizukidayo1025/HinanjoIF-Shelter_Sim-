@@ -1,9 +1,9 @@
 //! `InformationSpreadConfig.from_mapping(model_configs.get("information_spread"))`, as the
 //! information rules read it (lane 7-5b of Issue #152).
 //!
-//! The PyO3 crate builds the config with the Python class, which raises its own errors, and hands
-//! over the attributes the rules read as a map (`InformationSpread::FIELDS`). A number is checked
-//! where the rule reads it, as `number` checked the attribute there before.
+//! The entry's section holds the attributes the rules read as a map (`InformationSpread::FIELDS`),
+//! made with the config's own checks and errors when the entry is made (`initial::sections`). A
+//! number is checked where the rule reads it.
 
 use std::sync::Arc;
 

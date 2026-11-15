@@ -19,7 +19,7 @@ pub fn overlay_schema(configs: &V) -> Read<Option<i64>> {
 }
 
 /// `model_configs.get("geometry_overlay", {})` as the arrivals read it: whether it is a dict, and
-/// `schema_version in {3, 4}` of it, or what that raised. The PyO3 crate evaluates both in Python.
+/// `schema_version in {3, 4}` of it, or what that raised (`initial::sections` writes it).
 #[derive(Clone, PartialEq, Debug)]
 pub struct OverlayRooms {
     pub is_dict: bool,

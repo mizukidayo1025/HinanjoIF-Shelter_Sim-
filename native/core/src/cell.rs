@@ -1,13 +1,12 @@
 //! `Shard<T>`: a part of a `World` that can be borrowed on its own (design-p5-p6.md §2, §4).
 //!
-//! A shim of the PyO3 crate reaches the world through a shared borrow of its `WorldCore` and then
-//! borrows one part mutably: a namespace's slot, or the entities. Two shims may hold two parts at
-//! once; the same part twice is an `Error::Runtime`, never a panic, as a second `try_borrow_mut` of
-//! a Python object's cell is a `RuntimeError` today. A kernel that holds the whole world (`&mut
-//! World`) reaches a part with `get_mut`, which checks nothing.
+//! A reader reaches the world through a shared borrow and then borrows one part mutably: a
+//! namespace's slot, or the entities. Two readers may hold two parts at once; the same part twice
+//! is an `Error::Runtime`, never a panic. A kernel that holds the whole world (`&mut World`)
+//! reaches a part with `get_mut`, which checks nothing.
 //!
-//! PyO3 0.23 requires every `#[pyclass]` to be `Sync`, so the flag is atomic, as in
-//! `atomic_refcell`. All the borrows happen under the GIL, so the flag is never contended.
+//! The flag is atomic, as in `atomic_refcell`, so that a cell is `Sync` (which the PyO3 crate's
+//! world needed until #430).
 //!
 //! `CowShard<T>` is the same cell over an `Arc<T>`: a part of the world's state (lane 6-2). A
 //! snapshot (`share`) keeps the `Arc`; the next mutable borrow copies the value first if a snapshot

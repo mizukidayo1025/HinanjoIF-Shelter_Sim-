@@ -1,14 +1,12 @@
-//! The route graph of a Run without Python: `ShortestTravelTimePolicy.route` of
-//! `policies/space.py` over a snapshot of the zone graph (Issue #152, lane 7-3; design-p7.md,
-//! principle 4).
+//! The route graph of a Run: `ShortestTravelTimePolicy.route` over a snapshot of the zone graph
+//! (Issue #152, lane 7-3; design-p7.md, principle 4).
 //!
 //! A `Router` is built from the world's zone and zone-edge tables (`Entities::zones`,
-//! `zone_edges`) with the checks and the words of `ZoneGraph` (`domain/zones.py`; lane 7-4), and
-//! `Routes` keeps a Run's two routers (people's and staff's) for the epoch they were built in. The
-//! epoch changes exactly where `_refresh_space` runs (`experiments/runner.py`): at the
-//! controller's start and after a dispatch that applied a geometry or structure event, and the
-//! routers are built from the tables right then. It is a snapshot on purpose: an edge closed later
-//! in the same dispatch is not seen until the next refresh, as the Python graph never saw it.
+//! `zone_edges`) with the checks and the words of `ZoneGraph` (lane 7-4), and `Routes` keeps a
+//! Run's two routers (people's and staff's) for the epoch they were built in. The epoch changes at
+//! the Run's start and after a dispatch that applied a geometry or structure event
+//! (`Routes::refresh`, called by `rules::dispatch`). It is a snapshot on purpose: an edge closed
+//! later in the same dispatch is not seen until the next refresh.
 
 use std::cmp::Reverse;
 use std::collections::{BinaryHeap, HashMap, HashSet};
@@ -55,7 +53,7 @@ impl Route {
 /// The edges closed to one mobility in one floor plan.
 type ClosedTo = (&'static str, Arc<Geo>, Arc<HashSet<Arc<str>>>);
 
-/// `_STABLE_ID` of `domain/zones.py`: `^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$`, which only ASCII
+/// `_STABLE_ID` of the zone graph: `^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$`, which only ASCII
 /// matches, so its length in characters is its length in bytes.
 pub fn is_stable_id(id: &str) -> bool {
     let bytes = id.as_bytes();

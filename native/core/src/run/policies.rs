@@ -1,9 +1,8 @@
 //! `Policies`: what a Run's rules read of its controller's policies and managers, read once per
 //! controller (lane P8-0b; policies E7 and E14 of docs/rust-port/step5-plan.md).
 //!
-//! The PyO3 crate reads `CONTROLLER` from the controller when it makes the Run's `RunCore`, and
-//! again at `RunCore.refresh_policies` (a test or tool that puts another policy on a controller
-//! calls it, as `refresh_routes` for another space). Each part is made here from what was read, in
+//! The entry's policies document holds what `CONTROLLER` reads of the controller (written by
+//! `initial::policies`, read by `load::policies`). Each part is made here from what was read, in
 //! its own file: a lane that moves a kernel reads its part here instead of the controller, and adds
 //! the attributes it reads to its part's `Spec`. A new part is one line in `CONTROLLER` and one field
 //! of `Policies`.
@@ -55,8 +54,8 @@ pub struct Policies {
     pub social: Social,
     pub services: Services,
     pub sinks: Sinks,
-    /// `controller.event_dispatcher` and its handlers (lane P9-0). Not read by a `Spec`: the PyO3
-    /// crate reads it against the table `events/handlers.py` installed, and sets it after `of`.
+    /// `controller.event_dispatcher` and its handlers (lane P9-0). Not read by a `Spec`:
+    /// `load::policies` reads it from the entry's dispatch table, and sets it after `of`.
     pub dispatch: Dispatch,
 }
 

@@ -1,6 +1,5 @@
-//! The bytes of canonical JSON that need no Python: strings as `json.dumps(ensure_ascii=False)`
-//! writes them, floats as `float.__repr__` and the encoder write them, and `Encoder`, which
-//! writes plain values. The PyO3 crate walks Python values with it (`native/src/lib.rs`).
+//! The bytes of canonical JSON: strings as `json.dumps(ensure_ascii=False)` writes them, floats as
+//! `float.__repr__` and the encoder write them, and `Encoder`, which writes plain values.
 
 use crate::error::Error;
 
@@ -90,7 +89,7 @@ pub fn python_float_repr(value: f64) -> String {
     text
 }
 
-/// A NaN or an infinity, which canonical JSON leaves to Python's `json`.
+/// A NaN or an infinity, which canonical JSON does not write (`allow_nan=False`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct NotFinite;
 
@@ -140,7 +139,7 @@ impl Encoder {
         write_json_string(&mut self.out, text);
     }
 
-    /// A finite float; NaN and infinity are `Unsupported`, left to Python's `json`.
+    /// A finite float; NaN and infinity are `Unsupported` (`allow_nan=False`).
     pub fn try_float(&mut self, value: f64) -> crate::error::Result<()> {
         write_float(&mut self.out, value).map_err(|_| Error::unsupported("NaN and infinity are left to json"))
     }

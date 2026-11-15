@@ -1,6 +1,6 @@
 //! `canonical_proximity_contact_config(model_configs.get("social_proximity"))`, as the proximity
-//! contact handler reads it (lane 7-5b of Issue #152). The PyO3 crate calls the Python check, which
-//! raises its own errors, and hands over the dict it returns.
+//! contact handler reads it (lane 7-5b of Issue #152). The check, with its own errors, runs when
+//! the entry is made (`initial::sections`); the section holds the dict it returns.
 
 use std::sync::Arc;
 

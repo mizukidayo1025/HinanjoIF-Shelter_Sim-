@@ -1,5 +1,5 @@
-//! `CounterRNG` (`core/rng.py`). Every draw's key is written by `Key` and starts with one of
-//! the labels in `label`.
+//! `CounterRNG` (`src/sheltersim/scenario_authoring/rng.py`). Every draw's key is written by `Key`
+//! and starts with one of the labels in `label`.
 //!
 //! A key holds the rule's label, the minute and stable domain IDs (people, messages, sources,
 //! facilities, queues), never an ID made from a counter: an event's ID holds its sequence
@@ -14,9 +14,8 @@ use sha2::{Digest, Sha256};
 
 use crate::json::write_json_string;
 
-/// How many threads keep their draws, for the tests and benchmarks/rule_shadow. Python sees the
-/// draws its own rules make; this shows those made in Rust, to compare each with its key and its
-/// bits. While a thread keeps them, the per-person compute stays on it (core/parallel.rs).
+/// How many threads keep their draws, for the tests: each draw with its key and its bits. While a
+/// thread keeps them, the per-person compute stays on it (core/parallel.rs).
 static DRAW_LOGS: AtomicUsize = AtomicUsize::new(0);
 
 thread_local! {
@@ -169,8 +168,8 @@ impl Key {
 }
 
 /// `CounterRNG(seed)` of a Run: its keyed draws, from the seed `CounterRNG` takes (any int from 0,
-/// past 64 bits too, keyed by `str(seed)`). A kernel of the core draws through this; the PyO3 crate
-/// reads the seed of the Run's `CounterRNG` and makes one.
+/// past 64 bits too, keyed by `str(seed)`). A kernel of the core draws through this, made of the
+/// world's seed (`Draws::of_world`, `of_seed`).
 pub struct Draws {
     keyed: KeyedDraws,
 }

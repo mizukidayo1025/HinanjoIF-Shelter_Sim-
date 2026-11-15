@@ -122,7 +122,7 @@ fn escapes(point: u32) -> bool {
 
 /// `repr(text)` of a str, as CPython writes it: in single quotes, or double quotes when the text
 /// has a single quote and no double one; the quote, the backslash, `\t`, `\n`, `\r` and the
-/// characters `str.isprintable` says no to escaped. The `{x!r}` of a Python rule's f-string.
+/// characters `str.isprintable` says no to escaped. The `{x!r}` of an f-string in a rule's text.
 pub fn py_repr(text: &str) -> String {
     use std::fmt::Write;
     let quote = if text.contains('\'') && !text.contains('"') { '"' } else { '\'' };

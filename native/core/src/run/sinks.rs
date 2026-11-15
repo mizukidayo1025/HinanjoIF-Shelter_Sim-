@@ -32,7 +32,8 @@ pub enum DecisionSink {
     Indexed,
     /// `"artifacts"`: `RunArtifactWriter`, which takes the document while its trace is on.
     Artifacts,
-    /// No such declaration, another word, or no `artifacts`: `record_decision` runs in Python.
+    /// No such declaration, another word, or no `artifacts`: the core writes no record, and the
+    /// host is given the decision (`Host::record_decision_python`).
     Python,
 }
 
@@ -88,7 +89,8 @@ impl Sinks {
 }
 
 /// `sink_of` of `decisions.rs` without its moment: no `artifacts`, or a class without its own
-/// `decision_sink`, is Python's; a declaration that is not exactly a str raises (`TypeError`).
+/// `decision_sink`, is `DecisionSink::Python`; a declaration that is not exactly a str raises
+/// (`TypeError`).
 fn decision_sink(artifacts: Read<Read<Option<&Arc<Obj>>>>) -> Read<DecisionSink> {
     let Ok(Ok(Some(artifacts))) = artifacts else {
         return Ok(DecisionSink::Python);

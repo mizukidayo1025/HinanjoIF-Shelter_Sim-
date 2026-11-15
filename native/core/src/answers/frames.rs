@@ -1,5 +1,5 @@
 //! The answers made of a branch's frames (#264, #307): `timeline`, `replay-frames` of one or two
-//! branches and `compare`, and what a Run of other model versions shows (#368, Python's D2).
+//! branches and `compare`, and what a Run of other model versions shows (#368, D2).
 //!
 //! The frame of a minute is the core's (`PlainRun::frame`), made by the caller from the branch's
 //! Run at that minute (restored from its stored Run and computed to it). The functions here check
@@ -283,7 +283,7 @@ pub fn model_view(journal: &[u8], scenario: &[u8]) -> Answer<Option<(Versions, V
     Ok(Some((recorded, installed, status)))
 }
 
-/// Python's `_require_current_model`: refused (409 `run_model_view_only`, Python's text) where
+/// Refused (409 `run_model_view_only`, the text of `ModelStatus::error_text`) where
 /// the branch's stored Run was computed with other model versions than the core records now.
 pub fn require_current_model(journal: &[u8], scenario: &[u8]) -> Answer<()> {
     match model_view(journal, scenario)? {

@@ -41,7 +41,7 @@ pub struct BodyModels {
 impl BodyModels {
     /// `affect` is the selected affect model, or the config's `affect_policy` where none is
     /// selected; `relationship` the selected relationship model. An ID this kernel doesn't know is
-    /// left to Python's factory.
+    /// refused.
     pub fn parse(affect: &str, relationship: Option<&str>, configs: &V) -> Read<Self> {
         let affect = match affect {
             LINEAR_AFFECT => AffectModel::Linear,
@@ -69,7 +69,7 @@ impl BodyModels {
                     }
                 };
                 let distance_scale_m = parameter("relationship_distance_scale_m", 2.0)?;
-                // Zero divides, which raises in Python. Its validation keeps it within 0.1..100.
+                // Zero would divide by zero. Its validation keeps it within 0.1..100.
                 if distance_scale_m <= 0.0 {
                     return Err(Fault::refused("the distance scale is not positive"));
                 }

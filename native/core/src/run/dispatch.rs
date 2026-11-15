@@ -4,11 +4,10 @@
 //! The dispatch loop runs an event of a handler it knows in Rust, with the values it reads of that
 //! handler (its cooldown, whether it expires a modifier, the operation of a ledger event, its
 //! managers), and gives any other handler to the host (`Host::apply_foreign`). Whether a handler is
-//! known is a matter of identity: its class is the one `events/handlers.py` installed, and that
-//! class's `apply` is the one installed with it (a test's patch is not). The PyO3 crate reads that
-//! here once, at the controller's start and at `RunCore.refresh_policies` (or `refresh_dispatch`,
-//! which the controller calls once its dispatcher is made); the tick checks the identity of the
-//! dispatcher and its handlers before it uses this (design-p9.md §4, P9-1c).
+//! known is a matter of identity: its class is the one the dispatch table installs, and that
+//! class's `apply` is the one installed with it. The entry's dispatch table says so
+//! (`initial::policies`, read by `load::policies`); the tick checks the identity of the dispatcher
+//! and its handlers before it uses this (design-p9.md §4, P9-1c).
 //!
 //! Not state: nothing saves, hashes or compares it.
 
@@ -24,14 +23,14 @@ use super::held::{Attr, Held, Obj, Spec};
 
 macro_rules! kinds {
     ($($kind:ident => $module:expr, $qualname:literal, $spec:expr;)*) => {
-        /// A handler class the core runs, by its class in `events/handlers.py` or `events/effects.py`.
+        /// A handler class the core runs, by its class.
         #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
         pub enum HandlerKind {
             $($kind,)*
         }
 
         impl HandlerKind {
-            /// Every kind, in the order `events/handlers.py` installs them.
+            /// Every kind, in the order the dispatch table installs them.
             pub const ALL: &'static [HandlerKind] = &[$(HandlerKind::$kind),*];
 
             /// The module and the name of the class.
@@ -112,7 +111,7 @@ pub const RETURN_RULE: &str = "_schedule_return_to_initial_zone";
 pub const NOT_TESTABLE: &str = "a value is not one the run can test for truth";
 /// The refusal of a value that is not a bool.
 pub const NOT_A_BOOL: &str = "a value is not a bool";
-/// The refusal of a Run whose dispatch table was not installed (`events/handlers.py`).
+/// The refusal of a Run whose dispatch table was not installed.
 pub const NO_TABLE: &str = "the dispatch table is not installed";
 
 /// What `after_complete` of a toilet's completion is.

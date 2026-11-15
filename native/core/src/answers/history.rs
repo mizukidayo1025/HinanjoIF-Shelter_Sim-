@@ -1,7 +1,6 @@
 //! `GET …/branches/{branch}/history?kind=kpis&start=&end=&step=&limit=&cursor=` (#266): a
-//! branch's KPI history from its stored metric samples (`history::KpiTable`), paged as the Python
-//! history index pages it (src/sheltersim/web/project_queries.py,
-//! src/sheltersim/storage/history_index.py).
+//! branch's KPI history from its stored metric samples (`history::KpiTable`), paged as the history
+//! index of the Python server paged it before #430.
 //!
 //! Two steps, so that the samples are read only for a query the server takes: `HistoryPlan::new`
 //! checks the query, the branch's record, the range, the kind and the cursor, in the server's
@@ -20,7 +19,7 @@ use super::records::{is_id, Record, RunFiles};
 use super::{code_points, js_integer, js_space, sha256_hex, string, Answer, Failure, Obj, Refusal};
 use crate::history::{KpiQuery, KpiTable};
 
-// `HistoryQuery` (src/sheltersim/contracts/workspace.py).
+// The kinds a history query (`HistoryQuery`) takes.
 const KINDS: [&str; 13] =
     ["people", "households", "events", "causal", "kpis", "conversations", "social", "staff", "actions", "transitions", "dialogue", "care", "operations"];
 const SELECTORS: [(&str, &[&str]); 5] = [

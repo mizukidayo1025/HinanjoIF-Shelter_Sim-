@@ -1,10 +1,8 @@
-//! The state of one world, without Python (design-p5-p6.md §2–§4, Issue #152, lane 5-1).
+//! The state of one world (design-p5-p6.md §2–§4, Issue #152, lane 5-1).
 //!
-//! `World` is held by the PyO3 crate's `WorldCore` (`world.__dict__["_core"]`). The Python objects
-//! (the tracked trees of the namespaces, the entity objects and their `IdMap`s) are views the
-//! PyO3 crate keeps next to it, in `NamespaceMirror` and `EntityStore`. Each part is a `Shard`, so a
-//! shim borrows the one part it needs (rule R3 of the design), and a kernel that holds the whole
-//! world reaches every part with `get_mut`.
+//! `World` is held by a `Loaded` Run (`load::loaded`, a `Shard<World>`). Each part is a `Shard`, so
+//! a reader borrows the one part it needs (rule R3 of the design), and a kernel that holds the
+//! whole world reaches every part with `get_mut`.
 //!
 //! Every str key of `model_state` has a slot: a namespace a lane owns has its typed row, and any
 //! other key a `ValueRow` slot (`Place::Value`, lane 5-3), made when the key is first stored.
@@ -14,22 +12,19 @@
 //! (`EventLog`) in 6-5. The field `derived` (configs and caches keyed by stamps, design-p7.md §2,
 //! lane 7-1) is not state: a snapshot, a fork or a hash never reads it.
 //!
-//! The queue and the log are the world's while its Python `EventQueue` and `EventLog` are Rust
-//! stores attached to its core (`queue_held`, `log_held`): the PyO3 crate's `QueueStore` and
-//! `EventStore` are then handles that keep only the Python objects of the events and records, and
-//! reach the events and records here. A store that belongs to no world holds its own, and moves it
-//! in when it is attached (`hold_queue`, `hold_log`) and out again when it is let go
-//! (`release_queue`, `release_log`); nothing is copied either way.
+//! The queue and the log are the world's while it holds them (`queue_held`, `log_held`): the
+//! loader moves them in (`hold_queue`, `hold_log`), and `release_queue` and `release_log` move them
+//! out again; nothing is copied either way.
 //!
 //! A kernel of the core reads the world through the typed accessors of `World` (`rows`, `row`,
 //! `metric_state`, `configs`, the scalars), each a shared borrow of its part. Who holds the world
-//! hands it over as `&mut World` (`WorldCell::with`, the PyO3 crate's `with_world`), lane 5-4.
+//! hands it over as `&mut World` (`WorldCell::with`), lane 5-4.
 //!
 //! The rows of the slots are the truth (lane P8-0c, as 6-1 made the entity rows): a kernel of the
 //! core writes a row alone (`row_mut`, `Slots::row_mut`, `Slots::try_row_mut`), which marks its
-//! slot (`Slot::written`) and gives it a new stamp. When the PyO3 crate's borrow of the world ends,
-//! before any Python runs, it takes the marks (`Slots::take_written`) and patches each attached
-//! tree from its row; a detached slot has no tree, and its row is all there is.
+//! slot (`Slot::written`) and gives it a new stamp. The marks were for the trees the Python world
+//! kept of the rows (`Slots::take_written`); since #430 removed that world, a slot has no tree, and
+//! its row is all there is.
 //!
 //! The parts of the state (the scalars, the entities, each slot) are `CowShard`s (lane 6-2): a
 //! `Snapshot` keeps their `Arc`s, a write copies a part a snapshot shares, and `restore` gives the
@@ -69,8 +64,8 @@ pub struct World {
     pub queue: CowShard<Queue>,
     /// The realized records (`EventLog`), while `log_held`; empty otherwise.
     pub log: CowShard<EventLog>,
-    /// Not state: whether `queue` is the world's event queue. False while the world's queue is
-    /// held in Python, or by a store attached to another world's core.
+    /// Not state: whether `queue` is the world's event queue. False until one is held
+    /// (`hold_queue`), or after it was let go (`release_queue`).
     pub queue_held: bool,
     /// Not state: whether `log` is the world's EventLog, as `queue_held` says of the queue. A copy
     /// that holds the EventLog of the world it was made from (`_effect_candidate`) does not hold it.
@@ -128,14 +123,13 @@ impl Snapshot {
 
 /// A world that a core function borrows for a while and gives back (policy E4, rules R2 and R6 of
 /// design-p5-p6.md). `with` holds the whole world exclusively while `f` runs; a function that calls
-/// a Host borrows between its calls, never across one. The PyO3 crate's cell is the world's
-/// `WorldCore` (`native/src/core/world_core.rs`, `with_world`).
+/// a Host borrows between its calls, never across one.
 pub trait WorldCell {
     /// Run `f` on the world. `Error::Runtime(BORROWED)` while any of it is borrowed.
     fn with<R>(&self, f: impl FnOnce(&mut World) -> R) -> Result<R>;
 }
 
-/// A world held by Rust alone (tests, and a build without Python).
+/// A world in a `Shard` (`Loaded::cell`, and the tests').
 impl WorldCell for Shard<World> {
     fn with<R>(&self, f: impl FnOnce(&mut World) -> R) -> Result<R> {
         let mut world = self.try_borrow_mut()?;
@@ -145,8 +139,8 @@ impl WorldCell for Shard<World> {
 
 // ---- Scalars ---------------------------------------------------------------------------------
 
-/// A value of the world as Rust holds it, or `Misfit` for a Python value of another type. A kernel
-/// that reads a misfit says Unsupported, as reading the attribute with `exact_int` says today.
+/// A value of the world as Rust holds it, or `Misfit` for a value of another type in the entry. A
+/// kernel that reads a misfit says Unsupported (`Fit::get`).
 #[derive(Clone, Debug, PartialEq, Default)]
 pub enum Fit<T> {
     Ok(T),
@@ -170,7 +164,7 @@ impl<T> Fit<T> {
     }
 }
 
-/// `world.seed`: an int of any size from Python. The text is `str(seed)`, which `KeyedDraws` keys
+/// `world.seed`: an int of any size. The text is `str(seed)`, which `KeyedDraws` keys
 /// its draws with; `small` is the value when it fits an i64.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Seed {
@@ -188,8 +182,7 @@ impl Seed {
     }
 }
 
-/// The scalars of a world. The PyO3 crate writes each from `WorldState.__setattr__` and when it
-/// starts the core; a value written past `__setattr__` (`world.__dict__[name] = ...`) is not seen.
+/// The scalars of a world, as the loader reads them from the entry (`load::loaded`).
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Scalars {
     pub scenario_id: Fit<Arc<str>>,
@@ -285,8 +278,8 @@ impl World {
 
     /// Give a snapshot back: every part as it was then. A slot registered since has no state
     /// again (a key of `model_state` first stored after the snapshot), as a deleted key has. The
-    /// rows of the entities are all marked changed, since the document bytes the PyO3 crate keeps
-    /// by slot may be of rows written since. The queue comes back with its serials; the log loses
+    /// rows of the entities are all marked changed, since the bytes kept of a row may be of rows
+    /// written since. The queue comes back with its serials; the log loses
     /// the records appended since (`EventLog::rollback`).
     pub fn restore(&mut self, snapshot: Snapshot) {
         self.queue.put(snapshot.queue);
@@ -308,9 +301,7 @@ impl World {
     /// F1, lane 6-2): each table of entities by the entity's ID (`Entities::canonicalize`), the
     /// keys of every map of every row sorted (`Row::canonicalize`), the queue scheduled again in
     /// queue order under new serials (`Queue::canonicalize`). Every slot gets a new stamp, as
-    /// every namespace of a new world has one; the scalars and the log are as they were. The PyO3
-    /// crate makes its Python containers in the same order (the views of the rows), and its queue
-    /// store finds the old serials in the snapshot.
+    /// every namespace of a new world has one; the scalars and the log are as they were.
     pub fn canonicalize(&mut self) {
         self.entities.get_mut().canonicalize();
         self.queue.get_mut().canonicalize();
@@ -456,8 +447,7 @@ impl World {
 
     /// `world.resources[resource] = remaining`, written by the core where an operation of the
     /// ledger took a stock (Issue #244, decision 2). The slot gets a new stamp but no mark
-    /// (`written`): a host with Python views gives the field a new tree (the PyO3 crate's new dict,
-    /// `Host::resources_changed`), so a holder of the old one keeps its old values.
+    /// (`written`); the host is told (`Host::resources_changed`).
     #[track_caller]
     pub fn set_resource(&self, resource: &str, remaining: i64) -> Result<()> {
         let slot = self.slots.get(RESOURCES).ok_or_else(|| Error::unsupported("the namespace is not owned"))?;
@@ -469,8 +459,7 @@ impl World {
 
     /// `model_state[name] = row` for an owned namespace a rule starts (Issue #244, decision 2): the
     /// slot holds the row, untainted, with a new stamp. A namespace the world does not own is
-    /// Unsupported. A host with Python views stores the same value in `model_state`
-    /// (`Host::start_namespace`), which loads the row again from it.
+    /// Unsupported. The host is told (`Host::start_namespace`).
     #[track_caller]
     pub fn start_namespace(&self, name: &str, row: Box<dyn Row>) -> Result<()> {
         let slot = self.slots.get(name).ok_or_else(|| Error::unsupported("the namespace is not owned"))?;
@@ -488,7 +477,7 @@ impl World {
     }
 
     /// The rows of the entities, borrowed shared. Unsupported while the people's tables are
-    /// tainted, as the PyO3 crate's `EntityStore::with_rows` says.
+    /// tainted (`Entities::tainted`).
     #[track_caller]
     pub fn rows(&self) -> Result<ShardRef<'_, Entities>> {
         let rows = self.entities.try_borrow()?;
@@ -543,7 +532,7 @@ impl World {
     }
 }
 
-/// Where a slot's state is in the Python world.
+/// Where a slot's state is in the world's document.
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum Place {
     /// A field of the world, `world.<name>`, such as `metric_state`.
@@ -555,7 +544,7 @@ pub enum Place {
     Value,
 }
 
-/// Counters for the budget of a lane (`NamespaceMirror.stats`).
+/// Counters for the budget of a lane.
 #[derive(Copy, Clone, Default, PartialEq, Eq, Debug)]
 pub struct SlotCounts {
     /// Writes forwarded from the tree to the row.
@@ -566,21 +555,22 @@ pub struct SlotCounts {
     pub rebuilds: u64,
 }
 
-/// One owned field or namespace: its row, and what the PyO3 crate's mirror says of it.
+/// One owned field or namespace: its row, and what is known of it.
 pub struct Slot {
     pub place: Place,
     /// None: the namespace is absent, or tainted (`taint` says why).
     pub row: Option<Box<dyn Row>>,
-    /// Why the row was dropped: a write that does not fit. The Python rules then run on the tree.
+    /// Why the row was dropped: a value or a write that does not fit. A rule that reads it says
+    /// Unsupported.
     pub taint: Option<String>,
-    /// The row alone holds the state; Python builds the tree from it when it reads it.
+    /// The row alone holds the state, with no tree (the Python world's; since #430 always false).
     pub detached: bool,
-    /// Changes with every write to the row or its tree, from Python or from Rust: while it and the
-    /// tree stand, the state is what it was (`generation_of`). A process-unique stamp, never `+= 1`.
+    /// Changes with every write to the row: while it stands, the state is what it was
+    /// (`generation_of`). A process-unique stamp, never `+= 1`.
     pub generation: Stamp,
     pub counts: SlotCounts,
-    /// A kernel of the core wrote the row since the PyO3 crate last took the marks
-    /// (`Slots::take_written`): its tree, if it has one, does not follow the row yet. Not state.
+    /// A kernel of the core wrote the row since the marks were last taken (`Slots::take_written`).
+    /// Not state.
     pub written: bool,
     /// The keys of a map row the kernels wrote since the marks were taken, when they wrote only
     /// those (`row_keys_written`): the tree follows those keys alone. None for a write of the whole
@@ -665,8 +655,7 @@ impl Slot {
 }
 
 /// The slots of a world, by name in the order they were registered. A slot is never removed, so
-/// its index stays its own: the PyO3 crate's mirror keeps it, and finds its slot without a lookup.
-/// The order of `model_state` is the Python table's, not this.
+/// its index stays its own. The order of `model_state` is the document's, not this.
 #[derive(Default)]
 pub struct Slots {
     by_name: IndexMap<Arc<str>, CowShard<Slot>, FxBuildHasher>,
@@ -761,8 +750,8 @@ impl Slots {
     }
 
     /// The indexes of the slots a kernel of the core wrote since the last call, in index order,
-    /// and their marks cleared: the PyO3 crate patches their trees from the rows (lane P8-0c). A
-    /// slot no kernel wrote is not copied (`CowShard`) to read its mark.
+    /// and their marks cleared (lane P8-0c). A slot no kernel wrote is not copied (`CowShard`) to
+    /// read its mark.
     pub fn take_written(&mut self) -> Vec<usize> {
         if !std::mem::replace(self.any_written.get_mut(), false) {
             return Vec::new();

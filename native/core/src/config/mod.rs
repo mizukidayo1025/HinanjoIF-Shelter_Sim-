@@ -7,16 +7,17 @@
 //! state back brings its old stamp back too, and the second entry of `Derived` then still holds it.
 //! A stamp is never issued twice in a process, so a hit is never a later state.
 //!
-//! The PyO3 crate parses, with the Python contracts, at the first read of each section
-//! (`src/core/configs.rs`). Sections join lane by lane: P7-1 has the model selection and the plan
-//! of the end-of-tick check, 7-2 the geometry and the plans built from it, 7-5b the staff, the
-//! formulas, information, the body, agent dynamics, the zone environment, infrastructure and
-//! proximity; 7-5a movement, routing, the queue policy, the overlay's schema, the resource
-//! service, the population's needs and the simulator extensions.
+//! A section is parsed at its first read (`rules::kit`). Sections joined lane by lane: P7-1 has the
+//! model selection and the plan of the end-of-tick check, 7-2 the geometry and the plans built from
+//! it, 7-5b the staff, the formulas, information, the body, agent dynamics, the zone environment,
+//! infrastructure and proximity; 7-5a movement, routing, the queue policy, the overlay's schema,
+//! the resource service, the population's needs and the simulator extensions.
 //!
 //! A section the kernels parse themselves is parsed here from the configs as a `V` (the row of the
-//! `model_configs` slot). A section that a Python contract parses keeps what the contract gave, as
-//! the types below.
+//! `model_configs` slot). A section of the host (`Parser::Host`; a Python contract or factory
+//! parsed it before #430) is parsed when the world's entry is made (`initial::sections`), and the
+//! host fills it in from the entry (`Host::fill_section`): it keeps what that parse gave, as the
+//! types below.
 
 pub mod agent_dynamics;
 pub mod body;
@@ -70,8 +71,7 @@ pub struct Configs {
     pub stamp: Option<Stamp>,
     /// `selected_models(model_configs)`.
     pub selection: Lazy<Selection>,
-    /// The plan of the end-of-tick check (`core/tick_validation.py`'s `tick_plan`), as the PyO3
-    /// crate read it from the Python contracts (lane P8 d4).
+    /// The plan of the end-of-tick check (`tick_plan`, lane P8 d4).
     pub tick_plan: Lazy<TickPlan>,
     /// `facility_geometry`, parsed. Absent where the key is missing or None.
     pub facility_geometry: Lazy<FacilityGeometry>,
@@ -167,9 +167,8 @@ macro_rules! sections {
                 }
             }
 
-            /// Who parses it: a Python contract or factory (`Parser::Host`), or the core's own parser
-            /// of the configs' `V` (`Parser::Value`), which a host runs only where the world's
-            /// `model_configs` has no row.
+            /// Who parses it: the host, from the entry's sections (`Parser::Host`), or the core's
+            /// own parser of the configs' `V` (`Parser::Value`).
             pub fn parser(self) -> Parser {
                 match self {
                     $(SectionId::$id => Parser::$by,)*
@@ -182,7 +181,7 @@ macro_rules! sections {
 /// Who parses a section (`SectionId::parser`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Parser {
-    /// A Python contract or factory, which only the host runs.
+    /// The host's: the entry's sections (`load::Sections`), which `initial::sections` parses.
     Host,
     /// A parser of the core, from the `V` of the `model_configs` slot.
     Value,
@@ -202,7 +201,7 @@ sections! {
     StaffOperations => staff_operations, Host;
     StaffOperationsKnown => staff_operations_known, Value;
     SupportTaskMinutes => support_task_minutes, Value;
-    /// `model_configs.get("staff", {}).get("support_cooldown_minutes", 30)`, read in Python.
+    /// `model_configs.get("staff", {}).get("support_cooldown_minutes", 30)`.
     SupportCooldownMinutes => support_cooldown_minutes, Host;
     /// `InformationSpreadConfig.from_mapping`.
     InformationSpread => information_spread, Host;
@@ -222,15 +221,15 @@ sections! {
     Proximity => proximity, Host;
     Movement => movement, Value;
     RouteCapacities => route_capacities, Value;
-    /// `layout_routing.max_agents_in_transit_by_edge`, read in Python.
+    /// `layout_routing.max_agents_in_transit_by_edge`.
     TransitCapacities => transit_capacities, Host;
     FacilityQueues => facility_queues, Value;
     OverlaySchema => overlay_schema, Value;
-    /// `geometry_overlay`, read in Python.
+    /// `geometry_overlay`.
     OverlayRooms => overlay_rooms, Host;
     ResourceService => resource_service, Value;
     AccessibilityNeeds => accessibility_needs, Value;
-    /// `simulator_extensions.get("enabled")`, read in Python.
+    /// `simulator_extensions.get("enabled")`.
     ExtensionsEnabled => extensions_enabled, Host;
 }
 
@@ -246,8 +245,7 @@ pub enum Filled {
 static PARSES: AtomicU64 = AtomicU64::new(0);
 
 /// A section is parsed now: at its first read for a stamp, or at every read of configs no slot
-/// follows. `config_parses()` of the PyO3 crate reads the count, so a parse the core runs counts as
-/// one the PyO3 crate runs.
+/// follows (`parses`).
 pub fn count_parse() {
     PARSES.fetch_add(1, Ordering::Relaxed);
 }

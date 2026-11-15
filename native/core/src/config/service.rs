@@ -17,7 +17,7 @@ pub struct ResourceService {
     /// `"resource_service" in model_configs`.
     pub present: bool,
     /// `dict(model_configs["resource_service"])` where it is a dict: a copy of its items. None for no
-    /// config, or one that is not a dict (the PyO3 crate then copies the Python value as before).
+    /// config, or one that is not a dict.
     pub config: Option<Arc<IndexMap<Arc<str>, V>>>,
     /// The skills `_require_service_staff_in_zone` reads, or its refusal of a config that is not a dict.
     pub skills: Read<ServiceSkills>,

@@ -1,5 +1,5 @@
 //! The model versions a Run was computed with, and the rule that makes a Run of other versions
-//! view-only (#368, decision 8): `src/sheltersim/core/model_version.py`, with its texts.
+//! view-only (#368, decision 8), with the texts of the Python rule it replaced (removed in #430).
 //!
 //! A stored Run's "run" line holds the `model_versions` the Run was computed with
 //! (`model_signatures` of its Scenario: the signatures of each installed policy and state
@@ -8,12 +8,12 @@
 //! and going on with it (continuing, forking, an intervention) is refused with
 //! `ModelStatus::require_current` (`run_model_view_only`). A minute between its saved points is
 //! not computed again with the installed model: the saved point at or before it is shown, and the
-//! answer says so (`ModelStatus::describe_json`, Python's D2).
+//! answer says so (`ModelStatus::describe_json`, D2).
 //!
-//! What Python's `model_version_status` reads besides the two maps is left out, as no stored Run
+//! What that rule (`model_version_status`) read besides the two maps is left out, as no stored Run
 //! of this format can need it: the explicit migration of saves from before independent facility
-//! queues and the older shapes of `model_state` (`_legacy_shapes`) are Python's Checkpoints', and
-//! the configs decide nothing when the recorded map holds model items, which every Run of this
+//! queues and the older shapes of `model_state` (`_legacy_shapes`) were the Python Checkpoints',
+//! and the configs decide nothing when the recorded map holds model items, which every Run of this
 //! format's does.
 
 use std::collections::BTreeMap;

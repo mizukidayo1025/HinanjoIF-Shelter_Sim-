@@ -30,7 +30,7 @@ pub struct StaffFatigue {
 }
 
 impl StaffFatigue {
-    /// The formulas this kernel knows; a later registered one is the Python rule's.
+    /// The formulas this kernel knows; another one is refused.
     pub fn parse(configs: &V) -> Read<Self> {
         let configs = map(configs)?;
         let selected = match configs.get("policy_registry") {

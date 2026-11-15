@@ -1,12 +1,9 @@
-//! Events without Python (docs/rust-port/lanes/e-events.md): `EventRow` is one `ScheduledEvent`,
+//! Events (docs/rust-port/lanes/e-events.md): `EventRow` is one `ScheduledEvent`,
 //! `Queue` the pending events in the queue's order, `EventLog` the realized records with their
 //! indexes, `packed` a record in a binary form (the browser's log, #252), and `writer` what a rule does to schedule and record an event, with the errors of
 //! `WorldState.schedule_event` and `EventLog.append`.
 //!
-//! A world's queue and log are parts of its `World` (`World::queue`, `World::log`, lane 6-5). The
-//! PyO3 crate keeps the Python objects beside them, in side tables indexed the same way:
-//! `QueueStore` (`native/src/state/events.rs`) by slot serial, `EventStore`
-//! (`native/src/eventlog.rs`) by record position.
+//! A world's queue and log are parts of its `World` (`World::queue`, `World::log`, lane 6-5).
 
 pub mod log;
 pub mod packed;

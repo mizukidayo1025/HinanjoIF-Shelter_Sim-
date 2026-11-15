@@ -1,18 +1,19 @@
 //! The `Host`: the world's outside, as the core's rules see it (Issue #152, lane P8-0b;
 //! design-p8.md section 2, decision 2 and policies E6 and E15 of docs/rust-port/step5-plan.md).
 //!
-//! The rules move into the core; what is not a rule stays outside and is reached through this
-//! trait:
-//! - the validation of the whole world, which stays in Python in #152 (policy E6), and the views
+//! What is not a rule is reached through this trait:
+//! - the validation of the whole world (policy E6; the core's `validate` since #250), and the views
 //!   a transaction keeps in step (lane 6-2, `txn::Txn`);
 //! - the pydantic contracts of inputs from a Scenario, a Branch or the LLM, whose texts reach saved
-//!   data (policy E15): `contract` validates and gives back `model_dump(mode="json")`;
+//!   data (policy E15): `contract` validates and gives back `model_dump(mode="json")`, as
+//!   `contracts::validate` writes it (#346);
 //! - the LLM boundary (decision 2): the social policy and the support priority;
 //! - the outside sinks: metrics, decision records, trace documents and the phase observer;
-//! - the Python views of the space, rebuilt after a geometry or structure change.
+//! - the host's own views of the space, rebuilt after a geometry or structure change.
 //!
-//! The PyO3 crate's `PyHost` (`native/src/host.rs`) calls today's Python; a build without Python
-//! gives its own host (the tests' `TestHost`). Rule R6 of the design holds for every call: no
+//! A Run's host is `plain::PlainHost`; the tests give their own (`TestHost`). Some calls were made
+//! for the host of the Python world, which #430 removed: `PlainHost` keeps their defaults (no view
+//! of its own, nothing to read again). Rule R6 of the design holds for every call: no
 //! borrow of the world is held while the host runs, a host call is made with owned values only,
 //! and what a caller read before the call is read again after it, as the host may have written the
 //! world (the LLM hooks write `model_state`, schedule events and take sequence numbers).
@@ -47,7 +48,7 @@ pub enum ErrorClass {
     Value,
     Key,
     Type,
-    /// `Unsupported`: the host leaves the case to Python.
+    /// `Unsupported`: a case the core does not run (`Error::Unsupported`).
     Refused,
     Other,
 }
@@ -69,22 +70,21 @@ pub trait HostFailure {
     fn outcome(&self) -> Option<crate::error::Outcome> {
         None
     }
-    /// The error as Rust's `Display` of a Python exception writes it, `{type}: {str(exc)}`, for a
-    /// text that names what a read raised (`the plan read: ...` of the population rules, lane
-    /// P9-3a). A host without Python writes its own text.
+    /// The error as a text that names what a read raised (`the plan read: ...` of the population
+    /// rules, lane P9-3a): its own text, unless the host writes another.
     fn shown(&self) -> String {
         self.text()
     }
     /// Whether the rules made it with their own text (an outcome or a marked `ValueError`), which a
-    /// plan's read lets through as it is (`errors::made_here` of the PyO3 crate, lane P9-3a).
+    /// plan's read lets through as it is (lane P9-3a).
     fn made_here(&self) -> bool {
         self.is_outcome()
     }
 }
 
-/// The core's errors by the Python class each becomes: every `EventSuppressed`,
-/// `EventApplicationError`, `KernelRefusal`, `StateInvariantError` and `ResourceLedgerError` is a
-/// `ValueError`.
+/// The core's errors by their class: every `EventSuppressed`, `EventApplicationError`,
+/// `KernelRefusal`, `StateInvariantError` and `ResourceLedgerError` is of the class of a
+/// `ValueError` (`ErrorClass::Value`).
 impl HostFailure for Error {
     fn class(&self) -> ErrorClass {
         match self {
@@ -105,8 +105,8 @@ impl HostFailure for Error {
         }
     }
 
-    /// The text of the Python error it becomes. A `KeyError`'s `str` quotes its text; this gives it
-    /// bare, as `Display` does.
+    /// The error's text, as `Display` writes it: a `KeyError`'s text bare, where `str` of a Python
+    /// `KeyError` quotes it.
     fn text(&self) -> String {
         self.to_string()
     }
@@ -130,35 +130,35 @@ impl HostFailure for Error {
 /// A pydantic contract of an input (policy E15), by the model it validates with.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Contract {
-    /// `RouteAccessParameters` of `domain/geometry_overlay.py`.
+    /// `RouteAccessParameters` (`contracts::models::ROUTE_ACCESS`).
     RouteAccess,
-    /// `EquipmentTransferParameters` of `contracts/operations.py`.
+    /// `EquipmentTransferParameters` (`contracts::models::EQUIPMENT_TRANSFER`).
     EquipmentTransfer,
-    /// `MoveFacilityParameters` of `domain/geometry_overlay.py`.
+    /// `MoveFacilityParameters` (`contracts::models::MOVE_FACILITY`).
     MoveFacility,
-    /// `PartitionParameters` of `domain/geometry_overlay.py`.
+    /// `PartitionParameters` (`contracts::models::PARTITION`).
     Partition,
-    /// `TemporaryRoomGeometry` of `contracts/operations.py`.
+    /// `TemporaryRoomGeometry` (`contracts::models::TEMPORARY_ROOM`).
     TemporaryRoom,
-    /// `_PARAMETER_MODELS[operator]` of `events/effects.py`.
+    /// The parameters' model of an EffectProgram operator (`contracts::models::parameter_model`).
     EffectParameters(Arc<str>),
-    /// `GuardExpression` of `events/effects.py`.
+    /// `GuardExpression` (`contracts::models::GUARD`).
     Guard,
-    /// `ScenarioZoneEnvironmentConfig` of `domain/environment.py`.
+    /// `ScenarioZoneEnvironmentConfig` (`contracts::models::ZONE_ENVIRONMENT`).
     ZoneEnvironment,
-    /// `ScenarioInfrastructureSpec` of `domain/infrastructure.py`.
+    /// `ScenarioInfrastructureSpec` (`contracts::models::INFRASTRUCTURE`).
     Infrastructure,
-    /// `PopulationSpec` of `contracts/extensions.py`.
+    /// `PopulationSpec` of `contracts/extensions.py` (`contracts::models::POPULATION_SPEC`).
     PopulationSpec,
-    /// `DynamicArrivalPersonContext` of `contracts/population.py`.
+    /// `DynamicArrivalPersonContext` (`contracts::models::ARRIVAL_CONTEXT`).
     ArrivalContext,
-    /// `PersonTraits` of `contracts/extensions.py`.
+    /// `PersonTraits` of `contracts/extensions.py` (`contracts::models::PERSON_TRAITS`).
     PersonTraits,
-    /// `PopulationPresenceCommand` of `domain/population_lifecycle.py`.
+    /// `PopulationPresenceCommand` (`contracts::models::PRESENCE_COMMAND`).
     PresenceCommand,
-    /// `FacilityGeometry` of `contracts/extensions.py`.
+    /// `FacilityGeometry` of `contracts/extensions.py` (`contracts::models::FACILITY_GEOMETRY`).
     FacilityGeometry,
-    /// `SpatialConstraints` of `contracts/spatial.py`.
+    /// `SpatialConstraints` of `contracts/spatial.py` (`contracts::models::SPATIAL_CONSTRAINTS`).
     SpatialConstraints,
 }
 
@@ -196,9 +196,8 @@ pub enum Trace {
     InformationSpread(V),
 }
 
-/// A decision's record, as the sink of `DecisionSink` takes it. A sink that runs
-/// `record_decision` in Python (`DecisionSink::Python`) takes the Python proposal, which only the
-/// PyO3 crate makes.
+/// A decision's record, as the sink of `DecisionSink` takes it. A decision the core writes no
+/// record of (`DecisionSink::Python`) goes to `Host::record_decision_python` instead.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Decision {
     /// `artifacts.record_decision_document(document, observed_state)` of a writer whose trace is on.
@@ -207,7 +206,7 @@ pub enum Decision {
     Indexed(Vec<u8>),
 }
 
-/// A phase of the tick (`TickPhase` of `core/engine.py`), in its order.
+/// A phase of the tick, in its order (`rules::tick::run_phases`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Phase {
     DispatchDueEvents,
@@ -293,14 +292,13 @@ impl Key {
     }
 }
 
-/// Whether the world holds each namespace and owned field: what the PyO3 crate's
-/// `namespace_held`, `namespace_is_absent` and `field_held` read at each call, read once
-/// (`Host::holding`). A rule says its own refusal for a namespace the world holds another value
-/// of (`held`).
+/// Whether the world holds each namespace and owned field (`namespace_held`, `namespace_is_absent`
+/// and `field_held`), read once (`Host::holding`, or `Holding::of_world` where the host has no
+/// view of its own). A rule says its own refusal for a namespace the world holds another value of
+/// (`held`).
 ///
-/// It is good until the next host call that runs Python (an LLM hook, `space_refreshed`, a foreign
-/// handler: the native host then reads it again), or a write of the core that adds or takes away
-/// a key of `model_state`, after which a rule asks for it again.
+/// It is good until a write of the core that adds or takes away a key of `model_state`, after
+/// which a rule asks for it again.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Holding {
     /// Whether `model_state` is a dict the kernels read.
@@ -319,9 +317,9 @@ impl Default for Holding {
 }
 
 impl Holding {
-    /// What a world that no Python view holds holds: every slot of a namespace with a row (or a
-    /// taint, whose tree stays) is held, every other is absent, and every owned field is held. A
-    /// host without Python answers `holding` with this (the core's `kit::holding`).
+    /// What the world's slots hold: every slot of a namespace with a row (or a taint, whose tree
+    /// stays) is held, every other is absent, and every owned field is held. Where the host has no
+    /// view of its own (`Host::holding` gives None), the rules read this (`kit::holding`).
     pub fn of_world(world: &World) -> crate::error::Result<Self> {
         let mut holding = Self::default();
         for name in world.slots.names() {
@@ -416,7 +414,8 @@ pub struct Foreign {
 pub const NO_FOREIGN: &str = "the host runs no foreign handler";
 /// The text of a host that fills no section of the configs (`Host::fill_section`).
 pub const NO_SECTIONS: &str = "the host fills no section of the configs";
-/// The text of a host without a decision sink that runs Python (`Host::record_decision_python`).
+/// The text of a host that takes no decision the core writes no record of
+/// (`Host::record_decision_python`).
 pub const NO_PYTHON_SINK: &str = "the host has no sink that records in Python";
 
 /// The text of a host that cannot draw (`Host::draw` of any host but a test's).
@@ -430,7 +429,7 @@ pub const NO_SINK: &str = "the host has no sink that samples";
 
 // ---- What a tick's phases 2-6 ask of the host (lane P9-2a) ----------------------------------------
 
-/// A read of Python to make again, for the error it raised (policy E14).
+/// A read to make again, for the error it raised (policy E14; `Host::read_again`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Again<'a> {
     /// The section's parse, as its read site parses it.
@@ -450,14 +449,14 @@ pub enum MetricSink {
 
 /// The outside of the world. Each call runs with nothing of the world borrowed (rule R6).
 pub trait Host {
-    /// A write's error is the host's as `From<WriteError>` makes it: the native host's
-    /// `DuplicateEventError` for a duplicate (lane P9-3b; P9-2a's `write_error`).
+    /// A write's error is the host's as `From<WriteError>` makes it (lane P9-3b; P9-2a's
+    /// `write_error`; `events::writer`).
     type Error: From<Error> + From<WriteError> + HostFailure;
 
     // ---- The whole world's validation and a transaction's views (policy E6, lane 6-2) ----------
 
-    /// Validate the whole world (`WorldState.validate` in the native host) as a transaction's
-    /// stage asks.
+    /// Validate the whole world (`validate::world`, or `validate::candidate` of a candidate) as a
+    /// transaction's stage asks.
     fn validate_candidate(&mut self, kind: TxnKind, stage: Stage) -> Result<(), Self::Error>;
     /// The world was put in canonical order: the views follow it. `before` is the world as it was
     /// (the queue's old serials, by which a host keeps its objects of the events). On an error the
@@ -474,16 +473,14 @@ pub trait Host {
         Ok(())
     }
     /// Whether this host's views of the world are all ones a transaction gives back, asked before a
-    /// rule's transaction opens (`txn::rule`, lane P9-1b): Unsupported with the reason otherwise
-    /// (the native host's `_txn_check` of `core/state_mirror.py`: a tainted entity store, a map of
-    /// entities that is not the rows', a queue held in Python, ...), with nothing changed. A host
-    /// with no views of its own has nothing to refuse.
+    /// rule's transaction opens (`txn::rule`, lane P9-1b): Unsupported with the reason otherwise,
+    /// with nothing changed. A host with no views of its own has nothing to refuse.
     fn txn_check(&mut self) -> Result<(), Self::Error> {
         Ok(())
     }
     /// `world.validate()` in place, where a rule validates the world it changed (`validate_state`).
     fn validate_world(&mut self) -> Result<(), Self::Error>;
-    /// `validate_simulator_extensions(world)` of `domain/simulator_state.py`.
+    /// The simulator extensions' validation (`validate::extensions`).
     fn validate_extensions(&mut self) -> Result<(), Self::Error>;
     /// `world.validate(_in_flight_event=event)`: the whole world, with this pending event in flight
     /// (lane P8 d2, the operational events). A host that validates nothing validates this as the
@@ -502,17 +499,16 @@ pub trait Host {
     // ---- The EventLog's records (lane P8 d2) ------------------------------------------------------
 
     /// `event_log.find(event_id)` as the core reads a record: its status, minute and event, or None
-    /// for no such record. The core's EventLog does not keep the bytes of a record once Python has
-    /// taken them, so a rule that reads an older record's event (a continuity receipt's cause and the
-    /// request's head) asks the host. A host without the records refuses.
+    /// for no such record, for a rule that reads an older record's event (a continuity receipt's
+    /// cause and the request's head). `PlainHost` reads the world's log (`load::find_record`); a
+    /// host without the records refuses.
     fn find_record(&mut self, _event_id: &str) -> Result<Option<Logged>, Self::Error> {
         Err(Error::unsupported(NO_RECORDS).into())
     }
 
     /// The canonical JSON of the log's record at each of these positions, given to `each`, for a
-    /// reader of records whose bytes the core's log no longer keeps (Python took them): a frame
-    /// and its digest (#264). A host without Python has every record in the core's log, and
-    /// refuses.
+    /// reader of records whose bytes the core's log does not keep: a frame and its digest (#264).
+    /// `PlainHost` has every record in the core's log, and refuses.
     fn read_records(&mut self, _positions: &[usize], _each: &mut dyn FnMut(usize, &[u8]) -> crate::error::Result<()>) -> Result<(), Self::Error> {
         Err(Error::unsupported(NO_RECORDS).into())
     }
@@ -538,7 +534,7 @@ pub trait Host {
     fn llm(&self) -> Result<Llm, Self::Error>;
     /// The limits of the social policy where the core runs the policy itself (#428: a host with an
     /// `LlmLink`, `rules::llm_runtime`), which the tick reads instead of the controller's
-    /// `social_policy.limits`. None: the controller's policy decides (the native host's, in Python).
+    /// `social_policy.limits`. None: the Run has no such link.
     fn social_limits(&self) -> Option<crate::llm::SocialLimits> {
         None
     }
@@ -577,32 +573,30 @@ pub trait Host {
     /// `TickEngine.phase_observer(phase, before)`, if any.
     fn phase(&mut self, phase: Phase, before: bool) -> Result<(), Self::Error>;
     /// The space changed (a geometry or structure event applied) and the core refreshed the Run's
-    /// routers (`Routes::refresh`): the host's views of the space follow (the Python ones, built
-    /// again at the Run's new epoch, #368). A host without views of its own does nothing.
+    /// routers (`Routes::refresh`): the host's views of the space follow. A host without views of
+    /// its own does nothing.
     fn space_refreshed(&mut self) -> Result<(), Self::Error>;
 
     // ---- What the world holds and its configs (lane P9-0) ------------------------------------------
 
-    /// Whether the world holds each namespace and owned field (H1). None: no Python view holds the
-    /// world, so its slots answer (`Holding::of_world`, which `kit::holding` reads). The native host
-    /// reads `model_state` and the fields against their mirrors, and keeps what it read until a
-    /// call of its own runs Python.
+    /// Whether the world holds each namespace and owned field (H1). None: the host has no view of
+    /// the world, so its slots answer (`Holding::of_world`, which `kit::holding` reads).
     fn holding(&mut self) -> Result<Option<Arc<Holding>>, Self::Error> {
         Ok(None)
     }
 
     /// Whether `model_state[name]` is a dict, for a key the holding says holds another value than
     /// its slot's tree (lane P9-1b): a rule that reads a state with `isinstance(state, dict)` takes
-    /// one that is not as no state (`kit::staff_held`). A host without Python views has no such key.
+    /// one that is not as no state (`kit::staff_held`). A host without views of its own has no such
+    /// key.
     fn other_is_dict(&mut self, _name: &str) -> Result<bool, Self::Error> {
         Ok(true)
     }
 
     /// Fill the section `which` of `configs`, the configs of the world now, which a rule found
-    /// empty (H2). The native host runs today's parse at the same first read: the Python contract,
-    /// or the core's parser of the configs read from Python where no row holds them. A parse never
-    /// raises here; what it raised is the section's fault, which the read site raises. A host
-    /// without the configs' parsers refuses.
+    /// empty (H2). `PlainHost` fills it from the entry's parsed sections (`load::Sections`). A
+    /// parse never raises here; what it raised is the section's fault, which the read site raises.
+    /// A host without the configs' sections refuses.
     fn fill_section(&mut self, _configs: &Arc<Configs>, _which: SectionId) -> Result<Filled, Self::Error> {
         Err(Error::unsupported(NO_SECTIONS).into())
     }
@@ -616,11 +610,12 @@ pub trait Host {
         Err(Error::unsupported(NO_FOREIGN).into())
     }
 
-    // ---- A decision a Python sink records (lane P9-0, H5) -------------------------------------------
+    // ---- A decision the core writes no record of (lane P9-0, H5) --------------------------------
 
     /// `artifacts.record_decision(proposal.with_outcome(target_id, next_decision_at),
-    /// observed_state=observed)`, for `DecisionSink::Python`. The core commits and remembers the
-    /// decision itself after it.
+    /// observed_state=observed)`, for `DecisionSink::Python` and what `decisions::record` gives
+    /// `Sunk::Python`. The core commits and remembers the decision itself after it. `PlainHost`
+    /// counts it where the Run collects its decisions, and refuses it otherwise.
     fn record_decision_python(
         &mut self,
         _data: &ViewData,
@@ -638,15 +633,16 @@ pub trait Host {
     /// schema is not 2, and the namespace's row read again from the tree: what an information event
     /// does first, after the model's checks, to a state its row does not hold as schema 2. Only a
     /// test writes such a state in memory; a save of it is view-only (`LEGACY_SHAPES_TICKABLE`).
-    /// Its `ValueError` is the event's failure. A host without the Python rule refuses.
+    /// Its `ValueError` is the event's failure. A host that cannot upgrade it refuses (`PlainHost`
+    /// does).
     fn upgrade_information_state(&mut self) -> Result<(), Self::Error> {
         Err(Error::unsupported(crate::rules::information_events::OLDER_STATE).into())
     }
 
     // ---- A tick's phases 2-6 in the core (lane P9-2a) ------------------------------------------------
 
-    /// The rows of the pending events Python scheduled, read before a rule reads the whole queue
-    /// (H6 of design-p9.md). A host without Python has nothing to read.
+    /// The rows of the pending events the host scheduled itself, read before a rule reads the whole
+    /// queue (H6 of design-p9.md). A host that schedules none has nothing to read.
     fn read_queue_rows(&mut self) -> Result<(), Self::Error> {
         Ok(())
     }
@@ -657,25 +653,23 @@ pub trait Host {
         Ok(None)
     }
 
-    /// Make a read of Python again whose fault a rule raises (policy E14): its error, or Ok where
-    /// it raises nothing now. A host without Python has nothing to read again.
+    /// Make a read of the host's again whose fault a rule raises (policy E14): its error, or Ok
+    /// where it raises nothing now. A host that reads nothing of its own has nothing to read again.
     fn read_again(&mut self, _again: Again<'_>) -> Result<(), Self::Error> {
         Ok(())
     }
 
     /// The core wrote `remaining` for `RESOURCE_IDS[index]` in `world.resources` (an operation of
-    /// the ledger, `World::set_resource`; Issue #244, decision 2). A notice: a host without Python
-    /// views has nothing to do. The native host gives the Python field a new dict, as the Python rule
-    /// did.
+    /// the ledger, `World::set_resource`; Issue #244, decision 2). A notice: a host without views
+    /// of its own has nothing to do.
     fn resources_changed(&mut self, _index: usize, _remaining: i64) -> Result<(), Self::Error> {
         Ok(())
     }
 
     /// The core started the namespace `name` of `model_state` with `value` (`World::start_namespace`:
     /// the social model's first tick, the population's dynamics), before the rule writes its row
-    /// (Issue #244, decision 2). A notice: a host without Python views has nothing to do. The native
-    /// host stores the value in the Python `model_state`. What the world holds changes, so a rule
-    /// asks for the holding again after it.
+    /// (Issue #244, decision 2). A notice: a host without views of its own has nothing to do. What
+    /// the world holds changes, so a rule asks for the holding again after it.
     fn start_namespace(&mut self, _name: &str, _value: &V) -> Result<(), Self::Error> {
         Ok(())
     }

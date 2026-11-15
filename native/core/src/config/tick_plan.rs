@@ -1,10 +1,10 @@
 //! The plan of the end-of-tick check (`rules/after_tick.rs`): what its rules read of
-//! `model_configs`, as the Python contracts read it (`core/tick_validation.py`'s `tick_plan`).
+//! `model_configs` (`tick_plan`).
 //!
-//! The contracts (pydantic models, `declared_states`, `simulator_signatures`, the canonical forms of
-//! the configs) stay in Python during #152 (policies E6 and E15 of docs/rust-port/step5-plan.md):
-//! the PyO3 crate calls `tick_plan` at the first check after the configs' stamp changed and keeps
-//! what it gave here, by the stamp (lane 7-1, P8 d4). A plan that raised is kept as its fault.
+//! The plan is a section of the host (`Parser::Host`): it is made with the contracts
+//! (`declared_states`, `simulator_signatures`, the canonical forms of the configs) when the entry
+//! is made (`initial::sections`), and kept here by the configs' stamp (lane 7-1, P8 d4). A plan
+//! that raised is kept as its fault.
 
 use std::sync::Arc;
 

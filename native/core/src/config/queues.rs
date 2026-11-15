@@ -106,7 +106,7 @@ fn config_errors(raw: &V, need_weighted: bool) -> Read<()> {
         return config_error(NOT_AN_OBJECT);
     }
     if let Some(schema) = config.get("schema_version") {
-        // Python's `!=`: `1.0` and `True` pass, as they did in the Python rule.
+        // Python's `!=`: `1.0` and `True` pass.
         if is_not_one(schema) {
             return config_error("facility_queues requires schema_version 1");
         }

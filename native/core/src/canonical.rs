@@ -1,9 +1,8 @@
-//! A World's canonical bytes: what `WorldState.canonical_json()` writes for the same world (Issue
-//! #225, lane M1; in the crate since #244, PR 4-3, for a host without Python that reports a Run's
-//! digests). Each part is the canonical JSON of one top-level key of the document (the rows sorted
-//! by ID, the queue in its order, the log's records as it keeps them, the fields and `model_state`
-//! by name); the document joins them in the order of their keys, with `rng_state`, which the core's
-//! World does not hold, given by the caller.
+//! A World's canonical bytes (Issue #225, lane M1; in the crate since #244, PR 4-3, for a host that
+//! reports a Run's digests). Each part is the canonical JSON of one top-level key of the document
+//! (the rows sorted by ID, the queue in its order, the log's records as it keeps them, the fields
+//! and `model_state` by name); the document joins them in the order of their keys, with
+//! `rng_state`, which the core's World does not hold, given by the caller.
 //!
 //! The digests (`digests`, `run_digests`) read the log a record at a time (`log_digest`) and make
 //! no copy of it: after 7 days of 100 people the log's JSON is about 300 MiB, and a copy of it,
@@ -188,8 +187,7 @@ fn digested_parts(world: &World) -> Result<(Vec<(&'static str, Vec<u8>)>, String
     Ok((all, log_digest(world)?))
 }
 
-/// The sha256 of each part, in hex, by its name (the digests `tests/support/core_tick.py` writes
-/// for the parts it covers), in the order of `parts`.
+/// The sha256 of each part, in hex, by its name, in the order of `parts`.
 pub fn digests(world: &World) -> Result<Vec<(&'static str, String)>> {
     let (all, log) = digested_parts(world)?;
     let mut digests: Vec<(&'static str, String)> = all.into_iter().map(|(name, raw)| (name, sha256_hex(&raw))).collect();
@@ -198,7 +196,7 @@ pub fn digests(world: &World) -> Result<Vec<(&'static str, String)>> {
     Ok(digests)
 }
 
-/// The parts `tests/support/core_tick.py` digests a Run's world by (`PARTS`), in its order; the
+/// The parts `run_digests` digests a Run's world by, in its order; the
 /// scalars (`schema_version`, `scenario_id`, `seed`, `duration_minutes`, `minute_index`) are one
 /// more part, `scalars`, their JSON list.
 pub const RUN_PARTS: [&str; 14] = [
@@ -221,8 +219,8 @@ pub const RUN_PARTS: [&str; 14] = [
 /// The scalars of the `scalars` part, in its order.
 const SCALARS: [&str; 5] = ["schema_version", "scenario_id", "seed", "duration_minutes", "minute_index"];
 
-/// The digests of a Run's world as `tests/support/core_tick.py` writes them (`world_digests`):
-/// each part of `RUN_PARTS`, then `scalars`.
+/// The digests of a Run's world (`world_digests` of the WASM crate's `Simulation` and the PyO3
+/// crate's `PlainRun`): each part of `RUN_PARTS`, then `scalars`.
 pub fn run_digests(world: &World) -> Result<Vec<(&'static str, String)>> {
     let (mut all, mut log) = digested_parts(world)?;
     let mut take = |name: &str| -> Result<Vec<u8>> {
@@ -287,8 +285,7 @@ pub fn canonical_json(world: &World, rng_state: &V) -> Result<Vec<u8>> {
 
 // ---- The tree digest of a world (`state_hash`, #264) ---------------------------------------------
 
-/// How many items each hash of a history list covers (`TREE_CHUNK_ITEMS` of
-/// `core/checkpoint_cache.py`, a rule of the Checkpoint v2 hash).
+/// How many items each hash of a history list covers (a rule of the Checkpoint v2 hash).
 pub const TREE_CHUNK_ITEMS: usize = 128;
 /// The inner nodes start with NUL, which canonical JSON (the bytes of a leaf) never does.
 const TREE_LIST: &[u8] = b"\0sheltersim-tree-list\0";

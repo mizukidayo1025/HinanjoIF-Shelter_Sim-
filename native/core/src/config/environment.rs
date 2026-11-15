@@ -1,6 +1,7 @@
 //! The sections of the event handlers' environment: `ScenarioZoneEnvironmentConfig` as a condition
-//! modifier reads it, and `ScenarioInfrastructureSpec` (lane 7-5b of Issue #152). The PyO3 crate
-//! validates both with the pydantic contracts, which raise their own errors.
+//! modifier reads it, and `ScenarioInfrastructureSpec` (lane 7-5b of Issue #152). Both are
+//! validated with their contracts, which give their own errors, when the entry is made
+//! (`initial::sections`).
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::Arc;

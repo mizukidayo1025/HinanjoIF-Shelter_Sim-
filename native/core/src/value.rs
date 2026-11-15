@@ -1,7 +1,6 @@
 //! `V`: a JSON value owned by Rust, for state without typed rows. It holds exactly what
-//! `json.dumps` tells apart: `1`, `1.0` and `True` differ, and a map keeps Python's insertion
-//! order, so a value read from Python writes the same bytes and goes back the same. The PyO3 crate
-//! reads it from Python and makes it into Python (`native/src/core/value.rs`).
+//! `json.dumps` tells apart: `1`, `1.0` and `True` differ, and a map keeps its insertion order, as
+//! a Python dict does, so a value read from JSON writes the same bytes back.
 
 use std::sync::Arc;
 
@@ -10,9 +9,8 @@ use indexmap::IndexMap;
 use crate::error::Result;
 use crate::json::Encoder;
 
-/// How deep a value read from Python or JSON may nest: the PyO3 crate's readers (`V`'s, a row
-/// field's, `canonical_json`) refuse a deeper one, and so does `Field::from_value`. Deeper values
-/// are left to the json module, which raises RecursionError itself.
+/// How deep a value read from JSON may nest: `Field::from_value` and `value_bytes` refuse a deeper
+/// one (`V::depth_fits`).
 pub const MAX_DEPTH: usize = 512;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -80,8 +78,7 @@ impl V {
         }
     }
 
-    /// Whether no container in the value is deeper than `MAX_DEPTH`, the value itself at depth 0:
-    /// what the PyO3 crate's readers take of a Python value.
+    /// Whether no container in the value is deeper than `MAX_DEPTH`, the value itself at depth 0.
     pub fn depth_fits(&self) -> bool {
         fn fits(value: &V, depth: usize) -> bool {
             if depth > MAX_DEPTH {
@@ -96,8 +93,7 @@ impl V {
         fits(self, 0)
     }
 
-    /// The canonical JSON of the value (`canonical_json` of the PyO3 crate), keys sorted by bytes.
-    /// NaN and infinity are `Unsupported`, as there.
+    /// The canonical JSON of the value, keys sorted by bytes. NaN and infinity are `Unsupported`.
     pub fn write_json(&self, encoder: &mut Encoder) -> Result<()> {
         match self {
             V::Null => encoder.null(),

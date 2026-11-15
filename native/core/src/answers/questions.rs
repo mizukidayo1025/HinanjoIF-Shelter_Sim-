@@ -1,9 +1,8 @@
-//! `POST runs/{run}/branches/{branch}/questions` (#308): the answer to a question about a
-//! branch's results as the Python server gives it without an API key
-//! (src/sheltersim/web/results_chat.py `_ask` and `_project_evidence`): the request's checks, the
-//! evidence's checks (a completed branch, the minute, the selected person, the branches compared),
-//! the fixed answer that no question can be answered without the Claude API, the context of the
-//! question and its id, and the turn the caller keeps in the branch's stored Run.
+//! `POST runs/{run}/branches/{branch}/questions` (#308): the answer to a question about a branch's
+//! results without an API key: the request's checks, the evidence's checks (a completed branch, the
+//! minute, the selected person, the branches compared), the fixed answer that no question can be
+//! answered without the Claude API, the context of the question and its id, and the turn the caller
+//! keeps in the branch's stored Run.
 //!
 //! `QuestionPlan::new` checks the request and the branch; the caller makes the branch's frame at
 //! `QuestionPlan::minute`; `check_frame` checks the person; where `comparison_ids` names branches,
@@ -440,7 +439,7 @@ fn json_of(bytes: &[u8]) -> Answer<Value> {
     serde_json::from_slice(bytes).map_err(|error| Failure::Error(Error::Value(error.to_string())))
 }
 
-/// `_OUTPUT_SCHEMA` of src/sheltersim/web/results_chat.py.
+/// The answer's output schema (`_OUTPUT_SCHEMA`).
 fn output_schema() -> Value {
     let aliases: Vec<String> = (1..=ALIASES).map(|index| format!("S{index}")).collect();
     let proof = json!({
@@ -623,7 +622,7 @@ impl Asking {
     /// where the call failed), the router's mode (`record`, `replay`) and the turn's id. The
     /// answer's claims are the recorded scalars the LLM cited, copied exactly; its explanations the
     /// texts it gave that cite such scalars, hold no digits and name no one, each labelled as a
-    /// hypothesis, a suggestion or a fictional dialogue (`results_chat.py` `_ask`).
+    /// hypothesis, a suggestion or a fictional dialogue.
     pub fn answer(&self, reply: Option<&[u8]>, mode: &str, turn_id: &str) -> Answer<(Vec<u8>, Vec<u8>)> {
         let read = match reply {
             Some(raw) => Some(asking::read_reply(&self.task, raw)?),

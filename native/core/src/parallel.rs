@@ -2,14 +2,14 @@
 //!
 //! A kernel that splits into a compute over rows and a serial apply gives each person's compute to
 //! `in_order`, which returns the results in the people's order, and then applies them in that
-//! order. The compute reads only Rust data: no Python, no GIL, no HashMap iteration. Draws are keyed
-//! SHA-256 and take no order; event sequence numbers and every write stay in the serial apply. So a
-//! tick computes the same bytes with any number of threads, as with one.
+//! order. The compute reads only Rust data and iterates no HashMap. Draws are keyed SHA-256 and
+//! take no order; event sequence numbers and every write stay in the serial apply. So a tick
+//! computes the same bytes with any number of threads, as with one.
 //!
-//! The calling thread works too, and keeps the GIL, so no other Python thread runs between the
-//! compute and the apply. Helpers from a small pool of the tick's own take runs of people as they
-//! come; the parse of saved records (checkpoint.rs, eventlog.rs) keeps rayon's global pool, so a
-//! tick never waits behind it. Waking a helper costs tens of microseconds, so a compute of few
+//! The calling thread works too (under the PyO3 crate it keeps the GIL, so no other Python thread
+//! runs between the compute and the apply). Helpers from a small pool of the tick's own take runs
+//! of people as they come; the parse of saved records (checkpoint.rs) keeps rayon's global pool, so
+//! a tick never waits behind it. Waking a helper costs tens of microseconds, so a compute of few
 //! people stays on the calling thread (docs/rust-port.md has the measurements).
 //!
 //! The pool has at most `MAX_HELPERS` threads, and one fewer than rayon's global pool:

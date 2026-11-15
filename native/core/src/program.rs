@@ -1,9 +1,8 @@
 //! The EffectProgram of an intervention, before it is scheduled (#304, under #292): its contract
-//! (`EffectProgram` of `src/sheltersim/events/effects.py`), read strictly and dumped with its
-//! defaults as `program.model_dump(mode="json")` writes it, and the checks of
-//! `validate_effect_program` for the six operators the offline reading of a text makes
-//! (`facility_outage`, `add_staff`, `add_toilet`, `water_outage`, `add_evacuees`,
-//! `depart_evacuees`), with Python's texts.
+//! (`EffectProgram`), read strictly and dumped with its defaults as
+//! `program.model_dump(mode="json")` writes it, and the checks of `validate_effect_program` for the
+//! six operators the offline reading of a text makes (`facility_outage`, `add_staff`, `add_toilet`,
+//! `water_outage`, `add_evacuees`, `depart_evacuees`), with their texts.
 //!
 //! The approval's hash is the sha256 of the dump's canonical JSON (`digest(program.model_dump())`,
 //! `storage/projects.py`): `dump_json` gives those bytes.
@@ -17,8 +16,8 @@
 //!   issue there.
 //! - An effect of another operator of the registry, or parameters its model refuses (whose issue
 //!   holds pydantic's text), is `Unsupported`.
-//! - Python reads a guard's fields as a set, whose order changes between processes; they are read
-//!   here in sorted order.
+//! - A guard's fields are read in sorted order (the contract this was ported from read them as a
+//!   set, whose order changed between processes).
 
 use std::collections::BTreeSet;
 use std::sync::Arc;
@@ -760,7 +759,7 @@ pub struct Placement<'a> {
 
 // ---- validate_effect_program -------------------------------------------------------------------------
 
-/// `validate_effect_program(world, program)`: the issues, in Python's order and texts, each once.
+/// `validate_effect_program(world, program)`: the issues, in the order of the checks, each once.
 /// It changes nothing. `Unsupported` for a program the browser does not check (above).
 pub fn validate(world: &World, program: &EffectProgram, placement: &mut Placement<'_>) -> Result<Vec<String>> {
     for effect in &program.effects {
@@ -910,7 +909,7 @@ struct Added {
     toilet_additions: Vec<(String, Arc<str>, i64)>,
 }
 
-/// The checks of one effect, in Python's order; what it adds goes to `added`.
+/// The checks of one effect, in their order; what it adds goes to `added`.
 fn check_effect(cx: Checks<'_>, effect: &Effect, added: &mut Added, issues: &mut Vec<String>) -> Result<()> {
     let Checks { rows, duration, zone_known, .. } = cx;
     let label = format!("effect {}", py_repr(&effect.effect_id));
@@ -1361,7 +1360,7 @@ fn projected_units(world: &World, program: &EffectProgram, target: &Effect) -> R
 }
 
 /// `schedule_effect_program(world, program)` as `BranchRuntime.apply_effect_program` calls it: the
-/// program checked (`validate`; its issues are the error, joined as Python joins them), then its
+/// program checked (`validate`; its issues are the error, joined by `; `), then its
 /// record and its start and expiry events written to the world, all or none. The world's own check
 /// after the writes (`candidate.validate()`, E6 of #250) is not run.
 pub fn schedule(world: &mut World, program: &EffectProgram, placement: &mut Placement<'_>) -> Result<Receipt> {

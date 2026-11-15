@@ -1,12 +1,13 @@
-//! The errors a kernel raises, with the texts a Python caller sees, without Python.
+//! The errors a kernel raises, with their texts.
 //!
-//! Each variant stands for one Python class; the PyO3 crate maps it to that class with this text
+//! Each variant stands for one class of error, named after the Python exception of the rule it was
+//! ported from (#152); the PyO3 crate raises each as a Python exception with this text
 //! (`native/src/core/errors.rs`, `to_py_err`). The texts are saved data: the dispatcher writes
 //! `str(exc)` of an event's outcome to its record as `detail`, which is hashed and shown. So every
-//! text is built here, in the Python rule's words.
+//! text is built here, and a changed text changes saved bytes.
 //!
-//! The builders count for `benchmarks/rule_shadow/refusal_census.py` (`census`) where the old
-//! exits did, at the caller's line (`#[track_caller]`). A variant built directly is not counted.
+//! The builders count for the refusal census (`census`) where the old exits did, at the caller's
+//! line (`#[track_caller]`). A variant built directly is not counted.
 
 use std::borrow::Cow;
 use std::fmt;
@@ -14,7 +15,7 @@ use std::fmt;
 use crate::census;
 use crate::mathx::MathError;
 
-/// Which of an event's two expected outcomes (`events/models.py`).
+/// Which of an event's two expected outcomes.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub enum Outcome {
     /// `EventSuppressed`.
@@ -23,21 +24,22 @@ pub enum Outcome {
     Failed,
 }
 
-/// An error of the core and the Python class it becomes.
+/// An error of the core, by its class.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Error {
-    /// `sheltersim_native.Unsupported(reason)`: the kernel leaves the value to Python.
+    /// `Unsupported(reason)`: a case the core does not run (`sheltersim_native.Unsupported` in
+    /// the PyO3 crate).
     Unsupported(Cow<'static, str>),
-    /// `KernelRefusal(f"{label} refused: {reason}")` of `core/kernels.py`, caused by
-    /// `Unsupported(reason)`: a refusal no Python rule stands behind (lane L10). `label` is
-    /// `module.name` of the kernel.
+    /// `KernelRefusal`: `{label} refused: {reason}` (`refused_text`), made of an
+    /// `Unsupported(reason)` by `Error::refused` (lane L10). `label` is `module.name` of the
+    /// kernel.
     Refused { label: String, reason: Cow<'static, str> },
     /// `EventSuppressed(text)` or `EventApplicationError(text)`, marked as made here.
     Outcome(Outcome, String),
-    /// `ValueError(text)` marked as made here, so that a step which turns a Python call's
-    /// exception into Unsupported lets it through (a check of `effect_program_v1`).
+    /// `ValueError(text)` marked as made here, so that a step which turns another call's error
+    /// into Unsupported lets it through (a check of `effect_program_v1`).
     MarkedValue(String),
-    /// `ValueError(text)` of a Python rule.
+    /// `ValueError(text)` of a rule.
     Value(String),
     /// pydantic's `ValidationError` (a `ValueError`) with its text, where a rule lets it through
     /// as it is (`contracts::pydantic::text`; the whole world's validation, #250).
@@ -51,16 +53,16 @@ pub enum Error {
     /// `AttributeError(text)`: a rule reads a value with a method its type lacks (`.get` of a
     /// list), which no rule catches (#360).
     Attribute(String),
-    /// `StateInvariantError(text)` of `core/world.py`, from a Python rule.
+    /// `StateInvariantError(text)`: a broken state a rule found.
     Invariant(String),
-    /// `ResourceLedgerError(text)` of `domain/resources.py`, the contract of the ledger.
+    /// `ResourceLedgerError(text)`: the contract of the resource ledger (`rules::resources`).
     Ledger(String),
-    /// `StateInvariantError(corrupt_text(namespace, check))`: a state the Python rules' checks never
-    /// let through (the C group of docs/rust-port/step4-plan.md). Not Python's text.
+    /// `StateInvariantError(corrupt_text(namespace, check))`: a state the rules' checks never let
+    /// through (the C group of docs/rust-port/step4-plan.md), with a text of the core's own.
     Corrupt { namespace: String, check: String },
     /// The exception CPython raised in `exp`, `expm1` or `pow` (`mathx`).
     Math(MathError),
-    /// `TickExecutionError(CLOCK)` of `core/engine.py`: a tick phase moved the clock the engine
+    /// `TickExecutionError(CLOCK)`: a tick phase moved the clock the engine
     /// owns (lane P9-0, for the core's tick driver).
     Clock,
 }
@@ -71,7 +73,7 @@ pub const CLOCK: &str = "tick phase attempted to change the engine-owned clock";
 /// What the core's fallible calls return.
 pub type Result<T> = std::result::Result<T, Error>;
 
-/// The text of a kernel's refusal, as `kernel_only` of `core/kernels.py` writes it.
+/// The text of a kernel's refusal (`Error::Refused`).
 pub fn refused_text(label: &str, reason: &str) -> String {
     format!("{label} refused: {reason}")
 }
@@ -111,7 +113,7 @@ impl Error {
         Error::Outcome(Outcome::Failed, text.into())
     }
 
-    /// `raise ValueError(text)` of a Python rule, counted at the caller's line.
+    /// `raise ValueError(text)` of a rule, counted at the caller's line.
     #[track_caller]
     pub fn value_error(text: impl Into<String>) -> Self {
         let text = text.into();
@@ -119,7 +121,7 @@ impl Error {
         Error::Value(text)
     }
 
-    /// `raise StateInvariantError(text)` of a Python rule, counted at the caller's line.
+    /// `raise StateInvariantError(text)` of a rule, counted at the caller's line.
     #[track_caller]
     pub fn invariant(text: impl Into<String>) -> Self {
         let text = text.into();
@@ -159,7 +161,8 @@ impl From<MathError> for Error {
     }
 }
 
-/// `str(exc)` of the Python exception. A `KeyError`'s `str` quotes its text; this gives it bare.
+/// The error's text, `str(exc)` of the exception the PyO3 crate raises; a Python `KeyError`'s
+/// `str` quotes its text, and this gives it bare.
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {

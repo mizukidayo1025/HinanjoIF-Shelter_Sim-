@@ -476,7 +476,7 @@ fn a_cow_shard_copies_a_shared_value_before_a_write() {
     assert_eq!(*shard.try_borrow().unwrap(), [1, 2, 3]);
 }
 
-fn slot_state(world: &mut World) -> Vec<(String, Option<Vec<u8>>, bool, u64)> {
+fn slot_state(world: &mut World) -> Vec<(String, Option<Vec<u8>>, u64)> {
     let names: Vec<Arc<str>> = world.slots.names().cloned().collect();
     names
         .iter()
@@ -487,7 +487,7 @@ fn slot_state(world: &mut World) -> Vec<(String, Option<Vec<u8>>, bool, u64)> {
                 row.write_json(&mut encoder).unwrap();
                 encoder.out
             });
-            (name.to_string(), bytes, slot.detached, slot.generation.get())
+            (name.to_string(), bytes, slot.generation.get())
         })
         .collect()
 }
@@ -523,7 +523,7 @@ fn a_snapshot_keeps_the_world_and_restore_gives_it_back() {
     // Every slot has a new stamp and the same bytes; the snapshot kept the old order.
     for (old, new) in slots.iter().zip(slot_state(&mut world)) {
         assert_eq!(old.1, new.1);
-        assert_ne!(old.3, new.3);
+        assert_ne!(old.2, new.2);
     }
     let kept = snapshot.slot(0).unwrap().row.as_deref().unwrap();
     assert_eq!(value_keys(&kept.as_any().downcast_ref::<ValueRow>().unwrap().0), SHUFFLED);

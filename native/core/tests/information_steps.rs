@@ -1,17 +1,12 @@
-//! The information model's contacts (`rules::information::plan` and `sample`, the kernels of the
-//! PyO3 entries `planned_contacts` and `sample_contacts`) on the world of
-//! `integration/test_information_row.py` with its claims (`_world_with_claims(believers=5)`: the
-//! Project screen's generated Scenario at minute 0, `model_steps.json`'s `claims`), under each of
-//! the three models (`tests/support/core_model_steps.py` writes them; Issue #225, lane M10a). Each
-//! policy is what the Run reads of `controller.information_policy` (`RunCore.policies_document`).
-//! The pytest file keeps the tests of the row and its tree, an entry test
-//! (`test_fewer_contacts_release_the_nodes_left_over`), what the PyO3 entry turns down, the
-//! validator, the Runs, and the bits on random states and values (their inputs are too large for
-//! a fixture of this size).
+//! The information model's contacts (`rules::information::plan` and `sample`) on a world with
+//! claims (`model_steps.json`'s `claims`: the Project screen's generated Scenario at minute 0, five
+//! believers), under each of the three models (Issue #225, lane M10a). Each policy is what the Run
+//! reads of the controller's `information_policy` (`load::run`).
 //!
-//! The digests are the ones the pytest file pinned (`ANSWERS`), recorded from the kernels of model
-//! version 2 (step 4, L11): the tests write the same text with `Dumps` (`json.dumps` of the draws,
-//! the contacts, the events the step scheduled and the namespace with its keys sorted).
+//! Each test writes, with `Dumps`, the draws, the contacts, the events the step scheduled and the
+//! namespace with its keys sorted (as `json.dumps` writes them), and compares the sha256 of the
+//! texts with `RECORDED` (model version 2, step 4 L11). The values were recorded before #430 and
+//! pin the core's output now.
 
 use crate::support;
 
@@ -35,8 +30,8 @@ use support::{cases, load, texts};
 
 const FILE: &str = "model_steps";
 
-/// What the pytest file pinned (`ANSWERS`).
-const ANSWERS: &[(&str, &str)] = &[
+/// The recorded digests.
+const RECORDED: &[(&str, &str)] = &[
     ("claims-EvidenceAwareInformationPolicy", "7e17a31e26288bf5119da239fa024163dd67d7ad4a4fc8f90664d23dd75c2605"),
     ("claims-HazardInformationPolicy", "b8f50d81a075e2def89cdd61b085f16c64ed2a1cf6f5ff6bd3d1a74f73fe5f77"),
     ("claims-InformationSpreadPolicy", "950769ea58b9c61423b630b0b92245baa6534be789f95d1ed7ed23aa8c338be6"),
@@ -44,9 +39,9 @@ const ANSWERS: &[(&str, &str)] = &[
     ("seed-9223372036854775808", "cfa1e5f6a6f20cc215da760e12079e097cd02c07c59e48f8609a6c5208b45cf8"),
 ];
 
-/// `_answers`: the sha256 of the texts, each with a newline, against the pinned digest.
+/// The sha256 of the texts, each with a newline, against the recorded digest.
 fn answers(name: &str, texts: &[String]) {
-    let wanted = ANSWERS.iter().find(|(key, _)| *key == name).unwrap_or_else(|| panic!("no answer {name}")).1;
+    let wanted = RECORDED.iter().find(|(key, _)| *key == name).unwrap_or_else(|| panic!("no answer {name}")).1;
     let joined: String = texts.iter().map(|text| format!("{text}\n")).collect();
     assert_eq!(texts::sha(&joined), wanted, "{name}");
 }
@@ -103,9 +98,9 @@ fn neighbors(world: &World) -> HashMap<String, Vec<String>> {
     zones.iter().map(|zone| (zone.clone(), zones.iter().filter(|other| *other != zone).cloned().collect())).collect()
 }
 
-/// `_answer` of the pytest file: what `planned_contacts` gives (each draw, each contact, the
-/// model's version and forgetting probability), then what `sample_contacts` schedules and leaves,
-/// as the text of its answer. Whether it planned a contact.
+/// What `plan` gives (each draw, each contact, the model's version and forgetting probability),
+/// then what `sample` schedules and leaves, as the text of its answer. Whether it planned a
+/// contact.
 fn answer(information: &Information, seed: &str) -> (String, bool) {
     let entry = cases::resolve(&data()["worlds"], "claims");
     let cell: Shard<World> = texts::cell(&entry);
@@ -207,9 +202,9 @@ fn answer(information: &Information, seed: &str) -> (String, bool) {
     (Dumps::default().text(&answer), planned)
 }
 
-/// `test_claims_pass_as_the_python_rule_passed_them`: eight seeds of each model.
+/// Eight seeds of each model.
 #[test]
-fn claims_pass_as_the_python_rule_passed_them() {
+fn claims_pass_as_recorded() {
     for (name, information) in models() {
         let mut texts = Vec::new();
         let mut proposals = 0;
@@ -224,10 +219,9 @@ fn claims_pass_as_the_python_rule_passed_them() {
     }
 }
 
-/// `test_a_seed_past_64_bits_gives_the_python_rule_s_answers`: `CounterRNG` keys its draws with
-/// `str(seed)`, and a Scenario's seed is any int from 0.
+/// The draws are keyed with the seed's decimal text, and a Scenario's seed is any int from 0.
 #[test]
-fn a_seed_past_64_bits_gives_the_python_rule_s_answers() {
+fn a_seed_past_64_bits_gives_the_recorded_answers() {
     let models = models();
     for seed in data()["information"]["big_seeds"].as_array().unwrap() {
         let seed = seed.as_str().unwrap();

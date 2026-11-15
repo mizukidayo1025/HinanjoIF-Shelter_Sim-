@@ -1,19 +1,17 @@
-//! The queue rules of a facility on the generated Scenario's world (Issue #225, lane M3): the tests of
-//! `tests/integration/test_queue_rules.py` that check the core's rules, moved here.
+//! The queue rules of a facility on the generated Scenario's world (Issue #225, lane M3).
 //!
-//! The world is the generated Scenario (the Project screen's, 20 people) after two ticks through
-//! `TickEngine`, read from `tests/data/queue_rules.json` (`tests/support/core_fixtures_queues.py`
-//! writes it with what the pytest read in Python: the facility of each kind, the people with nothing
-//! under way, the middle of each zone, the strict FIFO Scenario's configs and selection, and the
-//! points and speeds the walking tests computed). A test lines people up as the pytest's `_line_up`
-//! does, edits the world as the pytest did, and calls the rule as the driver's steps call it
-//! (`Tick::prepare_queue` and `Tick::progress`, `rules/tick/arbitrate.rs`): the configs' queue policy
-//! and movement model as the core parses them, the selection and the floor plan from the export.
-//! Values next to a coefficient or a limit are the pytest's, so a change of 1% shows.
+//! The world is the generated Scenario (the Project screen's, 20 people) after two ticks, read from
+//! `tests/data/queue_rules.json` with the facility of each kind, the people with nothing under way,
+//! the middle of each zone, the strict FIFO Scenario's configs and selection, and the points and
+//! speeds the walking tests use. A test lines people up (`line_up`), edits the world, and calls the
+//! rule as the driver's steps call it (`Tick::prepare_queue` and `Tick::progress`,
+//! `rules/tick/arbitrate.rs`): the configs' queue policy and movement model as the core parses
+//! them, the selection and the floor plan from the export. Values next to a coefficient or a limit
+//! are the fixture's, so a change of 1% shows.
 //!
-//! The pytest chained what `progress_physical_queue_positions` returned and left into a digest of
-//! Python's `repr` (`ANSWERS`). Those digests are recorded again here from the core (decision 1 of
-//! #225): `Answers` chains each call's result and the whole world after it (`support/answers.rs`).
+//! `Answers` chains what the queue's walk returned and left, each call's result and the whole world
+//! after it, into a digest (`support/answers.rs`), recorded from the core in #225 (decision 1). The
+//! values were recorded before #430 and pin the core's output now.
 
 use crate::support;
 
@@ -63,7 +61,7 @@ fn v(value: Value) -> V {
     load::v(&value)
 }
 
-/// A `V` as JSON, through Python's `json.dumps` text.
+/// A `V` as JSON, through the text `json.dumps` writes.
 fn json_of(value: &V) -> Value {
     serde_json::from_str(&dumps(value)).unwrap()
 }
@@ -100,12 +98,12 @@ impl Case {
         self.with(|world| world_bytes(world))
     }
 
-    /// `_facility`: the first facility of the kind with a point in the floor plan.
+    /// The first facility of the kind with a point in the floor plan.
     fn facility(&self, kind: &str) -> String {
         self.entry["facilities"][kind].as_str().unwrap().to_owned()
     }
 
-    /// `_people`: agents with nothing under way.
+    /// Agents with nothing under way.
     fn people(&self, count: usize) -> Vec<String> {
         self.entry["people"].as_array().unwrap().iter().take(count).map(|id| id.as_str().unwrap().to_owned()).collect()
     }
@@ -115,7 +113,7 @@ impl Case {
         (point[0].as_f64().unwrap(), point[1].as_f64().unwrap())
     }
 
-    /// `_line_up`: these people in this facility's queue, in the zone's middle, as `request` leaves
+    /// These people in this facility's queue, in the zone's middle, as `request` leaves
     /// them.
     fn line_up(&self, facility: &str, people: &[String], resource: bool, starts: Option<&[i64]>) {
         let zone = self.with(|world| world.rows().unwrap().facilities.get(facility).unwrap().zone_id.clone());
@@ -159,7 +157,7 @@ impl Case {
         });
     }
 
-    /// `_away_from_the_middle`: someone in their zone but not at its middle.
+    /// Someone in their zone but not at its middle.
     fn away_from_the_middle(&self, id: &str, distance: f64) {
         let zone = self.with(|world| world.rows().unwrap().agents.get(id).unwrap().zone_id.clone());
         let (x, y) = self.center(&zone);
@@ -257,7 +255,7 @@ impl Case {
         self.tick(minute).progress(facility, resource, head, None).map_err(|failed| failed.error)
     }
 
-    /// `_same_after`: the walk to the slots, its answer chained.
+    /// The walk to the slots, its answer chained.
     fn positions(&mut self, answers: &mut Answers, facility: &str, resource: bool, minute: i64) -> bool {
         let result = self.progress(facility, resource, minute, POSITIONS);
         let shown = format!("{result:?}");
@@ -265,7 +263,7 @@ impl Case {
         result.unwrap()
     }
 
-    /// `_to_service`: the head's walk to service, which writes only when it schedules one.
+    /// The head's walk to service, which writes only when it schedules one.
     fn to_service(&mut self, facility: &str, resource: bool, minute: i64, changes: bool) -> bool {
         let before = self.bytes();
         let result = self.progress(facility, resource, minute, HEAD).unwrap();
@@ -298,7 +296,6 @@ impl Case {
         })
     }
 
-    /// `_people_who_left`.
     fn left(&self) -> Vec<String> {
         self.records()
             .iter()
@@ -323,7 +320,6 @@ impl Case {
         self.journey(id).is_some()
     }
 
-    /// `_nobody_left`.
     fn nobody_left(&self, facility: &str, people: &[String], resource: bool) {
         assert_eq!(self.queue(facility, resource), people);
         assert!(self.left().is_empty());
@@ -333,7 +329,7 @@ impl Case {
         }
     }
 
-    /// `_waited_long`: a config with limits of 50 minutes, and every need at `need`.
+    /// A config with limits of 50 minutes, and every need at `need`.
     fn waited_long(&self, need: f64, extra: Value) {
         let mut config = json!({"schema_version": 1, "abandon_after_minutes_by_service": {"toilet": 50, "water": 50, "meal": 50}});
         for (key, value) in extra.as_object().unwrap() {
@@ -352,7 +348,7 @@ impl Case {
         });
     }
 
-    /// `_with_stall`: a stall record of the namespace's shape.
+    /// A stall record of the namespace's shape.
     fn stall(&self, facility: &str, agent: &str, reason: &str) {
         self.with(|world| {
             let mut service = world.row_mut::<ServiceRow>(SERVICE).unwrap();
@@ -379,7 +375,7 @@ fn point_of(value: &Value) -> (f64, f64) {
 
 // ---- prepare_facility_queue ----------------------------------------------------------------------
 
-/// `_near_tie`: two people whose priorities part by `gap`; the first has waited, the second needs
+/// Two people whose priorities part by `gap`; the first has waited, the second needs
 /// more.
 fn near_tie(waited: i64, gap: f64) -> Vec<&'static str> {
     let mut case = Case::new();
@@ -464,9 +460,7 @@ fn someone_with_no_queue_task_leaves_the_list() {
     assert_eq!(case.queue(&toilet, false), [people[1].clone()]);
 }
 
-/// The world after the walk is recorded from the core in #225 lane M3; on the same kernel the pytest
-/// `test_queue_rules.py::test_the_list_is_left_alone_while_someone_walks_in_it` with digest
-/// `5a930920ab0e` passed.
+/// The digest of the world after the walk was recorded from the core in #225 lane M3.
 #[test]
 fn the_list_is_left_alone_while_someone_walks_in_it() {
     let mut case = Case::new();
@@ -554,9 +548,9 @@ fn a_config_s_limit_and_threshold_are_read() {
     case.nobody_left(&toilet, &person, false);
 }
 
-/// `config.get("schema_version", 1) != 1` let these through, and so does the kernel.
+/// A schema version that equals 1 under Python's `==` (1.0, true) is read.
 #[test]
-fn a_schema_version_python_counts_as_1_is_read() {
+fn a_schema_version_equal_to_1_is_read() {
     for schema in [json!(1.0), json!(true)] {
         let mut case = Case::new();
         case.waited_long(0.1, json!({"schema_version": schema}));
@@ -768,10 +762,9 @@ const THRESHOLD_TEXT: &str = "queue persistence threshold must be normalized to 
 const OBJECT_TEXT: &str = "facility_queues config must be an object";
 
 /// The rule raises the policy's ValueError, its text, before changing anything
-/// (docs/rust-port/lanes/l8-texts-rest.md). A config the model selection turns down first is the
-/// pytest's (Python raises that error).
+/// (docs/rust-port/lanes/l8-texts-rest.md).
 #[test]
-fn a_config_python_turns_down_raises_the_python_rule_s_error() {
+fn a_config_turned_down_raises_the_recorded_error() {
     let nan = {
         let mut map = indexmap::IndexMap::new();
         map.insert(text("persistence_urgency_threshold"), V::Float(f64::NAN));
@@ -841,8 +834,7 @@ fn a_stall_goes_when_its_person_is_no_longer_in_the_queue() {
 
 /// A strange kind raises the rule's error with Python's `repr` of it, which `str.casefold` decides:
 /// "İ" folds to "i̇", so "İtoilet" is a toilet, and "TOİLET" folds to "toi̇let", which is not. A
-/// missing facility changes nothing. (Someone listed twice is the pytest's: Python's check of the
-/// state turns it down.)
+/// missing facility changes nothing.
 #[test]
 fn a_strange_kind_and_a_missing_facility() {
     let mut case = Case::new();
@@ -867,9 +859,7 @@ fn a_strange_kind_and_a_missing_facility() {
 
 // ---- progress_physical_queue_positions and _head_to_service --------------------------------------
 
-/// Recorded from the core in #225 lane M3; on the same kernel the pytest
-/// `test_queue_rules.py::test_the_first_who_is_not_in_their_place_walks_there` with digest
-/// `25917c5cddb3` passed.
+/// The digest was recorded from the core in #225 lane M3.
 #[test]
 fn the_first_who_is_not_in_their_place_walks_there() {
     let mut case = Case::new();
@@ -891,9 +881,7 @@ fn the_first_who_is_not_in_their_place_walks_there() {
     assert_eq!(answers.hex(), "e1dc1077dc381ebe4610c93302fd79428207858138aaf064b577d634496cf095");
 }
 
-/// Recorded from the core in #225 lane M3; on the same kernel the pytest
-/// `test_queue_rules.py::test_someone_who_is_moved_from_another_activity_is_queued_by_the_walk`
-/// with digest `845e8b40162e` passed.
+/// The digest was recorded from the core in #225 lane M3.
 #[test]
 fn someone_who_is_moved_from_another_activity_is_queued_by_the_walk() {
     let mut case = Case::new();
@@ -915,10 +903,9 @@ fn someone_who_is_moved_from_another_activity_is_queued_by_the_walk() {
     assert_eq!(answers.hex(), "a4b0d29a7be47f91e1c2b1206d8dacf8b8341414d24b169e25b3a4a9b71f8274");
 }
 
-/// The head is at the facility, the follower 0.05 m from the slot, either side of it (the points
-/// the pytest computed in Python: `walks.follower`). Recorded from the core in #225 lane M3; on the
-/// same kernel the pytest `test_queue_rules.py::test_a_follower_within_the_tolerance_stands_in_their_slot`
-/// with digests `f972edadbc0c` (0.0499) and `3de0a726d52c` (0.0501) passed.
+/// The head is at the facility, the follower 0.05 m from the slot, either side of it (0.0499 and
+/// 0.0501: the fixture's `walks.follower`). The digests were recorded from the core in #225 lane
+/// M3.
 #[test]
 fn a_follower_within_the_tolerance_stands_in_their_slot() {
     for (away, walks, recorded) in [
@@ -963,13 +950,10 @@ fn a_head_with_no_route_holds_the_queue_and_a_follower_only_those_behind() {
     assert!(!case.walking(&people[0]));
 }
 
-/// A speed that puts the walk just under 5 minutes: 1% more length would make it 6 (the speeds the
-/// pytest computed in Python: `walks.speeds`). The walk to the slot is recorded from the core in
-/// #225 lane M3; on the same kernel the pytest
-/// `test_queue_rules.py::test_a_walk_s_minutes_turn_over_where_python_s_do[position]` with digest
-/// `af7e67cc53d2` passed.
+/// A speed that puts the walk just under 5 minutes: 1% more length would make it 6 (the fixture's
+/// `walks.speeds`). The digest of the walk to the slot was recorded from the core in #225 lane M3.
 #[test]
-fn a_walk_s_minutes_turn_over_where_python_s_do() {
+fn a_walk_s_minutes_turn_over_where_recorded() {
     for phase in ["position", "service"] {
         let mut case = Case::new();
         let mut answers = Answers::default();
@@ -995,9 +979,7 @@ fn a_walk_s_minutes_turn_over_where_python_s_do() {
     }
 }
 
-/// Recorded from the core in #225 lane M3; on the same kernel the pytest
-/// `test_queue_rules.py::test_a_walk_past_the_end_of_the_run_is_counted_and_not_started` with
-/// digest `24f43e263bc5` passed.
+/// The digest was recorded from the core in #225 lane M3.
 #[test]
 fn a_walk_past_the_end_of_the_run_is_counted_and_not_started() {
     let mut case = Case::new();
@@ -1012,10 +994,8 @@ fn a_walk_past_the_end_of_the_run_is_counted_and_not_started() {
     assert_eq!(answers.hex(), "5f027179dce1545fe73d47d554002d0e74b48361f8a6f1884b22cff47b7c9183");
 }
 
-/// The route is the one the pytest computed in Python (`walks.head_route`). Recorded from the core
-/// in #225 lane M3; on the same kernel the pytest
-/// `test_queue_rules.py::test_the_head_walks_from_its_slot_to_the_service_point` with digest
-/// `f18ab419ea38` passed.
+/// The route is the fixture's (`walks.head_route`). The digest was recorded from the core in #225
+/// lane M3.
 #[test]
 fn the_head_walks_from_its_slot_to_the_service_point() {
     let mut case = Case::new();
@@ -1049,9 +1029,7 @@ fn the_head_walks_from_its_slot_to_the_service_point() {
     assert_eq!(answers.hex(), "0f86eb5896c6c9e83f5b156c8435cefcd9f3227b50474a9fb0c12057098fb054");
 }
 
-/// Recorded from the core in #225 lane M3; on the same kernel the pytest
-/// `test_queue_rules.py::test_an_empty_queue_and_a_missing_facility` with digest `1081e598c3d4`
-/// passed.
+/// The digest was recorded from the core in #225 lane M3.
 #[test]
 fn an_empty_queue_and_a_missing_facility() {
     let mut case = Case::new();
@@ -1065,7 +1043,7 @@ fn an_empty_queue_and_a_missing_facility() {
     assert_eq!(answers.hex(), "a67cbdb8c4e9458419f8944f6fe27df9ac14c4fe64174e994b110980d3a49647");
 }
 
-/// The deleted rule's ValueError, which the kernel raises before it writes anything.
+/// An `Error::Value`, which the rule gives before it writes anything.
 #[test]
 fn without_a_task_the_rule_raises_its_own_error() {
     let mut case = Case::new();

@@ -1,14 +1,9 @@
 //! The world of a Scenario at minute 0, built in the core (Issue #249): `initial::entry` of a
-//! generated Scenario's canonical JSON is the entry Python exports of its world
-//! (`export_world`, the sha256 of its bytes), and the world it loads runs to the native path's
-//! world (the digests of its parts and of the metric samples after a day of ticks). The Run's
-//! `model_versions` and evidence (`initial::model_versions`, `initial::evidence`, #301) are
-//! Python's too.
-//!
-//! `initial_worlds.json` holds the Scenarios and what Python gave (`tests/support/core_initial.py`,
-//! written by `benchmarks/core_fixtures.py`, checked against Python by
-//! `tests/integration/test_core_fixtures.py`); `tests/unit/core/test_world_export.py` compares the
-//! bytes for the Scenario screen's requests through the PyO3 crate.
+//! generated Scenario's canonical JSON (the sha256 of the entry's bytes), the world it loads at
+//! minute 0 and after a day of ticks (the digests of its parts and of the metric samples), and the
+//! Run's `model_versions` and evidence (`initial::model_versions`, `initial::evidence`, #301),
+//! against the `expected` of `initial_worlds.json`. The values were recorded before #430 and pin
+//! the core's output now.
 
 use crate::support;
 
@@ -69,7 +64,7 @@ fn metrics_digest(host: &TestHost) -> (usize, String) {
 }
 
 #[test]
-fn the_core_builds_the_entry_python_exports_and_runs_it_to_the_native_path_s_world() {
+fn the_core_builds_the_recorded_entry_and_runs_it_to_the_recorded_world() {
     for name in WORLDS {
         let case = world_case(name);
         let wanted = &case["expected"];

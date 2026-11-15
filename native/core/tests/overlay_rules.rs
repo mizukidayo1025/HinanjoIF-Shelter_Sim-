@@ -1,31 +1,26 @@
 //! The rules of temporary spaces, rooms, beds, installed facilities and changes of the floor plan,
 //! of the independent queues and the toilet's and the water and meal service's FIFOs, and a decision
-//! to sleep in a room, on the generated Scenario's world (Issue #225, lane M3): the tests of
-//! `tests/integration/test_overlay_rules.py` that check the core's rules, moved here.
+//! to sleep in a room, on the generated Scenario's world (Issue #225, lane M3).
 //!
-//! The queues' tests use the generated Scenario with two service points at two facilities, with its
-//! Run (`tests/data/overlay_queues.json`, `tests/support/core_fixtures_overlay_queues.py`): the
-//! driver's steps (`Tick::prepare_independent`, `Tick::progress`, `service::arbitrate`) run on it. A
-//! balance of the ledger the `TestHost` is told of (`Call::ResourcesChanged`) is written to
-//! `world.resources` as the PyO3 crate's host writes it.
+//! The queues' tests use the generated Scenario with two service points at two facilities, with
+//! its Run (`tests/data/overlay_queues.json`): the driver's steps (`Tick::prepare_independent`,
+//! `Tick::progress`, `service::arbitrate`) run on it. A balance of the ledger the `TestHost` is
+//! told of (`Call::ResourcesChanged`) is written to `world.resources`.
 //!
 //! The world is the generated Scenario (the Project screen's, 20 people) at minute 0 with the
-//! simulator's extensions, read from `tests/data/overlay_rules.json`
-//! (`tests/support/core_fixtures_overlay.py` writes it with what the pytest read in Python: the
-//! order of the world's dicts, the rules' limits, the points of the tests next to a limit, and the
-//! contracts' answers for the parameters the tests give). A test edits the world as the pytest did
-//! and calls the core's rule with what its PyO3 entry reads (`native/src/rules/overlay.rs`): whether
-//! the world holds each namespace, the sections of the configs, and the floor plan of the world now
-//! (`sections::plan_of` with its overlay). The `TestHost` answers each contract as the PyO3 crate's
-//! host does (`Model.model_validate(input).model_dump(mode="json")`, from the export).
+//! simulator's extensions, read from `tests/data/overlay_rules.json` with the order of the world's
+//! dicts, the rules' limits, the points of the tests next to a limit, and the contracts' answers
+//! for the parameters the tests give. A test edits the world and calls the core's rule with what it
+//! reads: whether the world holds each namespace, the sections of the configs, and the floor plan
+//! of the world now (`sections::plan_of` with its overlay). The `TestHost` answers each contract
+//! from the export.
 //!
-//! The pytest ran a rule on a copy of the world (`WorldState.from_dict(world.to_dict())`), and
-//! compared it with another copy that the deleted Python rule's writes were made on by hand. Here a
-//! copy is the world put in that order (`World::canonicalize`) and given back after
-//! (`World::snapshot`, `World::restore`), and two worlds are the same when their bytes
-//! (`support/answers.rs`) and the key order of the overlay and the spaces (Python's
-//! `json.dumps`) are. The pytest's digests of what the deleted rule answered and left (`RECORDED`)
-//! are recorded again here from the core (decision 1 of #225).
+//! A test runs a rule on a copy of the world, put in order (`World::canonicalize`) and given back
+//! after (`World::snapshot`, `World::restore`), and compares it with another copy that the expected
+//! writes were made on by hand: two worlds are the same when their bytes (`support/answers.rs`) and
+//! the key order of the overlay and the spaces (as `json.dumps` writes them) are. Where a test
+//! compares digests of what a rule answered and left (`Answers`), they were recorded from the core
+//! in #225 (decision 1). The values were recorded before #430 and pin the core's output now.
 
 use crate::support;
 
@@ -104,7 +99,7 @@ fn ordered(value: &Value) -> V {
     }
 }
 
-/// A `V` as JSON, through Python's `json.dumps` text.
+/// A `V` as JSON, through the text `json.dumps` writes.
 fn json_of(value: &V) -> Value {
     serde_json::from_str(&dumps(value)).unwrap()
 }
@@ -159,8 +154,8 @@ fn pt(value: &V) -> Pt {
     Pt { x: float(at(value, &["x"])), y: float(at(value, &["y"])) }
 }
 
-/// The contracts as the PyO3 crate's host answers them, from the export: an input the export does
-/// not have is a test's mistake.
+/// The contracts' answers, from the export: an input the export does not have is a test's
+/// mistake.
 fn contracts(entry: &Value) -> Box<dyn FnMut(&Contract, &V) -> Result<V, Error>> {
     let table: Vec<(String, Value, V)> = entry
         .get("contracts")
@@ -178,7 +173,7 @@ fn contracts(entry: &Value) -> Box<dyn FnMut(&Contract, &V) -> Result<V, Error>>
 }
 
 /// The world of the fixture and a host with its sections, its contracts and no floor plan of its
-/// own: each rule is given the plan of the world now, as its PyO3 entry reads it (`Geo::of`).
+/// own: each rule is given the plan of the world now (`Geo::of`).
 struct Case {
     entry: Value,
     cell: Shard<World>,
@@ -332,7 +327,7 @@ impl Case {
         (self.with(|world| world_bytes(world)), orders)
     }
 
-    /// The world as `WorldState.from_dict(world.to_dict())` gives it, until `give_back`.
+    /// The world put in order (`World::canonicalize`), until `give_back`.
     fn copy(&self) -> Snapshot {
         self.with(|world| {
             let snapshot = world.snapshot();
@@ -345,8 +340,8 @@ impl Case {
         self.with(|world| world.restore(snapshot));
     }
 
-    /// `_writes`: the rule on a copy of the world, and the deleted rule's writes on another; the
-    /// same world after both. What the rule gave.
+    /// The rule on a copy of the world, and the expected writes on another; the same world after
+    /// both. What the rule gave.
     fn writes<T>(&mut self, call: impl FnOnce(&mut Case) -> T, change: impl FnOnce(&mut Case)) -> T {
         let snapshot = self.copy();
         let result = call(self);
@@ -361,7 +356,7 @@ impl Case {
         result
     }
 
-    /// `_raises_text`: a plain ValueError with the Python rule's text, and nothing changed.
+    /// An `Error::Value` with the recorded text, and nothing changed.
     fn raises_text<T: std::fmt::Debug>(&mut self, call: impl FnOnce(&mut Case) -> Result<T, Error>, said: &str) {
         let before = self.fingerprint();
         let result = call(self);
@@ -388,7 +383,6 @@ impl Case {
         self.agents().into_iter().filter(|agent| self.zone_of(agent) == ROOM_ZONE).collect()
     }
 
-    /// `_person_in_room_zone`.
     fn person_in_room_zone(&self) -> String {
         self.in_room_zone().remove(0)
     }
@@ -408,7 +402,7 @@ impl Case {
         });
     }
 
-    // ---- The rules, as their PyO3 entries call them ----
+    // ---- The rules, with what each reads ----
 
     fn places(&mut self) -> (Held, Held, Kept<Option<i64>>) {
         (self.held(SPACES_KEY), self.held(OVERLAY_KEY), self.schema())
@@ -545,7 +539,6 @@ fn metrics_of(nominal: i64, found: &Capacity) -> Value {
 
 // ---- Temporary spaces ----------------------------------------------------------------------------
 
-/// `_space`.
 fn space(space_id: &str, zone: &str, active: bool, people: i64) -> V {
     v(json!({
         "space_id": space_id,
@@ -627,7 +620,7 @@ fn a_space_registers_and_expires() {
 }
 
 #[test]
-fn the_limits_of_spaces_say_the_python_rule_s_text() {
+fn the_limits_of_spaces_say_the_recorded_text() {
     let most = limit(&spaces(), "spaces");
     let fill = || {
         let case = spaces();
@@ -648,7 +641,7 @@ fn the_limits_of_spaces_say_the_python_rule_s_text() {
         map_mut(at_mut(state, &["spaces"])).insert(text("full"), space("full", &zone, true, 5));
     });
     let before = case.fingerprint();
-    // The ID is checked before the limit, as the Python rule did.
+    // The ID is checked before the limit.
     for (space_id, said) in [("x", "temporary space runtime limit reached"), ("s0", "temporary space ID already exists")] {
         assert_eq!(case.register_space(space_record(space_id, &zone, 5), "e"), Err(value_error(said)));
         assert!(case.fingerprint() == before);
@@ -656,7 +649,7 @@ fn the_limits_of_spaces_say_the_python_rule_s_text() {
 }
 
 #[test]
-fn spaces_not_installed_say_the_python_rule_s_text() {
+fn spaces_not_installed_say_the_recorded_text() {
     let case = Case::new();
     case.set_state(SPACES_KEY, None);
     let zone = case.first_zone();
@@ -727,7 +720,7 @@ fn capacity_adds_active_spaces_and_keeps_expired_ones_while_people_need_them() {
 
 // ---- Rooms and beds ------------------------------------------------------------------------------
 
-/// `_room_record`: a room in the corner of the sleeping zone, its beds down its middle.
+/// A room in the corner of the sleeping zone, its beds down its middle.
 fn room_record(case: &Case, room_id: &str, people: i64, beds: i64) -> Value {
     let zones = case.entry["world"]["model_configs"]["facility_geometry"]["zones"].as_array().unwrap();
     let sleeping = zones.iter().find(|zone| zone["zone_id"] == ROOM_ZONE).unwrap();
@@ -759,7 +752,7 @@ fn room_record(case: &Case, room_id: &str, people: i64, beds: i64) -> Value {
     })
 }
 
-/// The keys of `_room_record` in its order: the record is put in the state in that order.
+/// The keys of `room_record` in its order: the record is put in the state in that order.
 const ROOM_KEYS: [&str; 16] = [
     "schema_version",
     "room_id",
@@ -784,7 +777,7 @@ fn in_order(value: &Value, keys: &[&str]) -> V {
     V::Map(keys.iter().map(|key| (text(key), v(value[*key].clone()))).collect())
 }
 
-/// `_room_world`: the room in the overlay's temporary rooms.
+/// The room in the overlay's temporary rooms.
 fn room_world(case: &Case, people: i64, beds: i64, room_id: &str) -> String {
     let record = in_order(&room_record(case, room_id, people, beds), &ROOM_KEYS);
     case.edit_state(OVERLAY_KEY, |state| {
@@ -793,7 +786,7 @@ fn room_world(case: &Case, people: i64, beds: i64, room_id: &str) -> String {
     room_id.to_owned()
 }
 
-/// `_bed`: the core's bed for the person on a copy of the world: None, with the world as it was,
+/// The core's bed for the person on a copy of the world: None, with the world as it was,
 /// or the reservation it writes, whose answer and world `answers` chains.
 fn bed(case: &mut Case, agent: &str, answers: Option<&mut Answers>) -> Option<Bed> {
     let held = case.state(OVERLAY_KEY).and_then(|state| match at(&state, &["bed_reservations"]) {
@@ -831,9 +824,7 @@ fn bed(case: &mut Case, agent: &str, answers: Option<&mut Answers>) -> Option<Be
     Some(found)
 }
 
-/// Recorded from the core in #225 lane M3; on the same kernel the pytest
-/// `test_overlay_rules.py::test_a_bed_is_reserved_in_the_person_s_zone` with the digests `bed`
-/// (`b440c65f6d92`) and `bed again` (`bb5a2af0d667`) passed.
+/// The digests were recorded from the core in #225 lane M3.
 #[test]
 fn a_bed_is_reserved_in_the_person_s_zone() {
     let mut case = Case::new();
@@ -884,9 +875,7 @@ fn no_bed_is_none() {
     bed(&mut case, &agent, None);
 }
 
-/// Where the bed is free, recorded from the core in #225 lane M3; on the same kernel the pytest
-/// `test_overlay_rules.py::test_someone_at_a_bed_is_using_it_within_its_radius` with the digests
-/// `bed beside 0.7500001` (`991c0f10289e`) and `bed beside 1.2` (`1c3bde66032b`) passed.
+/// Where the bed is free, the digests were recorded from the core in #225 lane M3.
 #[test]
 fn someone_at_a_bed_is_using_it_within_its_radius() {
     for (offset, taken, recorded) in [
@@ -911,9 +900,7 @@ fn someone_at_a_bed_is_using_it_within_its_radius() {
     }
 }
 
-/// Recorded from the core in #225 lane M3; on the same kernel the pytest
-/// `test_overlay_rules.py::test_a_reservation_taken_by_another_is_passed_by` with the digest
-/// `bed passed by` (`be2a03926e1d`) passed.
+/// The digest was recorded from the core in #225 lane M3.
 #[test]
 fn a_reservation_taken_by_another_is_passed_by() {
     let mut case = Case::new();
@@ -947,11 +934,10 @@ fn a_release_drops_the_person_s_bed_only() {
     }
 }
 
-/// `_admission`.
 fn admission(agent: &str, room: &str, minute: i64, event_id: &str) -> V {
     let mut sources = vec!["ASM-TEMP-ROOM-TEST-V1", INTAKE_SOURCE];
     sources.sort();
-    // In the order of the Python rule's record.
+    // In the order of the record's keys.
     in_order(
         &json!({"agent_id": agent, "room_id": room, "admitted_minute": minute, "event_id": event_id, "source_ids": sources}),
         &["agent_id", "room_id", "admitted_minute", "event_id", "source_ids"],
@@ -1015,7 +1001,7 @@ fn a_room_takes_people_at_free_points_up_to_its_capacity() {
 }
 
 #[test]
-fn an_admission_says_the_python_rule_s_text_whatever_is_missing() {
+fn an_admission_says_the_recorded_text_whatever_is_missing() {
     let fresh = || {
         let case = Case::new();
         let room = room_world(&case, 1, 1, "room");
@@ -1059,13 +1045,13 @@ fn a_large_room_gives_its_grid_point_nearest_the_middle() {
     case.edit_state(OVERLAY_KEY, |state| {
         map_mut(at_mut(state, &["temporary_rooms", &room])).insert(text("polygon_m"), polygon);
     });
-    // The Python rule's point for the generated sleeping zone (lane L10).
+    // The recorded point for the generated sleeping zone (lane L10).
     assert_eq!(case.room_admission_point(&room), Some(Pt { x: 4.125, y: 7.425 }));
 }
 
 // ---- A facility placed during a Run --------------------------------------------------------------
 
-/// Where the Python rule placed four toilets in the generated toilet zone, in turn (lane L10). The
+/// Where four toilets are placed in the generated toilet zone, in turn, as recorded (lane L10). The
 /// zone has no room for a fifth.
 const PLACED: [(f64, f64); 4] = [
     (13.62417562100671, 9.737087810503356),
@@ -1074,7 +1060,7 @@ const PLACED: [(f64, f64); 4] = [
     (14.524175621006712, 11.21867753513065),
 ];
 
-/// `_new_toilet`: a toilet with no point in the plan.
+/// A toilet with no point in the plan.
 fn new_toilet(case: &Case, facility_id: &str) -> String {
     case.with(|world| {
         let row = FacilityRow {
@@ -1093,7 +1079,7 @@ fn new_toilet(case: &Case, facility_id: &str) -> String {
     facility_id.to_owned()
 }
 
-/// `_placed`: what the deleted Python rule wrote for a placement.
+/// What a placement writes.
 fn placed(case: &mut Case, facility_id: &str, point: Pt, event_id: &str, sources: &[&str]) {
     let mut names: Vec<&str> = sources.to_vec();
     names.push(PLACEMENT_SOURCE);
@@ -1145,9 +1131,9 @@ fn a_placement_takes_the_next_free_slot_and_records_it() {
 }
 
 #[test]
-fn no_free_point_says_the_python_rule_s_text() {
+fn no_free_point_says_the_recorded_text() {
     let mut case = Case::new();
-    // 16 grids more than fit: the search gives up where the Python rule did.
+    // 16 grids more than fit: the search gives up.
     for (index, (x, y)) in PLACED.into_iter().enumerate() {
         let facility = new_toilet(&case, &format!("extra_{index}"));
         assert_eq!(case.place(&facility, &format!("e{index}"), &[]), Ok(Pt { x, y }));
@@ -1159,7 +1145,7 @@ fn no_free_point_says_the_python_rule_s_text() {
 
 // ---- Changes of the floor plan -------------------------------------------------------------------
 
-/// `_event`: an approved change of the floor plan, due now.
+/// An approved change of the floor plan, due now.
 fn event(case: &Case, op: &str, target: &str, parameters: &Value, end: Option<i64>, event_id: &str) -> EventRow {
     EventRow {
         event_id: text(event_id),
@@ -1188,7 +1174,7 @@ fn event(case: &Case, op: &str, target: &str, parameters: &Value, end: Option<i6
     }
 }
 
-/// `_corner`: a small square near a zone's corner.
+/// A small square near a zone's corner.
 fn corner(case: &Case, zone_id: &str) -> Value {
     let zones = case.entry["world"]["model_configs"]["facility_geometry"]["zones"].as_array().unwrap();
     let zone = zones.iter().find(|zone| zone["zone_id"] == zone_id).unwrap();
@@ -1202,7 +1188,7 @@ fn corner(case: &Case, zone_id: &str) -> Value {
 const ROOM_FIELDS: [&str; 9] =
     ["schema_version", "room_id", "zone_id", "polygon_m", "people_capacity", "sleeping_capacity", "bed_points_m", "route_edge_ids", "source_ids"];
 
-/// `_change_cases`: each check's way through.
+/// Each check's way through.
 fn change_cases(case: &Case) -> Vec<(&'static str, String, Value, Option<i64>)> {
     let toilet = case.facility(|kind| kind == "toilet");
     let point = case.entry["world"]["model_configs"]["facility_geometry"]["facility_points"][&toilet].clone();
@@ -1237,7 +1223,7 @@ fn change_cases(case: &Case) -> Vec<(&'static str, String, Value, Option<i64>)> 
     ]
 }
 
-/// What the Python rule said of each of `change_cases`, in order: None where it passed (lane L10).
+/// The recorded answer to each of `change_cases`, in order: None where it passed (lane L10).
 const CHANGE_TEXTS: [Option<&str>; 16] = [
     None,
     None,
@@ -1263,7 +1249,7 @@ fn dumped(case: &Case, model: &str, parameters: &Value) -> V {
     ordered(&row.unwrap_or_else(|| panic!("no answer of {model} for {parameters}"))[2])
 }
 
-/// `_applied`: what the deleted Python rule of `apply_geometry_change` wrote for an approved change.
+/// What an approved change of the floor plan writes.
 fn applied(case: &mut Case, event: &EventRow, expire: bool) {
     let payload = json_of(&event.payload);
     let (op, target, modifier) = (payload["op"].as_str().unwrap(), payload["target_id"].as_str().unwrap(), payload["modifier_id"].as_str().unwrap());
@@ -1381,7 +1367,7 @@ fn applied(case: &mut Case, event: &EventRow, expire: bool) {
 }
 
 #[test]
-fn each_change_is_checked_and_applied_as_the_python_rule_did() {
+fn each_change_is_checked_and_applied_as_recorded() {
     let cases = change_cases(&Case::new());
     for ((op, target, parameters, end), said) in cases.into_iter().zip(CHANGE_TEXTS) {
         let mut case = Case::new();
@@ -1400,7 +1386,7 @@ fn each_change_is_checked_and_applied_as_the_python_rule_did() {
 }
 
 #[test]
-fn a_change_without_the_overlay_says_the_python_rule_s_text() {
+fn a_change_without_the_overlay_says_the_recorded_text() {
     let mut case = Case::new();
     case.set_state(OVERLAY_KEY, None);
     let (op, target, parameters, end) = change_cases(&case).remove(0);
@@ -1413,7 +1399,7 @@ fn a_change_without_the_overlay_says_the_python_rule_s_text() {
 }
 
 #[test]
-fn a_change_expires_as_the_python_rule_did() {
+fn a_change_expires_as_recorded() {
     for op in ["set_partition", "set_route_access", "temporary_room_geometry"] {
         let mut case = Case::new();
         let (_, target, parameters, end) = change_cases(&case).into_iter().find(|item| item.0 == op && item.3 == Some(50)).unwrap();
@@ -1453,8 +1439,8 @@ fn a_full_overlay_history_drops_its_oldest_record() {
 
 // ---- Next to a coefficient or a limit ------------------------------------------------------------
 
-/// Everyone else in the toilet zone this far from the first slot of its grid (the slot the pytest
-/// computed in Python: `separation`), on the side away from the zone's middle.
+/// Everyone else in the toilet zone this far from the first slot of its grid (the fixture's
+/// `separation`), on the side away from the zone's middle.
 #[test]
 fn a_placed_facility_keeps_its_separation_from_the_others() {
     for distance in [0.5999, 0.6, 0.6001, 0.603] {
@@ -1469,13 +1455,13 @@ fn a_placed_facility_keeps_its_separation_from_the_others() {
             }
         });
         let point = case.installed_point(&facility).unwrap();
-        // 0.6 itself is what the floats make of it: there the Python rule passed the slot by.
+        // 0.6 itself is what the floats make of it: there the rule passes the slot by.
         assert_eq!(point == Pt { x, y }, distance > 0.6, "{distance}");
     }
 }
 
 /// Free only near a slot of the given grid (the last slots of the grids of 16 and 17 more
-/// facilities than the zone has, which the pytest computed in Python): each room blocks one side.
+/// facilities than the zone has, in the fixture): each room blocks one side.
 #[test]
 fn the_search_of_a_grid_ends_after_sixteen_grids() {
     let case = Case::new();
@@ -1509,8 +1495,8 @@ fn the_search_of_a_grid_ends_after_sixteen_grids() {
     }
 }
 
-/// Points either side of each wall, just inside and just past half a metre (computed in Python:
-/// `walls`), and what the Python rule said of each.
+/// Points either side of each wall, just inside and just past half a metre (the fixture's
+/// `walls`), and the recorded answer of each.
 #[test]
 fn a_moved_facility_keeps_half_a_metre_from_walls() {
     let mut case = Case::new();
@@ -1528,7 +1514,7 @@ fn a_moved_facility_keeps_half_a_metre_from_walls() {
         }
         *said.entry((wall["clearance"].to_string(), expected)).or_insert(0) += 1;
     }
-    // What the Python rule said of these points of the generated plan (lane L10).
+    // The recorded answers for these points of the generated plan (lane L10).
     let cross = Some("area_invalid: cross-zone facility moves are unsupported".to_owned());
     let narrow = Some("clear_width_insufficient: moved service point requires half a metre from walls".to_owned());
     let wanted: std::collections::BTreeMap<(String, Option<String>), i64> =
@@ -1539,11 +1525,9 @@ fn a_moved_facility_keeps_half_a_metre_from_walls() {
 }
 
 /// The rule routes at most 256 beds: the free bed after 256 others is never tried. Where it is
-/// found, recorded from the core in #225 lane M3; on the same kernel the pytest
-/// `test_overlay_rules.py::test_a_bed_s_routes_end_where_the_python_rule_s_do[255-True]` with the
-/// digest `bed routes 255` (`af665afe7480`) passed.
+/// found, the digest was recorded from the core in #225 lane M3.
 #[test]
-fn a_bed_s_routes_end_where_the_python_rule_s_do() {
+fn a_bed_s_routes_end_at_the_256th_bed() {
     for (blocked, found) in [(255, true), (256, false)] {
         let mut case = Case::new();
         let mut record = room_record(&case, "room", 400, 1);
@@ -1715,9 +1699,8 @@ fn capacity_counts_signed_rooms_and_the_people_an_expired_room_admitted() {
 }
 
 /// A move changes the plan, its service points and footprints, for the rules that read them. The
-/// deleted Python rule's walk to the moved toilet was recorded as its `repr` (`MOVED_TOILET_WALK`):
-/// the zone route (from the toilet zone to itself, 1 minute) and its points, whose floats this
-/// keeps as they were.
+/// walk to the moved toilet is the recorded one: the zone route (from the toilet zone to itself, 1
+/// minute) and its points, whose floats this keeps as they were.
 #[test]
 fn a_moved_facility_keeps_its_plan_in_rust() {
     let mut case = Case::new();
@@ -1746,9 +1729,9 @@ fn a_moved_facility_keeps_its_plan_in_rust() {
 // ---- The temporary-room branch of a decision -----------------------------------------------------
 
 impl Case {
-    /// The step of a decision to sleep (`apply_effect` of `rules/proposals.rs`), with what its PyO3
-    /// entry reads for it: the overlay and the movement held, the movement section, the plan and
-    /// the overlay's schema.
+    /// The step of a decision to sleep (`apply_effect` of `rules/proposals.rs`), with what it
+    /// reads: the overlay and the movement held, the movement section, the plan and the overlay's
+    /// schema.
     fn sleep(&mut self, agent: &str) -> sheltersim_core::rules::proposals::Applied {
         use sheltersim_core::rules::proposals::{self, Action, Inputs, Proposal, Sleep, Walk};
         let (overlay, movement, walking, schema) = (self.held(OVERLAY_KEY), self.held(MOVEMENT), self.walking(), self.schema());
@@ -1772,12 +1755,10 @@ impl Case {
     }
 }
 
-/// The result is the Python step's, and the world after it is recorded from the core in #225 lane
-/// M3; on the same kernel the pytest `test_overlay_rules.py::test_sleep_in_a_room_is_the_python_step_s`
-/// with its `world_digest`s `a4f07608e1e04866` (away from the bed) and `2732f2f9b97629f9` (at it)
-/// passed.
+/// The result is the recorded one, and the digests of the world after it (away from the bed and at
+/// it) were recorded from the core in #225 lane M3.
 #[test]
-fn sleep_in_a_room_is_the_python_step_s() {
+fn sleep_in_a_room_is_the_recorded_step() {
     for (at_bed, recorded) in [
         (false, "55d960c2de83838756d2411be1cb6d006d8c1658f25889cfd3db7f7535d92b06"),
         (true, "7c32733e2d57b1ef9a2fc0e71ffabe8dadaf4e863a6d85bbf9c0b197600d27bc"),
@@ -1801,10 +1782,8 @@ fn sleep_in_a_room_is_the_python_step_s() {
     }
 }
 
-/// The walk would end after the Run: no trip, and what the person held is gone. Recorded from the
-/// core in #225 lane M3; on the same kernel the pytest
-/// `test_overlay_rules.py::test_sleep_past_the_run_s_end_releases_the_bed` with its `world_digest`
-/// `bf284ac247d7f46c` passed.
+/// The walk would end after the Run: no trip, and what the person held is gone. The digest was
+/// recorded from the core in #225 lane M3.
 #[test]
 fn sleep_past_the_run_s_end_releases_the_bed() {
     let mut case = Case::new();
@@ -1855,7 +1834,7 @@ impl Case {
         toilet::request(&self.cell, &mut self.host, &request, false)
     }
 
-    /// `_line_up`: these people in this queue of the facility, its tasks' IDs.
+    /// These people in this queue of the facility, its tasks' IDs.
     fn line_up(&mut self, facility: &str, queue: &str, agents: &[&str]) -> Vec<String> {
         let zone = self.facility_zone(facility);
         agents
@@ -1912,7 +1891,7 @@ fn field_json<T: sheltersim_core::row::Field>(value: &T) -> String {
     String::from_utf8(encoder.out).unwrap()
 }
 
-/// `_request`: a request queued at minute 0 at the toilet's point of this queue.
+/// A request queued at minute 0 at the toilet's point of this queue.
 fn request_json(request_id: &str, agent: &str, queue: &str) -> Value {
     json!({
         "request_id": request_id,
@@ -1974,7 +1953,7 @@ fn reads_of_the_queues() {
     assert_eq!(created["queues"][LEFT]["service_point_id"], "toilet_01-left");
 }
 
-/// `choose_queue_id`, as its PyO3 entry reads its inputs.
+/// `choose_queue_id`, with the inputs it reads.
 fn choose(case: &mut Case, facility: &str, agent: &str) -> Option<String> {
     let held = case.held(QUEUES);
     if held == Held::Absent {
@@ -2277,13 +2256,10 @@ fn a_fifo_keeps_its_order_and_only_a_wait_ends_it() {
     assert_eq!(abandon["detail"], "Agent left a prolonged low-urgency queue and will reconsider after a bounded delay");
 }
 
-/// The walk to the slots of a FIFO, and its walks to service, slots and approach. Recorded from the
-/// core in #225 lane M3; on the same kernel the pytest
-/// `test_overlay_rules.py::test_walks_of_a_fifo_are_the_python_rule_s` passed with the digests
-/// `walk toilet_01-left-fifo` (`723961dac125`) and `walk toilet_01-right-fifo` (`a39a0e59ab28`) of
-/// `RECORDED`, and `e9cd3a9fc6b9` and `e1eae6eeec33` of `FIFO_WALKS`.
+/// The walk to the slots of a FIFO, and its walks to service, slots and approach. The digests were
+/// recorded from the core in #225 lane M3.
 #[test]
-fn walks_of_a_fifo_are_the_python_rule_s() {
+fn walks_of_a_fifo_are_the_recorded_ones() {
     for (queue, walk_digest, walks_digest) in [
         (LEFT, "31ea1db6800291372fc1b78b7a93d1a9acd417c3760c5c0705c4be4837a95ccf", "c628d41065bccf3df4a0bcf22df1ccd453487bec0a84ecabd96493b60be15bd5"),
         (RIGHT, "9da9bdefc7466eb11d51886ac11f8d813635ba8920baceac0431e69f51322bfe", "b1a2747c863378726350dd601d578be4f310566bb99800a32127ce25aeaf0bb0"),
@@ -2366,13 +2342,9 @@ impl Case {
     }
 }
 
-/// Recorded from the core in #225 lane M3; on the same kernel the pytest
-/// `test_overlay_rules.py::test_a_toilet_fifo_is_the_python_rule_s` passed with the digests of
-/// `RECORDED`: `toilet request queue` and `toilet request` (`c4f5d6d8b263`), `toilet head`
-/// (`98f439dc7b65`), `toilet head full` (`d76e169018dc`), `toilet head late` (`ab860141b3d1`),
-/// `toilet head unskilled` (`6b7473565ba7`) and `toilet head staffed` (`5508059c4680`).
+/// The digests were recorded from the core in #225 lane M3.
 #[test]
-fn a_toilet_fifo_is_the_python_rule_s() {
+fn a_toilet_fifo_is_the_recorded_one() {
     let mut case = Case::queued();
     let zone = case.facility_zone("toilet_01");
     for agent in ["A001", "A002"] {
@@ -2443,7 +2415,7 @@ fn a_toilet_fifo_is_the_python_rule_s() {
         let payload = json_of(&event.payload);
         assert_eq!(payload["staff_id"], json!(member));
         // And the completion lets them go: the slot, the task and the staff member's reservation are
-        // freed, and the person is done (what the completion's Python rule did, gone in lane L10).
+        // freed, and the person is done.
         served.set_minute(event.due_minute);
         let (plan, _, _, queues, metric_state_held) = served.queue_walk();
         let body = served.held("body_state_v1");
@@ -2478,9 +2450,9 @@ fn a_toilet_fifo_is_the_python_rule_s() {
 
 // ---- The water and meal service's FIFO -------------------------------------------------------------
 
-/// The parts of the water and meal service's manager (`ResourceServiceManager(world)`), read as its
-/// PyO3 entries read them: its config (the export's), whether the world holds the service, the ledger
-/// and the queues, the plan, and whether `metric_state` is its slot's.
+/// The parts of the water and meal service's manager (`service::Manager`): its config (the
+/// export's), whether the world holds the service, the ledger and the queues, the plan, and whether
+/// `metric_state` is its slot's.
 struct ServiceIn {
     config: indexmap::IndexMap<Arc<str>, V>,
     service: Held,
@@ -2516,7 +2488,7 @@ impl Case {
         }
     }
 
-    /// `replace_resources` of the PyO3 crate: `world.resources` takes the operation's balance.
+    /// `world.resources` takes the operation's balance.
     fn take_balance(&self, applied: Option<sheltersim_core::rules::resources::Applied>) {
         let Some(applied) = applied else {
             return;
@@ -2527,7 +2499,7 @@ impl Case {
         });
     }
 
-    /// `_resource_queues`: the first queue, by ID, of a water or meal facility, and its facility.
+    /// The first queue, by ID, of a water or meal facility, and its facility.
     fn resource_queue(&self) -> (String, String) {
         let state = self.queues_json();
         let mut ids: Vec<&String> = state["queues"].as_object().unwrap().keys().collect();
@@ -2576,8 +2548,8 @@ impl Case {
         Pt { x: point["x"].as_f64().unwrap(), y: point["y"].as_f64().unwrap() }
     }
 
-    /// `_serving`: A001 in service at an independent queue, with every staff member in its zone: the
-    /// task's ID and the staff member's.
+    /// A001 in service at an independent queue, with every staff member in its zone: the task's ID
+    /// and the staff member's.
     fn serving(&mut self) -> (String, String) {
         let (facility, _) = self.resource_queue();
         let zone = self.facility_zone(&facility);
@@ -2638,11 +2610,9 @@ fn test_event(case: &Case, event_id: &str, event_type: &str, payload: Value) -> 
 }
 
 /// The service of a FIFO: the request, then each stop and the start of a service, and the stall
-/// records. Recorded from the core in #225 lane M3; on the same kernel the pytest
-/// `test_overlay_rules.py::test_a_resource_fifo_serves_as_the_python_rule_does` with the digest
-/// `serves` (`55c19613d7506346`) of `RESOURCE_FIFO` passed.
+/// records. The digest was recorded from the core in #225 lane M3.
 #[test]
-fn a_resource_fifo_serves_as_the_python_rule_does() {
+fn a_resource_fifo_serves_as_recorded() {
     let mut case = Case::queued();
     let (facility, queue) = case.resource_queue();
     let kind = case.with(|world| world.rows().unwrap().facilities.get(facility.as_str()).unwrap().kind.to_string());
@@ -2725,11 +2695,9 @@ fn a_resource_fifo_serves_as_the_python_rule_does() {
     assert_eq!(answers.hex(), "986dedace0f62ae7f84655e541590e4c827cb9fae77775949eda80c2f5407a06");
 }
 
-/// Recorded from the core in #225 lane M3; on the same kernel the pytest
-/// `test_overlay_rules.py::test_a_service_interrupted_goes_back_first_in_its_fifo_as_the_python_rule_says`
-/// with the digest `interrupted` (`ac8f36a0687bd7e1`) of `RESOURCE_FIFO` passed.
+/// The digest was recorded from the core in #225 lane M3.
 #[test]
-fn a_service_interrupted_goes_back_first_in_its_fifo_as_the_python_rule_says() {
+fn a_service_interrupted_goes_back_first_in_its_fifo() {
     let mut case = Case::queued();
     let (_, staff_id) = case.serving();
     let (facility, _) = case.resource_queue();
@@ -2759,12 +2727,9 @@ fn a_service_interrupted_goes_back_first_in_its_fifo_as_the_python_rule_says() {
     assert_eq!(answers.hex(), "c9ff179dcbb7b2d519356b93d1693c51516f94af5325be6933f1a8922102dbfc");
 }
 
-/// Recorded from the core in #225 lane M3; on the same kernel the pytest
-/// `test_overlay_rules.py::test_a_cancelled_service_is_the_python_rule_s` with the digests
-/// `cancelled-operator_cancelled` and `cancelled-facility_stopped` (`4b945a95e866d703`) and
-/// `cancelled-staff_unavailable` (`204b6edeaad9429f`) of `RESOURCE_FIFO` passed.
+/// The digests were recorded from the core in #225 lane M3.
 #[test]
-fn a_cancelled_service_is_the_python_rule_s() {
+fn a_cancelled_service_is_the_recorded_one() {
     let mut recorded = Vec::new();
     for reason in ["operator_cancelled", "facility_stopped", "staff_unavailable"] {
         let mut case = Case::queued();
@@ -2797,11 +2762,9 @@ fn a_cancelled_service_is_the_python_rule_s() {
     );
 }
 
-/// Recorded from the core in #225 lane M3; on the same kernel the pytest
-/// `test_overlay_rules.py::test_a_cancelled_place_in_a_queue_is_the_python_rule_s` with the digest
-/// `cancelled-place` (`b4995ef04bb778fd`) of `RESOURCE_FIFO` passed.
+/// The digest was recorded from the core in #225 lane M3.
 #[test]
-fn a_cancelled_place_in_a_queue_is_the_python_rule_s() {
+fn a_cancelled_place_in_a_queue_is_the_recorded_one() {
     let mut case = Case::queued();
     let (facility, _) = case.resource_queue();
     let zone = case.facility_zone(&facility);
@@ -2817,11 +2780,9 @@ fn a_cancelled_place_in_a_queue_is_the_python_rule_s() {
     assert_eq!(answers.hex(), "1c409a2caf0b793891d9249d27a65e584c1934d3379af3b9e4f38d21aef5bcac");
 }
 
-/// Recorded from the core in #225 lane M3; on the same kernel the pytest
-/// `test_overlay_rules.py::test_a_completed_service_leaves_its_fifo_as_the_python_rule_does` with the
-/// digest `completed` (`989cad4a9fe17255`) of `RESOURCE_FIFO` passed.
+/// The digest was recorded from the core in #225 lane M3.
 #[test]
-fn a_completed_service_leaves_its_fifo_as_the_python_rule_does() {
+fn a_completed_service_leaves_its_fifo_as_recorded() {
     let mut case = Case::queued();
     let (facility, _) = case.resource_queue();
     let zone = case.facility_zone(&facility);

@@ -14,8 +14,8 @@
 //! - A stored Run keeps the tape in its `llm_tape` pieces; a seek restores a saved point and
 //!   computes the ticks after it from the tape.
 //!
-//! The rules' parity with the Python ones (the prompts byte for byte, the world after the ticks) is
-//! `tests/integration/test_plain_run_llm.py`'s, which runs both.
+//! The port behind Python's `LLMRouter` (`PlainRun.set_llm`) is
+//! `tests/integration/test_plain_run_llm.py`'s.
 
 use std::cell::RefCell;
 use std::collections::BTreeMap;
@@ -189,7 +189,7 @@ fn an_answer_is_read_against_its_schema() {
 }
 
 #[test]
-fn the_limits_are_the_models_unless_set_and_checked_as_python_checks_them() {
+fn the_limits_are_the_models_unless_set_and_checked() {
     let limits = Limits::default();
     assert_eq!((limits.social.stress_threshold, limits.social.cooldown_minutes, limits.social.per_agent_per_day), (0.65, 240, 3));
     assert_eq!((limits.social.global_per_day, limits.social.event_delay_minutes, limits.social.complaint_wait_minutes), (4, 1, 30));
@@ -211,8 +211,8 @@ fn the_limits_are_the_models_unless_set_and_checked_as_python_checks_them() {
 }
 
 /// Offline, the rules ask nothing and write nothing of the world: the Run is the Run without a
-/// link, the samples too. The social policy records why it did not ask, as Python's does on a
-/// Project's Run (the `dialogue` rows of #385).
+/// link, the samples too. The social policy records why it did not ask, as on a Project's Run (the
+/// `dialogue` rows of #385).
 #[test]
 fn an_offline_link_changes_nothing_of_the_world_and_records_why_it_did_not_ask() {
     for name in ["generated", "small_replay"] {
@@ -340,9 +340,9 @@ fn an_answer_that_does_not_fit_is_the_fallback() {
     assert!(priorities["support_priorities"].as_object().unwrap().values().all(|priority| priority == 0));
 }
 
-/// A tape answers the same Run again without asking anyone (Python's `RecordedRouter`): the same
-/// world and the same tape. A call that is not the tape's next stops the tick, and so does one past
-/// its end, unless a link goes on from there (Python's `ContinuingRouter`).
+/// A tape answers the same Run again without asking anyone (`Replay`): the same world and the same
+/// tape. A call that is not the tape's next stops the tick, and so does one past its end, unless a
+/// link goes on from there (`Replay::then`).
 #[test]
 fn a_tape_answers_the_same_run_again_without_the_link() {
     let (fake, _) = Fake::new();

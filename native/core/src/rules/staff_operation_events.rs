@@ -47,7 +47,7 @@ use crate::rules::travel::ZONES_TAINTED;
 use crate::state::body_state::{BodyRecord, BodyRow, NAME as BODY};
 use crate::state::effect_program::{EffectProgramRow, NAME as PROGRAM};
 use crate::state::movement::{MovementRow, Position};
-use crate::state::staff_operations::{FinishedTask, OperationRecord, Outcome, Phase, StaffOperationsRow, NAME};
+use crate::state::staff_operations::{Entries, FinishedTask, Number as ConfigNumber, OperationRecord, Outcome, Phase, StaffOperationsRow, Table, NAME};
 use crate::value::V;
 use crate::world::{World, WorldCell};
 
@@ -161,7 +161,7 @@ fn ops_row<'w>(world: &'w World, inputs: &Inputs<'_>) -> Result<Option<ShardRef<
 
 /// `staff_is_available` of one member.
 fn available(world: &World, id: &str) -> Result<bool> {
-    staff_dynamics::with_staff_status(world, |status| staff_dynamics::is_available(status, id))
+    staff_dynamics::with_staff_status(world, |status| status.is_available(id))
 }
 
 /// `staff_dynamics_is_available`, as its Python entry answers: true without the namespace.
@@ -620,20 +620,27 @@ pub struct ReliefPlan {
 }
 
 /// `config["task_duration_minutes"][kind]`, an int.
-fn task_minutes(config: &V, kind: &str) -> Result<i64> {
-    let V::Map(config) = config else {
+fn task_minutes(config: Option<Entries<'_>>, kind: &str) -> Result<i64> {
+    let Some(config) = config else {
         return Err(Error::unsupported("the config is not a map"));
     };
-    let Some(durations) = config.get("task_duration_minutes") else {
-        return Err(Error::Key("task_duration_minutes".to_owned()));
+    let durations = match config.table("task_duration_minutes") {
+        Table::Map(durations) => durations,
+        Table::Missing => return Err(Error::Key("task_duration_minutes".to_owned())),
+        Table::Other => return Err(Error::unsupported("the task durations are not a map")),
     };
-    let V::Map(durations) = durations else {
-        return Err(Error::unsupported("the task durations are not a map"));
-    };
-    match durations.get(kind) {
-        Some(minutes) => kit::exact_int(minutes),
+    match durations.number(kind) {
+        Some(ConfigNumber::Int(minutes)) => Ok(minutes),
+        Some(ConfigNumber::Big) => Err(Error::unsupported("an int is too large")),
+        Some(_) => Err(Error::unsupported("a value is not an int")),
         None => Err(Error::Key(kind.to_owned())),
     }
+}
+
+/// The config of the row the plan read before, read again where the rule reads it.
+fn with_config<R>(world: &World, inputs: &Inputs<'_>, f: impl FnOnce(Option<Entries<'_>>) -> Result<R>) -> Result<R> {
+    let row = ops_row(world, inputs)?.ok_or_else(|| gone("the row"))?;
+    f(row.config_entries())
 }
 
 /// The checks of `StaffOperationReliefHandler.apply`, in its order: the event's provenance and
@@ -672,7 +679,6 @@ pub fn plan_relief(world: &World, inputs: &Inputs<'_>, event: &EventRow) -> Resu
         return stale();
     };
     let replacement_phase = row.staff.get(&*replacement_id).map(|record| record.phase);
-    let config = row.config.clone();
     drop(row);
     let (task_staff, previous_task, replacement) = {
         let rows = world.rows()?;
@@ -748,7 +754,7 @@ pub fn plan_relief(world: &World, inputs: &Inputs<'_>, event: &EventRow) -> Resu
     if !has_completion {
         return Err(Error::failed("relieved staff operation lacks a pending completion"));
     }
-    let work_minutes = task_minutes(&config, &kind)?;
+    let work_minutes = with_config(world, inputs, |config| task_minutes(config, &kind))?;
     let causation = causation_with(&operation.causation_event_ids, std::slice::from_ref(&event.event_id));
     let (Some(task), Some(reason_code)) = (operation.task_id.clone(), kit::optional_text(payload("reason_code"))?.cloned()) else {
         return Err(Error::unsupported("a value is not a str"));
@@ -1026,29 +1032,28 @@ pub struct CompletePlan {
 }
 
 /// `config["effects_by_zone"].get(zone_id, {}).get(name, config[name])`, as a float.
-fn effect(config: &V, zone: &str, name: &str) -> Result<f64> {
-    let V::Map(config) = config else {
+fn effect(config: Option<Entries<'_>>, zone: &str, name: &str) -> Result<f64> {
+    let Some(config) = config else {
         return Err(Error::unsupported("the config is not a map"));
     };
-    let Some(by_zone) = config.get("effects_by_zone") else {
-        return Err(Error::Key("effects_by_zone".to_owned()));
+    let by_zone = match config.table("effects_by_zone") {
+        Table::Map(by_zone) => by_zone,
+        Table::Missing => return Err(Error::Key("effects_by_zone".to_owned())),
+        Table::Other => return Err(Error::unsupported("a value is not a plain dict")),
     };
-    let V::Map(by_zone) = by_zone else {
-        return Err(Error::unsupported("a value is not a plain dict"));
-    };
-    let Some(default) = config.get(name) else {
+    let Some(default) = config.number(name) else {
         return Err(Error::Key(name.to_owned()));
     };
-    let value = match by_zone.get(zone) {
-        None => default,
-        Some(V::Map(zone_effects)) => zone_effects.get(name).unwrap_or(default),
-        Some(_) => return Err(Error::unsupported("a value is not a plain dict")),
+    let value = match by_zone.table(zone) {
+        Table::Missing => default,
+        Table::Map(zone_effects) => zone_effects.number(name).unwrap_or(default),
+        Table::Other => return Err(Error::unsupported("a value is not a plain dict")),
     };
     match value {
-        V::Float(number) => Ok(*number),
-        V::Int(number) if (-(1 << 53)..=1 << 53).contains(number) => Ok(*number as f64),
-        V::Int(_) => Err(Error::unsupported("a number does not fit a float")),
-        _ => Err(Error::unsupported("a value is not an int")),
+        ConfigNumber::Float(number) => Ok(number),
+        ConfigNumber::Int(number) if (-(1 << 53)..=1 << 53).contains(&number) => Ok(number as f64),
+        ConfigNumber::Int(_) => Err(Error::unsupported("a number does not fit a float")),
+        ConfigNumber::Big | ConfigNumber::Other => Err(Error::unsupported("a value is not an int")),
     }
 }
 
@@ -1078,7 +1083,6 @@ pub fn plan_complete(world: &World, inputs: &Inputs<'_>, event: &EventRow) -> Re
         return not_active();
     };
     let record = row.staff.get(&*id).cloned();
-    let config = row.config.clone();
     let sanitation = record.as_ref().and_then(|record| record.target_zone_id.as_deref()).and_then(|zone| row.zones.get(zone)).map(|zone| zone.sanitation);
     drop(row);
     let (staff_task, has_task) = {
@@ -1116,7 +1120,10 @@ pub fn plan_complete(world: &World, inputs: &Inputs<'_>, event: &EventRow) -> Re
             let Some(sanitation) = sanitation else {
                 return Err(Error::Key(zone_id.to_string()));
             };
-            Work::Cleaning { zone: zone_id.clone(), sanitation: py_min(1.0, sanitation + effect(&config, &zone_id, "cleaning_sanitation_recovery")?) }
+            Work::Cleaning {
+                zone: zone_id.clone(),
+                sanitation: py_min(1.0, sanitation + with_config(world, inputs, |config| effect(config, &zone_id, "cleaning_sanitation_recovery"))?),
+            }
         }
         ("maintenance", Some((facility, units, capacity))) => {
             // `_maintenance_blocked`: at capacity, then the outage, then the modifiers.
@@ -1130,7 +1137,8 @@ pub fn plan_complete(world: &World, inputs: &Inputs<'_>, event: &EventRow) -> Re
             }
         }
         ("information_outreach" | "patrol", _) => {
-            let relief = effect(&config, &zone_id, if &*kind == "information_outreach" { "outreach_uncertainty_relief" } else { "patrol_reassurance" })?;
+            let name = if &*kind == "information_outreach" { "outreach_uncertainty_relief" } else { "patrol_reassurance" };
+            let relief = with_config(world, inputs, |config| effect(config, &zone_id, name))?;
             let body = kit::held_row::<BodyRow>(world, BODY, inputs.body)?;
             let mut people = Vec::new();
             for person in sorted_agents(&*world.rows()?) {

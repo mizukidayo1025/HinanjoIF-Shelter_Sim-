@@ -40,7 +40,7 @@ fn configs_row(value: V) -> Option<Box<dyn Row>> {
 // ---- H1: what the world holds ----------------------------------------------------------------------
 
 #[test]
-fn a_world_without_python_views_holds_what_its_slots_hold() {
+fn a_world_holds_what_its_slots_hold() {
     let mut world = World::default();
     slot(&mut world, "movement_v1", Place::Namespace, configs_row(V::Map(IndexMap::new())));
     slot(&mut world, "zone_environment_v1", Place::Value, None);
@@ -108,7 +108,7 @@ fn a_host_call_that_writes_a_namespace_is_seen_at_the_next_read() {
 // ---- H2: the sections of the configs -----------------------------------------------------------------
 
 /// Every `Lazy` of `Configs`, by name: this does not compile when a field is added, so a new
-/// section must join `SectionId` (and the PyO3 crate's `fill_section`).
+/// section must join `SectionId`.
 fn fields(configs: &Configs) -> usize {
     let Configs {
         stamp: _,
@@ -202,7 +202,7 @@ fn a_section_the_core_parses_is_parsed_from_the_row_and_counted() {
     let before = config::parses();
     let first = read(&mut host, &holding).unwrap();
     assert!(matches!(&first, Section::Ok(movement) if !movement.has_model));
-    // Parsed here, from the row, without the host; counted as the PyO3 crate counts its parses.
+    // Parsed here, from the row, without the host, and counted in `config::parses`.
     assert!(host.calls.is_empty());
     assert!(config::parses() > before);
     // Kept for the stamp: neither parsed nor asked again (other tests count parses at the same time,
@@ -318,7 +318,7 @@ fn a_run_reads_its_dispatcher_or_refuses() {
 // ---- H4, H5 and the clock -----------------------------------------------------------------------------
 
 #[test]
-fn a_host_without_python_runs_no_foreign_handler() {
+fn a_test_host_runs_no_foreign_handler() {
     let event = EventRow {
         event_id: text("E1"),
         kind: EventKind::Exogenous,

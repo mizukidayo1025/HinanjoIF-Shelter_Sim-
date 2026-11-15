@@ -1,7 +1,6 @@
-//! Lane c7: the rules of `domain/population_lifecycle.py` (`rules::population_lifecycle`) and of
-//! `AgentTravelCompletionHandler` (`rules::travel_completion`) on worlds built here with no Python.
-//! The PyO3 crate's kernels of the same names are glue over these, so the gate and the offline
-//! tests run them on every Run; these say what each reads, decides and writes.
+//! Lane c7: the population lifecycle's rules (`rules::population_lifecycle`) and the travel
+//! completion's (`AgentTravelCompletionHandler`, `rules::travel_completion`) on worlds built here:
+//! what each reads, decides and writes.
 
 use std::sync::Arc;
 

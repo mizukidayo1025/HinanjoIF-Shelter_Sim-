@@ -1,6 +1,5 @@
-//! P8-0b: a Run's `Policies` read from what the PyO3 crate read of a controller, the tick's
-//! `Scratch`, and the `Host` with the test host a build without Python uses (`support::TestHost`).
-//! The controllers here are built by hand as the PyO3 crate reads a real one: each class by its
+//! P8-0b: a Run's `Policies` read from a controller, the tick's `Scratch`, and the `Host` with the
+//! test host (`support::TestHost`). The controllers here are built by hand: each class by its
 //! names, each attribute a value, an object or what its read raised.
 
 use crate::support;
@@ -214,7 +213,7 @@ fn what_a_read_raised_is_kept_for_the_read_site() {
     assert_eq!(policies.sinks.decision_sink.as_ref().map_err(|fault| fault.class.clone()), Err(FaultClass::Type));
     assert_eq!(policies.sinks.trace_level, Err(Fault::refused(sinks::UNKNOWN_LEVEL)));
 
-    // No artifacts, or a class without its own declaration: `record_decision` runs in Python.
+    // No artifacts, or a class without its own declaration: the sink is `DecisionSink::Python`.
     let mut found = controller();
     put(&mut found, "artifacts", none());
     let policies = Policies::of(Arc::new(found));
@@ -367,7 +366,7 @@ fn the_test_host_gives_contracts_back_and_draws_only_when_told() {
 }
 
 #[test]
-fn contracts_name_their_models_and_phases_their_python_values() {
+fn contracts_name_their_models_and_phases_their_names() {
     assert_eq!(Contract::Guard.model(), ("sheltersim.events.effects", "GuardExpression"));
     assert_eq!(Contract::EffectParameters(text("set_privacy")).model(), ("sheltersim.events.effects", "_PARAMETER_MODELS"));
     assert_eq!(Contract::TemporaryRoom.model(), ("sheltersim.contracts.operations", "TemporaryRoomGeometry"));
@@ -387,7 +386,7 @@ fn contracts_name_their_models_and_phases_their_python_values() {
 }
 
 #[test]
-fn core_errors_have_the_class_python_gives_them() {
+fn core_errors_have_their_error_classes() {
     assert_eq!(Error::unsupported("x").class(), ErrorClass::Refused);
     assert_eq!(Error::Value("x".into()).class(), ErrorClass::Value);
     assert_eq!(Error::suppressed("x").class(), ErrorClass::Value);

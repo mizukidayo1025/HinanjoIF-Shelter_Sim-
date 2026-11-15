@@ -1,5 +1,5 @@
-//! Lane P8 e1: `_apply_effect` (`rules::proposals`) in the core, on worlds built here: the activity
-//! of `wait` and `rest` and the bed given up, a social action's event, a request with the
+//! Lane P8 e1: the step of a proposal (`rules::proposals`) in the core, on worlds built here: the
+//! activity of `wait` and `rest` and the bed given up, a social action's event, a request with the
 //! information model's record, the LLM's hooks through a host that writes the world (rule R6), the
 //! refusals before any write, and a resource action without a service.
 
@@ -286,7 +286,7 @@ fn a_request_for_information_ties_the_heard_claims_to_it() {
     assert!(!world.slots.written_names().iter().any(|name| &**name == INFORMATION));
     assert_eq!(world.row::<InformationRow>(INFORMATION).unwrap().counters.support_requests, 1);
     drop(world);
-    // a3 has no beliefs: the Python rule's KeyError, after the request's writes.
+    // a3 has no beliefs: an `Error::Key`, after the request's writes.
     let refused = ask(&cell, &mut host, &inputs, &proposal(Action::SeekInformation, "a3"));
     assert_eq!(refused, Err(Error::Key("a3".to_owned())));
     let world = cell.try_borrow_mut().unwrap();
@@ -341,7 +341,7 @@ fn what_a_request_refuses_it_refuses_before_any_write() {
 #[derive(Clone, Copy, PartialEq)]
 enum Priority {
     /// Writes the request's status, schedules an event of its own and moves the person's next
-    /// decision, as the Python hooks may.
+    /// decision, as a host's hooks may.
     Writes,
     /// Counts a refusal itself and raises a `ValueError`.
     Raises,

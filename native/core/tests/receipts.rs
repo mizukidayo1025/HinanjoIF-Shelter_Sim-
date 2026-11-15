@@ -1,7 +1,6 @@
 //! P8b-1: the rules of the receipts, the shared operations, the resource ledger and the staff's
 //! shift and fatigue (`rules::care_receipts`, `common_operations`, `resources`, `staff_dynamics`),
-//! over worlds built here. The PyO3 crate's entries are glue over these, so the gate and the offline
-//! tests run them on every Run; these say what each does with no Python.
+//! over worlds built here: what each does, and the texts of what each refuses.
 
 use std::sync::Arc;
 
@@ -234,9 +233,12 @@ fn a_config_without_windows_and_a_bad_status_are_refused() {
     let mut row = dynamics(0.0);
     row.config.shift_windows_by_staff = Maybe(None);
     assert_eq!(staff_dynamics::on_shift(&row.config, "s1", 0), Err(unsupported("the config has no shift windows")));
+    let mut world = world();
     let status = map(&[("s1", map(&[("available", V::Int(1))]))]);
-    assert_eq!(staff_dynamics::is_available(Some(&status), "s1"), Err(unsupported("available is not a bool")));
-    assert_eq!(staff_dynamics::is_available(Some(&status), "s2"), Ok(true));
+    slot(&mut world, staff_dynamics::OPERATIONAL, Place::Value, Box::new(ValueRow(map(&[("staff_status", status)]))));
+    let available = |id: &str| staff_dynamics::with_staff_status(&world, |status| status.is_available(id));
+    assert_eq!(available("s1"), Err(unsupported("available is not a bool")));
+    assert_eq!(available("s2"), Ok(true));
 }
 
 #[test]
@@ -315,7 +317,7 @@ fn apply(world: &mut World, operation: &str, payload: V, event_id: &str) -> Resu
     resources::apply_operation(world, &event, OperationArg::Text(operation))
 }
 
-/// `apply`, and then `world.resources` takes the new balance, as the PyO3 crate's entry gives it.
+/// `apply`, and then `world.resources` takes the new balance, as a host gives it.
 fn operate(world: &mut World, operation: &str, payload: V, event_id: &str) -> Result<Applied, Fail> {
     let applied = apply(world, operation, payload, event_id)?;
     let resource = ["water_ml", "food_meal_units"][applied.index];
@@ -349,7 +351,7 @@ fn operations_change_the_balances_and_the_audit() {
     let mut world = ledger_world();
     world.slots.take_written();
     assert_eq!(apply(&mut world, "delivery", water(500), "op-1"), Ok(Applied { index: 0, remaining: 1500 }));
-    // `world.resources` is the PyO3 crate's to replace: its row is not written here.
+    // `world.resources` is the host's to replace: its row is not written here.
     assert_eq!(world.resources().unwrap().get("water_ml"), Some(&1000));
     let written: Vec<_> = world.slots.written_names().iter().map(|name| name.to_string()).collect();
     assert_eq!(written, [LEDGER]);
@@ -372,7 +374,7 @@ fn operations_change_the_balances_and_the_audit() {
 }
 
 #[test]
-fn what_the_python_rule_turned_down_is_its_text_with_nothing_changed() {
+fn what_the_rule_turns_down_is_its_text_with_nothing_changed() {
     let mut world = ledger_world();
     operate(&mut world, "reserve", reservation(Some(100), "r1", "a1"), "op-1").unwrap();
     let before = world.row::<LedgerRow>(LEDGER).unwrap().audit.item_bytes().len();
@@ -386,7 +388,7 @@ fn what_the_python_rule_turned_down_is_its_text_with_nothing_changed() {
         ledger_text(operate(&mut world, "delivery", map(&[("warehouse_id", string("warehouse-main"))]), "op-8")),
         "resource delivery payload fields do not match"
     );
-    // A payload value is shown as Python's repr, which the PyO3 crate writes.
+    // A payload value is shown as Python's `repr` (`LedgerFault::Repr`).
     let other = map(&[("warehouse_id", string("elsewhere")), ("resource_id", string("water_ml")), ("quantity", V::Int(1))]);
     assert_eq!(operate(&mut world, "delivery", other, "op-9"), Err(Fail::Ledger(LedgerFault::Repr("unknown resource warehouse ID", string("elsewhere")))));
     assert_eq!(ledger_text(operate(&mut world, "reserve", reservation(Some(1), "r2", "a9"), "op-10")), "unknown resource Agent ID <Str(\"a9\")>");
@@ -398,7 +400,7 @@ fn what_the_python_rule_turned_down_is_its_text_with_nothing_changed() {
         ),
         Err(Fail::Ledger(LedgerFault::Text("unknown resource operation 'spill'".to_owned())))
     );
-    // IDs `ScheduledEvent` turns down, and a source of None.
+    // IDs that are not stable, and a source of None.
     let bad = OperationEvent { payload: &water(1), source_id: Some("not stable"), event_id: "op-12" };
     assert_eq!(resources::apply_operation(&mut world, &bad, OperationArg::Text("delivery")), Err(Fail::Error(unsupported("not a stable ID"))));
     let none = OperationEvent { payload: &water(1), source_id: None, event_id: "op-13" };

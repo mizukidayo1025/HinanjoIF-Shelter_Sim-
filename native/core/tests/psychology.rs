@@ -1,13 +1,11 @@
-//! The psychology of lane P8 a3 (`rules::psychology`, `rules::trace`) over a world built here, with
-//! no Python.
+//! The psychology of lane P8 a3 (`rules::psychology`, `rules::trace`) over a world built here.
 //!
-//! The world is the one `psych_world.py` builds in Python (lane notes of P8 a3; the view's world of
-//! `world_view.rs` at the last minute of a day, with body records, a day of distress and monitor
-//! values). `data/psychology.json` holds what the PyO3 kernels before this lane (`main` `b508cb1`)
-//! gave for it with each model: the deltas' bits, the digests of the trace document and of its
+//! The world is the view's world of `world_view.rs` at the last minute of a day, with body records,
+//! a day of distress and monitor values (lane notes of P8 a3). `data/psychology.json` holds what
+//! each model gives for it: the deltas' bits, the digests of the trace document and of its
 //! `agent_contributions` (their canonical JSON and the order of their keys), and the people, body
 //! records, distress records and monitor values after the long-term step and the writing of the
-//! final deltas. Here the core gives the same.
+//! final deltas. The values were recorded before #430 (at `b508cb1`) and pin the core's output now.
 
 use crate::support;
 
@@ -583,7 +581,7 @@ fn what_the_kernel_turned_down_is_refused_before_anything_changes() {
     let world = world();
     let data = view_of(&world);
     let policy = psychology_of("integrated", &expected);
-    // The view's flag, a view Python made, another minute's namespace.
+    // The view's flag, a partial view, another minute's namespace.
     let error = psychology::params(&policy, Model::Integrated, None, false).map(|_| ()).map_err(refused).unwrap_err();
     assert_eq!(error.to_string(), "a flag is not a bool");
     let params = psychology::params(&policy, Model::Integrated, Some(false), true).map_err(refused).unwrap();

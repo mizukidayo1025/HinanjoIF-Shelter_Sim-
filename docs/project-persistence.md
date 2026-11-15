@@ -56,7 +56,7 @@ Checkpointは計算に使ったモデルの版を`model_versions`に記録しま
 
 ## ブラウザーのProject記録と1つのファイル（#265）
 
-ブラウザー版（#132の段階6）は、Project・Run・Branchの記録をOPFSのフォルダーに置き、画面が呼ぶ`GET /api/v1/projects`、`POST /api/v1/projects`、`GET {project}`、`GET {project}/runs`、`GET {project}/runs/{run}`、`GET {project}/runs/{run}/evidence`に、Pythonのserverと同じ形のJSONで答えます（`native/wasm/js/project_store.mjs`）。VM（Pythonの経路）のRunのフォルダーは変換しません。
+ブラウザー版（#132の段階6）は、Project・Run・Branchの記録をOPFSのフォルダーに置き、画面が呼ぶ`GET /api/v1/projects`、`POST /api/v1/projects`、`GET {project}`、`GET {project}/runs`、`GET {project}/runs/{run}`、`GET {project}/runs/{run}/evidence`に、Pythonのserverと同じ形のJSONで答えます（`native/wasm/js/project_store.mjs`が記録のファイルを読み、中核の`sheltersim_core::answers::records`が答えを書きます。#449）。VM（Pythonの経路）のRunのフォルダーは変換しません。
 
 | 置き場所（Projectのフォルダーから） | 中身 |
 |---|---|
@@ -166,7 +166,7 @@ serverと違うのは次のところです。
 
 ## ブラウザーのPDFレポート（#309）
 
-`POST …/runs/{run}/pdf-report`には、APIキーのないVMと同じ答えを返します（`native/wasm/js/browser_api.mjs`の`pdfReport`）。serverと同じ順に、欄（`branch_ids`と`minute`だけ）、範囲（1つか2つの異なるBranchと0以上の整数分。違えば409の`pdf_invalid_scope`）、Run、各Branch、計算済みの範囲（外なら409の`pdf_uncomputed_range`）を確かめ、通れば409の`pdf_analysis_offline`（「Opusの記録応答またはAPI接続が必要です。」）を返します。APIキーのないVMも分析にOpusが要るのでPDFを作りません。ブラウザーはPDFを作りません。
+`POST …/runs/{run}/pdf-report`には、APIキーのないVMと同じ答えを返します（中核の`sheltersim_core::answers::routes::pdf_report_answer`。ブラウザーは`native/wasm/js/browser_api.mjs`の`pdfReport`から呼びます。#449）。serverと同じ順に、欄（`branch_ids`と`minute`だけ）、範囲（1つか2つの異なるBranchと0以上の整数分。違えば409の`pdf_invalid_scope`）、Run、各Branch、計算済みの範囲（外なら409の`pdf_uncomputed_range`）を確かめ、通れば409の`pdf_analysis_offline`（「Opusの記録応答またはAPI接続が必要です。」）を返します。APIキーのないVMも分析にOpusが要るのでPDFを作りません。ブラウザーはPDFを作りません。
 
 serverと違うのは、`minute`を`5.0`のように小数の形で書いたときだけです。serverは整数でないとして`pdf_invalid_scope`にしますが、JSのJSONは`5.0`と`5`を区別しないので、ブラウザーは5分として扱います。
 

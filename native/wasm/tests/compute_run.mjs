@@ -18,7 +18,7 @@ export const COMPUTE_RUN = "run-browser-compute";
 /// The first Run (by id) other than `runId` whose branch `main` has a stored Run with an exported
 /// world.
 async function sourceRun(wasm, tree, projectId, runId) {
-  const { runs } = JSON.parse(await store.runsResponse(tree, projectId));
+  const { runs } = JSON.parse(await store.runsResponse(wasm, tree, projectId));
   for (const run of runs) {
     if (run.run_id === runId || !run.branches.some((branch) => branch.branch_id === "main" && branch.checkpoint_hash !== null)) continue;
     const backend = await store.branchBackend(tree, projectId, run.run_id, "main");

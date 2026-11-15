@@ -55,10 +55,10 @@ const get = (path, search = "") => browser.answer({ method: "GET", path: `/api/v
 const post = (path, body) => browser.answer({ method: "POST", path: `/api/v1/projects${path}`, body: JSON.stringify(body) });
 
 // The records.
-assert.deepEqual(await get(""), { status: 200, type: "application/json; charset=utf-8", body: await store.projectsResponse(tree, { limitBytes: 1234 }) });
-assert.equal((await get("/p1")).body, await store.projectResponse(tree, "p1"));
-assert.equal((await get("/p1/runs")).body, await store.runsResponse(tree, "p1"));
-assert.equal((await get("/p1/runs/r1")).body, await store.runResponse(tree, "p1", "r1"));
+assert.deepEqual(await get(""), { status: 200, type: "application/json; charset=utf-8", body: await store.projectsResponse(wasm, tree, { limitBytes: 1234 }) });
+assert.equal((await get("/p1")).body, await store.projectResponse(wasm, tree, "p1"));
+assert.equal((await get("/p1/runs")).body, await store.runsResponse(wasm, tree, "p1"));
+assert.equal((await get("/p1/runs/r1")).body, await store.runResponse(wasm, tree, "p1", "r1"));
 assert.equal((await get("/p1/runs/r1/evidence")).body, '{"schema_version":1,"weight":0.50}');
 assert.equal((await post("", { project_id: "p2" })).body, '{"schema_version":1,"project_id":"p2","archived":false}');
 assert.equal((await post("", { project_id: "p2", x: 1 })).status, 409);
@@ -184,7 +184,7 @@ const marker = {};
 const first = await install(fresh, marker);
 assert.equal(first.installed, true);
 assert.equal(first.phases, "fetch,import,done");
-assert.equal(await store.runResponse(fresh, "p1", "r1"), await store.runResponse(tree, "p1", "r1"));
+assert.equal(await store.runResponse(wasm, fresh, "p1", "r1"), await store.runResponse(wasm, tree, "p1", "r1"));
 assert.equal((await install(fresh, marker)).installed, false, "a store holding the sample is left as it is");
 // A changed part is refused before anything is written.
 const changed = new Map(files);
@@ -231,7 +231,7 @@ assert.throws(() => api.checkSampleManifest({ ...manifest, parts: [{ ...parts[0]
   assert.equal(await api.exampleHeld(deleting, example, held), false, "an example without Runs is offered again");
   assert.equal((await install(deleting, {})).installed, true);
   assert.equal(await api.exampleHeld(deleting, example, held), true);
-  assert.equal(await store.runResponse(deleting, "p1", "r1"), await store.runResponse(tree, "p1", "r1"));
+  assert.equal(await store.runResponse(wasm, deleting, "p1", "r1"), await store.runResponse(wasm, tree, "p1", "r1"));
 }
 
 // The store (#393): a browser that refuses OPFS (WebKit's private window answers UnknownError,

@@ -273,7 +273,7 @@ export class ScenarioRoutes {
 
   async preview(projectId, document, { llm = null } = {}) {
     fields(document, ["text"], PREVIEW_OPTIONAL);
-    await store.projectResponse(this.tree, projectId);
+    await store.projectResponse(this.wasm, this.tree, projectId);
     const draftId = await this.preparationAccount(projectId, document.draft_id);
     const text = document.text;
     if (typeof text !== "string") throw refused("scenario text must be a string");
@@ -451,7 +451,7 @@ export class ScenarioRoutes {
     if (existing !== null) {
       const run = JSON.parse(decoder.decode(existing));
       if (run.scenario_id !== document.scenario_id || run.scenario_version !== document.scenario_version) throw refused("run_id_conflict");
-      if ((await store.branches(this.tree, projectId, runId)).length > 0) return store.runResponse(this.tree, projectId, runId);
+      if ((await store.branches(this.tree, projectId, runId)).length > 0) return store.runResponse(this.wasm, this.tree, projectId, runId);
     }
     const scenarioBytes = await this.tree.read([projectId, "scenarios", document.scenario_id, `v${document.scenario_version}.scenario.json`]);
     if (scenarioBytes === null) throw refused("saved artifact is missing or corrupt");
@@ -489,6 +489,6 @@ export class ScenarioRoutes {
       simulation.free();
     }
     await store.writeBranch(this.tree, projectId, runId, { branch_id: "main", parent_branch_id: null, fork_minute: 0, computed_until: 0, checkpoint_hash: head, status: null });
-    return store.runResponse(this.tree, projectId, runId);
+    return store.runResponse(this.wasm, this.tree, projectId, runId);
   }
 }

@@ -9,7 +9,6 @@ from typing import Annotated, Literal
 from pydantic import Field, model_validator
 
 from sheltersim.contracts.extensions import Point2D
-from sheltersim.domain.infrastructure import dependent_facilities
 from sheltersim.experiments.scenario import (
     RESOURCE_SERVICE_POLICY_ID,
     InitialStockSpec,
@@ -18,6 +17,7 @@ from sheltersim.experiments.scenario import (
     ScenarioInfrastructureSpec,
 )
 from sheltersim.region.models import RegionModel
+from sheltersim.scenario_authoring.configs.infrastructure import dependent_facilities
 
 OPERATOR_CONDITION_SOURCE_ID = "SRC-OPERATOR-INITIAL-CONDITIONS"
 RESOURCE_SERVICE_ASSUMPTION_ID = "ASM-REGION-RESOURCE-SERVICE-V1"

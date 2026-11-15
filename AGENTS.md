@@ -16,7 +16,7 @@
 
 - `native/core`（中核`sheltersim_core`）は世界の状態、シミュレーション時刻、決定的乱数、tick順序、行動・ニーズ・移動・心理・社会・情報の規則、EffectProgram、検証と契約、保存したRunの形、APIの答えを担います。規則は型付きの提案を作り、中核が検証して適用します。
 - `native/store`は保存したRunのファイルの置き場を担います。`native/wasm`はブラウザー版の、`native/src`はPythonからの、中核への口です。口は計算の規則を持ちません。
-- Pythonの`core`・`domain`・`events`・`policies`は、Scenarioの作成が使う決定的乱数、設定の型と検証、予定するイベントの種類、選べるモデルの登録を担います。
+- Pythonの`scenario_authoring`は、Scenarioを作る側の部品として、`model_configs`の設定の型と検証（`configs`）、Scenarioの作成が使う決定的乱数、予定するイベントの種類を担います。選べるモデルの目録と選択は中核のもので、`contracts`が読みます。
 - `experiments`はScenarioとその生成、モデルの評価、Projectの道の計算（中核の呼び出し）を担います。
 - `region`は外部データ接続、出典情報、施設形状、図面取込の検証を担います。
 - `llm`はProvider接続、スキーマ、予算、利用記録、応答テープ、fallback、中核のLLMの口へのつなぎを担います。中核の世界の所有・変更は禁止です。

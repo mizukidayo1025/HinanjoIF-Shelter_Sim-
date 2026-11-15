@@ -72,7 +72,7 @@ python -m coverage report --sort=cover
 | `tests/e2e/` | e2e：HTTPかCLIから入り、時間も進める | `test_<利用者の流れ>.py`。例：`test_project_scenario_to_results.py` |
 | `tests/live/` | 有料APIを呼ぶテスト（`live_api`の印） | `test_live_api.py`だけ。APIキーを使えるようにするゲート（`sheltersim.llm.config`）が、このパスのテストにだけ開くため |
 
-- `<担当>`は、AGENTS.mdのモジュールのうちPythonに残るもの（`experiments`、`policies`、`region`、`llm`、`storage`、`web`など）と`cli`、それにリポジトリ自体（テストの配置、文書、fixture、出典台帳）を確かめる`repo`です。
+- `<担当>`は、AGENTS.mdのモジュールのうちPythonに残るもの（`scenario_authoring`、`experiments`、`region`、`llm`、`storage`、`web`など）と`cli`、それにリポジトリ自体（テストの配置、文書、fixture、出典台帳）を確かめる`repo`です。
 - 名前に、不具合名（例：`resource_loss_without_operational_state`）、開発の回の名前（例：`round2_common_services`）、`regressions`を使いません。不具合の再発防止テストはその機能のファイルに足し、守るべき振る舞いを関数名に書き、Issue番号をdocstringかコメントに書きます。
 - ブラウザー用の静的ファイル（JavaScript、HTML）を確かめる単体は、Pythonのモジュール名がないので`tests/unit/web/test_static_<ファイル名>.py`にします。例：`demo-v2.js`なら`test_static_demo_v2.py`。nodeで関数を動かすテストは、nodeがない環境ではskipします。
 - 何を確かめるか（結果・契約・画面）は、ディレクトリにも印にもしません。実行の選び分けに使わない印は、付け忘れても気づけず、すぐ実態とずれるためです。確かめる振る舞いは、関数名とファイルのdocstringに書きます。
@@ -144,7 +144,7 @@ python benchmarks/gate_all_paths.py --output 出力先 --determinism
 - `--determinism`：別のプロセス、別の`PYTHONHASHSEED`、別の`RAYON_NUM_THREADS`（1と4）で、すべてのScenarioを動かして、1回目と比べます。`RAYON_NUM_THREADS`は、tickの人ごとの計算を手伝うスレッド（`native/core/src/parallel.rs`）の数を変えます。1は手伝いなし、4は手伝い3つです。人ごとの計算は少ない人数では呼んだスレッドだけで行うので、4の回は`SHELTERSIM_GATE_PEOPLE_PER_HELPER=1`で、どの人数でも1人ずつ手伝いに渡します。
 - 保存した点からの再開、再開した Run のさらに再開、保存したRunの続きの計算は、1つのScenarioの中でまっすぐのRunと比べます（`must_match`）。
 - 介入は、中核が予定できる操作（文章の読み取りが作る操作）なら、Runの途中の分に適用します。それ以外の操作は、0分の世界に予定した記録（`fixtures/gate-scheduled-programs.json.xz`）から計算します。この記録は、Pythonの経路を消す前に作り、Pythonの経路と中核が同じ世界で終わることを確かめたものです。
-- `policies`のモデルを足したら、ここにもScenarioを足します。`tests/integration/test_all_paths_gate.py`は、モデルの一覧がここに入っていないと失敗します。
+- Model Catalog（`native/core/src/validate/model-catalog.json`）にモデルを足したら、ここにもScenarioを足します。`tests/integration/test_all_paths_gate.py`は、モデルの一覧がここに入っていないと失敗します。
 - 介入が拒否された結果と、有効な入力でRunが止まる結果（`run_stops`のScenario）も、期待値に入れます。直したら期待値が変わるので気づけます。止まるものは、見つけたときにIssueにします。直したものは`run_stops`にRunとして残し、再発に気づけるようにします。
 - 全件を動かすテストには`long_simulation`の印を付けます。通常のpytestは、1つの小さなScenarioだけを動かします。
 

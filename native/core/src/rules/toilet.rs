@@ -729,7 +729,7 @@ pub fn complete(world: &World, event: &EventRow, queues: &Held, geo: &Geo, body:
             let row = transition_row(
                 &events,
                 &fifo::Transition { request: &request, transition: "completed", task_id: &task_id, wait_minutes: Some(wait), causation_id: Some(&task_id) },
-                fifo::Place { queue_position: position, capacity: capacity },
+                fifo::Place { queue_position: position, capacity },
                 sequence,
                 minute,
             )?;

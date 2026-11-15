@@ -639,7 +639,7 @@ fn plan_leave(world: &World, call: &LeaveCall<'_>, person: &Leaving, sequence: i
                             wait_minutes: wait,
                             causation_id: Some(&person.task_id),
                         },
-                        fifo::Place { queue_position: None, capacity: capacity },
+                        fifo::Place { queue_position: None, capacity },
                         next,
                         minute,
                     )?;

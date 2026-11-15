@@ -1202,8 +1202,8 @@ fn plan_complete(world: &World, manager: &Manager<'_>, event: &EventRow) -> Resu
             let capacity = point_of(manager.geo, &request.queue_id).map(|point| point.service_capacity);
             let row = transition_row(
                 &events,
-                &fifo::Transition { request: &request, transition: "completed", task_id: task_id, wait_minutes: Some(wait), causation_id: Some(&event_id) },
-                fifo::Place { queue_position: position, capacity: capacity },
+                &fifo::Transition { request: &request, transition: "completed", task_id, wait_minutes: Some(wait), causation_id: Some(&event_id) },
+                fifo::Place { queue_position: position, capacity },
                 audit.sequence + 1,
                 minute,
             )?;
@@ -1493,7 +1493,7 @@ pub fn queue_up(world: &World, manager: &Manager<'_>, request: &Request<'_>, pen
             fifo::write_enqueue(
                 world,
                 point,
-                fifo::NewRequest { request_id: &task_id, task_id: &task_id, agent_id: agent_name, service_kind: service_kind, requested_minute: world_minute },
+                fifo::NewRequest { request_id: &task_id, task_id: &task_id, agent_id: agent_name, service_kind, requested_minute: world_minute },
             )?;
         }
         {
@@ -1714,8 +1714,8 @@ fn plan_cancel(world: &World, manager: &Manager<'_>, event_id: &Arc<str>, task_i
             let transition = if interrupted { "interrupted" } else { "cancelled" };
             let record = transition_row(
                 &events,
-                &fifo::Transition { request: &request, transition: transition, task_id: task_id, wait_minutes: None, causation_id: Some(event_id) },
-                fifo::Place { queue_position: position, capacity: capacity },
+                &fifo::Transition { request: &request, transition, task_id, wait_minutes: None, causation_id: Some(event_id) },
+                fifo::Place { queue_position: position, capacity },
                 next,
                 minute,
             )?;

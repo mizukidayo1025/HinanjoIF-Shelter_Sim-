@@ -2023,7 +2023,7 @@ impl Case {
                 &held,
                 &plan,
                 queue,
-                fifo::NewRequest { request_id: request_id, task_id: "fresh-task", agent_id: "A003", service_kind: "toilet", requested_minute: 0 },
+                fifo::NewRequest { request_id, task_id: "fresh-task", agent_id: "A003", service_kind: "toilet", requested_minute: 0 },
             )
         })
     }
@@ -2146,7 +2146,7 @@ fn a_queue_transition_is_an_applied_record_of_the_log() {
                 world,
                 &held,
                 &plan,
-                &fifo::Transition { request: &request, transition: transition, task_id: &tasks[1], wait_minutes: wait, causation_id: cause },
+                &fifo::Transition { request: &request, transition, task_id: &tasks[1], wait_minutes: wait, causation_id: cause },
             )
         })
         .unwrap();

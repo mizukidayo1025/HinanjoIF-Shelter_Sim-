@@ -8,19 +8,19 @@
 //! (`scripts/build_browser_sample.py`'s `export.json`). The loader (`crate::load::loaded`) and the
 //! browser's `Simulation` take those bytes as they take Python's.
 //!
-//! The core makes the whole world of any Scenario as Python does (#429): the rows, the event
+//! The core makes the whole entry of any Scenario as Python does (#429): the rows, the event
 //! queue, every namespace (`namespaces`: `WorldState.from_scenario`,
 //! `initialize_simulator_extensions` and `initialize_declared_states`, in Python's order), then
-//! `world.validate()` (`crate::validate::world`); an error is the first one Python raises, with its
-//! class and text. It also makes the sections Python's contracts parse (`sections`), the route
-//! capacities and the zone neighbors. `world_entry` is the entry without its Run
-//! (`export_world(world)`).
+//! `world.validate()` (`crate::validate::world`); the sections Python's contracts parse
+//! (`sections`); the Run's policies as `RunCore.policies_document` writes what the PyO3 crate read
+//! of the controller (`policies`), its route capacities and its zone neighbors. An error is the
+//! first one Python raises, with its class and text.
 //!
-//! What it does not compute yet, the Run's `policies_document`, it reads from a table Python
-//! writes (`table.json`, by `tests/support/core_initial.py`), keyed by a fingerprint of the configs
-//! that leaves out `DATA_CONFIGS` but that they are there
+//! A new Run's records (`model_versions` and the evidence route's answer, `records`) still come
+//! from templates Python writes (`table.json`, by `tests/support/core_initial.py`), keyed by a
+//! fingerprint of the configs that leaves out `DATA_CONFIGS` but that they are there
 //! (`sheltersim.core.world_export.configs_fingerprint`). A Scenario whose fingerprint the table
-//! lacks is refused (`Unsupported`).
+//! lacks is refused (`Unsupported`) there.
 //!
 //! The Scenario is untrusted input: what is not a Scenario's canonical JSON is an error, never a
 //! panic. Like the browser's builder that makes it (#291), this does not run `ScenarioSpec`'s
@@ -28,6 +28,7 @@
 //! (`fixtures/initial_corpus.json.xz`) and Scenarios Python refuses to build.
 
 mod namespaces;
+mod policies;
 mod records;
 mod sections;
 
@@ -141,7 +142,6 @@ fn canonical(value: &V) -> Result<Vec<u8>> {
 
 /// What Python derives for one fingerprint (`world_export.initial_table_entry`).
 pub(crate) struct TableEntry {
-    pub policies: V,
     /// `model_signatures(configs)` but the service points' signature.
     pub model_signatures: IndexMap<Arc<str>, V>,
     /// The evidence route's answer, without the Scenario's own parts.
@@ -149,7 +149,7 @@ pub(crate) struct TableEntry {
 }
 
 /// The table's version that this reader takes.
-const TABLE_SCHEMA_VERSION: i64 = 3;
+const TABLE_SCHEMA_VERSION: i64 = 4;
 
 fn read_table() -> std::result::Result<IndexMap<Arc<str>, Arc<TableEntry>>, String> {
     let json: Value = serde_json::from_str(include_str!("table.json")).map_err(|error| error.to_string())?;
@@ -167,7 +167,6 @@ fn read_table() -> std::result::Result<IndexMap<Arc<str>, Arc<TableEntry>>, Stri
             _ => Err(format!("an entry's {key} is not a dict")),
         };
         let made = TableEntry {
-            policies: V::from_json(&entry["policies"]).ok_or("an entry's policies")?,
             model_signatures: map("model_signatures")?,
             evidence: {
                 let mut evidence = map("evidence")?;
@@ -478,17 +477,9 @@ fn zone_neighbors(scenario: &Scenario) -> V {
 pub fn entry(scenario: &[u8]) -> Result<Vec<u8>> {
     let scenario = read_scenario(scenario)?;
     let world = build_world(&scenario)?;
-    let table = entry_of(&scenario.configs)?;
-    let run = vmap([("policies", table.policies.clone()), ("route_capacities", route_capacities(&scenario)), ("zone_neighbors", zone_neighbors(&scenario))]);
-    write_entry(&scenario, &world, Some(&run))
-}
-
-/// `export_world(world)` of the Scenario's world at minute 0 without its controller: the entry
-/// but its `run` (#429). The tests compare it with Python's for any Scenario.
-pub fn world_entry(scenario: &[u8]) -> Result<Vec<u8>> {
-    let scenario = read_scenario(scenario)?;
-    let world = build_world(&scenario)?;
-    write_entry(&scenario, &world, None)
+    let run =
+        vmap([("policies", policies::policies(&world)?), ("route_capacities", route_capacities(&scenario)), ("zone_neighbors", zone_neighbors(&scenario))]);
+    write_entry(&scenario, &world, &run)
 }
 
 /// `controller.route_capacities`: `layout_routing.max_agents_in_transit_by_edge`, as the configs
@@ -500,7 +491,7 @@ fn route_capacities(scenario: &Scenario) -> V {
     }
 }
 
-fn write_entry(scenario: &Scenario, world: &World, run: Option<&V>) -> Result<Vec<u8>> {
+fn write_entry(scenario: &Scenario, world: &World, run: &V) -> Result<Vec<u8>> {
     let rng_state = vmap([("algorithm", vstr("sha256-keyed-v1")), ("seed", value_of(&scenario.seed)?)]);
     let document = crate::canonical::canonical_json(world, &rng_state)?;
     let slots = V::List(
@@ -514,13 +505,9 @@ fn write_entry(scenario: &Scenario, world: &World, run: Option<&V>) -> Result<Ve
             .collect(),
     );
     let mut out = Vec::with_capacity(document.len() + 64 * 1024);
-    out.push(b'{');
-    if let Some(run) = run {
-        out.extend_from_slice(b"\"run\":");
-        out.extend_from_slice(&canonical(run)?);
-        out.push(b',');
-    }
-    out.extend_from_slice(b"\"sections\":");
+    out.extend_from_slice(b"{\"run\":");
+    out.extend_from_slice(&canonical(run)?);
+    out.extend_from_slice(b",\"sections\":");
     out.extend_from_slice(&canonical(&sections::sections(world)?)?);
     out.extend_from_slice(b",\"slots\":");
     out.extend_from_slice(&canonical(&slots)?);

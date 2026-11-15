@@ -114,7 +114,7 @@ fn an_exported_world_s_sections_are_what_their_read_sites_read() {
 }
 
 #[test]
-fn an_exported_world_s_floor_plan_is_the_native_path_s() {
+fn an_exported_world_s_floor_plan_is_the_recorded_one() {
     let entry = entry();
     let expected = &entry["expected"];
     let wanted = &expected["floor_plan"];
@@ -139,7 +139,7 @@ fn an_exported_world_s_floor_plan_is_the_native_path_s() {
         assert_eq!(geo.center(id).unwrap(), *center, "{id}");
     }
 
-    // The partition set in the overlay blocks routes, as on the native path.
+    // The partition set in the overlay blocks routes, as the recorded routes have it.
     let mut clear = Vec::new();
     for mobility in ["independent", "assisted", "wheelchair"] {
         for id in layout.routes.keys() {

@@ -629,14 +629,6 @@ fn capacity_in<'w>(
     })
 }
 
-/// `nominal_capacity` of the zones' rows, or None where the zones are tainted (lane P10-1c).
-pub fn nominal_of_rows(world: &World, zone_id: &str) -> Result<Option<Option<i64>>> {
-    if world.entities.try_borrow()?.zones_tainted().is_some() {
-        return Ok(None);
-    }
-    nominal_capacity(world, zone_id).map(Some)
-}
-
 /// `world.zones[zone_id].capacity`: Unsupported for a zone the world does not have.
 pub fn nominal_capacity(world: &World, zone_id: &str) -> Result<Option<i64>> {
     let rows = zone_rows(world)?;

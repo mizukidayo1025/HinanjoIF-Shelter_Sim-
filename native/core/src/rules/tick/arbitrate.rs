@@ -26,7 +26,7 @@ use crate::world::{WorldCell, METRIC_STATE};
 
 use super::propose::{graph, refused, router};
 use super::read::{is_refusal, Plan};
-use super::{Labelled, RunCell, Step, Tick, RUN_TICK};
+use super::{Labelled, RunCell, Step, Tick};
 
 const OTHER_DOCUMENT: &str = "the world holds another document than the row's";
 const MOVEMENT: &str = "movement_v1";
@@ -561,11 +561,6 @@ impl<C: WorldCell, H: Host, R: RunCell> Tick<'_, C, H, R> {
         })
         .map(|found| found)
         .bare()
-    }
-
-    /// The label of an error of the driver's own, in a loop.
-    pub fn run_tick_label(&self) -> &'static str {
-        RUN_TICK
     }
 }
 

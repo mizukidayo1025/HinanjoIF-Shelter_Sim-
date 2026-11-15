@@ -30,9 +30,6 @@ use crate::rules::world_view::ViewData;
 use crate::run::{Policies, Run};
 use crate::world::WorldCell;
 
-/// The label of an error no step names: the tick's own, which is not counted as a kernel's refusal.
-pub const RUN_TICK: &str = "tick.run_tick";
-
 /// The Run of a tick, locked only while `f` runs: `f` reaches neither the host nor the world.
 pub trait RunCell {
     fn with<R>(&self, f: impl FnOnce(&mut Run) -> R) -> Result<R>;

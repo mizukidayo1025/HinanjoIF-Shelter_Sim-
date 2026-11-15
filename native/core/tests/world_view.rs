@@ -444,7 +444,7 @@ fn what_the_view_cannot_read_it_refuses_before_making_anything() {
     {
         let slot = world.slots.get("psychological_distress_v1").unwrap();
         let mut slot = slot.try_borrow_mut().unwrap();
-        slot.misfit("not a float".to_owned());
+        (slot.row, slot.taint) = (None, Some("not a float".to_owned()));
     }
     assert_eq!(refused(&world, &mut cache), Some(unsupported("psychological_distress_v1 is tainted: not a float")));
 

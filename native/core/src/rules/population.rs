@@ -3239,16 +3239,6 @@ fn is_scalar(value: &V) -> bool {
 const SCHEMA: &str = "population_dynamics_v1 has an invalid exact schema";
 const PENDING_INVALID: &str = "population_dynamics_v1 pending arrival is invalid";
 
-/// Whether the core holds what the validation reads as it is (lane P10-1c): each namespace absent
-/// or its row readable, the tables' rows, and zones that are not tainted.
-pub fn holds_for_validation(world: &World, dynamics: &Held, presence: &Held) -> bool {
-    let readable = |held: &Held, name: &str| matches!(held, Held::Absent) || world.row::<crate::row::ValueRow>(name).is_ok();
-    readable(dynamics, DYNAMICS)
-        && readable(presence, PRESENCE)
-        && world.rows().is_ok()
-        && world.entities.try_borrow().is_ok_and(|rows| rows.zones_tainted().is_none())
-}
-
 /// Whether the validation reads the approach routes: an arrival on its approach is waiting.
 pub fn validation_reads_routes(world: &World, held: &Held) -> Result<bool> {
     let Some(state) = value_of(world, DYNAMICS, held)? else {

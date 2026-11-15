@@ -8,7 +8,7 @@
 // hours), and runs it again without storing, keeping the digests at each minute it seeks to. Then it
 // seeks the stored Run to each saved point, to minutes between them and before the first, and to
 // the end: the world has the uninterrupted Run's digests there. Seeking to a minute in the middle
-// and going on to the end gives the native path's digests. A changed saved point, a minute out of
+// and going on to the end gives the fixture's digests. A changed saved point, a minute out of
 // the Run, and a format this code does not know are errors; a Run of an older format is the error
 // that says to compute it again (#368).
 
@@ -82,7 +82,7 @@ for (const [name, every] of [["small_replay", 360], ["generated", 60]]) {
     sought.simulation.free();
   }
   check(restored >= saved.length, `${name}: ${restored} seeks restored a saved point`);
-  // From a minute in the middle to the end: the native path's digests.
+  // From a minute in the middle to the end: the fixture's digests.
   const middle = await reader.seek(Math.floor(end / 2) + 7);
   middle.simulation.advance(end);
   const digests = JSON.parse(middle.simulation.digests_json());

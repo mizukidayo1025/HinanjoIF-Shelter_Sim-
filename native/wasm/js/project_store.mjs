@@ -3,18 +3,18 @@
 // Records. The browser keeps a Project in a folder of its store, beside its Runs' stored files
 // (js/run_store.mjs). The folder holds what the screen's routes `GET /api/v1/projects`,
 // `POST /api/v1/projects`, `GET {project}`, `GET {project}/runs`, `GET {project}/runs/{run}` and
-// `GET {project}/runs/{run}/evidence` answer, in the JSON shapes of the Python server
-// (src/sheltersim/storage/projects.py, src/sheltersim/web/projects.py):
+// `GET {project}/runs/{run}/evidence` answer, in the JSON shapes the local and VM versions keep
+// too (native/store/src/records.rs) and answer with (src/sheltersim/web/projects.py):
 //
 //   <project>/project.json                         {schema_version, project_id, archived}
 //   <project>/scenarios/<scenario>/v<n>.json       {schema_version, scenario_id, scenario_version,
 //                                                   scenario_hash, approved}
-//   <project>/scenarios/<scenario>/v<n>.scenario.json   the Scenario's canonical JSON, as Python
-//                                                   wrote it; scenario_hash is its sha256
+//   <project>/scenarios/<scenario>/v<n>.scenario.json   the Scenario's canonical JSON, as it was
+//                                                   saved; scenario_hash is its sha256
 //   <project>/runs/<run>/run.json                  {schema_version, project_id, scenario_id,
 //                                                   scenario_version, scenario_hash, run_id, seed,
 //                                                   model_versions, status, archived}
-//   <project>/runs/<run>/evidence.json             evidence_context(scenario), as Python wrote it
+//   <project>/runs/<run>/evidence.json             the Run's evidence (the core's `runEvidence`)
 //   <project>/runs/<run>/branches/<branch>/branch.json   {schema_version, run_id, branch_id,
 //                                                   parent_branch_id, fork_minute, computed_until,
 //                                                   checkpoint_hash, status}
@@ -24,14 +24,15 @@
 //                                                   #306), not carried by a bundle
 //
 // Records are JSON with sorted keys and a newline. The Scenario and the evidence are kept as the
-// bytes Python wrote (route A: Python builds the world and exports it), so their numbers are never
-// read and written again by JS (1.0 would become 1). Where the browser has no Python meaning: a
-// branch's `checkpoint_hash` is the head hash of its head's journal line (the core's
-// `run_store::Line::head_json`: the "end" line of a stored Run computed to its end, which holds the
-// minute and the digests the Run reached); the Run's status is kept in
-// run.json (Python keeps it in status.json); `storage` of the Project list counts the files of the
-// store and takes its limit from the caller (the page: `navigator.storage.estimate().quota`); a
-// Run answers no `last_fork`. docs/project-persistence.md lists these.
+// bytes the core wrote (`buildScenario`, `runEvidence`), so their numbers are never read and
+// written again by JS (1.0 would become 1). A branch's `checkpoint_hash` is the head hash of its
+// head's journal line (the core's `run_store::Line::head_json`: the "end" line of a stored Run
+// computed to its end, which holds the minute and the digests the Run reached), not a
+// Checkpoint's hash; the Run's status is kept in run.json (the Python server kept it in
+// status.json before #427). Where the browser differs: `storage` of the Project list counts the
+// files of the store and takes its limit from the caller (the page:
+// `navigator.storage.estimate().quota`); a Run answers no `last_fork`.
+// docs/project-persistence.md lists these.
 //
 // A store is a tree: `memoryTree()` (Node, tests) or `opfsTree(directory)` (a folder of the origin
 // private file system). A tree reads, writes, lists and removes files by path (a list of names),
@@ -341,7 +342,7 @@ async function readRecord(tree, path) {
   return parseRecord(bytes);
 }
 
-/// Writes a record that may be written again only with the same bytes (Python's immutable write).
+/// Writes a record that may be written again only with the same bytes (an immutable write).
 async function writeOnce(tree, path, record) {
   const bytes = recordBytes(record);
   const old = await tree.read(path);
@@ -401,7 +402,7 @@ async function scenarioVersions(tree, projectId, scenarioId) {
   return names;
 }
 
-/// The Scenario records of a Project, in Python's order (by scenario id, then file name), each
+/// The Scenario records of a Project, in order (by scenario id, then file name), each
 /// with the Scenario's JSON text in `scenarioText`.
 export async function scenarios(tree, projectId) {
   const listed = [];
@@ -417,9 +418,9 @@ export async function scenarios(tree, projectId) {
   return listed;
 }
 
-/// Creates a Run of a saved Scenario revision, queued: `seed` and `modelVersions` as Python's
-/// RunReference has them (the Scenario's seed, `model_signatures(scenario.model_configs)`),
-/// `evidenceBytes` the JSON of `evidence_context(scenario)`, and `createdAt` the caller's clock
+/// Creates a Run of a saved Scenario revision, queued: `seed` the Scenario's seed, `modelVersions`
+/// the core's `modelVersions` of the Scenario, `evidenceBytes` the JSON of its `runEvidence`, and
+/// `createdAt` the caller's clock
 /// (`createdAtOf`). An existing Run of the same Scenario revision is returned as it is.
 export async function createRun(tree, projectId, { runId, scenarioId, scenarioVersion, seed, modelVersions, evidenceBytes, createdAt }) {
   await readRecord(tree, [checkId(projectId), "project.json"]);
@@ -456,7 +457,7 @@ export async function createRun(tree, projectId, { runId, scenarioId, scenarioVe
   return run;
 }
 
-/// Sets a Run's status (Python's `set_status`).
+/// Sets a Run's status.
 export async function setRunStatus(tree, projectId, runId, status) {
   if (!STATUSES.has(status)) fail("unsupported run status");
   const path = [...runPath(projectId, runId), "run.json"];
@@ -472,7 +473,7 @@ function checkBranch(branch, runId) {
   if (!Number.isSafeInteger(fork_minute) || fork_minute < 0) fail("invalid fork minute");
   if (!Number.isSafeInteger(computed_until) || computed_until < fork_minute) fail("invalid computed minute");
   if (checkpoint_hash !== null && !/^[a-f0-9]{64}$/.test(checkpoint_hash)) fail("invalid checkpoint hash");
-  // A branch without a status has had no computation (Python's branch without its status.json).
+  // A branch without a status has had no computation.
   if (status !== undefined && !STATUSES.has(status)) fail("unsupported run status");
   if (branch.run_id !== runId) fail("branch record of another run");
 }
@@ -516,13 +517,12 @@ export async function branches(tree, projectId, runId) {
   return listed;
 }
 
-/// A branch's record (Python's `branch_reference`), with Python's errors for a bad identifier or a
-/// missing record (#266).
+/// A branch's record, with the store's errors for a bad identifier or a missing record (#266).
 export async function branchRecord(tree, projectId, runId, branchId) {
   return readRecord(tree, [...branchPath(projectId, runId, branchId), "branch.json"]);
 }
 
-/// The Scenario of a Run, as the bytes Python wrote (#266).
+/// The Scenario of a Run, as the bytes saved (#266).
 export async function runScenarioBytes(tree, projectId, runId) {
   const run = await readRunRecord(tree, projectId, runId);
   const bytes = await tree.read([...scenarioPath(projectId, run.scenario_id), `v${run.scenario_version}.scenario.json`]);
@@ -721,7 +721,7 @@ export async function projectsResponse(wasm, tree, { limitBytes = null } = {}) {
 }
 
 /// `GET /api/v1/projects/{project}`: the Project with its Scenarios (each with its Scenario's JSON
-/// text as Python wrote it) and its Runs.
+/// text as it was saved) and its Runs.
 export async function projectResponse(wasm, tree, projectId) {
   return using(await projectFiles(wasm, tree, projectId, { scenarios: true }), (files) => answered(() => wasm.projectAnswer(projectId, files)));
 }
@@ -738,7 +738,7 @@ export async function runResponse(wasm, tree, projectId, runId, lastFork = null)
   return using(await runFiles(wasm, tree, projectId, runId), (files) => answered(() => wasm.runAnswer(projectId, runId, files, outcome)));
 }
 
-/// `GET /api/v1/projects/{project}/runs/{run}/evidence`: the JSON Python wrote.
+/// `GET /api/v1/projects/{project}/runs/{run}/evidence`: the JSON the core wrote (`runEvidence`).
 export async function evidenceResponse(wasm, tree, projectId, runId) {
   const run = await readNamed(wasm, tree, [projectId, runId], [projectId, "runs", runId, "run.json"]);
   const evidence = await readNamed(wasm, tree, [projectId, runId], [projectId, "runs", runId, "evidence.json"]);
@@ -755,7 +755,7 @@ export async function runIds(tree, projectId) {
 }
 
 /// Removes a Run and everything in its folder (`POST runs/{run}/delete`, #376); its records are
-/// read first, so a Run that is not there is refused as Python's store refuses it.
+/// read first, so a Run that is not there is refused as the server's store refuses it.
 export async function removeRun(tree, projectId, runId) {
   await readRunRecord(tree, projectId, runId);
   await tree.remove(runPath(projectId, runId));
@@ -903,7 +903,7 @@ export async function readBundle(bundle) {
   return { manifest, entries };
 }
 
-/// Checks the records of a bundle against each other: what Python's store would refuse to read.
+/// Checks the records of a bundle against each other: what the store would refuse to read.
 async function checkRecords(projectId, entries) {
   const invalid = (message) => fail(`the bundle's records do not hold together: ${message}`, "bundle_invalid");
   const record = (path) => {

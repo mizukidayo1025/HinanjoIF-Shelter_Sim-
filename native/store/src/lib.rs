@@ -16,11 +16,12 @@
 //!   line cut short is ignored), and every line it reads points at bytes already on the disk.
 //! - `quota`: what the store's files take and the limit checked before each write (the server's
 //!   `--project-storage-gb`).
-//! - `lock`: the locks of the Python server's `ProjectStore` (`claim_branch`, `claim_run`, its
-//!   `transaction`), on the same files with the same kind of lock, so either side's holder keeps
-//!   the other out on Linux, macOS and Windows.
+//! - `lock`: the store's transaction, a Run's gate and a branch's writer (`claim_branch`,
+//!   `claim_run`). The transaction is the same file as the Python server's
+//!   `ProjectStore.transaction`, with the same kind of lock, so either side's holder keeps the
+//!   other out on Linux, macOS and Windows.
 //! - `layout` and `records`: the Project, Scenario, Run and Branch records in the browser's shapes
-//!   and folders (`project_store.mjs`), with Python's errors.
+//!   and folders (`project_store.mjs`), with the store's refusals.
 //! - `compute`: what the browser's `compute.mjs` and `interventions.mjs` do with them: a branch
 //!   computed from its head in chunks, its head moved at each saved point, and a branch made by a
 //!   fork.

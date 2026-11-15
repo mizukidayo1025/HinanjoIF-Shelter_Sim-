@@ -115,15 +115,12 @@ fn a_row_is_read_as_its_type_or_refused() {
 }
 
 #[test]
-fn a_misfit_drops_the_row_and_a_touch_gives_a_new_stamp() {
+fn a_touch_gives_a_new_stamp() {
     let mut slot = Slot::new(Place::Namespace);
     slot.row = Some(Box::new(ValueRow(V::Null)));
     let before = slot.generation;
     slot.touch();
     assert_ne!(slot.generation, before);
-    slot.misfit("not a dict".to_owned());
-    assert!(slot.row.is_none());
-    assert_eq!(slot.taint.as_deref(), Some("not a dict"));
 }
 
 #[test]
@@ -176,7 +173,10 @@ fn a_value_slot_reads_as_its_value_absent_or_refused() {
     }
     assert_eq!(slots.value("operational_events_v1").unwrap(), Some(&V::Map(map)));
     // A tainted key is refused, and so is a slot whose row is not a value.
-    slots.get("operational_events_v1").unwrap().try_borrow_mut().unwrap().misfit("value is not a plain JSON value".to_owned());
+    {
+        let mut slot = slots.get("operational_events_v1").unwrap().try_borrow_mut().unwrap();
+        (slot.row, slot.taint) = (None, Some("value is not a plain JSON value".to_owned()));
+    }
     assert_eq!(slots.value("operational_events_v1").err(), Some(Error::Unsupported("the namespace has no row".into())));
     assert!(slots.try_value("operational_events_v1").is_err());
     slots.get("metric_state").unwrap().try_borrow_mut().unwrap().row = Some(Box::new(0.5_f64));
@@ -409,7 +409,10 @@ fn a_refused_write_marks_nothing() {
     assert_eq!(world.row_mut::<IdMap<f64>>("a").err(), Some(unsupported("the namespace has another row")));
     assert_eq!(world.slots.row_mut::<IdMap<f64>>("a").err(), Some(unsupported("the namespace has another row")));
     assert_eq!(world.row_mut::<ValueRow>("absent").err(), Some(unsupported("the namespace is not owned")));
-    world.slots.at(0).unwrap().try_borrow_mut().unwrap().misfit("why".to_owned());
+    {
+        let mut slot = world.slots.at(0).unwrap().try_borrow_mut().unwrap();
+        (slot.row, slot.taint) = (None, Some("why".to_owned()));
+    }
     assert_eq!(world.row_mut::<ValueRow>("a").err(), Some(unsupported("the namespace has no row")));
     let held = world.slots.at(0).unwrap().try_borrow().unwrap();
     assert_eq!(world.row_mut::<ValueRow>("a").err(), Some(borrowed()));

@@ -623,7 +623,7 @@ fn a_person_whose_route_closed_stops_and_is_blocked_with_no_other_route() {
     let graph = graph(&world, RouteCapacities::default());
     let (geo, section) = (no_plan(), movement(&V::Map(IndexMap::new())));
     let schema: Kept<Option<i64>> = Ok(Arc::new(None));
-    let staff = Manager { manager: Ok(None), known: Ok(false) };
+    let staff = Manager { manager: Ok(None) };
     let replanning = Replanning {
         routing: Routing { graph: &graph, geo: Some(&geo), movement: &section, staff: &Held::Absent },
         walking: Walking { movement: &Held::Held, geo: Some(&geo) },

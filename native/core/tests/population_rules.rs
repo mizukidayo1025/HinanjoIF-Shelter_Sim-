@@ -685,7 +685,7 @@ fn a_refused_arrival_changes_nothing_and_says_the_rule_s_text() {
 /// `a_refused_arrival_changes_nothing_and_says_the_rule_s_text`; any other input is given back.
 fn arrival_contracts(which: &Contract, input: &V) -> Result<V, Error> {
     for asked in inputs()["contracts"].as_array().unwrap() {
-        if which.model().1 != asked["model"].as_str().unwrap() || load::v(&asked["input"]) != *input {
+        if support::contracts::model_name(which) != asked["model"].as_str().unwrap() || load::v(&asked["input"]) != *input {
             continue;
         }
         return match asked.get("dump") {

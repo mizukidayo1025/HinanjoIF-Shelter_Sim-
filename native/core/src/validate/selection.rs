@@ -246,7 +246,7 @@ fn check_behavior_parameters(catalog: &Catalog, behavior: &IndexMap<Arc<str>, V>
 }
 
 /// What the selected models require: the configs and psychology they depend on, the registry
-/// schema, an installed factory, the proximity config and the declared state contracts.
+/// schema, the proximity config and the declared state contracts.
 fn check_requirements(
     catalog: &Catalog,
     configs: &IndexMap<Arc<str>, V>,
@@ -283,9 +283,6 @@ fn check_requirements(
     }
     if FORMULA_DOMAINS.iter().any(|domain| selected.contains_key(*domain)) && !matches!(schema, Some(V::Int(2 | 3))) {
         return Err(value_error("replaceable formula factories require policy_registry schema_version 2 or 3"));
-    }
-    if selected.values().any(|model| !catalog.models[&**model].factory) {
-        return Err(value_error("selected model metadata has no installed Policy factory"));
     }
     if let Some(proximity) = selected.get("social_proximity") {
         let enabled = proximity_config(configs.get("social_proximity"))?;

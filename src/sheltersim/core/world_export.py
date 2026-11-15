@@ -345,31 +345,3 @@ def sections(world: Any) -> dict[str, Any]:
         "overlay_rooms": _overlay_rooms(configs),
         "extensions_enabled": _extensions_enabled(configs),
     }
-
-
-# ---- What the core's records of a new Run take from Python (#301) ------------------------------
-#
-# The core builds the entry of any Scenario's world at minute 0 itself (`native/core/src/initial/`,
-# #249, #429). A new Run's records (`model_versions` and the evidence route's answer) it still
-# makes from templates Python writes (`native/core/src/initial/table.json`, by
-# `tests/support/core_initial.py`), keyed by a fingerprint of the configs that leaves out the
-# configs that hold the Scenario's own data.
-
-# The configs whose contents are the Scenario's own data (its floor plan and its people): the
-# fingerprint keeps only that they are there. Every other config is the same for every Scenario the
-# Scenario screen makes, and so is what Python derives from them.
-DATA_CONFIGS = ("facility_geometry", "population", "population_context", "spatial_constraints")
-
-
-def _canonical_text(value: Any) -> str:
-    return json.dumps(
-        value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False
-    )
-
-
-def configs_fingerprint(configs: dict[str, Any]) -> str:
-    """The sha256 of the canonical JSON of the configs, each of `DATA_CONFIGS` there as `true`."""
-    import hashlib
-
-    masked = {key: True if key in DATA_CONFIGS else value for key, value in configs.items()}
-    return hashlib.sha256(_canonical_text(masked).encode("utf-8")).hexdigest()

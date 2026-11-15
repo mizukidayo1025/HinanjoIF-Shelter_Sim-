@@ -178,7 +178,7 @@ pub(crate) fn operational_enabled(configs: &IndexMap<Arc<str>, V>, events: &[cra
 }
 
 fn payload(event: &crate::events::EventRow, key: &str) -> Result<V> {
-    member(&event.payload, key).cloned().ok_or_else(|| Error::Key(format!("'{key}'")))
+    member(&event.payload, key).cloned().ok_or_else(|| Error::Key(key.to_owned()))
 }
 
 fn id_of(value: V) -> Result<Arc<str>> {

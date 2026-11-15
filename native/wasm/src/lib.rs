@@ -910,10 +910,11 @@ pub fn casefold(text: &str) -> String {
 }
 
 /// The entry of a Scenario's world at minute 0, from the Scenario's canonical JSON
-/// (`sheltersim_core::initial::entry`, #249): the bytes Python's `export_world` writes of it, which
-/// `new Simulation(entry)` runs. What the core does not build (a Scenario whose configs its table
-/// lacks, and the like) is an error whose message starts with `unsupported: `; any other error is
-/// input that is not a Scenario.
+/// (`sheltersim_core::initial::entry`, #249, #429): the bytes Python's `export_world` writes of it,
+/// which `new Simulation(entry)` runs. A Scenario Python refuses to build is the error Python
+/// raises; what the core leaves to a contract Python runs first (a config `ScenarioSpec` would not
+/// have made canonical, and the like) is an error whose message starts with `unsupported: `; any
+/// other error is input that is not a Scenario.
 #[wasm_bindgen(js_name = initialEntry)]
 pub fn initial_entry(scenario: &[u8]) -> Result<Vec<u8>, JsError> {
     sheltersim_core::initial::entry(scenario).map_err(initial_error)

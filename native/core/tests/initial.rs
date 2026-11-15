@@ -17,8 +17,8 @@ use std::rc::Rc;
 use serde_json::Value;
 use sheltersim_core::canonical;
 use sheltersim_core::checkpoint::sha256_hex;
-use sheltersim_core::error::Error;
 use sheltersim_core::initial;
+use sheltersim_core::value::V;
 use sheltersim_core::world::WorldCell;
 
 use support::load::{self, Loaded};
@@ -95,30 +95,22 @@ fn the_core_builds_the_entry_python_exports_and_runs_it_to_the_native_path_s_wor
 }
 
 #[test]
-fn the_core_refuses_records_its_table_lacks_but_builds_the_world() {
+fn the_core_builds_a_scenario_of_other_configs_and_its_records() {
+    // No table of configs (#429): a Scenario the screen never makes is built all the same.
     let case = world_case("twenty");
     let mut scenario: Value = serde_json::from_str(case["scenario"].as_str().unwrap()).unwrap();
-    let configs = scenario["model_configs"].as_object().unwrap().keys().cloned().collect::<Vec<_>>();
-    assert!(initial::knows(&scenario["model_configs"]).unwrap());
     scenario["model_configs"]["behavior"]["temperature"] = serde_json::json!(0.3);
+    scenario["model_configs"].as_object_mut().unwrap().remove("population_context");
     let raw = serde_json::to_vec(&scenario).unwrap();
-    match initial::model_versions(&raw) {
-        Err(Error::Unsupported(why)) => assert!(why.contains("fingerprint"), "{why}"),
-        other => panic!("{other:?}"),
-    }
-    // The world needs no table (#429).
     let entry: Value = serde_json::from_slice(&initial::entry(&raw).unwrap()).unwrap();
-    assert_eq!(
-        entry["run"]["policies"]["controller"]["attrs"]["decisions"]["object"]["attrs"]["policy"]["object"]["attrs"]["temperature"]["value"],
-        serde_json::json!(0.3)
-    );
-    // A data config's contents are not in the fingerprint; that it is there is.
-    let mut moved: Value = serde_json::from_str(case["scenario"].as_str().unwrap()).unwrap();
-    moved["model_configs"]["population_context"]["evacuation_selection_source_ids"] = serde_json::json!(["SRC-X"]);
-    assert!(initial::knows(&moved["model_configs"]).unwrap());
-    moved["model_configs"].as_object_mut().unwrap().remove("population_context");
-    assert!(!initial::knows(&moved["model_configs"]).unwrap());
-    assert!(configs.contains(&"facility_geometry".to_owned()));
+    let policy = &entry["run"]["policies"]["controller"]["attrs"]["decisions"]["object"]["attrs"]["policy"]["object"]["attrs"];
+    assert_eq!(policy["temperature"]["value"], serde_json::json!(0.3));
+    let versions = initial::model_versions(&raw).unwrap();
+    let wanted = case["expected"]["model_versions"].as_object().unwrap();
+    let V::Map(versions) = versions else { panic!("not a map") };
+    assert_eq!(versions.len(), wanted.len());
+    assert_ne!(versions.get("policy:behavior").unwrap(), &V::Str(wanted["policy:behavior"].as_str().unwrap().into()));
+    assert!(initial::evidence(&raw).is_ok());
 }
 
 #[test]

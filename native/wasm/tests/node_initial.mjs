@@ -70,10 +70,11 @@ for (const bad of ["", "not json", "{}", "[]", '{"seed": "1"}']) {
 }
 const scenario = JSON.parse(fixture.initial_worlds.twenty.scenario);
 scenario.model_configs.behavior.temperature = 0.3;
-// A Scenario of configs the screen never makes is built (#429); a new Run's records still come from
-// the table of the screen's configs.
-assert.ok(wasm.initialEntry(encode(JSON.stringify(scenario))).length > 0);
-assert.throws(() => wasm.modelVersions(encode(JSON.stringify(scenario))), /^Error: unsupported: .*fingerprint/);
+// A Scenario of configs the screen never makes is built, and so are its records (#429).
+const other = encode(JSON.stringify(scenario));
+assert.ok(wasm.initialEntry(other).length > 0);
+assert.notEqual(JSON.parse(wasm.modelVersions(other))["policy:behavior"], fixture.initial_worlds.twenty.expected.model_versions["policy:behavior"]);
+assert.ok(wasm.runEvidence(other).length > 0);
 assert.equal(wasm.sha256Hex(wasm.initialEntry(encode(fixture.initial_worlds.twenty.scenario))), fixture.initial_worlds.twenty.expected.entry_sha256);
 
 if (failures > 0) {

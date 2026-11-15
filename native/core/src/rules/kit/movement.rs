@@ -350,22 +350,22 @@ pub fn start_progress(row: &MovementRow, started: i64, duration: i64) -> (bool, 
     (elapsed != 0, py_min(1.0, elapsed as f64 / duration as f64))
 }
 
+/// A journey to start: what `start_movement` and the trips of `travel.rs` give.
+pub struct Start<'a> {
+    pub agent_id: &'a Arc<str>,
+    pub journey: Journey,
+    pub origin: &'a Arc<str>,
+    pub points: &'a [Pt],
+    pub edge_ids: &'a [Arc<str>],
+    pub started: i64,
+    pub duration: i64,
+}
+
 /// `start_movement`'s writes as a plan. `off_path` is the point where the path has no points: on
 /// the first edge at the progress `start_progress` gives (0.0 before a minute is walked), or the
 /// origin zone's centre without an edge; the caller reads it.
-#[allow(clippy::too_many_arguments)]
-pub fn plan_start(
-    row: &MovementRow,
-    rows: &Entities,
-    agent_id: &Arc<str>,
-    journey: Journey,
-    origin: &Arc<str>,
-    points: &[Pt],
-    edge_ids: &[Arc<str>],
-    started: i64,
-    duration: i64,
-    off_path: Option<Pt>,
-) -> Result<Changes> {
+pub fn plan_start(row: &MovementRow, rows: &Entities, start: Start<'_>, off_path: Option<Pt>) -> Result<Changes> {
+    let Start { agent_id, journey, origin, points, edge_ids, started, duration } = start;
     let mut changes = Changes::default();
     missing_positions(row, rows, &mut changes);
     let (elapsed, initial_progress) = start_progress(row, started, duration);

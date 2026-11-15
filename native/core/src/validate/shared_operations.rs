@@ -562,9 +562,21 @@ fn staff_operation_receipt(view: &View<'_>, record: &Fields, truncated: bool) ->
     Ok(())
 }
 
+/// The fields of a `CareRequestState` the replay makes.
+struct CareFields<'a> {
+    request_id: &'a V,
+    agent_id: &'a V,
+    household_id: &'a V,
+    support_kind: &'a V,
+    status: &'a str,
+    created: &'a V,
+    updated: &'a V,
+    latest: &'a V,
+}
+
 /// `CareRequestState(...)` as the replay makes it, or its `ValidationError`.
-#[allow(clippy::too_many_arguments)]
-fn care_state(request_id: &V, agent_id: &V, household_id: &V, support_kind: &V, status: &str, created: &V, updated: &V, latest: &V) -> Result<Map> {
+fn care_state(fields: CareFields<'_>) -> Result<Map> {
+    let CareFields { request_id, agent_id, household_id, support_kind, status, created, updated, latest } = fields;
     let mut input = Map::new();
     for (name, value) in [
         ("request_id", request_id.clone()),
@@ -702,16 +714,16 @@ pub fn validate(view: &View<'_>) -> Result<()> {
                     field(prior, "created_minute").clone()
                 }
             };
-            let state = care_state(
-                field(item, "request_id"),
-                field(item, "agent_id"),
-                field(item, "household_id"),
-                field(item, "support_kind"),
+            let state = care_state(CareFields {
+                request_id: field(item, "request_id"),
+                agent_id: field(item, "agent_id"),
+                household_id: field(item, "household_id"),
+                support_kind: field(item, "support_kind"),
                 status,
-                &created,
-                field(item, "minute"),
-                field(item, "event_id"),
-            )?;
+                created: &created,
+                updated: field(item, "minute"),
+                latest: field(item, "event_id"),
+            })?;
             care.insert(request_id, state);
         } else if event_type == "staff_support_continuity" {
             let prior = care.get(&request_id).cloned();
@@ -744,16 +756,16 @@ pub fn validate(view: &View<'_>) -> Result<()> {
             };
             if status == "requeued" {
                 let source = prior.as_ref().or(saved).expect("one of them is there, as checked above");
-                let state = care_state(
-                    field(item, "request_id"),
-                    field(item, "agent_id"),
-                    field(source, "household_id"),
-                    field(source, "support_kind"),
-                    "requested",
-                    &created,
-                    field(item, "minute"),
-                    field(item, "event_id"),
-                )?;
+                let state = care_state(CareFields {
+                    request_id: field(item, "request_id"),
+                    agent_id: field(item, "agent_id"),
+                    household_id: field(source, "household_id"),
+                    support_kind: field(source, "support_kind"),
+                    status: "requested",
+                    created: &created,
+                    updated: field(item, "minute"),
+                    latest: field(item, "event_id"),
+                })?;
                 care.insert(request_id, state);
             } else {
                 care.shift_remove(&request_id);

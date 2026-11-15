@@ -362,18 +362,20 @@ fn minute_and_sequence(world: &World) -> Result<(i64, i64)> {
     Ok((world.minute_index()?, sequence))
 }
 
+/// A transition of a facility's working units: the facility, its component, the status, and the
+/// working units before and after.
+#[derive(Clone, Copy, Debug)]
+pub struct Recovery<'a> {
+    pub facility_id: &'a str,
+    pub component_id: &'a str,
+    pub status: &'a str,
+    pub previous: i64,
+    pub units: i64,
+}
+
 /// `make_facility_recovery_record(...)[0]` of a world that has the shared contract.
-#[allow(clippy::too_many_arguments)]
-pub fn facility_recovery_record(
-    world: &World,
-    facility_id: &str,
-    component_id: &str,
-    status: &str,
-    previous: i64,
-    units: i64,
-    causation: &str,
-    source_ids: Vec<Arc<str>>,
-) -> Result<Made> {
+pub fn facility_recovery_record(world: &World, recovery: Recovery<'_>, causation: &str, source_ids: Vec<Arc<str>>) -> Result<Made> {
+    let Recovery { facility_id, component_id, status, previous, units } = recovery;
     let fits = is_identifier(facility_id)
         && is_identifier(component_id)
         && is_identifier(causation)
@@ -460,18 +462,20 @@ pub fn handoff_record(
     })
 }
 
+/// What became of a staff support whose staff member left it: the request, its person, its task,
+/// the staff member, and the request's status after.
+#[derive(Clone, Copy, Debug)]
+pub struct Continuity<'a> {
+    pub request_id: &'a str,
+    pub agent_id: &'a str,
+    pub task_id: &'a str,
+    pub previous_staff: &'a str,
+    pub status: &'a str,
+}
+
 /// `make_staff_support_continuity_record`.
-#[allow(clippy::too_many_arguments)]
-pub fn continuity_record(
-    world: &World,
-    request_id: &str,
-    agent_id: &str,
-    task_id: &str,
-    previous_staff: &str,
-    status: &str,
-    causation: &str,
-    cause_type: &str,
-) -> Result<Made> {
+pub fn continuity_record(world: &World, continuity: Continuity<'_>, causation: &str, cause_type: &str) -> Result<Made> {
+    let Continuity { request_id, agent_id, task_id, previous_staff, status } = continuity;
     let fits = [request_id, agent_id, task_id, previous_staff, causation].iter().all(|id| is_identifier(id))
         && matches!(status, "requeued" | "unresolved")
         && matches!(cause_type, "staff_unavailable" | "staff_shift_change" | "route_unreachable")

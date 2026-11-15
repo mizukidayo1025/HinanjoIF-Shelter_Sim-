@@ -1259,7 +1259,12 @@ pub fn write_complete(world: &World, inputs: &Inputs<'_>, plan: CompletePlan) ->
                 _ => Vec::new(),
             };
             let component = kit::exact_str(&payload_task)?.clone();
-            receipts.push(care_receipts::facility_recovery_record(world, &facility, &component, "restored", previous, units, &event_id, sources)?);
+            receipts.push(care_receipts::facility_recovery_record(
+                world,
+                care_receipts::Recovery { facility_id: &facility, component_id: &component, status: "restored", previous, units },
+                &event_id,
+                sources,
+            )?);
         }
     }
     Ok(receipts)

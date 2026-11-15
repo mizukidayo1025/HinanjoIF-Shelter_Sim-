@@ -1,21 +1,17 @@
-//! The support requests of `domain/staff.py` (`request`, `timeout_support_request`), the end of a
-//! staff member's support (`StaffSupportCompletionHandler`), and the care receipts of the steps
-//! around them (`experiments/phases/dispatch.py`, `_record_assigned_support`), as functions over the
-//! `World` (lane P8 b4 of Issue #152). Each plans with nothing changed and then writes; a refusal
-//! (`Unsupported`) before the writes leaves the event to the Python rule.
+//! The support requests (`request`, `timeout_support_request`), the end of a staff member's support
+//! (`StaffSupportCompletionHandler`), and the care receipts of the steps around them
+//! (`_record_assigned_support`), as functions over the `World` (lane P8 b4 of Issue #152). Each
+//! plans with nothing changed and then writes; a refusal (`Unsupported`) comes before the writes.
 //!
-//! What only Python can say is handed in by the PyO3 crate's `rules/support.rs`: whether
-//! `model_state` holds `shared_operations_v1` and `body_state_v1` and whether `metric_state` is its
-//! slot's tree (`Inputs`), the event's IDs as the dispatcher read them (`SupportEvent`), the
-//! handler's and the service's values, and the selected care formula (`Formula`, a section of the
-//! configs the PyO3 crate fills from `create_care_outcome_formula`; `CareOutcome::parse` is the
-//! built-in one of a build without Python). A value of the service whose read raised is refused
-//! where the rule reads it (`AFTER_UNREAD` and the others), and the PyO3 crate raises what reading
-//! it again raises.
+//! What the world's outside holds is read through the host: whether `model_state` holds
+//! `shared_operations_v1` and `body_state_v1` and whether `metric_state` is its slot's tree
+//! (`Inputs`), the event's IDs as the dispatcher read them (`SupportEvent`), the handler's and the
+//! service's values, and the selected care formula (`Formula`, the section `care_outcome` of the
+//! configs, which the host fills). A value of the service whose read raised is refused where the
+//! rule reads it (`AFTER_UNREAD` and the others), and the tick raises what reading it again raises.
 //!
 //! The writes go to the rows (entities, `metric_state`, `body_state_v1`, `shared_operations_v1`,
-//! `id_counters`, the queue and the log); the Python objects and the attached trees follow them when
-//! the world is given back (6-1, P8-0c).
+//! `id_counters`, the queue and the log); the attached trees follow them (6-1, P8-0c).
 
 use std::sync::Arc;
 
@@ -55,13 +51,13 @@ pub const NO_LONGER_PENDING: &str = "support request is no longer pending";
 pub const NAMESPACE_IS_NONE: &str = "the namespace is None";
 /// What the care receipts say of a `shared_operations_v1` that is not the slot's.
 pub const OTHER_DOCUMENT: &str = "the world holds another document than the row's";
-/// A value of the staff service whose read raised, refused where the rule reads it: the PyO3 crate
-/// reads it again and raises what that raises.
+/// A value of the staff service whose read raised, refused where the rule reads it: the tick reads
+/// it again (`Host::read_again`) and raises what that raises.
 pub const AFTER_UNREAD: &str = "the service's unresolved_after_minutes raised when it was read";
 pub const COOLDOWN_UNREAD: &str = "the service's cooldown_minutes raised when it was read";
 pub const POLICY_UNREAD: &str = "the service's policy_version raised when it was read";
 
-/// What the support rules take of the Python world beside the rows.
+/// What the support rules take of the world's outside beside the rows.
 #[derive(Clone, Debug)]
 pub struct Inputs {
     /// `shared_operations_v1` in `model_state`: `Held::Other(NAMESPACE_IS_NONE)` where the key
@@ -74,9 +70,9 @@ pub struct Inputs {
 }
 
 impl Inputs {
-    /// What the receipts and the end of support read, through the host (H1, lane P9-1a), in the
-    /// order the PyO3 crate read them: `shared_operations_v1`, `body_state_v1`, `metric_state`. A
-    /// `model_state` that is not a plain dict is refused.
+    /// What the receipts and the end of support read, through the host (lane P9-1a), in this order:
+    /// `shared_operations_v1`, `body_state_v1`, `metric_state`. A `model_state` that is not a plain
+    /// dict is refused.
     pub fn read<C: WorldCell, H: Host>(cell: &C, host: &mut H) -> std::result::Result<Self, H::Error> {
         let holding = kit::holding(cell, host)?;
         let absent = |name: &str| holding.is_absent(name).map_err(Error::unsupported);
@@ -105,9 +101,9 @@ pub const NOT_A_SELECTION: &str = "not a selection";
 /// The refusal of a model selection whose read raised, where the care reads it.
 pub const SELECTION_REFUSES: &str = "the model selection refuses";
 
-/// The selected care formula (`create_care_outcome_formula`), read through the host (H2, lane
-/// P9-1a): None where the selection names no care model, else the section `care_outcome` as kept,
-/// whose fault the caller raises (the PyO3 crate parses it again, policy E14).
+/// The selected care formula (`create_care_outcome_formula`), read through the host (lane P9-1a):
+/// None where the selection names no care model, else the section `care_outcome` as kept, whose
+/// fault the caller raises (`kit::raise_section` parses it again).
 pub fn care_formula<C: WorldCell, H: Host>(cell: &C, host: &mut H) -> std::result::Result<Option<kit::Kept<CareOutcome>>, H::Error> {
     let holding = kit::holding(cell, host)?;
     let (selection, kept) = kit::selection(cell, host, &holding)?;
@@ -160,8 +156,8 @@ fn new_request(id: &Arc<str>, agent_id: &str, requested_minute: i64, timeout_min
 
 // ---- A request times out ------------------------------------------------------------------------------
 
-/// `SupportRequestTimeoutHandler.apply` up to the error text: `Some(text)` when Python would suppress
-/// the event. `cooldown_minutes` is the handler's.
+/// `SupportRequestTimeoutHandler.apply` up to the error text: `Some(text)` when the event is
+/// suppressed. `cooldown_minutes` is the handler's.
 pub fn timeout(world: &World, inputs: &Inputs, event: &SupportEvent, cooldown_minutes: i64) -> Result<Option<&'static str>> {
     let (Some(request_id), Some(agent_id)) = (&event.request_id, &event.agent_id) else {
         return failed("support timeout requires request_id and agent_id");
@@ -236,8 +232,8 @@ fn plan_transition(world: &World, inputs: &Inputs, transition: Transition, seque
     care_receipts::plan_transition(world, transition, sequence)
 }
 
-/// `_record_request_interrupted`, of an applied `support_request_timeout`. Without a request the
-/// Python rule finds none and records nothing.
+/// `_record_request_interrupted`, of an applied `support_request_timeout`. Without a request it
+/// finds none and records nothing.
 pub fn record_interrupted(world: &mut World, inputs: &Inputs, event: &SupportEvent) -> WriteResult<()> {
     let Some(request_id) = event.request_id.clone() else {
         return Ok(());
@@ -266,7 +262,7 @@ pub fn record_interrupted(world: &mut World, inputs: &Inputs, event: &SupportEve
 }
 
 /// `_record_staff_support_started`, of an applied `agent_travel_complete` of a staff trip. Without a
-/// request the Python rule finds none and records nothing.
+/// request it finds none and records nothing.
 pub fn record_started(world: &mut World, inputs: &Inputs, event: &SupportEvent) -> WriteResult<()> {
     let Some(request_id) = event.request_id.clone() else {
         return Ok(());
@@ -345,8 +341,8 @@ pub fn record_assigned(world: &mut World, inputs: &Inputs, assigned: &[Arc<str>]
     Ok(())
 }
 
-/// `append_applied_care_transition` of a step past its first change, as its Python entry does it:
-/// nothing without the namespace, and a refusal is that entry's `KernelRefusal`.
+/// `append_applied_care_transition` of a step past its first change: nothing without the
+/// namespace, and a refusal is that rule's `KernelRefusal`.
 fn append_applied(world: &mut World, inputs: &Inputs, transition: Transition) -> WriteResult<()> {
     let done = match &inputs.shared {
         Held::Absent => Ok(()),
@@ -801,7 +797,7 @@ fn set_body_field(record: &mut BodyRecord, field: &str, value: f64) -> Result<()
 }
 
 /// A value of the formula as the rule takes it: a refusal its `Unsupported`, any other fault a
-/// corrupt `model_configs` (the PyO3 crate's `configs::read`).
+/// corrupt `model_configs`.
 fn formula_read<T>(value: crate::config::read::Read<T>) -> Result<T> {
     value.map_err(|fault| {
         if fault.is_refusal() {
@@ -877,7 +873,7 @@ fn formula_care(
         }
     }
     let original_stresses = stresses.clone();
-    // What the Python rule records before anything changes: (kind, person, field).
+    // What the rule records before anything changes: (kind, person, field).
     let mut before: Vec<(bool, usize, &'static str)> = Vec::new();
     if measured_kind {
         if hygiene {
@@ -893,7 +889,7 @@ fn formula_care(
             before.push((*field == "stress", index, field));
         }
     }
-    // The changes, in the order of the Python rule.
+    // The changes, in a fixed order.
     let mut outcome_source = false;
     if hygiene {
         people[0].record.hygiene_need = formula.hygiene_after(people[0].record.hygiene_need, relief);
@@ -971,7 +967,7 @@ fn apply_delta(stresses: &mut [f64], people: &mut [CaredPerson], index: usize, f
     Ok(())
 }
 
-/// The receipt's changes of what the Python rule recorded before (kind, person, field), from the
+/// The receipt's changes of what the rule recorded before (kind, person, field), from the
 /// records and stresses before and after, and whether any changed.
 fn recorded_changes(
     before: &[(bool, usize, &'static str)],

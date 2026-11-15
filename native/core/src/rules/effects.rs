@@ -1,26 +1,22 @@
-//! The rules of `events/effects.py` that run in a tick, on the rows of a `World` (moved to the core
-//! in P8 d3): a guard, the five handlers of an effect's events, what other modules ask of the
-//! modifier stacks, and the check of `effect_program_v1`. The PyO3 crate's file of the same name
-//! reads what Python holds (whether `model_state` holds each namespace, the sections of the configs
-//! kept by stamp, the floor plan), makes the event's row, and calls these.
+//! The effect rules that run in a tick, on the rows of a `World`: a guard, the five handlers of an
+//! effect's events, what other modules ask of the modifier stacks, and the check of
+//! `effect_program_v1`. The `*_event` entries at the end read what the host holds (whether
+//! `model_state` holds each namespace, the sections of the configs kept by stamp, the floor plan)
+//! and call the rest.
 //!
-//! A handler's Python rule made a copy of the world, changed the copy, checked it and swapped it in.
-//! Here a handler is two steps: its checks on the world (`plan_*`, `check_*`), and its writes on the
-//! world of the transaction that stands for the copy (`write_*`, in the core's `txn::rule` since lane
-//! P9-1b: the `*_event` entries at the end read their inputs through the host and open it). A write
-//! step ends with the
-//! whole world's validation through the host (`Host::validate_world`, policy E6), and an error rolls
-//! the transaction back.
+//! A handler is two steps: its checks on the world (`plan_*`, `check_*`), and its writes on the
+//! world of a transaction (`write_*`, in the core's `txn::rule`). A write step ends with the whole
+//! world's validation through the host (`Host::validate_world`), and an error rolls the transaction
+//! back.
 //!
-//! A suppressed or failed effect is the Python rule's `Error::suppressed` or `Error::failed`, with
-//! its text, in its order of checks. Where the Python rule wraps what a call raised (`except
-//! ValueError as exc: raise EventApplicationError(f"...{exc}")`), the rule here wraps the host's
-//! error the same way, with `str(exc)` of it (`HostFailure::text`): the pydantic contracts of the
-//! parameters and of a guard (`Host::contract`, policy E15), the check of the changed world, and the
-//! errors of the rules of other files a handler calls (`overlay`'s temporary spaces, geometry changes
-//! and the place of a new facility). Those rules were called by name, through Python's
-//! `kernel_only`; they are direct calls now, and a refusal of one is the `KernelRefusal` that
-//! `kernel_only` made of it (`Error::refused` with its label), wrapped or let through as before.
+//! A suppressed or failed effect is `Error::suppressed` or `Error::failed`, with its text, in its
+//! order of checks. Where a handler wraps what a call raised (`except ValueError as exc: raise
+//! EventApplicationError(f"...{exc}")`), it wraps the host's error the same way, with `str(exc)` of
+//! it (`HostFailure::text`): the contracts of the parameters and of a guard (`Host::contract`), the
+//! check of the changed world, and the errors of the rules of other files a handler calls
+//! (`overlay`'s temporary spaces, geometry changes and the place of a new facility). A refusal of
+//! one of those is a `KernelRefusal` named by its label (`by_name`, `Error::refused`), wrapped or
+//! let through.
 //!
 //! Nothing here reads LLM output: what a program may do was validated before it was scheduled, by
 //! `validate_effect_program`, which is not touched (docs/rust-port/lanes/m6-effects.md).
@@ -59,19 +55,19 @@ const ENVIRONMENT_POLICY: &str = "zone_environment_v1";
 const TEMPORARY_SPACES: &str = overlay::SPACES_KEY;
 
 /// The refusal of the environment rule where it reads `ScenarioZoneEnvironmentConfig`, whose read
-/// raised: the PyO3 crate raises what that raised.
+/// raised: the dispatcher reads the section again (`Host::read_again`) and raises what that raised.
 pub const CONFIG_UNREAD: &str = "the zone environment config could not be read";
-/// The refusal of a geometry change that reads the floor plan the PyO3 crate could not read: it
-/// raises what `Geo::of` raised, wrapped as the rule wraps a ValueError, KeyError or TypeError.
+/// The refusal of a geometry change that reads a floor plan that could not be read:
+/// `geometry_event` raises what `Geo::of` raised instead, wrapped as the rule wraps a ValueError,
+/// KeyError or TypeError.
 pub const GEOMETRY_PLAN_UNREAD: &str = "the floor plan of a geometry change could not be read";
-/// The refusal of the staff positions of added staff, whose floor plan or staff operations the
-/// PyO3 crate could not read: it raises what that raised.
+/// The refusal of the staff positions of added staff, whose floor plan or staff operations could
+/// not be read: `add_event` raises what that read raised instead.
 pub const SNAPSHOT_UNREAD: &str = "the floor plan or the staff operations of the staff positions could not be read";
-/// A pending event has no row: the PyO3 crate reads the rows of the events Python scheduled and asks
-/// again.
+/// A pending event has no row (`Host::read_queue_rows` reads them before a rule reads the queue).
 pub const PENDING_UNREAD: &str = "a pending event has no row";
 
-/// The labels of the rules of other files a handler calls, as `kernel_only` named them.
+/// The labels of the rules of other files a handler calls, which name their refusals (`by_name`).
 const REGISTER: &str = "overlay.register_temporary_space";
 const APPLY_GEOMETRY: &str = "overlay.apply_geometry_change";
 const PLACE: &str = "overlay.place_installed_facility";
@@ -81,8 +77,8 @@ const AVAILABLE: &str = "staff_dynamics.is_available";
 
 // ---- What ran and what was refused --------------------------------------------------------------
 
-/// What the effects' rules ran and refused, by label: the PyO3 crate's `stats` and its `counted` of
-/// each entry. The core counts the branch of an addition it ran (`structure.add_staff`).
+/// What the effects' rules ran and refused, by label. The core counts the branch of an addition it
+/// ran (`structure.add_staff`).
 pub static COUNTS: Counts = Counts::new();
 
 // ---- Reading -------------------------------------------------------------------------------------
@@ -202,9 +198,9 @@ fn write_value(world: &World, name: &str, path: &[&str], f: impl FnOnce(&mut Doc
 
 // ---- Python's answers on the values of a frozen payload ------------------------------------------
 //
-// An event's payload and provenance are frozen (`_freeze_json`): a dict is a mappingproxy, a list a
-// tuple, and every other value an exact JSON type. The checks that raise a rule's text answer
-// as Python's operators do on them; where Python would raise instead, they say Unsupported.
+// An event's payload and provenance are frozen: in Python's terms, a dict is a mappingproxy, a list
+// a tuple, and every other value an exact JSON type. The checks that raise a rule's text answer as
+// Python's operators do on them; where Python would raise instead, they say Unsupported.
 
 /// Whether Python can hash the value (`x in a_set`, `a_dict.get(x)`): a mappingproxy can't, and a
 /// tuple can when its items can.
@@ -296,7 +292,7 @@ fn sorted_unique<'a>(values: impl IntoIterator<Item = &'a str>) -> Vec<&'a str> 
 
 // ---- What the host's errors become -----------------------------------------------------------------
 
-/// The classes of a Python rule's `except ... as exc`.
+/// The error classes a handler catches (`except ... as exc`).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Catch {
     Value,
@@ -326,9 +322,9 @@ fn wrapped<E: From<Error> + HostFailure>(error: E, catch: Catch, prefix: &str) -
     }
 }
 
-/// What a Python rule did with an error a rule of another file raised, called through
-/// `kernel_only`: a refusal is that rule's `KernelRefusal` (a ValueError), and `except <catch> as exc:
-/// raise EventApplicationError(str(exc))`. Without a catch, the error goes on as that rule raised it.
+/// What a handler does with an error a rule of another file raised: a refusal is that rule's
+/// `KernelRefusal` (a ValueError, named by `label`), and `except <catch> as exc: raise
+/// EventApplicationError(str(exc))`. Without a catch, the error goes on as that rule raised it.
 fn by_name<E: From<Error> + HostFailure>(label: &str, error: E, catch: Option<Catch>) -> E {
     let error = if error.class() == ErrorClass::Refused { E::from(Error::Refused { label: label.to_owned(), reason: error.text().into() }) } else { error };
     match catch {
@@ -405,8 +401,8 @@ impl GuardField {
     }
 }
 
-/// A guard's answer, or the text of the `EventApplicationError` the Python rule raises instead
-/// (`should_apply_effect_guard`, `_evaluate_guard_node`).
+/// A guard's answer, or the text of the `EventApplicationError` (`Error::failed`) the guard raises
+/// instead (`guard_decides`, `evaluate_guard`).
 type Judged<T> = std::result::Result<T, String>;
 
 enum Guard {
@@ -583,8 +579,8 @@ pub struct GuardIn<'a> {
     pub ledger: &'a Held,
 }
 
-/// `_evaluate_guard_node`: `all` and `any` stop at the first answer, so a later operand's failure is
-/// reached only where Python reaches it.
+/// A guard's node: `all` and `any` stop at the first answer, as Python's do, so a later operand's
+/// failure is reached only where the earlier ones did not decide.
 fn evaluate_guard(world: &World, ins: &GuardIn<'_>, row: &EventRow, guard: &Guard) -> Result<Judged<bool>> {
     match guard {
         Guard::All(children) => {
@@ -690,7 +686,7 @@ fn guard_field(world: &World, ins: &GuardIn<'_>, row: &EventRow, field: GuardFie
                 return no_target();
             };
             // `resource_id not in ledger["accounts"]`: None is in no ledger; the row's accounts are
-            // exactly its two resources. A value of another type is Python's to judge.
+            // exactly its two resources. A value of another type is refused.
             let resource = match payload.get("resource_id") {
                 None | Some(V::Null) => None,
                 Some(V::Str(resource)) => Some(resource.clone()),
@@ -989,7 +985,7 @@ pub struct ZoneModifierRecord {
 }
 
 impl ZoneModifierRecord {
-    /// The record as the namespace holds it, its keys in the Python rule's order.
+    /// The record as the namespace holds it, its keys in the namespace's order.
     pub fn into_value(self) -> V {
         let mut record = Doc::with_capacity(12);
         record.insert(text("modifier_id"), V::Str(self.modifier_id));
@@ -1130,8 +1126,8 @@ fn environment_record(world: &World, ins: &EnvironmentIn<'_>, row: &EventRow, mo
         [expiry] if expiry.due_minute == end_minute => expiry.event_id.clone(),
         _ => return Err(Error::failed("zone environment modifier has no unique expiry event")),
     };
-    // The Python rule wraps a ValueError of this too, but a world whose config fails it fails the
-    // copy the Python rule makes first (`from_dict` checks the configs): its error is raised as it is.
+    // A config that could not be read is refused (`CONFIG_UNREAD`); the dispatcher then raises the
+    // read's error as it is, not wrapped.
     let config = ins.config.ok_or_else(|| Error::unsupported(CONFIG_UNREAD))?;
     if matches!(op, "set_ventilation" | "set_lighting" | "set_privacy" | "set_temperature") && &*config.policy_version != "zone-environment-v2" {
         return Err(Error::failed("condition modifier requires zone-environment-v2"));
@@ -1405,8 +1401,8 @@ fn geometry_checks(world: &World, ins: &GeometryIn<'_>, row: &EventRow) -> Resul
     Ok(op.clone())
 }
 
-/// Whether the change an expiry ends is active: the Python rule's reads, `.get(key, {})` all the way
-/// down, of the overlay (`{}` without it).
+/// Whether the change an expiry ends is active: the reads `.get(key, {})` all the way down, of the
+/// overlay (`{}` without it).
 fn geometry_active(world: &World, ins: &GeometryIn<'_>, row: &EventRow, op: &str) -> Result<bool> {
     let empty = V::Map(Doc::new());
     let overlay = state_value(world, overlay::OVERLAY_KEY, ins.overlay)?.unwrap_or_else(|| empty.clone());
@@ -1438,8 +1434,8 @@ fn geometry_active(world: &World, ins: &GeometryIn<'_>, row: &EventRow, op: &str
 
 /// `apply_geometry_change(world, event, expire=expire)` on the transaction's world (a direct call;
 /// its refusal is its `KernelRefusal`), and the world's check: their ValueError, KeyError or
-/// TypeError is the event's failure with its text. `GEOMETRY_PLAN_UNREAD` for a floor plan the
-/// PyO3 crate could not read.
+/// TypeError is the event's failure with its text. `GEOMETRY_PLAN_UNREAD` for a floor plan that
+/// could not be read.
 pub fn write_geometry<C: WorldCell, H: Host>(
     cell: &C,
     host: &mut H,
@@ -1462,8 +1458,8 @@ pub fn write_geometry<C: WorldCell, H: Host>(
 
 // ---- EffectProgramStructureHandler ---------------------------------------------------------------
 
-/// The branches of `EffectProgramStructureHandler.apply`, told apart by the payload's fields in the
-/// Python rule's order.
+/// The branches of `EffectProgramStructureHandler.apply`, told apart by the payload's fields in
+/// this order.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Structure {
     TaskOrder,
@@ -1501,9 +1497,9 @@ pub struct StructureIn<'a> {
     pub infrastructure: &'a Held,
 }
 
-/// The first check of `staff_handoff` and `facility_repair`, in the Python rule's order: the marker
-/// and the payload reference an effect of `op` that a current approved program scheduled as this
-/// event, and `target` is a str.
+/// The first check of `staff_handoff` and `facility_repair`, in this order: the marker and the
+/// payload reference an effect of `op` that a current approved program scheduled as this event, and
+/// `target` is a str.
 fn references_program(world: &World, program: &Held, row: &EventRow, op: &str, target: &str) -> Result<bool> {
     let payload = map_of(&row.payload)?;
     let (program_id, effect_id) = (payload.get("program_id"), payload.get("effect_id"));
@@ -1870,9 +1866,9 @@ pub fn handoff_receipt(world: &World, shared: bool, plan: &Handoff, sources: Vec
 
 // ---- facility_repair ----
 
-/// `facility_repair`, in place like the Python rule: the checks, the guard, the facility's (and the
-/// infrastructure's baseline) working units, the world's check (whose error goes on as it is, with
-/// the world changed) and the receipt.
+/// `facility_repair`, in place: the checks, the guard, the facility's (and the infrastructure's
+/// baseline) working units, the world's check (whose error goes on as it is, with the world
+/// changed) and the receipt.
 pub fn facility_repair<C: WorldCell, H: Host>(cell: &C, host: &mut H, ins: &StructureIn<'_>, row: &EventRow) -> std::result::Result<Option<Made>, H::Error> {
     if !cell.with(|world| references_program(world, ins.guard.program, row, "facility_repair", "facility_id"))?? {
         return Err(Error::failed("facility repair does not reference an approved program").into());
@@ -1919,7 +1915,7 @@ pub fn facility_repair<C: WorldCell, H: Host>(cell: &C, host: &mut H, ins: &Stru
         Ok((working, sources))
     })??;
     let component = field_str(&repair, "component_id")?.clone();
-    // In place, like the Python rule: a failed check of the world now goes on as its own error.
+    // In place: a failed check of the world now goes on as its own error.
     cell.with(|world| -> Result<()> {
         world.rows_mut()?.facilities.get_mut(&facility_id).ok_or_else(|| Error::Key(facility_id.to_string()))?.working_units = restored;
         if matches!(state_value(world, INFRASTRUCTURE, ins.infrastructure)?, Some(V::Map(_))) {
@@ -2071,8 +2067,9 @@ pub struct AddIn<'a> {
     pub staff_ops: Option<&'a StaffOps>,
 }
 
-/// The records of a new staff member: `add_staff` of `domain/staff_dynamics.py` and
-/// `add_staff_operations_agent`, where the world holds each namespace.
+/// The records of a new staff member: the staff row, its operational status,
+/// `staff_dynamics::add_staff` and an idle staff operations record, where the world holds each
+/// namespace.
 fn add_one_staff(world: &mut World, ins: &AddIn<'_>, staff_id: &str, zone_id: &Arc<str>) -> Result<()> {
     let key: Arc<str> = text(staff_id);
     world.rows_mut()?.staff.insert(
@@ -2314,13 +2311,14 @@ fn is_lower_hex_64(value: &str) -> bool {
 }
 
 /// Whether a pending event's provenance has the marker's key (a marker that is no mapping passes,
-/// and the Python rule knows which it is). `PENDING_UNREAD` for a pending event without its row.
+/// and the whole validation says what it is). `PENDING_UNREAD` for a pending event without its row.
 fn pending_has_marker(world: &World) -> Result<bool> {
     Ok(pending_rows(world)?.iter().any(|event| matches!(&event.provenance, V::Map(provenance) if provenance.contains_key(MARKER))))
 }
 
-/// `validate_effect_program_state`: passes, or a refusal and the Python rule says what is wrong.
-/// The history's records are looked up through the host (`Host::find_record`).
+/// The check of `effect_program_v1`: passes, or a refusal, after which the whole validation
+/// (`validate::world`) says what is wrong. The history's records are looked up through the host
+/// (`Host::find_record`).
 pub fn check_state<C: WorldCell, H: Host>(cell: &C, host: &mut H, program: &Held, history: bool) -> std::result::Result<(), H::Error> {
     let absent = matches!(program, Held::Absent);
     if absent || !history {
@@ -2567,17 +2565,16 @@ fn facility_modifiers_pass(world: &World, state: &EffectProgramRow, known: &Hash
 // ---- The handlers with their inputs, in a rule transaction (lane P9-1b) -------------------------
 //
 // Each reads what the world's outside holds through the host (`Host::holding`, the sections of the
-// configs, the floor plan: H1 and H2 of design-p9.md), runs the checks on the world, then the
-// writes in the core's rule transaction (`txn::rule`, policy E16), whose start makes the host read
-// the holding again: what the writes read is read of the world in canonical order, as the copy was.
-// A read the Python rule made and the core could not (the zone environment's config, the staff
-// operations formula) is refused with its `*_UNREAD` reason where the rule reads it, for the PyO3
-// crate to raise what the read raised.
+// configs, the floor plan), runs the checks on the world, then the writes in the core's rule
+// transaction (`txn::rule`), whose start makes the host read the holding again: what the writes
+// read is read of the world in canonical order. A read that failed (the zone environment's config,
+// the floor plan, the staff operations) is refused with its `*_UNREAD` reason where the rule reads
+// it, and the entry (or the dispatcher's `read_again`) then raises what the read raised.
 
 /// The refusal of a world that holds another `effect_program_v1`.
 const PROGRAM_OTHER: &str = "the world holds another effect_program_v1";
 const INFRASTRUCTURE_OTHER: &str = "the world holds another infrastructure state";
-/// `SHARED_OPERATIONS_KEY` of `domain/shared_operations.py`.
+/// `SHARED_OPERATIONS_KEY` of `contracts/operations.py`.
 const SHARED_OPERATIONS: &str = "shared_operations_v1";
 
 /// What a guard reads of the world's outside.
@@ -2718,7 +2715,7 @@ where
 }
 
 /// `staff_handoff` of `EffectProgramStructureHandler.apply`, and its continuity receipt, made once
-/// the world has changed (what fails there fails as the Python rule's does).
+/// the world has changed (what fails there fails the event).
 pub fn handoff_event<C: WorldCell, H: Host>(cell: &C, host: &mut H, row: &EventRow) -> std::result::Result<Option<Made>, H::Error> {
     let read = Structured::of(cell, host)?;
     let guard = read.guarded.ins();

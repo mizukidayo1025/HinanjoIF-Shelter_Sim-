@@ -1,17 +1,17 @@
-//! The staffed water and meal service of `domain/resource_service.py` (lane c3 of Issue #152): the
-//! queue's head starts its service (`serve`), a completion consumes the reservation (`complete`), a
-//! person queues (`request`), and a service is cancelled or interrupted (`cancel`, `interrupt`).
-//! Each kernel plans with nothing changed and then writes, on the world's rows alone: the entities,
-//! `resource_service_v1`, `resource_ledger_v1`, `facility_queues_v1`, `metric_state`, `id_counters`,
-//! the event queue and the EventLog. An attached tree follows its row when the borrow ends (lane
-//! P8-0c), so a tainted namespace is refused.
+//! The staffed water and meal service (lane c3 of Issue #152): the queue's head starts its service
+//! (`serve`), a completion consumes the reservation (`complete`), a person queues (`request`), and
+//! a service is cancelled or interrupted (`cancel`, `interrupt`). Each kernel plans with nothing
+//! changed and then writes, on the world's rows alone: the entities, `resource_service_v1`,
+//! `resource_ledger_v1`, `facility_queues_v1`, `metric_state`, `id_counters`, the event queue and
+//! the EventLog. An attached tree follows its row when the borrow ends (lane P8-0c), so a tainted
+//! namespace is refused.
 //!
-//! The PyO3 crate's file of the same name reads first what only Python holds (the manager's config,
-//! whether the world holds each namespace, the floor plan, the pending reserve events, an answer of
-//! a tainted `staff_operations_v1`) and turns what a kernel returns into Python: the new
-//! `world.resources` of an operation the ledger took (`Applied`), and the `ResourceLedgerError` text
-//! of one it turned down (`Failure::Ledger`), which names a value by Python's `repr`. The checks and
-//! their texts are the Python rule's, in its order.
+//! The caller reads first what the world's outside holds (the manager's config, whether the world
+//! holds each namespace, the floor plan, the pending reserve events, an answer of a tainted
+//! `staff_operations_v1`) and turns what a kernel returns into the event's result: the new
+//! `world.resources` of an operation the ledger took (`Applied`), and the `ResourceLedgerError`
+//! text of one it turned down (`Failure::Ledger`), which names a value by Python's `repr`
+//! (`repr_of`). The checks and their texts come in a fixed order.
 
 use std::sync::{Arc, LazyLock};
 
@@ -108,9 +108,9 @@ pub fn resource_of(kind: &str) -> Option<&'static str> {
     }
 }
 
-// ---- What the PyO3 crate reads first -------------------------------------------------------------
+// ---- What the caller reads first ----------------------------------------------------------------
 
-/// What a kernel takes of the manager and of the Python world, read before it borrows the world.
+/// What a kernel takes of the manager and of the world's outside, read before it borrows the world.
 pub struct Manager<'a> {
     /// The manager's `config`: its dict, or the copy `ResourceServiceManager(world)` makes of the
     /// world's `model_configs["resource_service"]`.
@@ -147,7 +147,7 @@ impl Manager<'_> {
         self.integer(if resource_id == WATER { "water_ml_per_service" } else { "food_meal_units_per_service" })
     }
 
-    /// `resource_service_v1` as the PyO3 crate's `held_mirror` reads it, with its row.
+    /// `resource_service_v1` as the world holds it (`held_service`), with its row.
     fn service<'w>(&self, world: &'w World) -> Result<ShardRef<'w, ServiceRow>> {
         held_service(world, &self.service)
     }
@@ -176,7 +176,7 @@ fn held_service<'w>(world: &'w World, held: &Held) -> Result<ShardRef<'w, Servic
 }
 
 /// The `reservation_id` of a pending `resource_reserve` event, in the queue's order: what
-/// `_reservation_id_is_in_use` reads of each. The PyO3 crate reads them from the queue's events.
+/// `_reservation_id_is_in_use` reads of each. `reserves_of` reads them from the queue's rows.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Pending {
     Id(Arc<str>),
@@ -220,8 +220,8 @@ impl Wrap {
 }
 
 /// Why a kernel stopped: what the world or a write said, or the ledger's `ResourceLedgerError`
-/// inside the rule's `except ValueError as exc`, after the sequences the Python rule had taken by
-/// then. The PyO3 crate writes the ledger's text (it may name a value by Python's `repr`).
+/// inside the rule's `except ValueError as exc`, after the sequences the rule had taken by then.
+/// The caller writes the ledger's text (it may name a value by Python's `repr`, `repr_of`).
 #[derive(Debug)]
 pub enum Failure {
     Write(WriteError),
@@ -242,8 +242,8 @@ impl From<WriteError> for Failure {
 
 pub type Outcome<T> = std::result::Result<T, Failure>;
 
-/// The ledger's answer to a planned operation: the ledger's refusal takes the sequences the Python
-/// rule had taken by then (`taken`), and anything else goes on as it is, with nothing taken.
+/// The ledger's answer to a planned operation: the ledger's refusal takes the sequences the rule
+/// had taken by then (`taken`), and anything else goes on as it is, with nothing taken.
 fn ledger_answer(world: &mut World, planned: &Operation<'_>, taken: std::ops::RangeInclusive<i64>, wrap: Wrap) -> Outcome<Applied> {
     match apply_planned(world, planned) {
         Ok(applied) => Ok(applied),
@@ -297,9 +297,9 @@ impl Source {
 }
 
 /// `_audit_event` from the sequence given: the row of the first sequence whose identity is free.
-/// The Python rule allocates each sequence it tries, so the caller allocates up to the row's. A
-/// pending event's sequence is below the counter (`schedule_event` keeps it so), so only the IDs and
-/// the log's sequences can be taken.
+/// The rule allocates each sequence it tries, so the caller allocates up to the row's. A pending
+/// event's sequence is below the counter (`schedule_event` keeps it so), so only the IDs and the
+/// log's sequences can be taken.
 fn audit_row(
     events: &Events<'_>,
     source: &Source,
@@ -586,8 +586,8 @@ pub fn serve(world: &mut World, manager: &Manager<'_>, serve: &Serve<'_>, pendin
         Ok(start) => start,
         Err(done) => return Ok(done),
     };
-    // The ledger says last whether it takes it. It changes nothing when it doesn't, and the Python
-    // rule had taken the completion's and the audit's sequences then.
+    // The ledger says last whether it takes it. It changes nothing when it doesn't, and the
+    // completion's and the audit's sequences are taken by then.
     let applied = ledger_answer(
         world,
         &Operation {
@@ -638,7 +638,7 @@ fn plan_serve(world: &World, manager: &Manager<'_>, serve: &Serve<'_>, pending: 
     }
     let (used, warehouse, available) = ledger_of(world, manager, index, &task_id)?;
     // `_assert_service_task_id_available`: at once for a facility's own queue, and just before the
-    // completion's identity for an independent one, as the Python rules check it.
+    // completion's identity for an independent one.
     let taken_id = used || pending_reserves(pending, &task_id)?;
     let id_is_taken = || Error::invariant(format!("resource service task ID {} conflicts with an H01 reservation", py_repr(&task_id)));
     if taken_id && head.is_none() {
@@ -1104,8 +1104,8 @@ struct Completion {
     minute: i64,
 }
 
-/// `ResourceServiceManager.complete`: the consumed reservation's new balance. Its checks are the
-/// Python rule's, in its order, with its texts.
+/// `ResourceServiceManager.complete`: the consumed reservation's new balance. Its checks come in a
+/// fixed order, with their texts.
 pub fn complete(world: &mut World, manager: &Manager<'_>, event: &EventRow) -> Outcome<Applied> {
     let plan = plan_complete(world, manager, event)?;
     let applied = ledger_answer(
@@ -1371,7 +1371,7 @@ pub struct Request<'a> {
     pub minute: Minute,
     /// The given `queue_id`, unless None.
     pub queue_id: Option<&'a str>,
-    /// The population's accessibility needs (`choose_queue_id`'s), as the PyO3 crate read them.
+    /// The population's accessibility needs (`choose_queue_id`'s), as the caller read them.
     pub needs: &'a Kept<AccessibilityNeeds>,
 }
 
@@ -1386,8 +1386,8 @@ pub struct Receipt {
     pub queue_position: i64,
 }
 
-/// What `request` did: the receipt, or the text of the `ValueError` the Python rule raises when the
-/// queue turns the request down, having written what it writes before that.
+/// What `request` did: the receipt, or the text of the `ValueError` the rule raises when the queue
+/// turns the request down, having written what it writes before that.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Requested {
     Queued(Receipt),
@@ -1436,7 +1436,7 @@ pub fn request<C: WorldCell, H: Host>(
 }
 
 /// `request`'s rule without the world's validation: the checks of the person and the facility, in
-/// the Python rule's order, then the queue.
+/// a fixed order, then the queue.
 pub fn queue_up(world: &World, manager: &Manager<'_>, request: &Request<'_>, pending: &[Pending]) -> Result<Requested> {
     if let Some(text) = request_checks(world, manager, request)? {
         return Ok(Requested::Refused(text));
@@ -1444,7 +1444,7 @@ pub fn queue_up(world: &World, manager: &Manager<'_>, request: &Request<'_>, pen
     let world_minute = world.minute_index()?;
     let (agent_name, facility_name) = (request.agent_id, request.facility_id);
     let mut counter = world.id_counter("resource_task")?.unwrap_or(0);
-    // The Python rule's checks of the person and the facility, in its order.
+    // The checks of the person and the facility, in a fixed order.
     let (zone, resource, shared_tail) = match person_and_facility(world, agent_name, facility_name)? {
         Ok(found) => found,
         Err(text) => return Ok(Requested::Refused(text)),
@@ -1464,7 +1464,7 @@ pub fn queue_up(world: &World, manager: &Manager<'_>, request: &Request<'_>, pen
     };
     let task_id = next_queue_task_id(world, manager, pending, &mut counter)?;
     if independent && point.is_none() {
-        // The Python rule takes the task's ID first, then finds no queue for the person.
+        // The task's ID is taken first, then no queue is found for the person.
         set_id_counter(&mut *world.row_mut::<ValueRow>(ID_COUNTERS)?, "resource_task", counter)?;
         return Ok(Requested::Refused("no accessible independent resource service queue is available".to_owned()));
     }
@@ -1576,8 +1576,8 @@ pub fn queue_up(world: &World, manager: &Manager<'_>, request: &Request<'_>, pen
     }))
 }
 
-/// The Python rule's checks of the person and the facility, in its order: the person's zone, the
-/// facility's resource and the place at the end of its shared queue, or the text of the refusal.
+/// The checks of the person and the facility, in a fixed order: the person's zone, the facility's
+/// resource and the place at the end of its shared queue, or the text of the refusal.
 fn person_and_facility(world: &World, agent_name: &str, facility_name: &str) -> Result<std::result::Result<(Arc<str>, &'static str, i64), String>> {
     enum Turned {
         UnknownAgent,
@@ -1627,7 +1627,7 @@ fn person_and_facility(world: &World, agent_name: &str, facility_name: &str) -> 
     })
 }
 
-/// `choose_queue_id`, with the population's accessibility needs as the PyO3 crate read them.
+/// `choose_queue_id`, with the population's accessibility needs as the caller read them.
 pub(crate) fn choose_queue(
     world: &World,
     queues: &Held,
@@ -1679,15 +1679,15 @@ struct CancelPlan {
     sequences: i64,
 }
 
-/// `cancel` of a task, changing nothing, with the sequences it takes from `sequence`. What it
-/// would turn down is the Python rule's, with its text.
+/// `cancel` of a task, changing nothing, with the sequences it takes from `sequence`. What it would
+/// turn down comes with its text.
 fn plan_cancel(world: &World, manager: &Manager<'_>, event_id: &Arc<str>, task_id: &str, interrupted: bool, sequence: i64) -> Result<CancelPlan> {
     manager.service(world)?;
     let events = Events::of(world)?;
     manager.ledger(world)?;
     check_metric_state(world, manager.metric_state_held)?;
     let minute = world.minute_index()?;
-    // The Python rule's checks, in its order, with its texts.
+    // The checks, in a fixed order, with their texts.
     if manager.service(world)?.cancelled_task_ids.iter().any(|id| &**id == task_id) {
         return Err(Error::suppressed(format!("resource service task {} was already cancelled", py_repr(task_id))));
     }
@@ -1706,8 +1706,8 @@ fn plan_cancel(world: &World, manager: &Manager<'_>, event_id: &Arc<str>, task_i
         else {
             return Err(Error::failed("resource cancellation does not match an active task"));
         };
-        // `agents[task.agent_id or ""]` and `facilities[task.resource_id or ""]`: a KeyError is the
-        // Python rule's.
+        // `agents[task.agent_id or ""]` and `facilities[task.resource_id or ""]`: a KeyError there
+        // is refused.
         let (Some(agent), Some(facility)) =
             (rows.agents.get(task.agent_id.as_deref().unwrap_or("")), rows.facilities.get(task.resource_id.as_deref().unwrap_or("")))
         else {
@@ -1812,7 +1812,7 @@ fn plan_cancel(world: &World, manager: &Manager<'_>, event_id: &Arc<str>, task_i
 }
 
 /// `cancel`'s release in the ledger, which alone can still say no. `taken` is the first sequence
-/// the Python rule had taken by then: the interruption's cancellation, or the first the audit tried.
+/// the rule had taken by then: the interruption's cancellation, or the first the audit tried.
 fn apply_release(world: &mut World, plan: &CancelPlan, taken: Option<i64>) -> Outcome<Option<Applied>> {
     let Some(releasing) = &plan.releasing else {
         return Ok(None);
@@ -1905,7 +1905,7 @@ pub fn cancel(world: &mut World, manager: &Manager<'_>, event: &EventRow) -> Out
 /// person's zone and the resource.
 type Interrupted = (Arc<str>, Arc<str>, Arc<str>, Arc<str>, &'static str);
 
-/// `interrupt_for_staff`'s checks of the member's service, in the Python rule's order, with its texts.
+/// `interrupt_for_staff`'s checks of the member's service, in a fixed order, with their texts.
 fn interrupted_service(world: &World, staff_id: &str) -> Result<Option<Interrupted>> {
     let rows = world.rows()?;
     let mut tasks = rows
@@ -2146,14 +2146,12 @@ fn requeue_of<'g>(
     Ok(requeue)
 }
 
-// ---- arbitrate (lane P9-2a: the tick driver's loop, moved from the PyO3 crate) ---------------------
+// ---- arbitrate (lane P9-2a: the tick driver's loop) ----------------------------------------------
 
 /// `ResourceServiceManager.arbitrate`: each facility with anything to do, in ID order; one with
 /// independent queues serves each of them and records the facility's stall
 /// (`_arbitrate_independent_facility`), any other its shared queue while it has people. Returns the
-/// IDs of the started events, in order. The manager is the one `tick.policies` read: the
-/// controller's, of the class the driver was installed with, or one a caller holds alone (lane
-/// P9-3b, its body-less Python entry).
+/// IDs of the started events, in order. The manager is the one `tick.policies` reads.
 pub fn arbitrate<C: WorldCell, H: Host, R: crate::rules::tick::RunCell>(
     tick: &mut crate::rules::tick::Tick<'_, C, H, R>,
 ) -> crate::rules::tick::Step<Vec<Arc<str>>, H::Error> {
@@ -2324,7 +2322,7 @@ fn facilities_of<C: WorldCell, H: Host, R: crate::rules::tick::RunCell>(
 }
 
 /// The `reservation_id` of each pending `resource_reserve` event, in the queue's order, from the
-/// rows of the queue (the rows of the events Python scheduled are read first).
+/// rows of the queue (`Host::read_queue_rows` reads them first).
 pub fn reserves_of(world: &World) -> Result<Vec<Pending>> {
     let queue = world.queue()?;
     let mut found = Vec::new();

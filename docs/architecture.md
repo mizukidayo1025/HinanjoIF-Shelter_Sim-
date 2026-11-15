@@ -17,7 +17,7 @@ ProjectStore / TimelineStore <- Checkpoint / BranchRuntime
 Run成果物、履歴index、frame projection、比較レポート
 ~~~
 
-Python標準ライブラリのHTTPサーバーがローカルブラウザーの画面（`/`）を配信します。ブラウザーは型付きrequestを送信し、simulation stateを直接書き換えません。読取りはstateを変えず、Project操作は別の検証済みcommandを使います。CLI Run成果物は`sheltersim inspect`（`inspection`）がread-onlyで読みます。
+Python標準ライブラリのHTTPサーバーがローカルブラウザーの画面（`/`）を配信します。ブラウザーは型付きrequestを送信し、simulation stateを直接書き換えません。読取りはstateを変えず、Project操作は別の検証済みcommandを使います。CLIの`run`・`inspect`・`compare`・`review`・`evaluate-models`も、同じProjectの道で計算し、読みます（`experiments/project_runs.py`、#450）。
 
 ## モジュールの責務
 
@@ -28,7 +28,7 @@ Python標準ライブラリのHTTPサーバーがローカルブラウザーの�
 | events | 予定・実行済みevent、型付きhandler、EffectProgram |
 | policies | 行動、ニーズ、空間、心理、社会、情報モデル |
 | experiments | Scenario、Run、Branch、timeline、metrics、evaluation |
-| inspection | 証拠検索、Run projection、trace要約 |
+| inspection | Run projection（frame）、Pythonのrunnerのtrace要約 |
 | region | 地域データ、標準の合成施設とgeometry検証 |
 | llm | Provider adapter、型付き出力、cache、応答再生、利用額記録 |
 | storage | Project、draft、Run、Checkpoint、履歴indexの永続化 |
@@ -91,7 +91,7 @@ ScenarioSpec、WorldState、Checkpoint、EffectProgram、Project recordはそれ
 
 ## 永続化とインターフェース
 
-ProjectStoreとTimelineStoreは、ローカルProject、承認済みScenario、Run、Branch、Checkpoint chunk、index付き証拠を保持します。CLI Run成果物にはmanifest、凍結Scenario、event記録、metrics、任意のモデル利用記録が含まれます。formatは有効化した機能によって異なります。APIリファレンスを参照してください。
+ProjectStoreとTimelineStoreは、ローカルProject、承認済みScenario、Run、Branch、Checkpoint chunk、index付き証拠を保持します。CLIのRunも同じProjectに入ります。APIリファレンスを参照してください。
 
 HTTP APIは永続Projectと状態変更操作（/api/v1/projects）と、利用記録の参照（/api/v1/usage/runtime）です。以前の画面のための保存Run成果物の参照（/api/v1/runs）とprocess内のデモBranch（/api/v1/demo）は#376でなくしました。
 

@@ -1,6 +1,7 @@
-"""Running a frozen Scenario from the CLI: it runs offline and writes its artifacts, the
-LLM status is printed, a rule fallback is warned about, an offline run is not, and each
-run opens its own usage account.
+"""Computing frozen Scenarios as Runs of a Project from the CLI, as the screen computes them
+(#450): `run`, then `inspect`, `compare` and `review` of those Runs, and `evaluate-models`.
+
+Preparing and freezing a Scenario is checked in tests/integration/test_prepare_cli.py.
 """
 
 from __future__ import annotations
@@ -9,142 +10,126 @@ import json
 from pathlib import Path
 
 import pytest
-from support.paths import SCENARIO_100_AGENTS
 
 from sheltersim import cli
-from sheltersim.__main__ import main
-from sheltersim.llm.contracts import LLMAllowanceError
+from sheltersim.experiments.scenario import ScenarioSpec
 
 
-class DeniedAllowanceProvider:
-    def complete(self, **_kwargs):
-        raise LLMAllowanceError("usage_allowance_denied:usage_limit_exceeded")
+class Cli:
+    """Run CLI commands on one Project and return their JSON output."""
+
+    def __init__(self, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+        self.tmp_path, self.capsys = tmp_path, capsys
+        self.project = ["--root", str(tmp_path / "projects"), "--project-id", "study"]
+
+    def __call__(self, command: str, *arguments: str) -> dict:
+        assert cli.main([command, *self.project, *arguments]) == 0
+        return json.loads(self.capsys.readouterr().out)
+
+    def frozen(self, scenario: ScenarioSpec, name: str) -> Path:
+        source = self.tmp_path / f"{name}.json"
+        source.write_text(scenario.canonical_json(), encoding="utf-8")
+        frozen = self.tmp_path / f"{name}-approved.json"
+        arguments = ["prepare", "--scenario", str(source), "--freeze", "--output", str(frozen)]
+        assert cli.main(arguments) == 0
+        self.capsys.readouterr()
+        return frozen
 
 
-def _frozen_scenario(tmp_path: Path, scenario) -> Path:
-    source = tmp_path / "scenario.json"
-    source.write_text(scenario.canonical_json(), encoding="utf-8")
-    frozen = tmp_path / "approved.json"
-    arguments = ["prepare", "--scenario", str(source), "--freeze", "--output", str(frozen)]
-    assert cli.main(arguments) == 0
-    return frozen
-
-
-def test_cli_run_prints_status_and_warns_on_fallback(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-    small_benchmark_scenario,
-    recording_router,
+def test_runs_are_computed_inspected_compared_and_reviewed_from_the_cli(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], small_benchmark_scenario
 ) -> None:
-    monkeypatch.setenv("SHELTERSIM_PROJECTS_DIR", str(tmp_path / "projects"))
-    frozen = _frozen_scenario(tmp_path, small_benchmark_scenario())
-    capsys.readouterr()
-    monkeypatch.setattr(
-        cli,
-        "_cli_accounted_router",
-        lambda *_args, **_kwargs: recording_router(DeniedAllowanceProvider()),
+    run = Cli(tmp_path, capsys)
+    baseline = small_benchmark_scenario(60)
+    document = json.loads(baseline.canonical_json())
+    document["model_configs"]["behavior"]["temperature"] = 2.0
+    candidate = ScenarioSpec.model_validate(document)
+
+    computed = run("run", "--scenario", str(run.frozen(baseline, "baseline")), "--run-id", "a")
+    run("run", "--scenario", str(run.frozen(candidate, "candidate")), "--run-id", "b", "--offline")
+
+    assert computed["branch"]["status"] == "completed"
+    assert computed["branch"]["computed_until"] == 60
+    assert computed["llm_status"] == {"status": "not_requested"}
+    assert capsys.readouterr().err == ""
+    record = run("inspect", "--run-id", "a", "--record")
+    assert record["scenario_hash"] == computed["scenario_hash"]
+    assert [branch["branch_id"] for branch in record["branches"]] == ["main"]
+    evidence = run("inspect", "--run-id", "a", "--evidence")
+    assert evidence["model_versions"] == record["model_versions"]
+    assert run("inspect", "--run-id", "a", "--conversations")["turns"] == []
+    page = run("inspect", "--run-id", "a", "--kpis", "--start", "10", "--limit", "5")
+    assert [row["minute_index"] for row in page["items"]] == [10, 11, 12, 13, 14]
+    assert page["anchor_hash"] == computed["branch"]["checkpoint_hash"]
+    rest = run(
+        "inspect", "--run-id", "a", "--kpis", "--start", "10", "--cursor", page["next_cursor"]
     )
+    assert rest["items"][0]["minute_index"] == 15
 
-    assert cli.main(["run", "--scenario", str(frozen), "--output", str(tmp_path / "run")]) == 0
+    report = tmp_path / "comparison.json"
+    assert run("compare", "--baseline", "a", "--candidate", "b/main", "--output", str(report)) == {
+        "report": str(report)
+    }
+    comparison = json.loads(report.read_text(encoding="utf-8"))
+    (pair,) = comparison["pairs"]
+    assert (pair["seed"], pair["common_range"], pair["final_minute"]) == (7, [0, 60], 59)
+    assert pair["first_divergence"]["minute"] < 59
+    stress = pair["final_metrics"]["stress_mean"]
+    assert stress["delta"] == stress["candidate"] - stress["baseline"]
+    summary = {item["metric"]: item for item in comparison["paired_summary"]}
+    assert set(summary) == set(pair["final_metrics"])
+    assert summary["stress_mean"]["paired_deltas"] == [stress["delta"]]
+    same = run("compare", "--baseline", "a", "--candidate", "a", "--metric", "stress_mean")
+    assert same["pairs"][0]["first_divergence"] is None
 
-    captured = capsys.readouterr()
-    assert json.loads(captured.out)["llm_status"]["status"] == "all_fallback"
-    assert "warning: LLM fallback:" in captured.err
-    assert "shared_allowance_unavailable" in captured.err
+    review = run("review", "--run-id", "a", "--comparison", str(report))
+    assert review["report"]["review"]["status"] == "rule_fallback"
+    assert review["comparisons"] == comparison["pairs"]
 
 
-def test_cli_offline_run_does_not_warn(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-    small_benchmark_scenario,
+def test_a_model_matrix_is_computed_as_runs_and_compared_by_seed(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], small_benchmark_scenario
 ) -> None:
-    monkeypatch.setenv("SHELTERSIM_PROJECTS_DIR", str(tmp_path / "projects"))
-    frozen = _frozen_scenario(tmp_path, small_benchmark_scenario())
-    capsys.readouterr()
-
-    assert (
-        cli.main(["run", "--offline", "--scenario", str(frozen), "--output", str(tmp_path / "run")])
-        == 0
+    run = Cli(tmp_path, capsys)
+    scenario = tmp_path / "scenario.json"
+    scenario.write_text(small_benchmark_scenario(30).canonical_json(), encoding="utf-8")
+    plan = tmp_path / "plan.json"
+    plan.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "seeds": [1, 2],
+                "variants": [
+                    {"id": "base"},
+                    {"id": "hungry", "parameters": {"psychology.hunger_growth": 0.01}},
+                ],
+                "metrics": ["stress_mean"],
+            }
+        ),
+        encoding="utf-8",
     )
+    output = tmp_path / "evaluation.json"
+    arguments = ["--scenario", str(scenario), "--plan", str(plan), "--output", str(output)]
 
-    captured = capsys.readouterr()
-    assert json.loads(captured.out)["llm_status"]["status"] == "not_requested"
-    # The fixture selects no psychology model, so only the legacy-model notice may appear.
-    assert [line for line in captured.err.splitlines() if "legacy model" not in line] == []
+    evaluation = run("evaluate-models", *arguments)
 
-
-def test_each_cli_run_opens_its_own_usage_account(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-    small_benchmark_scenario,
-) -> None:
-    monkeypatch.setenv("SHELTERSIM_PROJECTS_DIR", str(tmp_path / "projects"))
-    frozen = _frozen_scenario(tmp_path, small_benchmark_scenario(30))
-    accounts = []
-    for name in ("first", "second"):
-        output = tmp_path / name
-        assert (
-            cli.main(["run", "--offline", "--scenario", str(frozen), "--output", str(output)]) == 0
-        )
-        document = json.loads(cli._cli_usage_account_path(output).read_text(encoding="utf-8"))
-        accounts.append(document["account_id"])
-    capsys.readouterr()
-
-    assert all(account.startswith("cli-run-") for account in accounts)
-    assert accounts[0] != accounts[1]
-
-
-def test_run_executes_a_scenario_offline_and_writes_artifacts(tmp_path: Path, capsys) -> None:
-    scenario_document = json.loads(SCENARIO_100_AGENTS.read_text(encoding="utf-8"))
-    scenario_document["id"] = "cli-short-run"
-    scenario_document["duration_minutes"] = 20
-    scenario_document["profiles"] = scenario_document["profiles"][:5]
-    scenario_document["scheduled_events"] = []
-    scenario_path = tmp_path / "scenario.json"
-    scenario_path.write_text(json.dumps(scenario_document), encoding="utf-8")
-    frozen_path = tmp_path / "frozen-scenario.json"
-    assert (
-        main(
-            [
-                "prepare",
-                "--scenario",
-                str(scenario_path),
-                "--freeze",
-                "--output",
-                str(frozen_path),
-            ]
-        )
-        == 0
-    )
-    capsys.readouterr()
-    output = tmp_path / "run"
-
-    assert (
-        main(
-            [
-                "run",
-                "--offline",
-                "--scenario",
-                str(frozen_path),
-                "--output",
-                str(output),
-                "--trace-level",
-                "off",
-            ]
-        )
-        == 0
-    )
-
-    result = json.loads(capsys.readouterr().out)
-    manifest = json.loads((output / "manifest.json").read_text(encoding="utf-8"))
-    assert result["final_minute"] == 20
-    assert result["final_state_hash"] == manifest["final_state_hash"]
-    assert manifest["execution_mode"] == "offline"
-    assert manifest["run_status"] == "completed"
-    assert (
-        len(json.loads((output / "agents_initial.json").read_text(encoding="utf-8"))["profiles"])
-        == 5
-    )
+    assert evaluation == json.loads(output.read_text(encoding="utf-8"))
+    assert [row["run_id"] for row in evaluation["runs"]] == [
+        "base-seed-1",
+        "base-seed-2",
+        "hungry-seed-1",
+        "hungry-seed-2",
+    ]
+    (compared,) = evaluation["comparisons"]
+    (stress,) = compared["metrics"]
+    assert stress["paired_seed_count"] == 2
+    by_run = {row["run_id"]: row["metrics"]["stress_mean"] for row in evaluation["runs"]}
+    assert stress["paired_deltas"] == [
+        by_run["hungry-seed-1"] - by_run["base-seed-1"],
+        by_run["hungry-seed-2"] - by_run["base-seed-2"],
+    ]
+    # The same matrix computed again is refused before any Run starts.
+    output.unlink()
+    with pytest.raises(SystemExit):
+        cli.main(["evaluate-models", *run.project, *arguments])
+    assert "base-seed-1 exists" in capsys.readouterr().err

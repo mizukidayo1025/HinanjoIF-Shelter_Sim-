@@ -1,4 +1,5 @@
-"""Offline CLI for profile preview, scenario preparation, and run inspection."""
+"""The CLI: Scenario preparation, Runs of a Project through the screen's routes (#450), model
+analysis, LLM accounting and the local server."""
 
 from __future__ import annotations
 
@@ -9,24 +10,19 @@ import os
 import sys
 import uuid
 from collections.abc import Sequence
-from dataclasses import replace
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlencode
 
 from sheltersim import __version__
 from sheltersim.contracts.policies import legacy_psychology_notice, selected_models
-from sheltersim.core.engine import TraceLevel
-from sheltersim.experiments.comparison import compare_run_sets, render_comparison_markdown
 from sheltersim.experiments.profiles import GeneratedProfileSet
-from sheltersim.experiments.runner import run_scenario
 from sheltersim.experiments.scenario import ScenarioSpec
-from sheltersim.inspection.query import InspectorQueryError, RunInspector
-from sheltersim.llm.config import LLMMode, LLMSettings
+from sheltersim.llm.config import LLMSettings
 from sheltersim.llm.generation import generate_initial_needs
 from sheltersim.llm.outcomes import fallback_warning, summarize_call_outcomes
 from sheltersim.llm.prepare import generate_scenario_draft
 from sheltersim.llm.provider import LLMRouter
-from sheltersim.llm.report import review_saved_run
 from sheltersim.storage.projects import DEFAULT_MAX_BYTES
 
 
@@ -71,21 +67,14 @@ def _increase_usage_budget(
     )
 
 
-def _cli_usage_account_path(run_path: Path) -> Path:
-    return run_path.parent / f".{run_path.name}.llm-usage-account.json"
-
-
-def _cli_accounted_router(
-    settings: LLMSettings, *, operation: str, account_id: str, branch_id: str | None = None
-) -> LLMRouter:
-    """Use one opaque ledger account throughout a prepared CLI Run workflow."""
+def _cli_accounted_router(settings: LLMSettings, *, operation: str, account_id: str) -> LLMRouter:
+    """Use one opaque ledger account throughout a CLI preparation."""
     from sheltersim.llm.accounting import runtime_accounted_router, runtime_usage_store
 
     return runtime_accounted_router(
         runtime_usage_store(os.environ.get("SHELTERSIM_PROJECTS_DIR", "runs/.projects")),
         account_id=account_id,
         operation=operation,
-        branch_id=branch_id,
         settings=settings,
     )
 
@@ -100,8 +89,15 @@ def _positive_int(value: str) -> int:
     return number
 
 
+def _project_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--root", type=Path, default=Path("runs/.projects"), help="the Projects' directory"
+    )
+    parser.add_argument("--project-id", required=True)
+
+
 def build_parser() -> argparse.ArgumentParser:
-    """Build the offline inspection command parser."""
+    """Build the command parser."""
     parser = argparse.ArgumentParser(
         prog="sheltersim",
         description="Shelter operations simulation tools.",
@@ -158,11 +154,14 @@ def build_parser() -> argparse.ArgumentParser:
     capacity_diagnostic.add_argument("--phase", choices=("initial", "long-term"), default="initial")
     evaluation = subparsers.add_parser(
         "evaluate-models",
-        help="run an explicitly requested offline paired model/parameter matrix",
+        help="compute an explicitly requested offline paired model/parameter matrix as Runs",
     )
     evaluation.add_argument("--scenario", required=True, type=Path)
     evaluation.add_argument("--plan", required=True, type=Path)
-    evaluation.add_argument("--output", required=True, type=Path)
+    _project_arguments(evaluation)
+    evaluation.add_argument(
+        "--output", required=True, type=Path, help="new file for the evaluation JSON"
+    )
     evaluation.add_argument("--sources", type=Path)
 
     preview = subparsers.add_parser(
@@ -194,89 +193,58 @@ def build_parser() -> argparse.ArgumentParser:
         help="draft all synthetic profiles and facility events with Opus for review",
     )
 
-    run = subparsers.add_parser("run", help="run one frozen ScenarioSpec")
-    run.add_argument("--offline", action="store_true", help="disable all APIs for this run")
-    run.add_argument(
-        "--llm-mode",
-        choices=[mode.value for mode in LLMMode],
-        help="override SHELTERSIM_LLM_MODE (auto uses Claude when an API key is configured)",
+    run = subparsers.add_parser(
+        "run", help="compute one frozen ScenarioSpec as a Run of a Project (the screen's route)"
     )
-    run.add_argument("--scenario", required=True, type=Path, help="ScenarioSpec or frozen preview")
-    run.add_argument("--output", required=True, type=Path, help="run artifact directory")
+    run.add_argument("--scenario", required=True, type=Path, help="frozen preview of prepare")
+    _project_arguments(run)
+    run.add_argument("--run-id", required=True)
     run.add_argument(
-        "--behavior-policy",
-        choices=(
-            "utility-softmax-v1",
-            "sleep-aware-utility-softmax-v2",
-            "priority-rule-v1",
-        ),
-        help="swap one installed Agent action policy while preserving other scenario inputs",
-    )
-    run.add_argument(
-        "--comparison-report",
-        type=Path,
-        help="optional validated comparison JSON to include in the Opus review",
-    )
-    run.add_argument(
-        "--trace-level",
-        choices=[level.value for level in TraceLevel],
-        default=TraceLevel.SUMMARY.value,
+        "--offline", action="store_true", help="an offline experiment: no Provider is called"
     )
 
-    inspect = subparsers.add_parser("inspect", help="query one run's saved JSON artifacts")
-    inspect.add_argument("--run", required=True, type=Path, help="run artifact directory")
+    inspect = subparsers.add_parser(
+        "inspect", help="read a Run of a Project as the screen reads it"
+    )
+    _project_arguments(inspect)
+    inspect.add_argument("--run-id", required=True)
+    inspect.add_argument("--branch-id", default="main", help="branch of --kpis/--conversations")
     query = inspect.add_mutually_exclusive_group(required=True)
-    query.add_argument("--profiles", action="store_true", help="show every initial profile")
-    query.add_argument("--events", action="store_true", help="show event records")
-    query.add_argument("--agent", help="show one Agent's decision history")
-    query.add_argument("--event", help="show one event's planned and realized records")
-    query.add_argument("--cause", action="store_true", help="show an evidence-linked causal trace")
-    inspect.add_argument(
-        "--planned",
-        action="store_true",
-        help="with --events, show the pre-run event plan instead of realized outcomes",
+    query.add_argument("--record", action="store_true", help="the Run's record and branches")
+    query.add_argument(
+        "--evidence", action="store_true", help="the Run's models, sources and assumptions"
     )
-    inspect.add_argument(
-        "--range",
-        nargs=2,
-        type=int,
-        metavar=("START_MINUTE", "END_MINUTE"),
-        help="inclusive decision-history minute range; requires --agent",
+    query.add_argument("--kpis", action="store_true", help="a page of the branch's KPI rows")
+    query.add_argument(
+        "--conversations", action="store_true", help="the questions asked about the branch"
     )
-    inspect.add_argument("--focus-agent", help="Agent ID to focus a --cause query")
-    inspect.add_argument("--focus-event", help="event ID to focus a --cause query")
+    inspect.add_argument("--start", type=int, help="first minute of --kpis (default: fork)")
+    inspect.add_argument("--end", type=int, help="last minute of --kpis (default: computed)")
+    inspect.add_argument("--step", type=_positive_int, default=1, help="minutes between rows")
+    inspect.add_argument("--limit", type=_positive_int, default=100, help="rows per page")
+    inspect.add_argument("--cursor", help="next_cursor of the previous page")
 
     compare = subparsers.add_parser(
-        "compare", help="compare two saved runs by first KPI divergence and event evidence"
+        "compare", help="compare branches of Runs of a Project by their KPI records"
+    )
+    _project_arguments(compare)
+    compare.add_argument(
+        "--baseline", required=True, nargs="+", help="RUN or RUN/BRANCH, one per seed"
     )
     compare.add_argument(
-        "--baseline", required=True, nargs="+", type=Path, help="one or more baseline run artifacts"
+        "--candidate", required=True, nargs="+", help="RUN or RUN/BRANCH, paired by seed"
     )
-    compare.add_argument(
-        "--candidate", required=True, nargs="+", type=Path, help="paired candidate run artifacts"
-    )
-    compare.add_argument("--output", type=Path, help="write JSON and adjacent Markdown reports")
-    compare.add_argument(
-        "--behavior-policy-comparison",
-        action="store_true",
-        help=(
-            "compare paired runs that differ only by a registered behavior policy; "
-            "input equivalence is checked before KPI/action differences are reported"
-        ),
-    )
+    compare.add_argument("--metric", action="append", help="a KPI to compare (default: all)")
+    compare.add_argument("--output", type=Path, help="write the comparison JSON here")
 
     review = subparsers.add_parser(
-        "review", help="create or update an evidence-bound Opus review for a saved run"
+        "review", help="the review of a computed branch, with the comparisons that include it"
     )
-    review.add_argument("--run", required=True, type=Path, help="saved run artifact directory")
+    _project_arguments(review)
+    review.add_argument("--run-id", required=True)
+    review.add_argument("--branch-id", default="main")
     review.add_argument(
-        "--comparison-report", type=Path, help="optional comparison JSON for branch evidence"
-    )
-    review.add_argument("--offline", action="store_true", help="disable all API calls")
-    review.add_argument(
-        "--llm-mode",
-        choices=[mode.value for mode in LLMMode],
-        help="override SHELTERSIM_LLM_MODE",
+        "--comparison", type=Path, help="a comparison JSON of compare that includes the branch"
     )
 
     web = subparsers.add_parser("web", help="serve the local browser screen (/)")
@@ -473,179 +441,138 @@ def main(argv: Sequence[str] | None = None) -> int:
 
                 result = service_capacity_diagnostic(scenario, phase=arguments.phase)
             else:
+                from sheltersim.experiments.project_runs import project_api
                 from sheltersim.experiments.validation import EvaluationPlan, evaluate_models
 
+                if arguments.output.exists():
+                    raise ValueError("evaluation output exists; prior results are immutable")
                 plan = EvaluationPlan.model_validate(_read_json_object(arguments.plan))
                 sources = _read_json_object(arguments.sources) if arguments.sources else None
-                result = evaluate_models(scenario, plan, arguments.output, source_manifest=sources)
+                with project_api(arguments.root) as api:
+                    result = evaluate_models(
+                        scenario, plan, api, arguments.project_id, source_manifest=sources
+                    )
+                _write_atomic(arguments.output, _json_text(result) + "\n")
             print(_json_text(result))
         except (OSError, ValueError, RuntimeError) as exc:
             parser.error(f"model analysis failed: {exc}")
         return 0
-    if arguments.command == "run":
+    if arguments.command in {"run", "inspect", "compare", "review"}:
         try:
-            scenario = _load_frozen_scenario(arguments.scenario)
-            if arguments.behavior_policy is not None:
-                scenario = scenario.with_behavior_policy_variant(arguments.behavior_policy)
-            settings = LLMSettings.from_env()
-            if arguments.offline:
-                settings = replace(settings, mode=LLMMode.OFFLINE)
-            elif arguments.llm_mode is not None:
-                settings = replace(settings, mode=LLMMode(arguments.llm_mode))
-            # Each Run gets its own allowance under the current settings; the shared
-            # campaign ledger still bounds total spending across all accounts.
-            account_id = _new_cli_account_id("run")
-            llm_router = _cli_accounted_router(
-                settings, operation="runtime", account_id=account_id, branch_id="main"
-            )
-            _write_atomic(
-                _cli_usage_account_path(arguments.output),
-                _json_text({"schema_version": 1, "account_id": account_id}) + "\n",
-            )
-            comparison_report = (
-                _read_json_object(arguments.comparison_report)
-                if arguments.comparison_report is not None
-                else None
-            )
-            world = run_scenario(
-                scenario,
-                arguments.output,
-                trace_level=TraceLevel(arguments.trace_level),
-                llm_router=llm_router,
-                comparison_report=comparison_report,
-            )
-            llm_status = summarize_call_outcomes(llm_router.records)
-            print(
-                _json_text(
-                    {
-                        "run_directory": str(arguments.output),
-                        "scenario_id": world.scenario_id,
-                        "final_minute": world.minute_index,
-                        "world_state_schema_version": world.schema_version,
-                        "final_state_hash": hashlib.sha256(
-                            world.canonical_json().encode("utf-8")
-                        ).hexdigest(),
-                        "llm_status": llm_status,
-                        "psychology_model": selected_models(scenario.model_configs)["psychology"],
-                    }
-                )
-            )
-            _warn_legacy_psychology(scenario)
-            warning = fallback_warning(llm_status)
-            if warning is not None:
-                print(f"warning: {warning}", file=sys.stderr)
+            print(_json_text(_project_command(arguments)))
         except (OSError, ValueError, RuntimeError) as exc:
-            parser.error(f"could not run scenario: {exc}")
-        return 0
-    if arguments.command == "review":
-        try:
-            settings = LLMSettings.from_env()
-            if arguments.offline:
-                settings = replace(settings, mode=LLMMode.OFFLINE)
-            elif arguments.llm_mode is not None:
-                settings = replace(settings, mode=LLMMode(arguments.llm_mode))
-            account_path = _cli_usage_account_path(arguments.run)
-            account_document = (
-                json.loads(account_path.read_text(encoding="utf-8"))
-                if account_path.exists()
-                else {}
-            )
-            account_id = (
-                account_document.get("account_id") if isinstance(account_document, dict) else None
-            )
-            if not isinstance(account_id, str) or not account_id.startswith("cli-"):
-                account_id = _new_cli_account_id("review")
-            router = _cli_accounted_router(
-                settings, operation="review", account_id=account_id, branch_id="main"
-            )
-            comparison_report = (
-                _read_json_object(arguments.comparison_report)
-                if arguments.comparison_report is not None
-                else None
-            )
-            result = review_saved_run(
-                arguments.run,
-                router,
-                comparison_report=comparison_report,
-            )
-            print(
-                _json_text(
-                    {
-                        "run_directory": str(arguments.run),
-                        "review_status": result.status,
-                        "input_hash": result.input_hash,
-                        "review_path": str(arguments.run / "review.md"),
-                    }
-                )
-            )
-        except (OSError, ValueError, RuntimeError) as exc:
-            parser.error(f"could not review run: {exc}")
-        return 0
-    if arguments.command == "compare":
-        try:
-            report = compare_run_sets(
-                arguments.baseline,
-                arguments.candidate,
-                allow_behavior_policy_change=arguments.behavior_policy_comparison,
-            )
-            if arguments.output is not None:
-                _write_atomic(arguments.output, _json_text(report) + "\n")
-                markdown_path = arguments.output.with_suffix(".md")
-                _write_atomic(markdown_path, render_comparison_markdown(report))
-                print(_json_text({"report": str(arguments.output), "markdown": str(markdown_path)}))
-            else:
-                print(_json_text(report))
-        except (OSError, ValueError) as exc:
-            parser.error(f"could not compare runs: {exc}")
-        return 0
-    if arguments.command == "inspect":
-        if arguments.planned and not arguments.events:
-            parser.error("inspect --planned requires --events")
-        if arguments.range is not None and arguments.agent is None:
-            parser.error("inspect --range requires --agent")
-        if (
-            arguments.focus_agent is not None or arguments.focus_event is not None
-        ) and not arguments.cause:
-            parser.error("--focus-agent and --focus-event require --cause")
-        if arguments.cause and (arguments.focus_agent is None) == (arguments.focus_event is None):
-            parser.error("inspect --cause requires exactly one of --focus-agent or --focus-event")
-        try:
-            inspector = RunInspector(arguments.run)
-            if arguments.profiles:
-                result: Any = {"profiles": inspector.profiles()}
-            elif arguments.events:
-                result = {
-                    "events": (
-                        inspector.planned_events()
-                        if arguments.planned
-                        else inspector.realized_events()
-                    ),
-                    "event_type": "planned" if arguments.planned else "realized",
-                }
-            elif arguments.agent is not None:
-                start_minute, end_minute = arguments.range or (None, None)
-                result = {
-                    "agent_id": arguments.agent,
-                    "range": [start_minute, end_minute],
-                    "decisions": inspector.agent_decisions(
-                        arguments.agent,
-                        start_minute=start_minute,
-                        end_minute=end_minute,
-                    ),
-                }
-            elif arguments.cause:
-                result = inspector.causal_trace(
-                    agent_id=arguments.focus_agent,
-                    event_id=arguments.focus_event,
-                )
-            else:
-                result = inspector.event(arguments.event)
-            print(_json_text(result))
-        except (OSError, InspectorQueryError, ValueError) as exc:
-            parser.error(f"could not inspect run: {exc}")
+            parser.error(f"could not {arguments.command}: {exc}")
         return 0
     parser.print_help()
     return 0
+
+
+def _project_command(arguments: argparse.Namespace) -> Any:
+    """`run`, `inspect`, `compare` and `review`: through the screen's routes on a Project (#450,
+    experiments/project_runs.py)."""
+    from sheltersim.experiments.project_runs import compute_run, project_api
+
+    project_id = arguments.project_id
+    with project_api(arguments.root) as api:
+        if arguments.command == "run":
+            scenario = _load_frozen_scenario(arguments.scenario)
+            branch = compute_run(
+                api, project_id, arguments.run_id, scenario, offline=arguments.offline
+            )
+            run = api.get([project_id, "runs", arguments.run_id])
+            usage = api.get([project_id, "runs", arguments.run_id, "usage"])
+            llm_status = usage.get("outcomes", {"status": "not_requested"})
+            _warn_legacy_psychology(scenario)
+            warning = fallback_warning(llm_status) if "outcomes" in usage else None
+            if warning is not None:
+                print(f"warning: {warning}", file=sys.stderr)
+            return {
+                "project_id": project_id,
+                "run_id": arguments.run_id,
+                "scenario_id": run["scenario_id"],
+                "scenario_version": run["scenario_version"],
+                "scenario_hash": run["scenario_hash"],
+                "branch": branch,
+                "llm_status": llm_status,
+                "psychology_model": selected_models(scenario.model_configs)["psychology"],
+            }
+        if arguments.command == "compare":
+            from sheltersim.experiments.comparison import compare_runs
+
+            report = compare_runs(
+                api,
+                project_id,
+                arguments.baseline,
+                arguments.candidate,
+                metrics=arguments.metric,
+            )
+            if arguments.output is None:
+                return report
+            _write_atomic(arguments.output, _json_text(report) + "\n")
+            return {"report": str(arguments.output)}
+        run = [project_id, "runs", arguments.run_id]
+        branch = [*run, "branches", arguments.branch_id]
+        if arguments.command == "review":
+            comparisons = []
+            if arguments.comparison is not None:
+                comparisons = _comparisons_of(
+                    _read_json_object(arguments.comparison),
+                    project_id,
+                    arguments.run_id,
+                    arguments.branch_id,
+                )
+            return {
+                "project_id": project_id,
+                "run_id": arguments.run_id,
+                "branch_id": arguments.branch_id,
+                "report": api.get([*branch, "report"]),
+                "comparisons": comparisons,
+            }
+        if arguments.command == "inspect" and not arguments.kpis:
+            if any(
+                value is not None for value in (arguments.start, arguments.end, arguments.cursor)
+            ):
+                raise ValueError("--start, --end and --cursor read --kpis")
+        if arguments.record:
+            return api.get(run)
+        if arguments.evidence:
+            return api.get([*run, "evidence"])
+        if arguments.conversations:
+            return api.get([*branch, "conversations"])
+        from sheltersim.experiments.project_runs import branch_record
+
+        record = branch_record(api, project_id, arguments.run_id, arguments.branch_id)
+        query = {
+            "kind": "kpis",
+            "start": record["fork_minute"] if arguments.start is None else arguments.start,
+            "end": record["computed_until"] if arguments.end is None else arguments.end,
+            "step": arguments.step,
+            "limit": arguments.limit,
+        }
+        if arguments.cursor is not None:
+            query["cursor"] = arguments.cursor
+        return api.get([*branch, "history"], urlencode(query))
+
+
+def _comparisons_of(
+    report: dict[str, Any], project_id: str, run_id: str, branch_id: str
+) -> list[dict[str, Any]]:
+    """The pairs of a comparison of `compare` that include the branch."""
+    if report.get("schema_version") != 1 or not isinstance(report.get("pairs"), list):
+        raise ValueError("the comparison is not one of compare")
+    if report.get("project_id") != project_id:
+        raise ValueError("the comparison is of another Project")
+    pairs = [
+        pair
+        for pair in report["pairs"]
+        if any(
+            (pair[side]["run_id"], pair[side]["branch_id"]) == (run_id, branch_id)
+            for side in ("baseline", "candidate")
+        )
+    ]
+    if not pairs:
+        raise ValueError("the comparison does not include the branch")
+    return pairs
 
 
 def _scenario_preview(

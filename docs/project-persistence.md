@@ -1,6 +1,6 @@
 # Projectの永続化、正確な時刻、復旧
 
-Web server（`sheltersim web`、ローカル版・VM版）はRUNS_DIR/.projectsを開き、ProjectAPI（`src/sheltersim/web/projects.py`）経由で/api/v1/projectsを提供します。#427から、記録と計算の結果は**ブラウザー版と同じ置き場と形**（形v5、`sheltersim-run-v5`）です。Projectのフォルダーの中身（`project.json`、Scenarioの版、`run.json`、`evidence.json`、Branchごとの`branch.json`・`journal.jsonl`・`data.pack`）は下の「ブラウザーのProject記録と1つのファイル」の表のとおりで、Rustの置き場（`native/store`、下の「ディスクの置き場」）が書き、読みます。答えは中核の関数（`sheltersim_core::answers`、#449）が作り、ブラウザーと1 byteも違いません。Pythonに残るのは、要求の振り分け、答えに要るファイルを読むこと、計算の順番、どのRunをどの分に持っておくか（ブラウザーのJSと同じ役目）と、Pythonだけが作るもの（文章からのScenario、`scenario-preview`）です。
+Web server（`sheltersim web`、ローカル版・VM版）はRUNS_DIR/.projectsを開き、ProjectAPI（`src/sheltersim/web/projects.py`）経由で/api/v1/projectsを提供します。#427から、記録と計算の結果は**ブラウザー版と同じ置き場と形**（形v6、`sheltersim-run-v6`）です。Projectのフォルダーの中身（`project.json`、Scenarioの版、`run.json`、`evidence.json`、Branchごとの`branch.json`・`journal.jsonl`・`data.pack`）は下の「ブラウザーのProject記録と1つのファイル」の表のとおりで、Rustの置き場（`native/store`、下の「ディスクの置き場」）が書き、読みます。答えは中核の関数（`sheltersim_core::answers`、#449）が作り、ブラウザーと1 byteも違いません。Pythonに残るのは、要求の振り分け、答えに要るファイルを読むこと、計算の順番、どのRunをどの分に持っておくか（ブラウザーのJSと同じ役目）と、Pythonだけが作るもの（文章からのScenario、`scenario-preview`）です。
 
 - **Runを作る**（`POST {project}/runs`、`scenario-approve`）：承認したScenarioを新しい版として保存し、Runの記録（`model_versions`と`evidence.json`はPythonが作ります）と、Branch `main` の0分（Runが作る0分の世界の書き出し、`export`の行）を保存します。Scenario版とRun入力は不変です。
 - **計算**（`POST R/resume`、`cancel`）：Branchの先頭（記録の`checkpoint_hash`が指す目録の行）から、中核の`PlainRun`で60 tickずつ計算し（`web/worker_process.py`）、360分ごと、目標の分、時計の終わりに保存する点を書いて、Branchの記録をそこへ進めます。記録が計算の確定点で、その後ろの行は次の計算の始めに切り落とします。Webサーバーでは計算1回ごとに別のプロセス（spawn）で、上限（`--max-parallel-runs`、既定2）まで同時に計算します。CLIとテスト（`ProjectAPI(worker="thread")`）は同じプロセスのスレッドで1つずつ計算します。中止はチャンクの間で止まり、その分に保存する点を書きます。チャンクのtickは置き場のtransaction（`.lock`）の外で進め、そのチャンクのファイルを書くとき（保存する点、Branchの記録の移動）だけtransactionを持ちます（`Computation.advance`と`store`）。APIキーのあるRunでは、tickの中のLLMの呼び出しが利用の記録（`UsageLedger.reserve`）のために同じtransactionを取るためです。transactionを持ったままtickを進めると、同じプロセスの中で自分の持つlockを待ち続けていました（#465）。分岐を書くのはwriterのlease（`worker-lock`）を持つ1つの計算だけなので、tickの間にほかの書き手が入ることはありません。
@@ -40,7 +40,7 @@ approved hashは確認した正準ScenarioSpecそのものに結び付きます�
 | `project.json` | `schema_version`、`project_id`、`archived`（アーカイブは#376でなくしたので、いつも`false`） |
 | `scenarios/<scenario>/v<n>.json` | Scenarioの記録（`schema_version`、`scenario_id`、`scenario_version`、`scenario_hash`、`approved`）。Scenario自体は持たない |
 | `scenarios/<scenario>/v<n>.scenario.json` | Pythonが書いたScenarioの正準JSONのbytes。sha256が`scenario_hash` |
-| `runs/<run>/run.json` | Runの記録（Pythonの`RunReference`の欄と`status`、`archived`） |
+| `runs/<run>/run.json` | Runの記録（Pythonの`RunReference`の欄と`status`、`archived`、`created_at`）。`schema_version`は2で、`created_at`はRunを作った時刻（UTC、秒まで、`YYYY-MM-DDTHH:MM:SSZ`、#447）。時刻は作る側が渡します（ブラウザーは`ScenarioRoutes`の`now`、ローカル版・VM版は`ProjectAPI`の`clock`）。#447より前の記録は`schema_version`1で`created_at`を持たず、そのまま読みます |
 | `runs/<run>/evidence.json` | Pythonのserverが`runs/{run}/evidence`に返すJSONのbytes（`evidence_context`と、その道が足す一覧） |
 | `runs/<run>/branches/<branch>/branch.json` | Branchの記録（Pythonの`BranchReference`の欄と`status`） |
 | `runs/<run>/branches/<branch>/journal.jsonl`、`data.pack` | Branchの保存したRun（#252。形は中核の`sheltersim_core::run_store`、読み書きは`run_store.mjs`） |

@@ -25,6 +25,7 @@ import json
 import re
 import runpy
 import tempfile
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -38,6 +39,7 @@ CHILD = "c1"
 FORK_MINUTE = 400
 PREVIEW = "PREVIEW"
 HEAD = "HEAD"
+CREATED_AT = datetime(2026, 11, 15, 1, 30, tzinfo=UTC)
 
 # Bodies of `intervention-preview` on main; the first one is applied.
 PREVIEWS: list[str] = [
@@ -194,7 +196,8 @@ def interventions_fixture() -> dict[str, Any]:
     branch = ["sample", "runs", RUN_ID, "branches"]
     with tempfile.TemporaryDirectory(prefix="interventions-") as scratch, _isolated(Path(scratch)):
         store = ProjectStore(Path(scratch) / "projects")
-        api = ProjectAPI(store, worker="process", recover=False)
+        # The Run's creation time the browser's test gives its Run (#447).
+        api = ProjectAPI(store, worker="process", recover=False, clock=lambda: CREATED_AT)
         api.workspace.research.research = sample["_no_research"]
 
         def heads() -> dict[str, str]:

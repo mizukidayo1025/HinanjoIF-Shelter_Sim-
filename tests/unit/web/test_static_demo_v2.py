@@ -1,5 +1,6 @@
 """Exercise the real polling callback with stable/changed saved frame targets."""
 
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -236,9 +237,10 @@ for (const [given, url] of [
     )
 
 
-def test_runs_are_named_as_scenarios_and_runs_of_the_same_conditions_apart():
-    """The screen calls a Run a シナリオ by its conditions (#373); Runs of the same conditions
-    are told apart by their seed, then by the end of their id."""
+def test_runs_are_named_as_scenarios_and_own_runs_of_the_same_conditions_by_when_made():
+    """The screen calls a Run a シナリオ by its conditions (#373). One's own Runs of the same
+    conditions are told apart by when they were made, in local time (#447); a Run made before
+    #447 has no creation time and no suffix; an example's Runs have none either."""
     node = shutil.which("node")
     if node is None:
         pytest.skip("Node is required for the UI callback regression")
@@ -251,27 +253,39 @@ const take = (name, next) => source.split(`  function ${name}(`)[1].split(`  ${n
 const num = (n) => String(n);
 const disasterName = (d) => ({earthquake: "地震"})[d] || d;
 const runTitle = eval("(function runTitle(" + take("runTitle", "// The screen calls") + ")");
-const runNames = eval("(function runNames(" + take("runNames", "// How far") + ")");
+const runNames = eval("(function runNames(" + take("runNames", "// When a Run was made") + ")");
+const createdLabel = eval("(function createdLabel(" + take("createdLabel", "// How far") + ")");
 const scenario = (id, people) => ({scenario_id: id, scenario_version: 1, scenario: {
   duration_minutes: 10080, profiles: Array(people).fill({}),
   provenance: {natural_language_input: {municipality: "墨田区", disaster: "earthquake"}}}});
 const scenarios = [scenario("s1", 100), scenario("s2", 20)];
-const run = (id, sid, seed) => ({run_id: id, scenario_id: sid, scenario_version: 1, seed});
-const names = runNames([run("run-aaaa1", "s1", 1), run("run-bbbb2", "s1", 1),
-  run("run-cccc3", "s1", 2), run("run-dddd4", "s2", 1)], scenarios);
-assert.deepEqual([...names.values()], [
-  "墨田区 · 地震 · 100人 · 7日間 · seed 1 · aaa1",
-  "墨田区 · 地震 · 100人 · 7日間 · seed 1 · bbb2",
-  "墨田区 · 地震 · 100人 · 7日間 · seed 2",
+const run = (id, sid, created_at) =>
+  ({run_id: id, scenario_id: sid, scenario_version: 1, seed: 2026, created_at});
+const runs = [run("run-aaaa1", "s1", "2026-11-15T01:30:00Z"),
+  run("run-bbbb2", "s1", "2026-11-16T14:05:59Z"), run("run-cccc3", "s1", undefined),
+  run("run-dddd4", "s2", "2026-11-15T01:30:00Z")];
+assert.deepEqual([...runNames(runs, scenarios).values()], [
+  "墨田区 · 地震 · 100人 · 7日間 · 11/15 10:30 作成",
+  "墨田区 · 地震 · 100人 · 7日間 · 11/16 23:05 作成",
+  "墨田区 · 地震 · 100人 · 7日間",
   "墨田区 · 地震 · 20人 · 7日間",
 ]);
-for (const name of names.values()) assert.doesNotMatch(name, /Run|Branch/);
+assert.deepEqual([...runNames(runs, scenarios, {example: true}).values()], [
+  "墨田区 · 地震 · 100人 · 7日間",
+  "墨田区 · 地震 · 100人 · 7日間",
+  "墨田区 · 地震 · 100人 · 7日間",
+  "墨田区 · 地震 · 20人 · 7日間",
+]);
+for (const name of runNames(runs, scenarios).values()) {
+  assert.doesNotMatch(name, /Run|Branch|seed|aaa1|bbb2/);
+}
 """
     subprocess.run(
         [node, "--input-type=module", "-e", script, str(source)],
         check=True,
         capture_output=True,
         text=True,
+        env={**os.environ, "TZ": "Asia/Tokyo"},
     )
 
 

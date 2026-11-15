@@ -33,7 +33,15 @@ fn a_computation_past_the_limit_stops_with_its_lines_whole() {
     let engine = engine();
     open.create_run(
         "p",
-        &NewRun { run_id: "r", scenario_id: "s", scenario_version: 1, seed: 1, model_versions: &engine, evidence: br#"{"schema_version":1}"# },
+        &NewRun {
+            run_id: "r",
+            scenario_id: "s",
+            scenario_version: 1,
+            seed: 1,
+            model_versions: &engine,
+            evidence: br#"{"schema_version":1}"#,
+            created_at: "2026-11-15T01:30:00Z",
+        },
     )
     .unwrap();
     // Room for half the stored Run.

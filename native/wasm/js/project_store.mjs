@@ -287,6 +287,39 @@ const scenarioPath = (project, scenario) => [checkId(project), "scenarios", chec
 const runPath = (project, run) => [checkId(project), "runs", checkId(run)];
 const branchPath = (project, run, branch) => [...runPath(project, run), "branches", checkId(branch)];
 
+/// The schema version of the Run records the store writes: 2 adds `created_at` (#447).
+export const RUN_SCHEMA_VERSION = 2;
+/// A Run's creation time as `run.json` keeps it: UTC to the second.
+const CREATED_AT = /^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$/;
+
+/// A creation time for a new Run from a `Date`: UTC to the second (`YYYY-MM-DDTHH:MM:SSZ`).
+export function createdAtOf(date) {
+  return `${date.toISOString().slice(0, 19)}Z`;
+}
+
+/// A Run's record (`run.json`): schema version 1, or 2 with its `created_at` (#447).
+function parseRunRecord(bytes) {
+  let value;
+  try {
+    value = JSON.parse(decoder.decode(bytes));
+  } catch {
+    fail("saved artifact is missing or corrupt");
+  }
+  if (value === null || typeof value !== "object" || Array.isArray(value) || (value.schema_version !== 1 && value.schema_version !== RUN_SCHEMA_VERSION)) {
+    fail("unsupported saved artifact version; migration required");
+  }
+  if (value.schema_version === RUN_SCHEMA_VERSION && !(typeof value.created_at === "string" && CREATED_AT.test(value.created_at))) {
+    fail("saved artifact is missing or corrupt");
+  }
+  return value;
+}
+
+async function readRunRecord(tree, projectId, runId) {
+  const bytes = await tree.read([...runPath(projectId, runId), "run.json"]);
+  if (bytes === null) fail("saved artifact is missing or corrupt");
+  return parseRunRecord(bytes);
+}
+
 function parseRecord(bytes) {
   let value;
   try {
@@ -383,10 +416,10 @@ export async function scenarios(tree, projectId) {
 }
 
 /// Creates a Run of a saved Scenario revision, queued: `seed` and `modelVersions` as Python's
-/// RunReference has them (the Scenario's seed, `model_signatures(scenario.model_configs)`), and
-/// `evidenceBytes` the JSON of `evidence_context(scenario)`. An existing Run of the same Scenario
-/// revision is returned as it is.
-export async function createRun(tree, projectId, { runId, scenarioId, scenarioVersion, seed, modelVersions, evidenceBytes }) {
+/// RunReference has them (the Scenario's seed, `model_signatures(scenario.model_configs)`),
+/// `evidenceBytes` the JSON of `evidence_context(scenario)`, and `createdAt` the caller's clock
+/// (`createdAtOf`). An existing Run of the same Scenario revision is returned as it is.
+export async function createRun(tree, projectId, { runId, scenarioId, scenarioVersion, seed, modelVersions, evidenceBytes, createdAt }) {
   await readRecord(tree, [checkId(projectId), "project.json"]);
   if (!Number.isSafeInteger(scenarioVersion) || scenarioVersion < 1) fail("invalid scenario revision");
   const scenario = await readRecord(tree, [...scenarioPath(projectId, scenarioId), `v${scenarioVersion}.json`]);
@@ -394,17 +427,18 @@ export async function createRun(tree, projectId, { runId, scenarioId, scenarioVe
   if (modelVersions === null || typeof modelVersions !== "object" || Object.values(modelVersions).some((value) => typeof value !== "string")) {
     fail("invalid model versions");
   }
+  if (typeof createdAt !== "string" || !CREATED_AT.test(createdAt)) fail("invalid creation time");
   const path = [...runPath(projectId, runId), "run.json"];
   const old = await tree.read(path);
   if (old !== null) {
-    const run = parseRecord(old);
+    const run = parseRunRecord(old);
     if (run.scenario_id !== scenarioId || run.scenario_version !== scenarioVersion) fail("run_id_conflict");
     return run;
   }
   parseRecord(evidenceBytes);
   await tree.write([...runPath(projectId, runId), "evidence.json"], evidenceBytes);
   const run = {
-    schema_version: 1,
+    schema_version: RUN_SCHEMA_VERSION,
     project_id: projectId,
     scenario_id: scenarioId,
     scenario_version: scenarioVersion,
@@ -414,6 +448,7 @@ export async function createRun(tree, projectId, { runId, scenarioId, scenarioVe
     model_versions: modelVersions,
     status: "queued",
     archived: false,
+    created_at: createdAt,
   };
   await tree.write(path, recordBytes(run));
   return run;
@@ -423,7 +458,7 @@ export async function createRun(tree, projectId, { runId, scenarioId, scenarioVe
 export async function setRunStatus(tree, projectId, runId, status) {
   if (!STATUSES.has(status)) fail("unsupported run status");
   const path = [...runPath(projectId, runId), "run.json"];
-  const run = await readRecord(tree, path);
+  const run = await readRunRecord(tree, projectId, runId);
   await tree.write(path, recordBytes({ ...run, status }));
   return { ...run, status };
 }
@@ -456,7 +491,7 @@ export async function writeBranch(tree, projectId, runId, branch) {
     ...(branch.status === null ? {} : { status: branch.status }),
   };
   checkBranch(record, runId);
-  await readRecord(tree, [...runPath(projectId, runId), "run.json"]);
+  await readRunRecord(tree, projectId, runId);
   if (record.parent_branch_id !== null) await readRecord(tree, [...branchPath(projectId, runId, record.parent_branch_id), "branch.json"]);
   const path = [...branchPath(projectId, runId, record.branch_id), "branch.json"];
   const old = await tree.read(path);
@@ -487,7 +522,7 @@ export async function branchRecord(tree, projectId, runId, branchId) {
 
 /// The Scenario of a Run, as the bytes Python wrote (#266).
 export async function runScenarioBytes(tree, projectId, runId) {
-  const run = await readRecord(tree, [...runPath(projectId, runId), "run.json"]);
+  const run = await readRunRecord(tree, projectId, runId);
   const bytes = await tree.read([...scenarioPath(projectId, run.scenario_id), `v${run.scenario_version}.scenario.json`]);
   if (bytes === null) fail("saved artifact is missing or corrupt");
   return bytes;
@@ -536,7 +571,7 @@ async function headOf(wasm, backend) {
 /// writes its record: computed to the minute the Run reached, its head the journal's end line,
 /// completed when the clock is.
 export async function computeBranch({ wasm, tree, projectId, runId, branchId, parentBranchId = null, forkMinute = 0, run }) {
-  const { model_versions: modelVersions } = await readRecord(tree, [...runPath(projectId, runId), "run.json"]);
+  const { model_versions: modelVersions } = await readRunRecord(tree, projectId, runId);
   await writeBranch(tree, projectId, runId, { branch_id: branchId, parent_branch_id: parentBranchId, fork_minute: forkMinute, status: "running" });
   const backend = await branchBackend(tree, projectId, runId, branchId);
   let ran;
@@ -709,7 +744,7 @@ export async function runIds(tree, projectId) {
 /// Removes a Run and everything in its folder (`POST runs/{run}/delete`, #376); its records are
 /// read first, so a Run that is not there is refused as Python's store refuses it.
 export async function removeRun(tree, projectId, runId) {
-  await readRecord(tree, [...runPath(projectId, runId), "run.json"]);
+  await readRunRecord(tree, projectId, runId);
   await tree.remove(runPath(projectId, runId));
 }
 
@@ -898,7 +933,13 @@ async function checkRecords(projectId, entries) {
     } else if (kind.kind === "scenario_text") {
       if (!entries.has(`scenarios/${kind.scenarioId}/v${kind.version}.json`)) invalid(`${path} has no record`);
     } else if (kind.kind === "run") {
-      runs.set(kind.runId, { run: record(path), branches: [] });
+      let run;
+      try {
+        run = parseRunRecord(entries.get(path));
+      } catch (error) {
+        invalid(`${path}: ${error.message}`);
+      }
+      runs.set(kind.runId, { run, branches: [] });
     }
   }
   for (const [runId, { run }] of runs) {

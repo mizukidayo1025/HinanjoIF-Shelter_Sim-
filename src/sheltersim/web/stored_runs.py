@@ -14,6 +14,7 @@ whether it is an offline experiment. A Run without the file is the screen's offl
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 from typing import Any
 
 from sheltersim import native
@@ -73,6 +74,14 @@ def llm_settings(store: ProjectStore, project_id: str, run_id: str) -> dict[str,
     return store._read(path) if path.exists() else None
 
 
+def created_at_of(moment: datetime) -> str:
+    """A Run's creation time as `run.json` keeps it (#447): UTC to the second,
+    `YYYY-MM-DDTHH:MM:SSZ`; a naive `moment` is taken as UTC."""
+    if moment.tzinfo is not None:
+        moment = moment.astimezone(UTC)
+    return moment.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 def start_run(
     store: ProjectStore,
     files: Any,
@@ -82,10 +91,12 @@ def start_run(
     scenario_version: int,
     *,
     llm: dict[str, Any] | None = None,
+    created_at: str | None = None,
 ) -> None:
     """Creates a Run of a saved Scenario revision and stores its branch `main` at minute 0 (the
     browser's `POST runs`). `llm` is what `llm.json` keeps, for a Run that calls a Provider.
-    A Run whose branch `main` could not be stored is `failed`."""
+    `created_at` is when the Run is created, UTC to the second (`YYYY-MM-DDTHH:MM:SSZ`, #447);
+    by default the clock's now. A Run whose branch `main` could not be stored is `failed`."""
     import sheltersim_native
 
     with files.transaction():
@@ -109,6 +120,7 @@ def start_run(
             seed,
             versions,
             evidence,
+            created_at or created_at_of(datetime.now(UTC)),
         )
         if llm is not None:
             store._write(store._path(project_id, "runs", run_id, LLM_FILE), llm, immutable=True)

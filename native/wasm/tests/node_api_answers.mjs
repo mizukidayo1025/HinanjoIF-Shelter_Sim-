@@ -72,6 +72,7 @@ await store.createRun(tree, projectId, {
   seed: fixture.run.seed,
   modelVersions: {},
   evidenceBytes: encoder.encode('{"schema_version":1}'),
+  createdAt: "2026-11-15T01:30:00Z",
 });
 let started = performance.now();
 const { record } = await store.computeBranch({ wasm, tree, projectId, runId, branchId, run: { exportBytes: raw, world: "history", ticks: 60 } });

@@ -2157,10 +2157,8 @@ h2 {
   align-items: center;
 }
 .simulation-side {
-  height: calc(var(--map-height) + 80px);
   max-height: none;
   overflow: hidden;
-  grid-template-rows: 165px minmax(185px, 1fr) 140px;
   gap: 10px;
 }
 .simulation-side:not(.has-intervention) .checkbox,
@@ -2632,12 +2630,6 @@ h2 {
   .simulation-side h2 {
     font-size: 17px;
   }
-  .simulation-side {
-    grid-template-rows: minmax(200px, 1fr) minmax(230px, 1.5fr) minmax(
-        160px,
-        1fr
-      );
-  }
   .simulation-side .issue {
     font-size: 13px;
     padding: 11px;
@@ -3000,8 +2992,18 @@ h2 {
 }
 
 /* 避難者・スタッフの状態パネルを広げ、文字を大きく */
+/* 地図の右の2つの欄（課題・人物、#496）は、地図の欄の高さまで伸ばす（1列になる幅では並べるだけ） */
 .simulation-side {
-  grid-template-rows: 140px minmax(170px, 1fr) minmax(240px, 1.2fr);
+  grid-template-rows: minmax(140px, 0.8fr) minmax(240px, 1.2fr);
+}
+@media (max-width: 900px) {
+  .simulation-side {
+    grid-template-rows: auto;
+  }
+}
+.simulation-side .people-panel {
+  display: flex;
+  flex-direction: column;
 }
 .simulation-side #person-detail {
   font-size: 13px;
@@ -3011,7 +3013,10 @@ h2 {
   font-size: 12px;
 }
 .simulation-side .people-list {
-  max-height: 150px;
+  max-height: none;
+  flex: 1 1 150px;
+  min-height: 150px;
+  align-content: flex-start;
   gap: 6px;
 }
 .simulation-side .person-chip {
@@ -3276,6 +3281,7 @@ h2 {
 }
 .people-panel.expanded .people-list {
   max-height: none;
+  flex: none;
 }
 .people-panel.expanded .person-chip {
   font-size: 14px;

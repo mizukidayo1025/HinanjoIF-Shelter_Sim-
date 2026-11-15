@@ -14,9 +14,10 @@ use pyo3::create_exception;
 use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
-use sheltersim_core::answers::{records, routes, Failure};
+use sheltersim_core::answers::{history, records, report, routes, Failure};
+use sheltersim_core::history::KpiTable;
 
-use crate::core::errors::to_py_err;
+use crate::core::errors::{to_py_err, OrPy};
 
 create_exception!(sheltersim_native.rules.answers, Refused, PyException, "A refusal of a request: (status, error, code, body).");
 
@@ -151,7 +152,95 @@ fn delete_answer<'py>(
     bytes(py, routes::delete_answer(project_id, run_id, body.as_deref(), active, &run_files(run, branches)))
 }
 
+/// A branch's metric samples read back (`history::KpiTable`): its stored Run's "sample_tables"
+/// and "sample_block" pieces, decompressed, in the order of its journal.
+#[pyclass(name = "KpiTable", module = "sheltersim_native.rules.answers")]
+#[derive(Default)]
+pub struct PyKpiTable {
+    table: KpiTable,
+}
+
+#[pymethods]
+impl PyKpiTable {
+    #[new]
+    fn new() -> Self {
+        Self::default()
+    }
+
+    fn read_sample_tables(&mut self, raw: &[u8]) -> PyResult<()> {
+        self.table.read_tables(raw).or_py()
+    }
+
+    /// How many samples the block held.
+    fn read_sample_block(&mut self, raw: &[u8]) -> PyResult<usize> {
+        self.table.read_block(raw).or_py()
+    }
+
+    /// How many samples were read.
+    fn sample_count(&self) -> usize {
+        self.table.len()
+    }
+}
+
+/// A history request the server takes (`answers::history::HistoryPlan`): `history_plan` checks
+/// it; the caller reads the branch's samples where it has a head (`anchor`), and `answer` writes
+/// the page.
+#[pyclass(name = "HistoryPlan", module = "sheltersim_native.rules.answers")]
+pub struct PyHistoryPlan {
+    plan: history::HistoryPlan,
+}
+
+#[pymethods]
+impl PyHistoryPlan {
+    /// The branch's head, or None for a branch without one (whose answer reads no samples).
+    fn anchor(&self) -> Option<String> {
+        self.plan.anchor().map(str::to_owned)
+    }
+
+    /// The answer, from the branch's samples read back (an empty table without a head).
+    fn answer<'py>(&self, py: Python<'py>, table: &PyKpiTable) -> PyResult<Bound<'py, PyBytes>> {
+        bytes(py, self.plan.answer(&table.table))
+    }
+}
+
+/// `GET …/branches/{branch}/history`, its checks: `query` the text after "?", `branch` the bytes
+/// of the branch's `branch.json`.
+#[pyfunction]
+#[pyo3(signature = (query, project_id, run_id, branch_id, branch))]
+fn history_plan(query: &str, project_id: &str, run_id: &str, branch_id: &str, branch: Option<Vec<u8>>) -> PyResult<PyHistoryPlan> {
+    Ok(PyHistoryPlan { plan: history::HistoryPlan::new(query, project_id, run_id, branch_id, branch.as_deref()).map_err(failed)? })
+}
+
+/// `GET …/branches/{branch}/report`, from what is kept (`branch.json`, `report.json`): the kept
+/// report as it is, `{"status":"not_generated"}`, or None: make it (`build_report`).
+#[pyfunction]
+#[pyo3(signature = (query, project_id, run_id, branch_id, branch, kept))]
+fn report_answer<'py>(
+    py: Python<'py>,
+    query: &str,
+    project_id: &str,
+    run_id: &str,
+    branch_id: &str,
+    branch: Option<Vec<u8>>,
+    kept: Option<Vec<u8>>,
+) -> PyResult<Option<Bound<'py, PyBytes>>> {
+    let answer = report::report_answer(query, project_id, run_id, branch_id, branch.as_deref(), kept.as_deref()).map_err(failed)?;
+    Ok(answer.map(|bytes| PyBytes::new(py, &bytes)))
+}
+
+/// The report of a Run at its last minute (`answers::report::build_report`), for the Scenario's
+/// JSON bytes and the branch `branch_id`.
+#[pyfunction]
+fn build_report<'py>(py: Python<'py>, run: &crate::rules::plain::PlainRun, scenario: &[u8], branch_id: &str) -> PyResult<Bound<'py, PyBytes>> {
+    bytes(py, report::build_report(run.core(), scenario, branch_id))
+}
+
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_class::<PyKpiTable>()?;
+    m.add_class::<PyHistoryPlan>()?;
+    m.add_function(wrap_pyfunction!(history_plan, m)?)?;
+    m.add_function(wrap_pyfunction!(report_answer, m)?)?;
+    m.add_function(wrap_pyfunction!(build_report, m)?)?;
     m.add("Refused", m.py().get_type::<Refused>())?;
     m.add_function(wrap_pyfunction!(is_artifact_id, m)?)?;
     m.add_function(wrap_pyfunction!(projects_answer, m)?)?;

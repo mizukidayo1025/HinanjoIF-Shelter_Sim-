@@ -17,8 +17,10 @@
 //! read 400. Anything else is the core's `Error`: the server's 500, but a stored Run of an older
 //! format, 409 `stored_run_outdated` (`Failure::from`).
 
+pub mod history;
 pub mod query;
 pub mod records;
+pub mod report;
 pub mod routes;
 
 use std::fmt;
@@ -212,8 +214,8 @@ pub fn js_safe_integer(value: &Value) -> Option<i64> {
     js_integer(value).filter(|number| number.abs() <= 9_007_199_254_740_991.0).map(|number| number as i64)
 }
 
-/// Whether JS's `trim` removes the character: its WhiteSpace and LineTerminator.
-fn js_space(c: char) -> bool {
+/// Whether JS's `trim` removes the character (and `\s` takes it): its WhiteSpace and LineTerminator.
+pub fn js_space(c: char) -> bool {
     matches!(
         c,
         '\t' | '\n' | '\u{b}' | '\u{c}' | '\r' | ' ' | '\u{a0}' | '\u{1680}' | '\u{2000}'
@@ -235,6 +237,100 @@ pub fn js_trim(text: &str) -> &str {
 /// `TextDecoder("utf-8", { fatal: true })`): an error of the core otherwise.
 pub fn utf8(bytes: &[u8]) -> Answer<&str> {
     std::str::from_utf8(bytes).map_err(|_| Failure::Error(Error::Type("The encoded data was not valid for encoding utf-8".to_owned())))
+}
+
+/// A JSON object written with its keys sorted (Python's `json.dumps(sort_keys=True)`): each field
+/// its key and its value's JSON text.
+#[derive(Default)]
+pub struct Obj {
+    fields: Vec<(String, Vec<u8>)>,
+}
+
+impl Obj {
+    pub fn new() -> Self {
+        Obj::default()
+    }
+
+    /// A field of JSON text written already.
+    pub fn raw(&mut self, key: &str, json: impl Into<Vec<u8>>) -> &mut Self {
+        self.fields.push((key.to_owned(), json.into()));
+        self
+    }
+
+    pub fn str(&mut self, key: &str, text: &str) -> &mut Self {
+        let mut out = Vec::with_capacity(text.len() + 2);
+        write_json_string(&mut out, text);
+        self.raw(key, out)
+    }
+
+    pub fn opt_str(&mut self, key: &str, text: Option<&str>) -> &mut Self {
+        match text {
+            Some(text) => self.str(key, text),
+            None => self.raw(key, b"null".to_vec()),
+        }
+    }
+
+    pub fn int(&mut self, key: &str, number: i64) -> &mut Self {
+        self.raw(key, number.to_string().into_bytes())
+    }
+
+    pub fn bool(&mut self, key: &str, flag: bool) -> &mut Self {
+        self.raw(key, if flag { b"true".to_vec() } else { b"false".to_vec() })
+    }
+
+    pub fn null(&mut self, key: &str) -> &mut Self {
+        self.raw(key, b"null".to_vec())
+    }
+
+    pub fn object(&mut self, key: &str, object: Obj) -> &mut Self {
+        let json = object.finish();
+        self.raw(key, json)
+    }
+
+    /// The object's JSON: keys by their code points (the order of their UTF-8 bytes).
+    pub fn finish(mut self) -> Vec<u8> {
+        self.fields.sort_by(|a, b| a.0.as_bytes().cmp(b.0.as_bytes()));
+        let mut out = Vec::with_capacity(self.fields.iter().map(|(key, value)| key.len() + value.len() + 4).sum::<usize>() + 2);
+        out.push(b'{');
+        for (index, (key, value)) in self.fields.iter().enumerate() {
+            if index > 0 {
+                out.push(b',');
+            }
+            write_json_string(&mut out, key);
+            out.push(b':');
+            out.extend_from_slice(value);
+        }
+        out.push(b'}');
+        out
+    }
+}
+
+/// A JSON list of texts written already.
+pub fn list(items: impl IntoIterator<Item = Vec<u8>>) -> Vec<u8> {
+    let mut out = vec![b'['];
+    for (index, item) in items.into_iter().enumerate() {
+        if index > 0 {
+            out.push(b',');
+        }
+        out.extend_from_slice(&item);
+    }
+    out.push(b']');
+    out
+}
+
+/// A JSON string's text.
+pub fn string(text: &str) -> Vec<u8> {
+    let mut out = Vec::with_capacity(text.len() + 2);
+    write_json_string(&mut out, text);
+    out
+}
+
+/// The sha256 of bytes, as hex.
+pub use crate::checkpoint::sha256_hex;
+
+/// The number of a string's code points (Python's `len`).
+pub fn code_points(text: &str) -> usize {
+    text.chars().count()
 }
 
 // ---- A POST's body ------------------------------------------------------------------------------

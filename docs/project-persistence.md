@@ -120,7 +120,7 @@ Pythonの欄のうち、ブラウザーで意味が変わるもの：
 
 ## ブラウザーの時系列・レポート・LLMの状態（#266）
 
-ブラウザー版は、Branchの`GET …/history?kind=kpis`、`GET …/report`、`GET …/llm-status`に、同じRunにPythonのserverが返すのと同じbytesのJSONで答えます（`native/wasm/js/api_answers.mjs`）。
+ブラウザー版は、Branchの`GET …/history?kind=kpis`、`GET …/report`、`GET …/llm-status`に、同じRunにPythonのserverが返すのと同じbytesのJSONで答えます（中核の`sheltersim_core::answers`。ブラウザーは`native/wasm/js/api_answers.mjs`がファイルを読んで呼びます。#449）。
 
 | 関数 | 答える道 |
 |---|---|

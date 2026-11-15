@@ -199,10 +199,8 @@ check((await answer("report", "waiting", "")).body === '{"status":"not_generated
   check(got.status === 409 && JSON.parse(got.body).code === "stored_run_outdated", `format v2: ${got.status} ${got.body}`);
 }
 
-// The query is read as the server's parse_qs reads it.
+// The errors' bodies (the query as the server's parse_qs reads it: native/core/tests/answers.rs).
 {
-  const fields = api.parseQuery("a=1&b=&c&a=%E3%81%82+x&d=%zz&=e");
-  assert.deepEqual([...fields], [["a", ["1", "あ x"]], ["d", ["%zz"]], ["", ["e"]]]);
   assert.deepEqual(api.errorAnswer(new store.ProjectStoreError("invalid artifact identifier")), { status: 409, body: '{"code":"storage_conflict","error":"invalid artifact identifier"}' });
   assert.deepEqual(api.errorAnswer(new Error("x")), { status: 500, body: '{"error":"inspector request failed"}' });
 }

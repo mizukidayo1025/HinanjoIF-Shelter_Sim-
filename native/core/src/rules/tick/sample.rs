@@ -54,7 +54,7 @@ fn sample_information<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, 
     let plan = tick.cell.with(|world| information::sample(world, &inputs)).map_err(H::Error::from)?;
     let plan = tick.written(plan)?;
     if recording {
-        information::record_information(tick.host, &plan, model, &V::Int(tick.minute))?;
+        information::record_information(tick.host, &plan, model, tick.minute)?;
     }
     Ok(())
 }

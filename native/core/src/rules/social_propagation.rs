@@ -859,8 +859,8 @@ pub fn write(world: &World, planned: &mut Planned) -> Result<()> {
 }
 
 /// The trace's document of a minute (`SocialPropagationResult.trace_document`) to the host's sink,
-/// when the plan keeps a trace. `minute` and `policy_version` are the values the document holds.
-pub fn record_social<H: Host>(host: &mut H, planned: &Planned, minute: &V, policy_version: &V) -> std::result::Result<(), H::Error> {
+/// when the plan keeps a trace. `policy_version` is the value the document holds.
+pub fn record_social<H: Host>(host: &mut H, planned: &Planned, minute: i64, policy_version: &V) -> std::result::Result<(), H::Error> {
     let Some(trace) = &planned.plan.trace else {
         return Ok(());
     };

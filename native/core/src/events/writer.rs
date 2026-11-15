@@ -1,6 +1,6 @@
-//! What a rule does to schedule and record an event over rows: `WorldState.schedule_event` and
-//! `EventLogRecord(...)` with `EventLog.append`, with their errors and in their order of checks.
-//! The event counter (`id_counters["event"]`) is read and written around these (`kit::Events`).
+//! What a rule does to schedule and record an event over rows (`schedule`, `record`), with their
+//! errors and in their order of checks. The event counter (`id_counters["event"]`) is read and
+//! written around these (`kit::Events`).
 
 use std::cell::Cell;
 use std::fmt::Display;
@@ -78,7 +78,7 @@ pub fn realized(code: u8, event_id: &str, sequence: impl Display) -> WriteResult
     }
 }
 
-/// `WorldState.schedule_event` of a row, with its errors: the queue gets it, and the event counter
+/// Scheduling an event of a row, with its errors: the queue gets it, and the event counter
 /// must then be at least the value returned.
 pub fn schedule(queue: &mut Queue, log: &EventLog, duration: i64, row: EventRow) -> WriteResult<i64> {
     let Some(after) = row.sequence.checked_add(1) else {

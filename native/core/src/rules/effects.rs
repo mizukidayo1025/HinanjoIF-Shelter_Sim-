@@ -15,7 +15,7 @@
 //! it (`HostFailure::text`): the contracts of the parameters and of a guard (`Host::contract`), the
 //! check of the changed world, and the errors of the rules of other files a handler calls
 //! (`overlay`'s temporary spaces, geometry changes and the place of a new facility). A refusal of
-//! one of those is a `KernelRefusal` named by its label (`by_name`, `Error::refused`), wrapped or
+//! one of those is an `Error::Refused` named by its label (`by_name`, `Error::refused`), wrapped or
 //! let through.
 //!
 //! Nothing here reads LLM output: what a program may do was validated before it was scheduled, by
@@ -302,7 +302,7 @@ pub enum Catch {
 
 impl Catch {
     /// Whether the clause catches an error of this class. A refusal (`Unsupported`) is not a
-    /// ValueError, so a kernel's refusal is never caught; a `KernelRefusal` is.
+    /// ValueError, so a kernel's refusal is never caught; an `Error::Refused` is.
     fn takes(self, class: ErrorClass) -> bool {
         match class {
             ErrorClass::Value => true,
@@ -323,7 +323,7 @@ fn wrapped<E: From<Error> + HostFailure>(error: E, catch: Catch, prefix: &str) -
 }
 
 /// What a handler does with an error a rule of another file raised: a refusal is that rule's
-/// `KernelRefusal` (a ValueError, named by `label`), and `except <catch> as exc: raise
+/// `Error::Refused` (a ValueError, named by `label`), and `except <catch> as exc: raise
 /// EventApplicationError(str(exc))`. Without a catch, the error goes on as that rule raised it.
 fn by_name<E: From<Error> + HostFailure>(label: &str, error: E, catch: Option<Catch>) -> E {
     let error = if error.class() == ErrorClass::Refused { E::from(Error::Refused { label: label.to_owned(), reason: error.text().into() }) } else { error };
@@ -1433,7 +1433,7 @@ fn geometry_active(world: &World, ins: &GeometryIn<'_>, row: &EventRow, op: &str
 }
 
 /// `apply_geometry_change(world, event, expire=expire)` on the transaction's world (a direct call;
-/// its refusal is its `KernelRefusal`), and the world's check: their ValueError, KeyError or
+/// its refusal is its `Error::Refused`), and the world's check: their ValueError, KeyError or
 /// TypeError is the event's failure with its text. `GEOMETRY_PLAN_UNREAD` for a floor plan that
 /// could not be read.
 pub fn write_geometry<C: WorldCell, H: Host>(
@@ -2130,7 +2130,7 @@ fn add_one_toilet(world: &World, ins: &AddIn<'_>, plan: &Add, facility_id: &str)
 }
 
 /// `place_installed_facility` of a new toilet on the plan read now, called by name: its ValueError
-/// (its refusal is its `KernelRefusal`) is the event's failure with its text.
+/// (its refusal is its `Error::Refused`) is the event's failure with its text.
 fn place_toilet<C: WorldCell, H: Host>(cell: &C, host: &mut H, ins: &AddIn<'_>, plan: &Add, facility_id: &str) -> std::result::Result<(), H::Error> {
     let geo = host.floor_plan().map_err(|error| by_name(PLACE, error, Some(Catch::Value)))?;
     let sources: Vec<&str> = plan.source_id.as_deref().filter(|source| !source.is_empty()).into_iter().collect();

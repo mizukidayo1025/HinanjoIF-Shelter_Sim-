@@ -52,7 +52,7 @@ fn sorted_unique(mut items: Vec<Arc<str>>) -> Vec<Arc<str>> {
     items
 }
 
-/// `WorldState.allocate_event_sequence`: the `event` counter of `id_counters`, and the counter one
+/// The next event sequence: the `event` counter of `id_counters`, and the counter one
 /// past it.
 pub fn allocate_sequence(world: &World) -> Result<i64> {
     let sequence = world.id_counter("event")?.unwrap_or(0);

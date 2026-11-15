@@ -1,7 +1,7 @@
 //! Transactions in place (policy E5, design-p5-p6.md §6, lane 6-2).
 //!
 //! A rule that changes the world and keeps the change only if the changed world passes its checks
-//! used to copy the whole world through canonical JSON (`WorldState.from_dict(world.to_dict())`),
+//! used to copy the whole world through its canonical JSON and read it back,
 //! change the copy, validate it and swap it in. A `Txn` does that on the world itself: `begin`
 //! validates the world as it is, keeps a `Snapshot` (copy on write), puts the world in the order the
 //! copy had (`World::canonicalize`) and validates it again as the copy was validated; the body then
@@ -49,7 +49,7 @@ pub fn counts() -> [(&'static str, u64); 4] {
 pub enum TxnKind {
     /// The candidate of an effect (`_effect_candidate`): the world's own EventLog.
     Effect,
-    /// `WorldState.from_dict(world.to_dict())`, the log included.
+    /// The whole world read back from its document, the log included.
     Full,
 }
 

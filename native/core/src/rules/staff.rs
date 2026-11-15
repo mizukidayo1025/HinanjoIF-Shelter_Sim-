@@ -73,11 +73,11 @@ const FLOAT_EXACT_INT: i64 = 1 << 53;
 /// The kinds of routed task, in the order `assign_staff_operations` reads their durations.
 const TASK_KINDS: [&str; 5] = ["cleaning", "maintenance", "information_outreach", "intake", "patrol"];
 
-/// The label of the `KernelRefusal` of the controller's `_route`.
+/// The label of the refusal of the controller's `_route`.
 pub const ROUTE: &str = "travel.route";
-/// The label of the `KernelRefusal` of the controller's `_schedule_staff_support_travel`.
+/// The label of the refusal of the controller's `_schedule_staff_support_travel`.
 pub const SCHEDULE: &str = "travel.schedule_support_travel";
-/// The label of the `KernelRefusal` of `interrupt_staff_operation`.
+/// The label of the refusal of `interrupt_staff_operation`.
 pub const INTERRUPT: &str = "staff_operation_events.interrupt";
 /// The refusal of a route resolver that is not the controller's own `_route`.
 pub const OTHER_RESOLVER: &str = "another route resolver";
@@ -501,7 +501,7 @@ fn zones_of(world: &World, agent_id: &Arc<str>, staff_id: &str) -> Result<(Arc<s
     Ok((agent.zone_id.clone(), staff.zone_id.clone()))
 }
 
-/// A refusal of the controller's step as its `KernelRefusal`; any other error as it is.
+/// A refusal of the controller's step as its `Error::Refused`; any other error as it is.
 fn step_error(label: &'static str, error: WriteError) -> WriteError {
     match error {
         WriteError::Error(error) => WriteError::Error(Error::refused(label, error)),
@@ -809,7 +809,7 @@ fn preempt_worker(assigning: Assigning<'_>, workers: &[Worker], open: &Open, at:
         provenance: kit::assumption(V::Str(Arc::from(PREEMPTION_SOURCE)), PREEMPTION_POLICY),
     })?;
     events.record(&event, at, EventStatus::Applied, Some(PREEMPTION_DETAIL))?;
-    // Its refusal is the `KernelRefusal` of `interrupt_staff_operation`, past the record above.
+    // Its refusal is the `Error::Refused` of `interrupt_staff_operation`, past the record above.
     let stopping = Stopping { event_id: &event.event_id, due_minute: event.due_minute };
     let interrupted = operations::interrupt(world, inputs.tasks()?, &worker.id, &stopping, None, taken).map_err(|error| step_error(INTERRUPT, error))?;
     if !interrupted {

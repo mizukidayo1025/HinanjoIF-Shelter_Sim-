@@ -1,5 +1,5 @@
 //! The namespaces of `model_state` at minute 0, made in this order:
-//! `WorldState.from_scenario` (the stock's ledger, the resource service, the operational events,
+//! `from_scenario` (the stock's ledger, the resource service, the operational events,
 //! infrastructure, the zone environment, information and the psychological state), then
 //! `initialize_simulator_extensions` (its factories, then `validate_simulator_extensions`), then
 //! `initialize_declared_states` (#429). Each is put into the world as it is made, so a later
@@ -89,7 +89,7 @@ fn value_error(text: impl Into<String>) -> Error {
     Error::Value(text.into())
 }
 
-// ---- Made by `WorldState.from_scenario` --------------------------------------------------------------
+// ---- Made by `from_scenario` --------------------------------------------------------------------
 
 /// `create_resource_ledger(initial_stock)`.
 fn resource_ledger(stock: &Value) -> Result<V> {
@@ -673,7 +673,7 @@ fn configs_value(scenario: &Scenario) -> V {
     V::Map(scenario.configs.clone())
 }
 
-/// `WorldState.from_scenario`'s namespaces, to the psychological state.
+/// The namespaces made of the Scenario itself, up to the psychological state.
 pub(crate) fn from_scenario(world: &mut World, scenario: &Scenario) -> Result<()> {
     if let Some(stock) = &scenario.initial_stock {
         put(world, "resource_ledger_v1", resource_ledger(stock)?)?;

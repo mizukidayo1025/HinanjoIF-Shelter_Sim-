@@ -86,7 +86,8 @@ impl<'a, C: WorldCell, H: Host> CoreChecks<'a, C, H> {
         self.cell.with(f)?
     }
 
-    /// The validator registered for the namespace, as `state_mirror._RUST_VALIDATORS` holds them.
+    /// The quick check of one namespace, by its name: whether it passes, or None for a namespace
+    /// without one.
     fn validator(&mut self, name: &str) -> Result<Option<bool>> {
         let held = self.held(name);
         let answer = match name {
@@ -275,7 +276,7 @@ impl ServiceWorld for Known<'_> {
     }
 }
 
-/// The part of `WorldState.validate` a tick runs for `resource_service_v1`.
+/// The part of the world's validation (`validate::world`) a tick runs for `resource_service_v1`.
 fn service_passes(world: &World, holding: &Holding, held: &Held) -> Result<bool> {
     if absent(world, held, resource_service::NAME)? {
         return Ok(false);

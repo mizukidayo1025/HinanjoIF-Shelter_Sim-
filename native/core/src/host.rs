@@ -83,7 +83,7 @@ pub trait HostFailure {
 }
 
 /// The core's errors by their class: every `EventSuppressed`, `EventApplicationError`,
-/// `KernelRefusal`, `StateInvariantError` and `ResourceLedgerError` is of the class of a
+/// `Error::Refused`, `StateInvariantError` and `ResourceLedgerError` is of the class of a
 /// `ValueError` (`ErrorClass::Value`).
 impl HostFailure for Error {
     fn class(&self) -> ErrorClass {
@@ -570,7 +570,7 @@ pub trait Host {
     fn trace_level(&self) -> Result<TraceLevel, Self::Error>;
     /// A trace document.
     fn trace(&mut self, document: Trace) -> Result<(), Self::Error>;
-    /// `TickEngine.phase_observer(phase, before)`, if any.
+    /// Each phase of the tick, before and after it runs: a host's observer, if it has one.
     fn phase(&mut self, phase: Phase, before: bool) -> Result<(), Self::Error>;
     /// The space changed (a geometry or structure event applied) and the core refreshed the Run's
     /// routers (`Routes::refresh`): the host's views of the space follow. A host without views of

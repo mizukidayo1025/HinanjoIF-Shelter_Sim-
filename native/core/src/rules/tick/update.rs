@@ -230,7 +230,7 @@ where
         Second::Continuity { event, minute: realized, taken } => {
             tick.host.slots_changed(&taken)?;
             // The receipt's projection and the end of the walk (`Host::find_record` for the
-            // records the receipt reads, lane P9-1a), each its entry's KernelRefusal.
+            // records the receipt reads, lane P9-1a), each its entry's `Error::Refused`.
             care_receipts::ingest_applied(tick.cell, tick.host, &event, realized).map_err(|error| refused(INGEST, error))?;
             let finished = (|| -> std::result::Result<(), H::Error> {
                 let holding = tick.holding()?;

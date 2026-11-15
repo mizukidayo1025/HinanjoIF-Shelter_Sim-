@@ -1,7 +1,7 @@
-//! The psychological distress block of `WorldState.validate`: the check of
+//! The psychological distress block of the world's validation: the check of
 //! `psychological_distress_v1` where a mean-reverting psychology model is selected, and the state
 //! without its model, with its errors and texts. It raises the `StateInvariantError`s of
-//! `WorldState.validate` itself, its own wrapping included.
+//! the validation itself, its own wrapping included.
 
 use super::catalog::catalog;
 use super::py::{equal, finite, unit_interval};

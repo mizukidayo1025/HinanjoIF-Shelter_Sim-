@@ -64,7 +64,7 @@ pub trait RowFields {
 
 /// A row of a table: what orders the rows of a document.
 pub trait EntityRow: EntityField {
-    /// The entity's own ID, by which `WorldState._canonical_data` sorts the rows.
+    /// The entity's own ID, by which the world's canonical document sorts the rows.
     fn id(&self) -> &str;
 }
 
@@ -765,7 +765,7 @@ impl<R: Clone> Table<R> {
 }
 
 impl<R: EntityRow> Table<R> {
-    /// The slots of the rows in the order `WorldState._canonical_data` gives: by the entity's own
+    /// The slots of the rows in the order of the world's canonical document: by the entity's own
     /// ID, stably from the dict's order.
     pub fn document_slots(&self) -> Vec<u32> {
         let mut order: Vec<(&str, u32)> = self.ids.values().filter_map(|slot| Some((self.rows[*slot as usize].as_ref()?.id(), *slot))).collect();
@@ -773,7 +773,7 @@ impl<R: EntityRow> Table<R> {
         order.into_iter().map(|(_, slot)| slot).collect()
     }
 
-    /// The order `WorldState.from_dict(world.to_dict())` gives the dict (lane 6-2): the keys by
+    /// The canonical order of the table (`World::canonicalize`; lane 6-2): the keys by
     /// the entity's own ID, stably from the dict's order (`document_slots`), and the keys of the
     /// maps inside each row sorted. The rows stay in their slots and nothing is touched: the views
     /// hold the same values, and a dict compares equal in any order (`EntityField::same`).

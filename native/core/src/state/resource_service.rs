@@ -93,7 +93,7 @@ pub trait ServiceWorld {
 }
 
 impl ServiceRow {
-    /// The rules of a tick's check in `WorldState.validate` (#152; in the core since #250), for a
+    /// The rules of a tick's check in the world's validation (`validate::world`), for a
     /// world of these rows, people and zones, at this minute; `heads` are the heads of the
     /// independent queues of each facility that has them. True says the whole validation accepts;
     /// false decides nothing.

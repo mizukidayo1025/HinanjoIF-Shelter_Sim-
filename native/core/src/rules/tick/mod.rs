@@ -199,8 +199,8 @@ where
         }
         tick.host.phase(phase, true).bare()?;
         match phase {
-            // A refusal past the dispatch's checks is `KernelRefusal` of its entry, as
-            // `_run_dispatch_phase` raises it, and not counted as a kernel's.
+            // A refusal past the dispatch's checks is the phase's `Error::Refused`
+            // (`RUN_PHASE`), and not counted as a kernel's.
             Phase::DispatchDueEvents => crate::rules::dispatch::run(tick).map_err(|error| propose::refused(crate::rules::dispatch::RUN_PHASE, error)).bare()?,
             // `complete_scheduled_tasks` has no step in the controller.
             Phase::CompleteScheduledTasks => {}
@@ -216,7 +216,7 @@ where
     Ok(())
 }
 
-/// `TickExecutionError` where a phase moved the world's minute (`TickEngine.step`).
+/// `TickExecutionError` where a phase moved the world's minute.
 pub fn clock<C: WorldCell, H: Host, R: RunCell>(tick: &Tick<'_, C, H, R>) -> std::result::Result<(), H::Error> {
     let now = tick.cell.with(|world| world.minute_index()).map_err(H::Error::from)?;
     match now {

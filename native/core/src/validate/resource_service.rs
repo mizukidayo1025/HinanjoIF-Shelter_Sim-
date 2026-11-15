@@ -1,8 +1,8 @@
-//! The resource service block of `WorldState.validate`, with its errors and texts: the config
-//! (`ResourceServiceConfig`, a pydantic model of `experiments/scenario.py`) and WorldState v6, the
-//! ledger it needs, and `resource_service_v1`: its state, its request and stall histories, and the
-//! stalls at the queues' heads. It raises the `StateInvariantError`s of `WorldState.validate`
-//! itself.
+//! The resource service block of the world's validation (`validate::world`), with its errors and
+//! texts: the config (`ResourceServiceConfig`, a pydantic model of `experiments/scenario.py`) and
+//! WorldState v6, the ledger it needs, and `resource_service_v1`: its state, its request and stall
+//! histories, and the stalls at the queues' heads. It raises the `StateInvariantError`s of the
+//! validation itself.
 
 use std::collections::HashSet;
 use std::sync::Arc;

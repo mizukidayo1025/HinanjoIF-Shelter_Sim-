@@ -105,7 +105,7 @@ counters!(
     events_alone,
 );
 
-/// The handlers' kernels that ran and what they refused, by the label of their `kernel_only` entry.
+/// The handlers' kernels that ran and what they refused, by the label of their refusal.
 pub static KINDS: Counts = Counts::new();
 
 /// A core error as the host's.
@@ -126,20 +126,20 @@ pub const NO_ROW: &str = "an event a row cannot hold";
 pub const RECORD_DISAGREES: &str = "transactional event record disagrees with its dispatch result";
 /// `ValueError` of `dispatch_one` for a follow-up record.
 pub const FOLLOW_UP_DISAGREES: &str = "transactional follow-up record disagrees with dispatch result";
-/// The label of the phase's own refusals (`errors::kernel_refusal(py, "dispatch.run_phase", ...)`).
+/// The label of the phase's own refusals.
 pub const RUN_PHASE: &str = "dispatch.run_phase";
-/// `_sync_movement_after_events`, a body-less `kernel_only` step.
+/// `_sync_movement_after_events`, a labelled step with no body of its own.
 pub const SYNC: &str = "dispatch.sync_movement";
 /// The label of the guard's refusal (`should_apply_effect_guard`).
 pub const GUARD: &str = "effects.should_apply_guard";
-/// The contact gate, a body-less `kernel_only` step (`_consider_social_contact_event`).
+/// The contact gate, a labelled step with no body of its own (`_consider_social_contact_event`).
 pub const CONTACT: &str = "dispatch.consider_contact";
 
 const MOVEMENT: &str = "movement_v1";
 const SOCIAL_NETWORK: &str = "social_network_v1";
 const OVERLAY: &str = "geometry_overlay_v1";
 
-/// The `kernel_only` entry of a handler's `apply`, whose `KernelRefusal` a refusal is.
+/// The label of a handler's `apply`, which names its refusal (`Error::Refused`).
 fn label_of(kind: HandlerKind) -> &'static str {
     match kind {
         HandlerKind::SocialInteraction => "social_interaction.apply",
@@ -174,7 +174,7 @@ fn label_of(kind: HandlerKind) -> &'static str {
     }
 }
 
-/// A refusal as the `KernelRefusal` of `label`; any other error as it is.
+/// A refusal as the `Error::Refused` of `label`; any other error as it is.
 fn labelled<E: HostFailure + From<Error>>(label: &'static str, error: E) -> E {
     crate::rules::tick::propose::refused(label, error)
 }
@@ -273,7 +273,7 @@ impl Handled {
 }
 
 /// A handler's result: an outcome error is the event's outcome; a refusal is the handler's
-/// `KernelRefusal`; any other error goes on.
+/// `Error::Refused`; any other error goes on.
 fn handled<E: HostFailure + From<Error>>(label: &'static str, result: std::result::Result<Handled, E>) -> std::result::Result<Handled, E> {
     match result {
         Ok(handled) => Ok(handled),
@@ -321,8 +321,8 @@ where
 
 // ---- A dispatcher a caller holds alone (decision D3, lane P9-3b) -------------------------------------
 
-/// `EventDispatcher.dispatch_one` of a dispatcher a caller holds alone (a test's, or a
-/// `TickEngine`'s `phase_handler`; decision D3 of design-p9.md): `row` is the event of a due
+/// `EventDispatcher.dispatch_one` of a dispatcher a caller holds alone (a test's, or the
+/// tick's dispatch phase; decision D3 of design-p9.md): `row` is the event of a due
 /// snapshot, at `tick.minute`. None where it left the queue, or the queue's event of its ID is no
 /// longer equal to it (`current.to_dict() != event.to_dict()`, `same_event`). Else its handler, by
 /// the dispatcher's own table (`tick.policies.dispatch`, every handler the host's: `apply_foreign`

@@ -477,7 +477,7 @@ impl<E: From<Error> + crate::host::HostFailure> StaffRead<E> {
             }
         } else if text == crate::rules::staff_operation_events::SNAPSHOT_PLAN_UNREAD {
             if let Some(read) = plan_error() {
-                // The positions' refusal is their `KernelRefusal`; any other error goes on as it is.
+                // The positions' refusal is their `Error::Refused`; any other error goes on.
                 if read.class() == crate::host::ErrorClass::Refused {
                     return Err(E::from(Error::Refused { label: crate::rules::staff_operation_events::SNAPSHOTS.to_owned(), reason: read.text().into() }));
                 }
@@ -684,14 +684,14 @@ impl<'w> Events<'w> {
         self.allocate_sequence()
     }
 
-    /// `WorldState.allocate_event_sequence`.
+    /// The next event sequence.
     pub fn allocate_sequence(&self) -> Result<i64> {
         let sequence = self.counter()?;
         self.set_counter(sequence + 1)?;
         Ok(sequence)
     }
 
-    /// `WorldState.schedule_event`, with its errors.
+    /// Scheduling an event (`writer::schedule`), with its errors.
     pub fn schedule(&self, row: EventRow) -> WriteResult<()> {
         let after = writer::schedule(&mut *self.world.queue_mut()?, &*self.world.log()?, self.duration, row)?;
         let next = self.counter()?.max(after);

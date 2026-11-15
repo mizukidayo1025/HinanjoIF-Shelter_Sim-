@@ -70,7 +70,7 @@ impl PlainRun {
     #[staticmethod]
     fn from_scenario(scenario: &[u8]) -> PyResult<Self> {
         let entry = sheltersim_core::initial::entry(scenario).or_py()?;
-        Ok(Self { run: plain::PlainRun::of_json(&entry).or_py()? })
+        Ok(Self::of_run(plain::PlainRun::of_json(&entry).or_py()?))
     }
 
     /// The Run of the world `name` of a file of named worlds (`{"worlds": {name: entry}}`, as the

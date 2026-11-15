@@ -170,10 +170,7 @@ where
         match result {
             // Say Unsupported no more: a stop has been written.
             Err(error) if written => match is_refusal(&error) {
-                Some(reason) => {
-                    crate::census::caught("replan after a stop", reason.clone());
-                    return Err(Error::Runtime(format!("a kernel said Unsupported after a replan was written: {reason}")).into());
-                }
+                Some(reason) => return Err(Error::Runtime(format!("a kernel said Unsupported after a replan was written: {reason}")).into()),
                 None => return Err(error),
             },
             result => result?,

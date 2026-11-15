@@ -25,6 +25,7 @@ import re
 import runpy
 import shutil
 import struct
+import subprocess
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -250,6 +251,48 @@ def test_the_site_holds_the_relay_s_owner_page_at_one_path_not_linked_from_the_s
     assert not re.search(r"(sk-ant-|LLM_ADMIN_KEY\s*=|Bearer [A-Za-z0-9_-]{16,})", page)
     assert page_path not in (output / "index.html").read_text(encoding="utf-8")
     assert server_module["resolve"](output, f"/{page_path}") == written
+
+
+def test_the_site_says_the_commit_it_was_built_from(
+    site: tuple[Path, bytes, dict[str, Any]], builder: dict[str, Any]
+) -> None:
+    """/version.json (#563): the commit of this repository's work tree and whether a tracked file
+    differed from it, which the deploy workflow reads back from the published site."""
+    output, _, summary = site
+    written = json.loads((output / builder["VERSION_FILE"]).read_text(encoding="utf-8"))
+    assert written == summary["version"] == builder["source_version"]()
+    assert written["format"] == builder["VERSION_FORMAT"]
+    if shutil.which("git") and (ROOT / ".git").exists():
+        assert re.fullmatch(r"[0-9a-f]{40}", written["commit"])
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
+def test_the_version_is_the_work_tree_s_commit_and_whether_a_tracked_file_changed(
+    builder: dict[str, Any], tmp_path: Path
+) -> None:
+    source_version = builder["source_version"]
+    assert source_version(tmp_path)["commit"] is None
+    git = [
+        "git",
+        "-C",
+        str(tmp_path),
+        "-c",
+        "user.name=test",
+        "-c",
+        "user.email=test@example.invalid",
+    ]
+    subprocess.run([*git, "init", "-q"], check=True)
+    (tmp_path / "tracked.txt").write_text("one\n")
+    subprocess.run([*git, "add", "tracked.txt"], check=True)
+    subprocess.run([*git, "commit", "-q", "-m", "one"], check=True)
+    head = subprocess.run([*git, "rev-parse", "HEAD"], check=True, capture_output=True, text=True)
+    clean = source_version(tmp_path)
+    assert (clean["commit"], clean["modified"]) == (head.stdout.strip(), False)
+    # A file git does not track is not a change of the source.
+    (tmp_path / "built.txt").write_text("output\n")
+    assert source_version(tmp_path)["modified"] is False
+    (tmp_path / "tracked.txt").write_text("two\n")
+    assert source_version(tmp_path)["modified"] is True
 
 
 def test_the_site_is_built_only_outside_the_repository_into_an_empty_directory(

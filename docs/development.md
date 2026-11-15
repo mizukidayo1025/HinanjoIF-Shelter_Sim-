@@ -206,6 +206,7 @@ python scripts/serve_static_site.py ../hinanjo-if-site --port 8000
 | `/browser/` | `api_fetch.js`、`api_worker.mjs`、それが読むmodule、`pkg/`（WASM）、`gsi-shelter-index.json`と`gsi-shelters/<自治体コード>.json`（下の段落） |
 | `/sample/examples.json` | 例の一覧（#411）。ホームが「計算済みの例を取得する」で出します |
 | `/sample/sample.json`、`/sample/sample.shelterproj.000`… | 例の目録と、`--part-mib`（既定16 MiB）以下に分けた部分。選ばれたときだけ取り寄せます |
+| `/version.json` | サイトを作ったcommitと、そのとき追跡しているファイルにcommitしていない変更があったか（`{"format": "sheltersim-site-version", "version": 1, "commit": "…", "modified": false}`、#563）。追跡していないファイル（作ったものなど）は数えません。gitの作業ツリーの外で作ると`commit`は`null`です。公開しているサイトがどのcommitかを、このファイルで確かめられます |
 | ないファイルの道 | `404.html`（status 404） |
 
 シナリオのプレビューの地域の調べ（`native/wasm/js/research.mjs`、#300）は、国土地理院の住所検索をブラウザーから問い合わせます（VMと同じ。CORSは`*`）。全国の指定避難所のCSV（約11.7 MB、CORSなし）は取り寄せず、サイトを作るときに読んだsha256、HTTPの情報、読めない行の数、自治体コードごとの名前（`providers.gsi_shelter_index`）を`/browser/gsi-shelter-index.json`に置き、自治体コードごとに照合できる行（宿泊の避難所の共通IDで施設名のある行。調べが読む列と、自治体名が空かどうかだけ。`providers.gsi_shelter_rows`）を`/browser/gsi-shelters/<自治体コード>.json`に置きます（#332）。索引は一度だけ読み、行は照合に要るとき（自治体コードの指定、名前がひとつの自治体コードに決まるとき）にそのコードの分だけ同じoriginから読みます。読めないとき、または索引と違うCSVの行のときは、PythonがCSVを取り寄せられないときと同じく、避難所一覧を「unavailable」にします。`--fetch-shelters`はCSVをその場で取り寄せ、`--shelter-csv PATH`は手元の写しを読みます。手元の写しの取得時刻は`--shelter-retrieved-at`で決められます（Pythonと比べる確かめで、Python側の止めた時計に合わせるため。地域の調べの時刻はScenarioに入ります）。どちらもないと索引も行も置かず、プレビューは「未対応」になります。このときサイトは`api_fetch.js`の行に`data-scenarios="unavailable"`を付け、画面は新しいシナリオの入力を出さずに理由を出します（#372）。e-Stat、地域のデータ、気象はVMと同じ「設定なし」です。`node native/wasm/tests/node_research.mjs wasm-pkg`が、`native/core/tests/data/research_cases.json`（`tests/support/core_research.py`：記録した住所検索の答え、合成の避難所CSVとその索引・行、止めた時計）でPythonの調べと同じbytesになることと、名前だけで答えられる照合では行を読まないことを確かめます。
@@ -315,12 +316,21 @@ gh workflow run deploy-browser.yml --ref main                    # 公開する
 gh workflow run deploy-browser.yml --ref <branch> -f dry_run=true  # 作って確かめるだけ
 ~~~
 
-workflowは、上の「ブラウザー版の静的サイト」と同じ手順でサイトを作ります。PythonのkernelとWASMは別のjobで並べて作り、例のRunとサイトの組み立てのjobに渡します（#415。Pythonのkernelはprofile `ci`、WASMは`--release`、wasm-bindgenはCIの`ブラウザー版の計算`のjobと同じ版とsha256、避難所の索引は`--fetch-shelters`）。それから`wrangler deploy --dry-run`で設定とファイルを確かめ、Cloudflareへ送ります。送るときは、Workerの版にcommitのhashを`--tag`（先頭12桁）と`--message`で残します。
+workflowは、上の「ブラウザー版の静的サイト」と同じ手順でサイトを作ります。PythonのkernelとWASMは別のjobで並べて作り、例のRunとサイトの組み立てのjobに渡します（#415。Pythonのkernelはprofile `ci`、WASMは`--release`、wasm-bindgenはCIの`ブラウザー版の計算`のjobと同じ版とsha256、避難所の索引は`--fetch-shelters`）。サイトの`/version.json`がこのcommitで、追跡しているファイルに変更がないことを確かめてから、`wrangler deploy --dry-run`で設定とファイルを確かめ、Cloudflareへ送ります。送るときは、Workerの版にcommitのhashを`--tag`（先頭12桁）と`--message`で残します。
+
+公開する回（`dry_run`でない回）は、サイトを作って送るjobがGitHubの環境`browser`を名乗るので、GitHubがその回をDeploymentとして記録します（#563）。リポジトリーのトップの「Deployments」に、今公開しているcommit、時刻、workflowの実行、サイトのURLが出ます。`dry_run`の回は環境を名乗らず、記録しません。環境`browser`は最初の公開で自動で作られます（保護の規則は付けていません）。今の公開は、次のどちらでも確かめられます。
+
+~~~shell
+gh api 'repos/{owner}/{repo}/deployments?environment=browser&per_page=1' --jq '.[0] | {sha, created_at}'
+curl -s https://hinanjo-if.water7.workers.dev/version.json
+~~~
+
+Deploymentは公開のjobの始めに作られ、そのjobが失敗するとfailureの記録になります（`gh api 'repos/{owner}/{repo}/deployments/<id>/statuses'`）。成功した最後のDeploymentと`/version.json`の`commit`が、今の公開です。
 
 - 公開するのは`main`だけです。ほかのbranchで公開を選ぶと、何も作らずに止まります。`dry_run`はどのbranchでも使え、Cloudflareには何も送らず、secretも読みません。
 - 同時に動く公開は1つだけです。後から起動したものは、前のものが終わるのを待ちます。
 - 公開の後に、次の2つを確かめます。どちらかが通らないと、workflowは失敗します。
-  1. 道ごとの答え：`/browser/gsi-shelter-index.json`（サイトを作った時刻を持ちます）が今回作ったものになるまで待ち（最大5分）、`/`が200の`text/html`、ないファイル（`/nope`）が404の`text/html`、`/browser/api_worker.mjs`が`text/javascript`、`/browser/pkg/sheltersim_wasm_bg.wasm`が`application/wasm`、`/sample/sample.json`と自治体コードごとの避難所の行（`/browser/gsi-shelters/`の最初のファイル）が`application/json`であること。
+  1. 道ごとの答え：`/browser/gsi-shelter-index.json`（サイトを作った時刻を持ちます）が今回作ったものになるまで待ち（最大5分）、`/version.json`が200の`application/json`でこの実行のcommitを答えること、`/`が200の`text/html`、ないファイル（`/nope`）が404の`text/html`、`/browser/api_worker.mjs`が`text/javascript`、`/browser/pkg/sheltersim_wasm_bg.wasm`が`application/wasm`、`/sample/sample.json`と自治体コードごとの避難所の行（`/browser/gsi-shelters/`の最初のファイル）が`application/json`であること。
   2. 画面：公開したURLを`benchmarks/static_site_e2e.py --url`で、PlaywrightのChromiumとFirefoxで、それぞれ空のOPFSから開いて、すべての段を画面で通すこと（Pythonとは比べません）。ブラウザーごとに別のjobで同時に確かめます。Chromiumは一度に最後まで計算し（`--modes full`）、Firefoxは途中で止めて続けます（`--modes pieces`）。
 - サイトを作った要約（`site-build.json`）はrunのartifact `deploy-browser-site`に、画面の確かめの結果（`e2e-url.json`、画面の写し）は`deploy-browser-screen-chromium`と`deploy-browser-screen-firefox`に、30日残します。
 - 公開した版を戻すときは、Cloudflareのdashboardか`wrangler rollback`で前の版に戻すか、戻したいcommitを`main`に入れて公開し直します。

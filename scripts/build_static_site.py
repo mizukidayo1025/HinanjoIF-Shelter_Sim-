@@ -36,6 +36,8 @@ The site is served at the root of its domain, as the screen loads `/demo-v2.css`
                             manifest and what the home says of it before it is fetched (#411)
     /sample/sample.json     the sample's manifest (browser_api.mjs's SAMPLE_FORMAT) and its parts,
                             sample.shelterproj.000, .001, … of at most --part-mib MiB each
+    /version.json           the commit the site was built from, and whether the work tree had
+                            changes to tracked files not committed then (VERSION_FORMAT, #563)
 
 No file is larger than --part-mib (16 MiB by default; Cloudflare Workers' static assets take at most
 25 MiB a file).
@@ -109,6 +111,9 @@ SAMPLE_VERSION = 1
 EXAMPLES = "examples.json"
 EXAMPLES_FORMAT = "sheltersim-site-examples"
 EXAMPLES_VERSION = 1
+# What the site says of its own version (#563): the deploy workflow checks the published one.
+VERSION_FILE = "version.json"
+VERSION_FORMAT = "sheltersim-site-version"
 # The line the browser build adds to demo-v2.html, before the screen's first script: the script
 # that answers the API, with the list of examples and the example's Project (the home), and on a
 # site without the shelter index, that it cannot make Scenarios (#372).
@@ -305,6 +310,23 @@ def _output(*command: str) -> str:
     return result.stdout
 
 
+def source_version(root: Path = ROOT) -> dict[str, Any]:
+    """The commit `root`'s work tree is at, and whether a tracked file differs from it (`git
+    status --porcelain --untracked-files=no`: files git does not track, such as a build's outputs,
+    do not count). Outside a git work tree, or without git, the commit is None."""
+    try:
+        commit = _output("git", "-C", str(root), "rev-parse", "HEAD").strip()
+        changed = _output("git", "-C", str(root), "status", "--porcelain", "--untracked-files=no")
+    except (OSError, ValueError):
+        return {"format": VERSION_FORMAT, "version": 1, "commit": None, "modified": None}
+    return {
+        "format": VERSION_FORMAT,
+        "version": 1,
+        "commit": commit,
+        "modified": bool(changed.strip()),
+    }
+
+
 def _cargo(*arguments: str) -> str:
     manifest = str(ROOT / "native" / "Cargo.toml")
     return _output("cargo", *arguments, "--manifest-path", manifest, "--locked")
@@ -417,9 +439,11 @@ def build(
     part_mib: int = 16,
     shelters: dict[str, Any] | None = None,
     notices: dict[str, bytes],
+    version: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Assemble the site in `output`; a summary of what it holds. `shelters` is what
-    shelter_files() makes; `notices` are the files third_party_notices() writes, by name."""
+    shelter_files() makes; `notices` are the files third_party_notices() writes, by name;
+    `version` is what /version.json says (source_version() of this repository by default)."""
     output = output.resolve()
     if output == ROOT or ROOT in output.parents:
         raise ValueError("the site is generated: write it outside the repository")
@@ -500,6 +524,10 @@ def build(
     admin = output / f"{ADMIN_PAGE}.html"
     admin.parent.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(ADMIN_SOURCE, admin)
+    # The site's own version (#563), read after a publish to tell which build a host serves.
+    if version is None:
+        version = source_version()
+    (output / VERSION_FILE).write_text(json.dumps(version, indent=1) + "\n", encoding="utf-8")
     # GitHub Pages: serve the files as they are, without Jekyll.
     (output / ".nojekyll").write_bytes(b"")
     files = sorted(path for path in output.rglob("*") if path.is_file())
@@ -510,6 +538,7 @@ def build(
         "output": str(output),
         "open": target,
         "admin_page": f"/{ADMIN_PAGE}",
+        "version": version,
         "files": len(files),
         "bytes": sum(path.stat().st_size for path in files),
         "largest": {

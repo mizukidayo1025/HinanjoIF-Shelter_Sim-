@@ -65,3 +65,17 @@ def test_the_checked_url_is_the_config_s_worker_and_the_docs_url() -> None:
     assert url.group(1).startswith(f"https://{config['name']}.")
     assert url.group(1).endswith(".workers.dev")
     assert f"URL={url.group(1)}\n" in (ROOT / "docs" / "development.md").read_text("utf-8")
+
+
+def test_a_publish_is_recorded_as_a_deployment_and_the_site_says_its_commit() -> None:
+    """#563: the job that sends the site names the environment `browser` only when it publishes
+    (a dry run records no deployment), and the built and the published /version.json are checked
+    against the workflow's commit."""
+    text = DEPLOY.read_text("utf-8")
+    site = text[text.index("\n  site:\n") : text.index("\n  screen:\n")]
+    assert "      name: ${{ !inputs.dry_run && 'browser' || '' }}\n" in site
+    assert "      url: ${{ !inputs.dry_run && env.SITE_URL || '' }}\n" in site
+    assert text.count("environment:") == 1
+    assert '"$RUNNER_TEMP/site/version.json" "$GITHUB_SHA"' in site
+    assert 'check /version.json "200 application/json"' in site
+    assert '"$served" != "$GITHUB_SHA"' in site

@@ -2,6 +2,7 @@
 # 手で起動する（書き込み権限のある人なら誰でも）。公開するのはmainだけで、dry_runは
 # どのbranchでもサイトを作ってwranglerの--dry-runまで行い、Cloudflareには何も送らない。
 # 公開の後に、道ごとの答えと、ChromiumとFirefoxでの画面（static_site_e2e.py --url）を確かめる。
+# 公開した回だけ、GitHubのDeployments（環境browser）にcommitを記録する（#563）。
 # kernelとWASMを別のjobで並べて作り、画面の確かめもブラウザーごとのjobで並べる（#415）。
 # 手順と設定はdocs/development.mdの「ブラウザー版の公開」。
 name: ブラウザー版の公開
@@ -107,11 +108,16 @@ jobs:
           path: wasm/
           retention-days: 1
 
+  # A publish is recorded as a deployment of the environment `browser` (#563): the repository's
+  # Deployments then say which commit the site is. A dry run names no environment and records none.
   site:
     name: サイトを作って公開
     needs: [kernel, wasm]
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    environment:
+      name: ${{ !inputs.dry_run && 'browser' || '' }}
+      url: ${{ !inputs.dry_run && env.SITE_URL || '' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -143,6 +149,13 @@ jobs:
           python scripts/build_static_site.py "$RUNNER_TEMP/site" --pkg "$RUNNER_TEMP/wasm/web" \
             --bundle "$RUNNER_TEMP/sample.shelterproj" --fetch-shelters > "$RUNNER_TEMP/site-build.json"
           cat "$RUNNER_TEMP/site-build.json"
+          # The site says it is this commit, with no tracked file changed (/version.json, #563).
+          python - "$RUNNER_TEMP/site/version.json" "$GITHUB_SHA" <<'PY'
+          import json, sys
+          version = json.load(open(sys.argv[1]))
+          if (version["commit"], version["modified"]) != (sys.argv[2], False):
+              sys.exit(f"::error::the site says {version}, not the commit {sys.argv[2]}")
+          PY
       - name: wranglerで確かめる（送らない）
         run: npx --yes "$WRANGLER" deploy --config deploy/workers/wrangler.jsonc --assets "$RUNNER_TEMP/site" --dry-run
       - name: 公開する
@@ -172,6 +185,11 @@ jobs:
             sleep 10
           done
           if [ "$got" != "$want" ]; then echo "::error::$SITE_URL/$index is not this build's"; fail=1; fi
+          # The published site says it is this commit (#563).
+          check /version.json "200 application/json"
+          served=$(curl -s "$SITE_URL/version.json" | python -c 'import json, sys; print(json.load(sys.stdin)["commit"])')
+          echo "/version.json commit -> $served"
+          if [ "$served" != "$GITHUB_SHA" ]; then echo "::error::$SITE_URL/version.json says $served, not $GITHUB_SHA"; fail=1; fi
           check / "200 text/html"
           check /nope "404 text/html"
           check /browser/api_worker.mjs "200 text/javascript"

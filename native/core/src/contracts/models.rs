@@ -154,7 +154,7 @@ fn polygon_area(polygon: &[Pt]) -> f64 {
     py_sum(&terms).abs() / 2.0
 }
 
-/// `_segments_intersect`.
+/// Whether the segments `a`-`b` and `c`-`d` touch or cross (within 1e-9).
 fn segments_intersect(a: Pt, b: Pt, c: Pt, d: Pt) -> bool {
     let epsilon = 1e-9;
     let cross = |first: Pt, second: Pt, third: Pt| (second.x - first.x) * (third.y - first.y) - (second.y - first.y) * (third.x - first.x);
@@ -181,7 +181,8 @@ fn edges(points: &[Pt]) -> Vec<(Pt, Pt)> {
     (0..points.len()).map(|index| (points[index], points[(index + 1) % points.len()])).collect()
 }
 
-/// `_is_simple_polygon`.
+/// Whether the polygon is simple: no edge of zero length, and no two edges that are not neighbours
+/// touch.
 fn is_simple_polygon(points: &[Pt]) -> bool {
     let edges = edges(points);
     for (index, &(a, b)) in edges.iter().enumerate() {
@@ -201,7 +202,7 @@ fn is_simple_polygon(points: &[Pt]) -> bool {
     true
 }
 
-/// `_strictly_inside`.
+/// Whether the point is inside the polygon and on none of its edges.
 fn strictly_inside(point: Pt, polygon: &[Pt]) -> bool {
     point_in_polygon(point, polygon) && !edges(polygon).into_iter().any(|(a, b)| segments_intersect(point, point, a, b))
 }

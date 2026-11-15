@@ -15,7 +15,7 @@ fn value_error<T>(text: &str) -> Result<T> {
     Err(Error::Value(text.to_owned()))
 }
 
-/// What `_pair_key_problem` finds: None for the compact JSON of two different strings.
+/// What is wrong with a pair's key: None for the compact JSON of two different strings.
 enum Problem {
     Unparsable,
     NotAPair,

@@ -137,8 +137,9 @@ pub fn awareness(configs: &V) -> Read<Option<Awareness>> {
     Ok(Some(awareness))
 }
 
-/// `agent_knows_facility`'s first check: without `facility_awareness` and `agent_dynamics`, every
-/// agent knows every facility.
+/// Whether what a person knows of the facilities is limited (the first check of
+/// `rules::agent_dynamics::knowledge_is_limited`): without `facility_awareness` and
+/// `agent_dynamics`, every agent knows every facility.
 pub fn knowledge_is_limited(configs: &V) -> Read<bool> {
     let configs = map(configs)?;
     Ok(configs.contains_key("facility_awareness") || configs.contains_key("agent_dynamics"))

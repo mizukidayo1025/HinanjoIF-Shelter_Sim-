@@ -80,11 +80,11 @@ pub struct Configs {
     /// The plans (`Geo`) built from these configs, by the overlay (`geometry_overlay_v1`).
     pub geo: Mutex<GeoCache>,
     // ---- Lane 7-5b ----
-    /// `create_staff_fatigue_formula`, for `update_staff_dynamics`.
+    /// The staff fatigue formula, for `rules::staff_dynamics::update`.
     pub staff_fatigue: Lazy<StaffFatigue>,
-    /// `create_staff_operations_formula` and whether `policy_registry` selects it.
+    /// The staff-task ranking formula and whether `policy_registry` selects it.
     pub staff_operations: Lazy<StaffOperations>,
-    /// `assign_staff_operations`' check of the selected task formula.
+    /// The staff tasks' check of the selected task formula (`staff::known_staff_operations`).
     pub staff_operations_known: Lazy<()>,
     /// `model_configs["staff"]["support_task_minutes"]` as the route waits read it.
     pub support_task_minutes: Lazy<i64>,
@@ -96,7 +96,7 @@ pub struct Configs {
     pub body_models: Lazy<BodyModels>,
     /// `body_dynamics.social_interaction_minutes`.
     pub social_interaction_minutes: Lazy<i64>,
-    /// `create_care_outcome_formula`, read where a care formula is selected.
+    /// The care formula, read where one is selected.
     pub care_outcome: Lazy<CareOutcome>,
     /// The policy of `agent_dynamics_v1`.
     pub agent_dynamics_policy: Lazy<&'static str>,
@@ -117,7 +117,7 @@ pub struct Configs {
     pub route_capacities: Lazy<Option<RouteCapacities>>,
     /// `model_configs.get("layout_routing", {}).get("max_agents_in_transit_by_edge", {})`, truthy.
     pub transit_capacities: Lazy<bool>,
-    /// `create_queue_policy` of the two bundled policies.
+    /// The queue policy: the two bundled policies, each as it would be read.
     pub facility_queues: Lazy<QueueConfig>,
     /// The schema of `geometry_overlay`'s config, for the beds and intake.
     pub overlay_schema: Lazy<Option<i64>>,
@@ -197,7 +197,7 @@ sections! {
     /// `SpatialConstraints`.
     SpatialConstraints => spatial_constraints, Host;
     StaffFatigue => staff_fatigue, Value;
-    /// `create_staff_operations_formula`.
+    /// The staff-task ranking formula.
     StaffOperations => staff_operations, Host;
     StaffOperationsKnown => staff_operations_known, Value;
     SupportTaskMinutes => support_task_minutes, Value;
@@ -208,7 +208,7 @@ sections! {
     /// The body's operators, by the model selection.
     BodyModels => body_models, Host;
     SocialInteractionMinutes => social_interaction_minutes, Value;
-    /// `create_care_outcome_formula`.
+    /// The care formula.
     CareOutcome => care_outcome, Host;
     AgentDynamicsPolicy => agent_dynamics_policy, Value;
     FacilityAwareness => facility_awareness, Value;

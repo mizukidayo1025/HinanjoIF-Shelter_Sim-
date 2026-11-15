@@ -60,7 +60,7 @@ pub struct World {
     pub slots: Slots,
     /// Not state: what is derived from it, by stamp (`config::Derived`).
     pub derived: Shard<Derived>,
-    /// The pending events (`EventQueue`), while `queue_held`; empty otherwise.
+    /// The pending events (`Queue`), while `queue_held`; empty otherwise.
     pub queue: CowShard<Queue>,
     /// The realized records (`EventLog`), while `log_held`; empty otherwise.
     pub log: CowShard<EventLog>,
@@ -68,7 +68,8 @@ pub struct World {
     /// (`hold_queue`), or after it was let go (`release_queue`).
     pub queue_held: bool,
     /// Not state: whether `log` is the world's EventLog, as `queue_held` says of the queue. A copy
-    /// that holds the EventLog of the world it was made from (`_effect_candidate`) does not hold it.
+    /// that holds the EventLog of the world it was made from (an effect's candidate) does not hold
+    /// it.
     pub log_held: bool,
     /// Not state: a transaction is open on the world (`txn::Txn`), which does not nest (rule R8).
     pub(crate) txn_open: bool,
@@ -550,7 +551,7 @@ pub enum Place {
 pub struct SlotCounts {
     /// Writes forwarded from the tree to the row.
     pub forwards: u64,
-    /// Whole values stored (`replace_root`, `load_detached`).
+    /// Whole values stored over the slot.
     pub whole_writes: u64,
     /// Trees built again from the row after a detach.
     pub rebuilds: u64,
@@ -566,8 +567,8 @@ pub struct Slot {
     pub taint: Option<String>,
     /// The row alone holds the state, with no tree (the Python world's; since #430 always false).
     pub detached: bool,
-    /// Changes with every write to the row: while it stands, the state is what it was
-    /// (`generation_of`). A process-unique stamp, never `+= 1`.
+    /// Changes with every write to the row: while it stands, the state is what it was. A
+    /// process-unique stamp, never `+= 1`.
     pub generation: Stamp,
     pub counts: SlotCounts,
     /// A kernel of the core wrote the row since the marks were last taken (`Slots::take_written`).

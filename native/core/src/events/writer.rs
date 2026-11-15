@@ -15,8 +15,8 @@ use crate::error::Error;
 /// this a rule refuses to write (`Unsupported`).
 pub const MAX_RULE_COUNTER: i64 = 1 << 62;
 
-/// What a write refuses: a core error, or `DuplicateEventError(text)`, which is not one of the
-/// core's classes.
+/// What a write refuses: a core error, or a duplicate event (`Duplicate`, its text), which is not
+/// one of the core's classes.
 #[derive(Clone, Debug, PartialEq)]
 pub enum WriteError {
     Error(Error),

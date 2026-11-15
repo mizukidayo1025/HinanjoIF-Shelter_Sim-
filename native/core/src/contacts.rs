@@ -43,7 +43,7 @@ pub fn nearby_buckets<'a>(zone: &str, neighbors: &'a HashMap<String, Vec<String>
     names.into_iter().filter_map(|name| members.get(name)).filter(|people| !people.is_empty()).map(Vec::as_slice).collect()
 }
 
-/// `_select_contacts`: at most `maximum` partners of `me`, with the draws of
+/// The contacts of `me`: at most `maximum` partners, with the draws of
 /// `{key}` written as `["<label>",minute,"<me>",slot,attempt]`. The social model
 /// stops at a slot that used all its attempts; the information model goes on.
 pub fn select_contacts(

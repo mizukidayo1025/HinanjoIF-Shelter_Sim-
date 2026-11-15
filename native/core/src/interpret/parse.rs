@@ -1,4 +1,4 @@
-//! `parse_natural_language`: the offline parser of a small, explicit set of intervention requests
+//! The offline parser of a small, explicit set of intervention requests
 //! (Issue #303), with the results of the Python parser it replaced. It reads the text and the
 //! scenario summary only, and proposes a plan; it changes nothing.
 
@@ -124,7 +124,7 @@ pub(super) struct Selector {
     pub candidate_ids: Vec<String>,
 }
 
-/// A `TimedAction` of the parser: no guard, no causation, reversible.
+/// A timed effect of the parser's plan: no guard, no causation, reversible.
 #[derive(Clone, Debug)]
 pub(super) struct Effect {
     pub effect_id: String,
@@ -145,7 +145,7 @@ pub(super) struct Assumption {
     pub description: String,
 }
 
-/// A `DraftPlan` of the parser.
+/// The parser's plan, as a `DraftPlan` dumps it.
 #[derive(Clone, Debug)]
 pub(super) struct Plan {
     pub program_id: String,
@@ -158,7 +158,7 @@ pub(super) struct Plan {
     pub ambiguities: Vec<Ambiguity>,
 }
 
-/// A `ParseResult`.
+/// What the parser gives: a plan, a plan that asks for clarification, or the issues.
 pub(super) enum Parsed {
     Parsed(Plan),
     Clarification(Plan),
@@ -205,7 +205,8 @@ enum Target {
     Issue(Issue),
 }
 
-/// `parse_natural_language(request)`.
+/// The parser's reading of a request's text: a plan, a plan that asks for clarification, or the
+/// issues that reject it.
 pub(super) fn parse(raw_text: &str, branch_id: &str, selected_minute: i64, summary: &Summary) -> Result<Parsed> {
     let text = text::normalize(raw_text);
     let window = match time_window(&text, summary)? {
@@ -348,7 +349,7 @@ pub(super) fn parse(raw_text: &str, branch_id: &str, selected_minute: i64, summa
     Ok(if plan.ambiguities.is_empty() { Parsed::Parsed(plan) } else { Parsed::Clarification(plan) })
 }
 
-/// `_detect_operations(text)`.
+/// The operators each clause of the text asks for, in the order of the text.
 pub(super) fn detect_operations(text: &str) -> Result<Vec<&'static str>> {
     let mut ops: Vec<&'static str> = Vec::new();
     for clause in text::split(CLAUSES.get()?, text)? {
@@ -383,7 +384,7 @@ pub(super) fn detect_operations(text: &str) -> Result<Vec<&'static str>> {
     Ok(unique)
 }
 
-/// `_extract_count(text, op)`.
+/// The count the text gives for the operator, its days, dates and times left out; None for none.
 fn extract_count(text: &str, op: &str) -> Result<Option<i64>> {
     let quantity = text::blank(DAY_WORDS.get()?, text, " ")?;
     let quantity = text::blank(DATE_WORDS.get()?, &quantity, " ")?;
@@ -425,7 +426,7 @@ fn kanji_digit(char: char) -> Option<i64> {
     })
 }
 
-/// `_parse_kanji_number(value)`.
+/// A number of one or two kanji digits (with 十), or None.
 fn kanji_number(value: &str) -> Option<i64> {
     let chars: Vec<char> = value.chars().collect();
     match chars.as_slice() {
@@ -440,7 +441,7 @@ fn is_toilet(kind: &str) -> bool {
     matches!(&*crate::text::casefold(kind), "toilet" | "restroom" | "toilet_facility" | "sanitation")
 }
 
-/// `_contains_label(text, label)`.
+/// Whether the text names the label (a generic word such as トイレ or 水 names nothing).
 fn contains_label(text: &str, label: &str) -> Result<bool> {
     let normalized = text::normalize(label);
     if matches!(normalized.as_str(), "トイレ" | "便器" | "toilet" | "restroom" | "staff" | "water" | "水") || normalized.is_empty() {
@@ -454,13 +455,13 @@ fn contains_label(text: &str, label: &str) -> Result<bool> {
     Ok(text.contains(normalized.as_str()))
 }
 
-/// `_names_zone_area(text, name)`.
+/// Whether the text names the zone `name` as a zone or an area (`<name>ゾーン`, `<name>エリア`).
 fn names_zone_area(text: &str, name: &str) -> bool {
     let normalized = text::normalize(name);
     !normalized.is_empty() && ["ゾーン", "エリア"].iter().any(|word| text.contains(&format!("{normalized}{word}")))
 }
 
-/// `_explicit_facility_id(text)`.
+/// The facility ID the text gives, by its form or by a named facility word, or None.
 fn explicit_facility_id(text: &str) -> Result<Option<String>> {
     if let Some(found) = text::search(FACILITY_ID.get()?, text)? {
         return Ok(found.get(0).map(|whole| whole.as_str().to_owned()));
@@ -474,7 +475,7 @@ fn explicit_facility_id(text: &str) -> Result<Option<String>> {
     Ok(None)
 }
 
-/// `_explicit_zone_id(text)`.
+/// The zone ID the text gives, or None.
 fn explicit_zone_id(text: &str) -> Result<Option<String>> {
     Ok(text::search(ZONE_ID.get()?, text)?.and_then(|found| found.get(1).map(|id| id.as_str().to_owned())))
 }
@@ -484,7 +485,7 @@ fn selected_facility<'s>(selector: &Selector, summary: &'s Summary) -> Option<&'
     summary.facilities.iter().find(|facility| facility.id == id)
 }
 
-/// `_zones_for_operation(op, summary)`.
+/// The zones the operator may target in the summary, and the words that describe them.
 fn zones_for_operation<'s>(op: &str, summary: &'s Summary) -> (Vec<&'s Zone>, &'static str) {
     let facility_zones = |matching: &dyn Fn(&str) -> bool| -> Vec<&str> {
         summary.facilities.iter().filter(|facility| matching(&facility.kind)).filter_map(|facility| facility.zone_id.as_deref()).collect()
@@ -504,7 +505,7 @@ fn zones_for_operation<'s>(op: &str, summary: &'s Summary) -> (Vec<&'s Zone>, &'
     }
 }
 
-/// `_resolve_target(text, op, summary)`.
+/// The target of the operator the text names in the summary, or why it cannot be resolved.
 fn resolve_target(text: &str, op: &str, summary: &Summary) -> Result<Target> {
     if op == "facility_outage" || op == "water_outage" {
         let water = op == "water_outage";
@@ -640,7 +641,7 @@ fn group_int(found: &fancy_regex::Captures<'_, str>, index: usize) -> Option<i64
     found.get(index).and_then(|group| text::int(group.as_str()))
 }
 
-/// `_parse_time_window(text, summary)`: a window, None, or the issue that rejects the request.
+/// The time window the text gives: a window, None, or the issue that rejects the request.
 fn time_window(text: &str, summary: &Summary) -> Result<std::result::Result<Option<Window>, Issue>> {
     let day_match = text::search(DAY.get()?, text)?;
     let full_date = text::search(FULL_DATE.get()?, text)?;
@@ -713,7 +714,7 @@ fn time_window(text: &str, summary: &Summary) -> Result<std::result::Result<Opti
     Ok(Ok(Some(Window { start, end })))
 }
 
-/// `_find_time_tokens(text)`: (hour, minute) of each time, in the order of the text.
+/// The times of the text: (hour, minute) of each, in the order of the text.
 fn time_tokens(text: &str) -> Result<Vec<(i64, i64)>> {
     let mut matches: Vec<(usize, usize, i64, i64)> = Vec::new();
     let mut occupied: Vec<(usize, usize)> = Vec::new();
@@ -758,7 +759,7 @@ fn time_tokens(text: &str) -> Result<Vec<(i64, i64)>> {
     Ok(matches.into_iter().map(|(_, _, hour, minute)| (hour, minute)).collect())
 }
 
-/// `_offline_fallback_covers_all_clauses(text)`.
+/// Whether every clause of the text is one the parser reads: an operator's, or only of time.
 pub(super) fn covers_all_clauses(raw_text: &str) -> Result<bool> {
     let normalized = text::normalize(raw_text);
     for clause in text::split(COVERAGE_CLAUSES.get()?, &normalized)? {
@@ -772,7 +773,7 @@ pub(super) fn covers_all_clauses(raw_text: &str) -> Result<bool> {
     Ok(true)
 }
 
-/// `_is_temporal_clause(clause)`.
+/// Whether the clause says only a time (nothing is left when its time words are taken out).
 fn is_temporal_clause(clause: &str) -> Result<bool> {
     let mut residual = clause.to_owned();
     for pattern in &TEMPORAL {

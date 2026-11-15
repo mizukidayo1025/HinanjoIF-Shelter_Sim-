@@ -1,7 +1,7 @@
 //! The information_spread block of the world's validation, with its errors and texts:
 //! `InformationSpreadConfig.from_mapping` and its canonical form (as in
 //! `scenario_authoring/configs/models.py`), and the check of `information_spread_v1` with its
-//! messages (`TypedMessage.from_dict`) and each person's state (`AgentInformationState.from_dict`).
+//! messages and each person's state, each read from its document.
 //! It raises the `StateInvariantError`s of the validation itself, its own wrapping included.
 
 use std::collections::HashSet;
@@ -186,7 +186,7 @@ fn member<'a>(value: &V, name: &str, members: &[&'a str]) -> Result<&'a str> {
     Err(value_error(format!("{} is not a valid {name}", repr(value))))
 }
 
-/// `_validate_information_id(name, value)`.
+/// The check that the field `name` is a stable information ID (`state::information::is_stable_id`).
 fn stable_id(name: &str, value: &V) -> Result<()> {
     match value {
         V::Str(text) if is_stable_id(text) => Ok(()),
@@ -233,7 +233,7 @@ fn typed_message(document: &V) -> Result<&IndexMap<Arc<str>, V>> {
     Ok(document)
 }
 
-/// `AgentInformationState.from_dict(document)`: its message ID and last contact.
+/// A person's information state read from its document: its message ID and last contact.
 fn agent_information(document: &V) -> Result<(Arc<str>, V)> {
     let legacy = ["message_id", "belief", "source", "last_contact", "last_event_id"];
     let current = [&legacy[..], &["exposed", "belief_strength", "share_propensity", "correction_exposed", "correction_accepted"]].concat();
@@ -327,7 +327,7 @@ fn pair_of(key: &str) -> Result<Option<(String, String)>> {
     })
 }
 
-/// `validate_information_runtime_state(state, agent_ids=, zone_ids=, duration_minutes=)`.
+/// The check of the information spread's state against the world's people, zones and duration.
 fn runtime_state(view: &View<'_>, state: Option<&V>) -> Result<()> {
     let fields = ["schema_version", "messages", "beliefs", "contacts", "query_pressure", "support_requests", "counters"];
     let state = match state {

@@ -1,6 +1,5 @@
-//! Reading a section from the configs as a `V`, with the reasons the kernels give (`exact_dict`,
-//! `exact_int`, `exact_str` and `number`). A `V` holds exact types only, so each check here is an
-//! exact type's.
+//! Reading a section from the configs as a `V`, with the reasons the kernels give (`map`, `int`,
+//! `text` and `number`). A `V` holds exact types only, so each check here is an exact type's.
 
 use std::sync::Arc;
 
@@ -18,7 +17,7 @@ pub const NOT_A_FLOAT: &str = "a number does not fit a float";
 /// A value a read site takes, or the refusal it says where it reads it.
 pub type Read<T> = Result<T, Fault>;
 
-/// `exact_dict`.
+/// The value as a dict, of exactly that type.
 pub fn map(value: &V) -> Read<&IndexMap<Arc<str>, V>> {
     match value {
         V::Map(map) => Ok(map),
@@ -53,7 +52,8 @@ pub fn number(value: &V) -> Read<f64> {
     }
 }
 
-/// `exact_dict(parent).get_item(key)`: the item, or None for a key the map does not have.
+/// The item `key` of `parent` read as a dict (`map`): the item, or None for a key the map does not
+/// have.
 pub fn item<'a>(parent: &'a V, key: &str) -> Read<Option<&'a V>> {
     Ok(map(parent)?.get(key))
 }

@@ -10,7 +10,8 @@ use super::read::{map, text, Read};
 use super::section::Fault;
 use crate::value::V;
 
-/// What `effect_program_environment_start` reads of the zone environment config.
+/// What the environment's rule (`rules::effects::EnvironmentIn`) reads of the zone environment
+/// config.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct ZoneEnvironmentSpec {
     pub policy_version: Arc<str>,

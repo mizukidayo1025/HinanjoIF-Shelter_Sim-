@@ -76,8 +76,7 @@ impl Policies {
         }
     }
 
-    /// The policies of a Run without a controller (`RunCore(route_capacities)` of a test): every
-    /// read refuses.
+    /// The policies of a Run without a controller (a test's): every read refuses.
     pub fn absent() -> Self {
         let mut empty = Obj::new(super::held::Class { module: None, qualname: None, resolves: false });
         for attr in CONTROLLER.attrs {

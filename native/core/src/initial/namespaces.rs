@@ -1,8 +1,8 @@
 //! The namespaces of `model_state` at minute 0, made in this order:
 //! `from_scenario` (the stock's ledger, the resource service, the operational events,
 //! infrastructure, the zone environment, information and the psychological state), then
-//! `initialize_simulator_extensions` (its factories, then `validate_simulator_extensions`), then
-//! `initialize_declared_states` (#429). Each is put into the world as it is made, so a later
+//! `extensions` (the extensions' states, then their check, `validate::extensions`), then
+//! `declared` (#429). Each is put into the world as it is made, so a later
 //! factory reads the earlier ones; an error is the first one met, with its class and text.
 
 use std::collections::BTreeSet;
@@ -91,7 +91,7 @@ fn value_error(text: impl Into<String>) -> Error {
 
 // ---- Made by `from_scenario` --------------------------------------------------------------------
 
-/// `create_resource_ledger(initial_stock)`.
+/// The stock's ledger at minute 0, from the Scenario's `initial_stock`.
 fn resource_ledger(stock: &Value) -> Result<V> {
     let warehouse = vstr(super::str_of(&stock["warehouse_id"], "warehouse_id")?);
     let zone = match &stock["zone_id"] {
@@ -187,7 +187,7 @@ fn id_of(value: V) -> Result<Arc<str>> {
     }
 }
 
-/// `create_operational_events_state(events, staff_ids)`.
+/// The operational events' state at minute 0, from the scheduled events and the staff.
 fn operational_events(scenario: &Scenario) -> Result<V> {
     let mut shipments = IndexMap::new();
     let mut restores = IndexMap::new();
@@ -265,7 +265,8 @@ fn dependent_facilities(edges: &[(Arc<str>, Arc<str>)], component: &Arc<str>, fa
     V::List(reached.into_iter().map(V::Str).collect())
 }
 
-/// `create_infrastructure_runtime_state(world.facilities, events, configs["infrastructure"])`.
+/// The infrastructure's state at minute 0, from the facilities, the scheduled events and
+/// `configs["infrastructure"]`.
 fn infrastructure(scenario: &Scenario, raw: &V) -> Result<V> {
     let config = contracts::validate(&Contract::Infrastructure, raw)?;
     let mut edges = Vec::new();
@@ -346,7 +347,7 @@ fn infrastructure(scenario: &Scenario, raw: &V) -> Result<V> {
     ]))
 }
 
-/// `create_information_runtime_state(set(world.agents))`.
+/// The information spread's state at minute 0, for the people.
 fn information(scenario: &Scenario) -> Result<V> {
     let ids = agent_ids(scenario);
     Ok(vmap([
@@ -363,7 +364,8 @@ fn information(scenario: &Scenario) -> Result<V> {
     ]))
 }
 
-/// `create_psychological_state` of each person's baseline in `psychology.baseline_distress_by_agent`.
+/// The psychological state at minute 0, from each person's baseline in
+/// `psychology.baseline_distress_by_agent`.
 fn psychological(scenario: &Scenario) -> Result<V> {
     let baselines = scenario.configs.get("psychology").and_then(|psychology| member(psychology, "baseline_distress_by_agent"));
     let agents = records(&agent_ids(scenario), |id| {
@@ -393,7 +395,7 @@ fn psychological(scenario: &Scenario) -> Result<V> {
 
 // ---- The simulator extensions ----------------------------------------------------------------------
 
-/// `create_population_dynamics_state`: the people's traits as `PopulationSpec` dumps them.
+/// The population's dynamics at minute 0: the people's traits as `PopulationSpec` dumps them.
 fn population_dynamics(scenario: &Scenario) -> Result<V> {
     let mut traits = IndexMap::new();
     if let Some(raw) = scenario.configs.get("population") {
@@ -427,7 +429,7 @@ fn social_network() -> V {
     ])
 }
 
-/// `create_staff_dynamics_state`.
+/// The staff's dynamics at minute 0, with the canonical config.
 fn staff_dynamics(scenario: &Scenario) -> Result<V> {
     let raw = scenario.configs.get("staff_dynamics").cloned().unwrap_or(V::Null);
     let mut config = validate::staff_dynamics::canonical_staff_dynamics_config(&raw, Held::Tracked)?;
@@ -482,7 +484,7 @@ fn temporary_spaces() -> V {
     vmap([("schema_version", V::Int(1)), ("policy_version", vstr("typed-temporary-capacity-v1")), ("spaces", empty_map()), ("history", empty_list())])
 }
 
-/// `create_staff_operations_state`: each zone's sanitation and each staff member idle.
+/// The staff's operations at minute 0: each zone's sanitation and each staff member idle.
 fn staff_operations(scenario: &Scenario) -> Result<V> {
     let raw = scenario.configs.get("staff_operations").cloned().unwrap_or(V::Null);
     let config = validate::staff_operations::canonical_staff_operations_config(&raw)?;
@@ -516,8 +518,8 @@ fn staff_operations(scenario: &Scenario) -> Result<V> {
     ]))
 }
 
-/// `create_body_state`'s record of each person, from their fatigue and stress (0.0 at minute 0),
-/// with the config `_body_config_for_world` gives.
+/// The body's state at minute 0: each person's record, from their fatigue and stress (0.0 at
+/// minute 0), with the canonical config and the selected affect model.
 fn body_state(scenario: &Scenario, selection: &Selection) -> Result<V> {
     let raw = scenario.configs.get("body_dynamics").cloned().unwrap_or(V::Null);
     let mut config = validate::body_state::canonical_body_config(&raw)?;
@@ -560,7 +562,7 @@ fn number(value: Option<&V>) -> Result<f64> {
     }
 }
 
-/// The center of each zone of the floor plan (`_zone_center`), by zone ID; the first of a
+/// The center of each zone of the floor plan (`geometry::zone_center`), by zone ID; the first of a
 /// repeated ID.
 fn zone_centers(geometry: Option<&V>) -> Result<IndexMap<Arc<str>, Option<Pt>>> {
     let mut centers = IndexMap::new();
@@ -590,7 +592,7 @@ fn zone_centers(geometry: Option<&V>) -> Result<IndexMap<Arc<str>, Option<Pt>>> 
     Ok(centers)
 }
 
-/// `create_movement_runtime_state`: each person and staff member at their zone's center.
+/// The movement's state at minute 0: each person and staff member at their zone's center.
 fn movement(scenario: &Scenario, geometry: Option<&V>) -> Result<V> {
     let centers = zone_centers(geometry)?;
     let position = |zone: &Arc<str>| {
@@ -718,8 +720,8 @@ fn shared_operations_config(raw: &V) -> Result<()> {
     }
 }
 
-/// The extensions' namespaces, as `initialize_simulator_extensions` makes them, then its
-/// `validate_simulator_extensions`.
+/// The extensions' namespaces, each made in their order, then their check
+/// (`validate::extensions`).
 pub(crate) fn extensions(world: &mut World, scenario: &Scenario) -> Result<()> {
     let configs = &scenario.configs;
     let selection = selection::select(&configs_value(scenario))?;
@@ -769,7 +771,7 @@ pub(crate) fn extensions(world: &mut World, scenario: &Scenario) -> Result<()> {
     for name in factories {
         match name {
             "agent_dynamics_v1" => {
-                // The kernel `create_agent_dynamics_state` reads the policy as a rule does
+                // The agent dynamics' state reads the policy as a rule does
                 // (`config::agent_dynamics::policy`): a config the check refuses is its refusal.
                 let refused = |reason: String| Error::Refused { label: "agent_dynamics.create_state".to_owned(), reason: reason.into() };
                 let policy = match canonical_policy(configs.get("agent_dynamics")) {
@@ -812,7 +814,7 @@ pub(crate) fn extensions(world: &mut World, scenario: &Scenario) -> Result<()> {
     validate::extensions(world, true)
 }
 
-/// `initialize_declared_states(world)`: each declared namespace the world lacks, made.
+/// Each declared namespace the world lacks, made.
 pub(crate) fn declared(world: &mut World, scenario: &Scenario) -> Result<()> {
     for contract in validate::declared::declared_states(&configs_value(scenario))? {
         if View::new(world, true, None).contains(&contract.namespace)? {

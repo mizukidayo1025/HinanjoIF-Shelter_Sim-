@@ -58,9 +58,9 @@ use crate::world::World;
 /// What the world's validation is asked.
 #[derive(Clone, Copy, Debug)]
 pub struct Options<'a> {
-    /// `validate_event_history` (True by default).
+    /// Whether the whole event history is read (true by default; `View::history`).
     pub history: bool,
-    /// `_in_flight_event`.
+    /// A pending event a handler is applying now (`View::in_flight`).
     pub in_flight: Option<&'a EventRow>,
 }
 
@@ -99,18 +99,18 @@ pub fn wrap_value(prefix: &'static str) -> impl FnOnce(Error) -> Error {
 
 // ---- The entry points -----------------------------------------------------------------------------
 
-/// `world.validate(validate_event_history=options.history, _in_flight_event=options.in_flight)`.
+/// The whole world's validation, with the history and the event in flight `options` gives.
 pub fn world(world: &World, options: &Options<'_>) -> Result<()> {
     validate(&View::new(world, options.history, options.in_flight))
 }
 
-/// `validate_simulator_extensions(world, validate_event_history=history)`: its errors as they are
-/// (`ValueError`, `KeyError`, `TypeError`).
+/// The simulator extensions' check (`simulator_extensions`), with or without the whole history:
+/// its errors as they are (`ValueError`, `KeyError`, `TypeError`).
 pub fn extensions(world: &World, history: bool) -> Result<()> {
     simulator_extensions(&View::new(world, history, None))
 }
 
-/// `_txn_validate(world, candidate=True)`: `world.validate()`, an error other than a
+/// A transaction's candidate: the whole world's validation, an error other than a
 /// `StateInvariantError` wrapped as reading a world document wraps it.
 pub fn candidate(world: &World) -> Result<()> {
     match self::world(world, &Options::default()) {
@@ -169,8 +169,9 @@ fn validate(view: &View<'_>) -> Result<()> {
     events::validate(view)
 }
 
-/// `extension_keys.intersection(self.model_state) or simulator_signatures(self.model_configs)`:
-/// the signatures' error passes on as it is.
+/// Whether the world has extensions: a namespace of `EXTENSION_KEYS` in `model_state`, or the
+/// configs' signed extensions (`signatures::simulator_signatures`); the signatures' error passes on
+/// as it is.
 fn has_extensions(view: &View<'_>) -> Result<bool> {
     for key in EXTENSION_KEYS {
         if view.contains(key)? {
@@ -180,9 +181,9 @@ fn has_extensions(view: &View<'_>) -> Result<bool> {
     Ok(!signatures::simulator_signatures(view)?.is_empty())
 }
 
-// ---- validate_simulator_extensions ----------------------------------------------------------------
+// ---- The simulator extensions ---------------------------------------------------------------------
 
-/// `validate_simulator_extensions`, its parts in their order.
+/// The simulator extensions' check, its parts in their order.
 fn simulator_extensions(view: &View<'_>) -> Result<()> {
     extension_head::validate(view)?;
     agent_dynamics::validate(view)?;

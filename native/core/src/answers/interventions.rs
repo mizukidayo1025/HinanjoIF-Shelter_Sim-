@@ -125,7 +125,7 @@ impl PreviewPlan {
         }
     }
 
-    /// The compiler's refusal under a stop policy (`InterventionCompilerUnavailable`): 409.
+    /// The compiler's refusal under a stop policy (`intervention_compiler_unavailable`): 409.
     pub fn unavailable(reason: &str) -> Failure {
         Refusal::storage_with(reason, "intervention_compiler_unavailable").into()
     }

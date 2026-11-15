@@ -91,7 +91,7 @@ pub fn validate(view: &View<'_>) -> Result<()> {
     Ok(())
 }
 
-/// Whether `validate_presence_state(world, raw)` passes.
+/// Whether the presence ledger's state passes its check.
 fn presence_passes(view: &View<'_>, raw: &V) -> Result<bool> {
     let state = match models::presence_state(raw) {
         Ok(V::Map(state)) => state,

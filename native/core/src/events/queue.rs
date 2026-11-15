@@ -100,7 +100,7 @@ impl Queue {
         Some((serial, slot))
     }
 
-    /// `EventQueue.schedule` of a row: 0, or 1 for a pending ID, 2 for a pending sequence.
+    /// Schedules a row: 0, or 1 for a pending ID, 2 for a pending sequence.
     pub fn schedule_row(&mut self, row: EventRow) -> u8 {
         if self.by_id.contains_key(&*row.event_id) {
             return 1;
@@ -113,7 +113,8 @@ impl Queue {
         0
     }
 
-    /// The first scheduled event of this ID, as `EventQueue.replace` finds it.
+    /// The first scheduled event of this ID, in the order the events were added (the event a
+    /// replace finds).
     pub fn first_scheduled(&self, event_id: &str) -> Option<u64> {
         self.insertion.iter().copied().find(|serial| &*self.slots[serial].event_id == event_id)
     }

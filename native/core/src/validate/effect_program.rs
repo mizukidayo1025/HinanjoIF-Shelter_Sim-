@@ -34,7 +34,7 @@ const MARKER_FIELDS: [&str; 9] =
 const STACK_FIELDS: [&str; 2] = ["baseline_working_units", "modifiers"];
 const ENTRY_FIELDS: [&str; 6] = ["modifier_id", "program_id", "effect_id", "working_units", "start_minute", "sequence"];
 
-/// `known_effects`: (program, effect) -> the program's record.
+/// The known effects: (program, effect) -> the program's record.
 type Known<'a> = IndexMap<(Arc<str>, Arc<str>), &'a Map>;
 /// `scheduled_events`: event -> program.
 type Scheduled = IndexMap<Arc<str>, Arc<str>>;
@@ -63,7 +63,7 @@ fn is_lower_hex_64(value: &str) -> bool {
     value.len() == 64 && value.bytes().all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
 }
 
-/// `_modifier_id(program_id, effect_id)`.
+/// A modifier's ID: `modifier-` and the first 32 hex digits of `sha256(f"{program}:{effect}")`.
 fn modifier_id(program_id: &str, effect_id: &str) -> String {
     let digest = Sha256::digest(format!("{program_id}:{effect_id}").as_bytes());
     let mut text = String::with_capacity(41);

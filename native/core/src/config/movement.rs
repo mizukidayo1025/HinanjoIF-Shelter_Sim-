@@ -141,12 +141,13 @@ pub struct Movement {
 }
 
 impl Movement {
-    /// Whether a route is timed by the movement model (`route_with_movement_time`).
+    /// Whether a route is timed by the movement model.
     pub fn times_routes(&self) -> bool {
         self.has_model || self.has_geometry
     }
 
-    /// `exact_dict(model_configs)` and its two keys; the model is read now and refused later.
+    /// The configs as a dict (`read::map`) and its two keys; the model is read now and refused
+    /// later.
     pub fn parse(configs: &V) -> Read<Self> {
         let configs = map(configs)?;
         let raw = configs.get("movement_model");
@@ -166,7 +167,8 @@ pub const ROUTE_CONFIG_LACKS_CAPACITIES: &str = "the route config lacks its capa
 pub const ROUTE_CONFIG_NOT_PLAIN: &str = "the route config is the Python rule's";
 
 impl RouteCapacities {
-    /// `exact_dict(model_configs).get("layout_routing")` and `route_capacities_pass` up to the edges.
+    /// `layout_routing` of the configs (a dict, `read::map`) and the checks of
+    /// `route_capacities_pass` up to the edges.
     pub fn parse(configs: &V) -> Read<Option<Self>> {
         let config = match map(configs)?.get("layout_routing") {
             None | Some(V::Null) => return Ok(None),

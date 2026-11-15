@@ -6,9 +6,9 @@
 //! (`crate::load::loaded`) and the browser's `Simulation` take those bytes.
 //!
 //! The core makes the whole entry of any Scenario (#429): the rows, the event queue, every
-//! namespace (`namespaces`: `from_scenario`, `initialize_simulator_extensions` and
-//! `initialize_declared_states`, in this order), then `world.validate()`
-//! (`crate::validate::world`); the sections the host parses (`sections`); the Run's policies
+//! namespace (`namespaces::from_scenario`, `namespaces::extensions` and `namespaces::declared`, in
+//! this order), then the whole world's validation (`crate::validate::world`); the sections the
+//! host parses (`sections`); the Run's policies
 //! (`policies`), its route capacities and its zone neighbors. An error is the first one met, with
 //! its class and text.
 //!
@@ -157,7 +157,7 @@ fn needs(json: &Value) -> Result<NeedRow> {
     })
 }
 
-/// `AgentState(profile=AgentProfile(...), zone_id=initial_zone_id, needs=NeedState(...))`.
+/// A person's row: their profile, at their initial zone, with their initial needs.
 fn agent(json: &Value) -> Result<AgentRow> {
     let initial_needs = needs(&json["initial_needs"])?;
     let zone = text(str_of(&json["initial_zone_id"], "initial_zone_id")?);

@@ -89,7 +89,7 @@ fn ledger_error(text: impl Into<String>) -> Error {
     Error::Ledger(text.into())
 }
 
-/// `_valid_id`.
+/// Whether the value is a stable ID.
 fn valid_id(value: &V) -> bool {
     matches!(value, V::Str(text) if is_stable_id(text))
 }
@@ -192,24 +192,24 @@ fn archived_agent_ids(view: &View<'_>) -> Result<Vec<Arc<str>>> {
 
 // ---- _validate_ledger_balances -------------------------------------------------------------------
 
-/// An account as `_validate_ledger_balances` passed it.
+/// An account as the balances' check (`balances`) passed it.
 struct Account<'a> {
     balances: [i128; 6],
     source_ids: Vec<&'a str>,
     /// Each active reservation's agent and quantity.
     reservations: FxHashMap<&'a str, (&'a str, i128)>,
-    /// The account as it is, for `validate_resource_ledger_state`'s comparisons.
+    /// The account as it is, for the ledger check's comparisons.
     map: &'a Map,
 }
 
-/// The ledger as `_validate_ledger_balances` passed it.
+/// The ledger as the balances' check (`balances`) passed it.
 struct Ledger<'a> {
     map: &'a Map,
     used_ids: Vec<&'a str>,
     accounts: Vec<Account<'a>>,
 }
 
-/// `_validate_ledger_balances`: the header, the balances and the active reservations.
+/// The balances' check: the header, the balances and the active reservations.
 fn balances<'a>(ledger: &'a V, world: &Against<'_>, check_every_reservation_id: bool) -> Result<Ledger<'a>> {
     let map = match ledger {
         V::Map(map) if has_fields(map, &LEDGER_FIELDS) => map,
@@ -323,7 +323,7 @@ enum Operation {
     Consume,
 }
 
-/// An audit record as `_validate_audit_record` passed it.
+/// An audit record as its check (`audit_record`) passed it.
 struct Record<'a> {
     minute: i128,
     event_id: Option<&'a str>,
@@ -337,7 +337,7 @@ struct Record<'a> {
     balances: [i128; 6],
 }
 
-/// `_validate_audit_record(record, ledger)`.
+/// The check of an audit record against the ledger's warehouse.
 fn audit_record<'a>(record: &'a V, warehouse: &V) -> Result<Record<'a>> {
     let record = match record {
         V::Map(record) if has_fields(record, &AUDIT_FIELDS) => record,
@@ -603,7 +603,7 @@ fn replay_event<'a>(
     Ok(())
 }
 
-// ---- validate_resource_ledger_state --------------------------------------------------------------
+// ---- The ledger's check --------------------------------------------------------------------------
 
 /// `records_since_previous_tick(history, minute_index)`: the records of the last tick and the one
 /// before them.
@@ -628,7 +628,7 @@ fn records_since_previous_tick(history: &[V], minute_index: i64) -> &[V] {
     &history[start.saturating_sub(1)..]
 }
 
-/// `validate_resource_ledger_state`: the balances, the records of the last tick, and the newest
+/// The ledger's check: the balances, the records of the last tick, and the newest
 /// record of each resource against its account.
 fn state(ledger: &V, world: &Against<'_>, minute_index: i64) -> Result<()> {
     let ledger = balances(ledger, world, false)?;

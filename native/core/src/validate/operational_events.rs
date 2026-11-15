@@ -25,7 +25,7 @@ use crate::value::V;
 
 const KEY: &str = "operational_events_v1";
 const H03_TYPES: [&str; 5] = ["delivery_delayed", "water_outage", "water_restored", "staff_unavailable", "staff_shift_change"];
-/// The event types the full check reads (`_CHECKED_EVENT_TYPES`).
+/// The event types the full check reads.
 const CHECKED_TYPES: [&str; 13] = [
     "facility_outage",
     "facility_recovery",
@@ -47,7 +47,7 @@ fn invalid<T>(text: impl Into<String>) -> Result<T> {
     Err(Error::Value(text.into()))
 }
 
-/// `_is_stable_id`: `^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$`.
+/// Whether the value is a stable ID: `^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$`.
 pub(super) fn is_stable_id(value: Option<&V>) -> bool {
     let Some(V::Str(text)) = value else {
         return false;
@@ -115,7 +115,7 @@ fn text_value(text: &Option<Arc<str>>) -> V {
 
 // ---- The event log as the validators read it -------------------------------------------------------
 
-/// The pending events and the log, as `EventsById` and `event_status` read them.
+/// The pending events and the log, as the check reads them: by ID, and each event's status.
 pub(super) struct Log<'v, 'w> {
     view: &'v View<'w>,
     pub pending: Vec<Arc<EventRow>>,
@@ -129,7 +129,7 @@ impl<'v, 'w> Log<'v, 'w> {
         Ok(Self { view, pending, by_id })
     }
 
-    /// `event_queue.pending()` holds an event equal to this one (`in_flight_event in pending`).
+    /// Whether the pending events hold an event equal to this one (the event in flight).
     pub fn holds(&self, event: &EventRow) -> bool {
         self.by_id.get(&event.event_id).is_some_and(|index| same_event(&self.pending[*index], event))
     }
@@ -166,7 +166,7 @@ impl<'v, 'w> Log<'v, 'w> {
         Ok(self.by_id.get(id).map(|index| self.pending[*index].clone()))
     }
 
-    /// `event_status(event_id) is EventStatus.APPLIED`: the event in flight counts as applied.
+    /// Whether the event's status is applied: the event in flight counts as applied.
     pub fn applied(&self, id: Option<&str>) -> Result<bool> {
         let Some(id) = id else {
             return Ok(false);

@@ -159,7 +159,7 @@ pub(crate) fn state_contracts() -> Result<&'static V> {
 
 // ---- model_signatures ---------------------------------------------------------------------------
 
-/// `SUITE_RUNTIME_RESOLVED_DOMAINS`.
+/// The domains of a model suite that the Run resolves at run time.
 const SUITE_RUNTIME_RESOLVED: [&str; 3] = ["psychology", "queue", "relationship"];
 
 fn sha_of(value: &V) -> Result<String> {

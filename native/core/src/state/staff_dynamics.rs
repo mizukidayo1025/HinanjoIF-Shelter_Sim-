@@ -119,7 +119,7 @@ state_row! {
 }
 
 impl StaffRecord {
-    /// A new member: `create_staff_dynamics_state` and `add_staff`.
+    /// A new member, as the state at minute 0 and an added staff member start one.
     pub fn new() -> Self {
         Self {
             consecutive_work_minutes: 0,
@@ -155,8 +155,8 @@ pub fn shifts_are_valid(shifts: &[Shift]) -> bool {
 
 impl ConfigRow {
     /// Whether `canonical_staff_dynamics_config` passes this and leaves it as it is, as far as
-    /// `validate_staff_dynamics_state` asks: with all its keys, or without the per-staff limits,
-    /// or for policy v1 without any of the three later keys.
+    /// `validate::staff_dynamics::validate` asks: with all its keys, or without the per-staff
+    /// limits, or for policy v1 without any of the three later keys.
     pub fn is_valid(&self) -> bool {
         let v1 = &*self.policy_version == POLICY_V1;
         if self.schema_version != 1
@@ -196,8 +196,8 @@ impl StaffDynamicsRow {
             && self.staff.values().all(StaffRecord::is_valid)
     }
 
-    /// `validate_staff_dynamics_state` for a row of its types (#152; in the core since #250): true
-    /// only if the whole check passes. A record for each staff member and none else, and the
+    /// `validate::staff_dynamics::validate` for a row of its types: true only if the whole check
+    /// passes. A record for each staff member and none else, and the
     /// per-staff limits and shifts only of the world's staff.
     pub fn accepts(&self, rows: &Entities) -> bool {
         if !self.is_valid_without_staff_ids() {

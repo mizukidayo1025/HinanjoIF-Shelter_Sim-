@@ -22,7 +22,7 @@ pub fn type_name(value: &V) -> &'static str {
 }
 
 /// How an error's text names the lists and dicts of the value a rule reads: as those of the plain
-/// document (`read_only_state`), or as those of the tree of the world's `model_state`
+/// document (a state read as a copy), or as those of the tree of the world's `model_state`
 /// (`world.model_state.get(...)`), `TrackedList` and `TrackedDict`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Held {

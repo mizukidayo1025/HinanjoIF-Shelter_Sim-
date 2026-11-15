@@ -8,7 +8,7 @@ use crate::error::Result;
 use crate::json::{write_json_string, Encoder};
 use crate::value::V;
 
-/// `ScheduledEvent` as a row. Everything `ScheduledEvent._check` asks has been checked, by
+/// A scheduled event as a row. Everything a scheduled event's checks ask has been checked, by
 /// `EventRow::checked` or by the constructor of the object the row was read from.
 #[derive(Clone, Debug, PartialEq)]
 pub struct EventRow {

@@ -58,7 +58,16 @@ class _Client:
 @pytest.fixture
 def client(ui_project_api, tmp_path) -> Iterator[_Client]:
     server = HTTPServer(("127.0.0.1", 0), _handler_for(ui_project_api))
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
+
+    def serve() -> None:
+        # The answers keep Runs (`ProjectAPI.live`) made on this thread; they are dropped here,
+        # where they were made, and not on the test's thread when the API closes (#507).
+        try:
+            server.serve_forever()
+        finally:
+            ui_project_api.live.clear()
+
+    thread = threading.Thread(target=serve, daemon=True)
     thread.start()
     try:
         yield _Client(f"http://127.0.0.1:{server.server_port}")
@@ -76,6 +85,9 @@ def _computed_until(run_state: dict[str, Any], branch_id: str) -> int:
     )
 
 
+# A Run the core keeps (`PlainRun`) is dropped on the thread that made it: one dropped on another
+# thread is not freed, and PyO3 reports it as an unraisable exception (#507).
+@pytest.mark.filterwarnings("error::pytest.PytestUnraisableExceptionWarning")
 def test_arrivals_typed_on_the_project_screen_show_in_the_comparison(
     client, generated_request
 ) -> None:

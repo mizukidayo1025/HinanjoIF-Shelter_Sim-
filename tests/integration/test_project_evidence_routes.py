@@ -1,5 +1,5 @@
 """A Branch's history route on a generated Run with a Branch that adds toilets: the KPIs answer
-(#368 decision A), from the stored Run of format v5 (#427). The conversation of the questions has
+(#368 decision A), from the stored Run of format v6 (#427). The conversation of the questions has
 its own route (`…/conversations`).
 
 The comparison of several Runs, the first divergence, the approved-condition differences and
@@ -26,7 +26,7 @@ ANSWERED_KINDS = ("kpis",)
 
 @pytest.fixture(scope="module")
 def evidence_api(tmp_path_factory, generated_previews, add_toilets_program, saved_project):
-    """A ProjectAPI over Run r of the generated Scenario, with a capacity Branch (format v5)."""
+    """A ProjectAPI over Run r of the generated Scenario, with a capacity Branch (format v6)."""
     preview = generated_previews(duration_days=END / 1440)
     scenario = ScenarioSpec.model_validate(copy.deepcopy(preview["scenario"]))
     with pytest.MonkeyPatch.context() as monkeypatch:

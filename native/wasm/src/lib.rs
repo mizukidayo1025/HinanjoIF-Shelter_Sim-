@@ -208,13 +208,6 @@ impl Simulation {
         let entry = PlainRun::entry_of_worlds_json(file, name).map_err(js_error)?;
         Ok(Simulation { run: PlainRun::restore(entry, restore.inner.take().map_err(js_error)?).map_err(js_error)? })
     }
-
-    /// Whether the Run collects its decisions' records (`PlainRun::collect_decisions`, #368): a
-    /// stored Run keeps them (`RunWriter.take`). The world is the same either way.
-    #[wasm_bindgen(js_name = collectDecisions)]
-    pub fn collect_decisions(&mut self, on: bool) {
-        self.run.collect_decisions(on);
-    }
 }
 
 /// A saved point being restored (`archive::Restore`): made of the saved point's bytes, then given
@@ -242,7 +235,7 @@ impl Restore {
     }
 }
 
-// ---- The stored Run (#368: `sheltersim_core::run_store`, format v5) ------------------------------
+// ---- The stored Run (#368: `sheltersim_core::run_store`, format v6) ------------------------------
 //
 // The format of a Run the page stores (`journal.jsonl` and `data.pack`) is the core's: the page's
 // `js/run_store.mjs` opens the files, compresses and decompresses the pieces (deflate-raw), and
@@ -583,7 +576,7 @@ impl Chain {
         Ok(self.inner.sample_pieces().map_err(js_error)?.into_iter().map(|position| position as u32).collect())
     }
 
-    /// The pieces of the records of `kind` ("decisions", "conversations" or "llm_tape").
+    /// The pieces of the records of `kind` ("conversations" or "llm_tape").
     pub fn records(&self, kind: &str) -> Result<Vec<u32>, JsError> {
         let kind =
             run_store::RecordKind::ALL.into_iter().find(|each| each.name() == kind).ok_or_else(|| JsError::new(&format!("no records of kind {kind}")))?;
@@ -714,7 +707,7 @@ impl RunWriter {
         self.inner.fork_start(&parent.inner, base as usize, fork).map_err(js_error)
     }
 
-    /// Takes the decision records `simulation` collected, and queues the tables' new entries and the
+    /// Takes the LLM tape's entries `simulation` kept, and queues the tables' new entries and the
     /// newly sealed blocks (every block when `last`).
     pub fn take(&mut self, simulation: &mut Simulation, last: bool) -> Result<(), JsError> {
         self.inner.take(&mut simulation.run, last).map_err(js_error)
@@ -725,7 +718,7 @@ impl RunWriter {
         self.inner.save(&mut simulation.run).map_err(js_error)
     }
 
-    /// Queues the decision records left, the "world" piece and the "end" line.
+    /// Queues the tape's entries left, the "world" piece and the "end" line.
     pub fn finish(&mut self, simulation: &mut Simulation) -> Result<(), JsError> {
         self.inner.finish(&mut simulation.run).map_err(js_error)
     }
@@ -797,7 +790,6 @@ impl RunWriter {
             let fields = [
                 ("records", saved.records),
                 ("samples", saved.samples),
-                ("decisions", saved.counts.decisions),
                 ("point_version", saved.point_version),
                 ("log_blocks", saved.log_blocks),
                 ("sample_blocks", saved.sample_blocks),

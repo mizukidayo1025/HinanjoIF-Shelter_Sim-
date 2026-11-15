@@ -2404,6 +2404,39 @@ pub fn validate_facts(facts: &Facts<'_>, leaving: Option<&str>) -> Result<()> {
     if !header || people.len() > MAX_RETAINED_PEOPLE || archive.len() > MAX_RELATIONSHIP_ARCHIVE || history_rows.len() > MAX_HISTORY {
         return invalid(LIFECYCLE_SCHEMA);
     }
+    check_retained_people(facts, people)?;
+    let pending_ids = check_pending_returns(facts, people, returns)?;
+    check_pending_relocations(facts, relocations)?;
+    check_relationship_archive(archive)?;
+    check_relocation_tasks(facts, relocations, leaving)?;
+    for (message_id, message) in messages {
+        match message {
+            V::Map(fields) if matches!(fields.get("id"), Some(V::Str(id)) if id == message_id) => json_checked(message)?,
+            _ => return invalid("population_lifecycle_v1 retained message is invalid"),
+        }
+    }
+    for beliefs in deferred.values() {
+        if !matches!(beliefs, V::Map(_)) {
+            return invalid("population_lifecycle_v1 deferred beliefs are invalid");
+        }
+        json_checked(beliefs)?;
+    }
+    if let Some(raw) = facts.presence {
+        let raw = raw.filter(|raw| !matches!(raw, V::Null)).ok_or_else(|| Error::unsupported("no presence"))?;
+        presence_is_plain(raw)?;
+        let people = map_of(field(raw, "people")?)?;
+        for agent_id in pending_ids {
+            let record = people.get(agent_id).filter(|record| !matches!(record, V::Null)).map(Person::parse).transpose()?;
+            if !record.is_some_and(|person| &*person.status == "awaiting_admission") {
+                return invalid("pending return is inconsistent with population_presence_v1");
+            }
+        }
+    }
+    Ok(())
+}
+
+/// The archived people: none admitted, each of its record's shape, its snapshot and values plain.
+fn check_retained_people(facts: &Facts<'_>, people: &Doc) -> Result<()> {
     const PERSON: &str = "population_lifecycle_v1 archived person is invalid";
     const RECORD: [&str; 6] = ["agent", "agent_dynamics", "body_agent", "information", "since_minute", "source_event_ids"];
     for (agent_id, record) in people {
@@ -2425,6 +2458,11 @@ pub fn validate_facts(facts: &Facts<'_>, leaving: Option<&str>) -> Result<()> {
         snapshot_checked(fields.get("agent").ok_or_else(|| Error::unsupported("no agent"))?, agent_id)?;
         json_checked(record)?;
     }
+    Ok(())
+}
+
+/// The pending returns: each of an archived person not admitted, to a known zone, once; their IDs.
+fn check_pending_returns<'a>(facts: &Facts<'_>, people: &Doc, returns: &'a [V]) -> Result<Vec<&'a str>> {
     let mut pending_ids: Vec<&str> = Vec::with_capacity(returns.len());
     const RETURN_INVALID: &str = "population_lifecycle_v1 pending return is invalid";
     const RETURN: [&str; 6] = ["agent_id", "zone_id", "event_id", "minute", "household_id", "source_ids"];
@@ -2455,6 +2493,11 @@ pub fn validate_facts(facts: &Facts<'_>, leaving: Option<&str>) -> Result<()> {
         }
         pending_ids.push(agent_id);
     }
+    Ok(pending_ids)
+}
+
+/// The pending relocations: each of an admitted person, of its shape, between known zones, due after it starts.
+fn check_pending_relocations(facts: &Facts<'_>, relocations: &Doc) -> Result<()> {
     const RELOCATION_INVALID: &str = "population_lifecycle_v1 pending relocation is invalid";
     const RELOCATION: [&str; 8] = ["task_id", "event_id", "from_zone_id", "to_zone_id", "household_id", "source_ids", "started_minute", "due_minute"];
     for (agent_id, relocation) in relocations {
@@ -2481,6 +2524,11 @@ pub fn validate_facts(facts: &Facts<'_>, leaving: Option<&str>) -> Result<()> {
             return invalid(RELOCATION_INVALID);
         }
     }
+    Ok(())
+}
+
+/// The relationship archive: each of its shape, of a known namespace and a pair of two people.
+fn check_relationship_archive(archive: &[V]) -> Result<()> {
     const ARCHIVE_INVALID: &str = "population_lifecycle_v1 relationship archive is invalid";
     const NAMES: [&str; 4] = [BODY, SOCIAL_NETWORK, INFORMATION, SOCIAL_RUNTIME];
     const ARCHIVE: [&str; 5] = ["namespace", "pair_key", "agent_ids", "value", "restore_when_both_active"];
@@ -2501,6 +2549,11 @@ pub fn validate_facts(facts: &Facts<'_>, leaving: Option<&str>) -> Result<()> {
         }
         json_checked(fields.get("value").ok_or_else(|| Error::unsupported("no value"))?)?;
     }
+    Ok(())
+}
+
+/// Each pending relocation (but the leaving person's) with its one travel task and its arrival event.
+fn check_relocation_tasks(facts: &Facts<'_>, relocations: &Doc, leaving: Option<&str>) -> Result<()> {
     for (agent_id, relocation) in relocations {
         const INCONSISTENT: &str = "population_lifecycle_v1 relocation task/event is inconsistent";
         if leaving == Some(&**agent_id) {
@@ -2523,29 +2576,6 @@ pub fn validate_facts(facts: &Facts<'_>, leaving: Option<&str>) -> Result<()> {
             event.is_some_and(|event| &*event.event_type == "agent_travel_complete" && is_text(kit::payload(&event, "purpose"), "presence_relocation"));
         if !task_fits || !event_fits {
             return invalid(INCONSISTENT);
-        }
-    }
-    for (message_id, message) in messages {
-        match message {
-            V::Map(fields) if matches!(fields.get("id"), Some(V::Str(id)) if id == message_id) => json_checked(message)?,
-            _ => return invalid("population_lifecycle_v1 retained message is invalid"),
-        }
-    }
-    for beliefs in deferred.values() {
-        if !matches!(beliefs, V::Map(_)) {
-            return invalid("population_lifecycle_v1 deferred beliefs are invalid");
-        }
-        json_checked(beliefs)?;
-    }
-    if let Some(raw) = facts.presence {
-        let raw = raw.filter(|raw| !matches!(raw, V::Null)).ok_or_else(|| Error::unsupported("no presence"))?;
-        presence_is_plain(raw)?;
-        let people = map_of(field(raw, "people")?)?;
-        for agent_id in pending_ids {
-            let record = people.get(agent_id).filter(|record| !matches!(record, V::Null)).map(Person::parse).transpose()?;
-            if !record.is_some_and(|person| &*person.status == "awaiting_admission") {
-                return invalid("pending return is inconsistent with population_presence_v1");
-            }
         }
     }
     Ok(())

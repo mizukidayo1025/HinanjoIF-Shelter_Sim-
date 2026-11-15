@@ -8,9 +8,9 @@ answer it (its budget and call limits, response tape, usage ledger observer, or 
 check of the recorded order), and gives back the text with the router's record of the call.
 
 The answers made with an LLM (#463: a result question, the review of a completed branch, the
-reading of an intervention's text) ask through the same link: the core builds the task and checks
-the reply (`sheltersim_core::answers::asking`); `ask` hands the task to the link and gives the
-reply back, or None where the router raised.
+reading of an intervention's text, the PDF report's analysis) ask through the same link: the core
+builds the task and checks the reply (`sheltersim_core::answers::asking`); `ask` hands the task to
+the link and gives the reply back, or None where the router raised.
 """
 
 from __future__ import annotations

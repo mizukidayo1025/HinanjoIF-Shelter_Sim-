@@ -201,6 +201,9 @@ class ProjectAPI:
         from sheltersim.web.workspace import ProjectWorkspace
 
         self.workspace = ProjectWorkspace(self)
+        from sheltersim.web.pdf_report import PdfReports
+
+        self.pdf_reports = PdfReports(self)
         from sheltersim.web.project_services import ProjectServices
 
         self.services = ProjectServices(self)
@@ -471,10 +474,8 @@ class ProjectAPI:
                 fields(document, set(), {"branch_id"})
                 return self.cancel(project_id, run_id, document.get("branch_id"))
             if action == "pdf-report":
-                # Without the analysis of a Provider no PDF is made: always a refusal.
-                answers().pdf_report_answer(
-                    project_id, run_id, body, *files.run_listing(project_id, run_id)
-                )
+                # The PDF's bytes; without an API key, the core's refusal (#463).
+                return self.pdf_reports.export(project_id, run_id, body)
             if action == "delete":
                 return self.delete_run(project_id, run_id, body)
         if len(parts) == 6 and parts[1] == "runs" and parts[3] == "branches":

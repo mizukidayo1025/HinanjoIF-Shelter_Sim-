@@ -21,6 +21,7 @@ pub mod asking;
 pub mod frames;
 pub mod history;
 pub mod interventions;
+pub mod pdf;
 pub mod query;
 pub mod questions;
 pub mod records;

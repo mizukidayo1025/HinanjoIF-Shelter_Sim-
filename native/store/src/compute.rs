@@ -354,15 +354,31 @@ impl Computation {
     /// One chunk (compute.mjs's `chunk`): at most `ticks` ticks, not past the next saved point or
     /// the target, then the blocks sealed since stored, and at a saved point, the target or the
     /// clock's end the branch's new head. The computation's status once it ends (`completed` at the
-    /// clock's end, `paused` at the target), else None.
+    /// clock's end, `paused` at the target), else None. `advance` then `store`.
     pub fn chunk(&mut self, files: &ProjectFiles, ticks: u64) -> Result<Option<&'static str>> {
+        self.advance(ticks)?;
+        self.store(files)
+    }
+
+    /// A chunk's ticks, without the files: at most `ticks`, not past the next saved point or the
+    /// target. The caller need not hold the store's transaction for them, and should not where the
+    /// Run's LLM link takes it (the server's usage ledger, #465).
+    pub fn advance(&mut self, ticks: u64) -> Result<()> {
         let schedule = Schedule { every: self.save_every };
         let step = schedule.step(self.run.minute()?, ticks.max(1), Some(self.target));
         let ran = self.run.advance(step).map_err(|stopped| Error::refused(stopped.to_string()))?;
-        let minute = self.run.minute()?;
         if ran != step {
-            return Err(Error::refused(format!("the Run stopped at minute {minute}")));
+            return Err(Error::refused(format!("the Run stopped at minute {}", self.run.minute()?)));
         }
+        Ok(())
+    }
+
+    /// A chunk's files, under the store's transaction: the blocks sealed since stored, and at a
+    /// saved point, the target or the clock's end the branch's new head. The computation's status
+    /// once it ends, else None.
+    pub fn store(&mut self, files: &ProjectFiles) -> Result<Option<&'static str>> {
+        let schedule = Schedule { every: self.save_every };
+        let minute = self.run.minute()?;
         self.writer.take(&mut self.run, false)?;
         if minute == self.duration {
             self.writer.save(&mut self.run)?;

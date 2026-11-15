@@ -4,8 +4,6 @@
 //! Each row is a struct named like the entity it holds, and `write_json` writes the bytes of its
 //! canonical JSON in a world's document of a version (`canonical`). A `Table` holds
 //! the rows of one `IdMap`, keys in the dict's order; `Entities` holds the seven tables of a world.
-//! The zones and zone edges have a taint of their own: a zone that does not fit leaves the people's
-//! rows alone, and the other way round.
 //!
 //! The rows are the truth (decision 1 of docs/rust-port/step5-plan.md, PR 6-1), and since #430
 //! removed the Python objects, all there is.
@@ -17,26 +15,6 @@ use crate::json::{write_json_string, Encoder};
 use crate::row::IdMap;
 use crate::str_enum;
 use crate::value::V;
-
-// ---- Kinds -----------------------------------------------------------------------------------
-
-/// The table of an entity, by its number (`Entities::table`).
-pub const AGENT: u8 = 0;
-/// An agent's needs: its object has its own number, its row is in the agent's.
-pub const NEEDS: u8 = 1;
-pub const FACILITY: u8 = 2;
-pub const STAFF: u8 = 3;
-pub const REQUEST: u8 = 4;
-pub const TASK: u8 = 5;
-/// `world.zones` (Issue #152, PR 5-2).
-pub const ZONE: u8 = 6;
-/// `world.zone_edges`.
-pub const EDGE: u8 = 7;
-
-/// Whether the kind is a zone's or a zone edge's, which have their own taint.
-pub const fn is_zone_kind(kind: u8) -> bool {
-    kind == ZONE || kind == EDGE
-}
 
 // ---- Typed fields ----------------------------------------------------------------------------
 
@@ -407,68 +385,16 @@ fn mark(marked: &mut Vec<u32>, is_marked: &mut [bool], slot: u32) {
     }
 }
 
-/// What a table does without knowing its row type, for the code that picks a table by its kind.
-pub trait AnyTable {
+impl<R> Table<R> {
     /// A free slot, with no row yet and no key.
-    fn reserve_slot(&mut self) -> u32;
-    /// The slot loses its row and becomes free. Its key, if it has one, stays: see
-    /// `remove`.
-    fn release_slot(&mut self, slot: u32);
-    /// Key the slot: a new key goes to the end of the order, a key already there keeps its place.
-    /// The slot the key had, if any, which stays reserved.
-    fn bind(&mut self, key: Arc<str>, slot: u32) -> Option<u32>;
-    /// Take the key out of the order (`shift_remove`: the others keep their order) and release its
-    /// slot. The slot it had, if any.
-    fn remove(&mut self, key: &str) -> Option<u32>;
-    fn len(&self) -> usize;
-    fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-    /// The keys in their order, for checks.
-    fn key_order(&self) -> Vec<Arc<str>>;
-}
-
-impl<R> AnyTable for Table<R> {
     fn reserve_slot(&mut self) -> u32 {
-        let slot = self.free.pop().unwrap_or_else(|| {
+        self.free.pop().unwrap_or_else(|| {
             self.rows.push(None);
             self.is_marked.push(false);
             u32::try_from(self.rows.len() - 1).expect("under 2**32 entities")
-        });
-        slot
+        })
     }
 
-    fn release_slot(&mut self, slot: u32) {
-        if let Some(row) = self.rows.get_mut(slot as usize) {
-            if row.take().is_some() {
-                self.free.push(slot);
-            }
-        }
-    }
-
-    fn bind(&mut self, key: Arc<str>, slot: u32) -> Option<u32> {
-        self.ids.insert(key, slot)
-    }
-
-    fn remove(&mut self, key: &str) -> Option<u32> {
-        // shift_remove: the order of the keys is the order of the dict.
-        let slot = self.ids.shift_remove(key);
-        if let Some(slot) = slot {
-            self.release_slot(slot);
-        }
-        slot
-    }
-
-    fn len(&self) -> usize {
-        self.ids.len()
-    }
-
-    fn key_order(&self) -> Vec<Arc<str>> {
-        self.ids.keys().cloned().collect()
-    }
-}
-
-impl<R> Table<R> {
     pub fn len(&self) -> usize {
         self.ids.len()
     }
@@ -487,11 +413,6 @@ impl<R> Table<R> {
     /// The row in a slot.
     pub fn row_at(&self, slot: u32) -> Option<&R> {
         self.rows.get(slot as usize)?.as_ref()
-    }
-
-    /// How many slots there are, free or not.
-    pub fn slot_count(&self) -> usize {
-        self.rows.len()
     }
 
     /// The row of a key.
@@ -555,7 +476,7 @@ impl<R: Clone> Table<R> {
         let slot = self.reserve_slot();
         self.rows[slot as usize] = Some(row);
         mark(&mut self.marked, &mut self.is_marked, slot);
-        self.bind(key, slot);
+        self.ids.insert(key, slot);
         slot
     }
 
@@ -631,63 +552,10 @@ pub struct Entities {
     pub active_tasks: Table<TaskRow>,
     pub zones: Table<ZoneRow>,
     pub zone_edges: Table<EdgeRow>,
-    /// Why the rows of the people's five tables were dropped: a value that does not fit. Kernels
-    /// then say Unsupported (`World::rows`).
-    taint: Option<String>,
-    /// The same for the zones and the zone edges.
-    zone_taint: Option<String>,
 }
 
 impl Entities {
-    /// Why the rows of the people's tables were dropped, or None.
-    pub fn tainted(&self) -> Option<&str> {
-        self.taint.as_deref()
-    }
-
-    /// Why the rows of the zones and zone edges were dropped, or None.
-    pub fn zones_tainted(&self) -> Option<&str> {
-        self.zone_taint.as_deref()
-    }
-
-    /// The taint that covers a kind's table.
-    pub fn tainted_for(&self, kind: u8) -> Option<&str> {
-        if is_zone_kind(kind) {
-            self.zones_tainted()
-        } else {
-            self.tainted()
-        }
-    }
-
-    /// Drop every row of the people's tables. The first reason stays the reason. The zones stay.
-    pub fn taint(&mut self, why: String) {
-        let taint = self.taint.take().unwrap_or(why);
-        self.agents = Table::default();
-        self.facilities = Table::default();
-        self.staff = Table::default();
-        self.support_requests = Table::default();
-        self.active_tasks = Table::default();
-        self.taint = Some(taint);
-    }
-
-    /// Drop every row of the zones and zone edges. The first reason stays the reason.
-    pub fn taint_zones(&mut self, why: String) {
-        let taint = self.zone_taint.take().unwrap_or(why);
-        self.zones = Table::default();
-        self.zone_edges = Table::default();
-        self.zone_taint = Some(taint);
-    }
-
-    /// `taint` or `taint_zones`, for the kind's table.
-    pub fn taint_for(&mut self, kind: u8, why: String) {
-        if is_zone_kind(kind) {
-            self.taint_zones(why);
-        } else {
-            self.taint(why);
-        }
-    }
-
-    /// The order a copy through canonical JSON gives (`Table::canonicalize`), for each table that
-    /// has rows; a tainted table has none.
+    /// The order a copy through canonical JSON gives (`Table::canonicalize`), for each table.
     pub fn canonicalize(&mut self) {
         self.agents.canonicalize();
         self.facilities.canonicalize();
@@ -696,25 +564,6 @@ impl Entities {
         self.active_tasks.canonicalize();
         self.zones.canonicalize();
         self.zone_edges.canonicalize();
-    }
-
-    /// No rows and no taint, as before the first attach.
-    pub fn clear(&mut self) {
-        *self = Entities::default();
-    }
-
-    /// The table of a kind. `NEEDS` and anything unknown are the active tasks'; no caller asks for
-    /// those.
-    pub fn table(&self, kind: u8) -> &dyn AnyTable {
-        match kind {
-            AGENT => &self.agents,
-            FACILITY => &self.facilities,
-            STAFF => &self.staff,
-            REQUEST => &self.support_requests,
-            ZONE => &self.zones,
-            EDGE => &self.zone_edges,
-            _ => &self.active_tasks,
-        }
     }
 }
 

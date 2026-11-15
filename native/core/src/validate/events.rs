@@ -47,14 +47,6 @@ pub fn validate(view: &View<'_>) -> Result<()> {
     }
     let minute_index = view.minute_index()?;
     let duration = view.duration_minutes()?;
-    {
-        let queue = view.queue()?;
-        match queue.validate() {
-            1 => return Err(invariant("event queue contains duplicate event IDs")),
-            2 => return Err(invariant("event queue contains duplicate event sequences")),
-            _ => {}
-        }
-    }
     if view.history {
         match view.world.log_mut()?.audit(Some(minute_index), Some(duration)) {
             3 => return Err(invariant("event log cannot contain future realization times")),

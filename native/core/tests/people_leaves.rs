@@ -587,12 +587,15 @@ fn an_id_json_escapes_is_refused_and_a_body_s_trust_is_copied() {
     assert_eq!(network::observe_event(&world, "information_contact_update", &escaped, 10), Err(unsupported("an ID has a character that JSON escapes")));
     assert!(world.row::<SocialNetworkRow>(NETWORK).unwrap().relationships.map.is_empty());
     assert_eq!(network::action_relief(None, "a1"), Ok(0.02 * 0.5));
-    network::record_observed_contacts(&world, &[("a1", "a2"), ("a2", "a1")], 9).unwrap();
+    network::observed_contacts(&world, &[("a1", "a2"), ("a2", "a1")], 9).and_then(|contacts| contacts.apply(&world)).unwrap();
     let row = world.row::<SocialNetworkRow>(NETWORK).unwrap();
     assert_eq!(row.relationships.map.len(), 2);
     assert_eq!(row.interaction_count, 2);
     drop(row);
-    assert_eq!(network::record_observed_contacts(&world, &[("a1", "a1")], 9), Err(unsupported("a pair the kernel leaves to Python")));
+    assert_eq!(
+        network::observed_contacts(&world, &[("a1", "a1")], 9).and_then(|contacts| contacts.apply(&world)),
+        Err(unsupported("a pair the kernel leaves to Python"))
+    );
 }
 
 // ---- social_dialogue -----------------------------------------------------------------------------
@@ -610,7 +613,7 @@ fn context(captured: V, participants: &[(&str, V)]) -> V {
 fn a_context_s_verdict_is_the_recorded_one_in_its_order() {
     let good = context(V::Int(3), &[("a1", state(V::Float(0.2), V::Null))]);
     assert_eq!(dialogue::context_problem(&good, &["a1"], 5), Ok(None));
-    assert_eq!(dialogue::validate_context(&good, &["a1"], 5), Ok(()));
+    assert_eq!(dialogue::context_problem(&good, &["a1"], 5), Ok(None));
     // The minute after the event, another participant, a stress out of bounds, an affect of other keys.
     assert_eq!(dialogue::context_problem(&good, &["a1"], 2), Ok(Some(dialogue::NOT_ITS_EVENT)));
     assert_eq!(dialogue::context_problem(&good, &["a2"], 5), Ok(Some(dialogue::NOT_ITS_EVENT)));
@@ -618,7 +621,7 @@ fn a_context_s_verdict_is_the_recorded_one_in_its_order() {
     assert_eq!(dialogue::context_problem(&loud, &["a1"], 5), Ok(Some(dialogue::NOT_UNIT)));
     let odd = context(V::Int(3), &[("a1", state(V::Float(0.2), map(&[("x", V::Float(0.0))])))]);
     assert_eq!(dialogue::context_problem(&odd, &["a1"], 5), Ok(Some(dialogue::AFFECT_INVALID)));
-    assert_eq!(dialogue::validate_context(&odd, &["a1"], 5), Err(Error::Value(dialogue::AFFECT_INVALID.to_owned())));
+    assert_eq!(dialogue::context_problem(&odd, &["a1"], 5), Ok(Some(dialogue::AFFECT_INVALID)));
     let big = context(V::Int(3), &[("a1", state(V::Big("100000000000000000000".into()), V::Null))]);
     assert!(matches!(dialogue::context_problem(&big, &["a1"], 5), Err(Error::Unsupported(_))));
     assert_eq!(dialogue::context_problem(&V::List(Vec::new()), &[], 5), Ok(Some(dialogue::NOT_ITS_EVENT)));

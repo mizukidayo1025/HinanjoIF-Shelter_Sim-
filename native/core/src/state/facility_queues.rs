@@ -1,7 +1,6 @@
 //! `facility_queues_v1`: the independent FIFO of each service point.
 //! The rules (`rules/facility_queues.rs`, `rules/queues.rs`) read and write the row alone; an
-//! attached tree follows it (lane P8-0c). A value of another type than the rules write taints the
-//! namespace, and the kernels refuse it.
+//! attached tree follows it (lane P8-0c).
 
 use std::sync::Arc;
 

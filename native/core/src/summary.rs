@@ -77,9 +77,6 @@ pub fn scenario_summary(world: &World) -> Result<Vec<u8>> {
 /// The summary as a value: `ScenarioSummary.model_dump(mode="json")`.
 pub fn summary(world: &World) -> Result<V> {
     let rows = world.rows()?;
-    if let Some(taint) = rows.tainted().or(rows.zones_tainted()) {
-        return Err(Error::unsupported(format!("the world's tables are tainted: {taint}")));
-    }
     let operational = namespace(world, OPERATIONAL)?;
     let operational = match &operational {
         Some(V::Map(map)) => Some(map),
@@ -180,22 +177,19 @@ fn has(world: &World, name: &str) -> Result<bool> {
     Ok(match world.slots.get(name) {
         Some(slot) => {
             let slot = slot.try_borrow()?;
-            slot.place != Place::Field && (slot.row.is_some() || slot.taint.is_some())
+            slot.place != Place::Field && slot.row.is_some()
         }
         None => false,
     })
 }
 
-/// `model_state.get(name)` of a namespace held as a value; None without the key. A tainted one, or
-/// one held as a typed row, is refused: the summary reads none such.
+/// `model_state.get(name)` of a namespace held as a value; None without the key. One held as a typed
+/// row is refused: the summary reads none such.
 fn namespace(world: &World, name: &str) -> Result<Option<V>> {
     if !has(world, name)? {
         return Ok(None);
     }
     let slot = world.slots.get(name).ok_or_else(|| Error::Runtime("a slot left the world".to_owned()))?.try_borrow()?;
-    if let Some(taint) = slot.taint.as_deref().filter(|_| slot.row.is_none()) {
-        return Err(Error::unsupported(format!("{name} is tainted: {taint}")));
-    }
     Ok(Some(slot.row::<ValueRow>()?.0.clone()))
 }
 

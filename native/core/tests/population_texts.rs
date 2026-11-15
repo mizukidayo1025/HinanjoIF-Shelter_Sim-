@@ -737,7 +737,7 @@ fn a_relocation_completion_without_its_route_says_the_rule_s_text() {
     let mut case = case("generated", "a_relocation_completion_without_its_route");
     let arrival = event_of("relocation-arrival", 0, "agent_travel_complete", json!({"agent_id": case.person(), "purpose": "presence_relocation"}));
     case.unchanged("relocation completion does not match its pending route", |case| {
-        lifecycle::complete_relocation_through(&case.loaded.cell, &mut case.host, &texts::row(&arrival))
+        texts::complete_relocation(&case.loaded.cell, &mut case.host, &texts::row(&arrival))
     });
 }
 

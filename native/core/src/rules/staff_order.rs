@@ -20,7 +20,7 @@ use crate::routes::Route;
 use crate::row::ValueRow;
 use crate::rules::kit::{self, Events, Held};
 use crate::rules::staff_operation_events::{dynamics_available, relief_skills, snapshots, Inputs, FORMULA_UNREAD};
-use crate::rules::travel::{self, ZONES_TAINTED};
+use crate::rules::travel;
 use crate::state::body_state::{BodyRow, NAME as BODY};
 use crate::state::effect_program::{EffectProgramRow, NAME as PROGRAM};
 use crate::state::staff_operations::{Number, OperationRecord, Phase, StaffOperationsRow, Table, NAME};
@@ -116,9 +116,6 @@ fn validate(world: &World, inputs: &Inputs<'_>, order: &Order<'_>, minute: i64) 
     }
     {
         let rows = world.entities.try_borrow()?;
-        if rows.zones_tainted().is_some() {
-            return Err(Error::unsupported(ZONES_TAINTED));
-        }
         if !rows.zones.contains_key(order.target_zone_id) {
             return failed("staff task order references an unknown target zone");
         }

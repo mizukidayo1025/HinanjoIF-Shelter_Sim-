@@ -463,8 +463,14 @@ impl Case {
         self.with(|world| call(world, &intake))
     }
 
-    fn room_admission_point(&mut self, room: &str) -> Option<Pt> {
-        self.intake(|world, intake| overlay::room_admission_point(world, intake, room)).unwrap()
+    /// The point the room open to one more person in the zone gives (`available_room_after`), where
+    /// it is this room.
+    fn room_admission_point(&mut self, zone: &str, room: &str) -> Option<Pt> {
+        let found = self.intake(|world, intake| overlay::available_room_after(world, intake, zone, &[])).unwrap();
+        found.map(|(found, point)| {
+            assert_eq!(&*found, room);
+            point
+        })
     }
 
     fn available_room(&mut self, zone: &str) -> Option<String> {
@@ -965,7 +971,7 @@ fn a_room_takes_people_at_free_points_up_to_its_capacity() {
     // The bed is the middle of the room, so it is the first point the rule tries.
     let V::List(beds) = at(&record, &["bed_points_m"]) else { panic!("a list") };
     let bed_point = pt(&beds[0]);
-    assert_eq!(case.room_admission_point(&room), Some(bed_point));
+    assert_eq!(case.room_admission_point(ROOM_ZONE, &room), Some(bed_point));
     assert_eq!(case.available_room(ROOM_ZONE).as_deref(), Some(room.as_str()));
     let agents = case.agents();
     let (first, second, third) = (&agents[0], &agents[1], &agents[2]);
@@ -984,7 +990,7 @@ fn a_room_takes_people_at_free_points_up_to_its_capacity() {
     let beside = Pt { x: min_x + 0.375, y: min_y + 0.375 + 0.75 + 0.75 };
     for (offset, expected) in [(0.0, beside), (0.4999, beside), (0.5, bed_point), (0.6, bed_point)] {
         case.put_point(first, Some(Pt { x: bed_point.x + offset, y: bed_point.y }));
-        assert_eq!(case.room_admission_point(&room), Some(expected), "{offset}");
+        assert_eq!(case.room_admission_point(ROOM_ZONE, &room), Some(expected), "{offset}");
     }
     assert_eq!(case.writes(admit(second), |expected| admitted(expected, second, &room, "e1")), bed_point);
     admit(second)(&mut case);
@@ -1046,7 +1052,7 @@ fn a_large_room_gives_its_grid_point_nearest_the_middle() {
         map_mut(at_mut(state, &["temporary_rooms", &room])).insert(text("polygon_m"), polygon);
     });
     // The recorded point for the generated sleeping zone (lane L10).
-    assert_eq!(case.room_admission_point(&room), Some(Pt { x: 4.125, y: 7.425 }));
+    assert_eq!(case.room_admission_point(ROOM_ZONE, &room), Some(Pt { x: 4.125, y: 7.425 }));
 }
 
 // ---- A facility placed during a Run --------------------------------------------------------------
@@ -1610,7 +1616,7 @@ fn a_room_inspects_256_points_of_its_grid() {
             });
             spatial.as_object_mut().unwrap().entry("obstacles").or_insert(json!([])).as_array_mut().unwrap().push(obstacle);
         });
-        let point = case.room_admission_point(&room);
+        let point = case.room_admission_point(ROOM_ZONE, &room);
         if !found {
             assert_eq!(point, None);
             continue;
@@ -1627,33 +1633,6 @@ fn a_room_inspects_256_points_of_its_grid() {
             y += 0.75;
         }
         assert_eq!(point, Some(Pt { x, y }));
-    }
-}
-
-#[test]
-fn incoming_travelers_are_the_people_walking_to_the_zone_or_its_facilities() {
-    let case = Case::new();
-    assert!(case.with(|world| world.rows().unwrap().agents.iter().all(|(_, agent)| agent.activity != Activity::Moving)));
-    let agents = case.agents();
-    let (first, second) = (&agents[0], &agents[1]);
-    let toilet = case.facility(|kind| kind.contains("toilet"));
-    let toilet_zone = case.with(|world| world.rows().unwrap().facilities.get(toilet.as_str()).unwrap().zone_id.to_string());
-    case.with(|world| {
-        let mut rows = world.rows_mut().unwrap();
-        let agent = rows.agents.get_mut(first.as_str()).unwrap();
-        agent.activity = Activity::Moving;
-        agent.target_id = Some(text(ROOM_ZONE));
-        let agent = rows.agents.get_mut(second.as_str()).unwrap();
-        agent.activity = Activity::Moving;
-        agent.target_id = Some(text(&toilet));
-    });
-    let targets = [(first, ROOM_ZONE.to_owned()), (second, toilet_zone.clone())];
-    for zone in [ROOM_ZONE.to_owned(), toilet_zone, "corridor".to_owned()] {
-        for excluding in [None, Some(first), Some(second)] {
-            let expected = targets.iter().filter(|(agent, target)| *target == zone && Some(*agent) != excluding).count() as i64;
-            let counted = case.with(|world| overlay::incoming_travelers(world, &zone, excluding.map(String::as_str)));
-            assert_eq!(counted, Ok(expected), "{zone} {excluding:?}");
-        }
     }
 }
 
@@ -2010,14 +1989,15 @@ impl Case {
         });
     }
 
+    /// A request at the end of the queue, at its signed point (`fifo::write_enqueue`, as the toilet
+    /// rule writes it).
     fn enqueue(&mut self, queue: &str, request_id: &str) -> Result<(), Error> {
-        let (held, plan) = (self.held(QUEUES), self.plan().unwrap());
+        let plan = self.plan().unwrap();
+        let point = fifo::point_of(&plan, queue).unwrap();
         self.with(|world| {
-            fifo::enqueue(
+            fifo::write_enqueue(
                 world,
-                &held,
-                &plan,
-                queue,
+                point,
                 fifo::NewRequest { request_id, task_id: "fresh-task", agent_id: "A003", service_kind: "toilet", requested_minute: 0 },
             )
         })
@@ -2046,30 +2026,16 @@ fn writes_of_the_queues() {
     fresh["active_task_id"] = json!("fresh-task");
     assert_eq!(state["requests"]["fresh"], fresh);
     assert_eq!(state["queues"][LEFT]["queued_request_ids"], json!([tasks[0], tasks[1], "fresh"]));
-    let taken = "service queue is not installed or request ID is already in use";
-    let (mut queued, _) = writes_world();
-    let first = tasks[0].clone();
-    queued.raises_text(move |world| world.enqueue(LEFT, &first), taken);
-    queued.raises_text(|world| world.enqueue("none", "fresh"), taken);
-    let (mut not_installed, _) = writes_world();
+    let (not_installed, _) = writes_world();
     not_installed.set_queues(None);
-    not_installed.raises_text(|world| world.enqueue(LEFT, "fresh"), taken);
 
     let (ours, _) = writes_world();
-    let held = ours.held(QUEUES);
-    ours.with(|world| fifo::mark_stall(world, &held, LEFT, &tasks[0], "staff")).unwrap();
+    ours.with(|world| fifo::write_stall(world, LEFT, &tasks[0], "staff")).unwrap();
     assert_eq!(ours.queues_json()["queues"][LEFT]["last_stall"], stall(7, &tasks[0], "staff"));
-    for world in [&queued, &not_installed] {
-        let before = world.fingerprint();
-        let held = world.held(QUEUES);
-        world.with(|world| fifo::mark_stall(world, &held, "none", &tasks[0], "staff")).unwrap();
-        assert!(world.fingerprint() == before);
-    }
 
     // Starting the head clears the stall.
     let started = |ours: &Case| {
-        let held = ours.held(QUEUES);
-        ours.with(|world| fifo::start_service(world, &held, &tasks[0], "active")).unwrap();
+        ours.with(|world| fifo::write_start(world, &tasks[0], LEFT, "active")).unwrap();
     };
     started(&ours);
     let state = ours.queues_json();
@@ -2086,8 +2052,7 @@ fn writes_of_the_queues() {
     );
     let started_world = || {
         let (case, _) = writes_world();
-        let held = case.held(QUEUES);
-        case.with(|world| fifo::mark_stall(world, &held, LEFT, &tasks[0], "staff")).unwrap();
+        case.with(|world| fifo::write_stall(world, LEFT, &tasks[0], "staff")).unwrap();
         started(&case);
         case
     };
@@ -2256,13 +2221,14 @@ fn a_fifo_keeps_its_order_and_only_a_wait_ends_it() {
     assert_eq!(abandon["detail"], "Agent left a prolonged low-urgency queue and will reconsider after a bounded delay");
 }
 
-/// The walk to the slots of a FIFO, and its walks to service, slots and approach. The digests were
-/// recorded from the core in #225 lane M3.
+/// The walk to the slots of a FIFO, and its walks to service and approach. The digests were
+/// recorded from the core in #225 lane M3; the second again in #553, without the slots' points
+/// (`queue_slot_position`, which only the tests read; the walk's digest holds where it ends).
 #[test]
 fn walks_of_a_fifo_are_the_recorded_ones() {
     for (queue, walk_digest, walks_digest) in [
-        (LEFT, "31ea1db6800291372fc1b78b7a93d1a9acd417c3760c5c0705c4be4837a95ccf", "c628d41065bccf3df4a0bcf22df1ccd453487bec0a84ecabd96493b60be15bd5"),
-        (RIGHT, "9da9bdefc7466eb11d51886ac11f8d813635ba8920baceac0431e69f51322bfe", "b1a2747c863378726350dd601d578be4f310566bb99800a32127ce25aeaf0bb0"),
+        (LEFT, "31ea1db6800291372fc1b78b7a93d1a9acd417c3760c5c0705c4be4837a95ccf", "7ce37c55db18f2ac51eea154ad2b79ff17b7abc1db23636dad715313bb695d6a"),
+        (RIGHT, "9da9bdefc7466eb11d51886ac11f8d813635ba8920baceac0431e69f51322bfe", "43bc85d1c386d324a28ba5b6b51eca3a0a7d5a79732d908909bc44805a893cc5"),
     ] {
         let mut case = Case::queued();
         case.line_up("toilet_01", queue, &["A001", "A002", "A003"]);
@@ -2282,12 +2248,7 @@ fn walks_of_a_fifo_are_the_recorded_ones() {
             case.with(|world| answers.add(&format!("{result:?}"), world));
             case.give_back(snapshot);
         }
-        let (plan, walking, movement, queues, _) = case.queue_walk();
-        let at = sheltersim_core::rules::movement::Where { geo: &plan, movement: movement.clone(), queues };
-        for agent in ["A001", "A002", "A003"] {
-            let slot = case.with(|world| sheltersim_core::rules::movement::queue_slot_position(world, &at, agent, "toilet_01", Some(queue))).unwrap();
-            answers.text(&format!("{slot:?}"));
-        }
+        let (plan, walking, movement, _, _) = case.queue_walk();
         let point = plan.layout.as_ref().unwrap().service_points.iter().find(|point| &*point.queue_id == queue).unwrap().id.clone();
         let near = sheltersim_core::rules::movement::Where { geo: &plan, movement, queues: Held::Absent };
         let route = |case: &Case, point: &str| {

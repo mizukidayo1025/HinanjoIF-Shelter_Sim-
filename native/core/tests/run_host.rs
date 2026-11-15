@@ -121,7 +121,7 @@ fn the_spec_reads_each_part_of_the_controller_once() {
 #[test]
 fn policies_of_a_controller_know_its_models_and_sinks() {
     let policies = Policies::of(Arc::new(controller()));
-    assert!(policies.has_controller());
+    assert!(policies.controller.is_ok());
     assert_eq!(policies.psychology.model, Ok(psychology::Model::Simple));
     let parameters = policies.psychology.parameters().unwrap();
     assert_eq!(parameters.value("toilet_growth"), Ok(&V::Float(0.001)));
@@ -246,7 +246,7 @@ fn a_social_policy_gives_its_limits_and_the_llm_flag() {
 fn a_run_without_a_controller_refuses_every_policy() {
     let run = Run::new(RunConfig { route_capacities: Err("no capacities") });
     let refused = Fault::refused(NO_CONTROLLER);
-    assert!(!run.policies.has_controller());
+    assert_eq!(run.policies.controller.as_ref().err(), Some(&refused));
     assert_eq!(run.policies.psychology.model, Err(refused.clone()));
     assert_eq!(run.policies.behavior.rule, Err(refused.clone()));
     assert_eq!(run.policies.sinks.trace_level, Err(refused.clone()));

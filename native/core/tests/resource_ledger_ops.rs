@@ -206,8 +206,7 @@ fn each_operation_writes_what_was_recorded() {
     cell.with(|world| {
         let row = world.row::<LedgerRow>(NAME).unwrap();
         assert_eq!(row.accounts.food_meal_units.reservations.get("r-1").unwrap().quantity, 1);
-        assert_eq!(resources::reservation_id_was_used(world, "r-1"), Ok(true));
-        assert_eq!(resources::reservation_id_was_used(world, "r-2"), Ok(true));
+        assert!(row.used_reservation_ids.contains("r-1") && row.used_reservation_ids.contains("r-2"));
     })
     .unwrap();
 }

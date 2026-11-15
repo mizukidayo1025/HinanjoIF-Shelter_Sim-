@@ -3,7 +3,7 @@
 //!
 //! A person who asks a queue at once and a request closed at once, on a world with a floor plan and
 //! on one without, through the core's step of the propose phase (`propose::apply_alone`); and
-//! `at_queue_slot`, `at_service_point` and `near_point` of `rules::movement`. The worlds are the
+//! `at_queue_slot` and `at_service_point` of `rules::movement`. The worlds are the
 //! generated Scenario at minute 0 of `tests/data/generated_texts.json` and its variants, and the
 //! Scenario without a floor plan of `tests/data/staff_assignment.json`, each with its controller.
 //!
@@ -16,7 +16,6 @@ use crate::support;
 use serde_json::{json, Value};
 use sheltersim_core::config::movement::Movement;
 use sheltersim_core::config::SectionId;
-use sheltersim_core::geometry::Pt;
 use sheltersim_core::host::Host;
 use sheltersim_core::rules::kit::Held;
 use sheltersim_core::rules::movement::{self, Where};
@@ -242,23 +241,6 @@ fn having_arrived_at_a_slot_or_the_service_point() {
         tick.cell.with(|world| movement::at_queue_slot(world, &at, "A001", "no_such_facility", None).unwrap()).unwrap()
     });
     assert!(!slot);
-}
-
-/// Near the trip's last point, within its tolerance.
-#[test]
-fn having_arrived_at_the_end_of_a_trip() {
-    let mut case = Case::of(GENERATED, "generated");
-    let target = Pt { x: 1.5, y: 2.5 };
-    let mut answers = Vec::new();
-    for point in [json!({"x": 1.5, "y": 2.5}), json!({"x": 1.5, "y": 2.5502}), json!({"x": 1.5, "y": 2.5499})] {
-        case.edit(|doc| doc["model_state"]["movement_v1"]["positions"]["A001"]["point"] = point);
-        answers.push(case.tick(|tick| {
-            let holding = tick.holding().unwrap();
-            let moving = holding.held("movement_v1", "the world holds another movement state");
-            tick.cell.with(|world| movement::near_point(world, &moving, "A001", target).unwrap()).unwrap()
-        }));
-    }
-    assert_eq!(answers, [true, false, true]);
 }
 
 /// Standing where they were placed, neither in the slot nor at the point.

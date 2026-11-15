@@ -8,9 +8,6 @@
 //! log may hold the records in a binary form instead (`pack_records`, #252). A record without
 //! bytes was for the Python objects of the records, which #430 removed.
 //!
-//! The bytes are what restoring the record reads, so a log whose every record has bytes written
-//! or checked here (`all_encoded`) is its own restored log.
-//!
 //! Adding checks duplicate IDs and sequences and returns a code, which the writer turns into its
 //! error (`events::writer`).
 //!
@@ -21,7 +18,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 
 use super::packed::{Blocks, Packer, Unpacked};
-use super::{is_stable_id, EventRow, EventStatus};
+use super::{EventRow, EventStatus};
 use crate::error::{Error, Result};
 use crate::value::V;
 
@@ -37,7 +34,7 @@ struct Entry {
     applied: bool,
     minute: i64,
     /// Whether the bytes were written or read back here, so the record made from them is the
-    /// same and its object may be let go (`releasable`).
+    /// same (`adopt_packed` takes only such records).
     exact: bool,
 }
 
@@ -72,8 +69,6 @@ pub const ACTION_LIFECYCLE_EVENT_TYPE: &str = "agent_action_lifecycle";
 #[derive(Clone, Debug, PartialEq)]
 pub struct EventLog {
     entries: Vec<Entry>,
-    // Records whose bytes were not written here (`add` with neither).
-    unencoded: usize,
     type_names: Vec<String>,
     type_ids: HashMap<String, u32>,
     by_id: HashMap<Arc<str>, usize>,
@@ -92,9 +87,6 @@ pub struct EventLog {
     // Records an audit checked and the bounds it checked them against.
     audited: usize,
     audit_bounds: (Option<i64>, Option<i64>),
-    // The event types a reader asked for all records of (`scan_type`): it is likely to ask
-    // again, so `releasable` keeps their objects.
-    scanned_types: HashSet<String>,
     // The records in the binary form, once `pack_records` was called (the browser's log).
     packed: Option<Packed>,
 }
@@ -144,7 +136,6 @@ impl EventLog {
     pub fn new() -> Self {
         Self {
             entries: Vec::new(),
-            unencoded: 0,
             type_names: Vec::new(),
             type_ids: HashMap::new(),
             by_id: HashMap::new(),
@@ -161,7 +152,6 @@ impl EventLog {
             lifecycle_agent_ids: HashMap::new(),
             audited: 0,
             audit_bounds: (None, None),
-            scanned_types: HashSet::new(),
             packed: None,
         }
     }
@@ -232,9 +222,6 @@ impl EventLog {
         }
         let type_id = self.intern_type(&fields.event_type);
         let exact = written.is_some() || has_bytes;
-        if !exact {
-            self.unencoded += 1;
-        }
         let event_id: Arc<str> = Arc::from(fields.event_id);
         if let Some(packed) = &mut self.packed {
             packed.starts.push(NOT_PACKED);
@@ -353,11 +340,6 @@ impl EventLog {
         self.packed.as_ref().is_some_and(|packed| packed.starts.iter().all(|start| *start != NOT_PACKED))
     }
 
-    /// Whether the records are held in the binary form (`pack_records`).
-    pub fn is_packed(&self) -> bool {
-        self.packed.is_some()
-    }
-
     /// The bytes of the records in the binary form, of its string table's texts and of its shapes'
     /// keys, and their counts: (bytes, strings, shapes), or None when the log is not packed.
     pub fn packed_sizes(&self) -> Option<(usize, usize, usize)> {
@@ -405,26 +387,9 @@ impl EventLog {
         self.entries.is_empty()
     }
 
-    /// Whether every record has bytes written or checked here, so restoring this log gives the
-    /// log itself.
-    pub fn all_encoded(&self) -> bool {
-        self.unencoded == 0
-    }
-
     /// The bytes written here of the record at a position.
     pub fn written(&self, index: usize) -> Option<&[u8]> {
         self.entries.get(index)?.written.as_deref()
-    }
-
-    /// The positions before `end` whose objects may be let go: their bytes were written or read
-    /// back here, and they are not of a type `scan_type` was asked for.
-    pub fn releasable(&self, end: usize) -> impl Iterator<Item = usize> + '_ {
-        let end = end.min(self.entries.len());
-        let kept: HashSet<u32> = self.scanned_types.iter().filter_map(|name| self.type_ids.get(name).copied()).collect();
-        (0..end).filter(move |index| {
-            let entry = &self.entries[*index];
-            entry.exact && !kept.contains(&entry.event_type)
-        })
     }
 
     pub fn index_of(&self, event_id: &str) -> Option<usize> {
@@ -493,14 +458,6 @@ impl EventLog {
     /// The id of an event type with records.
     pub fn type_id(&self, name: &str) -> Option<u32> {
         self.type_ids.get(name).copied()
-    }
-
-    /// `type_id` of a type a reader asks for all records of, noted for `releasable`.
-    pub fn scan_type(&mut self, name: &str) -> Option<u32> {
-        if !self.scanned_types.contains(name) {
-            self.scanned_types.insert(name.to_owned());
-        }
-        self.type_id(name)
     }
 
     /// The positions of a type's records in append order; empty for a type with none.
@@ -598,7 +555,6 @@ impl EventLog {
     pub fn mark(&self) -> LogMark {
         LogMark {
             len: self.entries.len(),
-            unencoded: self.unencoded,
             type_count: self.type_names.len(),
             max_sequence: self.max_sequence,
             lifecycle_len: self.lifecycle.len(),
@@ -607,7 +563,6 @@ impl EventLog {
             applied_facility_events: self.applied_facility_events.clone(),
             audited: self.audited,
             audit_bounds: self.audit_bounds,
-            scanned_types: self.scanned_types.clone(),
         }
     }
 
@@ -647,23 +602,20 @@ impl EventLog {
         for agent in self.lifecycle_agents.drain(mark.lifecycle_agent_count..) {
             self.lifecycle_agent_ids.remove(&agent);
         }
-        self.unencoded = mark.unencoded;
         self.max_sequence = mark.max_sequence;
         self.completed_support_kinds = mark.completed_support_kinds;
         self.applied_facility_events = mark.applied_facility_events;
         self.audited = mark.audited;
         self.audit_bounds = mark.audit_bounds;
-        self.scanned_types = mark.scanned_types;
     }
 }
 
 /// Where an `EventLog` was (`EventLog::mark`): its counts, and the small indexes a record may add
 /// to without leaving a trace of which record did (the support kinds of a person, the facility
-/// events), whole. The scanned types are a reader's: a rollback forgets the reads since.
+/// events), whole.
 #[derive(Clone, Debug)]
 pub struct LogMark {
     len: usize,
-    unencoded: usize,
     type_count: usize,
     max_sequence: i64,
     lifecycle_len: usize,
@@ -672,7 +624,6 @@ pub struct LogMark {
     applied_facility_events: HashMap<String, Vec<String>>,
     audited: usize,
     audit_bounds: (Option<i64>, Option<i64>),
-    scanned_types: HashSet<String>,
 }
 
 impl LogMark {
@@ -769,155 +720,4 @@ impl EventRow {
             provenance: Some(&self.provenance),
         })
     }
-}
-
-fn bad_document(what: &str) -> String {
-    format!("saved EventLog record: {what}")
-}
-
-/// The index fields of one saved record, after the checks EventLogRecord makes and a
-/// check that the bytes are its canonical JSON. Runs without the GIL.
-pub fn fields_of_bytes(bytes: &[u8]) -> std::result::Result<Fields, String> {
-    use serde_json::Value;
-    let document: Value = serde_json::from_slice(bytes).map_err(|error| bad_document(&error.to_string()))?;
-    check_saved_record(&document).map_err(|what| bad_document(what))?;
-    let mut canonical = Vec::with_capacity(bytes.len());
-    write_canonical(&mut canonical, &document).map_err(|what| bad_document(what))?;
-    if canonical != bytes {
-        return Err(bad_document("record is not canonical JSON"));
-    }
-    let event = document.get("event").ok_or_else(|| bad_document("no event"))?;
-    let text = |value: Option<&Value>| value.and_then(Value::as_str).map(str::to_owned);
-    let payload = event.get("payload");
-    let payload_text = |key: &str| text(payload.and_then(|value| value.get(key)));
-    let mut provenance_objects = Vec::new();
-    if let Some(Value::Object(provenance)) = event.get("provenance") {
-        for (key, value) in provenance {
-            if value.is_object() {
-                provenance_objects.push(key.clone());
-            }
-        }
-    }
-    Ok(Fields {
-        event_id: text(event.get("event_id")).ok_or_else(|| bad_document("event_id"))?,
-        sequence: event.get("sequence").and_then(Value::as_i64).ok_or_else(|| bad_document("sequence"))?,
-        event_type: text(event.get("event_type")).ok_or_else(|| bad_document("event_type"))?,
-        minute: document.get("realized_minute").and_then(Value::as_i64).ok_or_else(|| bad_document("realized_minute"))?,
-        applied: document.get("status").and_then(Value::as_str) == Some("applied"),
-        request_id: payload_text("request_id"),
-        agent_id: payload_text("agent_id"),
-        support_kind: payload_text("support_kind"),
-        payload_status_completed: payload.and_then(|value| value.get("status")).and_then(Value::as_str) == Some("completed"),
-        facility_id: payload_text("facility_id"),
-        provenance_objects,
-        transition: payload_text("transition"),
-    })
-}
-
-pub const RECORD_FIELDS: [&str; 4] = ["detail", "event", "realized_minute", "status"];
-pub const EVENT_FIELDS: [&str; 10] =
-    ["causation_id", "due_minute", "event_id", "event_type", "kind", "payload", "priority", "provenance", "sequence", "source_id"];
-const EVENT_KINDS: [&str; 4] = ["exogenous", "completion", "endogenous", "intervention"];
-const EVENT_STATUSES: [&str; 3] = ["applied", "failed", "suppressed"];
-
-fn stable_id(value: &serde_json::Value) -> bool {
-    value.as_str().is_some_and(is_stable_id)
-}
-
-fn exact_int(value: &serde_json::Value, minimum: Option<i64>) -> bool {
-    // A JSON number with a fraction or exponent reads back as a float in Python.
-    let integral = matches!(value, serde_json::Value::Number(number)
-        if !number.to_string().contains(['.', 'e', 'E']));
-    integral && value.as_i64().is_some_and(|number| minimum.is_none_or(|low| number >= low))
-}
-
-/// The checks EventLogRecord and ScheduledEvent.from_saved make of a saved record.
-pub fn check_saved_record(document: &serde_json::Value) -> std::result::Result<(), &'static str> {
-    use serde_json::Value;
-    let has_fields = |value: &Value, names: &[&str]| {
-        value.as_object().is_some_and(|object| object.len() == names.len() && names.iter().all(|name| object.contains_key(*name)))
-    };
-    if !has_fields(document, &RECORD_FIELDS) {
-        return Err("record fields do not match EventLogRecord");
-    }
-    if !exact_int(&document["realized_minute"], Some(0)) {
-        return Err("realized_minute must be a non-negative integer");
-    }
-    if !document["status"].as_str().is_some_and(|status| EVENT_STATUSES.contains(&status)) {
-        return Err("unknown event status");
-    }
-    let event = &document["event"];
-    if !has_fields(event, &EVENT_FIELDS) {
-        return Err("event fields do not match ScheduledEvent");
-    }
-    if !stable_id(&event["event_id"]) || !stable_id(&event["event_type"]) {
-        return Err("event_id and event_type must be stable IDs");
-    }
-    for name in ["source_id", "causation_id"] {
-        if !event[name].is_null() && !stable_id(&event[name]) {
-            return Err("source_id and causation_id must be stable IDs");
-        }
-    }
-    if !event["kind"].as_str().is_some_and(|kind| EVENT_KINDS.contains(&kind)) {
-        return Err("unknown event kind");
-    }
-    if !exact_int(&event["due_minute"], Some(0)) || !exact_int(&event["sequence"], Some(0)) {
-        return Err("event due_minute and sequence must be non-negative integers");
-    }
-    if !exact_int(&event["priority"], None) {
-        return Err("event priority must be an integer");
-    }
-    if !event["payload"].is_object() || !event["provenance"].is_object() {
-        return Err("event payload and provenance must be objects");
-    }
-    Ok(())
-}
-
-/// json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False) of
-/// a value read from JSON, numbers written as Python reads and writes them back.
-pub fn write_canonical(out: &mut Vec<u8>, value: &serde_json::Value) -> std::result::Result<(), &'static str> {
-    use serde_json::Value;
-    match value {
-        Value::Null => out.extend_from_slice(b"null"),
-        Value::Bool(flag) => out.extend_from_slice(if *flag { b"true" } else { b"false" }),
-        Value::Number(number) => {
-            let text = number.to_string();
-            if text.contains(['.', 'e', 'E']) {
-                let parsed: f64 = text.parse().map_err(|_| "invalid number")?;
-                if !parsed.is_finite() {
-                    return Err("number is not finite");
-                }
-                out.extend_from_slice(crate::json::python_float_repr(parsed).as_bytes());
-            } else if text == "-0" {
-                out.push(b'0');
-            } else {
-                out.extend_from_slice(text.as_bytes());
-            }
-        }
-        Value::String(text) => crate::json::write_json_string(out, text),
-        Value::Array(items) => {
-            out.push(b'[');
-            for (index, item) in items.iter().enumerate() {
-                if index > 0 {
-                    out.push(b',');
-                }
-                write_canonical(out, item)?;
-            }
-            out.push(b']');
-        }
-        Value::Object(object) => {
-            // serde_json's map is ordered by key bytes, as Python orders str.
-            out.push(b'{');
-            for (index, (key, item)) in object.iter().enumerate() {
-                if index > 0 {
-                    out.push(b',');
-                }
-                crate::json::write_json_string(out, key);
-                out.push(b':');
-                write_canonical(out, item)?;
-            }
-            out.push(b'}');
-        }
-    }
-    Ok(())
 }

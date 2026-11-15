@@ -329,20 +329,6 @@ fn a_closed_edge_stops_the_trips_over_it() {
     );
 }
 
-#[test]
-fn a_tainted_namespace_is_refused_before_anything_is_written() {
-    let world = world();
-    let held = Given::new();
-    let (arrive, _) = travelling(&world);
-    {
-        let mut slot = world.slots.get(NAME).unwrap().try_borrow_mut().unwrap();
-        (slot.row, slot.taint) = (None, Some("an int sanitation".to_owned()));
-    }
-    let refused = ops::plan_arrive(&world, &held.inputs(), &arrive);
-    assert!(matches!(refused, Err(Error::Unsupported(ref reason)) if reason == "the namespace has no row"));
-    assert!(records(&world).is_empty());
-}
-
 // ---- Relief -----------------------------------------------------------------------------------------
 
 fn relief(task: &str, previous: &str, replacement: &str) -> EventRow {

@@ -1419,11 +1419,6 @@ impl Places {
     }
 }
 
-/// Whether the zone has room for one more, `excluding` one person (`Places::has_room_for`).
-pub fn zone_has_room(world: &World, inputs: &Inputs<'_>, zone_id: &str, excluding: Option<&str>) -> Result<bool> {
-    Places::of(world)?.has_room_for(world, inputs, zone_id, excluding)
-}
-
 // ---- What a command reads of the world it came from ------------------------------------------------
 
 fn free(activity: Activity) -> bool {
@@ -2981,11 +2976,4 @@ pub fn admit_returns_through<C: WorldCell, H: Host>(cell: &C, host: &mut H, minu
     // The admission reads the pending events as rows.
     host.read_queue_rows()?;
     read.run(cell, |world, inputs| admit_returns(world, inputs, minute))
-}
-
-/// A relocation's completion (`complete_relocation`) through the host.
-pub fn complete_relocation_through<C: WorldCell, H: Host>(cell: &C, host: &mut H, row: &EventRow) -> std::result::Result<Vec<Arc<str>>, H::Error> {
-    let read = Read::read(cell, host, false)?;
-    host.read_queue_rows()?;
-    read.run(cell, |world, inputs| complete_relocation(world, inputs, row))
 }

@@ -30,8 +30,6 @@ pub struct Queue {
     by_id: HashMap<Arc<str>, u64>,
     sequences: HashSet<i64>,
     next_serial: u64,
-    /// Only the constructor can add a repeated identity.
-    maybe_repeated: bool,
     /// Changes whenever an event comes, goes or is replaced: what is cached of the pending
     /// events holds while it is the same.
     generation: u64,
@@ -77,15 +75,6 @@ impl Queue {
         self.insert_ordered(key, serial);
         self.generation += 1;
         serial
-    }
-
-    /// `add` of an event the constructor gives, which may repeat an identity: `validate` then
-    /// looks.
-    pub fn add_loaded(&mut self, event_id: Arc<str>, key: Key) -> u64 {
-        if self.by_id.contains_key(&event_id) || self.sequences.contains(&key.2) {
-            self.maybe_repeated = true;
-        }
-        self.add(event_id, key, None)
     }
 
     /// Takes out the first scheduled event of this ID: its serial and slot.
@@ -208,21 +197,5 @@ impl Queue {
         self.slots = slots;
         self.generation += 1;
         moved
-    }
-
-    /// 0, or 1 for a repeated ID, 2 for a repeated sequence.
-    pub fn validate(&self) -> u8 {
-        if !self.maybe_repeated {
-            return 0;
-        }
-        let ids: HashSet<&Arc<str>> = self.slots.values().map(|slot| &slot.event_id).collect();
-        if ids.len() != self.slots.len() {
-            return 1;
-        }
-        let sequences: HashSet<i64> = self.slots.values().map(|slot| slot.key.2).collect();
-        if sequences.len() != self.slots.len() {
-            return 2;
-        }
-        0
     }
 }

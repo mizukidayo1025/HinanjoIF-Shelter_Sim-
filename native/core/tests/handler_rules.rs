@@ -381,17 +381,23 @@ fn a_toilet_completion_that_does_not_fit_is_the_recorded_one() {
 
 // ---- care receipts -------------------------------------------------------------------------------
 
-/// `care_receipts::append` of each transition in turn; the first error stops.
+/// `care_receipts::append` of each transition in turn, after what the support rules read of the
+/// namespace (`support::Inputs`): nothing without it, a refusal of one that is None, then of one
+/// that is not the slot's. The first error stops.
 fn append_transitions(loading: &mut Loading, transitions: &Value) -> Result<(), Error> {
     for transition in transitions.as_array().unwrap() {
         loading.tick(|tick| {
-            let holding = kit::holding(tick.cell, tick.host)?;
-            if care_receipts::nothing_to_append(&holding)? {
-                return Ok(());
+            let shared = care::Inputs::read(tick.cell, tick.host)?.shared;
+            match shared {
+                kit::Held::Absent => return Ok(()),
+                kit::Held::Other(reason) if reason == care::NAMESPACE_IS_NONE => return Err(Error::unsupported(reason)),
+                _ => {}
             }
             let source_ids = transition["source_ids"].as_array().map(|ids| ids.iter().map(|id| Arc::from(s(id))).collect()).unwrap_or_default();
             let (status, _) = care_receipts::status_of(s(&transition["status"]))?;
-            care_receipts::check_tree(&holding)?;
+            if let kit::Held::Other(reason) = shared {
+                return Err(Error::unsupported(reason));
+            }
             let text = |key: &str| transition.get(key).and_then(Value::as_str).map(Arc::from);
             let transition = Transition {
                 request_id: Arc::from(s(&transition["request_id"])),

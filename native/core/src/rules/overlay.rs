@@ -27,7 +27,7 @@ use crate::cell::ShardRef;
 use crate::config::movement::{Movement, MovementModel};
 use crate::config::read::Read;
 use crate::config::service::ResourceService;
-use crate::entities::{Activity, Entities};
+use crate::entities::Entities;
 use crate::error::{Error, Result};
 use crate::events::EventRow;
 use crate::geometry::{
@@ -252,11 +252,7 @@ fn append_bounded(history: &mut Vec<V>, entry: V, limit: usize) {
 
 /// The zones and the zone edges, which a rule reads as `world.zones` and `world.zone_edges`.
 fn zone_rows(world: &World) -> Result<ShardRef<'_, Entities>> {
-    let rows = world.entities.try_borrow()?;
-    if rows.zones_tainted().is_some() {
-        return refuse("the zones are tainted");
-    }
-    Ok(rows)
+    world.entities.try_borrow()
 }
 
 /// The row of `movement_v1` where the world holds it.
@@ -647,23 +643,6 @@ pub fn zone_capacity(world: &World, places: &Places<'_>, zone_id: &str, occupanc
     Ok(Some((nominal, capacity(world, places, zone_id, nominal, occupancy)?)))
 }
 
-/// `incoming_travelers`: the people moving to a facility of the zone, or to the zone itself.
-pub fn incoming_travelers(world: &World, zone_id: &str, excluding: Option<&str>) -> Result<i64> {
-    let rows = world.rows()?;
-    let mut count = 0;
-    for (agent_id, agent) in rows.agents.iter() {
-        if excluding == Some(&**agent_id) || agent.activity != Activity::Moving {
-            continue;
-        }
-        let Some(target) = &agent.target_id else {
-            continue;
-        };
-        let place = rows.facilities.get(target).map_or(target, |facility| &facility.zone_id);
-        count += i64::from(&**place == zone_id);
-    }
-    Ok(count)
-}
-
 // ---- Beds and intake ----------------------------------------------------------------------------
 
 /// A bed's reservation (`part` "bed_reservations") or a room's admission ("room_admissions")
@@ -849,16 +828,6 @@ fn admission_point_after(world: &World, intake: &Intake<'_>, state: &RoomParts<'
         }
     }
     Ok(None)
-}
-
-/// `room_admission_point`.
-pub fn room_admission_point(world: &World, intake: &Intake<'_>, room_id: &str) -> Result<Option<Pt>> {
-    let Some(state) = state_of(world, OVERLAY_KEY, intake.overlay)? else {
-        return Ok(None);
-    };
-    let empty = V::Map(IndexMap::new());
-    let parts = RoomParts::of(&state.0, &empty)?;
-    admission_point_after(world, intake, &parts, room_id, &[])
 }
 
 /// The temporary room open to one more person in the zone, after the admissions a plan has given
@@ -2428,9 +2397,6 @@ impl Write<'_> {
             closed
         };
         let mut rows = world.entities.try_borrow_mut()?;
-        if rows.zones_tainted().is_some() {
-            return refuse("the zones are tainted");
-        }
         let Some(edge) = rows.zone_edges.get_mut(target) else {
             return refuse("no such route");
         };

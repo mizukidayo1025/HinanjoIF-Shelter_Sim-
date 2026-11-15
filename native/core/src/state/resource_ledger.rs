@@ -247,14 +247,6 @@ impl UsedIds {
         &self.ids
     }
 
-    /// Change the list with f; if it succeeds, the set follows.
-    pub fn edit<T, E>(&mut self, f: impl FnOnce(&mut Vec<Arc<str>>) -> std::result::Result<T, E>) -> std::result::Result<T, E> {
-        let result = f(&mut self.ids)?;
-        self.set.clear();
-        self.set.extend(self.ids.iter().cloned());
-        Ok(result)
-    }
-
     pub fn contains(&self, id: &str) -> bool {
         self.set.contains(id)
     }

@@ -8,7 +8,7 @@ use std::sync::Arc;
 use indexmap::IndexMap;
 use sheltersim_core::config::geometry::FacilityPlan;
 use sheltersim_core::config::movement::MovementModel;
-use sheltersim_core::entities::{Activity, AgentRow, AnyTable, EdgeRow, Entities, Mobility, NeedRow, ProfileRow, Skills, StaffRow, Table, TaskRow, ZoneRow};
+use sheltersim_core::entities::{Activity, AgentRow, EdgeRow, Entities, Mobility, NeedRow, ProfileRow, Skills, StaffRow, Table, TaskRow, ZoneRow};
 use sheltersim_core::error::Error;
 use sheltersim_core::events::log::EventLog;
 use sheltersim_core::events::queue::Queue;
@@ -328,7 +328,7 @@ fn a_journey_whose_event_is_gone_ends_and_its_person_stands_still() {
 #[test]
 fn a_journey_of_someone_who_left_goes_with_their_position() {
     let world = world();
-    world.rows_mut().unwrap().agents.remove("a1");
+    world.rows_mut().unwrap().agents.remove_row("a1");
     assert!(done(advance(&world, &geo(), &StaffOps::None, 1).unwrap()).is_empty());
     let row = row(&world);
     assert!(row.journeys.is_empty());
@@ -338,7 +338,7 @@ fn a_journey_of_someone_who_left_goes_with_their_position() {
 #[test]
 fn an_edge_the_world_does_not_know_is_refused_with_nothing_written() {
     let mut world = world();
-    world.rows_mut().unwrap().zone_edges.remove("e1");
+    world.rows_mut().unwrap().zone_edges.remove_row("e1");
     assert_eq!(advance(&world, &geo(), &StaffOps::None, 1).err(), Some(unsupported("a journey's edge is unknown")));
     assert_eq!(row(&world).last_updated_minute, 0);
     assert!(written(&mut world).is_empty());
@@ -542,7 +542,11 @@ fn a_person_near_their_trips_end_is_there() {
         row.journeys.get_mut("a1").unwrap().route_points = vec![Point { x: 1.0, y: 1.0 }, Point { x: 5.03, y: 5.0 }];
     }
     assert!(movement::at_trip_destination(&world, &Held::Held, "a1").unwrap());
-    assert!(!movement::near_point(&world, &Held::Held, "a1", Pt { x: 5.1, y: 5.0 }).unwrap());
+    // Within 0.05 of the last point, the edge included.
+    for (last, near) in [(5.0499, true), (5.0502, false), (5.1, false)] {
+        world.row_mut::<MovementRow>(MOVEMENT).unwrap().journeys.get_mut("a1").unwrap().route_points[1] = Point { x: 5.0, y: last };
+        assert_eq!(movement::at_trip_destination(&world, &Held::Held, "a1").unwrap(), near, "{last}");
+    }
     // Without the namespace nobody has a place yet.
     assert!(!movement::at_trip_destination(&world, &Held::Absent, "a1").unwrap());
     assert_eq!(
@@ -553,7 +557,6 @@ fn a_person_near_their_trips_end_is_there() {
     let at = Where { geo: &geo, movement: Held::Held, queues: Held::Absent };
     assert_eq!(movement::agent_and_facility(&world, "a1", "f1").err(), Some(unsupported("no such agent or facility")));
     assert!(!movement::at_queue_slot(&world, &at, "a1", "f1", None).unwrap());
-    assert_eq!(movement::queue_slot_position(&world, &at, "a1", "f1", None).unwrap(), None);
 }
 
 // ---- route_with_movement_time --------------------------------------------------------------------

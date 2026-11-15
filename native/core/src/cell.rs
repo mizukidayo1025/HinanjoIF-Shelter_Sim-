@@ -85,11 +85,6 @@ impl<T> Shard<T> {
         let value = unsafe { NonNull::new_unchecked(self.value.get()) };
         Ok(ShardMut { flag: &self.flag, value, _borrow: PhantomData })
     }
-
-    /// Whether any borrow is alive now.
-    pub fn is_borrowed(&self) -> bool {
-        self.flag.load(Ordering::Relaxed) != 0
-    }
 }
 
 /// A `Shard` whose value is copied on write while a snapshot holds it (design-p5-p6.md §2, lane 6-2).
@@ -164,16 +159,6 @@ impl<T> CowShard<T> {
     /// worlds, lane 6-5): nothing is copied.
     pub fn replace(&mut self, value: Arc<T>) -> Arc<T> {
         std::mem::replace(self.value.get_mut(), value)
-    }
-
-    /// Whether any borrow is alive now.
-    pub fn is_borrowed(&self) -> bool {
-        self.flag.load(Ordering::Relaxed) != 0
-    }
-
-    /// Whether a snapshot shares the value now, so that a write would copy it.
-    pub fn is_shared(&mut self) -> bool {
-        Arc::strong_count(self.value.get_mut()) > 1
     }
 }
 

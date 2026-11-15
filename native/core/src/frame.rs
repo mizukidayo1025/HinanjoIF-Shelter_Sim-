@@ -8,8 +8,8 @@
 //! spatial constraints' documents, as their contracts dump them) and what the waits of the support
 //! requests read beside the world (as the metrics phase reads them: `rules/tick/metrics.rs`). It
 //! changes nothing, draws nothing and calls no LLM: a frame is a read (AGENTS.md). Where it cannot
-//! say what the world holds (a tainted namespace, a value of another type than the rows hold), it
-//! says `Unsupported` rather than guess.
+//! say what the world holds (a value of another type than the rows hold), it says `Unsupported`
+//! rather than guess.
 //!
 //! The frame's `state_hash` is the world's `state_digest` (`canonical::state_digest`) unless the
 //! caller gives the one it holds (a Checkpoint's).
@@ -480,19 +480,12 @@ fn as_map(value: &V) -> Result<&Map> {
     }
 }
 
-/// The typed row of a namespace, None without the key; a tainted one is refused.
+/// The typed row of a namespace, None without the key.
 fn typed<'w, T: crate::row::Row>(world: &'w World, name: &str) -> Result<Option<crate::cell::ShardRef<'w, T>>> {
     let Some(slot) = world.slots.get(name) else {
         return Ok(None);
     };
-    let held = {
-        let slot = slot.try_borrow()?;
-        match (&slot.row, &slot.taint) {
-            (Some(_), _) => true,
-            (None, Some(taint)) => return Err(Error::unsupported(format!("{name} is tainted: {taint}"))),
-            (None, None) => false,
-        }
-    };
+    let held = slot.try_borrow()?.row.is_some();
     if !held {
         return Ok(None);
     }
@@ -501,14 +494,6 @@ fn typed<'w, T: crate::row::Row>(world: &'w World, name: &str) -> Result<Option<
 
 /// `model_state.get(name)` of a namespace held as a `V`.
 fn state(world: &World, name: &str) -> Result<Option<V>> {
-    if let Some(slot) = world.slots.get(name) {
-        let slot = slot.try_borrow()?;
-        if slot.row.is_none() {
-            if let Some(taint) = &slot.taint {
-                return Err(Error::unsupported(format!("{name} is tainted: {taint}")));
-            }
-        }
-    }
     Ok(world.slots.try_value(name)?.map(|value| value.clone()))
 }
 

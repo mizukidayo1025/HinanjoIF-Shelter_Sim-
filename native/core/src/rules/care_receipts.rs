@@ -613,36 +613,6 @@ pub fn staff_operation_record(world: &World, outcome: OperationOutcome) -> Resul
     })
 }
 
-// ---- What the receipts read of the namespace, through the host (lane P9-1a) -------------------
-
-/// The refusal of a namespace that is None in `model_state`.
-pub const NAMESPACE_IS_NONE: &str = "the namespace is None";
-
-/// Whether a care transition has nothing to append to, as the host's `Holding` answers: no
-/// namespace. One that is None is refused, as is a table that is not a plain dict.
-pub fn nothing_to_append(holding: &Holding) -> Result<bool> {
-    if !holding.is_absent(NAME).map_err(Error::unsupported)? {
-        return Ok(false);
-    }
-    if holding.contains(NAME) {
-        return Err(Error::unsupported(NAMESPACE_IS_NONE));
-    }
-    Ok(true)
-}
-
-/// The world's `model_state` holds the tree (or the detached row) of `shared_operations_v1`, as the
-/// host's `Holding` answers.
-pub fn check_tree(holding: &Holding) -> Result<()> {
-    if !holding.table {
-        return Err(Error::unsupported(TABLE_NOT_PLAIN));
-    }
-    match holding.keys.get(NAME).map(|key| key.hold) {
-        Some(Hold::Held) => Ok(()),
-        Some(Hold::NotOwned) => Err(Error::unsupported(crate::host::NOT_OWNED)),
-        _ => Err(Error::unsupported(common_operations::OTHER_DOCUMENT)),
-    }
-}
-
 // ---- ingest_applied_shared_operation_records, through the host (lane P9-1a) ---------------------
 
 /// The refusal of a namespace that is neither a dict nor the detached row's placeholder.

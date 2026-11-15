@@ -113,10 +113,6 @@ fn values_are_read_as_the_rules_read_them() {
     assert_eq!(kit::exact_int(&V::Big("99999999999999999999".into())), Err(unsupported("an int is too large")));
     assert_eq!(kit::exact_str(&string("x")).map(|text| &**text), Ok("x"));
     assert_eq!(kit::optional_text(&V::Null), Ok(None));
-    assert_eq!(kit::status_member("APPLIED"), Some(EventStatus::Applied));
-    assert_eq!(kit::status_member("FAILED"), Some(EventStatus::Failed));
-    assert_eq!(kit::status_member("SUPPRESSED"), Some(EventStatus::Suppressed));
-    assert_eq!(kit::status_member("applied"), None);
 }
 
 fn new_event(event_id: &str, due: i64, sequence: i64) -> NewEvent {

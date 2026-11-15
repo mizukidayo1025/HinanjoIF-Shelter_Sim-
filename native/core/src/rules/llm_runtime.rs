@@ -1158,7 +1158,6 @@ fn put_value(world: &mut World, name: &str, value: V) -> Result<()> {
     let slot = world.slots.get(name).ok_or_else(|| Error::Runtime("a namespace without its slot".to_owned()))?;
     let mut slot = slot.try_borrow_mut()?;
     slot.row = Some(Box::new(ValueRow(value)));
-    slot.taint = None;
     slot.touch();
     Ok(())
 }

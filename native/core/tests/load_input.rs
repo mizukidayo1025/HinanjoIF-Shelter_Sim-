@@ -105,9 +105,11 @@ fn a_host_error_is_raised_where_a_rule_asks_for_the_section() {
 fn the_core_parses_its_own_sections() {
     let sections = Sections::of_entry(&fixtures::fixture()).unwrap();
     let configs = Configs::new(None);
+    let mut filled = 0;
     for &which in SectionId::ALL {
         assert_eq!(sections.fill(&configs, which).unwrap(), which.parser() == Parser::Host, "{which:?}");
-        assert_eq!(which.is_filled(&configs), which.parser() == Parser::Host, "{which:?}");
+        filled += usize::from(which.parser() == Parser::Host);
+        assert_eq!(support::filled_sections(&configs), filled, "{which:?}");
     }
     assert!(matches!(configs.facility_geometry.get(), Some(Section::Absent)));
 }

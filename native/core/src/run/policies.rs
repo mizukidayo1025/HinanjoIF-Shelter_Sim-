@@ -88,11 +88,6 @@ impl Policies {
         policies
     }
 
-    /// Whether the Run read a controller.
-    pub fn has_controller(&self) -> bool {
-        self.controller.is_ok()
-    }
-
     /// The flags of the LLM, or the first fault.
     pub fn llm(&self) -> Read<sinks::Llm> {
         self.sinks.llm()

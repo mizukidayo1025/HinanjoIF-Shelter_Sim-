@@ -12,8 +12,8 @@
 //! passes.
 //!
 //! **It reads the rows** (Issue #152, lane P8 d4): the entity rows, the rows of the namespaces and
-//! the fields, and the rows of the queue's events. A value that does not fit a row taints the store,
-//! which these refuse. A pending event without its row is refused with `NO_ROW`.
+//! the fields, and the rows of the queue's events. A pending event without its row is refused with
+//! `NO_ROW`.
 
 use std::sync::Arc;
 
@@ -77,14 +77,10 @@ pub enum Requests<'a> {
     Slots(&'a [u32]),
 }
 
-/// The people's tables and the zones', borrowed shared: Unsupported while either part is tainted.
+/// The people's tables and the zones', borrowed shared.
 #[track_caller]
 pub fn tables(world: &World) -> Result<ShardRef<'_, Entities>> {
-    let rows = world.rows()?;
-    if rows.zones_tainted().is_some() {
-        return refuse("the zones are tainted");
-    }
-    Ok(rows)
+    world.rows()
 }
 
 fn no_repeats(ids: &[Arc<str>]) -> bool {
@@ -544,9 +540,6 @@ fn occupants_pass(census: &Census<'_>, sites: &Sites<'_>) -> Result<()> {
 /// The pending events, from the rows of the queue: `watch` is told each type, and the completions
 /// and timeouts are counted by the task or request they name.
 fn read_events<'a>(queue: &'a Queue, v6: bool, watch: &mut dyn FnMut(&str)) -> Result<Pending<'a>> {
-    if queue.validate() != 0 {
-        return refuse("the event queue repeats an identity");
-    }
     let mut events: Vec<&EventRow> = Vec::with_capacity(queue.ordered().len());
     for (_, serial) in queue.ordered() {
         match &queue.slot(*serial).row {

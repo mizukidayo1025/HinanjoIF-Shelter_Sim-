@@ -164,12 +164,9 @@ fn modifier_id(program_id: &str, effect_id: &str) -> String {
     text
 }
 
-/// `zone_id in world.zones`, of the zone rows (a table a value did not fit is refused).
+/// `zone_id in world.zones`, of the zone rows.
 #[track_caller]
 fn zone_known(rows: &Entities, zone_id: &str) -> Result<bool> {
-    if rows.zones_tainted().is_some() {
-        return Err(Error::unsupported("the zone table is tainted"));
-    }
     Ok(rows.zones.contains_key(zone_id))
 }
 
@@ -775,20 +772,6 @@ pub fn guard_or_suppress<C: WorldCell, H: Host>(cell: &C, host: &mut H, ins: &Gu
 /// Whether an active EffectProgram modifier targets the facility.
 pub fn has_active_modifier(world: &World, program: &Held, facility_id: &str) -> Result<bool> {
     program_state(world, program, |state| Ok(kit::has_active_modifier(state, facility_id)))
-}
-
-/// Whether a pending `effect_program_apply` or `_expire` event targets the facility.
-/// `PENDING_UNREAD` for a pending event without its row.
-pub fn has_pending_modifier(world: &World, facility_id: &str) -> Result<bool> {
-    for event in pending_rows(world)? {
-        if !matches!(&*event.event_type, "effect_program_apply" | "effect_program_expire") {
-            continue;
-        }
-        if is_text(map_of(&event.payload)?.get("facility_id"), facility_id) {
-            return Ok(true);
-        }
-    }
-    Ok(false)
 }
 
 /// Whether an outage of the facility is active (`kit::active_outage`).

@@ -36,7 +36,7 @@ fn unsupported(reason: &str) -> Error {
 fn holding(keys: &[(&str, Hold, bool, bool)]) -> Arc<Holding> {
     let mut holding = Holding::default();
     for (name, hold, none, dict) in keys {
-        holding.keys.insert(text(name), Key::with_dict(*hold, *none, *dict));
+        holding.keys.insert(text(name), Key { hold: *hold, none: *none, dict: *dict });
     }
     Arc::new(holding)
 }
@@ -137,14 +137,7 @@ fn a_holding_read_from_the_slots_follows_a_write_of_the_core() {
 #[test]
 fn the_receipts_say_what_the_namespace_is() {
     let none = holding(&[("shared_operations_v1", Hold::Other, true, false)]);
-    assert_eq!(care_receipts::nothing_to_append(&none).err(), Some(unsupported(care_receipts::NAMESPACE_IS_NONE)));
-    assert_eq!(care_receipts::nothing_to_append(&holding(&[])), Ok(true));
     let held = holding(&[("shared_operations_v1", Hold::Held, false, true)]);
-    assert_eq!(care_receipts::nothing_to_append(&held), Ok(false));
-    assert_eq!(care_receipts::check_tree(&held), Ok(()));
-    let loose = holding(&[("shared_operations_v1", Hold::NotOwned, false, true)]);
-    assert_eq!(care_receipts::check_tree(&loose).err(), Some(unsupported(NOT_OWNED)));
-    assert_eq!(care_receipts::check_tree(&holding(&[])).err(), Some(unsupported(common_operations::OTHER_DOCUMENT)));
     // The ingest: nothing without the namespace, a refusal of another value.
     assert_eq!(care_receipts::has_namespace(&holding(&[])), Ok(false));
     assert_eq!(care_receipts::has_namespace(&held), Ok(true));

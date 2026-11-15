@@ -175,6 +175,74 @@ impl TestHost {
     }
 }
 
+/// How many sections the configs hold: parsed, absent or a fault (each `Lazy`).
+pub fn filled_sections(configs: &Configs) -> usize {
+    let Configs {
+        stamp: _,
+        selection,
+        tick_plan,
+        facility_geometry,
+        spatial_constraints,
+        staff_fatigue,
+        staff_operations,
+        staff_operations_known,
+        support_task_minutes,
+        support_cooldown_minutes,
+        information_spread,
+        body_models,
+        social_interaction_minutes,
+        care_outcome,
+        agent_dynamics_policy,
+        facility_awareness,
+        knowledge_is_limited,
+        zone_environment,
+        infrastructure,
+        proximity,
+        movement,
+        route_capacities,
+        transit_capacities,
+        facility_queues,
+        overlay_schema,
+        overlay_rooms,
+        resource_service,
+        accessibility_needs,
+        extensions_enabled,
+    } = configs;
+    [
+        selection.get().is_some(),
+        tick_plan.get().is_some(),
+        facility_geometry.get().is_some(),
+        spatial_constraints.get().is_some(),
+        staff_fatigue.get().is_some(),
+        staff_operations.get().is_some(),
+        staff_operations_known.get().is_some(),
+        support_task_minutes.get().is_some(),
+        support_cooldown_minutes.get().is_some(),
+        information_spread.get().is_some(),
+        body_models.get().is_some(),
+        social_interaction_minutes.get().is_some(),
+        care_outcome.get().is_some(),
+        agent_dynamics_policy.get().is_some(),
+        facility_awareness.get().is_some(),
+        knowledge_is_limited.get().is_some(),
+        zone_environment.get().is_some(),
+        infrastructure.get().is_some(),
+        proximity.get().is_some(),
+        movement.get().is_some(),
+        route_capacities.get().is_some(),
+        transit_capacities.get().is_some(),
+        facility_queues.get().is_some(),
+        overlay_schema.get().is_some(),
+        overlay_rooms.get().is_some(),
+        resource_service.get().is_some(),
+        accessibility_needs.get().is_some(),
+        extensions_enabled.get().is_some(),
+    ]
+    .into_iter()
+    .filter(|filled| *filled)
+    .count()
+}
+
 /// A section's value, put in the configs if they do not hold one yet.
 fn put<T>(lazy: &Lazy<T>, value: T) {
     let _ = lazy.get_or_parse(|| Section::Ok(Arc::new(value)));

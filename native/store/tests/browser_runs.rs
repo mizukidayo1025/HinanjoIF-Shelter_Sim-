@@ -17,11 +17,10 @@ use std::fs;
 use serde_json::Value;
 use sheltersim_core::checkpoint::sha256_hex;
 use sheltersim_core::run_store::Line;
-use sheltersim_store::compress::stored_deflate;
 use sheltersim_store::records::ProjectFiles;
 use sheltersim_store::stored::{StoredRun, DATA, JOURNAL};
 
-use crate::support::{data, data_fixture, journal_fixture, journal_of, make_browser_runs, TempDir};
+use crate::support::{data, data_fixture, journal_fixture, journal_of, make_browser_runs, stored_deflate, TempDir};
 
 const NAMES: [&str; 6] = ["from_zero", "no_points", "computed", "stopped", "fork_parent", "fork"];
 

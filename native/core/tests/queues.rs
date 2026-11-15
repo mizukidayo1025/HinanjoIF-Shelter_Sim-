@@ -252,8 +252,6 @@ fn a_world_without_the_namespace_or_holding_another_says_so_where_it_reads_it() 
     assert!(fifo::queues(&world, &Held::Absent).unwrap().is_none());
     assert_eq!(fifo::queues(&world, &Held::Other("the world holds another queue state")).err(), Some(unsupported("the world holds another queue state")));
     assert_eq!(fifo::heads_in(&world, &Held::Absent, TOILET), Ok(None));
-    // Without independent heads, the first of the shared resource queue (empty here).
-    assert_eq!(fifo::head_agents(&world, &Held::Absent, TOILET), Ok(Vec::new()));
 }
 
 #[test]

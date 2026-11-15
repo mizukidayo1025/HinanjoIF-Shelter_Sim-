@@ -218,7 +218,6 @@ struct Fingerprint {
     slots: Vec<(String, Option<Vec<u8>>, u64)>,
     queue: String,
     log: EventLog,
-    in_transaction: bool,
 }
 
 fn fingerprint(world: &World) -> Fingerprint {
@@ -247,7 +246,7 @@ fn fingerprint(world: &World) -> Fingerprint {
             (name.to_string(), bytes, slot.generation.get())
         })
         .collect();
-    Fingerprint { entities, slots, queue: format!("{:?}", *world.queue().unwrap()), log: world.log().unwrap().clone(), in_transaction: world.in_transaction() }
+    Fingerprint { entities, slots, queue: format!("{:?}", *world.queue().unwrap()), log: world.log().unwrap().clone() }
 }
 
 fn print(cell: &Shard<World>) -> Fingerprint {
@@ -475,9 +474,9 @@ fn a_rule_transaction_checks_the_host_then_validates_twice_and_counts() {
 
     // A refused check: nothing is validated, nothing changes.
     let before = print(&cell);
-    let mut refusing = Recording { refuse: Some("the entity store is tainted"), ..Recording::default() };
+    let mut refusing = Recording { refuse: Some("the host refuses the check"), ..Recording::default() };
     let refused: Result<(), Fault> = txn::rule(&cell, &mut refusing, TxnKind::Full, |_, _| panic!("the body ran"));
-    assert_eq!(refused, Err(Fault::Core(Error::unsupported("the entity store is tainted"))));
+    assert_eq!(refused, Err(Fault::Core(Error::unsupported("the host refuses the check"))));
     assert_eq!(refusing.steps, ["check"]);
     assert_eq!(print(&cell), before);
 

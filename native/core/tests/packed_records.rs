@@ -57,7 +57,7 @@ fn the_records_of_a_run_come_back_byte_for_byte() {
             .with(|world| {
                 let log = world.log().unwrap();
                 // The log of a PlainRun is packed itself (#252, PR 6-3): its JSON is written.
-                assert!(log.is_packed() && log.written(0).is_none());
+                assert!(log.all_packed() && log.written(0).is_none());
                 (0..log.len())
                     .map(|index| {
                         let mut raw = Vec::new();

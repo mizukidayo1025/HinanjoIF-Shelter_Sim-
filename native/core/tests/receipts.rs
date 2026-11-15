@@ -21,7 +21,7 @@ use sheltersim_core::rules::staff_dynamics;
 use sheltersim_core::state::resource_ledger::{Account, Accounts, Audit, AuditRecord, LedgerRow, UsedIds, AUDIT_SCHEMA_VERSION, NAME as LEDGER};
 use sheltersim_core::state::shared_operations::{CareStatus, Heads, Receipts, SharedOperationsRow, NAME as SHARED, POLICY};
 use sheltersim_core::state::staff_dynamics::{ConfigRow, LastActivity, Recovery, Shift, StaffDynamicsRow, StaffRecord, NAME as DYNAMICS, POLICY_V2};
-use sheltersim_core::state::staff_operations::{Outcome, NAME as OPERATIONS};
+use sheltersim_core::state::staff_operations::Outcome;
 use sheltersim_core::value::V;
 use sheltersim_core::world::{Fit, Place, ResourcesRow, World, ID_COUNTERS, MODEL_CONFIGS, RESOURCES};
 
@@ -219,11 +219,6 @@ fn availability_reads_the_operations_and_the_status() {
     let status = map(&[("staff_status", map(&[("s2", map(&[("available", V::Bool(false))]))]))]);
     slot(&mut world, staff_dynamics::OPERATIONAL, Place::Value, Box::new(ValueRow(status)));
     assert_eq!(staff_dynamics::is_available_now(&world, "s2", 10, false), Ok(false));
-    // A tainted staff_operations_v1 is refused: every rule writes its row (lanes b2 and b3).
-    let index = world.slots.add(text(OPERATIONS), Place::Namespace).unwrap();
-    world.slots.at(index).unwrap().try_borrow_mut().unwrap().taint = Some("a misfit".to_owned());
-    assert_eq!(staff_dynamics::operation_is_idle(&world, "s2", false), Err(unsupported("the namespace has no row")));
-    assert_eq!(staff_dynamics::is_available_now(&world, "s1", 10, false), Err(unsupported("the namespace has no row")));
     // None under the key, which the caller read, is no state.
     assert_eq!(staff_dynamics::is_available_now(&world, "s1", 10, true), Ok(true));
 }
@@ -421,8 +416,8 @@ fn the_metric_columns_and_the_used_ids() {
     let mut world = ledger_world();
     operate(&mut world, "reserve", reservation(Some(10), "r1", "a1"), "op-1").unwrap();
     assert_eq!(resources::metric_values(&world), Ok([[1000, 0, 0, 0, 1000, 10], [50, 0, 0, 0, 50, 0]]));
-    assert_eq!(resources::reservation_id_was_used(&world, "r1"), Ok(true));
-    assert_eq!(resources::reservation_id_was_used(&world, "r2"), Ok(false));
+    let used = &world.row::<LedgerRow>(LEDGER).unwrap().used_reservation_ids;
+    assert!(used.contains("r1") && !used.contains("r2"));
 }
 
 // ---- The receipts' contracts -----------------------------------------------------------------------

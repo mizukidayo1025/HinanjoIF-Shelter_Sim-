@@ -326,11 +326,7 @@ pub(crate) fn typed_of<'w, T: Row>(world: &'w World, name: &str, held: &Held) ->
 }
 
 pub(crate) fn zone_rows(world: &World) -> Result<ShardRef<'_, Entities>> {
-    let rows = world.entities.try_borrow()?;
-    if rows.zones_tainted().is_some() {
-        return refuse("the zones are tainted");
-    }
-    Ok(rows)
+    world.entities.try_borrow()
 }
 
 pub(crate) fn zone_known(world: &World, zone_id: &str) -> Result<bool> {
@@ -1031,11 +1027,6 @@ fn choose_target(world: &World, inputs: &Inputs, places: &mut Places, item: Pend
     Ok(None)
 }
 
-/// Whether the zone has room for one more (`Places::has_room`).
-pub fn zone_has_room(world: &World, inputs: &Inputs, zone_id: &str) -> Result<bool> {
-    Places::of(world)?.has_room(world, inputs, zone_id)
-}
-
 // ---- The agent the constructors make -------------------------------------------------------------
 
 /// What the constructors make of a saved profile: the agent's row, or the `ValueError` they raise
@@ -1053,7 +1044,7 @@ const NEED_NAMES: [&str; 4] = ["toilet_urgency", "hunger", "fatigue", "hydration
 /// `minute`, as an admission makes it (`write_admission`; `schema_version` is the world's: v5 has
 /// no hydration, which is then 0.0). Unsupported where the constructors raise another error (a
 /// field missing, a key the initial needs do not take), or make an object whose fields no row holds
-/// (an int need level, an ID that is not a str), which would taint the store. A `ValueError` comes
+/// (an int need level, an ID that is not a str). A `ValueError` comes
 /// first where the constructors raise it first.
 pub fn build_agent(profile: &V, zone_id: &Arc<str>, minute: i64, schema_version: i64) -> Result<Built> {
     let raw = map_of(profile)?;
@@ -3238,17 +3229,6 @@ fn is_scalar(value: &V) -> bool {
 
 const SCHEMA: &str = "population_dynamics_v1 has an invalid exact schema";
 const PENDING_INVALID: &str = "population_dynamics_v1 pending arrival is invalid";
-
-/// Whether the validation reads the approach routes: an arrival on its approach is waiting.
-pub fn validation_reads_routes(world: &World, held: &Held) -> Result<bool> {
-    let Some(state) = value_of(world, DYNAMICS, held)? else {
-        return Ok(false);
-    };
-    Ok(match kit::get(&state.0, "pending_arrivals") {
-        Ok(V::List(pending)) => pending.iter().any(|item| matches!(item, V::Map(fields) if fields.contains_key("approach_route_id"))),
-        _ => false,
-    })
-}
 
 /// What the validation reads of a world: of the core's world (`validate`), or of a world's view for
 /// the whole-world validation (`validate::population_dynamics::validate`).

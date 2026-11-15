@@ -7,7 +7,7 @@
 //! state for an artifacts sink (`DecisionSink::Artifacts`) while its trace is on. Everything that
 //! can turn the record down is read before the host takes it, and what this rule does not write
 //! itself (the host's own sink, `DecisionSink::Host`, an observed state that is not the view's
-//! person, a NaN, a large observed state the sink measures, a tainted store, a household no row
+//! person, a NaN, a large observed state the sink measures, a household no row
 //! reads) is `Sunk::Host`: the host then records it (`Host::record_host_decision`), and the rules
 //! after it run as here.
 //!

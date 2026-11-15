@@ -18,7 +18,7 @@ use sheltersim_core::json::Encoder;
 use sheltersim_core::mathx::{py_max, py_min};
 use sheltersim_core::row::Field;
 use sheltersim_core::rules::social_dialogue::{
-    capture_context, validate_context, AFFECT_INVALID, NEEDS_INVALID, NOT_ITS_EVENT, NOT_ONE_OR_TWO, NOT_UNIT, STATE_FIELDS,
+    capture_context, context_problem, AFFECT_INVALID, NEEDS_INVALID, NOT_ITS_EVENT, NOT_ONE_OR_TWO, NOT_UNIT, STATE_FIELDS,
 };
 use sheltersim_core::rules::social_network::{observe_event, observes_event, BOUND_REACHED};
 use sheltersim_core::state::body_state::{BodyRow, NAME as BODY};
@@ -320,7 +320,7 @@ fn validation_of_a_context_says_the_rule_s_text() {
     let ids: Vec<&str> = ids.iter().map(String::as_str).collect();
     let due = minute(&world);
     let captured = capture_context(&world, &ids).unwrap();
-    assert_eq!(validate_context(&captured, &ids, due), Ok(()));
+    assert_eq!(context_problem(&captured, &ids, due), Ok(None));
     let first: &'static str = Box::leak(ids[0].to_owned().into_boxed_str());
     type Spoil = Box<dyn Fn(&mut V)>;
     let top = |key: &'static str, value: V| -> Spoil {
@@ -378,7 +378,7 @@ fn validation_of_a_context_says_the_rule_s_text() {
     for (index, (spoil, wanted)) in spoils.iter().enumerate() {
         let mut context = captured.clone();
         spoil(&mut context);
-        assert_eq!(validate_context(&context, &ids, due), Err(Error::value_error(*wanted)), "spoil {index}");
+        assert_eq!(context_problem(&context, &ids, due), Ok(Some(*wanted)), "spoil {index}");
     }
 }
 

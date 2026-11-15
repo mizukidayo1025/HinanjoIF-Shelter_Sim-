@@ -32,7 +32,6 @@ pub const LEGACY_KEY: &str = "facility_queues_legacy_mode_v1";
 pub const POLICY_VERSION: &str = "independent-facility-queues-v1";
 pub const SOURCE_ID: &str = "ASM-FACILITY-QUEUES-V1";
 pub const MAX_REQUESTS: usize = 100_000;
-pub const NOT_INSTALLED_OR_TAKEN: &str = "service queue is not installed or request ID is already in use";
 
 // ---- Reading -------------------------------------------------------------------------------------
 
@@ -108,19 +107,6 @@ pub fn heads_in(world: &World, held: &Held, facility_id: &str) -> Result<Option<
         Some(row) => independent_heads(&row, facility_id),
         None => Ok(None),
     }
-}
-
-/// The people at the heads of the facility's queues: the heads of the independent queues, else the
-/// first of the facility's shared resource queue.
-pub fn head_agents(world: &World, held: &Held, facility_id: &str) -> Result<Vec<Arc<str>>> {
-    if let Some(heads) = heads_in(world, held, facility_id)? {
-        return Ok(heads);
-    }
-    let rows = world.rows()?;
-    let Some(facility) = rows.facilities.get(facility_id) else {
-        return Err(Error::unsupported("no such facility"));
-    };
-    Ok(facility.resource_queue_agent_ids.first().cloned().into_iter().collect())
 }
 
 /// The IDs of the facility's queues, sorted by bytes.
@@ -329,49 +315,6 @@ pub fn write_to_head(world: &World, queue_id: &str, request_id: &str) -> Result<
 pub fn write_stall(world: &World, queue_id: &str, request_id: &str, reason: &str) -> Result<()> {
     let stall = QueueStall { minute: world.minute_index()?, request_id: Arc::from(request_id), reason: Arc::from(reason) };
     stall_row(&mut *row_mut(world)?, queue_id, stall)
-}
-
-/// `enqueue`: one ValueError for no namespace, no signed point of the queue, or the ID taken; then
-/// the request at the end of the queue.
-pub fn enqueue(world: &World, held: &Held, geo: &Geo, queue_id: &str, request: NewRequest<'_>) -> Result<()> {
-    let found = queues(world, held)?.map(|row| (row.requests.contains_key(request.request_id), row.queues.contains_key(queue_id)));
-    let (Some((false, has_queue)), Some(point)) = (found, point_of(geo, queue_id)) else {
-        return Err(Error::value_error(NOT_INSTALLED_OR_TAKEN));
-    };
-    if !has_queue {
-        // A signed point whose queue the state lacks, which its check turns down.
-        return Err(Error::unsupported("a signed point has no queue"));
-    }
-    write_enqueue(world, point, request)
-}
-
-/// `start_service` of a request its queue holds as queued.
-pub fn start_service(world: &World, held: &Held, request_id: &str, active_task_id: &str) -> Result<()> {
-    let queue_id = {
-        let Some(row) = queues(world, held)? else {
-            return Err(Error::unsupported("no queue state"));
-        };
-        let Some(request) = row.requests.get(request_id) else {
-            return Err(Error::unsupported("no such request"));
-        };
-        let Some(queue) = row.queues.get(&*request.queue_id) else {
-            return Err(Error::unsupported("no such queue"));
-        };
-        if !queue.queued_request_ids.iter().any(|id| &**id == request_id) {
-            return Err(Error::unsupported("the request is not queued"));
-        }
-        request.queue_id.clone()
-    };
-    write_start(world, request_id, &queue_id, active_task_id)
-}
-
-/// `mark_stall`: nothing for an unknown queue or without the namespace.
-pub fn mark_stall(world: &World, held: &Held, queue_id: &str, request_id: &str, reason: &str) -> Result<()> {
-    let known = queues(world, held)?.is_some_and(|row| row.queues.contains_key(queue_id));
-    if !known {
-        return Ok(());
-    }
-    write_stall(world, queue_id, request_id, reason)
 }
 
 // ---- The record of a transition ------------------------------------------------------------------

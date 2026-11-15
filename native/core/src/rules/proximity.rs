@@ -3,8 +3,7 @@
 //!
 //! The controller's config and policy are the Run's (`run::proximity::Proximity`, read when the
 //! controller starts). The positions come from the row of `movement_v1`: a namespace the world does
-//! not hold has nobody placed, and a row a value did not fit is refused (there is no tree to read
-//! instead). A coordinate whose cell does not fit an i64 says Unsupported, as `math.floor` gives an
+//! not hold has nobody placed. A coordinate whose cell does not fit an i64 says Unsupported, as `math.floor` gives an
 //! exact int of any size; validation does not bound coordinates, but no floor plan reaches them.
 //!
 //! The step is two parts: `when` reads only the Run's config and the minute, so that a minute off
@@ -160,9 +159,6 @@ fn sample_with(world: &World, config: SampleConfig, movement: &Held) -> Result<(
     let SampleConfig { radius, limit } = config;
     let placed = placed(world, movement)?;
     let rows = world.rows()?;
-    if rows.zones_tainted().is_some() {
-        return refuse(crate::rules::travel::ZONES_TAINTED);
-    }
     let mut points = Vec::with_capacity(placed.len());
     for point in placed {
         // The checks in a fixed order; none has an effect.

@@ -88,11 +88,6 @@ pub struct Snapshot {
 }
 
 impl Snapshot {
-    /// How many slots the world had.
-    pub fn slot_count(&self) -> usize {
-        self.slots.len()
-    }
-
     /// A slot as it was.
     pub fn slot(&self, index: usize) -> Option<&Slot> {
         self.slots.get(index).map(|slot| &**slot)
@@ -337,11 +332,6 @@ impl World {
         })
     }
 
-    /// Whether a transaction is open on the world (`txn::Txn`).
-    pub fn in_transaction(&self) -> bool {
-        self.txn_open
-    }
-
     /// The world's event queue, borrowed shared; Unsupported while the world's queue is not held
     /// here (`queue_held`).
     #[track_caller]
@@ -456,14 +446,13 @@ impl World {
     }
 
     /// `model_state[name] = row` for an owned namespace a rule starts (Issue #244, decision 2): the
-    /// slot holds the row, untainted, with a new stamp. A namespace the world does not own is
+    /// slot holds the row, with a new stamp. A namespace the world does not own is
     /// Unsupported. The host is told (`Host::start_namespace`).
     #[track_caller]
     pub fn start_namespace(&self, name: &str, row: Box<dyn Row>) -> Result<()> {
         let slot = self.slots.get(name).ok_or_else(|| Error::unsupported("the namespace is not owned"))?;
         let mut slot = slot.try_borrow_mut()?;
         slot.row = Some(row);
-        slot.taint = None;
         slot.touch();
         Ok(())
     }
@@ -474,29 +463,20 @@ impl World {
         id_counter(&*self.slots.try_row::<ValueRow>(ID_COUNTERS)?, name)
     }
 
-    /// The rows of the entities, borrowed shared. Unsupported while the people's tables are
-    /// tainted (`Entities::tainted`).
+    /// The rows of the entities, borrowed shared.
     #[track_caller]
     pub fn rows(&self) -> Result<ShardRef<'_, Entities>> {
-        let rows = self.entities.try_borrow()?;
-        if rows.tainted().is_some() {
-            return Err(Error::unsupported("the entity store is tainted"));
-        }
-        Ok(rows)
+        self.entities.try_borrow()
     }
 
     /// `rows`, borrowed mutably.
     #[track_caller]
     pub fn rows_mut(&self) -> Result<ShardMut<'_, Entities>> {
-        let rows = self.entities.try_borrow_mut()?;
-        if rows.tainted().is_some() {
-            return Err(Error::unsupported("the entity store is tainted"));
-        }
-        Ok(rows)
+        self.entities.try_borrow_mut()
     }
 
     /// The row of an owned field or namespace as its type, borrowed shared: Unsupported when the
-    /// name is not owned, has no row (absent or tainted) or has a row of another type.
+    /// name is not owned, has no row or has a row of another type.
     #[track_caller]
     pub fn row<T: Row>(&self, name: &str) -> Result<ShardRef<'_, T>> {
         self.slots.try_row::<T>(name)
@@ -545,11 +525,8 @@ pub enum Place {
 /// One owned field or namespace: its row, and what is known of it.
 pub struct Slot {
     pub place: Place,
-    /// None: the namespace is absent, or tainted (`taint` says why).
+    /// None: the namespace is absent.
     pub row: Option<Box<dyn Row>>,
-    /// Why the row was dropped: a value or a write that does not fit. A rule that reads it says
-    /// Unsupported.
-    pub taint: Option<String>,
     /// Changes with every write to the row: while it stands, the state is what it was. A
     /// process-unique stamp, never `+= 1`.
     pub generation: Stamp,
@@ -558,13 +535,13 @@ pub struct Slot {
 /// A copy of the row too (`Row::clone_row`), for a snapshot's copy on write.
 impl Clone for Slot {
     fn clone(&self) -> Self {
-        Self { place: self.place, row: self.row.as_ref().map(|row| row.clone_row()), taint: self.taint.clone(), generation: self.generation }
+        Self { place: self.place, row: self.row.as_ref().map(|row| row.clone_row()), generation: self.generation }
     }
 }
 
 impl Slot {
     pub fn new(place: Place) -> Self {
-        Self { place, row: None, taint: None, generation: Stamp::next() }
+        Self { place, row: None, generation: Stamp::next() }
     }
 
     /// The row as its type, to write from a kernel of the core: the slot gets a new stamp.
@@ -582,7 +559,7 @@ impl Slot {
         self.generation = Stamp::next();
     }
 
-    /// The row as its type, or Unsupported (the kernels' answer for a tainted or absent namespace).
+    /// The row as its type, or Unsupported (the kernels' answer for an absent namespace).
     #[track_caller]
     pub fn row_mut<T: Row>(&mut self) -> Result<&mut T> {
         let row = self.row.as_deref_mut().ok_or_else(|| Error::unsupported("the namespace has no row"))?;
@@ -669,8 +646,7 @@ impl Slots {
     }
 
     /// The value of a key held as a `ValueRow`, for a kernel that holds the whole world: None for a
-    /// key the world does not have. Unsupported for a tainted key (its value does not fit `V`) and
-    /// for a slot with another row.
+    /// key the world does not have. Unsupported for a slot with another row.
     #[track_caller]
     pub fn value(&mut self, name: &str) -> Result<Option<&V>> {
         match self.by_name.get_mut(name) {
@@ -695,7 +671,7 @@ impl Slots {
 
 #[track_caller]
 fn slot_value(slot: &Slot) -> Result<Option<&ValueRow>> {
-    if slot.row.is_none() && slot.taint.is_none() {
+    if slot.row.is_none() {
         return Ok(None);
     }
     slot.row::<ValueRow>().map(Some)

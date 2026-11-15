@@ -3,15 +3,13 @@
 //! a service is cancelled or interrupted (`cancel`, `interrupt`). Each kernel plans with nothing
 //! changed and then writes, on the world's rows alone: the entities, `resource_service_v1`,
 //! `resource_ledger_v1`, `facility_queues_v1`, `metric_state`, `id_counters`, the event queue and
-//! the EventLog. An attached tree follows its row when the borrow ends (lane P8-0c), so a tainted
-//! namespace is refused.
+//! the EventLog.
 //!
 //! The caller reads first what the world's outside holds (the manager's config, whether the world
-//! holds each namespace, the floor plan, the pending reserve events, an answer of a tainted
-//! `staff_operations_v1`) and turns what a kernel returns into the event's result: the new
-//! `world.resources` of an operation the ledger took (`Applied`), and the `ResourceLedgerError`
-//! text of one it turned down (`Failure::Ledger`), which names a value by Python's `repr`
-//! (`repr_of`). The checks and their texts come in a fixed order.
+//! holds each namespace, the floor plan, the pending reserve events) and turns what a kernel
+//! returns into the event's result: the new `world.resources` of an operation the ledger took
+//! (`Applied`), and the `ResourceLedgerError` text of one it turned down (`Failure::Ledger`), which
+//! names a value by Python's `repr` (`repr_of`). The checks and their texts come in a fixed order.
 
 use std::sync::{Arc, LazyLock};
 
@@ -167,7 +165,7 @@ impl Manager<'_> {
     }
 }
 
-/// `resource_service_v1` with its row: the world must hold it, untainted.
+/// `resource_service_v1` with its row: the world must hold it.
 fn held_service<'w>(world: &'w World, held: &Held) -> Result<ShardRef<'w, ServiceRow>> {
     match held_row::<ServiceRow>(world, KEY, held)? {
         Some(row) => Ok(row),

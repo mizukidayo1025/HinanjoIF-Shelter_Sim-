@@ -11,7 +11,7 @@ use std::sync::Arc;
 
 use indexmap::IndexMap;
 use sheltersim_core::cell::{CowShard, Shard};
-use sheltersim_core::entities::{Activity, AgentRow, AnyTable, Entities, EntityField, Mobility, NeedRow, ProfileRow, Table};
+use sheltersim_core::entities::{Activity, AgentRow, Entities, EntityField, Mobility, NeedRow, ProfileRow, Table};
 use sheltersim_core::error::Error;
 use sheltersim_core::events::log::{EventLog, Fields};
 use sheltersim_core::events::queue::Queue;
@@ -301,7 +301,7 @@ fn a_table_orders_its_keys_by_the_entity_id_and_marks_nothing() {
     let bytes: Vec<Vec<u8>> = ids.iter().map(|id| row_json(table.get(id).unwrap())).collect();
     table.take_marked();
     table.canonicalize();
-    assert_eq!(table.key_order().iter().map(|key| &**key).collect::<Vec<_>>(), ["A1", "a1", "a10", "a2"]);
+    assert_eq!(table.slots().map(|(key, _)| &**key).collect::<Vec<_>>(), ["A1", "a1", "a10", "a2"]);
     // Each key keeps its slot and its row, whose maps are sorted, with the same bytes.
     for ((id, slot), bytes) in ids.iter().zip(&slots).zip(&bytes) {
         assert_eq!(table.slot_of(id), Some(*slot));
@@ -316,7 +316,7 @@ fn a_table_orders_its_keys_by_the_entity_id_and_marks_nothing() {
     put(&mut doubled, "k1", agent("a"));
     put(&mut doubled, "k3", agent("a"));
     doubled.canonicalize();
-    assert_eq!(doubled.key_order().iter().map(|key| &**key).collect::<Vec<_>>(), ["k1", "k3", "k2"]);
+    assert_eq!(doubled.slots().map(|(key, _)| &**key).collect::<Vec<_>>(), ["k1", "k3", "k2"]);
 }
 
 fn event(id: &str, due: i64, sequence: i64) -> EventRow {
@@ -361,7 +361,6 @@ fn a_queue_is_scheduled_again_in_queue_order_under_new_serials() {
     assert_eq!(queue.serial_of("late"), Some(new[3]));
     assert!(queue.has_sequence(7));
     assert_ne!(queue.generation(), generation);
-    assert_eq!(queue.validate(), 0);
     // A row keeps its values, with its payload and provenance sorted; the old one is untouched.
     let row = queue.slot(new[3]).row.clone().unwrap();
     assert_eq!(value_keys(&row.payload), SORTED);
@@ -420,14 +419,12 @@ fn a_log_rolled_back_to_its_mark_is_what_it_was() {
     let mut log = EventLog::new();
     append_all(&mut log, 0, 1);
     assert_eq!(log.audit(Some(5), Some(100)), 0);
-    log.scan_type("delivery");
     let before = log.clone();
     let mark = log.mark();
     assert_eq!(mark.len(), before.len());
     append_all(&mut log, 1_000, 3);
     append_all(&mut log, 2_000, 4);
     assert_eq!(log.audit(Some(9), Some(100)), 0);
-    log.scan_type("type1000");
     assert_ne!(log, before);
     log.rollback(mark);
     assert_eq!(log, before);
@@ -456,7 +453,7 @@ fn a_cow_shard_copies_a_shared_value_before_a_write() {
     shard.try_borrow_mut().unwrap().push(3);
     assert_eq!(*kept, [1, 2]);
     assert_eq!(*shard.try_borrow().unwrap(), [1, 2, 3]);
-    assert!(!shard.is_shared());
+    assert!(!Arc::ptr_eq(&kept, &shard.share().unwrap()));
     // A borrowed part can't be shared, and two borrows are refused as for a Shard.
     {
         let _writing = shard.try_borrow_mut().unwrap();
@@ -464,7 +461,7 @@ fn a_cow_shard_copies_a_shared_value_before_a_write() {
         assert!(shard.try_borrow().is_err());
     }
     let snapshot = shard.share_mut();
-    assert!(shard.is_shared());
+    assert!(Arc::ptr_eq(&snapshot, &shard.share().unwrap()));
     shard.get_mut().clear();
     shard.put(snapshot);
     assert_eq!(*shard.try_borrow().unwrap(), [1, 2, 3]);
@@ -504,7 +501,7 @@ fn small_world() -> World {
 
 fn agent_order(world: &mut World) -> Vec<String> {
     // Read shared: a read does not copy a part a fork shares.
-    world.entities.try_borrow().unwrap().agents.key_order().iter().map(|key| key.to_string()).collect()
+    world.entities.try_borrow().unwrap().agents.slots().map(|(key, _)| key.to_string()).collect()
 }
 
 #[test]
@@ -521,7 +518,7 @@ fn a_snapshot_keeps_the_world_and_restore_gives_it_back() {
     }
     let kept = snapshot.slot(0).unwrap().row.as_deref().unwrap();
     assert_eq!(value_keys(&kept.as_any().downcast_ref::<ValueRow>().unwrap().0), SHUFFLED);
-    assert_eq!(snapshot.entities().agents.key_order().iter().map(|key| &**key).collect::<Vec<_>>(), ["b", "a"]);
+    assert_eq!(snapshot.entities().agents.slots().map(|(key, _)| &**key).collect::<Vec<_>>(), ["b", "a"]);
     // Writes of every part, and a slot registered after the snapshot.
     world.scalars.try_borrow_mut().unwrap().minute_index = Fit::Ok(6);
     world.entities.try_borrow_mut().unwrap().agents.get_mut("a").unwrap().stress = 0.75;
@@ -551,8 +548,8 @@ fn a_fork_shares_every_part_until_either_world_writes_it() {
     assert_eq!(slot_state(&mut fork), slots);
     assert_eq!(agent_order(&mut fork), ["b", "a"]);
     assert_eq!(fork.minute_index(), Ok(5));
-    assert!(!fork.in_transaction());
-    assert!(world.scalars.is_shared() && world.entities.is_shared());
+    assert!(Arc::ptr_eq(&world.scalars.share().unwrap(), &fork.scalars.share().unwrap()));
+    assert!(Arc::ptr_eq(&world.entities.share().unwrap(), &fork.entities.share().unwrap()));
     // A write to the fork copies what it writes; the world keeps its own.
     fork.entities.try_borrow_mut().unwrap().agents.get_mut("a").unwrap().stress = 0.75;
     fork.entities.get_mut().agents.insert(text("c"), agent("c"));
@@ -771,7 +768,9 @@ fn a_transaction_validates_twice_and_commits_or_rolls_back() {
     assert_eq!(kept, Ok(7));
     assert_eq!(host.calls.last().map(String::as_str), Some("committed"));
     assert_eq!(cell.with(|world| world.entities.get_mut().agents.get("a").unwrap().stress), Ok(0.9));
-    assert_eq!(cell.with(|world| world.in_transaction()), Ok(false));
+    // The transaction is closed: another can begin.
+    let mut again = Recorder::default();
+    Txn::begin(&cell, &mut again, TxnKind::Full).ok().unwrap().rollback(&cell, &mut again).unwrap();
 
     // A rollback, asked for or by an error, gives the world back in its order then.
     let fresh = Shard::new(small_world());
@@ -809,7 +808,6 @@ fn a_failed_start_leaves_the_world_and_a_transaction_does_not_nest() {
     assert_eq!(host.calls.last().map(String::as_str), Some("restored"));
     assert_eq!(order_in(&cell), ["b", "a"]);
     assert_eq!(cell.with(slot_state).unwrap(), before);
-    assert_eq!(cell.with(|world| world.in_transaction()), Ok(false));
     // The views fail to follow: the same.
     let mut host = Recorder { fail: Some("canonicalized"), ..Recorder::default() };
     assert!(Txn::begin(&cell, &mut host, TxnKind::Full).is_err());
@@ -819,7 +817,7 @@ fn a_failed_start_leaves_the_world_and_a_transaction_does_not_nest() {
     let open = Txn::begin(&cell, &mut host, TxnKind::Full).ok().unwrap();
     assert_eq!(Txn::begin(&cell, &mut host, TxnKind::Full).err(), Some(Error::Runtime(NESTED.to_owned())));
     let snapshot: &Snapshot = open.snapshot();
-    assert_eq!(snapshot.slot_count(), 2);
+    assert!(snapshot.slot(1).is_some() && snapshot.slot(2).is_none());
     open.rollback(&cell, &mut host).unwrap();
     assert_eq!(cell.with(slot_state).unwrap(), before);
 }
@@ -832,7 +830,7 @@ fn entities_copy_and_sort_as_a_whole() {
     rows.agents.take_marked();
     let copy = rows.clone();
     rows.canonicalize();
-    assert_eq!(rows.agents.key_order().iter().map(|key| &**key).collect::<Vec<_>>(), ["a", "b"]);
-    assert_eq!(copy.agents.key_order().iter().map(|key| &**key).collect::<Vec<_>>(), ["b", "a"]);
+    assert_eq!(rows.agents.slots().map(|(key, _)| &**key).collect::<Vec<_>>(), ["a", "b"]);
+    assert_eq!(copy.agents.slots().map(|(key, _)| &**key).collect::<Vec<_>>(), ["b", "a"]);
     assert!(rows.agents.marked().is_empty());
 }

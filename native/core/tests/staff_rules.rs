@@ -133,11 +133,18 @@ impl Rig {
         self.cell.with(|world| staff::relief(world, &staff.inputs(None), minute)).unwrap()
     }
 
-    /// `staff::assign_plain` without the validation: whether every request stays pending (and was
-    /// written so).
+    /// The plain case of `staff::assign_pending`, without the validation: whether every request
+    /// stays pending (and was written so). Without the inputs of a full assignment, nothing is
+    /// written otherwise; a minute other than the world's is not the plain case.
     fn plain(&mut self, minute: i64) -> bool {
         let staff = self.staff();
-        self.cell.with(|world| staff::assign_plain(world, &staff.inputs(None), minute)).unwrap().unwrap()
+        let service = Service { policy: Arc::from("plain"), task_minutes: 10, fairness_after: 0, resolver: Step::None, scheduler: Step::None };
+        let mut taken = Vec::new();
+        match self.cell.with(|world| staff::assign_pending(world, &staff.inputs(None), &service, minute, None, &mut taken)).unwrap() {
+            Ok(Assigned::Done(assigned)) => assigned.is_empty(),
+            Ok(Assigned::NeedsAll) | Err(WriteError::Error(Error::MarkedValue(_))) => false,
+            Err(error) => panic!("{error:?}"),
+        }
     }
 
     /// `staff::assign_pending` without the validation, of a service with no route: the plain case

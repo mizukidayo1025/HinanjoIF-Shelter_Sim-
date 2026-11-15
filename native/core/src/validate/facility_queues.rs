@@ -16,6 +16,7 @@ use super::movement::py::{cmp_i64, eq, has_exactly, in_keys, in_texts, is_exact_
 /// `world.model_state.get(...)`: the tree of the world, its lists `TrackedList`.
 const HELD: Held = Held::Tracked;
 use super::{repr, View};
+use crate::entities::Entities;
 use crate::error::{Error, Result};
 use crate::state::facility_queues::QueuesRow;
 use crate::text::py_repr;
@@ -176,93 +177,9 @@ pub fn validate(view: &View<'_>) -> Result<()> {
         if !matches!(stall, V::Null) && !stall_valid(stall)? {
             return Err(Error::Value(format!("facility queue {} stall state is invalid", py_repr(queue_id))));
         }
+        let queue = Queue { queue_id, point, queued, requests, rows: &rows, minute };
         for request_id in queued.iter().chain(active) {
-            assigned.insert(key_of(request_id, HELD)?);
-            let is_queued = queued.iter().any(|id| eq(id, request_id));
-            let request = match request_id {
-                V::Str(id) => requests.get(&**id),
-                _ => None,
-            };
-            let Some(V::Map(request)) = request else {
-                return Err(request_invalid(request_id));
-            };
-            if !request_valid(request, request_id, queue_id, point, is_queued, minute, &|value| in_keys(value, HELD, |id| rows.agents.contains_key(id)))? {
-                return Err(request_invalid(request_id));
-            }
-            let V::Str(agent_id) = &request["agent_id"] else {
-                unreachable!("an Agent's ID is a str");
-            };
-            if !active_agents.insert(agent_id.clone()) {
-                return Err(Error::Value("an Agent cannot occupy two independent service queues".to_owned()));
-            }
-            let facility = rows.facilities.get(&point.facility_id).ok_or_else(|| Error::Key(point.facility_id.to_string()))?;
-            let agent = rows.agents.get(agent_id).ok_or_else(|| Error::Key(agent_id.to_string()))?;
-            let kind = &request["service_kind"];
-            let expected_kind = if is_text(kind, "water") {
-                Some("water_station")
-            } else if is_text(kind, "meal") {
-                Some("meal_distribution")
-            } else {
-                None
-            };
-            if expected_kind.is_some_and(|wanted| &*facility.kind != wanted) {
-                return Err(Error::Value("facility queue service kind does not match its resource facility".to_owned()));
-            }
-            let resource = is_text(kind, "water") || is_text(kind, "meal");
-            let at_facility = agent.target_id.as_deref() == Some(&*point.facility_id);
-            if is_queued {
-                let task = match &request["queue_task_id"] {
-                    V::Str(id) => rows.active_tasks.get(id),
-                    _ => None,
-                };
-                let matches = task.is_some_and(|task| {
-                    matches!(&*task.kind, "toilet_queue" | "resource_service_queue")
-                        && task.agent_id.as_deref() == Some(&**agent_id)
-                        && task.resource_id.as_deref() == Some(&*point.facility_id)
-                        && agent.activity.text() == "queued"
-                        && at_facility
-                });
-                if !matches {
-                    return Err(Error::Value("queued service request has no matching task and Agent state".to_owned()));
-                }
-                let mirror = if resource { &facility.resource_queue_agent_ids } else { &facility.queue_agent_ids };
-                if !mirror.iter().any(|id| id == agent_id) {
-                    return Err(Error::Value("independent queue request is missing from the facility projection".to_owned()));
-                }
-            } else {
-                let task = match &request["active_task_id"] {
-                    V::Str(id) => rows.active_tasks.get(id),
-                    _ => None,
-                };
-                let Some(task) = task.filter(|task| {
-                    task.agent_id.as_deref() == Some(&**agent_id)
-                        && task.resource_id.as_deref() == Some(&*point.facility_id)
-                        && matches!(&*task.kind, "toilet_service" | "resource_service_water" | "resource_service_food")
-                        && agent.activity.text() == "in_service"
-                        && at_facility
-                }) else {
-                    return Err(Error::Value("active service request has no matching service task and Agent state".to_owned()));
-                };
-                if is_text(kind, "toilet") && (!point.staff_skills.is_empty() || task.staff_id.is_some()) {
-                    let member = rows.staff.get(task.staff_id.as_deref().unwrap_or(""));
-                    let reserved = !point.staff_skills.is_empty()
-                        && member.is_some_and(|member| {
-                            point.staff_skills.iter().all(|skill| member.skills.0.contains(skill))
-                                && member.zone_id == facility.zone_id
-                                && member.active_task_id.as_deref() == Some(&*task.id)
-                                && member.work_queue.len() == 1
-                                && member.work_queue[0] == task.id
-                                && member.busy_until == task.due_minute
-                        });
-                    if !reserved {
-                        return Err(Error::Value("staff-required toilet service has no matching skilled staff reservation".to_owned()));
-                    }
-                }
-                let mirror = if resource { &facility.resource_active_agent_ids } else { &facility.active_agent_ids };
-                if !mirror.iter().any(|id| id == agent_id) {
-                    return Err(Error::Value("active independent service is missing from the facility projection".to_owned()));
-                }
-            }
+            check_request(queue, &mut assigned, &mut active_agents, request_id)?;
         }
     }
     if requests.len() != assigned.len() || requests.keys().any(|id| !assigned.contains(&Key::Text(id.clone()))) {
@@ -270,6 +187,111 @@ pub fn validate(view: &View<'_>) -> Result<()> {
     }
     drop(rows);
     queue_journeys(view, requests)
+}
+
+/// What the check of each request of a queue reads: the queue, its signed service point, its
+/// queued requests, the requests, the rows and the minute.
+#[derive(Clone, Copy)]
+struct Queue<'a> {
+    queue_id: &'a Arc<str>,
+    point: &'a Point,
+    queued: &'a [V],
+    requests: &'a Map,
+    rows: &'a Entities,
+    minute: i64,
+}
+
+/// One queued or active request of a queue: its record, its Agent, its task and the facility's
+/// projection.
+fn check_request(queue: Queue<'_>, assigned: &mut HashSet<Key>, active_agents: &mut HashSet<Arc<str>>, request_id: &V) -> Result<()> {
+    let Queue { queue_id, point, queued, requests, rows, minute } = queue;
+    assigned.insert(key_of(request_id, HELD)?);
+    let is_queued = queued.iter().any(|id| eq(id, request_id));
+    let request = match request_id {
+        V::Str(id) => requests.get(&**id),
+        _ => None,
+    };
+    let Some(V::Map(request)) = request else {
+        return Err(request_invalid(request_id));
+    };
+    if !request_valid(request, request_id, queue_id, point, is_queued, minute, &|value| in_keys(value, HELD, |id| rows.agents.contains_key(id)))? {
+        return Err(request_invalid(request_id));
+    }
+    let V::Str(agent_id) = &request["agent_id"] else {
+        unreachable!("an Agent's ID is a str");
+    };
+    if !active_agents.insert(agent_id.clone()) {
+        return Err(Error::Value("an Agent cannot occupy two independent service queues".to_owned()));
+    }
+    let facility = rows.facilities.get(&point.facility_id).ok_or_else(|| Error::Key(point.facility_id.to_string()))?;
+    let agent = rows.agents.get(agent_id).ok_or_else(|| Error::Key(agent_id.to_string()))?;
+    let kind = &request["service_kind"];
+    let expected_kind = if is_text(kind, "water") {
+        Some("water_station")
+    } else if is_text(kind, "meal") {
+        Some("meal_distribution")
+    } else {
+        None
+    };
+    if expected_kind.is_some_and(|wanted| &*facility.kind != wanted) {
+        return Err(Error::Value("facility queue service kind does not match its resource facility".to_owned()));
+    }
+    let resource = is_text(kind, "water") || is_text(kind, "meal");
+    let at_facility = agent.target_id.as_deref() == Some(&*point.facility_id);
+    if is_queued {
+        let task = match &request["queue_task_id"] {
+            V::Str(id) => rows.active_tasks.get(id),
+            _ => None,
+        };
+        let matches = task.is_some_and(|task| {
+            matches!(&*task.kind, "toilet_queue" | "resource_service_queue")
+                && task.agent_id.as_deref() == Some(&**agent_id)
+                && task.resource_id.as_deref() == Some(&*point.facility_id)
+                && agent.activity.text() == "queued"
+                && at_facility
+        });
+        if !matches {
+            return Err(Error::Value("queued service request has no matching task and Agent state".to_owned()));
+        }
+        let mirror = if resource { &facility.resource_queue_agent_ids } else { &facility.queue_agent_ids };
+        if !mirror.iter().any(|id| id == agent_id) {
+            return Err(Error::Value("independent queue request is missing from the facility projection".to_owned()));
+        }
+    } else {
+        let task = match &request["active_task_id"] {
+            V::Str(id) => rows.active_tasks.get(id),
+            _ => None,
+        };
+        let Some(task) = task.filter(|task| {
+            task.agent_id.as_deref() == Some(&**agent_id)
+                && task.resource_id.as_deref() == Some(&*point.facility_id)
+                && matches!(&*task.kind, "toilet_service" | "resource_service_water" | "resource_service_food")
+                && agent.activity.text() == "in_service"
+                && at_facility
+        }) else {
+            return Err(Error::Value("active service request has no matching service task and Agent state".to_owned()));
+        };
+        if is_text(kind, "toilet") && (!point.staff_skills.is_empty() || task.staff_id.is_some()) {
+            let member = rows.staff.get(task.staff_id.as_deref().unwrap_or(""));
+            let reserved = !point.staff_skills.is_empty()
+                && member.is_some_and(|member| {
+                    point.staff_skills.iter().all(|skill| member.skills.0.contains(skill))
+                        && member.zone_id == facility.zone_id
+                        && member.active_task_id.as_deref() == Some(&*task.id)
+                        && member.work_queue.len() == 1
+                        && member.work_queue[0] == task.id
+                        && member.busy_until == task.due_minute
+                });
+            if !reserved {
+                return Err(Error::Value("staff-required toilet service has no matching skilled staff reservation".to_owned()));
+            }
+        }
+        let mirror = if resource { &facility.resource_active_agent_ids } else { &facility.active_agent_ids };
+        if !mirror.iter().any(|id| id == agent_id) {
+            return Err(Error::Value("active independent service is missing from the facility projection".to_owned()));
+        }
+    }
+    Ok(())
 }
 
 fn request_invalid(request_id: &V) -> Error {

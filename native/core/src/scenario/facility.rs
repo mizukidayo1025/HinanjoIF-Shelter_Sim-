@@ -375,42 +375,10 @@ fn invalid(text: impl Into<String>) -> Error {
 /// is `Error::Value` with the text of what Python raises (pydantic's field checks are given in
 /// their own words, without pydantic's framing).
 pub fn generate(request: &FacilityRequest) -> Result<FacilityDesign> {
-    if !(1..=10_000).contains(&request.population) {
-        return Err(invalid("population must be from 1 to 10000"));
-    }
-    if let Some(area) = request.gross_area_m2 {
-        if !area.is_finite() || area <= 0.0 || area > 100_000.0 {
-            return Err(invalid("gross_area_m2 must be finite, above 0 and at most 100000"));
-        }
-    }
-    if !(0..=20).contains(&request.accessible_toilet_count) {
-        return Err(invalid("accessible_toilet_count must be from 0 to 20"));
-    }
-    if request.staff_count.is_some_and(|count| !(0..=100).contains(&count)) {
-        return Err(invalid("staff_count must be from 0 to 100"));
-    }
+    check_request(request)?;
     let population = request.population;
     let area_source_ids: Vec<String> = if request.gross_area_m2.is_some() { vec![OPERATOR_AREA_SOURCE_ID.to_owned()] } else { Vec::new() };
-    let mut design: ZoneDesign = ZONE_DESIGN.iter().map(|(id, name, share)| ((*id).to_owned(), (*name).to_owned(), *share)).collect();
-    let condition_text = casefold(&request.facility_conditions.join(" ")).into_owned();
-    let mut recognized: Vec<&str> = Vec::new();
-    for (terms, zone_id, name, share) in OPTIONAL_ZONES {
-        if terms.iter().any(|term| condition_text.contains(term)) {
-            design.push((zone_id.to_owned(), name.to_owned(), share));
-            recognized.extend_from_slice(terms);
-            if let Some(sleeping) = design.iter_mut().find(|item| item.0 == "sleeping") {
-                sleeping.2 -= share;
-            }
-        }
-    }
-    // _apply_zone_conditions with no conditions: only its last check.
-    let shares: Vec<f64> = design.iter().map(|item| item.2).collect();
-    if (py_sum(&shares) - 1.0).abs() > 1e-8 || shares.iter().any(|share| *share <= 0.0) {
-        return Err(invalid("facility zone changes must preserve positive shares totaling one"));
-    }
-    if ACCESSIBLE_TERMS.iter().any(|term| condition_text.contains(term)) {
-        recognized.extend_from_slice(&ACCESSIBLE_TERMS);
-    }
+    let (design, recognized) = zone_design(request)?;
     let gross_area = match request.gross_area_m2 {
         Some(area) => area,
         None => default_gross_area(population, &design),
@@ -435,18 +403,7 @@ pub fn generate(request: &FacilityRequest) -> Result<FacilityDesign> {
             widened_zones.join("、")
         ));
     }
-    let unrecognized: Vec<&str> = request
-        .facility_conditions
-        .iter()
-        .filter(|condition| {
-            let folded = casefold(condition);
-            !recognized.iter().any(|term| folded.contains(term))
-        })
-        .map(String::as_str)
-        .collect();
-    if !unrecognized.is_empty() {
-        warnings.push(format!("次の施設条件は標準モデルへ自動反映できず、編集時に確認が必要です: {}", unrecognized.join("、")));
-    }
+    push_unrecognized_warning(request, &recognized, &mut warnings);
     if capacity_supported < population {
         warnings.push(format!("入力人数{population}人に対し、避難スペースの参考収容数は{capacity_supported}人です。実際の利用可能面積を確認してください。"));
     }
@@ -456,128 +413,23 @@ pub fn generate(request: &FacilityRequest) -> Result<FacilityDesign> {
     }
     warnings.push("平面形状、1.8 m通路、面積配分、設備数は標準モデルの仮定です。実施設の図面・法令適合・避難安全性を示しません。".to_owned());
     warnings.push("食料・飲料水の在庫量は施設数から推定していません。在庫を入力しない場合の既定量はScenarioの仮定として記録します。".to_owned());
-    let mut sources: Vec<String> =
-        [SYNTHETIC_FACILITY_SOURCE_ID, SYNTHETIC_CAPACITY_SOURCE_ID, SYNTHETIC_STAFFING_SOURCE_ID, SYNTHETIC_TOILET_SOURCE_ID, SERVICE_STATION_SOURCE_ID]
-            .iter()
-            .map(|id| (*id).to_owned())
-            .chain(area_source_ids.iter().cloned())
-            .collect();
-    sources.sort_unstable();
-    sources.dedup();
-    let mut geometry_source_ids: Vec<String> = std::iter::once(SYNTHETIC_FACILITY_SOURCE_ID.to_owned()).chain(area_source_ids.iter().cloned()).collect();
-    geometry_source_ids.sort_unstable();
-    geometry_source_ids.dedup();
+    let (sources, geometry_source_ids) = source_lists(&area_source_ids);
     let source_kind = if area_source_ids.is_empty() { "synthetic" } else { "inferred" };
     if source_kind == "inferred" {
         warnings.push("選択施設の出典値を使っていますが、長さ・ゾーン・設備配置は実図面ではなく編集可能な概略推定です。".to_owned());
     }
 
-    let mut zones = vec![Zone { id: "corridor".to_owned(), name: "共用通路".to_owned(), capacity: None, display_x: 100.0, display_y: 100.0 }];
-    let mut physical_zones = vec![PhysicalZone {
-        zone_id: "corridor".to_owned(),
-        polygon: vec![Pt { x: 0.0, y: 0.0 }, Pt { x: width_m, y: 0.0 }, Pt { x: width_m, y: corridor_depth_m }, Pt { x: 0.0, y: corridor_depth_m }],
-        usable_area_m2: width_m * corridor_depth_m * 0.9,
-    }];
-    let mut zone_centers: Vec<(String, Pt)> = vec![("corridor".to_owned(), Pt { x: width_m / 2.0, y: corridor_depth_m / 2.0 })];
-    let mut x_cursor = 0.0;
-    let last = design.len() - 1;
-    for (index, (zone_id, name, share)) in design.iter().enumerate() {
-        let zone_width = if index < last { width_m * share } else { width_m - x_cursor };
-        let left = x_cursor;
-        let right = if index == last { width_m } else { x_cursor + zone_width };
-        let (top, bottom) = (corridor_depth_m, height_m);
-        let area = (right - left) * (bottom - top);
-        zones.push(Zone {
-            id: zone_id.clone(),
-            name: name.clone(),
-            capacity: Some(if zone_id == "sleeping" { capacity_supported } else { population }),
-            display_x: 100.0,
-            display_y: 260.0 + index as f64 * 120.0,
-        });
-        physical_zones.push(PhysicalZone {
-            zone_id: zone_id.clone(),
-            polygon: vec![Pt { x: left, y: top }, Pt { x: right, y: top }, Pt { x: right, y: bottom }, Pt { x: left, y: bottom }],
-            usable_area_m2: area * 0.9,
-        });
-        zone_centers.push((zone_id.clone(), Pt { x: (left + right) / 2.0, y: (top + bottom) / 2.0 }));
-        x_cursor = right;
-    }
+    let (zones, physical_zones, zone_centers) = lay_out_zones(&design, width_m, height_m, corridor_depth_m, capacity_supported, population);
 
-    let counts = standard_service_counts(population);
-    let mut toilets = (request.accessible_toilet_count + counts.toilet_standard).max(counts.toilet_demand);
-    if toilets > 20 {
-        warnings.push("標準モデルのトイレ設備は20基で上限化されています。追加設備を手動指定してください。".to_owned());
-        toilets = 20;
-    }
-    let accessible = request.accessible_toilet_count.min(toilets);
-    let mut facilities: Vec<Facility> = (1..=accessible).map(|index| facility(format!("accessible_toilet_{index:02}"), "toilet", "toilet", Some(1))).collect();
-    facilities.extend((1..=toilets - accessible).map(|index| facility(format!("toilet_{index:02}"), "toilet", "toilet", Some(1))));
-    facilities.extend((1..=counts.water_station).map(|index| facility(station_id("water_station", index), "water_station", "food", None)));
-    facilities.extend((1..=counts.meal_distribution).map(|index| facility(station_id("meal_distribution", index), "meal_distribution", "food", None)));
-    facilities.push(facility("medical_desk".to_owned(), "medical_support", "medical", None));
-    facilities.push(facility("intake_desk".to_owned(), "intake", "intake", None));
-    facilities.push(facility("quiet_support".to_owned(), "quiet_space", "quiet", None));
-    for (zone_id, _, _) in &design {
-        match zone_id.as_str() {
-            "pet" => facilities.push(facility("pet_area".to_owned(), "pet_support", "pet", None)),
-            "family" => facilities.push(facility("family_space".to_owned(), "family_support", "family", None)),
-            "private" => facilities.push(facility("privacy_space".to_owned(), "privacy_support", "private", None)),
-            _ => {}
-        }
-    }
-    facilities.sort_by(|a, b| a.id.cmp(&b.id));
+    let (counts, toilets, facilities) = standard_facilities(request, population, &design, &mut warnings);
 
     // _place_facilities: the zones in the order of their first facility, each zone's by ID.
-    let mut facility_points: Vec<(String, Pt)> = Vec::with_capacity(facilities.len());
-    let mut group_order: Vec<&str> = Vec::new();
-    for item in &facilities {
-        if !group_order.contains(&item.zone_id.as_str()) {
-            group_order.push(&item.zone_id);
-        }
-    }
-    for zone_id in group_order {
-        let polygon = &physical_zones.iter().find(|zone| zone.zone_id == zone_id).ok_or_else(|| invalid(format!("'{zone_id}'")))?.polygon;
-        let members: Vec<&Facility> = facilities.iter().filter(|item| item.zone_id == zone_id).collect();
-        for (index, item) in members.iter().enumerate() {
-            facility_points.push((item.id.clone(), facility_grid_point(polygon, index as i64, members.len() as i64)));
-        }
-    }
+    let facility_points = place_facilities(&facilities, &physical_zones)?;
 
     let station_zones = vec!["food"; (counts.water_station + counts.meal_distribution) as usize];
     let staff = shelter_staff(population, request.staff_count, &station_zones, "staff");
 
-    let center_of = |zone_id: &str| zone_centers.iter().find(|item| item.0 == zone_id).map(|item| item.1).unwrap_or(Pt { x: 0.0, y: 0.0 });
-    let corridor_point = center_of("corridor");
-    let mut edges: Vec<ZoneEdge> = Vec::new();
-    let mut routes: Vec<Route> = Vec::new();
-    for (zone_id, _, share) in &design {
-        let zone_center = center_of(zone_id);
-        let doorway_point = Pt { x: zone_center.x, y: corridor_depth_m };
-        let route_width = py_min(py_min(1.8, corridor_depth_m), width_m * share);
-        let corridor_approach = Pt { x: zone_center.x, y: corridor_point.y };
-        let candidates = [zone_center, doorway_point, corridor_approach, corridor_point];
-        let mut route_points = vec![candidates[0]];
-        for pair in candidates.windows(2) {
-            if pair[1] != pair[0] {
-                route_points.push(pair[1]);
-            }
-        }
-        for (source, target) in [(zone_id.as_str(), "corridor"), ("corridor", zone_id.as_str())] {
-            let edge_id = format!("route_{source}_{target}");
-            let points: Vec<Pt> = if source == zone_id { route_points.clone() } else { route_points.iter().rev().copied().collect() };
-            let lengths: Vec<f64> = points.windows(2).map(|pair| hypot(&[pair[1].x - pair[0].x, pair[1].y - pair[0].y])).collect();
-            let distance_m = py_sum(&lengths);
-            edges.push(ZoneEdge {
-                id: edge_id.clone(),
-                from_zone_id: source.to_owned(),
-                to_zone_id: target.to_owned(),
-                travel_minutes: ceil_int(distance_m / 60.0).max(1),
-            });
-            routes.push(Route { edge_id, points, width_m: route_width, accessible: route_width >= ACCESSIBLE_ROUTE_MIN_WIDTH_M });
-        }
-    }
-    edges.sort_by(|a, b| a.id.cmp(&b.id));
-    routes.sort_by(|a, b| a.edge_id.cmp(&b.edge_id));
+    let (edges, routes) = zone_routes(&design, &zone_centers, width_m, corridor_depth_m);
     let mut geometry = Geometry {
         width_m,
         height_m,
@@ -609,6 +461,275 @@ pub fn generate(request: &FacilityRequest) -> Result<FacilityDesign> {
             ("basis", s("operator_entered")),
         ]));
     }
+    let assumptions = design_assumptions(AssumptionInputs {
+        request,
+        design: &design,
+        geometry: &geometry,
+        staff: &staff,
+        counts: &counts,
+        widened_zones: &widened_zones,
+        area_source_ids: &area_source_ids,
+        gross_area,
+        sleeping_usable_area_m2,
+        corridor_depth_m,
+        area_capacity,
+        capacity_supported,
+        toilets,
+    });
+    Ok(FacilityDesign {
+        zones,
+        zone_edges: edges,
+        facilities,
+        staff,
+        geometry,
+        editable_geometry: editable,
+        capacity_supported,
+        requested_population: population,
+        observations,
+        assumptions,
+        warnings,
+    })
+}
+
+/// Refuses a request whose population, area, accessible toilets or staff are out of range.
+fn check_request(request: &FacilityRequest) -> Result<()> {
+    if !(1..=10_000).contains(&request.population) {
+        return Err(invalid("population must be from 1 to 10000"));
+    }
+    if let Some(area) = request.gross_area_m2 {
+        if !area.is_finite() || area <= 0.0 || area > 100_000.0 {
+            return Err(invalid("gross_area_m2 must be finite, above 0 and at most 100000"));
+        }
+    }
+    if !(0..=20).contains(&request.accessible_toilet_count) {
+        return Err(invalid("accessible_toilet_count must be from 0 to 20"));
+    }
+    if request.staff_count.is_some_and(|count| !(0..=100).contains(&count)) {
+        return Err(invalid("staff_count must be from 0 to 100"));
+    }
+    Ok(())
+}
+
+/// The zones' shares with the optional zones the conditions name, and the condition terms
+/// recognized.
+fn zone_design(request: &FacilityRequest) -> Result<(ZoneDesign, Vec<&'static str>)> {
+    let mut design: ZoneDesign = ZONE_DESIGN.iter().map(|(id, name, share)| ((*id).to_owned(), (*name).to_owned(), *share)).collect();
+    let condition_text = casefold(&request.facility_conditions.join(" ")).into_owned();
+    let mut recognized: Vec<&str> = Vec::new();
+    for (terms, zone_id, name, share) in OPTIONAL_ZONES {
+        if terms.iter().any(|term| condition_text.contains(term)) {
+            design.push((zone_id.to_owned(), name.to_owned(), share));
+            recognized.extend_from_slice(terms);
+            if let Some(sleeping) = design.iter_mut().find(|item| item.0 == "sleeping") {
+                sleeping.2 -= share;
+            }
+        }
+    }
+    // _apply_zone_conditions with no conditions: only its last check.
+    let shares: Vec<f64> = design.iter().map(|item| item.2).collect();
+    if (py_sum(&shares) - 1.0).abs() > 1e-8 || shares.iter().any(|share| *share <= 0.0) {
+        return Err(invalid("facility zone changes must preserve positive shares totaling one"));
+    }
+    if ACCESSIBLE_TERMS.iter().any(|term| condition_text.contains(term)) {
+        recognized.extend_from_slice(&ACCESSIBLE_TERMS);
+    }
+    Ok((design, recognized))
+}
+
+/// The warning for the facility conditions no recognized term covers.
+fn push_unrecognized_warning(request: &FacilityRequest, recognized: &[&str], warnings: &mut Vec<String>) {
+    let unrecognized: Vec<&str> = request
+        .facility_conditions
+        .iter()
+        .filter(|condition| {
+            let folded = casefold(condition);
+            !recognized.iter().any(|term| folded.contains(term))
+        })
+        .map(String::as_str)
+        .collect();
+    if !unrecognized.is_empty() {
+        warnings.push(format!("次の施設条件は標準モデルへ自動反映できず、編集時に確認が必要です: {}", unrecognized.join("、")));
+    }
+}
+
+/// The design's source IDs and the geometry's zone source IDs, sorted.
+fn source_lists(area_source_ids: &[String]) -> (Vec<String>, Vec<String>) {
+    let mut sources: Vec<String> =
+        [SYNTHETIC_FACILITY_SOURCE_ID, SYNTHETIC_CAPACITY_SOURCE_ID, SYNTHETIC_STAFFING_SOURCE_ID, SYNTHETIC_TOILET_SOURCE_ID, SERVICE_STATION_SOURCE_ID]
+            .iter()
+            .map(|id| (*id).to_owned())
+            .chain(area_source_ids.iter().cloned())
+            .collect();
+    sources.sort_unstable();
+    sources.dedup();
+    let mut geometry_source_ids: Vec<String> = std::iter::once(SYNTHETIC_FACILITY_SOURCE_ID.to_owned()).chain(area_source_ids.iter().cloned()).collect();
+    geometry_source_ids.sort_unstable();
+    geometry_source_ids.dedup();
+    (sources, geometry_source_ids)
+}
+
+/// The corridor along the top and the zones side by side below it: the zones, their polygons and
+/// their centers.
+fn lay_out_zones(
+    design: &ZoneDesign,
+    width_m: f64,
+    height_m: f64,
+    corridor_depth_m: f64,
+    capacity_supported: i64,
+    population: i64,
+) -> (Vec<Zone>, Vec<PhysicalZone>, Vec<(String, Pt)>) {
+    let mut zones = vec![Zone { id: "corridor".to_owned(), name: "共用通路".to_owned(), capacity: None, display_x: 100.0, display_y: 100.0 }];
+    let mut physical_zones = vec![PhysicalZone {
+        zone_id: "corridor".to_owned(),
+        polygon: vec![Pt { x: 0.0, y: 0.0 }, Pt { x: width_m, y: 0.0 }, Pt { x: width_m, y: corridor_depth_m }, Pt { x: 0.0, y: corridor_depth_m }],
+        usable_area_m2: width_m * corridor_depth_m * 0.9,
+    }];
+    let mut zone_centers: Vec<(String, Pt)> = vec![("corridor".to_owned(), Pt { x: width_m / 2.0, y: corridor_depth_m / 2.0 })];
+    let mut x_cursor = 0.0;
+    let last = design.len() - 1;
+    for (index, (zone_id, name, share)) in design.iter().enumerate() {
+        let zone_width = if index < last { width_m * share } else { width_m - x_cursor };
+        let left = x_cursor;
+        let right = if index == last { width_m } else { x_cursor + zone_width };
+        let (top, bottom) = (corridor_depth_m, height_m);
+        let area = (right - left) * (bottom - top);
+        zones.push(Zone {
+            id: zone_id.clone(),
+            name: name.clone(),
+            capacity: Some(if zone_id == "sleeping" { capacity_supported } else { population }),
+            display_x: 100.0,
+            display_y: 260.0 + index as f64 * 120.0,
+        });
+        physical_zones.push(PhysicalZone {
+            zone_id: zone_id.clone(),
+            polygon: vec![Pt { x: left, y: top }, Pt { x: right, y: top }, Pt { x: right, y: bottom }, Pt { x: left, y: bottom }],
+            usable_area_m2: area * 0.9,
+        });
+        zone_centers.push((zone_id.clone(), Pt { x: (left + right) / 2.0, y: (top + bottom) / 2.0 }));
+        x_cursor = right;
+    }
+    (zones, physical_zones, zone_centers)
+}
+
+/// The service counts, the toilets (capped at 20) and the facilities, by ID.
+fn standard_facilities(request: &FacilityRequest, population: i64, design: &ZoneDesign, warnings: &mut Vec<String>) -> (ServiceCounts, i64, Vec<Facility>) {
+    let counts = standard_service_counts(population);
+    let mut toilets = (request.accessible_toilet_count + counts.toilet_standard).max(counts.toilet_demand);
+    if toilets > 20 {
+        warnings.push("標準モデルのトイレ設備は20基で上限化されています。追加設備を手動指定してください。".to_owned());
+        toilets = 20;
+    }
+    let accessible = request.accessible_toilet_count.min(toilets);
+    let mut facilities: Vec<Facility> = (1..=accessible).map(|index| facility(format!("accessible_toilet_{index:02}"), "toilet", "toilet", Some(1))).collect();
+    facilities.extend((1..=toilets - accessible).map(|index| facility(format!("toilet_{index:02}"), "toilet", "toilet", Some(1))));
+    facilities.extend((1..=counts.water_station).map(|index| facility(station_id("water_station", index), "water_station", "food", None)));
+    facilities.extend((1..=counts.meal_distribution).map(|index| facility(station_id("meal_distribution", index), "meal_distribution", "food", None)));
+    facilities.push(facility("medical_desk".to_owned(), "medical_support", "medical", None));
+    facilities.push(facility("intake_desk".to_owned(), "intake", "intake", None));
+    facilities.push(facility("quiet_support".to_owned(), "quiet_space", "quiet", None));
+    for (zone_id, _, _) in design {
+        match zone_id.as_str() {
+            "pet" => facilities.push(facility("pet_area".to_owned(), "pet_support", "pet", None)),
+            "family" => facilities.push(facility("family_space".to_owned(), "family_support", "family", None)),
+            "private" => facilities.push(facility("privacy_space".to_owned(), "privacy_support", "private", None)),
+            _ => {}
+        }
+    }
+    facilities.sort_by(|a, b| a.id.cmp(&b.id));
+    (counts, toilets, facilities)
+}
+
+/// `_place_facilities`: each facility's point on its zone's grid.
+fn place_facilities(facilities: &[Facility], physical_zones: &[PhysicalZone]) -> Result<Vec<(String, Pt)>> {
+    let mut facility_points: Vec<(String, Pt)> = Vec::with_capacity(facilities.len());
+    let mut group_order: Vec<&str> = Vec::new();
+    for item in facilities {
+        if !group_order.contains(&item.zone_id.as_str()) {
+            group_order.push(&item.zone_id);
+        }
+    }
+    for zone_id in group_order {
+        let polygon = &physical_zones.iter().find(|zone| zone.zone_id == zone_id).ok_or_else(|| invalid(format!("'{zone_id}'")))?.polygon;
+        let members: Vec<&Facility> = facilities.iter().filter(|item| item.zone_id == zone_id).collect();
+        for (index, item) in members.iter().enumerate() {
+            facility_points.push((item.id.clone(), facility_grid_point(polygon, index as i64, members.len() as i64)));
+        }
+    }
+    Ok(facility_points)
+}
+
+/// Each zone's route to the corridor and back through its doorway, as edges and routes by ID.
+fn zone_routes(design: &ZoneDesign, zone_centers: &[(String, Pt)], width_m: f64, corridor_depth_m: f64) -> (Vec<ZoneEdge>, Vec<Route>) {
+    let center_of = |zone_id: &str| zone_centers.iter().find(|item| item.0 == zone_id).map(|item| item.1).unwrap_or(Pt { x: 0.0, y: 0.0 });
+    let corridor_point = center_of("corridor");
+    let mut edges: Vec<ZoneEdge> = Vec::new();
+    let mut routes: Vec<Route> = Vec::new();
+    for (zone_id, _, share) in design {
+        let zone_center = center_of(zone_id);
+        let doorway_point = Pt { x: zone_center.x, y: corridor_depth_m };
+        let route_width = py_min(py_min(1.8, corridor_depth_m), width_m * share);
+        let corridor_approach = Pt { x: zone_center.x, y: corridor_point.y };
+        let candidates = [zone_center, doorway_point, corridor_approach, corridor_point];
+        let mut route_points = vec![candidates[0]];
+        for pair in candidates.windows(2) {
+            if pair[1] != pair[0] {
+                route_points.push(pair[1]);
+            }
+        }
+        for (source, target) in [(zone_id.as_str(), "corridor"), ("corridor", zone_id.as_str())] {
+            let edge_id = format!("route_{source}_{target}");
+            let points: Vec<Pt> = if source == zone_id { route_points.clone() } else { route_points.iter().rev().copied().collect() };
+            let lengths: Vec<f64> = points.windows(2).map(|pair| hypot(&[pair[1].x - pair[0].x, pair[1].y - pair[0].y])).collect();
+            let distance_m = py_sum(&lengths);
+            edges.push(ZoneEdge {
+                id: edge_id.clone(),
+                from_zone_id: source.to_owned(),
+                to_zone_id: target.to_owned(),
+                travel_minutes: ceil_int(distance_m / 60.0).max(1),
+            });
+            routes.push(Route { edge_id, points, width_m: route_width, accessible: route_width >= ACCESSIBLE_ROUTE_MIN_WIDTH_M });
+        }
+    }
+    edges.sort_by(|a, b| a.id.cmp(&b.id));
+    routes.sort_by(|a, b| a.edge_id.cmp(&b.edge_id));
+    (edges, routes)
+}
+
+/// What the design's assumptions record.
+#[derive(Clone, Copy)]
+struct AssumptionInputs<'a> {
+    request: &'a FacilityRequest,
+    design: &'a ZoneDesign,
+    geometry: &'a Geometry,
+    staff: &'a [Staff],
+    counts: &'a ServiceCounts,
+    widened_zones: &'a [String],
+    area_source_ids: &'a [String],
+    gross_area: f64,
+    sleeping_usable_area_m2: f64,
+    corridor_depth_m: f64,
+    area_capacity: i64,
+    capacity_supported: i64,
+    toilets: i64,
+}
+
+/// The layout, capacity, staffing, toilet and service-station assumptions.
+fn design_assumptions(inputs: AssumptionInputs<'_>) -> Vec<V> {
+    let AssumptionInputs {
+        request,
+        design,
+        geometry,
+        staff,
+        counts,
+        widened_zones,
+        area_source_ids,
+        gross_area,
+        sleeping_usable_area_m2,
+        corridor_depth_m,
+        area_capacity,
+        capacity_supported,
+        toilets,
+    } = inputs;
     let minimum_generated_route_width = geometry.routes.iter().map(|route| route.width_m).reduce(py_min).unwrap_or(f64::INFINITY);
     let area_basis = if area_source_ids.is_empty() { "planning_heuristic" } else { "operator_entered" };
     let assumptions = vec![
@@ -686,19 +807,7 @@ pub fn generate(request: &FacilityRequest) -> Result<FacilityDesign> {
             ("source_id", s(SERVICE_STATION_SOURCE_ID)),
         ]),
     ];
-    Ok(FacilityDesign {
-        zones,
-        zone_edges: edges,
-        facilities,
-        staff,
-        geometry,
-        editable_geometry: editable,
-        capacity_supported,
-        requested_population: population,
-        observations,
-        assumptions,
-        warnings,
-    })
+    assumptions
 }
 
 /// `legacy_service_points` of `contracts/spatial.py` for facilities sorted by ID.

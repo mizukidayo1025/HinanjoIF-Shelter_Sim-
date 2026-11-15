@@ -15,7 +15,7 @@
 //!   computes the ticks after it from the tape.
 //!
 //! The rules' parity with the Python ones (the prompts byte for byte, the world after the ticks) is
-//! checked from Python, which runs both.
+//! `tests/integration/test_plain_run_llm.py`'s, which runs both.
 
 use std::cell::RefCell;
 use std::collections::BTreeMap;

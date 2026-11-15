@@ -585,18 +585,19 @@ fn contact_event(proposal: &Proposal, plan: &Plan, model: Model, due_minute: i64
     provenance.insert(Arc::from("source_id"), text("ASM-INFORMATION-SPREAD-V1"));
     provenance.insert(Arc::from("policy_version"), text(version(model)));
     provenance.insert(Arc::from("transmission_probability"), V::Float(proposal.probability));
-    EventRow::new(
-        Arc::from(format!("information-contact-{sequence}")),
-        EventKind::Endogenous,
+    EventRow {
+        event_id: Arc::from(format!("information-contact-{sequence}")),
+        kind: EventKind::Endogenous,
         due_minute,
-        40,
+        priority: 40,
         sequence,
-        Arc::from("information_contact_update"),
-        payload,
-        Some(proposal.source.clone()),
-        Some(proposal.causation.clone()),
-        provenance,
-    )
+        event_type: Arc::from("information_contact_update"),
+        payload: V::Map(payload),
+        source_id: Some(proposal.source.clone()),
+        causation_id: Some(proposal.causation.clone()),
+        provenance: V::Map(provenance),
+    }
+    .checked()
 }
 
 /// `_sample_information_contacts` of the sample phase, with a model: the plan of the minute, its

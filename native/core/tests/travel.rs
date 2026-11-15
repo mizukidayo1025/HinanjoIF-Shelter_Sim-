@@ -189,7 +189,20 @@ fn trip_event(event_id: &str, sequence: i64, due: i64, agent: &str, edges: &[&st
     let mut payload = IndexMap::new();
     payload.insert(text("agent_id"), V::Str(text(agent)));
     payload.insert(text("route_edge_ids"), V::List(edges.iter().map(|edge| V::Str(text(edge))).collect()));
-    EventRow::new(text(event_id), EventKind::Completion, due, 0, sequence, text("agent_travel_complete"), payload, None, None, IndexMap::new()).unwrap()
+    EventRow {
+        event_id: text(event_id),
+        kind: EventKind::Completion,
+        due_minute: due,
+        priority: 0,
+        sequence,
+        event_type: text("agent_travel_complete"),
+        payload: V::Map(payload),
+        source_id: None,
+        causation_id: None,
+        provenance: V::Map(IndexMap::new()),
+    }
+    .checked()
+    .unwrap()
 }
 
 fn schedule(world: &World, row: EventRow) {
@@ -405,7 +418,20 @@ fn the_walk_home_after_a_service_is_a_return_trip() {
     let walking = Walking { movement: &Held::Absent, geo: Some(&geo) };
     let mut payload = IndexMap::new();
     payload.insert(text("agent_id"), V::Str(text("a2")));
-    let service = EventRow::new(text("svc-1"), EventKind::Completion, 5, 0, 2, text("toilet_service_complete"), payload, None, None, IndexMap::new()).unwrap();
+    let service = EventRow {
+        event_id: text("svc-1"),
+        kind: EventKind::Completion,
+        due_minute: 5,
+        priority: 0,
+        sequence: 2,
+        event_type: text("toilet_service_complete"),
+        payload: V::Map(payload),
+        source_id: None,
+        causation_id: None,
+        provenance: V::Map(IndexMap::new()),
+    }
+    .checked()
+    .unwrap();
     travel::schedule_return(&world, &routing, walking, &service).unwrap();
     let pending = world.queue().unwrap().pending_ids(None);
     assert_eq!(pending, vec![text("agent-travel-complete-10")]);
@@ -418,7 +444,20 @@ fn the_walk_home_after_a_service_is_a_return_trip() {
     // At home already: nothing.
     let mut home = IndexMap::new();
     home.insert(text("agent_id"), V::Str(text("a1")));
-    let other = EventRow::new(text("svc-2"), EventKind::Completion, 5, 0, 3, text("toilet_service_complete"), home, None, None, IndexMap::new()).unwrap();
+    let other = EventRow {
+        event_id: text("svc-2"),
+        kind: EventKind::Completion,
+        due_minute: 5,
+        priority: 0,
+        sequence: 3,
+        event_type: text("toilet_service_complete"),
+        payload: V::Map(home),
+        source_id: None,
+        causation_id: None,
+        provenance: V::Map(IndexMap::new()),
+    }
+    .checked()
+    .unwrap();
     travel::schedule_return(&world, &routing, walking, &other).unwrap();
     assert_eq!(world.queue().unwrap().len(), 1);
 }

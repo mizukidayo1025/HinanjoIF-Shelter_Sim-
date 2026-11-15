@@ -181,18 +181,19 @@ pub fn plan_transition(world: &World, transition: Transition, sequence: i64) -> 
     let V::Map(payload) = document.clone() else {
         return Err(Error::unsupported("a receipt is a document"));
     };
-    let Some(row) = EventRow::new(
+    let Some(row) = EventRow {
         event_id,
-        EventKind::Endogenous,
-        minute,
-        0,
+        kind: EventKind::Endogenous,
+        due_minute: minute,
+        priority: 0,
         sequence,
-        Arc::from(crate::rules::common_operations::CARE_EVENT),
-        payload,
-        Some(Arc::from(SOURCE)),
+        event_type: Arc::from(crate::rules::common_operations::CARE_EVENT),
+        payload: V::Map(payload),
+        source_id: Some(Arc::from(SOURCE)),
         causation_id,
-        assumption(V::Str(Arc::from(SOURCE)), POLICY),
-    ) else {
+        provenance: V::Map(assumption(V::Str(Arc::from(SOURCE)), POLICY)),
+    }
+    .checked() else {
         return Err(Error::unsupported("the event's values are not what an event takes"));
     };
     let plan = plan_record(world, &care)?;
@@ -340,18 +341,19 @@ struct Event<'a> {
 
 fn made(event: Event<'_>) -> Result<Made> {
     let source = Arc::from(event.source);
-    let row = EventRow::new(
-        Arc::from(event.event_id),
-        EventKind::Endogenous,
-        event.minute,
-        0,
-        event.sequence,
-        Arc::from(event.event_type),
-        event.payload,
-        Some(Arc::clone(&source)),
-        Some(Arc::from(event.causation)),
-        assumption(V::Str(source), event.policy),
-    )
+    let row = EventRow {
+        event_id: Arc::from(event.event_id),
+        kind: EventKind::Endogenous,
+        due_minute: event.minute,
+        priority: 0,
+        sequence: event.sequence,
+        event_type: Arc::from(event.event_type),
+        payload: V::Map(event.payload),
+        source_id: Some(Arc::clone(&source)),
+        causation_id: Some(Arc::from(event.causation)),
+        provenance: V::Map(assumption(V::Str(source), event.policy)),
+    }
+    .checked()
     .ok_or_else(|| Error::unsupported("the event's values are not what an event takes"))?;
     Ok(Made { event: row, minute: event.minute, detail: event.detail })
 }

@@ -174,8 +174,20 @@ fn add(world: &mut World, name: &str, row: ValueRow) {
 }
 
 fn event(event_id: &str, sequence: i64) -> EventRow {
-    EventRow::new(text(event_id), EventKind::Endogenous, 30, 0, sequence, text("test_event"), IndexMap::new(), None, None, IndexMap::new())
-        .expect("a valid row")
+    EventRow {
+        event_id: text(event_id),
+        kind: EventKind::Endogenous,
+        due_minute: 30,
+        priority: 0,
+        sequence,
+        event_type: text("test_event"),
+        payload: V::Map(IndexMap::new()),
+        source_id: None,
+        causation_id: None,
+        provenance: V::Map(IndexMap::new()),
+    }
+    .checked()
+    .expect("a valid row")
 }
 
 fn log() -> EventLog {

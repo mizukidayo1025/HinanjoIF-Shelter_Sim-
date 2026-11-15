@@ -596,18 +596,19 @@ pub struct NewEvent {
 /// Python rule's to raise.
 #[track_caller]
 pub fn new_event(event: NewEvent) -> Result<EventRow> {
-    EventRow::new(
-        event.event_id,
-        event.kind,
-        event.due_minute,
-        event.priority,
-        event.sequence,
-        event.event_type,
-        event.payload,
-        event.source_id,
-        event.causation_id,
-        event.provenance,
-    )
+    EventRow {
+        event_id: event.event_id,
+        kind: event.kind,
+        due_minute: event.due_minute,
+        priority: event.priority,
+        sequence: event.sequence,
+        event_type: event.event_type,
+        payload: V::Map(event.payload),
+        source_id: event.source_id,
+        causation_id: event.causation_id,
+        provenance: V::Map(event.provenance),
+    }
+    .checked()
     .ok_or_else(|| Error::unsupported("the event's values are not what an event takes"))
 }
 

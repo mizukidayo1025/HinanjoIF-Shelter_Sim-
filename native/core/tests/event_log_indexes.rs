@@ -39,18 +39,19 @@ fn map(value: Value) -> IndexMap<Arc<str>, V> {
 /// The pytest file's event: a completion of this type and payload at minute 0, with a provenance
 /// whose `marker` is an object and `plain` is not.
 fn event(event_type: &str, payload: Value) -> EventRow {
-    EventRow::new(
-        Arc::from("a"),
-        EventKind::Completion,
-        0,
-        0,
-        1,
-        Arc::from(event_type),
-        map(payload),
-        None,
-        None,
-        map(json!({"marker": {"x": 1}, "plain": "y"})),
-    )
+    EventRow {
+        event_id: Arc::from("a"),
+        kind: EventKind::Completion,
+        due_minute: 0,
+        priority: 0,
+        sequence: 1,
+        event_type: Arc::from(event_type),
+        payload: V::Map(map(payload)),
+        source_id: None,
+        causation_id: None,
+        provenance: V::Map(map(json!({"marker": {"x": 1}, "plain": "y"}))),
+    }
+    .checked()
     .expect("a valid row")
 }
 

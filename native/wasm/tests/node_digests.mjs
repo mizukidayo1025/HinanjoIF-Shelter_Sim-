@@ -1,12 +1,12 @@
-// The WASM build of the core reaches the native path's worlds (Issue #244, PR 4-4).
+// The WASM build of the core reaches the recorded worlds (Issue #244, PR 4-4).
 //
 // Usage: node native/wasm/tests/node_digests.mjs PKG_DIR
 //   PKG_DIR: the output of `wasm-bindgen --target nodejs` for sheltersim_wasm.wasm.
 //
-// For each world of native/core/tests/data/tick_core.json (the worlds of tests/support/core_tick.py,
-// at minute 0), it runs the fixture's ticks in WASM and checks the digests of the world's parts and
-// of the metric samples against the ones the native path gave (`expected`), as
-// native/core/tests/tick_core.rs does in native code. It also checks that what is not an exported
+// For each world of native/core/tests/data/tick_core.json (at minute 0), it runs the fixture's
+// ticks in WASM and checks the digests of the world's parts and of the metric samples against the
+// fixture's (`expected`, recorded before #430), as native/core/tests/tick_core.rs does in native
+// code. It also checks that what is not an exported
 // world is an error, not a crash. It prints each world's time and the WASM memory's size.
 
 import { readFileSync } from "node:fs";
@@ -66,7 +66,7 @@ assert.equal(again.advance(3), 3);
 again.free();
 
 // Each world stored as it runs, in memory, and read back (#252, PR 6-5; js/run_store.mjs): the
-// stored log, samples and world give the Run's digests and the native path's.
+// stored log, samples and world give the Run's digests and the fixture's.
 const store = await import(join(here, "..", "js", "run_store.mjs"));
 for (const [name, entry] of Object.entries(fixture.worlds)) {
   const backend = store.memoryBackend();

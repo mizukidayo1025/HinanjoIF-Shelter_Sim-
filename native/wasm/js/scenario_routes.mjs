@@ -27,7 +27,7 @@
 //   `runEvidence`), and its branch `main` at minute 0: a stored Run (run_store.mjs) holding the
 //   world at minute 0 the core builds (`initialEntry`, #249), and the branch's record (its
 //   `checkpoint_hash` the head of that stored Run, as compute.mjs writes it; no status yet, as
-//   Python's branch without a computation has none). The browser computes
+//   the server's branch without a computation has none). The browser computes
 //   the Run on `resume` (compute.mjs).
 //
 // What Python reads that the screen never sends (a selected shelter, e-Stat selections, a target

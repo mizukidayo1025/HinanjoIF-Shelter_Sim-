@@ -88,14 +88,16 @@ pub struct Fork {
 ///
 /// What it queues has passed the check of private data (`sensitive::Guard`, #368 decision 5): the
 /// exported world, each saved point's world, the world at the end, the log's records, the metric
-/// samples and the decision records. A check that fails is the call's error, and nothing of that
-/// call is queued.
+/// samples, the decision records and the LLM tape's entries. A check that fails is the call's
+/// error, and nothing of that call is queued.
 #[derive(Clone, Debug, Default)]
 pub struct RunWriter {
     state: State,
     queue: VecDeque<Pending>,
     saved: Vec<SavedLine>,
     decisions: Tokens,
+    /// The LLM tape's entries taken and not queued yet (`PlainRun::take_tape`, #428).
+    tape: Vec<Vec<u8>>,
     guard: Guard,
 }
 
@@ -221,17 +223,20 @@ impl RunWriter {
     }
 
     /// Takes the decision records `run` collected since the last call (`PlainRun::take_decisions`;
-    /// none where it does not collect them), and queues the tables' new entries and the newly sealed
-    /// blocks (every block when `last`) of the log and of the samples of `run`. Call it between two
-    /// ticks. The decision records wait for the next saved point or the end (`save`, `finish`),
-    /// and go into one piece there.
+    /// none where it does not collect them) and the LLM tape's entries (`PlainRun::take_tape`; none
+    /// without an LLM), and queues the tables' new entries and the newly sealed blocks (every block
+    /// when `last`) of the log and of the samples of `run`. Call it between two ticks. The decision
+    /// records and the tape's entries wait for the next saved point or the end (`save`, `finish`),
+    /// and go into one piece of each there.
     pub fn take(&mut self, run: &mut PlainRun, last: bool) -> Result<()> {
         let decisions = run.take_decisions();
-        let refs: Vec<&[u8]> = decisions.iter().map(Vec::as_slice).collect();
+        let tape = run.take_tape();
+        let refs: Vec<&[u8]> = decisions.iter().chain(&tape).map(Vec::as_slice).collect();
         self.guard.check(&refs)?;
         for record in &decisions {
             self.decisions.push_json(record)?;
         }
+        self.tape.extend(tape);
         let log_end = Self::end(run.log_block_counts()?, last);
         let sample_end = Self::end(run.host.samples.block_counts(), last);
         for index in self.state.log.blocks..log_end {
@@ -275,7 +280,8 @@ impl RunWriter {
         (if last { blocks } else { sealed }) as u64
     }
 
-    /// Queues the decision records taken since the last piece of them, as one piece.
+    /// Queues the decision records and the tape's entries taken since the last pieces of them, as
+    /// one piece of each.
     fn queue_decisions(&mut self) -> Result<()> {
         let count = self.decisions.count();
         if count > 0 {
@@ -283,7 +289,8 @@ impl RunWriter {
             RecordKind::Decisions.add(&mut self.state.counts, count)?;
             self.piece(Piece::Records { kind: RecordKind::Decisions, count }, raw);
         }
-        Ok(())
+        let tape = std::mem::take(&mut self.tape);
+        self.tape(&tape)
     }
 
     /// Queues a saved point of `run` now (#251), between two ticks: the blocks are sealed first and
@@ -337,8 +344,8 @@ impl RunWriter {
         Ok(())
     }
 
-    /// Queues a piece of the LLM tape's entries `entries` (JSON texts), as they are. Nothing writes
-    /// one yet: the browser has no LLM.
+    /// Queues a piece of the LLM tape's entries `entries` (JSON texts), as they are: what `take`
+    /// took of a Run with an LLM goes this way at a saved point and at the end.
     pub fn tape(&mut self, entries: &[Vec<u8>]) -> Result<()> {
         self.records(RecordKind::Tape, entries)
     }

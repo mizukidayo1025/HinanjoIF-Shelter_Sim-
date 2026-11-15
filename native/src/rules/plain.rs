@@ -1,9 +1,9 @@
-//! A Run of an exported world on the host without Python (`sheltersim_core::plain::PlainRun`), for
+//! A Run of an exported world on the core's host (`sheltersim_core::plain::PlainRun`), for
 //! Python callers (#368, step 2): the surface the browser's `Simulation` has (`native/wasm/src/lib.rs`),
 //! so that the local and VM versions can run their ticks on the same host as the browser.
 //!
-//! `PlainRun` reads an export's JSON bytes (what `sheltersim.core.world_export.export_world` writes,
-//! serialized as `scripts/build_browser_sample.py` does), a Scenario's canonical JSON, whose
+//! `PlainRun` reads an entry's JSON bytes (what `sheltersim_core::initial::entry` writes, or a
+//! fixture of `native/core/tests/data/`), a Scenario's canonical JSON, whose
 //! minute-0 world the core builds (`from_scenario`, #429), or one world of a file of named worlds,
 //! runs ticks (`advance`), and gives the digests, the metric samples, the frame, the scenario
 //! summary, the EffectProgram's check and schedule, the pieces a Run stores and its saved points;
@@ -20,7 +20,7 @@
 //! (`core::errors::to_py_err`). `advance` raises `RuntimeError` with the browser's text
 //! (`plain::Stopped`), caused by the error of the tick or of the end-of-tick check as its own class.
 //! A `PlainRun` holds `Rc`s, so it stays on the thread that made it (`unsendable`); it holds the
-//! GIL while it runs ticks. The core keeps its feature `parallel` here, as for the native path.
+//! GIL while it runs ticks. The core keeps its feature `parallel` here; the browser's build has it off.
 
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
@@ -34,7 +34,7 @@ use sheltersim_core::plain;
 use crate::core::errors::{to_py_err, OrPy};
 use crate::core::llm_link::{PyLink, Raised, LINK_RAISED};
 
-/// A Run of an exported world without Python.
+/// A Run of an exported world on the core's host.
 #[pyclass(unsendable, module = "sheltersim_native.rules.plain")]
 pub struct PlainRun {
     run: plain::PlainRun,
@@ -73,7 +73,8 @@ impl PlainRun {
 
     /// The Run of a Scenario from minute 0, from its canonical JSON: the entry the core builds of
     /// its world (`sheltersim_core::initial::entry`, #429), which `sheltersim_native.initial_entry`
-    /// gives as bytes. A Scenario Python refuses to build raises Python's error.
+    /// gives as bytes. A Scenario the core refuses to build raises the core's error as its Python
+    /// class.
     #[staticmethod]
     fn from_scenario(scenario: &[u8]) -> PyResult<Self> {
         let entry = sheltersim_core::initial::entry(scenario).or_py()?;
@@ -160,8 +161,8 @@ impl PlainRun {
         self.run.llm_calls()
     }
 
-    /// The digests of the world's parts, as a JSON object in the order of `core_tick.py`'s
-    /// `world_digests`.
+    /// The digests of the world's parts (`sheltersim_core::canonical::run_digests`), as a JSON
+    /// object in their order.
     fn digests_json(&self) -> PyResult<String> {
         self.run.run_digests_json().or_py()
     }
@@ -172,7 +173,7 @@ impl PlainRun {
         self.run.part_digests_json().or_py()
     }
 
-    /// The digest of the metric samples so far (`core_tick.py`'s `metrics_digest`).
+    /// The digest of the metric samples so far (`sheltersim_core::plain::PlainHost::metrics_digest`).
     fn metrics_digest(&self) -> String {
         self.run.host.metrics_digest()
     }

@@ -30,8 +30,8 @@ mod exception {
 pub(crate) use exception::Unsupported;
 
 /// The core's offline parse of a Scenario text (`sheltersim_core::scenario::text::parse`, #294),
-/// as canonical JSON, for the tests: ValueError where Python raises, Unsupported where the core
-/// does not compute the request.
+/// as canonical JSON, for the tests: ValueError for a text the parse refuses
+/// (`Refusal::Invalid`), Unsupported for a request the core does not compute.
 #[pyfunction]
 fn scenario_text_parse(text: &str) -> PyResult<String> {
     use sheltersim_core::scenario::request::Refusal;

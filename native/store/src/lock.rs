@@ -1,5 +1,4 @@
-//! The locks of a store, the Python server's (`ProjectStore.transaction`, `claim_branch`,
-//! `claim_run`, #48) on the same files:
+//! The locks of a store (#48):
 //!
 //! - the store's transaction: `.lock` under the root, held while waiting for it;
 //! - a Run's gate: `runs/<run>/worker-lock`, held without waiting;
@@ -11,7 +10,8 @@
 //!
 //! The locks are the standard library's `File::lock`: `flock` on Linux and macOS, as Python's
 //! `fcntl.flock`, and `LockFileEx` from byte 0 on Windows, which overlaps the byte Python's
-//! `msvcrt.locking` locks; so a holder in Python and one here keep each other out. Only exclusive
+//! `msvcrt.locking` locks; so a holder of the transaction in Python (the server's
+//! `ProjectStore.transaction`, on the same `.lock`) and one here keep each other out. Only exclusive
 //! locks are used. Closing the file, or the process ending, releases a lock; the files stay.
 
 use std::fs::{File, OpenOptions, TryLockError};
@@ -21,11 +21,11 @@ use std::path::{Path, PathBuf};
 use crate::layout::{listed, Layout};
 use crate::{Error, Result};
 
-/// Python's text of a Run whose gate another holder has.
+/// The text of a Run whose gate another holder has.
 pub const RUN_BUSY: &str = "run_worker_busy: another process owns this Run";
-/// Python's text of a branch another writer holds.
+/// The text of a branch another writer holds.
 pub const BRANCH_BUSY: &str = "run_worker_busy: another process writes this branch";
-/// Python's text of a whole-Run lease refused while a branch is written.
+/// The text of a whole-Run lease refused while a branch is written.
 pub const BRANCH_OF_RUN_BUSY: &str = "run_worker_busy: a branch of this Run is being written";
 
 /// A lock held until it is dropped or released.
@@ -76,15 +76,16 @@ pub fn lock(path: &Path) -> Result<Lease> {
     Ok(Lease { file, path: path.to_path_buf() })
 }
 
-/// The store's transaction (Python's `ProjectStore.transaction`): held while waiting for it. Python
-/// holds it while it changes records, claims a lease or recovers interrupted Runs. It is not
-/// reentrant: a holder that takes it again in the same process waits for itself.
+/// The store's transaction, on the same `.lock` as the Python server's `ProjectStore.transaction`:
+/// held while waiting for it. The callers hold it while they change records, claim a lease or
+/// recover interrupted Runs. It is not reentrant: a holder that takes it again in the same process
+/// waits for itself.
 pub fn transaction(layout: &Layout) -> Result<Lease> {
     lock(&layout.store_lock()?)
 }
 
-/// The lease of a branch's writer (Python's `claim_branch`): the computation of the branch, or the
-/// fork that makes it. `run_exists` is checked inside the store's transaction (Python reads the
+/// The lease of a branch's writer: the computation of the branch, or the fork that makes it.
+/// `run_exists` is checked inside the store's transaction (`ProjectFiles::claim_branch` reads the
 /// Run's record there).
 pub fn claim_branch(layout: &Layout, project: &str, run: &str, branch: &str, run_exists: impl FnOnce() -> Result<()>) -> Result<Lease> {
     let _transaction = transaction(layout)?;
@@ -97,8 +98,7 @@ pub fn claim_branch(layout: &Layout, project: &str, run: &str, branch: &str, run
     lease
 }
 
-/// The lease of a whole Run (Python's `claim_run`): its gate, held, refused while a branch's writer
-/// holds its branch.
+/// The lease of a whole Run: its gate, held, refused while a branch's writer holds its branch.
 pub fn claim_run(layout: &Layout, project: &str, run: &str, run_exists: impl FnOnce() -> Result<()>) -> Result<Lease> {
     let _transaction = transaction(layout)?;
     run_exists()?;

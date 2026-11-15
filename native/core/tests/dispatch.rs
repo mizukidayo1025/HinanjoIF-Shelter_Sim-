@@ -1,9 +1,9 @@
 //! Lane P9-1c: the dispatch phase in the core (`sheltersim_core::rules::dispatch`), on worlds built
-//! here, with no Python: which due event runs (gone, the same row, or another row of the same event
-//! by value, as `current.to_dict() == event.to_dict()` asks), the handler's outcome and records, the
-//! settle's compare of a record the handler wrote, and the order in which the host is asked (a test
-//! handler through `apply_foreign`, `space_refreshed` after the records of what applied, the social
-//! policy's `consider_*` at the end), across a batch whose rows a transaction put in canonical order.
+//! here: which due event runs (gone, the same row, or another row of the same event equal by
+//! value), the handler's outcome and records, the settle's compare of a record the handler wrote,
+//! and the order in which the host is asked (a test handler through `apply_foreign`,
+//! `space_refreshed` after the records of what applied, the social policy's `consider_*` at the
+//! end), across a batch whose rows a transaction put in canonical order.
 
 use crate::support;
 
@@ -263,7 +263,7 @@ fn a_replaced_row_runs_only_if_it_is_the_same_event_by_value() {
 }
 
 #[test]
-fn an_event_that_left_the_queue_is_skipped_and_one_without_a_handler_fails_with_python_s_text() {
+fn an_event_that_left_the_queue_is_skipped_and_one_without_a_handler_fails_with_the_recorded_text() {
     let cell = world(vec![event("first", 1, "probe", &[]), event("second", 2, "probe", &[]), event("third", 3, "no_such_event", &[])]);
     let mut host = TestHost::default();
     let held = cell.clone();
@@ -281,7 +281,7 @@ fn an_event_that_left_the_queue_is_skipped_and_one_without_a_handler_fails_with_
 // ---- Records ------------------------------------------------------------------------------------------
 
 /// A handler that wrote the event's own record: the settle compares it (through the host) and
-/// appends nothing; one of another status is Python's `ValueError`.
+/// appends nothing; one of another status is an `Error::Value`.
 #[test]
 fn a_record_the_handler_wrote_is_compared_with_the_outcome() {
     for (status, agrees) in [(EventStatus::Applied, true), (EventStatus::Failed, false)] {
@@ -456,7 +456,7 @@ fn alone<T>(cell: &Shard<World>, host: &mut TestHost, foreign: &[&str], f: impl 
 /// compared, without any of the phase's steps after the events (no receipts taken in, no space
 /// refreshed, nothing asked of the social policy). No handler is the FAILED outcome.
 #[test]
-fn an_event_of_a_dispatcher_alone_runs_as_python_s_dispatch_one() {
+fn an_event_of_a_dispatcher_alone_runs_by_itself() {
     let row = event("first", 1, "probe", &[("n", V::Int(1))]);
     let receipt = event("receipt-1", 9, "probe_receipt", &[]);
     let cell = world(vec![row.clone(), event("second", 2, "unknown", &[])]);
@@ -486,10 +486,10 @@ fn an_event_of_a_dispatcher_alone_runs_as_python_s_dispatch_one() {
     assert!(pending(&cell).is_empty());
 }
 
-/// `settle` of a dispatcher alone: the event leaves the queue and is recorded, or the record its
-/// handler wrote is compared.
+/// `dispatch::settle_alone`: the event leaves the queue and is recorded, or the record its handler
+/// wrote is compared.
 #[test]
-fn a_dispatcher_alone_settles_as_python_s_settle() {
+fn a_dispatcher_alone_settles_its_event() {
     let row = event("first", 1, "probe", &[]);
     let cell = world(vec![row.clone()]);
     let mut host = TestHost::default();

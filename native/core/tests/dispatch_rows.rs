@@ -1,16 +1,15 @@
-//! The dispatch phase (`rules::dispatch::run`, the kernel of `_run_dispatch_phase`) and the travel
-//! completion's handler alone, on the worlds of `integration/test_dispatch_rows.py`, without Python
-//! (Issue #225, lane M10b).
+//! The dispatch phase (`rules::dispatch::run`) and the travel completion's handler alone (Issue
+//! #225, lane M10b).
 //!
-//! `data/dispatch_rows.json` (`tests/support/core_fixtures_reads.py`) holds the Scenario of 100
-//! people at minute 0 with its controller's table of handlers, and the worlds that file arranged
-//! before the phase: an event of a type no handler takes, a social action (its people together,
-//! apart, or with a reason the rule does not take), and a walk home or to a toilet scheduled by the
-//! controller, at the walk's due minute. After the phase, everything the world saved (its records,
-//! its pending events, its ID counters and its canonical JSON) is what the deleted Python step saved
-//! from the same events: the digest that file took of `json.dumps(..., sort_keys=True)` of them
-//! (45a9bc9), written again here with `Dumps`. The cases of the handler alone (`support/cases.rs`)
-//! are a walk home spoiled, and one named for another purpose, with the deleted Python rule's texts.
+//! `data/dispatch_rows.json` holds the Scenario of 100 people at minute 0 with its controller's
+//! table of handlers, and worlds arranged before the phase: an event of a type no handler takes, a
+//! social action (its people together, apart, or with a reason the rule does not take), and a walk
+//! home or to a toilet scheduled by the controller, at the walk's due minute. After the phase, the
+//! test pins the digest of everything the world saved (its records, its pending events, its ID
+//! counters and its canonical JSON), of `json.dumps(..., sort_keys=True)` written with `Dumps`. The
+//! cases of the handler alone (`support/cases.rs`) are a walk home spoiled, and one named for
+//! another purpose, with their recorded texts. The values were recorded before #430 and pin the
+//! core's output now.
 
 use crate::support;
 
@@ -42,7 +41,7 @@ fn map(entries: &[(&str, V)]) -> V {
     V::Map(entries.iter().map(|(key, value)| (Arc::from(*key), value.clone())).collect())
 }
 
-/// `ScheduledEvent.to_dict()`.
+/// An event's row as a tree, its fields in the record's order.
 fn to_dict(row: &EventRow) -> V {
     let optional = |value: &Option<Arc<str>>| value.as_ref().map_or(V::Null, |id| V::Str(id.clone()));
     map(&[
@@ -59,8 +58,8 @@ fn to_dict(row: &EventRow) -> V {
     ])
 }
 
-/// `_saved`: the records' bytes, the pending events, the ID counters and the canonical JSON; the
-/// first 16 hex of the sha256 of `json.dumps` of them with `sort_keys=True` (`_is_python_s`).
+/// The records' bytes, the pending events, the ID counters and the canonical JSON; the first 16 hex
+/// of the sha256 of `json.dumps` of them with `sort_keys=True`.
 fn saved(entry: &Value, world: &World) -> String {
     let log = world.log().unwrap();
     let records: Vec<V> = (0..log.len()).map(|index| text(std::str::from_utf8(log.written(index).unwrap()).unwrap())).collect();
@@ -74,8 +73,8 @@ fn saved(entry: &Value, world: &World) -> String {
     sha256_hex(Dumps::default().sorted().text(&document).as_bytes())[..16].to_owned()
 }
 
-/// The host of a phase on a loaded world: what the PyO3 crate's host does to the Python world
-/// (`following_host`), and `find_record` finding the world's records.
+/// The host of a phase on a loaded world (`following_host`), and `find_record` finding the world's
+/// records.
 fn host_of(entry: &Value, loaded: &Rc<Loaded>) -> TestHost {
     let mut host = load::following_host(entry, loaded);
     for record in entry["world"]["event_log"].as_array().unwrap() {
@@ -87,9 +86,9 @@ fn host_of(entry: &Value, loaded: &Rc<Loaded>) -> TestHost {
     host
 }
 
-/// The phase run on a world of the file at its minute (`_dispatched`): the world loaded and the
-/// host's calls; what it saved is the Python step's (`python_saved`).
-fn dispatched(name: &str, python_saved: &str) -> (Rc<Loaded>, Vec<Call>) {
+/// The phase run on a world of the file at its minute: the world loaded and the host's calls; what
+/// it saved is the recorded digest (`recorded`).
+fn dispatched(name: &str, recorded: &str) -> (Rc<Loaded>, Vec<Call>) {
     let entry = cases::entry(FILE, name);
     let loaded = Rc::new(load::loaded(&entry));
     let mut host = host_of(&entry, &loaded);
@@ -104,7 +103,7 @@ fn dispatched(name: &str, python_saved: &str) -> (Rc<Loaded>, Vec<Call>) {
         neighbors: loaded.neighbors.clone(),
     };
     dispatch::run(&mut tick).unwrap_or_else(|error| panic!("{name}: {error:?}"));
-    assert_eq!(loaded.cell.with(|world| saved(&entry, world)).unwrap(), python_saved, "{name}");
+    assert_eq!(loaded.cell.with(|world| saved(&entry, world)).unwrap(), recorded, "{name}");
     let calls = std::mem::take(&mut host.calls);
     drop(host);
     (loaded, calls)
@@ -130,20 +129,20 @@ fn foreign(calls: &[Call]) -> usize {
 }
 
 #[test]
-fn an_event_type_without_a_handler_fails_with_python_s_text() {
+fn an_event_type_without_a_handler_fails_with_the_recorded_text() {
     let (loaded, _) = dispatched("no_handler", "3363a241c396b9b0");
     assert_eq!(record(&loaded, "x"), ("failed".to_owned(), Some("no handler registered for event type 'probe'".to_owned())));
 }
 
 #[test]
-fn a_social_action_runs_in_the_core_with_python_s_results() {
+fn a_social_action_runs_in_the_core_with_the_recorded_results() {
     let (loaded, calls) = dispatched("social", "db670ea5268dbb27");
     assert_eq!(foreign(&calls), 0);
     assert_eq!(record(&loaded, "social-901"), ("applied".to_owned(), None));
 }
 
 #[test]
-fn a_suppressed_social_action_has_python_s_detail_in_its_record() {
+fn a_suppressed_social_action_has_the_recorded_detail_in_its_record() {
     let (loaded, calls) = dispatched("social_apart", "f1b5249381ba1d0c");
     assert_eq!(foreign(&calls), 0);
     let detail = "social action participants are no longer co-located";
@@ -151,16 +150,16 @@ fn a_suppressed_social_action_has_python_s_detail_in_its_record() {
 }
 
 #[test]
-fn a_failed_social_action_has_python_s_detail_from_the_kernel() {
+fn a_failed_social_action_has_the_recorded_detail_from_the_kernel() {
     let (loaded, calls) = dispatched("social_other_reason", "b0d258951174919c");
     assert_eq!(foreign(&calls), 0);
     assert_eq!(record(&loaded, "social-901"), ("failed".to_owned(), Some("social action reason code is not allowed".to_owned())));
 }
 
 #[test]
-fn a_walk_ends_in_the_core_with_python_s_results() {
-    for (name, python_saved) in [("return_walk", "e7cc4860a63dc8ea"), ("toilet_walk", "d071ac8765838790")] {
-        let (loaded, calls) = dispatched(name, python_saved);
+fn a_walk_ends_in_the_core_with_the_recorded_results() {
+    for (name, recorded) in [("return_walk", "e7cc4860a63dc8ea"), ("toilet_walk", "d071ac8765838790")] {
+        let (loaded, calls) = dispatched(name, recorded);
         assert_eq!(foreign(&calls), 0, "{name}");
         let target = loaded.cell.with(|world| world.rows().unwrap().agents.get("A001").unwrap().target_id.clone()).unwrap();
         assert!(target.is_none() || name == "toilet_walk", "{name}");

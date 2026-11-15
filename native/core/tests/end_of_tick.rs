@@ -1,13 +1,11 @@
-//! The end of a tick of a Run without Python (`engine::EndCheck::Whole`, #250): what
-//! `WorldState.validate_after_tick` answers. The kernel's check (`after_tick::check`) asks the
-//! core's validators of the namespaces (`rules::tick_checks::CoreChecks`) where the native path asks
-//! the ones Python registers; where it refuses, the whole validation without the event history
-//! (`validate::world`) decides, with Python's class and text.
+//! The end of a tick of a Run (`engine::EndCheck::Whole`, #250). The kernel's check
+//! (`after_tick::check`) asks the core's validators of the namespaces
+//! (`rules::tick_checks::CoreChecks`); where it refuses, the whole validation without the event
+//! history (`validate::world`) decides, with its class and text.
 //!
-//! - Every broken world Python's validation was recorded on (`validate_*.json`,
-//!   `tests/support/core_validate*.py`) ends a tick with the error Python raised for it at
-//!   `validate(validate_event_history=False)`: where Python raises, the kernel's check never says
-//!   yes.
+//! - Every recorded broken world (`data/validate_*.json`) ends a tick with the error recorded for
+//!   the whole validation without the event history: where that validation refuses, the kernel's
+//!   check never says yes.
 //! - A namespace that only the validators guard, broken between ticks, stops the check with the
 //!   error the whole validation gives, where the kernel's check with every namespace taken as valid
 //!   (`NoPython`) passes.
@@ -61,9 +59,9 @@ fn base_of(files: &mut Files, file: &str, world: &str) -> Option<Value> {
 }
 
 #[test]
-fn every_recorded_broken_world_ends_a_tick_with_python_s_error() {
+fn every_recorded_broken_world_ends_a_tick_with_the_recorded_error() {
     let mut files = Files::default();
-    let (mut checked, mut as_python, mut refused_by_validators, mut skipped) = (0, 0, 0, 0);
+    let (mut checked, mut as_recorded, mut refused_by_validators, mut skipped) = (0, 0, 0, 0);
     let mut failures = Vec::new();
     for file in CASE_FILES {
         let cases = files.data(file)["cases"].as_array().cloned().unwrap_or_else(|| panic!("{file} has no cases"));
@@ -71,8 +69,8 @@ fn every_recorded_broken_world_ends_a_tick_with_python_s_error() {
             let name = case["name"].as_str().unwrap();
             let world_name = case["world"].as_str().unwrap();
             let entry = files.entry(file, world_name);
-            // The host's sections are the ones Python parsed from the base world's configs: a case
-            // that changes the configs would be checked against the sections of other configs.
+            // The host's sections are the recorded ones of the base world's configs: a case that
+            // changes the configs would be checked against the sections of other configs.
             if base_of(&mut files, file, world_name).is_some_and(|base| base["world"]["model_configs"] != entry["world"]["model_configs"]) {
                 skipped += 1;
                 continue;
@@ -83,8 +81,8 @@ fn every_recorded_broken_world_ends_a_tick_with_python_s_error() {
             };
             let wanted: Found =
                 case["expected"]["validate_tick"].as_array().map(|pair| (pair[0].as_str().unwrap().to_owned(), pair[1].as_str().unwrap().to_owned()));
-            // What the whole validation gives on the world as loaded: Python's, but where the
-            // loader cannot hold the broken value (the case's test changes the loaded world).
+            // What the whole validation gives on the world as loaded: the recorded error, but where
+            // the loader cannot hold the broken value (the case's test changes the loaded world).
             let whole = outcome_of(validate::world(&world, &Options { history: false, in_flight: None }));
             // The host gives the sections of the export and the floor plan of this world.
             let mut host = load::host(&entry);
@@ -95,7 +93,7 @@ fn every_recorded_broken_world_ends_a_tick_with_python_s_error() {
                 failures.push(format!("{file} {name}: the whole validation {whole:?}, the end of the tick {found:?}"));
             }
             if wanted == found {
-                as_python += 1;
+                as_recorded += 1;
             }
             if stepping.refused.iter().any(|(_, reason)| reason.contains("its kernel did not take it") || reason.contains("are the Python rule's")) {
                 refused_by_validators += 1;
@@ -103,9 +101,9 @@ fn every_recorded_broken_world_ends_a_tick_with_python_s_error() {
             checked += 1;
         }
     }
-    eprintln!("{checked} cases checked ({as_python} as Python recorded), {skipped} skipped, {refused_by_validators} refused by a namespace's validator");
+    eprintln!("{checked} cases checked ({as_recorded} as recorded), {skipped} skipped, {refused_by_validators} refused by a namespace's validator");
     assert!(failures.is_empty(), "{} of {checked} cases differ:\n{}", failures.len(), failures.join("\n"));
-    assert!(checked >= 1000 && as_python + 10 >= checked, "{checked} {as_python}");
+    assert!(checked >= 1000 && as_recorded + 10 >= checked, "{checked} {as_recorded}");
     assert!(refused_by_validators >= 500, "{refused_by_validators}");
 }
 
@@ -116,9 +114,9 @@ fn generated_after_a_tick() -> PlainRun {
     run
 }
 
-/// The end of the tick with the world broken by `edit`: it fails with the error of
-/// `validate(validate_event_history=False)`, which the kernel's check with every namespace taken as
-/// valid does not see. The error, and the reason the core's check refused.
+/// The end of the tick with the world broken by `edit`: it fails with the error of the whole
+/// validation without the event history (`validate::world`), which the kernel's check with every
+/// namespace taken as valid does not see. The error, and the reason the core's check refused.
 fn end_of_a_broken_tick(edit: impl FnOnce(&mut World)) -> (Error, String) {
     let mut run = generated_after_a_tick();
     run.loaded.cell.with(edit).unwrap();
@@ -129,7 +127,7 @@ fn end_of_a_broken_tick(edit: impl FnOnce(&mut World)) -> (Error, String) {
     let got = engine::validate_after_tick(&run.loaded.cell, &mut run.host, &mut run.stepping).expect_err("the end of the tick refuses the world");
     assert_eq!((validate::py_str(&got), std::mem::discriminant(&got)), (validate::py_str(&wanted), std::mem::discriminant(&wanted)));
     let reason = run.stepping.refused.last().map(|(_, reason)| reason.clone()).expect("the core's check refused");
-    // A failed check drops the memo, as Python drops `_tick_memo`.
+    // A failed check drops the memo.
     assert_eq!(run.stepping.memo.minute, -1);
     (got, reason)
 }

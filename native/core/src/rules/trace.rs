@@ -383,12 +383,12 @@ fn total(values: impl Iterator<Item = f64>) -> Result<f64> {
     py_fsum(&values).ok_or_else(|| Error::unsupported("a total of the trace is not finite"))
 }
 
-/// What `_record_psychology_trace` reads besides the rows: the model's `source_id`, the result's
-/// `policy_version` and the minute, each as the Python value it was.
+/// What `_record_psychology_trace` reads besides the rows: the model's `source_id` as the Python
+/// value it was, the result's `policy_version` and the minute.
 pub struct TraceInputs<'a> {
     pub source_id: &'a V,
-    pub policy_version: &'a V,
-    pub minute: &'a V,
+    pub policy_version: &'a str,
+    pub minute: i64,
 }
 
 /// The psychology document of a minute and its `agent_contributions` (`trace_document` on
@@ -444,8 +444,8 @@ pub fn psychology_document(view: &ViewData, traces: &Traces, finals: &[(&str, f6
         agents.push(person_document(view, row, traces.threshold, stress_after[place], stress_after[place] - row.stress_after, inputs.source_id));
     }
     let mut document = Doc::with_capacity(8);
-    document.set("minute_index", inputs.minute.clone());
-    document.set("policy_version", inputs.policy_version.clone());
+    document.set("minute_index", int(inputs.minute));
+    document.set("policy_version", text(inputs.policy_version));
     document.set("assumption_id", inputs.source_id.clone());
     document.set("social_propagation_is_separate", V::Bool(true));
     document.set("agent_count", count(rows.len()));
@@ -518,8 +518,8 @@ fn social_basis(basis: Basis) -> &'static str {
 }
 
 /// `SocialPropagationResult.trace_document`, with the bounded sample of contacts it has always had.
-/// `minute` and `policy_version` are the Python values the document holds.
-pub fn social_document(minute: &V, policy_version: &V, ids: &[&str], contacts: &[SocialContact], contributing: i64, total_added: f64) -> V {
+/// `policy_version` is the Python value the document holds.
+pub fn social_document(minute: i64, policy_version: &V, ids: &[&str], contacts: &[SocialContact], contributing: i64, total_added: f64) -> V {
     let contact_of = |contact: &SocialContact| -> V {
         let mut item = Doc::with_capacity(12);
         item.set("recipient_id", text(ids[contact.recipient]));
@@ -541,7 +541,7 @@ pub fn social_document(minute: &V, policy_version: &V, ids: &[&str], contacts: &
     let contributions: Vec<V> = contacts.iter().filter(|contact| contact.contribution.value() != 0.0).map(contact_of).collect();
     let channel = matches!(policy_version, V::Str(version) if &**version == "expressiveness-channel-openness-v1");
     let mut document = Doc::with_capacity(9);
-    document.set("minute_index", minute.clone());
+    document.set("minute_index", int(minute));
     document.set("policy_version", policy_version.clone());
     document.set("selected_contact_count", count(contacts.len()));
     document.set("contributing_contact_count", int(contributing));

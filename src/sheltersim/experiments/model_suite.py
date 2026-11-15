@@ -6,10 +6,10 @@ from copy import deepcopy
 from typing import Any
 
 from sheltersim.contracts.policies import CORE_MODEL_SUITE_MODELS, CORE_MODEL_SUITE_V2
-from sheltersim.domain.body_state import canonical_body_config
-from sheltersim.domain.models import InformationSpreadConfig
 from sheltersim.experiments.scenario import PsychologyModelConfig, ScenarioSpec
-from sheltersim.policies.social import SocialPropagationParameters
+from sheltersim.scenario_authoring.configs.body_state import canonical_body_config
+from sheltersim.scenario_authoring.configs.models import InformationSpreadConfig
+from sheltersim.scenario_authoring.configs.social import SocialPropagationParameters
 
 CORE_MODEL_SUITE_SOURCE_ID = "ASM-CORE-MODEL-SUITE-V2"
 SLEEP_DEBT_BALANCE_SOURCE_ID = "ASM-SLEEP-DEBT-BALANCE-V1"

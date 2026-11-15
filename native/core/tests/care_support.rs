@@ -1,7 +1,7 @@
 //! The support requests and the end of a staff member's support (`rules::support`, lane P8 b4) over
-//! a `World` built here, with no Python: a request's ID, plan and writes; a timeout; the care of a
-//! completion with and without the body state, the selected formula asked for where the care needs
-//! it; the receipts around a request; the support kind; the built-in care formulas.
+//! a `World` built here: a request's ID, plan and writes; a timeout; the care of a completion with
+//! and without the body state, the selected formula asked for where the care needs it; the receipts
+//! around a request; the support kind; the built-in care formulas.
 
 use std::sync::Arc;
 
@@ -188,7 +188,7 @@ fn event(ids: [Option<&str>; 4], due_minute: i64) -> SupportEvent {
 // ---- A request ---------------------------------------------------------------------------------------
 
 #[test]
-fn a_request_s_id_is_python_s_digest() {
+fn a_request_s_id_is_its_digest() {
     // `"support-" + sha256(b"a1\0" + b"7").hexdigest()[:24]` of CPython.
     assert_eq!(&*support::request_id_of("a1", 7), "support-078c841c0b1ca5fe2acb62cb");
 }

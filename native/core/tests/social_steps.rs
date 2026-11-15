@@ -168,7 +168,7 @@ fn step(cell: &Shard<World>, stress: &Stress, view: &ViewData, deltas: &[Delta],
     let planned = cell.with(|world| social::update(world, &inputs)).unwrap()?;
     assert!(!planned.first_use, "the worlds have the namespace");
     if traced {
-        social::record_social(host, &planned, &V::Int(view.minute_index), &got(social::policy_version(stress))).unwrap();
+        social::record_social(host, &planned, view.minute_index, &got(social::policy_version(stress))).unwrap();
     }
     Ok(planned.deltas(deltas))
 }

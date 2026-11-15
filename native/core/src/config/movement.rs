@@ -2,8 +2,8 @@
 //! times read it (`canonical_movement_config`, for the values whose result is certain), whether the
 //! configs time routes at all, and `layout_routing` as the end-of-tick check reads it.
 //!
-//! The kernels parse both themselves, from the configs as a `V`, with the refusals they said when
-//! they read the Python tree, in the same order of checks.
+//! The kernels parse both themselves, from the configs as a `V`, with their refusals in their
+//! order of checks.
 
 use std::sync::Arc;
 
@@ -115,7 +115,7 @@ impl MovementModel {
 }
 
 /// A coefficient as `canonical_movement_config` takes it: a float, or an int that is not a bool.
-/// The Python rule's arithmetic used such an int as the float of the same value.
+/// The arithmetic uses such an int as the float of the same value.
 fn coefficient(value: &V) -> Read<f64> {
     match value {
         V::Int(_) | V::Big(_) => {

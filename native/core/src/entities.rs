@@ -1,16 +1,15 @@
 //! The entities of a world as rows: agents with their needs, facilities, staff, support requests,
 //! active tasks, and the zones and zone edges (docs/rust-port/lanes/p6-entity-windows.md).
 //!
-//! Each row is a struct named like the dataclass of `domain/models.py`, and `write_json` writes
-//! the bytes `canonical_json` writes for it in a WorldState document of a version. A `Table` holds
+//! Each row is a struct named like the entity it holds, and `write_json` writes the bytes of its
+//! canonical JSON in a world's document of a version (`canonical`). A `Table` holds
 //! the rows of one `IdMap`, keys in the dict's order; `Entities` holds the seven tables of a world.
 //! The zones and zone edges have a taint of their own: a zone that does not fit leaves the people's
 //! rows alone, and the other way round.
 //!
-//! The Python objects, their links to the rows and the reads and writes from Python are the PyO3
-//! crate's (`native/src/state/entities.rs`, `EntityStore`). The rows are the truth (decision 1 of
-//! docs/rust-port/step5-plan.md, PR 6-1): a Python object is a view of its row, which follows the
-//! row's writes and the core's inserts and removals when the writing borrow ends (`Table`).
+//! The rows are the truth (decision 1 of docs/rust-port/step5-plan.md, PR 6-1). A `Table` can keep
+//! a view of each row in step (`Table::take_touched`, `take_journal`): that was for the Python
+//! objects, which #430 removed; only the core's tests keep a view now.
 
 use std::sync::Arc;
 
@@ -22,7 +21,7 @@ use crate::value::V;
 
 // ---- Kinds -----------------------------------------------------------------------------------
 
-/// The table of an object, as the PyO3 crate's `EntityStore` and Python's `IdMap._table` number it.
+/// The table of an entity, by its number (`Entities::table`).
 pub const AGENT: u8 = 0;
 /// An agent's needs: its object has its own number, its row is in the agent's.
 pub const NEEDS: u8 = 1;
@@ -175,17 +174,17 @@ impl EntityField for V {
     }
 }
 
-/// An enum field: a member of the Python enum, as its number in the order the enum lists them.
-/// The PyO3 crate checks at `install` that each member's `.value` is the text here.
+/// An enum field: a member of the enum, as its number in the order the enum lists them, and its
+/// text in a document.
 macro_rules! member_field {
     ($name:ident, $all:ident, [$($member:ident = $text:literal),+ $(,)?]) => {
         str_enum! { pub enum $name { $($member = $text),+ } }
 
-        /// The members in the order of the Python enum.
+        /// The members in the order of the enum.
         pub const $all: &[$name] = &[$($name::$member),+];
 
         impl $name {
-            /// The member's place in the Python enum.
+            /// The member's place in the enum.
             pub const fn index(self) -> usize {
                 self as usize
             }
@@ -232,9 +231,8 @@ macro_rules! keeps_field {
     };
 }
 
-/// A struct of fields, each named as the attribute of the Python object. `name[rule]` says when a
-/// document holds the field (`v6`, `set`). `NAMES` lists the fields in their order, for the PyO3
-/// crate's `py_entity_row!`, which must list the same.
+/// A struct of fields, each named as its key in the document. `name[rule]` says when a document
+/// holds the field (`v6`, `set`). `NAMES` lists the fields in their order.
 macro_rules! entity_row {
     ($name:ident { $($field:ident $([$keep:ident])?: $kind:ty),* $(,)? }) => {
         #[derive(Clone)]
@@ -418,15 +416,15 @@ own_id!(FacilityRow, StaffRow, RequestRow, TaskRow, ZoneRow, EdgeRow);
 // ---- Tables ----------------------------------------------------------------------------------
 
 /// The rows of one `IdMap`: a stable slot per row, and the keys in the dict's order. `changed`
-/// says which slots may differ from the document bytes the PyO3 crate keeps for them: anything
-/// that can reach a row for writing sets it, so a clear flag means the row is the one written.
+/// says which slots may differ from the document bytes kept for them: anything that can reach a
+/// row for writing sets it, so a clear flag means the row is the one written.
 ///
-/// The rows are the truth (Issue #152, PR 6-1). A row may have a view outside the core, the Python
-/// object of the PyO3 crate, and `views` holds what that view holds now. A write through
-/// `slot_mut` or `get_mut` marks the slot touched; `insert` and `remove_row` go into the journal.
-/// The view's owner takes both when the writing borrow ends (`take_touched`, `take_journal`), and
-/// writes each field whose row and view differ (`diff`) into the view: the dirty mask of a slot is
-/// computed then, so no write can forget its bit.
+/// The rows are the truth (Issue #152, PR 6-1). A row may have a view outside the core (the Python
+/// object until #430; the core's tests now), and `views` holds what that view holds now. A write
+/// through `slot_mut` or `get_mut` marks the slot touched; `insert` and `remove_row` go into the
+/// journal. The view's owner takes both when the writing borrow ends (`take_touched`,
+/// `take_journal`), and writes each field whose row and view differ (`diff`) into the view: the
+/// dirty mask of a slot is computed then, so no write can forget its bit.
 #[derive(Clone)]
 pub struct Table<R> {
     rows: Vec<Option<R>>,
@@ -441,7 +439,7 @@ pub struct Table<R> {
     /// The keys put in or taken out by the core since `take_journal`, in order.
     journal: Vec<Change<R>>,
     /// The slots written or filled since `take_marked`, each once and in the order of their first
-    /// write, from Rust or from Python: what the end-of-tick check's memo reads again (lane P8 d4).
+    /// write: what the end-of-tick check's memo reads again (lane P8 d4).
     /// Not state.
     marked: Vec<u32>,
     is_marked: Vec<bool>,
@@ -822,9 +820,8 @@ pub struct Entities {
     pub active_tasks: Table<TaskRow>,
     pub zones: Table<ZoneRow>,
     pub zone_edges: Table<EdgeRow>,
-    /// Why the rows of the people's five tables were dropped: a value that does not fit. The Python
-    /// objects are the only truth then, and kernels say Unsupported until the PyO3 crate's `refit`
-    /// reads them again.
+    /// Why the rows of the people's five tables were dropped: a value that does not fit. Kernels
+    /// then say Unsupported (`World::rows`).
     taint: Option<String>,
     /// The same for the zones and the zone edges.
     zone_taint: Option<String>,
@@ -917,8 +914,8 @@ impl Entities {
         *self = Entities::default();
     }
 
-    /// The table of a kind. `NEEDS` and anything unknown are the active tasks', as they always were
-    /// for the PyO3 crate's `match`; it never asks for those.
+    /// The table of a kind. `NEEDS` and anything unknown are the active tasks'; no caller asks for
+    /// those.
     pub fn table(&self, kind: u8) -> &dyn AnyTable {
         match kind {
             AGENT => &self.agents,

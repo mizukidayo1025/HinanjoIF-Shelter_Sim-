@@ -1,10 +1,11 @@
-//! The floor plan as data for the movement rules, and the geometry of `domain/movement.py` and
-//! `contracts/extensions.py`. Every function here is the Python one with its order of operations,
-//! its tolerances and its float results (docs/rust-port/lanes/m4-movement.md).
+//! The floor plan as data for the movement rules, and the geometry of the movement rules and of the
+//! facility contracts. Every function keeps the order of operations, the tolerances and the float
+//! results of the rule it was ported from (docs/rust-port/lanes/m4-movement.md), which the
+//! recorded Runs fix.
 //!
 //! A `Geo` is built from the parsed configs (`config::geometry`) and the overlay's facility moves
-//! and partitions. The PyO3 crate keeps it in the world's `Configs`, by the overlay's stamp
-//! (`GeoCache`, Issue #152, lane 7-2).
+//! and partitions. The world's `Configs` keep it by the overlay's stamp (`GeoCache`, Issue #152,
+//! lane 7-2); a `PlainHost` keeps the plan it built (`load::FloorPlans`).
 
 use std::cmp::Ordering;
 use std::collections::{BinaryHeap, HashMap};
@@ -19,7 +20,7 @@ use crate::row::IdMap;
 use crate::stamp::Stamp;
 use crate::value::V;
 
-/// Past this a product could overflow where Python's `Point2D` would raise. Nothing real is here.
+/// Past this a product could overflow where `Point2D` would refuse it. Nothing real is here.
 const COORDINATE_LIMIT: f64 = 1e100;
 /// `MAX_REMEMBERED_ROOM_ROUTES`.
 const REMEMBERED_ROUTES: usize = 4096;
@@ -31,7 +32,7 @@ pub struct Pt {
 }
 
 /// `Identifier`: `^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$`. `$` also takes a final newline, which is no
-/// ID a rule writes; it says false here and the Python rule decides.
+/// ID a rule writes; it says false here, and the caller refuses it.
 pub fn is_identifier(value: &str) -> bool {
     let bytes = value.as_bytes();
     !bytes.is_empty()
@@ -420,7 +421,7 @@ impl Constraints {
                     return Err(Error::unsupported("a partition is not a dict"));
                 };
                 // SpatialObstacle(id=key, ...) takes 3 to 128 corners, and its ID and sources the
-                // overlay's own validation reads: anything it could refuse goes to the Python rule.
+                // overlay's own validation reads: anything it could refuse is Unsupported here.
                 let polygon = points_in_value(row.get("polygon_m").unwrap_or(&V::Null))?;
                 if !(3..=128).contains(&polygon.len()) {
                     return Err(Error::unsupported("a partition has another number of corners"));
@@ -481,7 +482,7 @@ impl Geo {
         Ok(Geo { layout, constraints, routes: Mutex::default() })
     }
 
-    /// `_zone_center`. Unsupported when Python would raise.
+    /// `_zone_center`. Unsupported for a zone it cannot place.
     pub fn center(&self, zone_id: &str) -> Result<Option<Pt>> {
         let Some(zone) = self.layout.as_ref().and_then(|layout| layout.zones.get(zone_id)) else {
             return Ok(None);
@@ -663,7 +664,7 @@ impl GeoCache {
 }
 
 impl Geo {
-    /// `plan_in_room_route`. Err for what the Python function would raise or a kernel doesn't decide.
+    /// `plan_in_room_route`. Err for a route it refuses or a kernel doesn't decide.
     pub fn room_route(
         &self,
         zone_id: &str,
@@ -773,7 +774,7 @@ impl Geo {
         let key_of = |point: Pt| -> std::result::Result<(f64, f64), &'static str> {
             Ok((py_round(point.x, 8).ok_or("a round is not plain")?, py_round(point.y, 8).ok_or("a round is not plain")?))
         };
-        // {key: point} of the Python rule: the later point takes a key's place, and -0.0 is 0.0.
+        // A dict {key: point}: the later point takes a key's place, and -0.0 is 0.0.
         let mut unique: Vec<((f64, f64), Pt)> = Vec::with_capacity(nodes.len());
         let mut put = |key: (f64, f64), point: Pt| match unique.iter_mut().find(|(known, _)| *known == key) {
             Some(slot) => slot.1 = point,
@@ -837,7 +838,7 @@ pub fn point_walkable(point: Pt, zone: &[Pt], blocked: &[Vec<Pt>]) -> bool {
     point_in_polygon(point, zone) && !blocked.iter().any(|polygon| point_in_polygon(point, polygon))
 }
 
-/// An entry of the Python rule's heap: the least `(distance, path, current)` comes first.
+/// An entry of the search's heap: the least `(distance, path, current)` comes first.
 struct Walk {
     distance: f64,
     path: Vec<u32>,

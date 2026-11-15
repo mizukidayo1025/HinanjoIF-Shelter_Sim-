@@ -41,7 +41,7 @@ pub(crate) fn random(draws: &KeyedDraws, parts: &[&str]) -> f64 {
     key.draw(draws)
 }
 
-/// `Mobility` of `domain/models.py`.
+/// `Mobility` of `scenario_authoring/configs/models.py`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Mobility {
     Independent,

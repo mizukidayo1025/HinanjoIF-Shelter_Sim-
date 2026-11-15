@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-/// Domain and model ID, in the order of the Python dict.
+/// Domain and model ID, in the order of the configs' map.
 #[derive(Clone, PartialEq, Eq, Debug, Default)]
 pub struct Selection {
     models: Box<[(Arc<str>, Arc<str>)]>,

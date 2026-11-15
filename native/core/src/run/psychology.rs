@@ -1,9 +1,8 @@
 //! `controller.psychology`: the psychology model and its `PsychologyParameters` (lane P8-0b; lane
 //! a3 reads them in the core).
 //!
-//! `psychology.rs` of the PyO3 crate knows the model by the names of its class (`model_of`) and
-//! reads the rates of `parameters`, of `base` for the life-state models, and the body config and
-//! formula.
+//! `model_of` knows the model by the names of its class, and the Run reads the rates of
+//! `parameters`, of `base` for the life-state models, and the body config and formula.
 
 use crate::config::read::Read;
 use crate::config::Fault;
@@ -70,7 +69,7 @@ impl Psychology {
     }
 }
 
-/// `model_of` of `psychology.rs`: by `__module__` and `__qualname__`, so a subclass is left to Python.
+/// The model of the policy, by `__module__` and `__qualname__`: a subclass is refused.
 pub fn model_of(policy: &Obj) -> Read<Model> {
     let class = &policy.class;
     if !class.has_plain_names() {

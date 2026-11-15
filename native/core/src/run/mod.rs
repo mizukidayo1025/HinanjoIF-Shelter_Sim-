@@ -92,7 +92,7 @@ pub struct Run {
     /// Not state: the values of the tick under way.
     pub scratch: Scratch,
     /// The open action of each agent (lane P8 a2). Not saved: a restored Run makes it again from
-    /// the event log (`active_action_index`), and the PyO3 crate's `ActiveActions` loads it.
+    /// the event log (`active_action_index`).
     pub actions: ActiveActions,
     /// Not state: what the view keeps from one view to the next (lane P8 a1), by the stamps of what
     /// it was read from.

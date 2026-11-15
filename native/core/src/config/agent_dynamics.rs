@@ -67,8 +67,8 @@ pub fn canonical_policy(raw: Option<&V>) -> Read<Result<&'static str, &'static s
     })
 }
 
-/// The policy `model_configs` selects, for a rule that reads it: refused where the Python rule
-/// raises. A Scenario's config was checked, with its text, when it was loaded.
+/// The policy `model_configs` selects, for a rule that reads it: refused where the config is not
+/// canonical. A Scenario's config was checked, with its text, when it was loaded.
 pub fn policy(configs: &V) -> Read<&'static str> {
     match canonical_policy(map(configs)?.get("agent_dynamics"))? {
         Ok(policy) => Ok(policy),

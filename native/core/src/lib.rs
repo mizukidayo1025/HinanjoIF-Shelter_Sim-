@@ -1,9 +1,9 @@
-//! The simulation core of 避難所IF！ without Python (Issue #152, stage 3 of #132).
+//! The simulation core of 避難所IF！ (Issue #152, stage 3 of #132).
 //!
 //! This crate must never depend on pyo3: CI checks `cargo tree -p sheltersim_core`. The PyO3
-//! crate `sheltersim_native` (`native/src`) converts Python values, keeps the Python mirrors and
-//! maps this crate's errors to Python's exceptions. The plan of the split is in
-//! `docs/rust-port/step5-plan.md`.
+//! crate `sheltersim_native` (`native/src`) wraps it for Python (the Run, the store and the
+//! answers) and maps this crate's errors to Python's exceptions; the WASM crate (`native/wasm`)
+//! wraps it for the browser. The plan of the split is in `docs/rust-port/step5-plan.md`.
 
 pub mod answers;
 pub mod archive;
@@ -47,8 +47,7 @@ pub mod summary;
 pub mod text;
 pub mod txn;
 
-/// The rows of the namespaces of `model_state` and of the owned world fields. The PyO3 crate's
-/// `state/<name>.rs` of the same name reads each from Python and holds its validators.
+/// The rows of the namespaces of `model_state` and of the owned world fields.
 pub mod state {
     pub mod agent_dynamics;
     pub mod body_state;

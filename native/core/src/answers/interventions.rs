@@ -1,6 +1,5 @@
-//! The answers of an intervention (#306): `intervention-preview` and `intervention-apply`, as the
-//! Python server answers them without an API key (src/sheltersim/web/workspace.py
-//! `intervention`, ProjectAPI.fork).
+//! The answers of an intervention (#306): `intervention-preview` and `intervention-apply` without
+//! an API key.
 //!
 //! Preview: `PreviewPlan::new` checks the request, the branch and the minute; the caller checks
 //! the branch's model versions (`frames::require_current_model`) and restores the branch's Run at

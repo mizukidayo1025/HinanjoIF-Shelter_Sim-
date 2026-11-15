@@ -25,8 +25,8 @@ pub const OTHER_RUNNER: &str = "the decisions are another class";
 pub const OTHER_POLICY: &str = "the policy is another class";
 pub const OTHER_SCORER: &str = "the policy's scorer is another class";
 
-/// The paths of the reads, from the controller, that the PyO3 crate reads again to raise what a
-/// read raised (policy E14).
+/// The paths of the reads, from the controller, that a host reads again (`Host::read_again`) to
+/// raise what a read raised (policy E14).
 pub const RUNNER_PATH: &[&str] = &["decisions"];
 pub const POLICY_PATH: &[&str] = &["decisions", "policy"];
 pub const SCORER_PATH: &[&str] = &["decisions", "policy", "scorer"];

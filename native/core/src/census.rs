@@ -1,8 +1,9 @@
-//! Where each `Unsupported` was raised and who caught it, for benchmarks/rule_shadow/refusal_census.py.
+//! Where each `Unsupported` was raised and who caught it: a refusal census.
 //!
-//! Off until that tool turns it on. Nothing here runs unless a kernel refuses, and then only a load
-//! of one flag on the way to building the exception, so a run without the tool pays nothing a refusal
-//! didn't already pay. The tool reads the environment; the kernels never do.
+//! Off until `switch` turns it on; nothing does since #430 removed the tool that read it. Nothing
+//! here runs unless a kernel refuses, and then only a load of one flag on the way to building the
+//! error, so a run without the census pays nothing a refusal didn't already pay. The kernels never
+//! read the environment.
 
 use std::collections::BTreeMap;
 use std::panic::Location;
@@ -79,7 +80,7 @@ pub fn switch(on: bool) {
     ON.store(on, Ordering::Relaxed);
 }
 
-/// A refusal that reached a Python entry of a kernel.
+/// A refusal that reached the entry of a kernel.
 pub fn caught_at_entry(by: &str, reason: String) {
     note_caught(by, reason);
 }

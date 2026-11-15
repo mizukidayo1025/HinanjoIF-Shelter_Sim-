@@ -1,5 +1,4 @@
-//! IDs as small numbers in rows. `Interner` holds no Python objects, so rows stay `Send + Sync`;
-//! the PyO3 crate keeps one Python object for each symbol in side tables.
+//! IDs as small numbers in rows. `Interner` holds only Rust data, so rows stay `Send + Sync`.
 
 use std::collections::HashMap;
 use std::sync::Arc;

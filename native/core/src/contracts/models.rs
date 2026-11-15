@@ -1,6 +1,6 @@
-//! The models of the input contracts (`host::Contract`) and their validators, each as its Python
-//! class has it (Issue #346). A validator reads the validated fields, as the Python one reads the
-//! model's attributes, and raises its `ValueError` text in the same order.
+//! The models of the input contracts (`host::Contract`) and their validators, each as the pydantic
+//! class it was ported from has it (Issue #346). A validator reads the validated fields, as the
+//! class reads the model's attributes, and raises its `ValueError` text in the same order.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -17,9 +17,9 @@ use crate::value::V;
 
 /// `Identifier` of contracts/extensions.py.
 const IDENT: S = S::Str(StrS { strip: false, min: None, max: None, pattern: Some(Pattern::Identifier) });
-/// `StableId` of events/effects.py (`strict=True`, which a `V` cannot tell apart).
+/// `StableId` of the effects' contracts (`strict=True`, which a `V` cannot tell apart).
 const STABLE: S = S::Str(StrS { strip: false, min: Some(1), max: Some(64), pattern: Some(Pattern::Stable) });
-/// `_StableId` of domain/environment.py and domain/infrastructure.py.
+/// `_StableId` of the environment's and the infrastructure's configs.
 const STABLE_STRIPPED: S = S::Str(StrS { strip: true, min: Some(1), max: Some(64), pattern: Some(Pattern::Stable) });
 /// `Finite` of contracts/extensions.py.
 const FINITE: S = S::Float(FloatS { strict: false, finite: true, ge: None, gt: None, le: None });
@@ -141,7 +141,7 @@ fn points(fields: &Fields, name: &str) -> Vec<Pt> {
     items(fields, name).iter().map(pt).collect()
 }
 
-// ---- Geometry (contracts/extensions.py, contracts/operations.py) -------------------------------
+// ---- Geometry ----------------------------------------------------------------------------------
 
 /// `polygon_area`.
 fn polygon_area(polygon: &[Pt]) -> f64 {
@@ -154,7 +154,7 @@ fn polygon_area(polygon: &[Pt]) -> f64 {
     py_sum(&terms).abs() / 2.0
 }
 
-/// `_segments_intersect` of contracts/operations.py.
+/// `_segments_intersect`.
 fn segments_intersect(a: Pt, b: Pt, c: Pt, d: Pt) -> bool {
     let epsilon = 1e-9;
     let cross = |first: Pt, second: Pt, third: Pt| (second.x - first.x) * (third.y - first.y) - (second.y - first.y) * (third.x - first.x);
@@ -206,7 +206,7 @@ fn strictly_inside(point: Pt, polygon: &[Pt]) -> bool {
     point_in_polygon(point, polygon) && !edges(polygon).into_iter().any(|(a, b)| segments_intersect(point, point, a, b))
 }
 
-// ---- domain/facility_awareness.py --------------------------------------------------------------
+// ---- Facility awareness ------------------------------------------------------------------------
 
 /// `str`, lax (pydantic takes a str only, of the values a `V` can be).
 const TEXT: S = S::Str(StrS { strip: false, min: None, max: None, pattern: None });
@@ -420,7 +420,7 @@ pub static PERSON_TRAITS: Model = model(
 pub static POPULATION_SPEC: Model =
     model("PopulationSpec", &[SCHEMA_VERSION, required("people", S::Dict(&IDENT, &S::Model(&PERSON_TRAITS))), SOURCE_IDS], None);
 
-// ---- contracts/population.py, domain/population_lifecycle.py -----------------------------------
+// ---- The population's arrivals and lifecycle ---------------------------------------------------
 
 /// `SupportKind` of contracts/operations.py.
 const SUPPORT_KIND: S = S::Lit(&[
@@ -484,7 +484,7 @@ fn inputs_match_action(fields: &mut Fields) -> Result<(), String> {
     Ok(())
 }
 
-// ---- domain/geometry_overlay.py, contracts/operations.py ---------------------------------------
+// ---- The geometry overlay and the operations ---------------------------------------------------
 
 pub static ROUTE_ACCESS: Model = model("RouteAccessParameters", &[required("accessible", S::Bool { strict: true })], None);
 
@@ -591,7 +591,7 @@ pub static SPATIAL_CONSTRAINTS: Model = model(
     None,
 );
 
-// ---- events/effects.py: GuardExpression and _PARAMETER_MODELS ----------------------------------
+// ---- The effects: GuardExpression and _PARAMETER_MODELS ----------------------------------------
 
 const GUARD_OPERATORS: S =
     S::Lit(&[Lit::Str("eq"), Lit::Str("ne"), Lit::Str("gt"), Lit::Str("gte"), Lit::Str("lt"), Lit::Str("lte"), Lit::Str("and"), Lit::Str("or")]);
@@ -652,7 +652,7 @@ fn operator_shape_and_complexity_are_valid(fields: &mut Fields) -> Result<(), St
 
 // ---- The records of a program in effect_program_v1 (#351) --------------------------------------
 
-/// `CompilerProvenance` of events/effects.py.
+/// `CompilerProvenance` of an EffectProgram.
 pub static COMPILER_PROVENANCE: Model = model(
     "CompilerProvenance",
     &[
@@ -664,7 +664,7 @@ pub static COMPILER_PROVENANCE: Model = model(
     None,
 );
 
-/// `PlanAssumption` of events/effects.py.
+/// `PlanAssumption` of an EffectProgram.
 pub static PLAN_ASSUMPTION: Model = model(
     "PlanAssumption",
     &[
@@ -816,7 +816,7 @@ pub fn parameter_model(operator: &str) -> Option<&'static Model> {
     })
 }
 
-// ---- domain/environment.py ---------------------------------------------------------------------
+// ---- The zone environment ----------------------------------------------------------------------
 
 static ZONE_BASELINE: Model = model(
     "ZoneEnvironmentBaseline",
@@ -898,7 +898,7 @@ fn multipliers_are_ordered(fields: &mut Fields) -> Result<(), String> {
     Ok(())
 }
 
-// ---- domain/infrastructure.py ------------------------------------------------------------------
+// ---- The infrastructure ------------------------------------------------------------------------
 
 static DEPENDENCY_EDGE: Model =
     model("InfrastructureDependencyEdge", &[required("dependent_id", STABLE_STRIPPED), required("dependency_id", STABLE_STRIPPED)], None);

@@ -1,6 +1,5 @@
-//! `ScheduledEvent` as a row with no Python handle: made by a rule, read back from a saved
-//! record, and written as the canonical JSON of the event and of its outcome's record. The PyO3
-//! crate reads a row from a `ScheduledEvent` and makes one from a row (`EventRowPy`).
+//! `ScheduledEvent` as a row: made by a rule, read back from a saved record, and written as the
+//! canonical JSON of the event and of its outcome's record.
 
 use std::sync::Arc;
 
@@ -40,8 +39,8 @@ fn all_finite(value: &V) -> bool {
 }
 
 impl EventRow {
-    /// The row, or None for what `ScheduledEvent` refuses. Then call the Python rule, which raises
-    /// its own error. Keys keep the order given, as a dict literal does; handlers and the saved
+    /// The row, or None for what `ScheduledEvent` refuses; the caller says its own error. Keys
+    /// keep the order given, as a dict literal does; handlers and the saved
     /// bytes do not depend on it, because a restored event has its keys sorted.
     pub fn checked(self) -> Option<Self> {
         let good = is_stable_id(&self.event_id)

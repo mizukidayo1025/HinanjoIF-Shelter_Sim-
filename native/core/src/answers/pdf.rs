@@ -1,6 +1,6 @@
 //! `POST runs/{run}/pdf-report` with an API key (#463): the PDF report's data, its facts and the
-//! analysis asked of an LLM (Opus), as `web/pdf_report.py` (`collect_report`, `analysis_facts`) and
-//! `llm/pdf_analysis.py` (`generate_analysis`, `validate_analysis`) made them before #427.
+//! analysis asked of an LLM (Opus), as the Python report (`collect_report`, `analysis_facts`,
+//! `generate_analysis`, `validate_analysis`) made them before #427.
 //!
 //! `PdfPlan::new` makes the route's checks (`routes::pdf_report_answer`'s, in its order). For each
 //! branch, the caller restores the branch's Run at the minute and gives it with its frame there,
@@ -30,7 +30,7 @@ use crate::world::WorldCell;
 
 /// The report's version (`REPORT_VERSION`).
 pub const REPORT_VERSION: &str = "pdf-report-ja-v1";
-/// The analysis's prompt version (`PROMPT_VERSION` of `llm/pdf_analysis.py`).
+/// The analysis's prompt version (`PROMPT_VERSION`).
 pub const PROMPT_VERSION: &str = "pdf-analysis-ja-v1";
 const SECTIONS: [&str; 5] = ["executive", "interpretation", "hypotheses", "proposals", "limitations"];
 /// key, label, unit, scale, whether lower is better (None: no direction).
@@ -610,7 +610,7 @@ fn facts(data: &Value) -> Value {
     Value::Object(facts)
 }
 
-/// `OUTPUT_SCHEMA` of `llm/pdf_analysis.py`.
+/// The analysis's output schema (`OUTPUT_SCHEMA`).
 fn output_schema() -> Value {
     let paragraph = json!({
         "type": "object",

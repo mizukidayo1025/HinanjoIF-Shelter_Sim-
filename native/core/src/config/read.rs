@@ -1,6 +1,6 @@
-//! Reading a section from the configs as a `V`, with the reasons the kernels give today when they
-//! read the Python tree (`exact_dict`, `exact_int`, `exact_str` and `number` of the PyO3 crate).
-//! A `V` holds exact types only, so each check here is the check the kernel made on the tree.
+//! Reading a section from the configs as a `V`, with the reasons the kernels give (`exact_dict`,
+//! `exact_int`, `exact_str` and `number`). A `V` holds exact types only, so each check here is an
+//! exact type's.
 
 use std::sync::Arc;
 

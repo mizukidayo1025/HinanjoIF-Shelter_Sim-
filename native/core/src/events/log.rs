@@ -1,23 +1,18 @@
-//! The realized EventLog without Python (docs/rust-port.md, stage B1): each record's index
+//! The realized EventLog (docs/rust-port.md, stage B1): each record's index
 //! fields, its canonical JSON bytes while the log holds them, and the indexes the EventLog keeps
 //! (ID, sequence, minute, event type, provenance object keys, care requests, completed support
 //! kinds, applied facility events), so lookups and audits need no record objects.
 //!
-//! A record a Rust rule appends (`append_row`) has its bytes written here. The PyO3 crate's
-//! `EventStore` (`native/src/eventlog.rs`) keeps the Python objects of each position beside this:
-//! a record appended from Python has its object and the bytes written from its frozen fields, and
-//! a record read back from a saved Checkpoint has the Python bytes it was read from. When Python
-//! asks for a record's bytes, `take_written` gives them up to the Python bytes object made of them,
-//! which the save's caches then know by identity; that object is the record's bytes from then on.
+//! A record a rule appends (`append_row`) has its bytes written here; a record read back from a
+//! saved point is added with bytes checked by its reader (`add` with `has_bytes`, `archive`). The
+//! log may hold the records in a binary form instead (`pack_records`, #252). `take_written` and
+//! a record without bytes were for the Python objects of the records, which #430 removed.
 //!
 //! The bytes are what restoring the record reads, so a log whose every record has bytes written
-//! or checked here (`all_encoded`) is its own restored log: a save's restore check neither parses
-//! those bytes nor compares them with the objects (`core/checkpoint_cache.py`). A record with a
-//! value the writer refuses, such as a str subclass in a payload, has only its object; the Python
-//! encoder makes its bytes when asked, and the restore check then runs as it always did.
+//! or checked here (`all_encoded`) is its own restored log.
 //!
-//! Adding checks duplicate IDs and sequences and returns a code; the Python EventLog raises the
-//! same DuplicateEventError as before.
+//! Adding checks duplicate IDs and sequences and returns a code, which the writer turns into its
+//! error (`events::writer`).
 //!
 //! A transaction marks the log at its start (`mark`) and, if it rolls back, takes out the records
 //! appended since with everything they added to the indexes (`rollback`), last first (lane 6-2).
@@ -36,7 +31,7 @@ struct Entry {
     event_id: Arc<str>,
     /// For `rollback`, which takes it out of `sequences`.
     sequence: i64,
-    /// The bytes until Python asks for them (`take_written`).
+    /// The bytes written here, until taken (`take_written`).
     written: Option<Box<[u8]>>,
     event_type: u32,
     applied: bool,
@@ -77,7 +72,7 @@ pub const ACTION_LIFECYCLE_EVENT_TYPE: &str = "agent_action_lifecycle";
 #[derive(Clone, Debug, PartialEq)]
 pub struct EventLog {
     entries: Vec<Entry>,
-    // Records with bytes only the Python encoder can make.
+    // Records whose bytes were not written here (`add` with neither).
     unencoded: usize,
     type_names: Vec<String>,
     type_ids: HashMap<String, u32>,
@@ -185,8 +180,7 @@ impl EventLog {
 
     /// Adds a record at position `len()`: 0, or 1 for a realized ID, 2 for a realized sequence,
     /// with nothing changed. `written` is its bytes made here; `has_bytes` says that the caller
-    /// holds bytes read back and checked here instead. A record with neither has bytes only the
-    /// Python encoder can make.
+    /// holds bytes read back and checked here instead. A record with neither has no bytes here.
     pub fn add(&mut self, fields: Fields, has_bytes: bool, written: Option<Box<[u8]>>) -> u8 {
         if self.by_id.contains_key(fields.event_id.as_str()) {
             return 1;
@@ -372,7 +366,7 @@ impl EventLog {
     }
 
     /// The record at a position as it was realized, read from its packed form or its bytes; None
-    /// for a record the log holds neither of (Python has its bytes) or for no record there.
+    /// for a record the log holds neither of (its bytes were taken) or for no record there.
     pub fn record(&self, index: usize) -> Result<Option<Unpacked>> {
         if let Some(packed) = &self.packed {
             if let Some(&start) = packed.starts.get(index).filter(|start| **start != NOT_PACKED) {
@@ -417,12 +411,12 @@ impl EventLog {
         self.unencoded == 0
     }
 
-    /// The bytes written here of the record at a position, which Python has not asked for yet.
+    /// The bytes written here of the record at a position, unless taken (`take_written`).
     pub fn written(&self, index: usize) -> Option<&[u8]> {
         self.entries.get(index)?.written.as_deref()
     }
 
-    /// The bytes written here, given up to the Python bytes object made of them.
+    /// The bytes written here, taken out.
     pub fn take_written(&mut self, index: usize) -> Option<Box<[u8]>> {
         self.entries[index].written.take()
     }
@@ -623,8 +617,8 @@ impl EventLog {
     }
 
     /// Take out the records appended since the mark, last first, with what each added to the
-    /// indexes: the log is then what it was at the mark. The bytes of an earlier record that
-    /// Python asked for since stay with Python's bytes object (`take_written`), as they would.
+    /// indexes: the log is then what it was at the mark. The bytes of an earlier record taken
+    /// since (`take_written`) stay taken.
     pub fn rollback(&mut self, mark: LogMark) {
         let len = mark.len.min(self.entries.len());
         let mut removed: HashSet<Arc<str>> = HashSet::with_capacity(self.entries.len() - len);
@@ -734,7 +728,7 @@ impl PositionIndex<u32> for HashMap<u32, Vec<usize>> {
     }
 }
 
-/// The index fields of a record made from values, not read from a Python object.
+/// The index fields of a record made from values.
 pub struct NewFields<'a> {
     pub event_id: &'a str,
     pub sequence: i64,

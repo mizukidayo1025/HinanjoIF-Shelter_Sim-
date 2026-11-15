@@ -1,8 +1,7 @@
-//! The pending events behind `sheltersim.events.queue.EventQueue`, without Python. It mirrors the
-//! Python queue's structures one for one, a repeated identity from the constructor included, so
-//! that `validate` refuses it the same way. Slots live by serial number, which stays when an event
-//! is replaced. A slot has a row, or only its Python object, which the PyO3 crate's `QueueStore`
-//! keeps by the same serial.
+//! The pending events of a world. It keeps the structures of the queue the rules were ported from
+//! one for one, a repeated identity from the constructor included, so that `validate` refuses it
+//! the same way. Slots live by serial number, which stays when an event is replaced. A slot has a
+//! row, or none (`Slot::row`).
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -17,7 +16,7 @@ pub type Key = (i64, i64, i64);
 pub struct Slot {
     pub event_id: Arc<str>,
     pub key: Key,
-    /// None while the event is only a Python object no rule has read.
+    /// None for a slot given no row (`Queue::add`); the loader gives every event its row.
     pub row: Option<Arc<EventRow>>,
 }
 

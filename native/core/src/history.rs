@@ -1,7 +1,7 @@
 //! What the API's KPI history and offline report read of a Run's metric samples in the browser
 //! (Issue #266): `GET …/branches/{branch}/history?kind=kpis` answers from the stored samples
-//! (`MetricSamples`, #252) instead of the history index of the Python server
-//! (`storage/history_index.py`), and the report reads the last sample.
+//! (`MetricSamples`, #252) instead of the history index of the Python server (removed in #430),
+//! and the report reads the last sample.
 //!
 //! A row (`kpi_row`) is the index's: the sample's `MetricSnapshot` fields without
 //! `source_ids_json`, the ledger's columns where the sample holds them (`resource_snapshots`),

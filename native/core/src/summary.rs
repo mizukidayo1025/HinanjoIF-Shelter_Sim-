@@ -1,15 +1,14 @@
-//! The summary of a world that the intervention's reading of a text is given (#302, under #292):
-//! `scenario_summary_from_world` of `src/sheltersim/llm/natural_language.py`, made from the core's
-//! World alone. Its canonical JSON (`V::write_json`: the keys sorted, the floats as Python writes
-//! them) is the bytes of `canonical(scenario_summary_from_world(world).model_dump(mode="json"))`,
-//! as the server's `intervention-preview` makes it (no default zone and no start date given:
-//! `default_zone_id` is the zone of a world with one zone, `start_date` is null).
+//! The summary of a world that the intervention's reading of a text is given (#302, under #292),
+//! made from the core's World alone, as the server's `intervention-preview` gives it (no default
+//! zone and no start date given: `default_zone_id` is the zone of a world with one zone,
+//! `start_date` is null). Its canonical JSON (`V::write_json`: the keys sorted, the floats as
+//! Python's `repr` writes them) keeps the bytes of the Python `scenario_summary_from_world` that
+//! #430 removed.
 //!
-//! It reads the world and changes nothing, draws nothing and calls no LLM. A value Python would
-//! have failed on (a namespace of another shape than its rules write) is `Unsupported`; a summary
-//! the contract `ScenarioSummary` refuses (more staff than it lists, an ID that is not a stable
-//! ID, ...) is a `Value` error, as Python's `ValidationError` is a `ValueError`. The texts are the
-//! core's own, not pydantic's.
+//! It reads the world and changes nothing, draws nothing and calls no LLM. A namespace of another
+//! shape than its rules write is `Unsupported`; a summary the contract `ScenarioSummary` refuses
+//! (more staff than it lists, an ID that is not a stable ID, ...) is a `Value` error, as a pydantic
+//! `ValidationError` is a `ValueError`. The texts are the core's own, not pydantic's.
 
 use std::collections::BTreeSet;
 use std::sync::Arc;
@@ -35,7 +34,7 @@ const CORE_POLICIES: [&str; 2] = ["facility_capacity", "staff_operations"];
 /// How many people and routes the summary lists at most (`[:10000]`, `[:2000]`).
 const PERSON_LIMIT: usize = 10_000;
 const ROUTE_LIMIT: usize = 2000;
-/// The contract's bounds (`llm/schemas.py`).
+/// The bounds of the contract `ScenarioSummary`.
 const MAX_DURATION: i64 = 60 * 24 * 366;
 const MAX_COUNT: i64 = 10_000;
 const MAX_UNITS: i64 = 1000;

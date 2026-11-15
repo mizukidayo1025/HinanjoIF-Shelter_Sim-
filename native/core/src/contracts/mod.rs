@@ -1,13 +1,13 @@
-//! The pydantic contracts of inputs (policy E15) without Python: `validate` answers
+//! The pydantic contracts of inputs (policy E15): `validate` answers
 //! `Model.model_validate(input).model_dump(mode="json")`, or the `ValidationError` as pydantic
-//! 2.11.9 writes it, as the native host's `contract` does (Issue #346, part of #250).
+//! 2.11.9 writes it (Issue #346, part of #250).
 //!
-//! The native host gives `model_validate` an event's values as the event holds them, frozen
-//! (`_freeze_json`: mapping proxies and tuples), and the other inputs as dicts and lists
-//! (`contract_input` of `native/src/host.rs`); the texts show which (`input_value=mappingproxy(...)`),
-//! so `validate` gives each contract its input the same way. `pydantic` holds the part of pydantic
-//! the models use, `models` the models and their validators. `tests/contracts.rs` compares each
-//! answer with what Python gave for the same input (`native/core/tests/data/contracts_*.json`).
+//! Each contract is given its input as the Python host gave it to `model_validate` before #430:
+//! an event's values as the event holds them, frozen (`_freeze_json`: mapping proxies and tuples),
+//! and the other inputs as dicts and lists; the texts show which (`input_value=mappingproxy(...)`).
+//! `pydantic` holds the part of pydantic the models use, `models` the models and their validators.
+//! `tests/contracts.rs` compares each answer with the recorded one for the same input
+//! (`native/core/tests/data/contracts_*.json`).
 
 pub(crate) mod models;
 pub(crate) mod pydantic;
@@ -21,8 +21,8 @@ use crate::value::V;
 
 use pydantic::{Ctx, In, Model};
 
-/// `Model.model_validate(input).model_dump(mode="json")` of the contract, or the error Python
-/// raises: the `ValidationError` (a ValueError) with pydantic's text, or the `KeyError` of an
+/// `Model.model_validate(input).model_dump(mode="json")` of the contract, or its error: the
+/// `ValidationError` (a ValueError) with pydantic's text, or the `KeyError` of an
 /// operator `_PARAMETER_MODELS` has no model for.
 pub fn validate(which: &Contract, input: &V) -> Result<V> {
     let model: &'static Model = match which {
@@ -73,8 +73,8 @@ pub enum Checked {
     FacilityAwareness,
 }
 
-/// How Python holds the value it validates: a namespace's or a config's tracked tree, or an
-/// event's frozen values.
+/// How the value validated is held, which the texts show (`pydantic::In`): a namespace's or a
+/// config's tracked tree, or an event's frozen values.
 #[derive(Clone, Copy)]
 pub enum Holder {
     Tracked,

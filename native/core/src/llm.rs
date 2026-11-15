@@ -22,8 +22,7 @@
 //! `llm_tape` pieces (`run_store`, #368): the call's identity (task, stage, versions, the input's and
 //! the state's hashes) and its reply, with no prompt and no free text of the model (a priority's
 //! `rationale` is kept empty; the rules do not read it). `Replay` answers from a tape in its order,
-//! as Python's `RecordedRouter` does, so that the ticks between two saved points are computed again
-//! without asking anyone.
+//! so that the ticks between two saved points are computed again without asking anyone.
 
 use std::sync::Arc;
 
@@ -193,7 +192,7 @@ fn bad_reply(what: &str) -> Error {
 /// The one method a host gives the core to ask an LLM.
 pub trait LlmLink {
     /// Whether every task is answered with its fallback (no API key: Python's `LLMMode.OFFLINE`).
-    /// The rules then ask nothing, and record why (`offline_rule_mode`), as Python's do.
+    /// The rules then ask nothing, and record why (`offline_rule_mode`).
     fn offline(&self) -> bool {
         false
     }
@@ -219,7 +218,7 @@ impl LlmLink for Offline {
 
 // ---- The limits ------------------------------------------------------------------------------------
 
-/// `SocialRuntimeLimits` of `llm/runtime.py`: how many interactions the social policy may ask for,
+/// The social policy's limits (`SocialRuntimeLimits`): how many interactions it may ask for,
 /// and when (source ASM-EVENT-TRIGGERED-SOCIAL-LIMITS-V1; the values are the model's, not this
 /// port's).
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -239,7 +238,7 @@ impl Default for SocialLimits {
 }
 
 impl SocialLimits {
-    /// `SocialRuntimeLimits.__post_init__`'s checks, with its texts.
+    /// The limits' checks, with their texts.
     pub fn check(&self) -> Result<()> {
         if !(0.0..=1.0).contains(&self.stress_threshold) {
             return Err(Error::Value("social stress threshold must be in 0..1".to_owned()));
@@ -254,7 +253,7 @@ impl SocialLimits {
     }
 }
 
-/// `SupportPriorityLimits` of `llm/runtime.py` (source ASM-SUPPORT-PRIORITY-LIMITS-V1).
+/// The support priority's limits (`SupportPriorityLimits`; source ASM-SUPPORT-PRIORITY-LIMITS-V1).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PriorityLimits {
     pub stress_threshold: f64,
@@ -268,7 +267,7 @@ impl Default for PriorityLimits {
 }
 
 impl PriorityLimits {
-    /// `SupportPriorityLimits.__post_init__`'s checks, with its texts.
+    /// The limits' checks, with their texts.
     pub fn check(&self) -> Result<()> {
         if !(0.0..=1.0).contains(&self.stress_threshold) {
             return Err(Error::Value("support priority stress threshold must be in 0..1".to_owned()));
@@ -602,8 +601,8 @@ impl Entry {
         Ok(Self { minute, task, stage, prompt_version, schema_version, input_hash, state_hash, reply })
     }
 
-    /// Whether the entry is the record of `task`: Python's `RecordedRouter` compares the stage, the
-    /// input's and the state's hashes and the versions, and so does this, with the task's name.
+    /// Whether the entry is the record of `task`: the same task's name, stage, input's and state's
+    /// hashes and versions.
     pub fn is_of(&self, task: &Task) -> bool {
         self.task == task.task
             && self.stage == task.stage
@@ -618,15 +617,14 @@ fn bad_entry(what: &str) -> Error {
     Error::Value(format!("an LLM tape's entry: {what}"))
 }
 
-/// The refusal of a call past the tape's end, without a link to go on with: Python's
-/// `RecordedRouter`'s text.
+/// The refusal of a call past the tape's end, without a link to go on with.
 pub const REPLAY_MISSING: &str = "missing recorded LLM decision; history cannot call a provider";
 /// The refusal of a call that is not the tape's next entry.
 pub const REPLAY_MISMATCH: &str = "recorded LLM input/state/version does not match reconstructed history";
 
-/// A link that answers from a tape, in its order (Python's `RecordedRouter`): each call must be the
-/// next entry's (`Entry::is_of`), and gets that entry's reply. Past the tape's end it goes on with
-/// the link `then` (Python's `ContinuingRouter`), or refuses: computing the past again never asks a
+/// A link that answers from a tape, in its order: each call must be the next entry's
+/// (`Entry::is_of`), and gets that entry's reply. Past the tape's end it goes on with the link
+/// `then`, or refuses: computing the past again never asks a
 /// provider. It is offline where the Run it replays was.
 pub struct Replay {
     entries: Vec<Entry>,

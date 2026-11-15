@@ -2,9 +2,9 @@
 //! the resource service) and `controller.staff_service` (lane P8-0b; lanes b3, c3 and P9-2 read
 //! them in the core).
 //!
-//! The tick driver arbitrates a manager of the class it was installed with (`is`) in Rust and any
-//! other in Python; the service rules read the parameters below. A manager's `world` is the
-//! controller's, which the Run does not read.
+//! The tick driver arbitrates a manager of the class it was installed with (`Manager::known`); the
+//! service rules read the parameters below. A manager's `world` is the controller's, which the Run
+//! does not read.
 
 use std::sync::Arc;
 
@@ -13,11 +13,11 @@ use crate::config::Fault;
 
 use super::held::{Attr, Obj, Spec};
 
-/// `ToiletServiceManager` of `domain/facilities.py`.
+/// The class of the toilet service's manager.
 pub const TOILET_CLASS: (&str, &str) = ("sheltersim.domain.facilities", "ToiletServiceManager");
-/// `ResourceServiceManager` of `domain/resource_service.py`.
+/// The class of the resource service's manager.
 pub const RESOURCE_CLASS: (&str, &str) = ("sheltersim.domain.resource_service", "ResourceServiceManager");
-/// `StaffService` of `domain/staff.py`.
+/// The class of the staff service.
 pub const STAFF_CLASS: (&str, &str) = ("sheltersim.domain.staff", "StaffService");
 
 pub const TOILET: Attr = Attr::object("toilet_service", &TOILET_SPEC);

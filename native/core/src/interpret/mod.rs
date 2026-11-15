@@ -1,6 +1,6 @@
-//! The offline intervention compiler (Issue #303): what `compile_natural_language`
-//! (src/sheltersim/llm/natural_language.py) answers without an API key, as the canonical JSON of
-//! the `CompilerResult` (`model_dump(mode="json")`), byte for byte.
+//! The offline intervention compiler (Issue #303): what `compile_natural_language` answers without
+//! an API key, as the canonical JSON of the `CompilerResult` (`model_dump(mode="json")`), byte for
+//! byte as the Python compiler wrote it before #430.
 //!
 //! Without a key the router never calls a provider: it records the fixed fallback, and the compiler
 //! takes the rule parser's plan (`parse.rs`) when it covers every clause of the text and passes the
@@ -9,8 +9,9 @@
 //! payload (the sanitized text, the whole scenario summary and the primitives' descriptions); the
 //! summary holds floats, so the hashes are made here, where a float keeps Python's digits.
 //!
-//! The primitives' descriptions and parameter schemas are Python's, written by
-//! `native/core/tools/interpret_tables.py` into `primitives.json`.
+//! The primitives' descriptions and parameter schemas are in `primitives.json`, written from the
+//! Python EffectProgram registry until #430 and the core's own since
+//! (`native/core/tools/interpret_tables.py`).
 
 mod asked;
 mod parse;
@@ -97,7 +98,7 @@ fn bad(what: &str) -> Error {
     Error::unsupported(format!("interpreter input: {what}"))
 }
 
-/// Python raised a ValueError (pydantic's ValidationError): the route answers 400.
+/// A request the contract refuses (`Error::Value`): the route answers 400.
 fn refused(what: &str) -> Error {
     Error::Value(format!("invalid intervention request: {what}"))
 }
@@ -805,7 +806,7 @@ fn offline_result(request: &Request, parsed: Parsed, eligible: &[&Primitive], fa
 /// What `compile_natural_language(request, router)` answers without an API key: the canonical JSON
 /// of the `CompilerResult`'s `model_dump(mode="json")`. The request is the JSON of a `ParseRequest`
 /// (`text`, `branch_id`, `selected_minute` and `scenario_summary`, the summary's dump). `Error::Value`
-/// is a request Python refuses with a ValueError (the route's 400); other errors are input that is
+/// is a request the contract refuses (the route's 400); other errors are input that is
 /// not of that form.
 pub fn compile_offline(request: &[u8]) -> Result<Vec<u8>> {
     let request = read_request(request)?;
@@ -978,7 +979,7 @@ static REDACT_ENTITY: text::Pattern = text::Pattern::new(
     true,
 );
 
-/// The question a result question stores (src/sheltersim/web/results_chat.py `_ask`):
+/// The question a result question stores:
 /// `_REDACT_ENTITY.sub("[selected entity]", _sanitize_narrative(question)).strip()`. The route
 /// then puts "[selected entity]" for the request's own IDs.
 pub fn question_text(question: &str) -> Result<String> {
@@ -986,8 +987,8 @@ pub fn question_text(question: &str) -> Result<String> {
     Ok(text::strip(&text::blank(REDACT_ENTITY.get()?, &sanitized, "[selected entity]")?).to_owned())
 }
 
-/// The `metrics` of a comparison's difference (src/sheltersim/web/replay.py
-/// `comparison_projection`) of the frame `other` from the frame `base`, as canonical JSON: for each
+/// The `metrics` of a comparison's difference (`comparison_projection`) of the frame `other` from
+/// the frame `base`, as canonical JSON: for each
 /// KPI of `base` that is an int or a float in both, `other`'s minus `base`'s, an int when both are
 /// ints, else a float, as Python subtracts them (#307).
 pub fn kpi_differences(base: &[u8], other: &[u8]) -> Result<Vec<u8>> {
@@ -1035,7 +1036,7 @@ pub fn py_strip(raw: &str) -> &str {
     text::strip(raw)
 }
 
-/// Whether `_REDACT_ENTITY` (src/sheltersim/web/results_chat.py) finds an entity's name or id in
+/// Whether `_REDACT_ENTITY` (`question_text`) finds an entity's name or id in
 /// the text: an LLM's explanation must not name one.
 pub fn names_entity(raw: &str) -> Result<bool> {
     text::found(REDACT_ENTITY.get()?, raw)
@@ -1065,8 +1066,8 @@ static PDF_UNSUPPORTED: text::Pattern = text::Pattern::new(
 );
 static JAPANESE: text::Pattern = text::Pattern::new(r"[ぁ-んァ-ン一-龥]", false);
 
-/// Whether a PDF analysis's paragraph says what the program prints instead (`_UNSUPPORTED` of
-/// src/sheltersim/llm/pdf_analysis.py: a quantity, a quote, a causal or effect assertion), or
+/// Whether a PDF analysis's paragraph says what the program prints instead (`_UNSUPPORTED`: a
+/// quantity, a quote, a causal or effect assertion), or
 /// holds no Japanese.
 pub fn pdf_prose_refused(raw: &str) -> Result<bool> {
     Ok(text::found(PDF_UNSUPPORTED.get()?, raw)? || !text::found(JAPANESE.get()?, raw)?)

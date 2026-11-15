@@ -9,10 +9,9 @@
 //! (rule R8 of the design).
 //!
 //! The `Host` is the world's outside (`host.rs`, which took in this file's trait in lane P8-0b):
-//! here, the PyO3 crate's views (the Python containers, and the Python objects of the pending events
-//! and of the records, which follow the canonical order and come back on a rollback) and the
-//! validation of the whole world, which stays in Python in Issue #152 (policy E6). No borrow of the
-//! world is held while the host runs (rule R6).
+//! here, the validation of the whole world (policy E6; `validate::world` and `validate::candidate`
+//! in `PlainHost`) and the host's own views, which follow the canonical order and come back on a
+//! rollback. No borrow of the world is held while the host runs (rule R6).
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -20,7 +19,7 @@ use crate::error::Error;
 pub use crate::host::Host;
 use crate::world::{Snapshot, WorldCell};
 
-/// The text of a transaction begun inside another (`Error::Runtime`, a `RuntimeError` in Python).
+/// The text of a transaction begun inside another (`Error::Runtime`).
 pub const NESTED: &str = "a transaction is open on the world already";
 
 /// How many rules ran inside another rule's open transaction in this process (a rule's own start
@@ -29,7 +28,7 @@ pub const NESTED: &str = "a transaction is open on the world already";
 /// For the gate's counts.
 pub static NESTED_RULES: AtomicU64 = AtomicU64::new(0);
 /// How many rule transactions (`rule`) opened in place, committed and rolled back in this process
-/// (lane P9-1b; the PyO3 crate's `RuleTxn` counted them before).
+/// (lane P9-1b).
 pub static IN_PLACE: AtomicU64 = AtomicU64::new(0);
 pub static COMMITTED: AtomicU64 = AtomicU64::new(0);
 pub static ROLLED_BACK: AtomicU64 = AtomicU64::new(0);
@@ -48,7 +47,7 @@ pub fn counts() -> [(&'static str, u64); 4] {
 /// Which copy a transaction stands for, which says how its candidate is validated.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TxnKind {
-    /// `_effect_candidate` of `events/effects.py`: the world's own EventLog.
+    /// The candidate of an effect (`_effect_candidate`): the world's own EventLog.
     Effect,
     /// `WorldState.from_dict(world.to_dict())`, the log included.
     Full,

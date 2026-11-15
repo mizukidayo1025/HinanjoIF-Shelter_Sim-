@@ -1,14 +1,15 @@
-//! Checkpoint save kernels over bytes (docs/rust-port.md, stage B3), without Python: the
-//! privacy check's candidates, the content-defined chunk starts, the chunk hashes, the length
-//! `json.dumps` gives, and the items of a saved JSON array. The PyO3 crate's `checkpoint.rs` reads
-//! the Python bytes and calls these, in parallel without the GIL where it did. Without the
-//! `parallel` feature (the wasm32 build), `sensitive_candidates` and `chunk_hashes` read their
-//! inputs one after another on the calling thread, with the same result.
+//! Checkpoint save kernels over bytes (docs/rust-port.md, stage B3): the privacy check's
+//! candidates, the content-defined chunk starts, the chunk hashes, the length `json.dumps` gives,
+//! and the items of a saved JSON array. A stored Run's privacy check (`sensitive`) reads the
+//! candidates; the chunk kernels were for the Python Checkpoint, which #430 removed, and only the
+//! core's tests call them now. Without the `parallel` feature (the wasm32 build),
+//! `sensitive_candidates` and `chunk_hashes` read their inputs one after another on the calling
+//! thread, with the same result.
 //!
-//! `candidates` reads a chunk's canonical JSON bytes and returns what the privacy check of
-//! `ProjectStore` must look at: the distinct object keys, and the distinct string values that its
-//! patterns could match. The patterns stay in Python; a string left out here can not match them,
-//! for these reasons:
+//! `candidates` reads a chunk's canonical JSON bytes and returns what the privacy check must look
+//! at: the distinct object keys, and the distinct string values that its patterns could match. The
+//! patterns are those of `src/sheltersim/storage/projects.py` (`interpret::redacts`); a string left
+//! out here can not match them, for these reasons:
 //!
 //! - `_SECRET`'s address alternative needs "@".
 //! - `sk-(?:ant-)?[A-Za-z0-9_-]{12,}` needs "sk-" and 12 more such characters.
@@ -134,8 +135,8 @@ pub fn candidates(raw: &[u8]) -> std::result::Result<Candidates, String> {
 }
 
 /// The `candidates` of several JSON texts together, read in parallel. The sets are the same
-/// in any order of reading; the order they iterate in is not part of the result (Python reads
-/// them as sets). Of several texts that can not be read, which one's error is returned is not
+/// in any order of reading; the order they iterate in is not part of the result. Of several texts
+/// that can not be read, which one's error is returned is not
 /// fixed in parallel; read in order, it is the first one's.
 pub fn sensitive_candidates(raws: &[&[u8]]) -> std::result::Result<Candidates, String> {
     #[cfg(feature = "parallel")]

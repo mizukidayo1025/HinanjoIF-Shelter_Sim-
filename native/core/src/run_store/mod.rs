@@ -1,8 +1,8 @@
-//! The format of a stored Run (#252, #251, #266, #306; moved from the browser's
-//! `js/run_store.mjs` by #368, format v5 by #368, v6 by #478): the journal's lines, what a writer stores and
-//! when, and what a reader reads of it. The core does no I/O and compresses nothing: a host (the
-//! browser's `run_store.mjs`; later Python) opens the files, compresses each piece before it writes
-//! it and decompresses it after it reads it, and passes the bytes in.
+//! The format of a stored Run (#252, #251, #266, #306; moved from the browser's `js/run_store.mjs`
+//! by #368, format v5 by #368, v6 by #478): the journal's lines, what a writer stores and when, and
+//! what a reader reads of it. The core does no I/O and compresses nothing: a host (the browser's
+//! `run_store.mjs`; the local and VM servers' `sheltersim_store`, #426) opens the files, compresses
+//! each piece before it writes it and decompresses it after it reads it, and passes the bytes in.
 //!
 //! A Run's folder holds two files that are only ever appended to:
 //!   data.pack      the pieces, each compressed by the host (its "run" line names how)

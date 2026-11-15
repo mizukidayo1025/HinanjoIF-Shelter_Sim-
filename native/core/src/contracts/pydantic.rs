@@ -2,10 +2,10 @@
 //! their types, constraints and defaults, `extra="forbid"`, the model and field validators, and
 //! `model_dump(mode="json")` of what validates, or the `ValidationError`'s text (Issue #346).
 //!
-//! Each rule here is what pydantic does with the values a `V` can be, as the native host gives
-//! them to `model_validate` (`contract_input` of `native/src/host.rs`): plain dicts and lists, or,
-//! for an event's values, mapping proxies and tuples (`In::frozen`), whose `repr` the error texts
-//! show. The fixture `native/core/tests/data/contracts_*.json` records Python's answers.
+//! Each rule here is what pydantic does with the values a `V` can be, given to `model_validate` as
+//! plain dicts and lists, or, for an event's values, mapping proxies and tuples (`In::frozen`),
+//! whose `repr` the error texts show. The fixture `native/core/tests/data/contracts_*.json` records
+//! pydantic's answers.
 
 use std::sync::Arc;
 
@@ -19,8 +19,8 @@ use crate::value::V;
 pub type Fields = IndexMap<Arc<str>, V>;
 
 /// The depth at which pydantic-core's recursion guard refuses a recursive model
-/// (`GuardExpression`), the root at depth 0: 255 on Linux and macOS, as the native host's pydantic
-/// answers there (on Windows its guard is lower, so the fixture records no case this deep).
+/// (`GuardExpression`), the root at depth 0: 255, as pydantic answers on Linux and macOS (on
+/// Windows its guard is lower, so the fixture records no case this deep).
 const RECURSION_LIMIT: usize = 255;
 
 /// The length past which pydantic writes an input's `repr` as its first 25 and last 24 bytes.
@@ -50,10 +50,10 @@ pub enum S {
     Dict(&'static S, &'static S),
     Model(&'static Model),
     /// `StrictStr | StrictInt | StrictFloat | StrictBool` with `GuardExpression`'s field validator
-    /// `finite_guard_value` (events/effects.py).
+    /// `finite_guard_value`.
     GuardValue,
     /// `str | int | float | bool` (lax, smart) with `PlanAssumption`'s field validator
-    /// `finite_numeric_value` (events/effects.py, #351).
+    /// `finite_numeric_value` (#351).
     AssumptionValue,
     /// A type with a `mode="after"` field validator: it reads the validated value and gives the
     /// value the field keeps, or its `ValueError`'s text, which pydantic shows with the field's
@@ -95,7 +95,8 @@ pub struct StrS {
 pub enum Pattern {
     /// `Identifier` of contracts/extensions.py.
     Identifier,
-    /// `StableId` of events/effects.py and `_StableId` of domain/environment.py and infrastructure.py.
+    /// `StableId` of the effects' contracts, and `_StableId` of the environment's and the
+    /// infrastructure's configs (`src/sheltersim/scenario_authoring/configs/`).
     Stable,
 }
 
@@ -196,8 +197,8 @@ pub struct Field {
 
 /// An input as `model_validate` is given it: a value, and whether it (`frozen`) and the values in
 /// it (`kids`) are a mapping proxy or a tuple rather than a dict or a list. `tracked`: its dicts
-/// and lists are the tracked tree of a world's namespace or config (`TrackedDict`, `TrackedList` of
-/// `core/state_mirror.py`), which `repr` writes as a dict and a list (#351).
+/// and lists are the tracked tree of a world's namespace or config (`TrackedDict`, `TrackedList`),
+/// which `repr` writes as a dict and a list (#351).
 #[derive(Clone, Copy)]
 pub struct In<'a> {
     pub v: &'a V,
@@ -211,7 +212,7 @@ impl<'a> In<'a> {
         In { v, frozen: false, kids: false, tracked: false }
     }
 
-    /// A value of a world's namespace or config, as Python holds it (#351).
+    /// A value of a world's namespace or config (#351).
     pub fn tracked(v: &'a V) -> Self {
         In { v, frozen: false, kids: false, tracked: true }
     }

@@ -1,6 +1,6 @@
-//! `parse_natural_language` (src/sheltersim/llm/natural_language.py): the offline parser of a small,
-//! explicit set of intervention requests, with Python's results (Issue #303). It reads the text and
-//! the scenario summary only, and proposes a plan; it changes nothing.
+//! `parse_natural_language`: the offline parser of a small, explicit set of intervention requests
+//! (Issue #303), with the results of the Python parser it replaced. It reads the text and the
+//! scenario summary only, and proposes a plan; it changes nothing.
 
 use std::sync::Arc;
 
@@ -165,7 +165,7 @@ pub(super) enum Parsed {
     Rejected(Vec<Issue>),
 }
 
-/// Python raised a ValueError (a pydantic ValidationError): the route answers 400.
+/// A request the parse refuses (`Error::Value`): the route answers 400.
 fn invalid(what: &str) -> Error {
     Error::Value(format!("invalid offline parse: {what}"))
 }

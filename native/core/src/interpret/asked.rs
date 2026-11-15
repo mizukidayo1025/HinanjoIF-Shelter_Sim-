@@ -1,6 +1,5 @@
 //! The intervention compiler asked of an LLM (#463): what `compile_natural_language(request,
-//! router)` (src/sheltersim/llm/natural_language.py) does with an API key, around the core's port
-//! to an LLM (`crate::llm`).
+//! router)` does with an API key, around the core's port to an LLM (`crate::llm`).
 //!
 //! `Compiling::new` reads the request and builds the task (`intervention_compiler`, the
 //! intervention stage, the same payload, instructions and output schema as the offline answer's

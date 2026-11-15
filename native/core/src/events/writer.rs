@@ -1,7 +1,6 @@
 //! What a rule does to schedule and record an event over rows: `WorldState.schedule_event` and
 //! `EventLogRecord(...)` with `EventLog.append`, with their errors and in their order of checks.
-//! The event counter (`id_counters["event"]`) is still a Python dict, so the PyO3 crate's
-//! `EventWriter` (`native/src/state/events.rs`) reads and writes it around these.
+//! The event counter (`id_counters["event"]`) is read and written around these (`kit::Events`).
 
 use std::cell::Cell;
 use std::fmt::Display;
@@ -13,11 +12,11 @@ use crate::error::Error;
 
 /// The largest event counter a rule starts from, so that adding its few sequences to it cannot
 /// leave an i64, as Python's int can. A rule's planning stage adds to it without a check. Beyond
-/// this is Python's, whose int goes on.
+/// this a rule refuses to write (`Unsupported`).
 pub const MAX_RULE_COUNTER: i64 = 1 << 62;
 
-/// What a write refuses: a core error, or `DuplicateEventError(text)` of `events/queue.py`,
-/// which is not one of the core's classes.
+/// What a write refuses: a core error, or `DuplicateEventError(text)`, which is not one of the
+/// core's classes.
 #[derive(Clone, Debug, PartialEq)]
 pub enum WriteError {
     Error(Error),
@@ -30,8 +29,8 @@ impl From<Error> for WriteError {
     }
 }
 
-/// A write's error as a core error, for a host whose error is the core's (a host without Python,
-/// lane P9-1c): a duplicate as a `RuntimeError` of its text, which a
+/// A write's error as a core error, for a host whose error is the core's (`PlainHost`, lane
+/// P9-1c): a duplicate as a `RuntimeError` of its text, which a
 /// world the checks let through never has.
 impl From<WriteError> for Error {
     fn from(error: WriteError) -> Self {

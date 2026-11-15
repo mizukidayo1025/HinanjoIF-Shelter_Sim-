@@ -1,14 +1,14 @@
 //! The frame of a world (#264, stage 6 of #132): the map and the indicators of one minute, as the
-//! API's `TimelineFrame` holds them (`src/sheltersim/contracts/api.py`), made from the core's World
-//! alone. It is the frame `sheltersim.inspection.frames.world_frame` made before, byte for byte: the
-//! same keys and values, an int where Python had an int and a float where it had a float, written
-//! as canonical JSON (`V::write_json`: the keys sorted, the floats as Python writes them).
+//! timeline gives them (`PlainRun::frame`), made from the core's World alone. It keeps the keys and
+//! values of the frame the Python server made before #430, byte for byte: an int where that had an
+//! int and a float where it had a float, written as canonical JSON (`V::write_json`: the keys
+//! sorted, the floats as Python's `repr` writes them).
 //!
-//! `frame` reads the world, and through the host what Python parses (the floor plan's and the
+//! `frame` reads the world, and through the host the sections it fills (the floor plan's and the
 //! spatial constraints' documents, as their contracts dump them) and what the waits of the support
 //! requests read beside the world (as the metrics phase reads them: `rules/tick/metrics.rs`). It
 //! changes nothing, draws nothing and calls no LLM: a frame is a read (AGENTS.md). Where it cannot
-//! say what Python said (a tainted namespace, a value of another type than the rows hold), it
+//! say what the world holds (a tainted namespace, a value of another type than the rows hold), it
 //! says `Unsupported` rather than guess.
 //!
 //! The frame's `state_hash` is the world's `state_digest` (`canonical::state_digest`) unless the
@@ -243,8 +243,8 @@ impl CareMemo {
     }
 }
 
-/// The records at these positions: from the core's log, and from the host those whose bytes
-/// Python took.
+/// The records at these positions: from the core's log, and from the host those the log does not
+/// keep (`Host::read_records`).
 fn records<C: WorldCell, H: Host>(cell: &C, host: &mut H, positions: &[usize]) -> std::result::Result<BTreeMap<usize, Unpacked>, H::Error> {
     let (mut found, missing) = cell.with(|world| -> Result<_> {
         let log = world.log()?;
@@ -281,9 +281,10 @@ fn unpacked(raw: &[u8]) -> Result<Unpacked> {
 const DIGEST_BATCH: usize = 4096;
 
 /// `world.state_digest()` (`canonical::state_digest`), the log's records read a batch at a time,
-/// those whose bytes Python took from the host.
+/// those the log does not keep from the host.
 fn digest<C: WorldCell, H: Host>(cell: &C, host: &mut H, rng_state: &V) -> std::result::Result<String, H::Error> {
-    // The document holds the whole queue, Python's pending events too (H6).
+    // The document holds the whole queue, the host's pending events too (H6,
+    // `Host::read_queue_rows`).
     host.read_queue_rows()?;
     let count = cell.with(|world| world.log().map(|log| log.len()))??;
     let mut list = canonical::ListNode::new();
@@ -327,7 +328,7 @@ impl Records {
     }
 }
 
-/// What a read site raises for a fault of a section Python parses (`Tick::raise`).
+/// What a read site raises for a fault of a section the host fills (`Tick::raise`).
 fn raise<H: Host>(host: &mut H, which: SectionId, fault: &Fault) -> H::Error {
     if fault.is_refusal() {
         return Error::unsupported(fault.text.to_string()).into();
@@ -453,7 +454,7 @@ fn get<'v>(value: &'v V, key: &str) -> Option<&'v V> {
     }
 }
 
-/// `value[key]`: a missing key raises in Python.
+/// `value[key]`: a missing key is Unsupported.
 fn item<'v>(value: &'v V, key: &str) -> Result<&'v V> {
     get(value, key).ok_or_else(|| Error::unsupported(format!("a record without {key}")))
 }

@@ -215,6 +215,25 @@ assert.throws(() => api.checkSampleManifest({ ...manifest, parts: [{ ...parts[0]
   assert.deepEqual(api.markerExamples(null), {});
 }
 
+// An example whose Runs were all deleted on the home (#440) is no longer held, so the home offers
+// it again; fetching it again imports it over its Project.
+{
+  const example = { project_id: "p1", sha256: manifest.sha256 };
+  const held = { p1: manifest.sha256 };
+  const deleting = store.memoryTree();
+  await install(deleting, {});
+  assert.equal(await api.exampleHeld(deleting, example, held), true);
+  assert.equal(await api.exampleHeld(deleting, example, { p1: "0".repeat(64) }), false, "another bundle is not held");
+  const page = new api.BrowserApi({ wasm, tree: deleting });
+  const deleted = await page.answer({ method: "POST", path: "/api/v1/projects/p1/runs/r1/delete", body: JSON.stringify({ confirmation: "r1" }) });
+  assert.equal(deleted.status, 200, deleted.body);
+  page.close();
+  assert.equal(await api.exampleHeld(deleting, example, held), false, "an example without Runs is offered again");
+  assert.equal((await install(deleting, {})).installed, true);
+  assert.equal(await api.exampleHeld(deleting, example, held), true);
+  assert.equal(await store.runResponse(deleting, "p1", "r1"), await store.runResponse(tree, "p1", "r1"));
+}
+
 // The store (#393): a browser that refuses OPFS (WebKit's private window answers UnknownError,
 // "out of memory") or has none gets its own code and a text saying what to do, not the reason the
 // browser gave; one that has it gets its root folder.

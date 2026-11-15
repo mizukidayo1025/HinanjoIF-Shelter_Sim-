@@ -1,9 +1,7 @@
-"""The Rust kernels (docs/rust-port.md).
+"""The Rust core's Python entries (native/README.md): every computation of a Run is the core's.
 
 The sheltersim_native extension is required; docs/development.md ("Rustのkernel") builds and
-installs it. A kernel returns exactly the bytes of the Python code it
-replaced. Where a function here returns None, or a kernel raises Unsupported, the kernel leaves
-that value to the Python code that the caller still has.
+installs it.
 """
 
 from __future__ import annotations
@@ -19,25 +17,13 @@ except ImportError as exc:  # pragma: no cover - the package cannot run without 
     ) from exc
 
 
-# A kernel's refusal: the input is outside the rule's contract.
+# A value the core does not compute: an input outside what the browser and the server send.
 Unsupported: type[Exception] = _native.Unsupported
 
 
 def rules(name: str) -> Any:
-    """The module of native/src/rules/<name>.rs.
-
-    Porting lanes call their kernels through it and need no function in this file.
-    """
+    """The module of native/src/rules/<name>.rs: `plain`, `run_files` or `answers`."""
     return getattr(_native.rules, name)
-
-
-def canonical_json(value: Any) -> bytes | None:
-    """json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False,
-    allow_nan=False).encode(), or None when the kernel leaves value to json."""
-    try:
-        return _native.canonical_json(value)
-    except _native.Unsupported:
-        return None
 
 
 def model_versions(scenario: Any) -> dict[str, str]:

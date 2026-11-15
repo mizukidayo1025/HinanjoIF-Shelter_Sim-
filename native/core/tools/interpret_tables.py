@@ -1,36 +1,25 @@
-"""Write the tables the core's offline intervention interpreter copies from Python (Issue #303).
+"""Write the table of decimal digits the core's offline intervention interpreter copies from Python
+(Issue #303).
 
 Run with the Python whose answers the core copies (CPython 3.12, Unicode 15.0.0):
 
     python native/core/tools/interpret_tables.py
 
-- `native/core/src/interpret/primitives.json`: `available_primitives()` of the default registry
-  (`sheltersim.events.effects`), the descriptions and pydantic parameter schemas the compiler puts
-  in its payload and output schema. The usage hashes of a compiler result cover them.
-- `native/core/src/interpret/digits.rs`: the first code point of each run of ten decimal digits
-  (category Nd), what Python's regular expressions take as `\\d` and `int()` reads.
+`native/core/src/interpret/digits.rs`: the first code point of each run of ten decimal digits
+(category Nd), what Python's regular expressions take as `\\d` and `int()` reads.
 
-`tests/unit/llm/test_natural_language.py` fails when either file differs from what this script
-writes now.
+`native/core/src/interpret/primitives.json` (the descriptions and parameter schemas of the
+primitives) was written from Python's EffectProgram registry until #430; the core owns it now.
 """
 
 from __future__ import annotations
 
-import json
 import sys
 import unicodedata
 from pathlib import Path
 
 CORE = Path(__file__).resolve().parents[1]
-PRIMITIVES = CORE / "src" / "interpret" / "primitives.json"
 DIGITS = CORE / "src" / "interpret" / "digits.rs"
-
-
-def primitives_text() -> str:
-    """The JSON of `available_primitives()`; floats keep their Python repr."""
-    from sheltersim.events.effects import available_primitives
-
-    return json.dumps(available_primitives(), ensure_ascii=False, indent=1, sort_keys=True) + "\n"
 
 
 def digit_zeros() -> list[int]:
@@ -67,7 +56,6 @@ def digits_text() -> str:
 
 
 def main() -> None:
-    PRIMITIVES.write_text(primitives_text(), encoding="utf-8")
     DIGITS.write_text(digits_text(), encoding="utf-8")
 
 

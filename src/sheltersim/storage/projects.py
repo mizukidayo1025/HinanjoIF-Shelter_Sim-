@@ -24,7 +24,6 @@ except ImportError:  # pragma: no cover - exercised on Windows.
     fcntl = None
     import msvcrt
 
-from sheltersim import native
 
 _ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$")
 _PRIVATE = re.compile(
@@ -67,8 +66,7 @@ def canonical(value: Any) -> str:
 
 
 def digest(value: Any) -> str:
-    encoded = native.canonical_json(value)
-    return hashlib.sha256(canonical(value).encode() if encoded is None else encoded).hexdigest()
+    return hashlib.sha256(canonical(value).encode()).hexdigest()
 
 
 # Large enough for every key of a large Run: relationship keys alone are one per pair

@@ -1,4 +1,4 @@
-//! Finds the lane modules: every `src/state/*.rs` and `src/rules/*.rs` becomes a module of
+//! Finds the entry modules: every `src/rules/*.rs` becomes a module of
 //! the crate and a Python submodule, so adding a file never edits `lib.rs`. Each file exports
 //! `pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()>`. The generated code is
 //! `$OUT_DIR/lanes.rs`, included by `lib.rs`.
@@ -34,7 +34,7 @@ fn main() {
     let root = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").expect("cargo sets this"));
     let mut declarations = String::new();
     let mut registrations = String::new();
-    for group in ["state", "rules"] {
+    for group in ["rules"] {
         let directory = root.join("src").join(group);
         // A directory is watched recursively, so a new file reruns this script.
         println!("cargo:rerun-if-changed=src/{group}");

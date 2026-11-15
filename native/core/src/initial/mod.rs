@@ -16,11 +16,7 @@
 //! of the controller (`policies`), its route capacities and its zone neighbors. An error is the
 //! first one Python raises, with its class and text.
 //!
-//! A new Run's records (`model_versions` and the evidence route's answer, `records`) still come
-//! from templates Python writes (`table.json`, by `tests/support/core_initial.py`), keyed by a
-//! fingerprint of the configs that leaves out `DATA_CONFIGS` but that they are there
-//! (`sheltersim.core.world_export.configs_fingerprint`). A Scenario whose fingerprint the table
-//! lacks is refused (`Unsupported`) there.
+//! A new Run's records (`model_versions` and the evidence route's answer) are made in `records`.
 //!
 //! The Scenario is untrusted input: what is not a Scenario's canonical JSON is an error, never a
 //! panic. Like the browser's builder that makes it (#291), this does not run `ScenarioSpec`'s
@@ -34,12 +30,11 @@ mod sections;
 
 pub use records::{evidence, model_versions};
 
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 
 use indexmap::IndexMap;
 use serde_json::Value;
 
-use crate::checkpoint::sha256_hex;
 use crate::entities::{Activity, AgentRow, EdgeRow, FacilityRow, Mobility, NeedRow, ProfileRow, Skills, StaffRow, Table, ZoneRow};
 use crate::error::{Error, Result};
 use crate::events::log::EventLog;
@@ -50,9 +45,6 @@ use crate::row::{IdMap, Row, StrEnum, ValueRow};
 use crate::validate;
 use crate::value::V;
 use crate::world::{self, Fit, Place, World};
-
-/// The configs whose contents are the Scenario's own data (`DATA_CONFIGS` of `world_export.py`).
-pub const DATA_CONFIGS: [&str; 4] = ["facility_geometry", "population", "population_context", "spatial_constraints"];
 
 /// The namespaces whose row the core's world holds, then the owned fields (`OWNED_NAMESPACES` and
 /// `OWNED_FIELDS` of `core/state_mirror.py`), in the order a Python world registers their slots.
@@ -136,79 +128,6 @@ fn canonical(value: &V) -> Result<Vec<u8>> {
     let mut encoder = Encoder::with_capacity(1024);
     value.write_json(&mut encoder)?;
     Ok(encoder.out)
-}
-
-// ---- The table -----------------------------------------------------------------------------------
-
-/// What Python derives for one fingerprint (`world_export.initial_table_entry`).
-pub(crate) struct TableEntry {
-    /// `model_signatures(configs)` but the service points' signature.
-    pub model_signatures: IndexMap<Arc<str>, V>,
-    /// The evidence route's answer, without the Scenario's own parts.
-    pub evidence: IndexMap<Arc<str>, V>,
-}
-
-/// The table's version that this reader takes.
-const TABLE_SCHEMA_VERSION: i64 = 4;
-
-fn read_table() -> std::result::Result<IndexMap<Arc<str>, Arc<TableEntry>>, String> {
-    let json: Value = serde_json::from_str(include_str!("table.json")).map_err(|error| error.to_string())?;
-    if json["schema_version"].as_i64() != Some(TABLE_SCHEMA_VERSION) {
-        return Err("the table has another schema_version".into());
-    }
-    let entries = json["entries"].as_object().ok_or("the table has no entries")?;
-    let Some(V::Map(shared)) = V::from_json(&json["shared_evidence"]) else {
-        return Err("the table has no shared evidence".into());
-    };
-    let mut table = IndexMap::new();
-    for (fingerprint, entry) in entries {
-        let map = |key: &str| match V::from_json(&entry[key]) {
-            Some(V::Map(map)) => Ok(map),
-            _ => Err(format!("an entry's {key} is not a dict")),
-        };
-        let made = TableEntry {
-            model_signatures: map("model_signatures")?,
-            evidence: {
-                let mut evidence = map("evidence")?;
-                for (key, value) in &shared {
-                    if evidence.insert(key.clone(), value.clone()).is_some() {
-                        return Err(format!("an entry's evidence has the shared {key}"));
-                    }
-                }
-                evidence
-            },
-        };
-        table.insert(text(fingerprint), Arc::new(made));
-    }
-    Ok(table)
-}
-
-/// The table's entry of these configs, or `Unsupported`.
-pub(crate) fn entry_of(configs: &IndexMap<Arc<str>, V>) -> Result<Arc<TableEntry>> {
-    let fingerprint = fingerprint(configs)?;
-    table()?
-        .get(fingerprint.as_str())
-        .cloned()
-        .ok_or_else(|| Error::unsupported(format!("the core's table has no entry for these configs (fingerprint {fingerprint})")))
-}
-
-fn table() -> Result<&'static IndexMap<Arc<str>, Arc<TableEntry>>> {
-    static TABLE: OnceLock<std::result::Result<IndexMap<Arc<str>, Arc<TableEntry>>, String>> = OnceLock::new();
-    TABLE.get_or_init(read_table).as_ref().map_err(|why| Error::Value(format!("the core's table of minute-0 worlds: {why}")))
-}
-
-/// `configs_fingerprint`: the sha256 of the canonical JSON of the configs, each of `DATA_CONFIGS`
-/// there as `true`.
-pub fn fingerprint(configs: &IndexMap<Arc<str>, V>) -> Result<String> {
-    let masked: IndexMap<Arc<str>, V> =
-        configs.iter().map(|(key, value)| (key.clone(), if DATA_CONFIGS.contains(&&**key) { V::Bool(true) } else { value.clone() })).collect();
-    Ok(sha256_hex(&canonical(&V::Map(masked))?))
-}
-
-/// Whether the core's table has an entry for a Scenario's `model_configs` (JSON): whether `entry`
-/// can build a Scenario with them.
-pub fn knows(configs: &Value) -> Result<bool> {
-    Ok(table()?.contains_key(fingerprint(&map_of(configs, "model_configs")?)?.as_str()))
 }
 
 // ---- The rows --------------------------------------------------------------------------------------

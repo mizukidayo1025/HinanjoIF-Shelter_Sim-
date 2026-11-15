@@ -1,7 +1,8 @@
 """The core's Run without Python (`PlainRun`) from Python, against the native path (#368, step 2).
 
 `sheltersim_native.rules.plain.PlainRun` is the browser's `Simulation` for Python: it reads the
-JSON of `export_world` (as `scripts/build_browser_sample.py` writes it) and runs the ticks on the
+JSON of `export_world` (as `scripts/build_browser_sample.py` writes it), or builds a Scenario's
+world at minute 0 in the core (`from_scenario`, #429), and runs the ticks on the
 core's host without Python (`sheltersim_core::plain`). Each world of `support/core_tick.py` runs
 through it and through `TickEngine` (the native path) to the same world digests and metric samples.
 With its decisions collected, a `PlainRun` gives the bytes of the rows the core writes for the
@@ -92,6 +93,20 @@ def test_a_plain_run_reaches_the_native_path_s_world_and_samples(name: str) -> N
     assert {part: digest for part, digest in expected["world"].items() if part != "scalars"} == {
         part: parts[part] for part in expected["world"] if part != "scalars"
     }
+
+
+def test_a_plain_run_of_a_scenario_starts_from_the_world_the_core_builds() -> None:
+    """`PlainRun.from_scenario` builds the Scenario's world at minute 0 in the core (#429): the
+    generated Scenario, whose service points need independent queues, runs to the native path's
+    world and samples."""
+    scenario = generated_scenario()
+    run = PLAIN.PlainRun.from_scenario(scenario.canonical_json().encode())
+    world, controller, engine = run_world(scenario)
+    assert (run.minute(), run.duration()) == (0, world.duration_minutes)
+    assert run.advance(GENERATED_TICKS) == GENERATED_TICKS
+    expected = native_result(world, controller, engine, GENERATED_TICKS)
+    assert json.loads(run.digests_json()) == expected["world"]
+    assert run.metrics_digest() == expected["metrics"]
 
 
 def test_a_plain_run_checks_and_schedules_an_effect_program_as_python_does(

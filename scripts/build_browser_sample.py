@@ -16,8 +16,8 @@ the approved program are the same.
 Python does what only Python does now (route A of #244): it previews the Scenario from the text,
 saves it and creates the Run in a temporary ProjectStore, reads back the records Python's server
 answers with and its answer on the Run's evidence route (`evidence_context` and the catalogs the
-route adds), builds the world at minute 0 as a Run sets it up, and exports the
-world (`sheltersim.core.world_export.export_world`). It writes them to the inputs directory
+route adds). The core builds the world at minute 0 as a Run sets it up, from the Scenario's
+canonical JSON (`sheltersim_native.initial_entry`, #429). It writes them to the inputs directory
 (a temporary one unless --inputs). Then Node computes the whole Run with the same WASM and
 `native/wasm/js/run_store.mjs` the browser uses, makes the Project's records with
 `native/wasm/js/project_store.mjs`, makes the child with `native/wasm/js/browser_api.mjs` and
@@ -31,7 +31,6 @@ The bundle is generated: keep it out of the repository.
 from __future__ import annotations
 
 import argparse
-import gc
 import json
 import os
 import shutil
@@ -68,17 +67,12 @@ def export_inputs(
     holds for the new Run, and where they come from), `scenario.json` (the Scenario's canonical
     JSON, whose sha256 is its hash), `evidence.json` and `export.json` (the world at minute 0).
     Returns inputs.json's content."""
+    import sheltersim_native
+
     from sheltersim.core.model_version import ENGINE_VERSION
-    from sheltersim.core.world_export import export_world
     from sheltersim.llm.config import LLMMode, LLMSettings
     from sheltersim.storage.projects import ProjectStore, digest
     from sheltersim.web.projects import ProjectAPI
-
-    sys.path.insert(0, str(ROOT / "tests"))
-    try:
-        from support.core_fixtures import run_world
-    finally:
-        sys.path.remove(str(ROOT / "tests"))
 
     sample = _sample()
     default_text = text is None
@@ -118,24 +112,8 @@ def export_inputs(
     (directory / "scenario.json").write_bytes(scenario_bytes)
     (directory / "evidence.json").write_bytes(_canonical_bytes(evidence))
 
-    # run_world's artifact directory stays in the temporary directory. Its trace spool (SQLite)
-    # stays open while the controller lives, which Windows does not let a cleanup remove.
-    with tempfile.TemporaryDirectory(
-        prefix="sheltersim-browser-sample-world-", ignore_cleanup_errors=True
-    ) as scratch:
-        previous, tempfile.tempdir = tempfile.tempdir, scratch
-        try:
-            world, controller, engine = run_world(scenario)
-            entry = export_world(world, controller)
-        finally:
-            tempfile.tempdir = previous
-        del world, controller, engine
-        gc.collect()
-    (directory / "export.json").write_text(
-        json.dumps(entry, sort_keys=True, ensure_ascii=False, separators=(",", ":")),
-        encoding="utf-8",
-    )
-    del entry
+    # The world at minute 0 as a Run sets it up, built by the core (#429).
+    (directory / "export.json").write_bytes(sheltersim_native.initial_entry(scenario_bytes))
 
     inputs = {
         "schema_version": 2,

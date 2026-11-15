@@ -2,12 +2,15 @@
 
 `fixtures/initial_corpus.json.xz` holds Scenarios recorded from the offline test suite: every
 Scenario that `WorldState.from_scenario` built while `tests/unit` and `tests/integration` ran,
-one per fingerprint of their configs (`world_export.configs_fingerprint`, the smallest Scenario of
-each), so that each installed model, extension and config the tests use is there once. Each case
-holds the Scenario's canonical JSON and the sha256 and length of what
+one per fingerprint of their configs (`configs_fingerprint`, the smallest Scenario of each), so
+that each installed model, extension and config the tests use is there once. Each case
+holds the Scenario's canonical JSON, the sha256 and length of what
 `export_world(world, controller)` writes of its world at minute 0 with the Run's controller
-(sorted keys, no spaces). `tests/unit/core/test_world_export.py` checks that the core builds the
-same bytes (`sheltersim_native.initial_entry`), against Python and against the recorded digest.
+(sorted keys, no spaces), and the sha256 of a new Run's records (`model_signatures` and the
+evidence route's answer, as canonical JSON), or the class and text of the error the evidence
+route raises. `tests/unit/core/test_world_export.py` checks that
+the core builds the same bytes (`sheltersim_native.initial_entry`, `initial_model_versions`,
+`initial_evidence`), against Python and against the recorded digests.
 
 `python benchmarks/initial_corpus.py` records it again: it runs the suite with this module as a
 pytest plugin (`-p support.initial_corpus`), which writes each Scenario to the directory named by
@@ -27,7 +30,10 @@ from typing import Any
 
 from support.paths import INITIAL_CORPUS
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
+# The configs whose contents are a Scenario's own data (its floor plan and its people): the
+# fingerprint keeps only that they are there.
+DATA_CONFIGS = ("facility_geometry", "population", "population_context", "spatial_constraints")
 RECORD_DIRECTORY = "SHELTERSIM_RECORD_SCENARIOS"
 
 
@@ -59,6 +65,34 @@ def entry_bytes(scenario: Any) -> bytes:
     return json.dumps(entry, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode()
 
 
+def canonical_bytes(value: Any) -> bytes:
+    return json.dumps(value, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode()
+
+
+def configs_fingerprint(configs: dict[str, Any]) -> str:
+    """The sha256 of the canonical JSON of the configs, each of `DATA_CONFIGS` there as `true`."""
+    masked = {key: True if key in DATA_CONFIGS else value for key, value in configs.items()}
+    return hashlib.sha256(canonical_bytes(masked)).hexdigest()
+
+
+def versions_bytes(scenario: Any) -> bytes:
+    """A new Run's `model_signatures`, as canonical JSON."""
+    from sheltersim.contracts.policies import model_signatures
+
+    return canonical_bytes(model_signatures(scenario.model_configs))
+
+
+def evidence_bytes(scenario: Any) -> bytes:
+    """The evidence route's answer for a new Run, as canonical JSON."""
+    from support.core_initial import evidence_answer
+
+    return canonical_bytes(evidence_answer(scenario))
+
+
+def error_text(error: BaseException) -> str:
+    return f"{type(error).__name__}: {error}"
+
+
 def load_corpus() -> list[dict[str, Any]]:
     """The committed cases, in their order."""
     document = json.loads(lzma.decompress(INITIAL_CORPUS.read_bytes()))
@@ -70,7 +104,6 @@ def load_corpus() -> list[dict[str, Any]]:
 def corpus_of(directory: Path) -> dict[str, Any]:
     """The corpus of the Scenarios recorded in `directory`: one per fingerprint of the configs,
     the smallest, among those Python builds a world of."""
-    from sheltersim.core.world_export import configs_fingerprint
     from sheltersim.experiments.scenario import ScenarioSpec
 
     smallest: dict[str, str] = {}
@@ -85,17 +118,22 @@ def corpus_of(directory: Path) -> dict[str, Any]:
         try:
             scenario = ScenarioSpec.model_validate_json(text)
             entry = entry_bytes(scenario)
+            versions = versions_bytes(scenario)
         except Exception:  # noqa: BLE001 - a Scenario only a test's own registrations accept
             continue
         if scenario.canonical_json() != text:
             continue
-        cases.append(
-            {
-                "scenario": text,
-                "entry_sha256": hashlib.sha256(entry).hexdigest(),
-                "entry_bytes": len(entry),
-            }
-        )
+        case = {
+            "scenario": text,
+            "entry_sha256": hashlib.sha256(entry).hexdigest(),
+            "entry_bytes": len(entry),
+            "model_versions_sha256": hashlib.sha256(versions).hexdigest(),
+        }
+        try:
+            case["evidence_sha256"] = hashlib.sha256(evidence_bytes(scenario)).hexdigest()
+        except Exception as error:  # noqa: BLE001 - the route's error is what the core must raise
+            case["evidence_error"] = error_text(error)
+        cases.append(case)
     return {"schema_version": SCHEMA_VERSION, "cases": cases}
 
 

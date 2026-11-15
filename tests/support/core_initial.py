@@ -1,15 +1,12 @@
-"""The table and the worlds of the core's minute-0 builder (Issue #249).
+"""The worlds and the installed catalogs of the core's minute-0 builder (Issues #249, #429).
 
-The core builds the entry of any Scenario's world at minute 0 (`native/core/src/initial/`, #429)
-from the Scenario's canonical JSON, the bytes `export_world` writes for the browser
-(`scripts/build_browser_sample.py`). A new Run's records (`model_versions` and the evidence
-route's answer, #301) it still makes from a table Python writes,
-`native/core/src/initial/table.json` (`initial_table`): their templates for each fingerprint of
-the configs (`world_export.configs_fingerprint`, `run_records_template`).
-The table is made from the Scenarios of `TABLE_REQUESTS`, the requests of the Scenario screen
-(the structured form and the example text's), with edge values; two Scenarios of one fingerprint
-must give the same entry, so a config the fingerprint leaves out that changes what the table
-holds fails here.
+The core builds the entry of any Scenario's world at minute 0 (`native/core/src/initial/`) from
+the Scenario's canonical JSON, the bytes `export_world` writes for the browser
+(`scripts/build_browser_sample.py`), and a new Run's records (`model_versions` and the evidence
+route's answer, #301). What the records read of the installed code (the operator and model
+catalog, the evidence's catalogs, sources and texts) is `native/core/src/initial/records.json`
+(`initial_records`). `SCREEN_REQUESTS` are the requests of the Scenario screen (the structured
+form and the example text's) with edge values, whose Scenarios the tests build in both.
 
 `initial_worlds.json` (`initial_worlds_fixture`) holds generated Scenarios' canonical JSON with the
 sha256 of the entry `export_world` writes of their worlds at minute 0, and the digests of the
@@ -23,15 +20,21 @@ import hashlib
 import json
 from typing import Any
 
-from sheltersim.core.world_export import configs_fingerprint, export_world
+from sheltersim.core.world_export import export_world
 from support.core_fixtures import run_world
 
-TABLE_SCHEMA_VERSION = 4
-# The model signature that depends on the floor plan: the core adds it (`initial::model_versions`).
-SERVICE_POINTS_SIGNATURE = "operator:facility_service_points"
-# The requests whose Scenarios the table is made of: the screen's form with edge values and the
-# example text's request (墨田区, earthquake, 100 people, 7 days). The screen sends no policy IDs,
-# plan, selected shelter or overrides.
+RECORDS_SCHEMA_VERSION = 1
+# What the evidence route's answer holds that depends on the Scenario: the core makes it.
+SCENARIO_EVIDENCE = (
+    "models",
+    "model_versions",
+    "parameters",
+    "scenario_sources",
+    "scenario_assumptions",
+    "region_limits",
+)
+# The screen's form with edge values and the example text's request (墨田区, earthquake, 100
+# people, 7 days). The screen sends no policy IDs, plan, selected shelter or overrides.
 BASE_REQUEST: dict[str, Any] = {
     "municipality": "墨田区",
     "disaster": "地震",
@@ -39,7 +42,7 @@ BASE_REQUEST: dict[str, Any] = {
     "duration_days": 7.0,
     "seed": 2026,
 }
-TABLE_REQUESTS: dict[str, dict[str, Any]] = {
+SCREEN_REQUESTS: dict[str, dict[str, Any]] = {
     "example": {},
     "three": {"evacuees": 3, "municipality": "合成市"},
     "twenty": {"evacuees": 20},
@@ -112,54 +115,14 @@ def evidence_answer(scenario: Any) -> dict[str, Any]:
     return json.loads(json.dumps(result))
 
 
-def run_records_template(scenario: Any) -> dict[str, Any]:
-    """What a new Run of the Scenario records that the core reads from the table: its
-    `model_signatures` and the evidence route's answer, without what depends on the Scenario's own
-    data (the service points' signature, the Scenario's sources, assumptions and research limits),
-    which the core fills in (`initial::model_versions`, `initial::evidence`)."""
-    from sheltersim.contracts.policies import model_signatures
-
-    signatures = {
-        key: value
-        for key, value in model_signatures(scenario.model_configs).items()
-        if key != SERVICE_POINTS_SIGNATURE
-    }
-    evidence = evidence_answer(scenario)
-    evidence["model_versions"] = signatures
-    evidence["scenario_sources"] = []
-    evidence["scenario_assumptions"] = []
-    evidence["region_limits"] = {"unknowns": [], "warnings": []}
-    return {"model_signatures": signatures, "evidence": evidence}
-
-
-def initial_table() -> dict[str, Any]:
-    """`native/core/src/initial/table.json`: the templates of a new Run's records
-    (`run_records_template`) of each fingerprint of the Scenarios of `TABLE_REQUESTS`; the
-    evidence's members every entry has the same are kept once (`shared_evidence`). Two Scenarios
-    of one fingerprint that give different entries raise."""
-    entries: dict[str, Any] = {}
-    made_by: dict[str, str] = {}
-    for name, request in TABLE_REQUESTS.items():
-        scenario = scenario_of(request)
-        fingerprint = configs_fingerprint(json.loads(scenario.canonical_json())["model_configs"])
-        made = json.loads(json.dumps(run_records_template(scenario)))
-        if fingerprint in entries and entries[fingerprint] != made:
-            raise ValueError(
-                f"{name} and {made_by[fingerprint]} have one fingerprint but different entries"
-            )
-        entries.setdefault(fingerprint, made)
-        made_by.setdefault(fingerprint, name)
-    # The evidence's members that every entry has the same (the catalogs) are kept once.
-    evidences = [entry["evidence"] for entry in entries.values()]
-    shared = {
-        key: value
-        for key, value in evidences[0].items()
-        if all(key in other and other[key] == value for other in evidences)
-    }
-    for evidence in evidences:
-        for key in shared:
-            del evidence[key]
-    return {"schema_version": TABLE_SCHEMA_VERSION, "shared_evidence": shared, "entries": entries}
+def initial_records() -> dict[str, Any]:
+    """`native/core/src/initial/records.json`: the evidence route's answer for a new Run but what
+    depends on the Scenario (`SCENARIO_EVIDENCE`): the catalogs of the installed code (the
+    operator and model catalog the core also signs the models with), the sources, the legend and
+    the texts."""
+    answer = evidence_answer(scenario_of({}))
+    evidence = {key: value for key, value in answer.items() if key not in SCENARIO_EVIDENCE}
+    return {"schema_version": RECORDS_SCHEMA_VERSION, "evidence": evidence}
 
 
 def _sha(raw: bytes) -> str:

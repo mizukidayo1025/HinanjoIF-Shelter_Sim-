@@ -22,7 +22,7 @@ use std::collections::BTreeMap;
 use std::rc::Rc;
 
 use serde_json::{json, Value};
-use sheltersim_core::archive::Restore;
+use sheltersim_core::compute::{Replaying, Seeker};
 use sheltersim_core::error::{Error, Result};
 use sheltersim_core::llm::{self, check_answer, Entry, Limits, LlmLink, Offline, Replay, Reply, Task, REPLAY_MISMATCH, REPLAY_MISSING};
 use sheltersim_core::model_version;
@@ -481,22 +481,18 @@ fn a_stored_run_keeps_the_tape_and_a_seek_computes_from_it() {
     assert!(points.len() >= 2);
     let counts: Vec<u64> = points.iter().map(|index| journal.saved(*index).unwrap().counts.tape).collect();
     assert!(counts.windows(2).all(|pair| pair[0] <= pair[1]) && counts[0] > 0, "{counts:?}");
-    // A seek between two saved points: the point restored, the ticks after it from the tape.
+    // A seek between two saved points (the core's, every reader's): the point restored, the ticks
+    // after it from the tape, no link set.
     let minute = 300;
-    let seek = chain.seek(minute).unwrap();
-    let saved = *journal.saved(seek.from.unwrap()).unwrap();
-    assert!(seek.from_minute < minute);
-    let mut restore = Restore::new(files.raw[seek.base].as_deref().unwrap()).unwrap();
-    let mut position = chain.next_restore_read(0, &restore).unwrap();
-    while let Some(at) = position {
-        chain.restore_read(at, files.piece(&chain, at), &mut restore).unwrap();
-        position = chain.next_restore_read(at + 1, &restore).unwrap();
+    let mut seeker = Seeker::new(&chain, minute, Replaying { offline: false, limits }).unwrap();
+    let saved = *journal.saved(seeker.seek().from.unwrap()).unwrap();
+    while let Some(position) = seeker.next(&chain).unwrap() {
+        seeker.give(&chain, files.piece(&chain, position).to_vec()).unwrap();
     }
-    let entry = PlainRun::entry_of_worlds_json(&export, "generated").unwrap();
-    let mut seeking = PlainRun::restore(entry, restore).unwrap();
+    let sought = seeker.finish().unwrap();
+    assert!(sought.from < minute && sought.from == saved.minute);
+    let mut seeking = sought.run;
     let from = saved.counts.tape as usize;
-    seeking.set_llm(Box::new(Replay::new(&tape[from..], false).unwrap()), limits).unwrap();
-    seeking.advance((minute - seek.from_minute) as u64).unwrap();
     let mut straight = PlainRun::of_worlds_json(&export, "generated").unwrap();
     linked(&mut straight);
     straight.advance(minute as u64).unwrap();

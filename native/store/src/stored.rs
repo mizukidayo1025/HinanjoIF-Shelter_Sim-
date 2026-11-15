@@ -17,11 +17,12 @@
 use std::fs::{self, File};
 use std::path::{Path, PathBuf};
 
-use sheltersim_core::archive::Restore;
-use sheltersim_core::llm::{Limits, Replay};
+use sheltersim_core::compute::Seeker;
 use sheltersim_core::model_version::Versions;
 use sheltersim_core::plain::PlainRun;
 use sheltersim_core::run_store::{self, Chain, Journal, Next, RecordKind, RunWriter, Verified, Verify};
+
+pub use sheltersim_core::compute::{Replaying, Sought};
 
 use crate::compress::{deflate_raw, inflate_raw, Compress, COMPRESSION};
 use crate::files::{read_at, sync_dir, AppendFile};
@@ -228,22 +229,6 @@ pub struct StoredRun {
     export: Option<Vec<u8>>,
 }
 
-/// How a seek answers the LLM's calls of a Run that kept a tape: whether the Run was offline, and
-/// the limits its rules asked within.
-#[derive(Clone, Copy, Debug, Default)]
-pub struct Replaying {
-    pub offline: bool,
-    pub limits: Limits,
-}
-
-/// Where a seek put the Run: `run` at the minute asked for, computed from `from` (a minute), the
-/// branch's line `base` it was restored from.
-pub struct Sought {
-    pub run: PlainRun,
-    pub from: i64,
-    pub base: usize,
-}
-
 /// What the stored Runs the Python server wrote before #427 were kept as, named in the error of
 /// reading one (`run_store::outdated`).
 pub const PYTHON_CHECKPOINTS: &str = "Python の Checkpoint";
@@ -375,52 +360,16 @@ impl StoredRun {
     }
 
     /// `seek`, and for a Run that kept an LLM tape (`llm_tape` pieces, #428) the ticks after the
-    /// restored point answered from the tape's entries after that point's count (`llm::Replay`,
-    /// within `replaying`'s limits): a seek never asks a provider, and reaches the world the Run
-    /// reached with its link.
+    /// restored point answered from the tape's entries after that point's count, within
+    /// `replaying`'s limits: a seek never asks a provider, and reaches the world the Run reached
+    /// with its link. The core's seek (`compute::Seeker`, #501), its pieces read from the files.
     pub fn seek_with(&mut self, minute: i64, replaying: &Replaying) -> Result<Sought> {
-        let seek = self.chain.seek(minute)?;
-        let export = self.export_bytes()?;
-        let world = self.journal.run()?.world.clone();
-        let mut run = match seek.from {
-            None => match &world {
-                Some(name) => PlainRun::of_worlds_json(&export, name)?,
-                None => PlainRun::of_json(&export)?,
-            },
-            Some(point) => {
-                let stored = &self.journal.piece(point)?.stored;
-                let bytes = read_at(self.datas.last().expect("a branch's data.pack"), stored.offset, stored.length)?;
-                self.journal.check_stored(point, bytes.len() as u64)?;
-                let raw = inflate_raw(&bytes, stored.raw_length)?;
-                self.journal.check_raw(point, &raw)?;
-                let mut restore = Restore::new(&raw)?;
-                let mut next = self.chain.next_restore_read(0, &restore)?;
-                while let Some(position) = next {
-                    self.chain.restore_read(position, &self.inflated(position)?, &mut restore)?;
-                    next = self.chain.next_restore_read(position + 1, &restore)?;
-                }
-                let entry = match &world {
-                    Some(name) => PlainRun::entry_of_worlds_json(&export, name)?,
-                    None => PlainRun::entry_of_json(&export)?,
-                };
-                PlainRun::restore(entry, restore)?
-            }
-        };
-        let tape = self.records(RecordKind::Tape)?;
-        if !tape.is_empty() {
-            let from = match seek.from {
-                Some(point) => self.journal.saved(point)?.counts.tape as usize,
-                None => 0,
-            };
-            let entries = tape.get(from..).ok_or_else(|| Error::refused("the stored Run's LLM tape is shorter than its saved point counts"))?;
-            run.set_llm(Box::new(Replay::new(entries, replaying.offline)?), replaying.limits)?;
+        let mut seeker = Seeker::new(&self.chain, minute, *replaying)?;
+        seeker.give_export(self.export_bytes()?);
+        while let Some(position) = seeker.next(&self.chain)? {
+            seeker.give(&self.chain, self.inflated(position)?)?;
         }
-        let ticks = minute - run.minute()?;
-        let ran = if ticks < 0 { None } else { run.advance(ticks as u64).ok() };
-        if ran != Some(ticks as u64) {
-            return Err(Error::refused(format!("the Run does not reach minute {minute}")));
-        }
-        Ok(Sought { run, from: seek.from_minute, base: seek.base })
+        Ok(seeker.finish()?)
     }
 
     /// Reads every piece back and checks it (the core's `Verify`): each piece's bytes against its

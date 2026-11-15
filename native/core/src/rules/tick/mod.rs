@@ -1,6 +1,6 @@
 //! A tick of a Run in the core (Issue #152, lanes P9-2a and P9-2b; design-p9.md section 5): the
-//! dispatch, complete, update, propose, arbitrate, sample and metrics phases, in
-//! `TICK_PHASE_ORDER`, over the Run's `Scratch`, with the observer of the phases through the host
+//! dispatch, complete, update, propose, arbitrate, sample and metrics phases, in `Phase::ORDER`,
+//! over the Run's `Scratch`, with the observer of the phases through the host
 //! (`Host::phase`) and the engine's clock checked after each phase.
 //!
 //! `run_tick` is the whole tick, and `run_phases` some of its phases. `engine::step` runs a tick
@@ -83,12 +83,12 @@ pub enum Seed {
     /// `CounterRNG`: `str(seed)` of an exact int seed (None for another value), and whether it is
     /// below 0.
     Counter { text: Option<Arc<str>>, negative: bool },
-    /// Another `KeyedRandom` (a test's): only the toilet draws from it, through the host.
+    /// Another random source (a test's): only the toilet draws from it, through the host.
     Other,
 }
 
-/// The view the update phase hands on to the propose phase (`_view_before_proposals`, decision D4
-/// of design-p9.md): the update phase's snapshot, or a view the core did not make (a test sets it).
+/// The view the update phase hands on to the propose phase (decision D4 of design-p9.md): the
+/// update phase's snapshot, or a view the core did not make (a test sets it).
 #[derive(Clone)]
 pub enum Prior {
     View(Arc<ViewData>),
@@ -161,7 +161,7 @@ impl<C: WorldCell, H: Host, R: RunCell> Tick<'_, C, H, R> {
         }
     }
 
-    /// The error of what a core reader of the policies could not make (`bad_error`).
+    /// The error of what a core reader of the policies could not make.
     pub fn bad(&mut self, bad: crate::rules::psychology::Bad) -> H::Error {
         match bad {
             crate::rules::psychology::Bad::Refused(error) => error.into(),
@@ -182,7 +182,7 @@ where
 }
 
 /// The phases of `phases` of the tick at `tick.minute`: the Run's scratch begins, then each of them
-/// in the tick's order (`TICK_PHASE_ORDER`), whatever order `phases` has: the observer before, the
+/// in the tick's order (`Phase::ORDER`), whatever order `phases` has: the observer before, the
 /// phase, the check that the clock is the engine's, and the observer after. A phase not in
 /// `phases` does not run, for a test that steps a part of a tick (the driver's `phases`).
 pub fn run_phases<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R>, phases: &[Phase]) -> Step<(), H::Error>
@@ -199,7 +199,7 @@ where
             // A refusal past the dispatch's checks is the phase's `Error::Refused`
             // (`RUN_PHASE`), and not counted as a kernel's.
             Phase::DispatchDueEvents => crate::rules::dispatch::run(tick).map_err(|error| propose::refused(crate::rules::dispatch::RUN_PHASE, error)).bare()?,
-            // `complete_scheduled_tasks` has no step in the controller.
+            // The complete phase has no step of its own.
             Phase::CompleteScheduledTasks => {}
             Phase::UpdateAgentState => update::update(tick)?,
             Phase::ProposeActions => propose::propose(tick)?,

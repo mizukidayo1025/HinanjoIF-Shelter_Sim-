@@ -12,8 +12,8 @@
 //! became unavailable on arrival or completion, whose operation stops first (`interrupt`).
 //!
 //! The staff positions after a change are `movement::staff_position_snapshots`, called directly:
-//! its refusal is labelled with that call (`SNAPSHOTS`). So are `staff_dynamics_is_available` and
-//! `staff_dynamics_on_shift` (`staff_dynamics::is_available_now`, `on_shift_now`).
+//! its refusal is labelled with that call (`SNAPSHOTS`). So are the staff dynamics' readers
+//! (`staff_dynamics::is_available_now`, `on_shift_now`).
 //!
 //! The admission of an intake is the population rules' (`population::check_waiting`,
 //! `population::admit_arrivals`, lane P9-3a): `plan_complete` says `Work::Intake`, the caller
@@ -71,7 +71,7 @@ pub struct Inputs<'a> {
     pub staff: &'a Held,
     pub movement: &'a Held,
     pub body: &'a Held,
-    /// `effect_program_v1`, for `has_active_facility_modifier`.
+    /// `effect_program_v1`, for `kit::has_active_modifier`.
     pub program: &'a Held,
     /// `SHARED_OPERATIONS_KEY not in world.model_state`: no receipts.
     pub shared_absent: bool,
@@ -156,12 +156,12 @@ fn ops_row<'w>(world: &'w World, inputs: &Inputs<'_>) -> Result<Option<ShardRef<
     kit::held_row::<StaffOperationsRow>(world, NAME, inputs.staff)
 }
 
-/// `staff_is_available` of one member.
+/// Whether one member's status lets them work (`StaffStatus::is_available`).
 fn available(world: &World, id: &str) -> Result<bool> {
     staff_dynamics::with_staff_status(world, |status| status.is_available(id))
 }
 
-/// `staff_dynamics_is_available`: true without the namespace.
+/// `staff_dynamics::is_available_now`: true without the namespace.
 pub fn dynamics_available(world: &World, id: &str, minute: i64) -> Result<bool> {
     if kit::namespace_absent(world, STAFF_DYNAMICS)? {
         return Ok(true);
@@ -169,7 +169,7 @@ pub fn dynamics_available(world: &World, id: &str, minute: i64) -> Result<bool> 
     staff_dynamics::is_available_now(world, id, minute, false)
 }
 
-/// `staff_dynamics_on_shift`: true without the namespace.
+/// `staff_dynamics::on_shift_now`: true without the namespace.
 fn dynamics_on_shift(world: &World, id: &str, minute: i64) -> Result<bool> {
     if kit::namespace_absent(world, STAFF_DYNAMICS)? {
         return Ok(true);
@@ -256,7 +256,7 @@ fn causation_with(ids: &[Arc<str>], extra: &[Arc<str>]) -> Vec<Arc<str>> {
     all
 }
 
-/// `_idle_record()`.
+/// The record of an idle member.
 fn idle_record() -> OperationRecord {
     OperationRecord {
         phase: Phase::Idle,
@@ -339,9 +339,9 @@ fn suppress(events: &Events<'_>, pending: &[Arc<EventRow>], minute: i64, detail:
     Ok(())
 }
 
-/// `staff_position_snapshots(world, boundary_minute=boundary)` where `model_state` holds
-/// `movement_v1`: the staff positions at the boundary written, and every one in ID order. A
-/// refusal is the snapshot's `Error::Refused`, but for `SNAPSHOT_PLAN_UNREAD`.
+/// `movement::staff_position_snapshots` at the boundary, where `model_state` holds `movement_v1`:
+/// the staff positions at the boundary written, and every one in ID order. A refusal is the
+/// snapshot's `Error::Refused`, but for `SNAPSHOT_PLAN_UNREAD`.
 pub fn snapshots(world: &World, inputs: &Inputs<'_>, boundary: i64) -> Result<Vec<(Arc<str>, Position)>> {
     let run = || -> Result<Vec<(Arc<str>, Position)>> {
         if let Held::Other(reason) = inputs.movement {
@@ -363,7 +363,7 @@ pub fn snapshots(world: &World, inputs: &Inputs<'_>, boundary: i64) -> Result<Ve
     }
 }
 
-// ---- interrupt_staff_operation ---------------------------------------------------------------------
+// ---- Interruption -------------------------------------------------------------------------------
 
 /// The event that stops an operation: its ID and due minute.
 pub struct Stopping<'a> {
@@ -465,8 +465,8 @@ fn plan_interrupt(world: &World, inputs: &Inputs<'_>, staff_id: &str, event: &St
     Ok(Some(InterruptPlan { staff_id: staff_key, task_id: record.task_id, nearest, pending, entry }))
 }
 
-/// `interrupt_staff_operation(world, staff_id, event, current_event_id=current)`: whether it stopped
-/// an operation. Its reads refuse before its first write.
+/// The member's operation interrupted by `event`, with `current` the event being applied: whether
+/// it stopped an operation. Its reads refuse before its first write.
 pub fn interrupt(world: &World, inputs: &Inputs<'_>, staff_id: &str, event: &Stopping<'_>, current: Option<&str>, taken: &mut Vec<u64>) -> WriteResult<bool> {
     let Some(plan) = plan_interrupt(world, inputs, staff_id, event, current)? else {
         return Ok(false);
@@ -502,8 +502,8 @@ pub enum Planned<P> {
     Unavailable(Arc<str>),
 }
 
-/// `interrupt_staff_operation(world, staff_id, event, current_event_id=event.event_id)` and then
-/// `raise EventSuppressed(text)`: the stop stays in the world, as the dispatcher keeps it.
+/// The member's operation interrupted by the event (`interrupt`), and then the event suppressed
+/// with `text`: the stop stays in the world, as the dispatcher keeps it.
 pub fn stop_and_suppress(world: &World, inputs: &Inputs<'_>, staff_id: &str, event: &EventRow, text: &str, taken: &mut Vec<u64>) -> WriteResult<()> {
     let stopping = Stopping { event_id: &event.event_id, due_minute: event.due_minute };
     interrupt(world, inputs, staff_id, &stopping, Some(&event.event_id), taken)?;
@@ -520,7 +520,7 @@ pub struct ArrivePlan {
     event_id: Arc<str>,
 }
 
-/// The checks of `arrive_staff_operation`, in its order.
+/// The checks of a staff operation's arrival, in a fixed order.
 pub fn plan_arrive(world: &World, inputs: &Inputs<'_>, event: &EventRow) -> Result<Planned<ArrivePlan>> {
     if &*event.event_type != "staff_operation_arrive" {
         return Err(Error::failed("staff operation arrival handler received another event"));
@@ -560,8 +560,8 @@ pub fn plan_arrive(world: &World, inputs: &Inputs<'_>, event: &EventRow) -> Resu
     Ok(Planned::Go(ArrivePlan { staff_id: id, zone, due: event.due_minute, event_id: event.event_id.clone() }))
 }
 
-/// The writes of `arrive_staff_operation`: the member is at the task, which it works from now.
-/// `arrive_staff_operation`: the plan (`plan_arrive`), then its writes; the staff member who became
+/// The writes of a staff operation's arrival: the member is at the task, which it works from now.
+/// The arrival: the plan (`plan_arrive`), then its writes; the staff member who became
 /// unavailable before reaching the task, if any.
 pub fn arrive(world: &World, inputs: &Inputs<'_>, event: &EventRow) -> Result<Option<Arc<str>>> {
     match plan_arrive(world, inputs, event)? {
@@ -893,7 +893,7 @@ impl Number {
     }
 }
 
-/// One value of `_staff_operation_measurements`: kind, entity, path, value, unit.
+/// One measurement of a staff operation: kind, entity, path, value, unit.
 struct Measure {
     kind: &'static str,
     entity: Arc<str>,
@@ -931,7 +931,7 @@ fn body_value(record: &BodyRecord, field: &str) -> f64 {
     }
 }
 
-/// `_staff_operation_measurements`, of the payload's kind, target and zone.
+/// The measurements of a staff operation, of the payload's kind, target and zone.
 fn measurements(world: &World, inputs: &Inputs<'_>, kind: &str, target: Option<&Arc<str>>, zone: Option<&Arc<str>>) -> Result<Vec<Measure>> {
     let mut values = Vec::new();
     match (kind, target, zone) {
@@ -1007,7 +1007,8 @@ pub enum Work {
     People {
         people: Vec<(Arc<str>, Arc<str>, Option<[f64; 3]>, f64)>,
     },
-    /// `admit_pending_arrivals`, which the caller checks and runs before `write_complete`.
+    /// The admission of the arrivals (`population::check_waiting`, `population::admit_arrivals`),
+    /// which the caller checks and runs before `write_complete`.
     Intake,
 }
 
@@ -1122,7 +1123,7 @@ pub fn plan_complete(world: &World, inputs: &Inputs<'_>, event: &EventRow) -> Re
             }
         }
         ("maintenance", Some((facility, units, capacity))) => {
-            // `_maintenance_blocked`: at capacity, then the outage, then the modifiers.
+            // Whether maintenance is blocked: at capacity, then the outage, then the modifiers.
             let blocked = units >= capacity
                 || kit::active_outage(world.slots.try_value(INFRASTRUCTURE)?.as_deref(), &facility)?
                 || kit::has_active_modifier(kit::held_row::<EffectProgramRow>(world, PROGRAM, inputs.program)?.as_deref(), &facility);
@@ -1184,10 +1185,10 @@ pub fn plan_complete(world: &World, inputs: &Inputs<'_>, event: &EventRow) -> Re
     }))
 }
 
-/// The writes of `complete_staff_operation` (an intake's admission is the caller's, before this),
-/// and the handler's receipts: the operation's, and a facility recovery when a repair changed its
-/// working units, where the world holds `shared_operations_v1`.
-/// What the plan of a completion led to (`complete_or_intake`).
+/// The writes of a staff operation's completion (an intake's admission is the caller's, before
+/// this), and the handler's receipts: the operation's, and a facility recovery when a repair
+/// changed its working units, where the world holds `shared_operations_v1`. What the plan of a
+/// completion led to (`complete_or_intake`).
 pub enum Completed {
     /// Written: the receipts.
     Done(Vec<Made>),
@@ -1197,8 +1198,8 @@ pub enum Completed {
     Intake(Box<CompletePlan>),
 }
 
-/// `complete_staff_operation`: the plan (`plan_complete`), then its writes, but for an intake, whose
-/// admission runs first (lane P10-1c).
+/// A staff operation's completion: the plan (`plan_complete`), then its writes, but for an intake,
+/// whose admission runs first (lane P10-1c).
 pub fn complete_or_intake(world: &World, inputs: &Inputs<'_>, event: &EventRow) -> Result<Completed> {
     match plan_complete(world, inputs, event)? {
         Planned::Unavailable(id) => Ok(Completed::Unavailable(id)),
@@ -1321,11 +1322,11 @@ pub fn write_complete(world: &World, inputs: &Inputs<'_>, plan: CompletePlan) ->
     Ok(receipts)
 }
 
-// ---- interrupt_staff_trips_on_closed_routes ------------------------------------------------------
+// ---- The trips on closed routes -----------------------------------------------------------------
 
 /// Whether an applied `effect_program_geometry` closes a route, so that the trips on closed routes
-/// stop (`_interrupt_trips_of_event`, lane P9-1a): its payload's `op` is `set_route_access`, and its
-/// `parameters` (`payload.get("parameters", {})`) are a mapping whose `accessible` is the bool False.
+/// stop (`interrupt_trips`): its payload's `op` is `set_route_access`, and its `parameters`
+/// (`payload.get("parameters", {})`) are a mapping whose `accessible` is the bool False.
 pub fn closes_a_route(event: &EventRow) -> bool {
     let op = matches!(kit::payload(event, "op"), Some(V::Str(op)) if &**op == "set_route_access");
     let closed = match kit::payload(event, "parameters") {
@@ -1336,9 +1337,9 @@ pub fn closes_a_route(event: &EventRow) -> bool {
     op && closed
 }
 
-/// `interrupt_staff_trips_on_closed_routes`: each travelling member whose route has an edge that is
-/// gone, closed, or not clear for an independent walker on the floor plan is stopped, in ID order.
-/// The members it stopped.
+/// The trips on closed routes stopped: each travelling member whose route has an edge that is gone,
+/// closed, or not clear for an independent walker on the floor plan is stopped, in ID order. The
+/// members it stopped.
 pub fn interrupt_trips(world: &World, inputs: &Inputs<'_>, event: &Stopping<'_>, taken: &mut Vec<u64>) -> WriteResult<Vec<Arc<str>>> {
     let mut interrupted = Vec::new();
     let travelling: Vec<(Arc<str>, Vec<Arc<str>>)> = {

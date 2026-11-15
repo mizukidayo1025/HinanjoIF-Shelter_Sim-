@@ -1,7 +1,8 @@
-//! The support requests (`request`, `timeout_support_request`), the end of a staff member's support
-//! (`StaffSupportCompletionHandler`), and the care receipts of the steps around them
-//! (`_record_assigned_support`), as functions over the `World` (lane P8 b4 of Issue #152). Each
-//! plans with nothing changed and then writes; a refusal (`Unsupported`) comes before the writes.
+//! The support requests (`plan_request`, `write_request`, `timeout`), the end of a staff member's
+//! support (`StaffSupportCompletionHandler`, `complete_support`), and the care receipts of the
+//! steps around them (`record_assigned`, `record_started`, `record_interrupted`), as functions over
+//! the `World`. Each plans with nothing changed and then writes; a refusal (`Unsupported`) comes
+//! before the writes.
 //!
 //! What the world's outside holds is read through the host: whether `model_state` holds
 //! `shared_operations_v1` and `body_state_v1` and whether `metric_state` is its slot's tree
@@ -101,9 +102,9 @@ pub const NOT_A_SELECTION: &str = "not a selection";
 /// The refusal of a model selection whose read raised, where the care reads it.
 pub const SELECTION_REFUSES: &str = "the model selection refuses";
 
-/// The selected care formula (`create_care_outcome_formula`), read through the host (lane P9-1a):
-/// None where the selection names no care model, else the section `care_outcome` as kept, whose
-/// fault the caller raises (`kit::raise_section` parses it again).
+/// The selected care formula (`config::body::CareOutcome`), read through the host: None where the
+/// selection names no care model, else the section `care_outcome` as kept, whose fault the caller
+/// raises (`kit::raise_section` parses it again).
 pub fn care_formula<C: WorldCell, H: Host>(cell: &C, host: &mut H) -> std::result::Result<Option<kit::Kept<CareOutcome>>, H::Error> {
     let holding = kit::holding(cell, host)?;
     let (selection, kept) = kit::selection(cell, host, &holding)?;
@@ -137,7 +138,7 @@ fn suppressed<T>(text: impl Into<String>) -> Result<T> {
     Err(Error::Outcome(Outcome::Suppressed, text.into()))
 }
 
-/// `SupportRequestState(id, agent_id, requested_minute, timeout_minute)`.
+/// A new support request's row: its ID, the person, the minute requested and the timeout minute.
 fn new_request(id: &Arc<str>, agent_id: &str, requested_minute: i64, timeout_minute: i64) -> RequestRow {
     RequestRow {
         id: id.clone(),
@@ -199,7 +200,7 @@ pub fn timeout(world: &World, inputs: &Inputs, event: &SupportEvent, cooldown_mi
 
 // ---- The care receipts around a request ------------------------------------------------------------
 
-/// `care_receipt_for_request`'s `household_id` and `support_kind`. None without a receipt.
+/// The `household_id` and `support_kind` of the request's care receipt. None without a receipt.
 fn prior_of(world: &World, inputs: &Inputs, request_id: &str) -> Result<Option<(Option<Arc<str>>, Arc<str>)>> {
     match &inputs.shared {
         Held::Absent => return Ok(None),
@@ -220,20 +221,21 @@ fn shared_held(inputs: &Inputs) -> Result<()> {
     }
 }
 
-/// `append_applied_care_transition` once the namespace is known to be there.
+/// A care transition appended (`care_receipts::append`) once the namespace is known to be there.
 fn append(world: &mut World, inputs: &Inputs, transition: Transition) -> WriteResult<()> {
     shared_held(inputs)?;
     care_receipts::append(world, transition)
 }
 
-/// `make_care_transition_record` and the checks of the namespace, at this sequence.
+/// A care transition's record (`care_receipts::plan_transition`) and the checks of the namespace,
+/// at this sequence.
 fn plan_transition(world: &World, inputs: &Inputs, transition: Transition, sequence: i64) -> Result<PlannedTransition> {
     shared_held(inputs)?;
     care_receipts::plan_transition(world, transition, sequence)
 }
 
-/// `_record_request_interrupted`, of an applied `support_request_timeout`. Without a request it
-/// finds none and records nothing.
+/// The receipt of an interrupted request, of an applied `support_request_timeout`. Without a
+/// request it finds none and records nothing.
 pub fn record_interrupted(world: &mut World, inputs: &Inputs, event: &SupportEvent) -> WriteResult<()> {
     let Some(request_id) = event.request_id.clone() else {
         return Ok(());
@@ -261,7 +263,8 @@ pub fn record_interrupted(world: &mut World, inputs: &Inputs, event: &SupportEve
     append(world, inputs, transition)
 }
 
-/// `_record_staff_support_started`, of an applied `agent_travel_complete` of a staff trip. Without a
+/// The receipt of a staff member's support started, of an applied `agent_travel_complete` of a
+/// staff trip. Without a
 /// request it finds none and records nothing.
 pub fn record_started(world: &mut World, inputs: &Inputs, event: &SupportEvent) -> WriteResult<()> {
     let Some(request_id) = event.request_id.clone() else {
@@ -293,10 +296,9 @@ pub fn record_started(world: &mut World, inputs: &Inputs, event: &SupportEvent) 
     append(world, inputs, transition)
 }
 
-/// `_record_assigned_support`: the receipts of the requests just assigned, in the order given. What
-/// it writes is not undone, so a refusal past the first change is the care receipts'
-/// `Error::Refused` (`care_receipts.append_transition`), and one of the person's sources is the
-/// caller's.
+/// The receipts of the requests just assigned, in the order given. What it writes is not undone, so
+/// a refusal past the first change is the care receipts' `Error::Refused`
+/// (`care_receipts.append_transition`), and one of the person's sources is the caller's.
 pub fn record_assigned(world: &mut World, inputs: &Inputs, assigned: &[Arc<str>]) -> WriteResult<()> {
     for id in assigned {
         let prior = match &inputs.shared {
@@ -342,8 +344,8 @@ pub fn record_assigned(world: &mut World, inputs: &Inputs, assigned: &[Arc<str>]
     Ok(())
 }
 
-/// `append_applied_care_transition` of a step past its first change: nothing without the
-/// namespace, and a refusal is that rule's `Error::Refused`.
+/// A care transition appended, of a step past its first change: nothing without the namespace, and
+/// a refusal is that rule's `Error::Refused`.
 fn append_applied(world: &mut World, inputs: &Inputs, transition: Transition) -> WriteResult<()> {
     let done = match &inputs.shared {
         Held::Absent => Ok(()),
@@ -411,7 +413,7 @@ pub struct Handler {
     pub require_colocated: bool,
 }
 
-/// The selected care formula (`create_care_outcome_formula`): not read yet, or read.
+/// The selected care formula (`config::body::CareOutcome`): not read yet, or read.
 #[derive(Clone, Copy)]
 pub enum Formula<'a> {
     Unread,
@@ -482,7 +484,7 @@ pub fn complete_support(world: &World, inputs: &Inputs, event: &SupportEvent, ha
         }
     }
 
-    // Write: `complete_support_task`, then what the care does.
+    // Write: the support task completed (`write_completion`), then what the care does.
     write_completion(world, ids, minute, until, &care)?;
     add_metric(world, RESOLVED_METRIC)?;
     write_body_records(world, &care, agent_id)?;
@@ -504,11 +506,11 @@ struct Ids<'a> {
     task_id: &'a Arc<str>,
 }
 
-/// The checks of the handler, then of `complete_support_task`, in their order: the person's stress
+/// The checks of the handler, then of the task's completion, in their order: the person's stress
 /// and trust, or the outcome of the first that fails.
 fn completion_checks(world: &World, ids: Ids<'_>, handler: Handler, minute: i64, due: i64) -> Result<(f64, f64)> {
     let Ids { request_id, agent_id, staff_id, task_id } = ids;
-    // The checks of the handler, then of `complete_support_task`, in their order: which one failed.
+    // The checks of the handler, then of the task's completion, in their order: which one failed.
     enum Failed {
         NoTask,
         NotDue,
@@ -563,8 +565,8 @@ fn completion_checks(world: &World, ids: Ids<'_>, handler: Handler, minute: i64,
     }
 }
 
-/// `complete_support_task`'s writes and the care's stress and trust: the task gone, the staff member
-/// free, the request resolved, and the person idle in their cooldown.
+/// The writes of the task's completion and the care's stress and trust: the task gone, the staff
+/// member free, the request resolved, and the person idle in their cooldown.
 fn write_completion(world: &World, ids: Ids<'_>, minute: i64, until: i64, care: &Care) -> Result<()> {
     let Ids { request_id, agent_id, staff_id, task_id } = ids;
     let mut rows = world.rows_mut()?;
@@ -732,7 +734,8 @@ fn python_str_items(value: &V) -> Result<Vec<Arc<str>>> {
     }
 }
 
-/// `explicit_care_dependents`.
+/// The caregiver's explicit care dependents: those of `care_for_ids` in the same household, with
+/// sources, who name the caregiver among theirs, in ID order; none for a context under review.
 fn care_dependents(world: &World, caregiver_id: &str, household_id: Option<&str>) -> Result<Vec<Arc<str>>> {
     let Some(V::Map(caregiver)) = person_context(world, caregiver_id)? else {
         return Ok(Vec::new());
@@ -1148,7 +1151,8 @@ pub fn write_closed_request(world: &World, metric_state_held: bool, agent_id: &s
     add_metric(world, UNRESOLVED_METRIC)
 }
 
-/// `support_kind_for_agent`.
+/// The support kind the person needs next: the first of `care_support_needs` not completed yet,
+/// then medication and medical support, or else emotional support.
 pub fn support_kind_of(world: &World, agent_id: &str) -> Result<Arc<str>> {
     let default = || Arc::<str>::from(EMOTIONAL_SUPPORT);
     let Some(V::Map(person)) = person_context(world, agent_id)? else {

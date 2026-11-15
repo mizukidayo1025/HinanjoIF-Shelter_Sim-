@@ -29,7 +29,7 @@ pub fn sample<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R>) -
     Ok(())
 }
 
-/// `_sample_information_contacts`.
+/// The information contacts of the minute.
 fn sample_information<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R>) -> std::result::Result<(), H::Error> {
     let policies = tick.policies.clone();
     let model = match information::model_of(&policies.information) {
@@ -74,7 +74,7 @@ fn policy_fault<C: WorldCell, H: Host, R: RunCell, T>(
     }
 }
 
-/// `_sample_proximity_contacts`.
+/// The proximity contacts of the minute, where the controller has their config.
 fn sample_proximity<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R>) -> std::result::Result<(), H::Error> {
     let policies = tick.policies.clone();
     let when = proximity::when(&policies.proximity, Some(tick.minute)).map_err(H::Error::from);

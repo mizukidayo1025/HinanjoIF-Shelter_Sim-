@@ -59,9 +59,9 @@ pub fn propose<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R>) 
     Ok(())
 }
 
-/// `_view_for_proposals`: the update phase's view of this minute with what that phase wrote read
-/// again, or a new view; with its audit hash. The prior view is taken out of the Run's scratch
-/// once the hash is made, as the step emptied `_view_before_proposals`.
+/// The view the proposals read: the update phase's view of this minute with what that phase wrote
+/// read again, or a new view; with its audit hash. The prior view (`Prior`) is taken out of the
+/// Run's scratch once the hash is made.
 pub fn view_for_proposals<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R>) -> std::result::Result<Arc<ViewData>, H::Error> {
     let prior = tick.on_run(|run| run.scratch.get::<Prior>().cloned())?;
     let holding = tick.holding()?;
@@ -92,7 +92,7 @@ fn finish<C: WorldCell, H: Host, R: RunCell>(
 #[derive(Clone, Debug)]
 pub struct Hash(pub Arc<str>);
 
-/// `_propose_due`: the proposals of those due, or None when nobody is due.
+/// The proposals of those due, or None when nobody is due.
 fn due<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R>, data: &ViewData) -> std::result::Result<Option<Vec<Proposed>>, H::Error> {
     let policies = tick.policies.clone();
     let scoring = behavior::scoring_of(&policies.behavior).map_err(|bad| tick.bad(bad))?;
@@ -108,8 +108,8 @@ fn due<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R>, data: &V
     behavior::due(data, &scoring, &seed, hash).map_err(|bad| tick.bad(bad))
 }
 
-/// `_observed_state`: the host's own sink (`DecisionSink::Host`), or a writer's, reads the
-/// document as a dict.
+/// The observed state of a proposal: the host's own sink (`DecisionSink::Host`), or a writer's,
+/// reads the document as a dict.
 fn observed<C: WorldCell, H: Host, R: RunCell>(
     tick: &mut Tick<'_, C, H, R>,
     data: &ViewData,
@@ -207,7 +207,7 @@ fn patched(manager: &crate::run::held::Obj) -> bool {
 }
 
 /// The router of the Run's graph `which`, built from the world's tables where the last refresh
-/// built none (`rows_of` and `staff_router_rows` of the travel glue).
+/// built none (`travel::routers_of`).
 pub fn router<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R>, which: Which) -> std::result::Result<Arc<Router>, H::Error> {
     let (kept, epoch) = tick.on_run(|run| (run.routes.get(which), run.routes.epoch()))?;
     if let Some(router) = kept {
@@ -237,14 +237,14 @@ pub fn refused<E: crate::host::HostFailure + From<Error>>(label: &'static str, e
     }
 }
 
-/// The people's graph of the Run (`rows_of`).
+/// The people's graph of the Run (`router` of `Which::People`).
 pub fn graph<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R>) -> std::result::Result<Graph, H::Error> {
     let capacities = tick.on_run(|run| run.config.route_capacities().cloned())?.map_err(H::Error::from)?;
     let router = router(tick, Which::People)?;
     Ok(Graph { router, capacities })
 }
 
-/// What `_apply_effect` reads besides the world, by the action.
+/// What `apply_effect` reads besides the world, by the action.
 fn read_effect<C: WorldCell, H: Host, R: RunCell>(
     tick: &mut Tick<'_, C, H, R>,
     holding: &Holding,
@@ -403,7 +403,7 @@ fn read_again<C: WorldCell, H: Host, R: RunCell, T>(
     Err(error)
 }
 
-/// `_apply_effect`: the target, the next decision, and whether the decision committed.
+/// A proposal's effect: the target, the next decision, and whether the decision committed.
 fn apply_effect<C: WorldCell, H: Host, R: RunCell>(
     tick: &mut Tick<'_, C, H, R>,
     data: &ViewData,
@@ -419,7 +419,7 @@ fn apply_effect<C: WorldCell, H: Host, R: RunCell>(
     apply_alone(tick, Proposal { action, agent_id, next_decision_at: outcome.next_decision_at, target_id, observed_state_hash })
 }
 
-/// `_apply_effect` of one proposal: what the action reads, then its effect (also for the core's
+/// The effect of one proposal: what the action reads, then its effect (also for the core's
 /// tests, Issue #225). A seek's proposal has its observed state hash.
 pub fn apply_alone<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R>, proposal: Proposal) -> std::result::Result<Applied, H::Error> {
     let holding = tick.holding()?;
@@ -443,7 +443,7 @@ pub fn apply_alone<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, 
     proposals::seek_after(tick.cell, tick.host, &inputs, &proposal, sought)
 }
 
-/// `_record_outcome`: the record, then the lifecycle and the memory. The host's own sink
+/// The outcome of a proposal: the record, then the lifecycle and the memory. The host's own sink
 /// (`DecisionSink::Host`) records it (`Host::record_host_decision`, H5), after which the core
 /// runs the same rules.
 fn record_outcome<C: WorldCell, H: Host, R: RunCell>(

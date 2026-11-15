@@ -686,7 +686,7 @@ impl RunWriter {
         self.inner.turns(&[turn]).map_err(js_error)
     }
 
-    /// The kind of the item to write next ("line" for a line without a piece, "copy:<kind>" for a
+    /// The kind of the item to write next (`"line"` for a line without a piece, `"copy:<kind>"` for a
     /// piece whose compressed bytes are copied), or undefined when everything is written.
     #[wasm_bindgen(js_name = nextKind)]
     pub fn next_kind(&self) -> Option<String> {

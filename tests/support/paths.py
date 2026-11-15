@@ -21,13 +21,10 @@ GATE_ALL_PATHS = FIXTURES / "gate-all-paths.json"
 SOURCE_MANIFEST = FIXTURES / "source-manifest.json"
 AGENTS_INITIAL = FIXTURES / "agents_initial.json"
 PROFILES_SMALL = FIXTURES / "profiles_small.json"
-# A Run saved before Checkpoints recorded the whole-model version (engine version 1).
 BENCHMARKS = FIXTURES.parent / "benchmarks"
-# The fixtures of the core's tests without Python (native/core/tests/, #152, #225), which
-# support/core_fixtures.py writes.
+# The fixtures of the core's tests (native/core/tests/, #152, #225); support/core_fixtures.py
+# lists those that are written again.
 CORE_TEST_DATA = FIXTURES.parent / "native" / "core" / "tests" / "data"
-# What a new Run's records read of the installed code (native/core/src/initial/, #301, #429),
-# which support/core_initial.py writes.
-# The Scenarios the core's minute-0 builder is checked on (#429), which
-# benchmarks/initial_corpus.py records.
+# The Scenarios the core's minute-0 builder is checked on (#429), recorded before #430
+# (support/initial_corpus.py).
 INITIAL_CORPUS = FIXTURES / "initial_corpus.json.xz"

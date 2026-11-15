@@ -23,7 +23,7 @@ use crate::host::Host;
 use crate::row::ValueRow;
 use crate::rules::kit::{self, Events, Held, Kept};
 use crate::rules::population_lifecycle::{self as lifecycle, KEY as LIFECYCLE};
-use crate::rules::travel::{self, PlannedTrip, Walking};
+use crate::rules::travel::{self, PlannedTrip, RoomApproach, Walking};
 use crate::rules::{facility_queues, movement, service};
 use crate::state::movement::MovementRow;
 use crate::state::resource_service::RequestRecord;
@@ -585,7 +585,7 @@ pub enum Approach {
 
 /// The approach of `_after_arrival`. `has_geometry` is `"facility_geometry" in model_configs`;
 /// `reserved` the sequences the caller's writer reserved.
-#[allow(clippy::too_many_arguments)]
+/// `approach` starts from the arrival's destination.
 pub fn arrival_approach(
     world: &World,
     walking: Walking<'_>,
@@ -593,11 +593,9 @@ pub fn arrival_approach(
     queues: &Held,
     has_geometry: bool,
     reserved: usize,
-    agent_id: &Arc<str>,
-    purpose: &str,
-    facility_id: &Arc<str>,
-    destination: &Arc<str>,
+    approach: RoomApproach<'_>,
 ) -> Result<Approach> {
+    let RoomApproach { agent_id, facility_id, .. } = approach;
     let independent = facility_queues::queues(world, queues)?.is_some_and(|row| facility_queues::has_independent(&row, facility_id));
     if !has_geometry || independent {
         return Ok(Approach::Request);
@@ -611,7 +609,7 @@ pub fn arrival_approach(
     let events = Events::of(world)?;
     events.reserve(reserved);
     let minute = world.minute_index()?;
-    match travel::plan_room_approach(world, &events, walking, agent_id, facility_id, purpose, route, &points, minute, destination)? {
+    match travel::plan_room_approach(world, &events, walking, approach, route, &points, minute)? {
         Some(trip) => Ok(Approach::Travel(trip)),
         None => Ok(Approach::Reject),
     }
@@ -846,7 +844,17 @@ pub fn arrive<C: WorldCell, H: Host, M: Managers<H>>(
         let (agent, facility, destination): (Arc<str>, Arc<str>, Arc<str>) =
             (Arc::from(arrival.agent_id), Arc::from(arrival.facility_id), Arc::from(arrival.destination));
         let walking = Walking { movement: &moving, geo: plan.as_ref().ok() };
-        let approach = cell.with(|world| arrival_approach(world, walking, &section, &queues, true, 0, &agent, arrival.purpose, &facility, &destination))?;
+        let approach = cell.with(|world| {
+            arrival_approach(
+                world,
+                walking,
+                &section,
+                &queues,
+                true,
+                0,
+                RoomApproach { agent_id: &agent, facility_id: &facility, purpose: arrival.purpose, origin_zone_id: &destination },
+            )
+        })?;
         let approach = match (approach, plan) {
             (Err(Error::Unsupported(reason)), Err(read)) if reason == crate::rules::overlay::PLAN_UNREAD => return Err(read),
             (Err(error), _) => return Ok(Err(error.into())),

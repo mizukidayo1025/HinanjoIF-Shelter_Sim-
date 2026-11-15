@@ -38,13 +38,13 @@ use crate::row::IdMap;
 use crate::rules::facility_queues as fifo;
 use crate::rules::kit::movement::{self as walking, approach_point, is_queue_trip, position_point, queue_slot_in, record, Changes, KINDS};
 use crate::rules::kit::{add_metric, check_metric_state, held_row, mobility_text, same_position, Events, Held};
-use crate::rules::queues::{plan_trip, slot_route, trip_id, write_plan, Fifo, Plan, Route as QueueRoute, BLOCKED_METRIC};
+use crate::rules::queues::{plan_trip, slot_route, trip_id, write_plan, Fifo, Plan, Route as QueueRoute, SlotOf, TripEvent, TripQueue, BLOCKED_METRIC};
 use crate::state::movement::{Journey, MovementRow, Point, Position};
 use crate::state::staff_operations::{Phase, StaffOperationsRow, NAME as STAFF_OPERATIONS};
 use crate::value::V;
 use crate::world::{World, WorldCell};
 
-pub use crate::rules::kit::movement::{EXACT_INT, KEY, POLICY_VERSION};
+pub use crate::rules::kit::movement::{Start, EXACT_INT, KEY, POLICY_VERSION};
 
 /// The key of the overlay in `model_state`.
 pub const OVERLAY_KEY: &str = "geometry_overlay_v1";
@@ -665,12 +665,18 @@ pub struct InOrder<'a> {
     pub metric_state_held: bool,
 }
 
+/// What the queue replans of the second walk read: the scene, what the walk in order takes, and
+/// the event log.
+#[derive(Clone, Copy)]
+struct Replanning<'a> {
+    scene: &'a Scene<'a>,
+    in_order: &'a InOrder<'a>,
+    events: &'a Events<'a>,
+}
+
 /// `facility_queue_slot_route` or `facility_approach_route`, then what the Python rule makes of it.
-#[allow(clippy::too_many_arguments)]
 fn plan_queue_replan(
-    scene: &Scene<'_>,
-    events: &Events<'_>,
-    in_order: &InOrder<'_>,
+    replanning: Replanning<'_>,
     view: &MovementRow,
     agent_id: &Arc<str>,
     journey: &Journey,
@@ -678,6 +684,7 @@ fn plan_queue_replan(
     sequence: i64,
     changes: &mut Changes,
 ) -> Result<QueueReplan> {
+    let Replanning { scene, in_order, events } = replanning;
     let rows = scene.rows;
     let found = |end| QueueReplan { event_id: journey.event_id.clone(), facility_id: journey.facility_id.clone(), end };
     changes.gone_journeys.push(agent_id.clone());
@@ -695,7 +702,7 @@ fn plan_queue_replan(
     };
     let model = in_order.model;
     let route = if position_trip {
-        slot_route(scene.geo, view, rows, model, agent_id, facility, facility_id, fifo.as_ref())?
+        slot_route(scene.geo, view, rows, model, SlotOf { agent_id, facility, facility_id, fifo: fifo.as_ref() })?
     } else if scene.geo.layout.is_none() {
         Some((0, Arc::from(Vec::new())))
     } else {
@@ -724,7 +731,15 @@ fn plan_queue_replan(
     let phase = if position_trip { "position" } else { "service" };
     let trip = QueueRoute { agent_id: agent_id.clone(), index, minutes, path };
     let taken = events.is_taken(&trip_id(sequence), Some(sequence))?;
-    let mut plan = plan_trip(events.duration(), taken, view, rows, facility_id, resource, trip, minute, phase, fifo.as_ref(), sequence)?;
+    let mut plan = plan_trip(
+        view,
+        rows,
+        TripQueue { facility_id, resource, fifo: fifo.as_ref() },
+        trip,
+        minute,
+        phase,
+        TripEvent { sequence, taken, duration: events.duration() },
+    )?;
     changes.absorb(plan.take_changes());
     Ok(found(if matches!(plan, Plan::Blocked) { QueueReplanEnd::PastTheEnd } else { QueueReplanEnd::Trip(plan) }))
 }
@@ -793,7 +808,7 @@ fn plan_walk(
                     return unsupported("two journeys name one event");
                 }
                 seen_events.push(&journey.event_id);
-                let replan = plan_queue_replan(scene, events, in_order, view, agent_id, journey, minute, next_sequence, &mut changes)?;
+                let replan = plan_queue_replan(Replanning { scene, in_order, events }, view, agent_id, journey, minute, next_sequence, &mut changes)?;
                 next_sequence += i64::from(matches!(replan.end, QueueReplanEnd::Trip(_)));
                 plan.queue_replans.push(replan);
             }
@@ -930,40 +945,18 @@ fn write_queue_replan(world: &World, replan: QueueReplan) -> WriteResult<()> {
 // ---- start_movement, finish_movement -----------------------------------------------------------
 
 /// What `start_movement` writes, changing nothing.
-#[allow(clippy::too_many_arguments)]
-pub fn plan_start(
-    scene: &Scene<'_>,
-    row: &MovementRow,
-    agent_id: &Arc<str>,
-    journey: Journey,
-    origin: &Arc<str>,
-    points: &[Pt],
-    edge_ids: &[Arc<str>],
-    started: i64,
-    duration: i64,
-) -> Result<Changes> {
+pub fn plan_start(scene: &Scene<'_>, row: &MovementRow, start: Start<'_>) -> Result<Changes> {
     // The point of a journey without the points of a path, which the scene reads.
-    let off_path = if points.is_empty() {
-        let (elapsed, initial_progress) = walking::start_progress(row, started, duration);
-        match edge_ids.first() {
-            Some(edge) => scene.route_point(edge, if elapsed { initial_progress } else { 0.0 }, origin)?,
-            None => scene.geo.center(origin)?,
+    let off_path = if start.points.is_empty() {
+        let (elapsed, initial_progress) = walking::start_progress(row, start.started, start.duration);
+        match start.edge_ids.first() {
+            Some(edge) => scene.route_point(edge, if elapsed { initial_progress } else { 0.0 }, start.origin)?,
+            None => scene.geo.center(start.origin)?,
         }
     } else {
         None
     };
-    walking::plan_start(row, scene.rows, agent_id, journey, origin, points, edge_ids, started, duration, off_path)
-}
-
-/// A journey to start: what `start_movement` and the trips of `travel.rs` give.
-pub struct Start<'a> {
-    pub agent_id: &'a Arc<str>,
-    pub journey: Journey,
-    pub origin: &'a Arc<str>,
-    pub points: &'a [Pt],
-    pub edge_ids: &'a [Arc<str>],
-    pub started: i64,
-    pub duration: i64,
+    walking::plan_start(row, scene.rows, start, off_path)
 }
 
 /// `plan_start` on the world's rows, while the world holds `movement_v1`.
@@ -971,8 +964,7 @@ pub fn plan_start_in(world: &World, geo: &Geo, start: Start<'_>) -> Result<Chang
     let row = world.row::<MovementRow>(KEY)?;
     let rows = world.rows()?;
     let scene = Scene::new(world, geo, &rows);
-    let Start { agent_id, journey, origin, points, edge_ids, started, duration } = start;
-    plan_start(&scene, &row, agent_id, journey, origin, points, edge_ids, started, duration)
+    plan_start(&scene, &row, start)
 }
 
 /// `start_movement`, while the world holds `movement_v1`.
@@ -1161,7 +1153,6 @@ pub fn near_point(world: &World, movement: &Held, agent_id: &str, point: Pt) -> 
 
 /// The minutes `route_with_movement_time` gives a route of these zones and edges, under the
 /// movement model, where the configs time routes.
-#[allow(clippy::too_many_arguments)]
 pub fn movement_minutes(world: &World, geo: &Geo, model: &MovementModel, agent_id: &str, zones: &[&str], edges: &[&str], declared: i64) -> Result<i64> {
     let mut wanted: Vec<(&str, i64)> = zones.iter().map(|zone| (*zone, 0)).collect();
     let speed = {

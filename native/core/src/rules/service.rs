@@ -345,22 +345,10 @@ fn operation_payload(warehouse_id: &Arc<str>, resource_id: &Arc<str>, reservatio
 }
 
 /// The record of `record_queue_transition`, changing nothing: `sequence` is the one it will take.
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn transition_row(
-    events: &Events<'_>,
-    request: &QueueRequest,
-    transition: &str,
-    task_id: &str,
-    wait_minutes: Option<i64>,
-    causation_id: Option<&str>,
-    queue_position: Option<i64>,
-    capacity: Option<i64>,
-    sequence: i64,
-    minute: i64,
-) -> Result<EventRow> {
+pub(crate) fn transition_row(events: &Events<'_>, change: &fifo::Transition<'_>, place: fifo::Place, sequence: i64, minute: i64) -> Result<EventRow> {
     let taken = events.is_realized(&fifo::transition_id(sequence), Some(sequence))?;
-    let payload = fifo::transition_payload(taken, request, transition, task_id, wait_minutes, causation_id, queue_position, capacity, sequence, minute)?;
-    fifo::transition_event(payload, causation_id, sequence, minute)
+    let payload = fifo::transition_payload(taken, change, place, sequence, minute)?;
+    fifo::transition_event(payload, change.causation_id, sequence, minute)
 }
 
 /// The request of a task the queues hold, with its place in the list it is not removed from.
@@ -552,6 +540,9 @@ pub struct Serve<'a> {
     pub placement: Option<&'a Geo>,
 }
 
+/// Why an independent queue's head waits: the head's person and the reason.
+pub type HeadWait = (Arc<str>, &'static str);
+
 /// What a pass did.
 #[derive(Debug, PartialEq)]
 pub enum Served {
@@ -559,7 +550,7 @@ pub enum Served {
     Started(Arc<str>, Applied),
     /// Nothing more this pass: the head waits (an independent queue's head says why), or it still
     /// walks to the service point.
-    Stopped(Option<(Arc<str>, &'static str)>),
+    Stopped(Option<HeadWait>),
 }
 
 /// The head of an independent queue, read when a pass starts.
@@ -859,13 +850,14 @@ fn plan_serve(world: &World, manager: &Manager<'_>, serve: &Serve<'_>, pending: 
         Some(head) => {
             let row = transition_row(
                 &events,
-                &head.request,
-                "service_started",
-                &task_id,
-                Some(wait),
-                Some(&completion_id),
-                None,
-                Some(head.point_capacity),
+                &fifo::Transition {
+                    request: &head.request,
+                    transition: "service_started",
+                    task_id: &task_id,
+                    wait_minutes: Some(wait),
+                    causation_id: Some(&completion_id),
+                },
+                fifo::Place { queue_position: None, capacity: Some(head.point_capacity) },
                 audit.sequence + 1,
                 minute,
             )?;
@@ -1208,7 +1200,13 @@ fn plan_complete(world: &World, manager: &Manager<'_>, event: &EventRow) -> Resu
             };
             let wait = task_start.checked_sub(request.requested_minute).ok_or_else(|| Error::unsupported("a wait out of range"))?;
             let capacity = point_of(manager.geo, &request.queue_id).map(|point| point.service_capacity);
-            let row = transition_row(&events, &request, "completed", task_id, Some(wait), Some(&event_id), position, capacity, audit.sequence + 1, minute)?;
+            let row = transition_row(
+                &events,
+                &fifo::Transition { request: &request, transition: "completed", task_id, wait_minutes: Some(wait), causation_id: Some(&event_id) },
+                fifo::Place { queue_position: position, capacity },
+                audit.sequence + 1,
+                minute,
+            )?;
             Some((request, row))
         }
         None => None,
@@ -1468,7 +1466,13 @@ pub fn queue_up(world: &World, manager: &Manager<'_>, request: &Request<'_>, pen
                 active_task_id: task_id.clone(),
             };
             let sequence = events.next_sequence()?;
-            Some(transition_row(&events, &request, "queued", &task_id, None, None, Some(queue_position), Some(point.service_capacity), sequence, world_minute)?)
+            Some(transition_row(
+                &events,
+                &fifo::Transition { request: &request, transition: "queued", task_id: &task_id, wait_minutes: None, causation_id: None },
+                fifo::Place { queue_position: Some(queue_position), capacity: Some(point.service_capacity) },
+                sequence,
+                world_minute,
+            )?)
         }
         None => None,
     };
@@ -1486,7 +1490,11 @@ pub fn queue_up(world: &World, manager: &Manager<'_>, request: &Request<'_>, pen
             facility.resource_queue_agent_ids.push(agent_arc.clone());
         }
         if let Some(point) = point {
-            fifo::write_enqueue(world, point, &task_id, &task_id, agent_name, service_kind, world_minute)?;
+            fifo::write_enqueue(
+                world,
+                point,
+                fifo::NewRequest { request_id: &task_id, task_id: &task_id, agent_id: agent_name, service_kind, requested_minute: world_minute },
+            )?;
         }
         {
             let mut rows = world.rows_mut()?;
@@ -1603,8 +1611,10 @@ fn plan_cancel(world: &World, manager: &Manager<'_>, event_id: &Arc<str>, task_i
         NotAResourceFacility,
         NoSlot,
     }
-    #[allow(clippy::type_complexity)]
-    let checked: std::result::Result<(TaskRow, Arc<str>, Option<(&'static str, bool)>), Turned> = {
+    /// The task, its person's ID, and for a service under way its resource and whether its staff
+    /// holds the task alone.
+    type Found = (TaskRow, Arc<str>, Option<(&'static str, bool)>);
+    let checked: std::result::Result<Found, Turned> = {
         let rows = world.rows()?;
         let Some(task) =
             rows.active_tasks.get(task_id).filter(|task| matches!(&*task.kind, "resource_service_queue" | "resource_service_water" | "resource_service_food"))
@@ -1702,7 +1712,13 @@ fn plan_cancel(world: &World, manager: &Manager<'_>, event_id: &Arc<str>, task_i
         Some((request, position)) => {
             let capacity = point_of(manager.geo, &request.queue_id).map(|point| point.service_capacity);
             let transition = if interrupted { "interrupted" } else { "cancelled" };
-            let record = transition_row(&events, &request, transition, task_id, None, Some(event_id), position, capacity, next, minute)?;
+            let record = transition_row(
+                &events,
+                &fifo::Transition { request: &request, transition, task_id, wait_minutes: None, causation_id: Some(event_id) },
+                fifo::Place { queue_position: position, capacity },
+                next,
+                minute,
+            )?;
             next += 1;
             Some((request, record))
         }
@@ -1938,13 +1954,8 @@ pub fn interrupt(world: &mut World, manager: &Manager<'_>, pending: &[Pending], 
             // First in its queue by then.
             let record = transition_row(
                 &events,
-                &request,
-                "requeued",
-                &queue_task_id,
-                None,
-                Some(&cause),
-                Some(1),
-                Some(point.service_capacity),
+                &fifo::Transition { request: &request, transition: "requeued", task_id: &queue_task_id, wait_minutes: None, causation_id: Some(&cause) },
+                fifo::Place { queue_position: Some(1), capacity: Some(point.service_capacity) },
                 sequence + 1 + plan.sequences,
                 minute,
             )?;
@@ -1982,7 +1993,17 @@ pub fn interrupt(world: &mut World, manager: &Manager<'_>, pending: &[Pending], 
         facility.resource_queue_agent_ids.insert(0, agent_id.clone());
     }
     if let (Some(prior), Some((point, record))) = (&prior, &requeue) {
-        fifo::write_enqueue(world, point, &queue_task_id, &queue_task_id, &agent_id, &prior.service_kind, queued_at)?;
+        fifo::write_enqueue(
+            world,
+            point,
+            fifo::NewRequest {
+                request_id: &queue_task_id,
+                task_id: &queue_task_id,
+                agent_id: &agent_id,
+                service_kind: &prior.service_kind,
+                requested_minute: queued_at,
+            },
+        )?;
         fifo::write_to_head(world, &prior.queue_id, &queue_task_id)?;
         fifo::write_transition(&events, record, minute)?;
     }
@@ -2223,15 +2244,17 @@ pub fn failure_of<H: Host>(failure: Failure) -> H::Error {
     }
 }
 
-/// One pass of the loop after the positions (`serve_one`): the started event's ID or None to stop,
-/// and the head's wait.
-#[allow(clippy::type_complexity)]
+/// What one pass of the loop after the positions gives: the started event's ID or None to stop, and
+/// the head's wait.
+type Pass = (Option<Arc<str>>, Option<HeadWait>);
+
+/// One pass of the loop after the positions (`serve_one`).
 fn serve_of<C: WorldCell, H: Host, R: crate::rules::tick::RunCell>(
     tick: &mut crate::rules::tick::Tick<'_, C, H, R>,
     facility_id: &str,
     resource_id: &str,
     queue_id: Option<&str>,
-) -> std::result::Result<(Option<Arc<str>>, Option<(Arc<str>, &'static str)>), H::Error> {
+) -> std::result::Result<Pass, H::Error> {
     let inputs = manager_of(tick)?;
     let minute = tick.minute;
     tick.host.read_queue_rows()?;

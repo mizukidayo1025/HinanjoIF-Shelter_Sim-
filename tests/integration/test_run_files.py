@@ -292,3 +292,50 @@ def test_a_run_computed_with_an_llm_keeps_its_tape_and_a_seek_answers_from_it(tm
     straight.set_llm(link(), limits)
     straight.advance(150)
     assert run.digests_json() == straight.digests_json()
+
+
+def test_a_run_whose_llm_calls_are_accounted_computes_without_waiting_for_its_own_lock(
+    tmp_path, monkeypatch
+):
+    """The server's computation (`worker_process.finish`) of a Run with a Provider (#465): the
+    router behind the core's port reserves each call in the Run's usage ledger, which takes the
+    store's transaction. The chunk's ticks run outside that transaction, so the call does not wait
+    for the lock its own computation holds; the Run completes and its tape holds the calls."""
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "benchmarks"))
+    from gate_scenarios import ScriptedProvider, generated, with_rumors
+
+    from sheltersim.web.stored_runs import minute_zero_entry
+    from sheltersim.web.worker_process import finish
+
+    scenario = with_rumors(generated(evacuees=24, minutes=120, staff_count=1))
+    entry = json.loads(minute_zero_entry(scenario.canonical_json().encode()))
+    for agent in entry["world"]["agents"]:
+        agent["stress"] = 0.9
+    export = json.dumps(entry, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode()
+    store = ProjectStore(tmp_path)
+    files = FILES.ProjectFiles(tmp_path)
+    files.create_project("p")
+    text = json.dumps({"duration_minutes": 120, "id": "s", "seed": 1}).encode()
+    files.save_scenario("p", text, hashlib.sha256(text).hexdigest())
+    files.create_run("p", "r", "s", 1, 1, VERSIONS, b'{"schema_version":1}')
+    with files.claim_branch("p", "r", "main") as lease:
+        files.start_branch(lease, "p", "r", "main", export, save_every=60)
+    llm = {"schema_version": 1, "mode": "record", "execution_purpose": None}
+    store._write(store._path("p", "runs", "r", "llm.json"), llm)
+    monkeypatch.setenv("SHELTERSIM_LLM_MODE", "record")
+    provider = ScriptedProvider()
+    monkeypatch.setattr("sheltersim.llm.provider.AnthropicProvider", lambda _key: provider)
+
+    outcome: list[str] = []
+    lease = files.claim_branch("p", "r", "main")
+    # A daemon thread: on the old code it waits for the lock for ever.
+    worker = threading.Thread(
+        target=lambda: outcome.append(finish(files, lease, "p", "r", "main", 120, lambda: False)),
+        daemon=True,
+    )
+    worker.start()
+    worker.join(timeout=120)
+    assert not worker.is_alive(), "the computation waits for the store's lock it holds"
+    assert outcome == ["completed"]
+    tape = [json.loads(item) for item in files.reader("p", "r", "main").records("llm_tape")]
+    assert any(item["outcome"] == "recorded" for item in tape)

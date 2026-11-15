@@ -616,6 +616,26 @@ impl Computation {
         result
     }
 
+    /// A chunk's ticks without the files (`compute::Computation::advance`): run them outside the
+    /// store's transaction, which the Run's LLM link may take (#465). What the link raised is the
+    /// cause of the error.
+    fn advance(&mut self, py: Python<'_>, ticks: u64) -> PyResult<()> {
+        self.raised.borrow_mut().take();
+        let result = self.get()?.advance(ticks).or_store();
+        if let Err(error) = &result {
+            if let Some(raised) = self.raised.borrow_mut().take() {
+                error.set_cause(py, Some(raised));
+            }
+        }
+        result
+    }
+
+    /// A chunk's files (`compute::Computation::store`), under the store's transaction: the status
+    /// once the computation ends, else None.
+    fn store(&mut self, files: &ProjectFiles) -> PyResult<Option<&'static str>> {
+        self.get()?.store(&files.inner).or_store()
+    }
+
     /// Ends the computation where it got to (a cancel): its status.
     fn stop(&mut self, files: &ProjectFiles) -> PyResult<&'static str> {
         self.get()?.stop(&files.inner).or_store()

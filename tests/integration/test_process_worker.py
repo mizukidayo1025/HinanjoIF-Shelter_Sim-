@@ -169,8 +169,11 @@ def test_two_branches_of_a_run_compute_at_once_and_a_fork_waits_for_its_source(
     api = ProjectAPI(saved_project(tmp_path), recover=False, worker="process", max_jobs=3)
     try:
         _fork(api, "r", "main", "child", 0, add_toilets_program)
-        api.submit("p", "r", "main", 600)
-        api.submit("p", "r", "child", 600)
+        # Each branch is asked for the whole week, far more than this test takes before it
+        # cancels them, so the check does not depend on how fast either computes.
+        duration = _duration(api)
+        api.submit("p", "r", "main", duration)
+        api.submit("p", "r", "child", duration)
         assert len(multiprocessing.active_children()) == 2
         run = _run(api)
         assert run["status"] == "running"
@@ -196,4 +199,4 @@ def test_two_branches_of_a_run_compute_at_once_and_a_fork_waits_for_its_source(
     statuses = {branch["branch_id"]: branch["status"] for branch in run["branches"]}
     assert statuses == {"main": "paused", "child": "paused", "c2": "paused"}
     # Each cancelled branch stopped before its target.
-    assert all(branch["computed_until"] < 600 for branch in run["branches"])
+    assert all(branch["computed_until"] < duration for branch in run["branches"])

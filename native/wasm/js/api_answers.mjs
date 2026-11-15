@@ -34,7 +34,7 @@
 //   digits), and a cursor's minute written as 5.0 is taken as 5.
 
 import { OUTDATED_CODE } from "./run_store.mjs";
-import { ProjectStoreError, branchReader, branchRecord, runScenarioBytes } from "./project_store.mjs";
+import { ProjectStoreError, branchReader, branchRecord, coreRefusal, runScenarioBytes } from "./project_store.mjs";
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -46,6 +46,18 @@ export class ApiError extends Error {
     this.name = "ApiError";
     this.status = status;
     this.code = code;
+  }
+}
+
+/// Runs a call of the core's answers (`sheltersim_core::answers`, #449); a refusal it throws
+/// becomes an `ApiError` with the core's status, text and code.
+export function core(call) {
+  try {
+    return call();
+  } catch (error) {
+    const refusal = coreRefusal(error);
+    if (refusal !== null) throw new ApiError(refusal.status, refusal.error, refusal.code);
+    throw error;
   }
 }
 
@@ -628,31 +640,9 @@ export async function reportResponse({ wasm, tree, projectId, runId, branchId, q
 
 // ---- LLM status -------------------------------------------------------------------------------
 
-/// `summarize_call_outcomes([])`: an offline Run's router holds no records.
-const NO_OUTCOMES = {
-  accepted_count: 0,
-  call_count: 0,
-  fallback_by_error_kind: {},
-  fallback_by_prompt_version: {},
-  fallback_by_reason: {},
-  fallback_count: 0,
-  first_fallback_call_index: null,
-  offline_rule_count: 0,
-  status: "not_requested",
-  summary_schema_version: 1,
-};
-
-/// `GET …/branches/{branchId}/llm-status`: an offline Run's answer.
-export async function llmStatusResponse({ tree, projectId, runId, branchId, query = "" }) {
-  noQuery(query);
-  const record = await branchRecord(tree, projectId, runId, branchId);
-  return sortedJson({
-    schema_version: 1,
-    branch_id: branchId,
-    checkpoint_hash: record.checkpoint_hash,
-    computed_until: record.computed_until,
-    mode: "offline",
-    outcomes: NO_OUTCOMES,
-    record_scope: "router records in the branch head checkpoint; a child branch includes the parent's records before its fork",
-  });
+/// `GET …/branches/{branchId}/llm-status`: an offline Run's answer (the core's `llm_status_answer`).
+export async function llmStatusResponse({ wasm, tree, projectId, runId, branchId, query = "" }) {
+  const named = [projectId, runId, branchId].every((id) => wasm.isArtifactId(id));
+  const record = named ? ((await tree.read([projectId, "runs", runId, "branches", branchId, "branch.json"])) ?? undefined) : undefined;
+  return core(() => wasm.llmStatusAnswer(typeof query === "string" ? query : String(query), projectId, runId, branchId, record));
 }

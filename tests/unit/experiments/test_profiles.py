@@ -6,9 +6,9 @@ import json
 from pathlib import Path
 
 import pytest
+import sheltersim_native
 from support.paths import AGENTS_INITIAL, PROFILES_SMALL, SCENARIO_100_AGENTS
 
-from sheltersim.core.world import WorldState
 from sheltersim.domain.models import Mobility
 from sheltersim.experiments.profiles import (
     GeneratedProfileSet,
@@ -143,12 +143,13 @@ def test_generated_profiles_can_replace_scenario_profiles_with_embedded_manifest
     assert prepared.provenance["profile_generation"]["seed"] == scenario.seed
     assert prepared.profiles[0].initial_zone_id in {zone.id for zone in scenario.zones}
     assert len(scenario.profiles) == 100
-    world = WorldState.from_scenario(prepared)
+    entry = json.loads(sheltersim_native.initial_entry(prepared.canonical_json().encode()))
+    agents = {row["profile"]["id"]: row for row in entry["world"]["agents"]}
     for profile in prepared.profiles:
-        state = world.agents[profile.id]
-        assert state.needs.toilet_urgency == profile.initial_needs.toilet_urgency
-        assert state.needs.hunger == profile.initial_needs.hunger
-        assert state.needs.fatigue == profile.initial_needs.fatigue
+        needs = agents[profile.id]["needs"]
+        assert needs["toilet_urgency"] == profile.initial_needs.toilet_urgency
+        assert needs["hunger"] == profile.initial_needs.hunger
+        assert needs["fatigue"] == profile.initial_needs.fatigue
 
 
 def test_profile_preview_and_save_include_every_agent_and_manifest(tmp_path: Path) -> None:

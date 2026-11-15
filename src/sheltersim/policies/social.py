@@ -17,7 +17,6 @@ from typing import Any, Mapping
 _SOURCE_ID = "ASM-SOCIAL-PROPAGATION-V1"
 _BOSSE_SOURCE_ID = "ASM-BOSSE-AFFECT-CONTAGION-V1"
 _DEGROOT_SOURCE_ID = "ASM-DEGROOT-CONTACT-V1"
-SOCIAL_RUNTIME_STATE_KEY = "social_propagation_v1"
 
 
 @dataclass(frozen=True)
@@ -150,34 +149,3 @@ class SocialPropagationParameters:
                 "calibrated or validated for real populations."
             ),
         }
-
-
-class StressPropagationPolicy:
-    """Sample a bounded sparse contact graph and propose explainable stress changes.
-
-    Each person meets at most `max_contacts_per_agent` others a minute, drawn by `CounterRNG`
-    from household, zone and neighboring zones. A contact that has lasted
-    `minimum_contact_minutes` raises the recipient's stress by the positive difference times
-    `stress_spread_per_minute` and its minutes, within the pair and the person's caps and outside
-    the person's cooldown; every stress also recovers by `natural_recovery_per_minute`.
-    """
-
-    policy_version = "sparse-family-zone-contact-v1"
-
-    def __init__(self, parameters: SocialPropagationParameters | None = None) -> None:
-        self.parameters = parameters or SocialPropagationParameters()
-
-
-class ExpressivenessChannelOpennessPolicy(StressPropagationPolicy):
-    """Bosse-inspired bounded affect synchrony over sparse family/zone contacts.
-
-    The cited expressiveness-channel-openness structure motivates the operator. The
-    contact weights and resident sensitivity mapping below remain
-    assumptions of 避難所IF！; this is not a calibrated implementation of the published model.
-
-    The same contacts as StressPropagationPolicy's; a contact's weight is the source's
-    expressiveness times its channel's strength times the recipient's stress sensitivity, and
-    the weighted mean difference moves the stress both ways, capped per pair and per person.
-    """
-
-    policy_version = "expressiveness-channel-openness-v1"

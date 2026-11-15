@@ -40,14 +40,6 @@ def test_a_core_fixture_is_what_its_builder_makes_today(name: str) -> None:
         )
 
 
-def test_the_registered_files_are_the_fixtures_under_the_core_s_data() -> None:
-    """Each registered file exists, and each file of worlds under the data is registered."""
-    data = fixture_path("x").parent
+def test_the_registered_files_are_under_the_core_s_data() -> None:
     for name in FIXTURES:
         assert fixture_path(name).is_file(), name
-    with_worlds = {
-        path.stem
-        for path in data.glob("*.json")
-        if "worlds" in json.loads(path.read_text(encoding="utf-8"))
-    }
-    assert with_worlds <= set(FIXTURES)

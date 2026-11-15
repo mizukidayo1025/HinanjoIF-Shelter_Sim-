@@ -10,99 +10,10 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
-from typing import Any, Protocol
+from typing import Any
 
 from sheltersim.domain.body_state import BODY_SOURCE_ID, canonical_body_config
 from sheltersim.domain.models import validate_unit_interval
-
-
-@dataclass(frozen=True)
-class AgentStateDelta:
-    """Absolute, validated state values computed from one immutable tick view."""
-
-    agent_id: str
-    minute_index: int
-    toilet_urgency: float
-    hunger: float
-    fatigue: float
-    stress: float
-    trust: float
-    hydration_need: float = 0.0
-    sleep_debt_minutes: float | None = None
-    uncertainty: float | None = None
-    reassurance: float | None = None
-    discontent: float | None = None
-    positive_affect: float | None = None
-    negative_affect: float | None = None
-    hygiene_need: float | None = None
-
-    @classmethod
-    def within_bounds(cls, fields: dict[str, Any]) -> AgentStateDelta:
-        """A delta of every field, already checked as __post_init__ does."""
-        delta = object.__new__(cls)
-        object.__setattr__(delta, "__dict__", fields)
-        return delta
-
-    def with_stress(self, stress: float) -> AgentStateDelta:
-        """A copy with another stress, already known to be a float within 0..1."""
-        return AgentStateDelta.within_bounds({**self.__dict__, "stress": stress})
-
-    def __post_init__(self) -> None:
-        if not self.agent_id:
-            raise ValueError("agent_id must be non-empty")
-        if self.minute_index < 0:
-            raise ValueError("minute_index cannot be negative")
-        for name in (
-            "toilet_urgency",
-            "hunger",
-            "fatigue",
-            "stress",
-            "trust",
-            "hydration_need",
-        ):
-            validate_unit_interval(name, getattr(self, name))
-        if self.sleep_debt_minutes is not None and (
-            not isinstance(self.sleep_debt_minutes, (int, float))
-            or isinstance(self.sleep_debt_minutes, bool)
-            or not math.isfinite(self.sleep_debt_minutes)
-            or not 0.0 <= self.sleep_debt_minutes <= 1440.0
-        ):
-            raise ValueError("sleep_debt_minutes must be within 0..1440 minutes")
-        for name in (
-            "uncertainty",
-            "reassurance",
-            "discontent",
-            "positive_affect",
-            "negative_affect",
-            "hygiene_need",
-        ):
-            value = getattr(self, name)
-            if value is not None:
-                validate_unit_interval(name, value)
-
-
-@dataclass(frozen=True)
-class PsychologyUpdateResult:
-    """A minute's deltas, in ID order, and the kernel's rows of each person's contributions.
-
-    `traces` is () when the Run keeps no trace; otherwise native/core/src/rules/trace.rs makes the
-    trace document of its rows (`_record_psychology_trace` of the update phase), whose
-    `policy_version` is the model's. Without a trace `policy_version` keeps its default.
-    """
-
-    deltas: tuple[AgentStateDelta, ...]
-    traces: Any
-    policy_version: str = "causal-stress-v1"
-
-
-class PsychologyPolicy(Protocol):
-    """A model's settings, which the psychology kernel reads; it holds no state of the world."""
-
-    policy_version: str
-
-    source_id: str
-
-    parameters: PsychologyParameters
 
 
 @dataclass(frozen=True)
@@ -225,24 +136,6 @@ class SimplePsychologyPolicy:
             raise ValueError("source_id must be non-empty")
         self.source_id = source_id
         self.include_direct_rest_stress_recovery = include_direct_rest_stress_recovery
-
-
-class MeanRevertingDistressPolicy(SimplePsychologyPolicy):
-    """Continuous-time mean reversion plus a separately checkpointed daily latent state.
-
-    Over the minute, stress S moves toward the person's baseline b at the rate kappa
-    (`natural_recovery_rate_by_agent`, else `natural_recovery_rate_per_minute`): by
-    `(b - S)(1 - exp(-kappa))`, while each contribution of SimplePsychologyPolicy, recovery
-    included, is taken as a constant forcing integrated by `(1 - exp(-kappa)) / kappa` (1 when
-    kappa is 0). The day-scale distress of `psychological_distress_v1` follows the final stress
-    of each minute (`_update_long_term_psychology`).
-    """
-
-    policy_version = "mean-reverting-distress-v1"
-    source_id = "ASM-MEAN-REVERTING-ACUTE-DISTRESS-V1"
-
-    def __init__(self, parameters: PsychologyParameters | None = None) -> None:
-        super().__init__(parameters, source_id=self.source_id)
 
 
 class LifeStatePsychologyPolicy:

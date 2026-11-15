@@ -182,11 +182,11 @@ def _case(name: str, status: int, body: str, heads: dict[str, str]) -> dict[str,
 
 
 def interventions_fixture() -> dict[str, Any]:
-    from sheltersim.core.world_export import export_world
+    import sheltersim_native
+
     from sheltersim.experiments.scenario import ScenarioSpec
     from sheltersim.storage.projects import ProjectStore, canonical, digest
     from sheltersim.web.projects import ProjectAPI
-    from support.core_fixtures import run_world
     from support.generated import _generated_request
 
     sample = runpy.run_path(str(FIXTURES.parent / "scripts" / "build_project_sample.py"))
@@ -358,8 +358,8 @@ def interventions_fixture() -> dict[str, Any]:
         scenario_text = canonical(json.loads(scenario.canonical_json()))
         if digest(json.loads(scenario_text)) != run["scenario_hash"]:
             raise RuntimeError("the Scenario's canonical JSON is not the one its hash is of")
-        world, controller, _ = run_world(scenario)
-        entry = export_world(world, controller)
+        # The world at minute 0 as a Run sets it up: the entry the core builds (#429).
+        entry = json.loads(sheltersim_native.initial_entry(scenario.canonical_json().encode()))
     return {
         "worlds": {"interventions": entry},
         "run": {

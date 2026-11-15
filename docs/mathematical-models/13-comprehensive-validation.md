@@ -1,5 +1,8 @@
 # 13. 包括的検証方法と結果
 
+> `scripts/run_core_model_suite_validation.py` と `scripts/run_core_model_suite_mechanism_probe.py` はPythonの世界を読む道具だったので、Pythonの世界と一緒に#430でなくしました。下の結果は、そのときに記録したものです。
+
+
 ## 結論の範囲
 
 検証はコードと合成Scenarioの内部整合性を対象とする。避難所での実地予測・心理尺度・臨床アウトカムの妥当性は検証していない。合格値を高ストレス率に置かず、入力と状態遷移の因果経路、再現性、bounded state、Traceの説明力で判定する。

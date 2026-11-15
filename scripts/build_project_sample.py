@@ -327,7 +327,6 @@ def write_bundle(projects_dir: Path, path: Path, summary: dict[str, Any]) -> dic
     """Write Project `sample` of projects_dir as one file the browser imports (the browser's
     bundle, `.shelterproj`, #265): the site's example (scripts/build_static_site.py). What
     made it is kept in its manifest's `source`. Returns that `source`."""
-    from sheltersim.core.model_version import ENGINE_VERSION
     from sheltersim.web.stored_runs import project_files
 
     source = {
@@ -336,7 +335,7 @@ def write_bundle(projects_dir: Path, path: Path, summary: dict[str, Any]) -> dic
         "agent_count": summary["agent_count"],
         "duration_minutes": summary["duration_minutes"],
         "seed": summary["scenario"]["seed"],
-        "engine_version": ENGINE_VERSION,
+        "engine_version": summary["branches"][0]["model_versions"]["engine:model"],
         "regional_research": summary["scenario"]["regional_research"],
         "note": NOTE,
     }

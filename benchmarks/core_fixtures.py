@@ -1,9 +1,10 @@
-"""Write the fixtures of the core's tests without Python again (Issue #225).
+"""Write the fixtures of the core's tests that a route of the application still makes (#225, #430).
 
 Each file under `native/core/tests/data/` that `tests/support/core_fixtures.py` registers
-(`FIXTURES`) is written by its builder: worlds the Python side built and the values the native
-path gives on them. `tests/integration/test_core_fixtures.py` checks that each file is what its
-builder makes today; run this after a change that moves them.
+(`FIXTURES`) is written by its builder: the server's answers on the Project routes, and the
+Scenario authoring of Python. `tests/integration/test_core_fixtures.py` checks that each file is
+what its builder makes today; run this after a change that moves them. The other files of the
+data were recorded from the Python side before #430 and nothing writes them again.
 
 Run from the repository root with the native extension built:
     SHELTERSIM_LLM_MODE=offline python benchmarks/core_fixtures.py [name ...]

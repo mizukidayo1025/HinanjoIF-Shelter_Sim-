@@ -21,7 +21,6 @@ os.environ["SHELTERSIM_LLM_MODE"] = "offline"
 os.environ.pop("ANTHROPIC_API_KEY", None)
 
 from sheltersim import native
-from sheltersim.contracts.policies import model_signatures
 from sheltersim.experiments.benchmark import build_benchmark_scenario, environment_manifest
 from sheltersim.experiments.scenario import ScenarioSpec
 from sheltersim.storage.projects import ProjectStore, digest
@@ -112,7 +111,7 @@ def main() -> None:
             event for event in document["scheduled_events"] if event["due_minute"] < args.duration
         ]
         scenario = ScenarioSpec.model_validate(document)
-    environment["model_versions"] = model_signatures(scenario.model_configs)
+    environment["model_versions"] = native.model_versions(scenario)
     (args.output / "scenario.json").write_text(scenario.canonical_json() + "\n")
     totals: dict[str, dict[str, float]] = {}
     progress = []

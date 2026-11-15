@@ -33,7 +33,6 @@ makes today.
 from __future__ import annotations
 
 import contextlib
-import gc
 import hashlib
 import json
 import os
@@ -540,22 +539,10 @@ def _bytes(value: Any) -> bytes:
 
 
 def _export_bytes(scenario: Any) -> bytes:
-    """The minute-0 world as Python exports it (`export_world` of the world and its controller)."""
-    from sheltersim.core.world_export import export_world
-    from support.core_fixtures import run_world
+    """The minute-0 world's entry, as the core builds it (#429)."""
+    import sheltersim_native
 
-    with tempfile.TemporaryDirectory(
-        prefix="scenario-corpus-world-", ignore_cleanup_errors=True
-    ) as scratch:
-        previous, tempfile.tempdir = tempfile.tempdir, scratch
-        try:
-            world, controller, engine = run_world(scenario)
-            entry = export_world(world, controller)
-        finally:
-            tempfile.tempdir = previous
-        del world, controller, engine
-        gc.collect()
-    return json.dumps(entry, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode()
+    return bytes(sheltersim_native.initial_entry(scenario.canonical_json().encode()))
 
 
 def _run(api: Any, store: Any, name: str) -> dict[str, Any]:

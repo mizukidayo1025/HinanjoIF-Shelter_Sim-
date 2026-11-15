@@ -206,7 +206,7 @@ LLMは条件設定や介入指示の解釈、結果の分析などに活用し�
 
 | 領域 | 技術 |
 |---|---|
-| シミュレーションエンジン | Python / Rust / 独自数理モデル |
+| シミュレーションエンジン | Rust（PyO3・WASM） / 独自数理モデル |
 | フロントエンド | HTML / CSS / JavaScript / Canvas |
 | バックエンド | Python / ローカルHTTP API / Pydantic |
 | LLM | Anthropic API |
@@ -220,9 +220,9 @@ LLMは条件設定や介入指示の解釈、結果の分析などに活用し�
 
 **関連実装**
 
-- [シミュレーションエンジン](src/sheltersim/core/engine.py)
-- [分岐・比較処理](src/sheltersim/experiments/branch.py)
-- [介入処理](src/sheltersim/events/effects.py)
+- [シミュレーションエンジン（Rustの中核）](native/core/src/plain.rs)
+- [保存したRunと分岐](native/core/src/run_store)
+- [介入処理](native/core/src/program.rs)
 - [LLM連携](docs/llm-integration.md)
 - [テスト・検証](docs/testing.md)
 

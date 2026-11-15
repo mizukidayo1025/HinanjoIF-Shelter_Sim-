@@ -4,20 +4,16 @@ from __future__ import annotations
 
 from typing import Any, Protocol
 
-from sheltersim.core.world import WorldState
-
 
 class FacilityQueuePolicy(Protocol):
     model_id: str
     source_id: str
     formula: str
 
-    def priority(
-        self, world: WorldState, agent_id: str, service: str, wait_minutes: int
-    ) -> float: ...
+    def priority(self, world: Any, agent_id: str, service: str, wait_minutes: int) -> float: ...
 
     def should_abandon(
-        self, world: WorldState, agent_id: str, service: str, wait_minutes: int
+        self, world: Any, agent_id: str, service: str, wait_minutes: int
     ) -> bool: ...
 
     def retry_delay_minutes(self) -> int: ...
@@ -66,14 +62,12 @@ class NeedWeightedPhysicalQueuePolicy:
         ):
             raise ValueError("queue persistence threshold must be normalized to 0..1")
 
-    def priority(self, world: WorldState, agent_id: str, service: str, wait_minutes: int) -> float:
+    def priority(self, world: Any, agent_id: str, service: str, wait_minutes: int) -> float:
         return _service_need(world, agent_id, service) + 0.1 * min(
             1.0, max(0, wait_minutes) / 1440.0
         )
 
-    def should_abandon(
-        self, world: WorldState, agent_id: str, service: str, wait_minutes: int
-    ) -> bool:
+    def should_abandon(self, world: Any, agent_id: str, service: str, wait_minutes: int) -> bool:
         return (
             wait_minutes >= self._wait_limits[service]
             and _service_need(world, agent_id, service) < self._persistence_threshold
@@ -94,13 +88,11 @@ class StrictFIFOQueuePolicy:
         if config is not None and not isinstance(config, dict):
             raise ValueError("facility_queues config must be an object")
 
-    def priority(self, world: WorldState, agent_id: str, service: str, wait_minutes: int) -> float:
+    def priority(self, world: Any, agent_id: str, service: str, wait_minutes: int) -> float:
         del world, agent_id, service, wait_minutes
         return 0.0
 
-    def should_abandon(
-        self, world: WorldState, agent_id: str, service: str, wait_minutes: int
-    ) -> bool:
+    def should_abandon(self, world: Any, agent_id: str, service: str, wait_minutes: int) -> bool:
         del world, agent_id, service, wait_minutes
         return False
 
@@ -123,7 +115,7 @@ def create_queue_policy(configs: dict[str, dict[str, Any]]) -> FacilityQueuePoli
     return StrictFIFOQueuePolicy(raw)
 
 
-def _service_need(world: WorldState, agent_id: str, service: str) -> float:
+def _service_need(world: Any, agent_id: str, service: str) -> float:
     needs = world.agents[agent_id].needs
     value = {
         "toilet": needs.toilet_urgency,

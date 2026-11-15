@@ -37,7 +37,7 @@ def report_api(tmp_path_factory, generated_previews, add_toilets_program, saved_
         try:
             api.submit("p", "r", "main", END)
             api.wait_idle(timeout=120)
-            program = add_toilets_program(2, start_minute=FORK_MINUTE).model_dump(mode="json")
+            program = add_toilets_program(2, start_minute=FORK_MINUTE)
             text = json.dumps(program, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
             api.fork("p", "r", "main", "capacity", FORK_MINUTE, text, digest(program))
             api.submit("p", "r", "capacity", END)

@@ -58,7 +58,7 @@
 
 ## A07 小規模感度分析
 
-`scripts/run_model_sensitivity.py` は、固定済みの100人プロフィールと7日間（10,080分）の Scenario を使い、seed 3・4・5を同じ条件のまま対応付けて比較します。プロフィール生成seedは2026です。各ケースで変えるモデル係数は一つだけで、条件を選んだ後に結果を見て値を調整しません。18 run の実行結果とSHA-256は [`model-sensitivity-a07.json`](model-sensitivity-a07.json) に記録します。
+`scripts/run_model_sensitivity.py` は、固定済みの100人プロフィールと7日間（10,080分）の Scenario を使い、seed 3・4・5を同じ条件のまま対応付けて比較します。プロフィール生成seedは2026です。各ケースで変えるモデル係数は一つだけで、条件を選んだ後に結果を見て値を調整しません。18 run の実行結果とSHA-256は [`model-sensitivity-a07.json`](model-sensitivity-a07.json) に記録しています（Pythonの経路で計算したもの）。#430からは、各runをProjectの道（中核の`PlainRun`と保存したRun）で計算し、指標の記録の最後の行で比べます。計算し直すと、記録した値とは指標の名前と値が変わります。
 
 | ケース | Scenario | 変更する値 | assumption / model version |
 |---|---|---|---|

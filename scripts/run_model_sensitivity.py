@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
-"""Run the bounded A07 paired-seed sensitivity protocol and write its compact report."""
+"""Run the bounded A07 paired-seed sensitivity protocol and write its compact report.
+
+Each input is computed as a Run of a Project in a temporary directory, on the screen's path (the
+core's `PlainRun` into a stored Run, `experiments/project_runs.py`), and compared by the last row of
+its metric record (#430).
+"""
 
 from __future__ import annotations
 
 import argparse
-import csv
 import hashlib
 import json
 from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -13,10 +17,9 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any
 
-from sheltersim.core.engine import TraceLevel
 from sheltersim.domain.models import InformationSpreadConfig
 from sheltersim.experiments.comparison import compare_sensitivity_run_sets
-from sheltersim.experiments.runner import run_scenario
+from sheltersim.experiments.project_runs import compute_run, final_kpis, metrics_of, project_api
 from sheltersim.experiments.scenario import PsychologyModelConfig, ScenarioSpec
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -71,25 +74,6 @@ CASES = (
         variant_value=0.2,
         add_false_rumor=True,
     ),
-)
-
-CORE_METRICS = (
-    "stress_mean",
-    "stress_high_count",
-    "toilet_queue_length",
-    "toilet_wait_mean_minutes",
-    "toilet_wait_max_minutes",
-    "staff_load_ratio",
-    "unresolved_support_request_count",
-)
-OPERATIONAL_METRICS = (
-    "hunger_need_mean",
-    "hydration_need_mean",
-    "water_queue_length",
-    "meal_queue_length",
-    "water_service_wait_mean_minutes",
-    "water_ml_remaining",
-    "food_meal_units_remaining",
 )
 
 
@@ -180,52 +164,13 @@ def _input_hash(scenario: ScenarioSpec, parameter_path: str) -> str:
     return _canonical_hash(document)
 
 
-def _last_csv_row(path: Path) -> dict[str, str]:
-    row = None
-    with path.open(encoding="utf-8", newline="") as stream:
-        for row in csv.DictReader(stream):
-            pass
-    if row is None:
-        raise ValueError(f"run artifact {path} has no metric rows")
-    return row
-
-
-def _numeric_metrics(run_directory: Path) -> dict[str, float]:
-    core = _last_csv_row(run_directory / "metrics.csv")
-    metrics: dict[str, float] = {}
-    for name in CORE_METRICS:
-        if name in core:
-            metrics[name] = float(core[name])
-    operational_path = run_directory / "operational_kpis.csv"
-    if operational_path.exists():
-        operational = _last_csv_row(operational_path)
-        for name in OPERATIONAL_METRICS:
-            if name in operational:
-                metrics[name] = float(operational[name])
-    information_path = run_directory / "information_spread.json"
-    if information_path.exists():
-        summary = json.loads(information_path.read_text(encoding="utf-8"))["summary"]
-        for name in (
-            "agent_message_reach_count",
-            "reach_rate",
-            "correction_count",
-            "correction_rate",
-            "support_requests",
-        ):
-            metrics[f"information_{name}"] = float(summary[name])
-        for name, value in summary["counters"].items():
-            metrics[f"information_counter_{name}"] = float(value)
-    if not metrics:
-        raise ValueError(f"run artifact {run_directory} has no supported sensitivity metrics")
-    return metrics
-
-
 def _run_one(task: dict[str, Any]) -> dict[str, Any]:
     case = SensitivityCase(**task["case"])
     scenario = _build_scenario(case, task["seed"], task["parameter_value"])
-    run_directory = Path(task["run_directory"])
-    run_scenario(scenario, run_directory, trace_level=TraceLevel.OFF)
-    manifest = json.loads((run_directory / "manifest.json").read_text(encoding="utf-8"))
+    run_id = f"{case.case_id}-{task['condition']}-{scenario.seed}"
+    with project_api(Path(task["run_directory"])) as api:
+        branch = compute_run(api, "sensitivity", run_id, scenario, offline=True)
+        metrics = metrics_of(final_kpis(api, "sensitivity", run_id, branch))
     return {
         "case_id": case.case_id,
         "scenario_id": scenario.id,
@@ -233,11 +178,11 @@ def _run_one(task: dict[str, Any]) -> dict[str, Any]:
         "condition": task["condition"],
         "parameter_value": task["parameter_value"],
         "input_hash": _input_hash(scenario, case.parameter_path),
-        "scenario_hash": manifest["scenario_hash"],
+        "scenario_hash": _canonical_hash(json.loads(scenario.canonical_json())),
         "model_config_hash": _canonical_hash(scenario.model_configs),
-        "final_state_hash": manifest["final_state_hash"],
-        "run_id": manifest["run_id"],
-        "metrics": _numeric_metrics(run_directory),
+        "final_state_hash": branch["checkpoint_hash"],
+        "run_id": run_id,
+        "metrics": metrics,
     }
 
 

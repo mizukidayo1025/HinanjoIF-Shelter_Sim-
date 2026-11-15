@@ -2,28 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Protocol
-
-
-class RelationshipFormationPolicy(Protocol):
-    model_id: str
-    source_id: str
-    implementation_version: str
-    formula: str
-
-    def update_trust(
-        self,
-        current: float,
-        *,
-        duration_minutes: float,
-        interaction_scale_minutes: float,
-        prior_contact_count: int,
-        elapsed_minutes: int,
-        trust_gain: float,
-        trust_decay_per_day: float,
-        distance_m: float | None,
-    ) -> float: ...
-
 
 class DistanceDurationRepeatTrustPolicy:
     """Build familiarity from closeness, contact duration, repetition, and elapsed time."""
@@ -96,20 +74,3 @@ class DurationOnlyTrustPolicy:
         baseline = current * (1.0 - decay) + 0.5 * decay
         duration_factor = min(1.0, max(0.0, duration_minutes) / max(1.0, interaction_scale_minutes))
         return min(1.0, max(0.0, baseline + trust_gain * duration_factor))
-
-
-def create_relationship_policy(
-    configs: dict[str, dict[str, object]],
-) -> RelationshipFormationPolicy:
-    """Resolve a registered or suite-selected replacement, or the current proximity model."""
-    from sheltersim.contracts.policies import selected_models
-
-    selection = selected_models(configs).get("relationship")
-    if selection is not None:
-        from sheltersim.policies.registry import create_installed_model
-
-        return create_installed_model("relationship", configs)
-    # Keep the historical duration-only operator active unless a scenario opts in
-    # through the shared registry. This makes the new distance/repeat formula
-    # visible in model_signatures whenever it changes a run.
-    return DurationOnlyTrustPolicy()

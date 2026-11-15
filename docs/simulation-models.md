@@ -4,7 +4,7 @@
 
 engineは整数分の時計を進めます。Scenario stateには合成人物、世帯、Zone、施設、職員、資源、schedule、モデル設定を含みます。engineは期限到来eventと完了処理を実行し、モデル状態を更新し、適格actionを選び、資源・施設制約を検証して、結果のstateとeventを記録します。
 
-WorldStateはRun中の可変stateです。Checkpointは乱数状態、未処理作業、ID採番、metrics、対応runtime記録を含む版管理済みsnapshotです。BranchRuntimeは独立したCheckpointを復元し、親を変更せずに別案を比較します。
+中核の世界（`sheltersim_core::World`）はRun中の可変stateです。保存した点（`SavedPoint`、保存したRunの形v5）は乱数状態、未処理作業、ID採番、metrics、対応runtime記録を含む版管理済みsnapshotです。BranchRuntimeは独立したCheckpointを復元し、親を変更せずに別案を比較します。
 
 ## モデル群
 

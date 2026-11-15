@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import sys
 from typing import Any
 
 from sheltersim.contracts.operations import (
@@ -11,37 +10,23 @@ from sheltersim.contracts.operations import (
     validate_shared_operations_config,
 )
 from sheltersim.contracts.policies import selected_models
-from sheltersim.core.state_mirror import rust_validated
-from sheltersim.core.world import WorldState
 from sheltersim.domain.action_lifecycle import ACTION_LIFECYCLE_POLICY_VERSION
 from sheltersim.domain.agent_dynamics import (
     AGENT_DYNAMICS_STATE_KEY,
     canonical_agent_dynamics_config,
-    create_agent_dynamics_state,
-    validate_agent_dynamics_state,
 )
 from sheltersim.domain.body_state import (
     BODY_POLICY_VERSION,
     BODY_STATE_KEY,
-    create_body_state,
-    validate_body_state,
-)
-from sheltersim.domain.common_operations import (
-    create_shared_operations_state,
-    validate_shared_operations_state,
 )
 from sheltersim.domain.facility_awareness import (
     FACILITY_AWARENESS_POLICY_VERSION,
     canonical_facility_awareness_config,
 )
 from sheltersim.domain.facility_queues import (
-    FACILITY_QUEUES_LEGACY_MODE_KEY,
     FACILITY_QUEUES_POLICY_VERSION,
     FACILITY_QUEUES_STATE_KEY,
-    create_facility_queue_state,
     independent_queues_required,
-    is_legacy_queue_checkpoint,
-    validate_facility_queue_state,
 )
 from sheltersim.domain.geometry_overlay import (
     GEOMETRY_OVERLAY_KEY,
@@ -49,26 +34,18 @@ from sheltersim.domain.geometry_overlay import (
     INSTALLED_FACILITY_PLACEMENT_POLICY_VERSION,
     TEMPORARY_ROOM_BED_POLICY_VERSION,
     TEMPORARY_ROOM_INTAKE_POLICY_VERSION,
-    create_geometry_overlay_state,
-    validate_geometry_overlay_state,
 )
 from sheltersim.domain.movement import (
     MOVEMENT_POLICY_VERSION,
     MOVEMENT_STATE_KEY,
-    create_movement_runtime_state,
-    validate_movement_runtime_state,
 )
 from sheltersim.domain.population import (
     POPULATION_DYNAMICS_POLICY_VERSION,
     POPULATION_DYNAMICS_STATE_KEY,
-    create_population_dynamics_state,
-    validate_population_dynamics_state,
 )
 from sheltersim.domain.population_lifecycle import (
     POPULATION_LIFECYCLE_POLICY_VERSION,
     POPULATION_LIFECYCLE_STATE_KEY,
-    create_population_lifecycle_state,
-    validate_population_lifecycle_state,
 )
 from sheltersim.domain.psychological_state import LIFE_STATE_PSYCHOLOGY_POLICIES
 from sheltersim.domain.social_network import (
@@ -76,29 +53,21 @@ from sheltersim.domain.social_network import (
     SOCIAL_NETWORK_POLICY_VERSION,
     SOCIAL_NETWORK_STATE_KEY,
     canonical_proximity_contact_config,
-    create_social_network_state,
-    validate_social_network_state,
 )
 from sheltersim.domain.staff_dynamics import (
     STAFF_DYNAMICS_POLICY_VERSION,
     STAFF_DYNAMICS_SOURCE_ID,
     STAFF_DYNAMICS_STATE_KEY,
     canonical_staff_dynamics_config,
-    create_staff_dynamics_state,
-    validate_staff_dynamics_state,
 )
 from sheltersim.domain.staff_operations import (
     STAFF_OPERATIONS_POLICY_VERSION,
     STAFF_OPERATIONS_STATE_KEY,
-    create_staff_operations_state,
-    validate_staff_operations_state,
 )
 from sheltersim.domain.temporary_spaces import (
     TEMPORARY_SPACES_POLICY_VERSION,
     TEMPORARY_SPACES_SOURCE_ID,
     TEMPORARY_SPACES_STATE_KEY,
-    create_temporary_spaces_state,
-    validate_temporary_spaces_state,
 )
 
 
@@ -244,133 +213,6 @@ def _simulator_signature(key: str, version: str) -> str:
         )
     state_version = "2" if key == MOVEMENT_STATE_KEY else "1"
     return f"{version}@{implementation_version}:state{state_version}"
-
-
-def initialize_simulator_extensions(world: WorldState) -> None:
-    """Create opt-in runtime namespaces before initial checkpoint capture."""
-    enabled = world.model_configs.get("simulator_extensions", {}).get("enabled", False)
-    body_policy_enabled = (
-        selected_models(world.model_configs)["psychology"] in LIFE_STATE_PSYCHOLOGY_POLICIES
-    )
-    if (
-        not enabled
-        and "facility_geometry" not in world.model_configs
-        and "population" not in world.model_configs
-        and "staff_operations" not in world.model_configs
-        and "staff_dynamics" not in world.model_configs
-        and "shared_operations" not in world.model_configs
-        and "facility_awareness" not in world.model_configs
-        and not body_policy_enabled
-    ):
-        return
-    if "body_dynamics" in world.model_configs and not body_policy_enabled:
-        raise ValueError("body_dynamics config requires a life-state psychology policy")
-    factories = {
-        AGENT_DYNAMICS_STATE_KEY: lambda: create_agent_dynamics_state(world),
-        POPULATION_DYNAMICS_STATE_KEY: lambda: create_population_dynamics_state(world),
-        SOCIAL_NETWORK_STATE_KEY: create_social_network_state,
-        STAFF_DYNAMICS_STATE_KEY: lambda: create_staff_dynamics_state(world),
-    }
-    if "shared_operations" in world.model_configs:
-        validate_shared_operations_config(world.model_configs["shared_operations"])
-        factories[SHARED_OPERATIONS_KEY] = create_shared_operations_state
-    if enabled or "population" in world.model_configs:
-        factories[POPULATION_LIFECYCLE_STATE_KEY] = create_population_lifecycle_state
-        if world.model_configs.get("simulator_extensions", {}).get("enabled", False):
-            factories[TEMPORARY_SPACES_STATE_KEY] = create_temporary_spaces_state
-    if enabled or "staff_operations" in world.model_configs or body_policy_enabled:
-        factories[STAFF_OPERATIONS_STATE_KEY] = lambda: create_staff_operations_state(world)
-    if body_policy_enabled:
-        factories[BODY_STATE_KEY] = lambda: create_body_state(world)
-    if "facility_geometry" in world.model_configs:
-        factories[MOVEMENT_STATE_KEY] = lambda: create_movement_runtime_state(world)
-    if independent_queues_required(world.model_configs) and not is_legacy_queue_checkpoint(world):
-        factories[FACILITY_QUEUES_STATE_KEY] = lambda: create_facility_queue_state(world)
-    if "geometry_overlay" in world.model_configs:
-        factories[GEOMETRY_OVERLAY_KEY] = lambda: create_geometry_overlay_state(world)
-    for key, factory in factories.items():
-        if key not in world.model_state:
-            world.model_state[key] = factory()
-    validate_simulator_extensions(world)
-
-
-def validate_simulator_extensions(
-    world: WorldState,
-    *,
-    validate_event_history: bool = True,
-    history_memo: Any = None,
-) -> None:
-    """Validate each extension independently for checkpoint and restore hooks.
-
-    Per-tick validation passes ``validate_event_history=False``: append-only histories
-    are then checked only for records from the tick that just ended. A save's complete
-    validation passes a history_memo to skip unchanged old entries
-    (core/save_validation.py).
-    """
-    required = {
-        key.removeprefix("simulator:")
-        for key in simulator_signatures(world.model_configs)
-        if key.startswith("simulator:")
-    }
-    if (
-        TEMPORARY_SPACES_STATE_KEY in world.model_state
-        and TEMPORARY_SPACES_STATE_KEY not in required
-    ):
-        raise ValueError("temporary_spaces_v1 requires an enabled, signed state contract")
-    missing = required - set(world.model_state)
-    if is_legacy_queue_checkpoint(world):
-        missing.discard(FACILITY_QUEUES_STATE_KEY)
-    if FACILITY_QUEUES_LEGACY_MODE_KEY in world.model_state and not is_legacy_queue_checkpoint(
-        world
-    ):
-        raise ValueError(
-            "legacy facility queue checkpoint marker is invalid or mixed with new state"
-        )
-    if missing:
-        raise ValueError(f"required simulator state is missing: {sorted(missing)}")
-    if not rust_validated(world, "agent_dynamics_v1"):
-        validate_agent_dynamics_state(world)
-    if not rust_validated(world, "body_state_v1"):
-        validate_body_state(
-            world,
-            validate_event_history=validate_event_history,
-            history_memo=history_memo,
-        )
-    if not rust_validated(world, "population_dynamics_v1"):
-        validate_population_dynamics_state(world)
-    if not rust_validated(world, "population_lifecycle_v1"):
-        validate_population_lifecycle_state(world)
-    if not rust_validated(world, "social_network_v1"):
-        validate_social_network_state(world)
-    if not rust_validated(world, "staff_dynamics_v1"):
-        validate_staff_dynamics_state(world)
-    if not rust_validated(world, "staff_operations_v1"):
-        validate_staff_operations_state(world)
-    if not rust_validated(world, "temporary_spaces_v1"):
-        validate_temporary_spaces_state(world)
-    if not rust_validated(world, "movement_v1"):
-        validate_movement_runtime_state(world)
-    if not rust_validated(world, "geometry_overlay_v1"):
-        validate_geometry_overlay_state(world)
-    if not rust_validated(world, "facility_queues_v1"):
-        validate_facility_queue_state(world)
-    if (
-        SHARED_OPERATIONS_KEY in world.model_state
-        and "shared_operations" not in world.model_configs
-    ):
-        raise ValueError("shared_operations_v1 requires its signed Scenario contract")
-    if not rust_validated(world, SHARED_OPERATIONS_KEY):
-        validate_shared_operations_state(
-            world,
-            validate_event_history=validate_event_history,
-            history_memo=history_memo,
-        )
-
-
-def restore_simulator_extensions(world: WorldState, model_state: dict[str, Any]) -> None:
-    """Restore opaque model namespaces through exact per-extension validators."""
-    world.model_state = model_state
-    validate_simulator_extensions(world)
 
 
 # Where a namespace's past is kept. The history route answers only the KPIs and the
@@ -548,73 +390,3 @@ def simulator_state_catalog() -> dict[str, Any]:
             "external_validation": False,
         },
     }
-
-
-def _install_after_tick_kernel() -> None:
-    """Tell native/core/src/rules/after_tick.rs what the Python check would call, as defined here.
-
-    A patch of one of these, and the python_rules mark, leave a tick to the Python check.
-    """
-    from sheltersim import native
-    from sheltersim.contracts import runtime
-    from sheltersim.core import state_mirror, tick_validation
-    from sheltersim.core import world as world_module
-    from sheltersim.domain import body_state, common_operations
-    from sheltersim.events import effects
-
-    this_module = sys.modules[__name__]
-    watched = [
-        (this_module, name)
-        for name in (
-            "validate_simulator_extensions",
-            "validate_agent_dynamics_state",
-            "validate_body_state",
-            "validate_population_dynamics_state",
-            "validate_population_lifecycle_state",
-            "validate_social_network_state",
-            "validate_staff_dynamics_state",
-            "validate_staff_operations_state",
-            "validate_temporary_spaces_state",
-            "validate_movement_runtime_state",
-            "validate_geometry_overlay_state",
-            "validate_facility_queue_state",
-            "validate_shared_operations_state",
-            "is_legacy_queue_checkpoint",
-        )
-    ]
-    watched += [
-        (world_module, name)
-        for name in (
-            "_entity_rules_kernel",
-            "validate_information_runtime_state",
-            "validate_psychological_state",
-            "validate_operational_events_state",
-            "validate_infrastructure_runtime_state",
-            "validate_zone_environment_runtime_state",
-            "validate_resource_ledger_state",
-        )
-    ]
-    watched += [
-        (WorldState, "validate"),
-        (WorldState, "_validate_entity_rules"),
-        (WorldState, "_validate_event_rules"),
-        (state_mirror, "_RUST_VALIDATORS"),
-        (runtime, "validate_declared_states"),
-        (effects, "validate_effect_program_state"),
-        (tick_validation, "tick_plan"),
-        (tick_validation, "body_config_ids"),
-        (body_state, "_ROWS_VALID"),
-        (body_state, "validate_body_config"),
-        (common_operations, "_TICK_VALID"),
-    ]
-    native.rules("after_tick").install(
-        watched,
-        state_mirror._RUST_VALIDATORS,
-        body_state._ROWS_VALID,
-        common_operations._TICK_VALID,
-        native.rules("effects").validate_state,
-        (tick_validation.tick_plan, tick_validation.body_config_ids),
-    )
-
-
-_install_after_tick_kernel()

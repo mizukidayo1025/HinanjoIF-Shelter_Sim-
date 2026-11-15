@@ -17,7 +17,6 @@ from sheltersim.contracts.extensions import (
     Point2D,
     ServiceAccessConditions,
 )
-from sheltersim.core.state_mirror import read_only_part
 
 
 class Wall(ExtensionModel):
@@ -60,22 +59,6 @@ class SpatialConstraints(ExtensionModel):
     accessible_facility_ids: tuple[Identifier, ...] = ()
 
 
-def service_points_for_scenario(scenario: Any) -> tuple[FacilityServicePoint, ...]:
-    """Resolve explicit v1 service points; preserve the legacy one-queue-per-facility adapter.
-
-    The adapter reuses the same physical target used by legacy movement, retains the
-    Facility ID as FIFO queue ID, and marks access as unknown. It does not infer
-    measured accessibility, throughput, or a facility-specific service time.
-    """
-    raw = scenario.model_configs.get("facility_geometry")
-    if raw is None:
-        return ()
-    geometry = FacilityGeometry.model_validate(raw)
-    if geometry.service_points:
-        return geometry.service_points
-    return legacy_service_points(geometry, scenario.facilities)
-
-
 def legacy_service_points(
     geometry: FacilityGeometry, facilities: Any
 ) -> tuple[FacilityServicePoint, ...]:
@@ -99,41 +82,6 @@ def legacy_service_points(
             )
         )
     return tuple(points)
-
-
-def install_legacy_service_points(scenario: Any) -> Any:
-    """Return a ScenarioSpec copy with stable service-point IDs for a new preview only."""
-    raw = scenario.model_configs.get("facility_geometry")
-    if raw is None:
-        return scenario
-    geometry = FacilityGeometry.model_validate(raw)
-    if geometry.service_points:
-        return scenario
-    points = service_points_for_scenario(scenario)
-    geometry = geometry.model_copy(update={"service_points": points})
-    configs = {**scenario.model_configs, "facility_geometry": geometry.model_dump(mode="json")}
-    return scenario.model_copy(update={"model_configs": configs})
-
-
-class PopulationTransition(ExtensionModel):
-    schema_version: Literal[1] = 1
-    transition_id: Identifier
-    event_id: Identifier
-    agent_id: Identifier
-    household_id: Identifier | None = None
-    minute: int = Field(ge=0)
-    action: Literal[
-        "arrived",
-        "waiting",
-        "admitted",
-        "departed",
-        "temporary_exit",
-        "returned",
-        "transferred",
-        "reunited",
-    ]
-    zone_id: Identifier | None = None
-    source_ids: tuple[Identifier, ...] = ()
 
 
 def validate_spatial_constraints(scenario: Any) -> None:
@@ -195,60 +143,3 @@ def validate_spatial_constraints(scenario: Any) -> None:
         raise ValueError("planning capacities must be nonnegative integers")
     if not set(spec.accessible_facility_ids) <= {f.id for f in scenario.facilities}:
         raise ValueError("accessibility references unknown facility")
-
-
-def occupancy_snapshot(world: Any) -> dict[str, Any]:
-    from sheltersim.domain.temporary_spaces import capacity_metrics
-
-    planning = world.model_configs.get("spatial_constraints", {}).get(
-        "planning_capacity_by_zone", {}
-    )
-    counts = {key: 0 for key in world.zones}
-    for person in world.agents.values():
-        counts[person.zone_id] += 1
-    pending = read_only_part(world, "population_dynamics_v1", "pending_arrivals", [])
-    zones = []
-    for zone_id, zone in sorted(world.zones.items()):
-        capacity = capacity_metrics(world, zone_id, occupancy=counts[zone_id])
-        planning_capacity = planning.get(zone_id, zone.capacity)
-        zones.append(
-            {
-                "zone_id": zone_id,
-                "occupants": counts[zone_id],
-                "hard_capacity": zone.capacity,
-                "nominal_capacity": capacity["nominal_capacity"],
-                "effective_capacity": capacity["effective_capacity"],
-                "temporary_people_capacity": capacity["temporary_people_capacity"],
-                "retained_expired_capacity": capacity["retained_expired_capacity"],
-                "temporary_sleeping_capacity": capacity["temporary_sleeping_capacity"],
-                "physical_room_capacity": capacity["physical_room_capacity"],
-                "active_room_admissions": capacity["active_room_admissions"],
-                "retained_expired_room_admissions": capacity["retained_expired_room_admissions"],
-                "effective_total_capacity": capacity["effective_total_capacity"],
-                "occupied_above_nominal": (
-                    max(0, counts[zone_id] - zone.capacity) if zone.capacity is not None else 0
-                ),
-                "planning_capacity": planning_capacity,
-                "planning_excess": (
-                    max(0, counts[zone_id] - planning_capacity)
-                    if planning_capacity is not None
-                    else None
-                ),
-                "geometry_status": (
-                    "physical_room_and_zone_capacity"
-                    if capacity["physical_room_capacity"]
-                    else "zone_only_capacity"
-                    if capacity["temporary_people_capacity"]
-                    or capacity["retained_expired_capacity"]
-                    else "no_temporary_space"
-                ),
-            }
-        )
-    return {
-        "schema_version": 2,
-        "minute": world.minute_index,
-        "time_semantics": "before_tick",
-        "admitted_count": len(world.agents),
-        "waiting_outside_count": len(pending),
-        "zones": zones,
-    }

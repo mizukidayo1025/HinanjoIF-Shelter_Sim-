@@ -3,38 +3,15 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from typing import Any
 
 from sheltersim.contracts.policies import (
     MODEL_DEFINITIONS,
     model_catalog,
-    model_signatures,
     selected_models,
 )
-from sheltersim.domain.models import InformationSpreadConfig
 from sheltersim.domain.psychological_state import INTEGRATED_PSYCHOLOGY_POLICY_VERSION
-from sheltersim.experiments.scenario import PsychologyModelConfig
-from sheltersim.policies.alternatives import (
-    BoundedStressPolicy,
-    DeGrootContactPolicy,
-    HazardInformationPolicy,
-)
-from sheltersim.policies.behavior import BehaviorPolicy, create_behavior_policy
-from sheltersim.policies.information import EvidenceAwareInformationPolicy, InformationSpreadPolicy
-from sheltersim.policies.psychology import (
-    IntegratedDistressLifeStatePolicy,
-    LifeStatePsychologyPolicy,
-    MeanRevertingDistressPolicy,
-    PsychologyParameters,
-    PsychologyPolicy,
-    SimplePsychologyPolicy,
-)
-from sheltersim.policies.social import (
-    ExpressivenessChannelOpennessPolicy,
-    SocialPropagationParameters,
-    StressPropagationPolicy,
-)
 
 # Installed factories only. There is no scenario-supplied import or eval path.
 _INSTALLED_FACTORIES: dict[tuple[str, str], Callable[..., Any]] = {}
@@ -413,163 +390,6 @@ def create_installed_model(domain: str, configs: dict[str, dict[str, Any]], **kw
     return factory(configs=configs, **kwargs)
 
 
-def create_body_dynamics_formula(configs: dict[str, dict[str, Any]]) -> BodyDynamicsFormula:
-    """Create the selected body formula, retaining the historical full-feedback default."""
-    selected = selected_models(configs).get("body_dynamics", "body-feedback-complete-v1")
-    return _INSTALLED_FACTORIES[("body_dynamics", selected)](configs=configs)
-
-
-def create_care_outcome_formula(
-    configs: dict[str, dict[str, Any]],
-) -> CareOutcomeFormula | None:
-    """Create a selected care-response formula or retain the legacy fixed path."""
-    selected = selected_models(configs).get("care_outcome")
-    if selected is None:
-        return None
-    return _INSTALLED_FACTORIES[("care_outcome", selected)](configs=configs)
-
-
-def create_staff_operations_formula(
-    configs: dict[str, dict[str, Any]],
-) -> StaffOperationsFormula:
-    """Create the selected routed staff-task ranking rule."""
-    selected = configs.get("policy_registry", {}).get("staff_operations", "staff-urgency-first-v1")
-    return _INSTALLED_FACTORIES[("staff_operations", selected)](configs=configs)
-
-
-def create_staff_fatigue_formula(
-    configs: dict[str, dict[str, Any]],
-) -> StaffFatigueFormula:
-    """Create the selected staff duty-fatigue equation."""
-    selected = configs.get("policy_registry", {}).get("staff_fatigue", "staff-fatigue-linear-v1")
-    return _INSTALLED_FACTORIES[("staff_fatigue", selected)](configs=configs)
-
-
-def create_zone_environment_formula(
-    configs: dict[str, dict[str, Any]],
-) -> ZoneEnvironmentFormula:
-    """Create the selected temperature exposure calculation."""
-    selected = configs.get("policy_registry", {}).get(
-        "zone_environment", "zone-temperature-comfort-band-v1"
-    )
-    return _INSTALLED_FACTORIES[("zone_environment", selected)](configs=configs)
-
-
-def create_zone_rest_formula(configs: dict[str, dict[str, Any]]) -> ZoneEnvironmentFormula:
-    selected = configs.get("policy_registry", {}).get("zone_rest", "zone-rest-multiplicative-v1")
-    return _INSTALLED_FACTORIES[("zone_rest", selected)](configs=configs)
-
-
-def create_zone_hygiene_formula(configs: dict[str, dict[str, Any]]) -> ZoneEnvironmentFormula:
-    selected = configs.get("policy_registry", {}).get("zone_hygiene", "zone-hygiene-linear-v1")
-    return _INSTALLED_FACTORIES[("zone_hygiene", selected)](configs=configs)
-
-
-def create_zone_privacy_formula(configs: dict[str, dict[str, Any]]) -> ZoneEnvironmentFormula:
-    selected = configs.get("policy_registry", {}).get("zone_privacy", "zone-privacy-threshold-v1")
-    return _INSTALLED_FACTORIES[("zone_privacy", selected)](configs=configs)
-
-
-def create_behavior(configs: dict[str, dict[str, Any]], **parameters: Any) -> BehaviorPolicy:
-    if ("behavior", selected_models(configs)["behavior"]) in _INSTALLED_FACTORIES:
-        return create_installed_model("behavior", configs, **parameters)
-    return create_behavior_policy(selected_models(configs)["behavior"], **parameters)
-
-
-def create_psychology(
-    configs: dict[str, dict[str, Any]], *, resource_service_enabled: bool = False
-) -> PsychologyPolicy:
-    selected = selected_models(configs)["psychology"]
-    if ("psychology", selected) in _INSTALLED_FACTORIES:
-        return create_installed_model(
-            "psychology", configs, resource_service_enabled=resource_service_enabled
-        )
-    config = PsychologyModelConfig.model_validate(configs.get("psychology", {}))
-    values = config.coefficient_values()
-    if resource_service_enabled:
-        values["hydration_growth"] = configs["resource_service"].get(
-            "hydration_growth_per_minute", 0.0
-        )
-    parameters = PsychologyParameters(**values)
-    if selected == "mean-reverting-distress-v1":
-        return MeanRevertingDistressPolicy(parameters)
-    if selected == INTEGRATED_PSYCHOLOGY_POLICY_VERSION:
-        return IntegratedDistressLifeStatePolicy(
-            parameters,
-            body_config=configs.get("body_dynamics"),
-            body_formula=create_body_dynamics_formula(configs),
-        )
-    if selected == "life-state-feedback-v1":
-        return LifeStatePsychologyPolicy(
-            parameters,
-            body_config=configs.get("body_dynamics"),
-            body_formula=create_body_dynamics_formula(configs),
-        )
-    factory = {
-        "causal-stress-v1": SimplePsychologyPolicy,
-        "bounded-stress-v1": BoundedStressPolicy,
-    }[selected]
-    return factory(
-        parameters,
-        source_id=config.source_id if selected == "causal-stress-v1" else "ASM-BOUNDED-STRESS-V1",
-    )
-
-
-def create_social(configs: dict[str, dict[str, Any]]) -> StressPropagationPolicy:
-    selected = selected_models(configs)["social"]
-    if ("social", selected) in _INSTALLED_FACTORIES:
-        return create_installed_model("social", configs)
-    factories = {
-        "sparse-family-zone-contact-v1": StressPropagationPolicy,
-        "degroot-contact-v1": DeGrootContactPolicy,
-        "expressiveness-channel-openness-v1": ExpressivenessChannelOpennessPolicy,
-    }
-    expected_source = MODEL_DEFINITIONS[selected]["assumption_source_id"]
-    parameters = SocialPropagationParameters.from_mapping(
-        configs.get("social_propagation"), source_id=expected_source
-    )
-    if selected_models(configs)["psychology"] in {
-        "mean-reverting-distress-v1",
-        INTEGRATED_PSYCHOLOGY_POLICY_VERSION,
-    }:
-        parameters = replace(parameters, natural_recovery_per_minute=0.0)
-    return factories[selected](parameters)
-
-
-def create_information(configs: dict[str, dict[str, Any]]) -> InformationSpreadPolicy | None:
-    selected = selected_models(configs)["information"]
-    if ("information", selected) in _INSTALLED_FACTORIES:
-        return create_installed_model("information", configs)
-    config = InformationSpreadConfig.from_mapping(configs.get("information_spread"))
-    if not config.enabled:
-        return None
-    factory = {
-        "sparse-information-contact-v1": InformationSpreadPolicy,
-        "hazard-information-v1": HazardInformationPolicy,
-        "evidence-aware-rumor-v1": EvidenceAwareInformationPolicy,
-    }[selected]
-    return factory(config)
-
-
-def create_affect(configs: dict[str, dict[str, Any]]) -> Any:
-    """Resolve the allowlisted affect operator selected in body_dynamics config."""
-    from sheltersim.domain.body_state import canonical_body_config
-    from sheltersim.policies.affect import create_affect_policy
-
-    selected = selected_models(configs).get("affect")
-    if selected is not None:
-        return create_affect_policy(selected)
-    config = canonical_body_config(configs.get("body_dynamics"))
-    return create_affect_policy(config["affect_policy"])
-
-
-def agents_social_model_catalog() -> dict[str, dict[str, Any]]:
-    """Catalog formulas added by the autonomous agent/social model package."""
-    from sheltersim.policies.agents_social_manifest import agents_social_model_catalog as catalog
-
-    return catalog()
-
-
 def register_agents_social_policies() -> None:
     """Install agent/social formulas in the shared registry during explicit app bootstrap.
 
@@ -853,13 +673,6 @@ def register_agents_social_policies() -> None:
 
 
 __all__ = [
-    "agents_social_model_catalog",
-    "create_affect",
     "register_agents_social_policies",
-    "create_behavior",
-    "create_psychology",
-    "create_social",
-    "create_information",
     "model_catalog",
-    "model_signatures",
 ]

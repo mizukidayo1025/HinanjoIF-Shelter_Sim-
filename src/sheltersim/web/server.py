@@ -68,9 +68,9 @@ def serve_inspector(
         projects.close()
 
 
-# The screen is at / (#376). Its earlier address /demo-v2 and the older screens' paths (removed
-# in #376) go to it with the query kept, as the VM's Caddy does (deploy/vm/setup.sh).
-_REDIRECTS = frozenset({"/demo-v2", "/demo", "/admin", "/index.html"})
+# The screen is at / (#376); /index.html goes to it with the query kept. The earlier paths
+# (/demo-v2, /demo, /admin) are not redirected: no one expects the older versions (#434).
+_REDIRECTS = frozenset({"/index.html"})
 
 # The files of the screen, by the path they are served at.
 _STATIC_FILES = {

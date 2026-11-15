@@ -132,7 +132,7 @@ python benchmarks/wasm_trial_measure.py --bundle sample.shelterproj --pkg wasm-w
 
 ### ブラウザー版のAPI（#266）
 
-ブラウザー版では、画面（`/demo-v2`、`demo-v2*.js`）を変えずに、同じAPIにページの中で答えます（#263）。ブラウザー版の`demo-v2.html`は、画面のscriptより先に`native/wasm/js/api_fetch.js`を読みます。このscriptは`window.fetch`を包み、そのサイトの`/api/v1/...`への要求（画面の`api()`とPDFの`fetch`）を専用のWorker（`native/wasm/js/api_worker.mjs`）へ渡します。ほかの要求は元の`fetch`へ渡します。Workerは、サイト専用の保存（OPFSの`projects/`）とWASMから、Pythonのserverと同じstatusとJSON（誤りは`{"error", "code"}`）で答えます（`native/wasm/js/browser_api.mjs`）。要求と計算のひと区切り（下）は1つずつ順に行い、どれもWeb Lock（`sheltersim-browser-store`）の中で行うので、2つのタブが同じファイルを同時に開くことはありません。
+ブラウザー版では、画面（`/`、`demo-v2*.js`）を変えずに、同じAPIにページの中で答えます（#263）。ブラウザー版の`index.html`（serverの`demo-v2.html`に1行足したもの）は、画面のscriptより先に`native/wasm/js/api_fetch.js`を読みます。このscriptは`window.fetch`を包み、そのサイトの`/api/v1/...`への要求（画面の`api()`とPDFの`fetch`）を専用のWorker（`native/wasm/js/api_worker.mjs`）へ渡します。ほかの要求は元の`fetch`へ渡します。Workerは、サイト専用の保存（OPFSの`projects/`）とWASMから、Pythonのserverと同じstatusとJSON（誤りは`{"error", "code"}`）で答えます（`native/wasm/js/browser_api.mjs`）。要求と計算のひと区切り（下）は1つずつ順に行い、どれもWeb Lock（`sheltersim-browser-store`）の中で行うので、2つのタブが同じファイルを同時に開くことはありません。
 
 | 道（`/api/v1/projects`から） | ブラウザー版の答え |
 |---|---|
@@ -199,7 +199,6 @@ python scripts/serve_static_site.py ../hinanjo-if-site --port 8000
 | 道 | ファイル |
 |---|---|
 | `/` | `index.html`。`demo-v2.html`と同じ頁で、ホームを開きます。取り寄せた例のRun、「計算済みの例を取得する」（#411）、自分のシナリオ、ライセンスの表示へのリンク（#371） |
-| `/demo-v2` | `demo-v2.html`（前の道。同じ頁で、開くとアドレスを`/`に替えます、#376） |
 | `/demo-v2.css`、`/demo-v2*.js`、`/demo-v2-logo.jpg` | 画面のファイル（変えずに写す） |
 | `/admin` | `admin.html`。中継の合言葉を発行・確認・停止する管理の頁（#433、下の「LLMの中継」）。画面からはリンクしません。道は`scripts/build_static_site.py`の`ADMIN_PAGE`だけが決めます |
 | `/LICENSE.txt` | リポジトリーの`LICENSE`（MIT）。`.txt`の2つは先頭にUTF-8のBOMを付けます。Workersは`.txt`を文字コードの指定なしの`text/plain`で返すため、BOMがないとブラウザーが日本語を文字化けさせます（#410） |
@@ -214,10 +213,10 @@ python scripts/serve_static_site.py ../hinanjo-if-site --port 8000
 
 シナリオの画面の道（`POST {project}/scenario-preview`、`scenario-approve`、`POST {project}/runs`）は、`native/wasm/js/scenario_routes.mjs`がAPIキーのないPythonのserverと同じに答えます（#301）。文の読み取り（`parseScenarioText`）、条件の入力の確かめ（`scenarioRequest`）、地域の調べ（`research.mjs`）、組み立て（`buildScenario`）、0分の世界（`initialEntry`）、Runの`model_versions`とevidence（`modelVersions`、`runEvidence`）を使います。プレビューはPythonと同じに下書き（`drafts/<preview>/`）と準備の記録（`preparation.json`）に残し、承認で保存したScenarioからRunとその`main`の0分を作ります（計算は`resume`）。`preview_id`・`draft_id`はuuid4です。使用量の台帳（`usage/`）は、offlineでは何も使わず画面も読まないので書きません。下書きと準備の記録は、Projectの書き出し（`.shelterproj`）に入れません。画面が送らない項目（図面、避難所の選択、e-Stat、日付、気象の地域）は「未対応」です。`node native/wasm/tests/node_scenario_routes.mjs wasm-pkg`が、コーパス（#293）の全件で、答え・Scenario・FacilityDesign・調べ・Runの記録・0分の世界がPythonと同じことを確かめます。
 
-公開するときは、ディレクトリーをそのまま、ドメインの最上位で配るhostに置きます。画面は`/demo-v2.css`などを最上位からの道で読み、`/demo-v2?…`へ`history.replaceState`するので、`https://example.org/repo/`のような下の道では動きません。
+公開するときは、ディレクトリーをそのまま、ドメインの最上位で配るhostに置きます。画面は`/demo-v2.css`などを最上位からの道で読み、`/?…`へ`history.replaceState`するので、`https://example.org/repo/`のような下の道では動きません。
 
 - 今の公開先は、Cloudflare Workersの静的なファイルの配信（static assets）です。手順と設定は下の「ブラウザー版の公開」にあります。
-- `/demo-v2`を`demo-v2.html`で答えるhost：Cloudflare Workersの静的なファイルの配信（`html_handling`が既定の`auto-trailing-slash`のとき）、Cloudflare Pages、GitHub Pages（独自ドメインか、`<user>.github.io`のサイト）、Netlifyは、拡張子のない道を同じ名前の`.html`で答えます。Pagesは`404.html`がないと、ないファイルの道にも最上位の`index.html`を返すので、サイトには`404.html`を置き、ないファイルは404にします（Workersでは`not_found_handling: "404-page"`で同じになります）。GitHub PagesがJekyllを通さないよう`.nojekyll`も置きます。
+- 拡張子のない道（`/admin`）を同じ名前の`.html`で答えるhost：Cloudflare Workersの静的なファイルの配信（`html_handling`が既定の`auto-trailing-slash`のとき）、Cloudflare Pages、GitHub Pages（独自ドメインか、`<user>.github.io`のサイト）、Netlifyは、拡張子のない道を同じ名前の`.html`で答えます。Pagesは`404.html`がないと、ないファイルの道にも最上位の`index.html`を返すので、サイトには`404.html`を置き、ないファイルは404にします（Workersでは`not_found_handling: "404-page"`で同じになります）。GitHub PagesがJekyllを通さないよう`.nojekyll`も置きます。
 - ほかのserverでは、拡張子のない道を`.html`で答える設定が要ります。例えばnginxなら`try_files $uri $uri.html =404;`です。`.mjs`は`text/javascript`、`.wasm`は`application/wasm`で送ります。
 - 1つのファイルは`--part-mib`以下か、それより小さく保ちます（道具は20 MiBを超えると止まります。Cloudflare Workersの静的なファイルの配信とCloudflare Pagesの上限は、1ファイル25 MiBです）。
 - サーバーの機能（認証、PDF）はありません。LLMは、同じWorkerの中継（下の「LLMの中継」、#419）を通して使います。
@@ -262,7 +261,7 @@ python benchmarks/static_site_e2e.py --url https://hinanjo-if.water7.workers.dev
 | `compatibility_date` | `2026-11-10` | 最初に公開した日。変えたときは、下の公開の後の確かめをやり直します |
 | `main` | `relay.mjs` | LLMの中継（#419、下の「LLMの中継」）。`/llm/*`だけに答えます |
 | `assets.directory` | なし | サイトはリポジトリーの外に作るので、`--assets`で毎回渡します。渡さないとwranglerが止まります |
-| `assets.html_handling` | `auto-trailing-slash` | `/demo-v2`を`demo-v2.html`で答えます（`scripts/serve_static_site.py`と同じ）。`/demo-v2.html`は`/demo-v2`へ307で送ります |
+| `assets.html_handling` | `auto-trailing-slash` | `/admin`を`admin.html`で答えます（`scripts/serve_static_site.py`と同じ）。`/admin.html`は`/admin`へ307で送ります |
 | `assets.not_found_handling` | `404-page` | ないファイルの道に、サイトの`404.html`をstatus 404で答えます |
 | `assets.binding` | `ASSETS` | scriptが`/llm/`以外の道をファイルの配信へ渡すための名前です |
 | `assets.run_worker_first` | `["/llm/*"]` | scriptが先に答えるのは`/llm/*`だけです。ほかの道は、これまでどおりファイルの配信が答えます |
@@ -322,7 +321,7 @@ workflowは、上の「ブラウザー版の静的サイト」と同じ手順で
 - 公開するのは`main`だけです。ほかのbranchで公開を選ぶと、何も作らずに止まります。`dry_run`はどのbranchでも使え、Cloudflareには何も送らず、secretも読みません。
 - 同時に動く公開は1つだけです。後から起動したものは、前のものが終わるのを待ちます。
 - 公開の後に、次の2つを確かめます。どちらかが通らないと、workflowは失敗します。
-  1. 道ごとの答え：`/browser/gsi-shelter-index.json`（サイトを作った時刻を持ちます）が今回作ったものになるまで待ち（最大5分）、`/`と`/demo-v2`が200の`text/html`、`/demo-v2.html`が`/demo-v2`への307、ないファイル（`/nope`）が404の`text/html`、`/browser/api_worker.mjs`が`text/javascript`、`/browser/pkg/sheltersim_wasm_bg.wasm`が`application/wasm`、`/sample/sample.json`と自治体コードごとの避難所の行（`/browser/gsi-shelters/`の最初のファイル）が`application/json`であること。
+  1. 道ごとの答え：`/browser/gsi-shelter-index.json`（サイトを作った時刻を持ちます）が今回作ったものになるまで待ち（最大5分）、`/`が200の`text/html`、ないファイル（`/nope`）が404の`text/html`、`/browser/api_worker.mjs`が`text/javascript`、`/browser/pkg/sheltersim_wasm_bg.wasm`が`application/wasm`、`/sample/sample.json`と自治体コードごとの避難所の行（`/browser/gsi-shelters/`の最初のファイル）が`application/json`であること。
   2. 画面：公開したURLを`benchmarks/static_site_e2e.py --url`で、PlaywrightのChromiumとFirefoxで、それぞれ空のOPFSから開いて、すべての段を画面で通すこと（Pythonとは比べません）。ブラウザーごとに別のjobで同時に確かめます。Chromiumは一度に最後まで計算し（`--modes full`）、Firefoxは途中で止めて続けます（`--modes pieces`）。
 - サイトを作った要約（`site-build.json`）はrunのartifact `deploy-browser-site`に、画面の確かめの結果（`e2e-url.json`、画面の写し）は`deploy-browser-screen-chromium`と`deploy-browser-screen-firefox`に、30日残します。
 - 公開した版を戻すときは、Cloudflareのdashboardか`wrangler rollback`で前の版に戻すか、戻したいcommitを`main`に入れて公開し直します。
@@ -342,7 +341,7 @@ secretのトークンが使えないときなど、Cloudflareのアカウント�
 npx wrangler@4.161.0 deploy --config deploy/workers/wrangler.jsonc --assets ../hinanjo-if-site --dry-run
 npx wrangler@4.161.0 deploy --config deploy/workers/wrangler.jsonc --assets ../hinanjo-if-site
 URL=https://hinanjo-if.water7.workers.dev
-for path in / /demo-v2 /demo-v2.html /nope /browser/api_worker.mjs \
+for path in / /admin /nope /browser/api_worker.mjs \
     /browser/pkg/sheltersim_wasm_bg.wasm /sample/sample.json; do
   curl -s -o /dev/null -w "$path %{http_code} %{content_type} %{redirect_url}\n" "$URL$path"
 done

@@ -173,8 +173,6 @@ jobs:
           done
           if [ "$got" != "$want" ]; then echo "::error::$SITE_URL/$index is not this build's"; fail=1; fi
           check / "200 text/html"
-          check /demo-v2 "200 text/html"
-          check /demo-v2.html "307 "
           check /nope "404 text/html"
           check /browser/api_worker.mjs "200 text/javascript"
           check /browser/pkg/sheltersim_wasm_bg.wasm "200 application/wasm"

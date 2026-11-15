@@ -1,20 +1,19 @@
-//! How a validator reads the world (`View`), and the Python texts of what it reads (`repr`).
+//! How a validator reads the world (`View`), and the texts of what it reads (Python's `repr`).
 //!
 //! A validator holds the world shared for the whole check: it never writes, and it calls no host.
-//! What Python's rule reads, a validator reads here:
+//! What a validator reads of the world:
 //! - the scalars (`schema_version`, `minute_index`, `duration_minutes`) and the entity rows
 //!   (`rows`), as the tick's rules read them;
 //! - `model_configs` as the JSON value it is (`configs`, `config`): a validator parses the part it
-//!   needs itself, with the Python rule's texts, and does not use the sections a host filled;
+//!   needs itself, with its own errors' texts, and does not use the sections a host filled;
 //! - a key of `model_state` (`contains`, `state`): the value as a `V`, whatever row holds it. A
-//!   typed row is written as JSON and read back, which is slow but always what Python reads; a
+//!   typed row is written as JSON and read back, which is slow but always the namespace's value; a
 //!   validator may read a typed row directly (`row`) where that is the row, as a faster path, and
 //!   falls back to `state` where it is not (a test loads a broken namespace as a `ValueRow`,
 //!   `load::Namespaces::Lenient`);
 //! - the event queue and the log (`queue`, `log`).
 //!
-//! What is checked depends on the call (`View::history`, `View::in_flight`), as Python's keyword
-//! arguments say.
+//! What is checked depends on the call (`View::history`, `View::in_flight`).
 
 use std::ops::Deref;
 
@@ -117,7 +116,7 @@ impl<'w> View<'w> {
     }
 
     /// `world.model_state.get(name)` (a key that holds None gives `V::Null`). Unsupported for a
-    /// tainted key, whose value only Python holds.
+    /// tainted key, whose slot holds no row.
     pub fn state(&self, name: &str) -> Result<Option<StateRef<'w>>> {
         let Some(slot) = self.world.slots.get(name) else {
             return Ok(None);

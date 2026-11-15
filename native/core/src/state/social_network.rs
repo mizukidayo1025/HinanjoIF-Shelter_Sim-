@@ -1,16 +1,15 @@
-//! `social_network_v1`: who has met whom (`domain/social_network.py`). Its rules are
-//! `rules/social_network.rs`; `domain/population.py` and `domain/population_lifecycle.py` take a
-//! departing person's records out and put them back through the forwarded writes.
+//! `social_network_v1`: who has met whom. Its rules are `rules/social_network.rs`; the population
+//! rules (`rules/population.rs`, `rules/population_lifecycle.rs`) take a departing person's records
+//! out and put them back.
 //!
-//! A value of another type than the rules write taints the namespace, and the Python rules and
-//! their errors run on the tree: an int `trust` or a message ID that is not a str, which validation
-//! accepts, only costs the row.
+//! A value of another type than the rules write (an int `trust` or a message ID that is not a str,
+//! which validation accepts) does not fit the row: a Run refuses to load such a world
+//! (`load::put_namespace`), and the whole validation reads it as a value
+//! (`load::Namespaces::Lenient`).
 //!
 //! The row knows which records were written since the last check, so the check of each tick reads
-//! those and not the thousands of others: a forwarded write and a rule's write are the only ways
-//! into the row, and both say which record they touch (docs/rust-port/lanes/m3-social-network.md).
-//!
-//! The PyO3 crate's `state/social_network.rs` reads it from Python and holds its validator.
+//! those and not the thousands of others: a rule's write is the only way into the row, and it says
+//! which record it touches (docs/rust-port/lanes/m3-social-network.md).
 
 use std::sync::Arc;
 
@@ -23,7 +22,7 @@ use crate::value::V;
 pub const NAME: &str = "social_network_v1";
 const SCHEMA_VERSION: i64 = 1;
 const POLICY_VERSION: &str = "directed-contact-relationships-v1";
-/// `MAX_RELATIONSHIPS` of `domain/social_network.py`.
+/// The most relationships the namespace holds (`MAX_RELATIONSHIPS`).
 pub const MAX_RELATIONSHIPS: usize = 100_000;
 /// Past this many unchecked writes, the next check reads every record instead of a long list.
 const MAX_UNCHECKED_KEYS: usize = 4096;
@@ -69,7 +68,7 @@ pub fn is_plain_id(id: &str) -> bool {
 }
 
 /// `_pair_key_problem` found nothing wrong: the compact JSON of two different strings. A key with
-/// anything `json.dumps` escapes says false here, and the Python rule then decides.
+/// anything `json.dumps` escapes says false here, and the whole validation then decides.
 pub fn pair_key_is_good(key: &str) -> bool {
     let Some(inner) = key.strip_prefix("[\"").and_then(|rest| rest.strip_suffix("\"]")) else {
         return false;

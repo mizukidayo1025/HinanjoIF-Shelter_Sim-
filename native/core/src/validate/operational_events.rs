@@ -1,11 +1,11 @@
-//! `validate_operational_events_state(world, in_flight_event=..., validate_event_history=...)` of
-//! `domain/operational.py`, with Python's errors and texts: the exact shape of
+//! The check of `operational_events_v1` (with an event in flight, with or without the event
+//! history), with its errors and texts: the exact shape of
 //! `operational_events_v1` (H03), the events that opt into it, and, with the history, each
 //! shipment, water outage and staff absence of the state against the pending and realized events.
 //!
 //! Lane C of #250 (#348). Raw errors: `validate::world` makes a `ValueError`
-//! `invalid operational events state: {exc}`; a `TypeError` Python raises on an unhashable value
-//! passes as it is.
+//! `invalid operational events state: {exc}`; the `TypeError` of an unhashable value passes as it
+//! is.
 //!
 //! The reads of the event log (`Log`: the records of some types in append order, an event by its
 //! ID as `EventsById` finds it, the status of a realized event) serve `infrastructure.rs` too.
@@ -149,7 +149,7 @@ impl<'v, 'w> Log<'v, 'w> {
     }
 
     /// `EventsById(event_log, pending).get(key)`: a realized event wins. A key that is not a str
-    /// finds none, but a key Python cannot hash raises (`hashable`, by where the key comes from).
+    /// finds none, but a key CPython cannot hash raises (`hashable`, by where the key comes from).
     pub fn get(&self, key: Option<&V>, hashable: fn(&V) -> Result<()>) -> Result<Option<Arc<EventRow>>> {
         match key {
             Some(V::Str(id)) => self.find(id),
@@ -186,7 +186,7 @@ fn record_event(log: &crate::events::log::EventLog, index: usize) -> Result<(Arc
 
 // ---- The check --------------------------------------------------------------------------------------
 
-/// The check, as `validate` (`validate/mod.rs`) calls it in Python's order.
+/// The check, as `validate` (`validate/mod.rs`) calls it in its order.
 pub fn validate(view: &View<'_>) -> Result<()> {
     let state = view.state(KEY)?;
     // `model_state.get(KEY)`: a key that holds None is no state.
@@ -447,8 +447,8 @@ fn h03_event(event: &EventRow, rows: &crate::entities::Entities, duration: i64, 
 }
 
 /// `infrastructure_delay`: a delay the infrastructure model scheduled as a completion. Its source
-/// is read from `model_configs.get("infrastructure", {})`, which Python reads with `.get`: a config
-/// that is no dict raises an `AttributeError`.
+/// is read from `model_configs.get("infrastructure", {})`, with `.get`: a config that is no dict
+/// raises an `AttributeError`.
 fn infrastructure_delay(event: &EventRow, infrastructure: Option<&V>) -> Result<bool> {
     if &*event.event_type != "delivery_delayed"
         || event.kind != EventKind::Completion

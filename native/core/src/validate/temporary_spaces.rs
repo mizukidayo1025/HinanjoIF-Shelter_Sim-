@@ -1,5 +1,5 @@
-//! `validate_temporary_spaces_state(world)` of `domain/temporary_spaces.py`, with Python's errors
-//! and texts (lane E of #250, #350). Raw errors: `validate_simulator_extensions` passes them on.
+//! The check of `temporary_spaces_v1`, with its errors and texts (lane E of #250, #350). Raw
+//! errors: `validate_simulator_extensions` passes them on.
 
 use std::cmp::Ordering;
 
@@ -31,7 +31,7 @@ const SPACE_FIELDS: [&str; 13] = [
 ];
 const HISTORY_FIELDS: [&str; 6] = ["event_id", "space_id", "zone_id", "minute", "transition", "causation_id"];
 
-/// The check, as `validate` (`validate/mod.rs`) calls it in Python's order.
+/// The check, as `validate` (`validate/mod.rs`) calls it in its order.
 pub fn validate(view: &View<'_>) -> Result<()> {
     let Some(state) = view.state(KEY)? else {
         return Ok(());
@@ -69,7 +69,7 @@ pub fn validate(view: &View<'_>) -> Result<()> {
     Ok(())
 }
 
-/// The conditions of a space, in Python's order: false where one fails, or the error one raises.
+/// The conditions of a space, in order: false where one fails, or the error one raises.
 fn space_valid(space_id: &str, row: &V, zone_known: &dyn Fn(&V) -> Result<bool>) -> Result<bool> {
     let V::Map(row) = row else {
         return Ok(false);
@@ -111,7 +111,7 @@ fn space_valid(space_id: &str, row: &V, zone_known: &dyn Fn(&V) -> Result<bool>)
     Ok(is_text(&row["geometry_status"], "zone_only_capacity"))
 }
 
-/// The conditions of a history record, in Python's order.
+/// The conditions of a history record, in order (the first that fails decides).
 fn record_valid(row: &V, zone_known: &dyn Fn(&V) -> Result<bool>) -> Result<bool> {
     let V::Map(row) = row else {
         return Ok(false);

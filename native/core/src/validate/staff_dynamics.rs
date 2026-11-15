@@ -1,5 +1,5 @@
-//! `validate_staff_dynamics_state(world)` of `domain/staff_dynamics.py`, and the
-//! `canonical_staff_dynamics_config` it calls, with Python's errors and texts (lane D of #250,
+//! The check of `staff_dynamics_v1`, and the `canonical_staff_dynamics_config` it calls (as in
+//! `scenario_authoring/configs/staff_dynamics.py`), with their errors and texts (lane D of #250,
 //! #349). Raw errors.
 
 use std::sync::Arc;
@@ -38,7 +38,7 @@ fn text(value: &str) -> V {
 }
 
 /// `canonical_staff_dynamics_config(raw)`: the config, or its ValueError (or the TypeError of
-/// hashing a policy that is a list or a dict, named as `held` says Python holds it).
+/// hashing a policy that is a list or a dict, its type named as `held` says).
 pub fn canonical_staff_dynamics_config(raw: &V, held: Held) -> Result<Map> {
     let empty = Map::new();
     let raw = match raw {
@@ -127,7 +127,7 @@ pub fn canonical_staff_dynamics_config(raw: &V, held: Held) -> Result<Map> {
     Ok(config)
 }
 
-/// The check, as `validate` (`validate/mod.rs`) calls it in Python's order.
+/// The check, as `validate` (`validate/mod.rs`) calls it in its order.
 pub fn validate(view: &View<'_>) -> Result<()> {
     let Some(state) = view.state(NAME)? else {
         return Ok(());

@@ -1,15 +1,14 @@
-//! `validate_shared_operations_state(world, validate_event_history=...)` of
-//! `domain/common_operations.py`, its history included, with Python's errors and texts (lane E of
+//! The check of `shared_operations_v1`, its history included, with its errors and texts (lane E of
 //! #250, #350). Raw errors: `validate_simulator_extensions` passes them on. The check before it
 //! (the namespace without its signed contract) is `validate::extensions`'s.
 //!
 //! Without the history (`View::history` false) the receipts checked are those since the previous
-//! tick (`records_since_previous_tick`), and the care lifecycle is not replayed, as in Python.
-//! There is no history memo (`_history_memo` of a save): the whole history is replayed each time.
+//! tick (`records_since_previous_tick`), and the care lifecycle is not replayed. There is no
+//! history memo: the whole history is replayed each time.
 //!
 //! `SharedOperationsState` and the receipts are pydantic models; only whether they validate
-//! matters (Python wraps their errors), and their dumps, so they are the core's pydantic
-//! (`contracts::pydantic`) here. The one error of theirs Python lets through is that of a
+//! matters (the check wraps their errors), and their dumps, so they are the core's pydantic
+//! (`contracts::pydantic`) here. The one error of theirs the check lets through is that of a
 //! `CareRequestState` the replay makes (`care_state`).
 
 use std::cmp::Ordering;
@@ -34,7 +33,7 @@ const ACTIVE: [&str; 3] = ["requested", "assigned", "started"];
 
 type Map = IndexMap<Arc<str>, V>;
 
-// ---- The models (contracts/operations.py) ---------------------------------------------------------
+// ---- The models -----------------------------------------------------------------------------------
 
 const IDENT: S = S::Str(StrS { strip: false, min: None, max: None, pattern: Some(Pattern::Identifier) });
 const OPT_IDENT: S = S::Opt(&IDENT);
@@ -624,7 +623,7 @@ fn interruption_due(log: &EventLog, minute: i64, request_id: &str, head_status: 
     Ok(false)
 }
 
-/// The check, as `validate` (`validate/mod.rs`) calls it in Python's order.
+/// The check, as `validate` (`validate/mod.rs`) calls it in its order.
 pub fn validate(view: &View<'_>) -> Result<()> {
     let Some(state) = view.state(KEY)? else {
         return Ok(());

@@ -1,5 +1,5 @@
-//! `validate_infrastructure_runtime_state(world, in_flight_event=..., validate_event_history=...)`
-//! of `domain/infrastructure.py`, with Python's errors and texts: the opt-in config (A03,
+//! The check of `infrastructure_v1` (with an event in flight, with or without the event history),
+//! with its errors and texts: the opt-in config (A03,
 //! `ScenarioInfrastructureSpec`, whose `ValidationError` text the core's `contracts` writes), the
 //! exact shape of `infrastructure_v1` and its base capacities, and, with the history, each outage,
 //! environmental stressor and route interruption against its start and end events, the facilities'
@@ -106,7 +106,7 @@ impl Graph {
     }
 }
 
-/// The check, as `validate` (`validate/mod.rs`) calls it in Python's order.
+/// The check, as `validate` (`validate/mod.rs`) calls it in its order.
 pub fn validate(view: &View<'_>) -> Result<()> {
     let configured = view.config("infrastructure")?.filter(|config| !matches!(config, V::Null));
     let state = view.state(KEY)?;
@@ -274,7 +274,7 @@ struct History<'a> {
 struct Restorations(IndexSet<Arc<str>>);
 
 impl Restorations {
-    /// `restore_id in restorations`, then `restorations.add(restore_id)`: a value Python cannot
+    /// `restore_id in restorations`, then `restorations.add(restore_id)`: a value CPython cannot
     /// hash raises; one that is no str is in none.
     fn take(&mut self, id: &V, text: &str) -> Result<()> {
         state_hashable(id)?;

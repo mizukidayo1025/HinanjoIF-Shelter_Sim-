@@ -1,9 +1,9 @@
-//! `validate_population_lifecycle_state(world)` of `domain/population_lifecycle.py`, with Python's
-//! errors and texts (lane D of #250, #349). Raw errors.
+//! The check of `population_lifecycle_v1`, with its errors and texts (lane D of #250, #349). Raw
+//! errors.
 //!
-//! Python's rule is the core's kernel (`kernel_only("population_lifecycle",
-//! "validate_population_lifecycle_state")`, `rules::population_lifecycle::validate_facts`), so this
-//! reads the same facts of the world and gives its refusal as the `KernelRefusal` Python raises.
+//! The rule is the tick's (`rules::population_lifecycle::validate_facts`), so this reads the same
+//! facts of the world and gives its refusal (`Error::Refused`, labelled
+//! `population_lifecycle.validate_population_lifecycle_state`).
 
 use std::sync::Arc;
 
@@ -16,7 +16,7 @@ use crate::rules::population_lifecycle::{validate_facts, Facts, TaskFacts, KEY};
 
 const LABEL: &str = "population_lifecycle.validate_population_lifecycle_state";
 
-/// The check, as `validate` (`validate/mod.rs`) calls it in Python's order.
+/// The check, as `validate` (`validate/mod.rs`) calls it in its order.
 pub fn validate(view: &View<'_>) -> Result<()> {
     let state = view.state(KEY)?;
     let presence = if view.contains(PRESENCE)? { Some(view.state(PRESENCE)?) } else { None };

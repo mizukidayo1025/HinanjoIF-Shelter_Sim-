@@ -1,9 +1,9 @@
-//! The head of `validate_simulator_extensions` (`domain/simulator_state.py`): `temporary_spaces_v1`
+//! The head of the extensions' check (`validate_simulator_extensions`): `temporary_spaces_v1`
 //! without its contract, the legacy queue marker, and the required states that are missing, with
-//! Python's errors and texts (lane D of #250, #349). Raw errors: `validate::extensions` calls it
+//! their errors and texts (lane D of #250, #349). Raw errors: `validate::extensions` calls it
 //! first.
 //!
-//! `is_legacy_queue_checkpoint` is also what `validate_facility_queue_state` reads
+//! `is_legacy_queue_checkpoint` is also what the check of `facility_queues_v1` reads
 //! (`facility_queues.rs`), with `signatures::independent_queues_required`.
 
 use std::collections::BTreeSet;
@@ -13,14 +13,14 @@ use super::{repr_texts, View};
 use crate::error::{Error, Result};
 use crate::value::V;
 
-/// What the extensions' Python rules do with a value of any type, which every port of lane D reads.
+/// Python's semantics of a value of any type, which every validator of lane D reads.
 #[path = "extension_py.rs"]
 pub(crate) mod py;
 
 /// `FACILITY_QUEUES_LEGACY_MODE_KEY`.
 pub const LEGACY_MODE: &str = "facility_queues_legacy_mode_v1";
 
-/// `is_legacy_queue_checkpoint(world)`, a kernel of Python's: independent queues are required,
+/// `is_legacy_queue_checkpoint(world)`: independent queues are required,
 /// `facility_queues_v1` is absent (or None), and the legacy marker is `FACILITY_QUEUES_LEGACY_MODE`.
 pub fn is_legacy_queue_checkpoint(view: &View<'_>) -> Result<bool> {
     let required = match &*view.configs()? {
@@ -45,7 +45,7 @@ pub fn is_legacy_queue_checkpoint(view: &View<'_>) -> Result<bool> {
         && py::eq_str(mode.get("policy_version"), "facility_fifo_legacy-v1"))
 }
 
-/// The check, as `validate` (`validate/mod.rs`) calls it in Python's order.
+/// The check, as `validate` (`validate/mod.rs`) calls it in its order.
 pub fn validate(view: &View<'_>) -> Result<()> {
     let signatures = simulator_signatures(view)?;
     let required: BTreeSet<&str> = signatures.iter().filter_map(|(key, _)| key.strip_prefix("simulator:")).collect();

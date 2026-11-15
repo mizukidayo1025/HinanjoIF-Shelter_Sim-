@@ -1,20 +1,20 @@
-//! `WorldState._validate_entity_rules` and `_validate_zone_capacity` (`core/world.py`), with
-//! Python's errors and texts: the clock, the seed, the entity maps, the zone edges, the route
-//! capacities, the Agents, the zones' capacity, the facilities and their queues, the tasks and the
-//! events that serve them, the staff, the support requests and the stocks.
+//! The entity rules and the zones' capacity of `WorldState.validate`, with their errors and texts:
+//! the clock, the seed, the entity maps, the zone edges, the route capacities, the Agents, the
+//! zones' capacity, the facilities and their queues, the tasks and the events that serve them, the
+//! staff, the support requests and the stocks.
 //!
 //! Lane C of #250 (#348). It raises the `StateInvariantError`s of `WorldState.validate` itself, and
-//! the `KeyError` or `TypeError` that Python's reads of a broken namespace raise (`_state_part`)
-//! as they are. `rules/tick_validation.rs` holds the same rules without texts (pass or refuse), for
-//! the end of a tick.
+//! the `KeyError` or `TypeError` of reading a broken namespace (`state_part`) as they are.
+//! `rules/tick_validation.rs` holds the same rules without texts (pass or refuse), for the end of a
+//! tick.
 //!
-//! The rows are typed, so what Python checks of a value's type (an Activity, a NeedState, an int
-//! for a time, a request's status) holds here by construction; the rules that read values check
-//! them as Python does, in Python's order, so the first error is the same.
+//! The rows are typed, so the checks of a value's type (an Activity, a NeedState, an int for a
+//! time, a request's status) hold here by construction; the rules that read values check them in
+//! their order, so the first error is the one given.
 //!
-//! The helpers at the end (`index`, `contains`, `get`, ...) read a `V` as Python reads the value it
-//! stands for, with Python's `KeyError` and `TypeError` texts; the other validators of lane C
-//! (`operational_events.rs`, `infrastructure.rs`) use them too.
+//! The helpers at the end (`index`, `contains`, `get`, ...) read a `V` with Python's semantics for
+//! the value it stands for, with CPython's `KeyError` and `TypeError` texts; the other validators
+//! of lane C (`operational_events.rs`, `infrastructure.rs`) use them too.
 
 use std::sync::Arc;
 
@@ -41,12 +41,12 @@ const LEDGER: &str = "resource_ledger_v1";
 const SERVICE: &str = "resource_service_v1";
 const SPACES: &str = "temporary_spaces_v1";
 const OVERLAY: &str = "geometry_overlay_v1";
-/// The label of `effective_total_zone_capacity`, a kernel in Python too (`kernel_only`).
+/// The label of the refusal of `effective_total_zone_capacity` (`rules/overlay.rs`).
 const CAPACITY_KERNEL: &str = "overlay.effective_total_zone_capacity";
 
-/// The check, as `validate` (`validate/mod.rs`) calls it in Python's order, with the resource
-/// service's config where the configs have one (`resource_config`). Python returns the pending
-/// events, which the event rules read; here they read the queue again.
+/// The check, as `validate` (`validate/mod.rs`) calls it in its order, with the resource
+/// service's config where the configs have one (`resource_config`). The event rules read the queue
+/// again.
 pub fn validate(view: &View<'_>, service: Option<&ServiceConfig>) -> Result<()> {
     let minute = view.minute_index()?;
     let duration = view.duration_minutes()?;
@@ -166,7 +166,8 @@ fn route_capacities(view: &View<'_>, rows: &Entities) -> Result<()> {
 
 // ---- Agents and zones -----------------------------------------------------------------------------
 
-/// `validate_unit_interval` (`domain/models.py`): a NaN fails the range too.
+/// `validate_unit_interval` (as in `scenario_authoring/configs/models.py`): a NaN fails the range
+/// too.
 fn unit(value: f64) -> bool {
     value.is_finite() && (0.0..=1.0).contains(&value)
 }
@@ -215,8 +216,8 @@ fn agents(rows: &Entities, version: i64) -> Result<IndexMap<Arc<str>, i64>> {
 }
 
 /// `_validate_zone_capacity` of each zone: its nominal capacity with the approved temporary spaces
-/// and the physical rooms (`effective_total_zone_capacity`, a kernel of `rules/overlay.rs` in
-/// Python too, whose refusal Python raises as a `KernelRefusal`).
+/// and the physical rooms (`effective_total_zone_capacity` of `rules/overlay.rs`, whose refusal is
+/// an `Error::Refused` labelled `CAPACITY_KERNEL`).
 fn zone_capacities(view: &View<'_>, occupancy: &IndexMap<Arc<str>, i64>) -> Result<()> {
     let held = |name: &str| -> Result<Held> { Ok(if view.contains(name)? { Held::Held } else { Held::Absent }) };
     let (spaces, rooms) = (held(SPACES)?, held(OVERLAY)?);
@@ -253,7 +254,7 @@ fn holds(ids: &[Arc<str>], id: &str) -> bool {
     ids.iter().any(|item| &**item == id)
 }
 
-/// The facilities' rules: who waits and who is served, as Python's sets.
+/// The facilities' rules: who waits and who is served, as sets.
 fn facilities(rows: &Entities, version: i64) -> Result<(FxHashSet<Arc<str>>, FxHashSet<Arc<str>>)> {
     for (_, facility) in rows.facilities.iter() {
         let id = py_repr(&facility.id);
@@ -398,8 +399,8 @@ fn named<'m, 'a>(map: &'m FxHashMap<&'a str, Vec<&'a EventRow>>, task_id: &str) 
 
 type Pair<'a> = (&'a str, &'a str);
 
-/// The tasks of each kind as Python's dicts hold them, in the tasks' order: by (facility, Agent),
-/// and the travel tasks by Agent (`travel_tasks`).
+/// The tasks of each kind as dicts, in the tasks' order: by (facility, Agent), and the travel
+/// tasks by Agent (`travel_tasks`).
 struct Tasks<'a> {
     toilet_queue: IndexMap<Pair<'a>, &'a TaskRow>,
     toilet_service: IndexMap<Pair<'a>, &'a TaskRow>,
@@ -906,7 +907,7 @@ fn every_task(rows: &Entities, events: &Events<'_>) -> Result<()> {
     Ok(())
 }
 
-// ---- Values read as Python reads them --------------------------------------------------------------
+// ---- Values read with Python's semantics -----------------------------------------------------------
 
 /// `type(value).__name__` of the value a `V` stands for.
 pub(super) fn type_name(value: &V) -> &'static str {
@@ -943,8 +944,8 @@ fn ledger_reservation(view: &View<'_>, water: bool, task_id: &str) -> Result<Opt
     })
 }
 
-/// `world.model_state[name][key]` (`_state_part` of `core/world.py`), copied: a `KeyError` for a
-/// missing namespace or key, a `TypeError` where the namespace is no dict.
+/// `world.model_state[name][key]`, copied: a `KeyError` for a missing namespace or key, a
+/// `TypeError` where the namespace is no dict.
 fn state_part(view: &View<'_>, name: &str, key: &str) -> Result<V> {
     let Some(state) = view.state(name)? else {
         return Err(Error::Key(name.to_owned()));
@@ -962,9 +963,9 @@ pub(super) fn index<'a>(value: &'a V, key: &str) -> Result<&'a V> {
     }
 }
 
-/// `value.get(key)` of a dict of `model_state`. Python raises an `AttributeError` for another
-/// value, which the core has no class for: a `RuntimeError` with Python's text stands for it, which
-/// no `except` of the validation catches either.
+/// `value.get(key)` of a dict of `model_state`. CPython raises an `AttributeError` for another
+/// value, which the core has no class for: a `RuntimeError` with CPython's text stands for it,
+/// which no `except` of the validation catches either.
 pub(super) fn get_of<'a>(value: &'a V, key: &str) -> Result<Option<&'a V>> {
     let name = match value {
         V::Map(map) => return Ok(map.get(key)),

@@ -1,5 +1,4 @@
-//! `validate_social_network_state(world)` of `domain/social_network.py`, with Python's errors and
-//! texts (lane D of #250, #349). Raw errors.
+//! The check of `social_network_v1`, with its errors and texts (lane D of #250, #349). Raw errors.
 
 use super::extension_head::py::{self, eq_int, eq_str, get, keys_are, Json};
 use super::View;
@@ -43,7 +42,7 @@ fn is_count(value: &V) -> bool {
     py::is_exact_int(value) && !py::negative(value)
 }
 
-/// The check, as `validate` (`validate/mod.rs`) calls it in Python's order.
+/// The check, as `validate` (`validate/mod.rs`) calls it in its order.
 pub fn validate(view: &View<'_>) -> Result<()> {
     let Some(state) = view.state(NAME)? else {
         return Ok(());

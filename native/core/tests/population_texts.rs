@@ -399,7 +399,7 @@ fn an_arrival_the_rule_refuses_says_its_text() {
 /// `an_arrival_the_rule_refuses_says_its_text` (pydantic's models); any other input is given back.
 fn arrival_contracts(which: &Contract, input: &V) -> Result<V, Error> {
     for asked in inputs()["contracts"].as_array().unwrap() {
-        if which.model().1 != asked["model"].as_str().unwrap() || load::v(&asked["input"]) != *input {
+        if support::contracts::model_name(which) != asked["model"].as_str().unwrap() || load::v(&asked["input"]) != *input {
             continue;
         }
         return match asked.get("dump") {

@@ -14,6 +14,28 @@ use sheltersim_core::value::V;
 
 use super::load;
 
+/// The name of the model a fixture records for a contract; for `EffectParameters`, of the table of
+/// models.
+pub fn model_name(which: &Contract) -> &'static str {
+    match which {
+        Contract::RouteAccess => "RouteAccessParameters",
+        Contract::EquipmentTransfer => "EquipmentTransferParameters",
+        Contract::MoveFacility => "MoveFacilityParameters",
+        Contract::Partition => "PartitionParameters",
+        Contract::TemporaryRoom => "TemporaryRoomGeometry",
+        Contract::EffectParameters(_) => "_PARAMETER_MODELS",
+        Contract::Guard => "GuardExpression",
+        Contract::ZoneEnvironment => "ScenarioZoneEnvironmentConfig",
+        Contract::Infrastructure => "ScenarioInfrastructureSpec",
+        Contract::PopulationSpec => "PopulationSpec",
+        Contract::ArrivalContext => "DynamicArrivalPersonContext",
+        Contract::PersonTraits => "PersonTraits",
+        Contract::PresenceCommand => "PopulationPresenceCommand",
+        Contract::FacilityGeometry => "FacilityGeometry",
+        Contract::SpatialConstraints => "SpatialConstraints",
+    }
+}
+
 /// One recorded answer.
 struct Asked {
     model: String,
@@ -43,7 +65,7 @@ pub fn recorded(asked: &Value) -> Box<dyn FnMut(&Contract, &V) -> Result<V, Erro
             Contract::EffectParameters(op) => Some(&**op),
             _ => None,
         };
-        let found = asked.iter().find(|item| item.model == which.model().1 && item.op.as_deref() == op && item.input == *input);
+        let found = asked.iter().find(|item| item.model == model_name(which) && item.op.as_deref() == op && item.input == *input);
         match found {
             None => Ok(input.clone()),
             Some(item) => match &item.answer {

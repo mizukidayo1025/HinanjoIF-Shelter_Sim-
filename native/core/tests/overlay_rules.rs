@@ -165,7 +165,7 @@ fn contracts(entry: &Value) -> Box<dyn FnMut(&Contract, &V) -> Result<V, Error>>
         .map(|row| (row[0].as_str().unwrap().to_owned(), row[1].clone(), ordered(&row[2])))
         .collect();
     Box::new(move |which, input| {
-        let name = which.model().1;
+        let name = support::contracts::model_name(which);
         let given = json_of(input);
         let found = table.iter().find(|(model, wanted, _)| model == name && *wanted == given);
         Ok(found.unwrap_or_else(|| panic!("no answer of {name} for {given}")).2.clone())

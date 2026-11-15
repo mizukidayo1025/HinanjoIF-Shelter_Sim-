@@ -1,5 +1,5 @@
 //! The sections of lane 7-5b, parsed from the configs as a `V`: each gives the value the kernels
-//! read, or the refusal they said when they read the Python tree, in the same order of checks.
+//! read, or the recorded refusal, checked in a fixed order.
 
 use std::collections::BTreeSet;
 use std::sync::Arc;
@@ -197,7 +197,7 @@ fn the_care_formula_gives_the_deltas_of_its_config() {
 }
 
 #[test]
-fn the_policy_of_agent_dynamics_in_the_order_of_the_python_checks() {
+fn the_policy_of_agent_dynamics_in_the_order_of_its_checks() {
     let raw = |value: Value| v(value);
     assert_eq!(canonical_policy(None), Ok(Ok(POLICY_V1)));
     assert_eq!(canonical_policy(Some(&V::Null)), Ok(Ok(POLICY_V1)));

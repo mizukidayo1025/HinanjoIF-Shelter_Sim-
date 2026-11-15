@@ -1,23 +1,19 @@
-//! An EffectProgram marker's guard in the dispatch phase: the Python dispatcher's outcome (Issue
-//! #225, lane M7; moved from `tests/integration/test_effect_guard_texts.py`).
+//! An EffectProgram marker's guard in the dispatch phase (Issue #225, lane M7).
 //!
-//! `EventDispatcher.dispatch_one` asked the guard (`should_apply_effect_guard`) before an event's
-//! handler; the core's loop (`rules::dispatch::run`, the dispatch phase `_run_dispatch_phase`
-//! runs) asks it for every handler (lane P9-1c): a false guard is a suppressed event, a guard the
-//! contract turns down or with no target a failed one, each with the Python rule's text (saved as
-//! the record's `detail`); a guard that holds goes on to the handler.
+//! The core's loop (`rules::dispatch::run`) asks the guard for every handler (lane P9-1c): a false
+//! guard is a suppressed event, a guard the contract turns down or with no target a failed one,
+//! each with its recorded text (saved as the record's `detail`); a guard that holds goes on to the
+//! handler.
 //!
 //! The world is the gate's generated Scenario at minute 0 with its controller
-//! (`resource_service_texts.json`'s `gate`, `tests/support/core_fixtures_kernels.py`), with a marked
-//! event scheduled as `WorldState.schedule_event` schedules it, or a guarded program scheduled by
-//! `schedule_effect_program` in Python (`gate_<name>`). The contract's text of a guard it turns down
-//! is pydantic's, as the fixture recorded it (`support/contracts.rs`). Each case runs the phase at
-//! minute 0 with the host of a Run's world, and compares all that was saved with what the Python
-//! step saved from it: the first 16 hex of the sha256 of `json.dumps({"records", "pending",
-//! "counters", "world"}, sort_keys=True)` (the log's records as text, each pending event's
-//! `to_dict()`, `id_counters`, the world's canonical text), a digest taken once from the Python step
-//! (45a9bc9) that `Dumps` writes again, so it stays. The record's status and detail are the outcome
-//! the guard's Python rule gave, and the dispatch's counts moved as the pytest file checked.
+//! (`resource_service_texts.json`'s `gate`), with a marked event scheduled by `kit::Events`, or a
+//! guarded program the fixture scheduled (`gate_<name>`). The contract's text of a guard it turns
+//! down is pydantic's, as the fixture recorded it (`support/contracts.rs`). Each case runs the
+//! phase at minute 0 with the host of a Run's world and pins the digest of all that was saved: the
+//! first 16 hex of the sha256 of `json.dumps({"records", "pending", "counters", "world"},
+//! sort_keys=True)` (the log's records as text, the pending events, the ID counters, the world's
+//! canonical text). The record's status and detail are the guard's outcome, and the dispatch's
+//! counts move with it. The values were recorded before #430 and pin the core's output now.
 
 mod support;
 
@@ -60,7 +56,7 @@ enum Scheduled {
     Program(&'static str),
 }
 
-/// `_marked`: an event whose marker has the guard, of no program.
+/// An event whose marker has the guard, of no program.
 fn marked(event_type: &str, payload: Value, guard: Value) -> Scheduled {
     Scheduled::Marked(json!({
         "event_id": "guarded-1",
@@ -96,7 +92,7 @@ impl Dispatched {
     }
 }
 
-/// `_saved`: what the step saved, as the pytest file wrote it.
+/// What the phase saved: the log's records, the pending events, the ID counters and the world.
 fn saved(loaded: &Loaded, entry: &Value) -> V {
     let text = |value: &[u8]| V::Str(Arc::from(std::str::from_utf8(value).unwrap()));
     let read = |raw: &[u8]| load::v(&serde_json::from_slice(raw).unwrap());
@@ -121,9 +117,9 @@ fn saved(loaded: &Loaded, entry: &Value) -> V {
         .unwrap()
 }
 
-/// `_dispatched`: the event's record from the dispatch phase at minute 0, which saves what the
-/// Python step saved (`python_saved`).
-fn dispatched(scheduled: Scheduled, python_saved: &str) -> Dispatched {
+/// The event's record from the dispatch phase at minute 0, whose saved digest is the recorded one
+/// (`recorded`).
+fn dispatched(scheduled: Scheduled, recorded: &str) -> Dispatched {
     let _one = ONE_AT_A_TIME.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     let world = match &scheduled {
         Scheduled::Marked(_) => "gate".to_owned(),
@@ -149,7 +145,7 @@ fn dispatched(scheduled: Scheduled, python_saved: &str) -> Dispatched {
     dispatch::run(&mut tick_at(&loaded, &mut host, 0)).unwrap_or_else(|error| panic!("{world}: {error:?}"));
     let after = counts();
     let text = Dumps::default().sorted().text(&saved(&loaded, &entry));
-    assert_eq!(&sha(&text)[..16], python_saved, "{world}");
+    assert_eq!(&sha(&text)[..16], recorded, "{world}");
     let record = loaded
         .cell
         .with(|world| {
@@ -184,8 +180,8 @@ fn a_guard_the_contract_turns_down_fails_with_its_text() {
         (json!({"operator": "and", "operands": [{"operator": "eq", "field": "simulation.minute", "value": 0}]}), "e7283102ac28014d"),
         (json!({"operator": "eq", "field": "simulation.minute", "value": 0, "other": 1}), "dc0e06448ea5b32f"),
     ];
-    for (guard, python_saved) in cases {
-        let found = dispatched(marked("effect_program_apply", facility(), guard.clone()), python_saved);
+    for (guard, recorded) in cases {
+        let found = dispatched(marked("effect_program_apply", facility(), guard.clone()), recorded);
         assert_eq!(found.status, EventStatus::Failed, "{guard}");
         assert!(found.detail.as_deref().unwrap().starts_with("EffectProgram guard is invalid: "), "{guard}");
         found.grew(&["guard_stopped", "outcomes_failed"]);
@@ -193,7 +189,7 @@ fn a_guard_the_contract_turns_down_fails_with_its_text() {
 }
 
 #[test]
-fn a_guard_without_its_target_fails_with_python_s_text() {
+fn a_guard_without_its_target_fails_with_the_recorded_text() {
     let cases = [
         ("target.capacity", json!({}), "guard field 'target.capacity' has no facility target", "0c5b9a97be5e1e4b"),
         ("target.working_units", json!({"facility_id": "no-such-facility"}), "guard field 'target.working_units' has no facility target", "8ae7aec5b1626e62"),
@@ -207,13 +203,13 @@ fn a_guard_without_its_target_fails_with_python_s_text() {
         ("staff.available", json!({}), "guard staff.available has no known staff target", "78eb1a948feea5d7"),
         ("staff.available", json!({"staff_id": ""}), "guard staff.available has no known staff target", "02cc177610302683"),
     ];
-    for (field, payload, text, python_saved) in cases {
+    for (field, payload, text, recorded) in cases {
         let guard = if field == "staff.available" {
             json!({"operator": "eq", "field": field, "value": true})
         } else {
             json!({"operator": "gte", "field": field, "value": 0})
         };
-        let found = dispatched(marked("effect_program_apply", payload, guard), python_saved);
+        let found = dispatched(marked("effect_program_apply", payload, guard), recorded);
         assert_eq!((found.status, found.detail.as_deref()), (EventStatus::Failed, Some(text)), "{field}");
         found.grew(&["guard_stopped", "outcomes_failed"]);
     }
@@ -277,15 +273,15 @@ fn a_marked_event_of_the_table_is_guarded() {
 
 #[test]
 fn a_guard_value_past_64_bits_compares_by_value() {
-    // An int past 64 bits is the contract's to take (StrictInt), and the core compares it as Python.
+    // An int past 64 bits is the contract's to take (StrictInt), and the core compares it by value.
     let cases = [
         ("past_64_bits", big("1180591620717411303424"), true, "7570f31750059065"),
         ("below_64_bits", big("-1180591620717411303424"), false, "d520f89364bda8e5"),
         ("at_2_63", big("9223372036854775808"), true, "9b401386111f6f68"),
         ("below_minus_2_63", big("-9223372036854775809"), false, "1678a1db6ae904e1"),
     ];
-    for (name, value, applies, python_saved) in cases {
-        let found = dispatched(Scheduled::Program(name), python_saved);
+    for (name, value, applies, recorded) in cases {
+        let found = dispatched(Scheduled::Program(name), recorded);
         // The guard the program holds is this one.
         let entry = cases::entry(FILE, &format!("gate_{name}"));
         let start = entry["world"]["event_queue"].as_array().unwrap().iter().find(|event| event["event_type"] == "effect_program_apply").cloned().unwrap();

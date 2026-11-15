@@ -1,23 +1,17 @@
 //! The handlers and the guard of an EffectProgram (`rules::effects`) on the programs of a world
-//! (Issue #225, lane M7; moved from `tests/integration/test_effect_kernels.py`).
+//! (Issue #225, lane M7).
 //!
 //! The worlds are the generated Scenario the Project screen makes, with each test's program
-//! scheduled by `schedule_effect_program` in Python (`generated_texts.json`'s `kernel_*`,
-//! `tests/support/core_fixtures_kernels.py`), and the native host's contracts of their parameters
-//! as recorded there (`support/contracts.rs`). Each handler runs the kernel its PyO3 entry calls
-//! (`effects::facility_event` and the others), with the host of a Run's world
-//! (`load::following_host`).
+//! scheduled (`generated_texts.json`'s `kernel_*`), and the contracts of their parameters as
+//! recorded there (`support/contracts.rs`). Each handler runs its kernel (`effects::facility_event`
+//! and the others), with the host of a Run's world (`load::following_host`).
 //!
-//! An outcome is the class and text the deleted Python rule raised (written down from it: lane L10,
-//! `kernel_only`), with the world's canonical bytes unchanged. A zone condition's start leaves the
-//! world the pytest file expected (`kernel_zone_<op>_started`, built in Python), and its expiry the
-//! world before it. A success the pytest file compared with a digest of the Python rule's whole
-//! world and receipts (`json.dumps(world.to_dict())`, a dict's order and Python's objects) is
-//! compared with a digest recorded from the core in #225 lane M7: the sha256 of the world's
-//! canonical JSON (`canonical_json()`), a newline, and the receipts' records as the log writes them,
-//! as a JSON list. On the same kernel the pytest digests passed (named at each value), and the PyO3
-//! entries gave these digests on the worlds the pytest file built (checked when they were recorded).
-//! What the pytest file checked by name besides the digest is checked here by name too.
+//! An outcome is a recorded class and text, with the world's canonical bytes unchanged. A zone
+//! condition's start leaves the recorded world (`kernel_zone_<op>_started`), and its expiry the
+//! world before it. A success is pinned by a recorded digest: the sha256 of the world's canonical
+//! JSON (`canonical_json()`), a newline, and the receipts' records as the log writes them, as a
+//! JSON list. The values were recorded before #430 (the digests in #225 lane M7) and pin the core's
+//! output now.
 
 use crate::support;
 
@@ -61,7 +55,7 @@ fn case(name: &str) -> Case {
     Case { entry, loaded, host }
 }
 
-/// The handlers, by the class of the pytest file.
+/// The handlers, by kind.
 #[derive(Clone, Copy, Debug)]
 enum Handler {
     Facility { expire: bool },
@@ -125,7 +119,7 @@ impl Case {
         }
     }
 
-    /// `_python_s_outcome`: the handler raises `class` with `expected`, and the world did not change.
+    /// The handler raises `class` with `expected`, and the world did not change.
     fn says(&mut self, handler: Handler, event: &Value, class: &str, expected: &str) {
         let before = self.bytes();
         let said = texts::outcome(self.apply(handler, event));
@@ -133,7 +127,7 @@ impl Case {
         assert!(self.bytes() == before, "the world changed: {handler:?} {event}");
     }
 
-    /// `_refused`: a value outside the contract, Unsupported with nothing changed.
+    /// A value outside the contract, Unsupported with nothing changed.
     fn refused(&mut self, handler: Handler, event: &Value) {
         let before = self.bytes();
         match self.apply(handler, event) {
@@ -143,7 +137,7 @@ impl Case {
         assert!(self.bytes() == before, "the world changed: {handler:?} {event}");
     }
 
-    /// The handler applies, and the world and its receipts are the digest's (`_as_recorded`).
+    /// The handler applies, and the world and its receipts are the digest's.
     fn recorded(&mut self, handler: Handler, event: &Value, digest: &str) {
         let made = self.apply(handler, event).unwrap_or_else(|error| panic!("{handler:?}: {error:?} {event}"));
         let records: Vec<String> = made
@@ -169,7 +163,7 @@ impl Case {
         self.edit(|world| effects::has_active_modifier(world, &program, facility)).unwrap()
     }
 
-    /// `should_apply_effect_guard` of an event.
+    /// `effects::guard` of an event.
     fn guard(&mut self, event: &Value) -> Result<bool, Error> {
         let holding = kit::holding(&self.loaded.cell, &mut self.host).unwrap();
         let (program, ledger) = (holding.held(KEY, "another state"), holding.held("resource_ledger_v1", "another ledger"));
@@ -204,9 +198,9 @@ fn a_facility_modifier_starts_stacks_and_expires() {
     let expiries = case.all_pending("effect_program_expire");
     let (apply, expire) = (Facility { expire: false }, Facility { expire: true });
     let baseline = case.facility(&facility)["working_units"].clone();
-    // Expiring what did not start is suppressed, with the Python rule's text.
+    // Expiring what did not start is suppressed, with the recorded text.
     case.says(expire, &expiries[0], SUPPRESSED, "facility availability modifier is not active");
-    // Recorded from the core in #225 lane M7; on the same kernel the pytest digest 7eafd5f13bd8 passed.
+    // Recorded from the core in #225 lane M7.
     case.recorded(apply, &starts[0], "29d23a793d04d4f0550830827501f1be57226d21e46c4225e5df9cdf3f342a3e");
     // The first modifier captures the baseline; the facility works the lowest of the stack.
     assert_eq!(
@@ -224,17 +218,17 @@ fn a_facility_modifier_starts_stacks_and_expires() {
         })
     );
     assert_eq!(case.facility(&facility)["working_units"], 0);
-    // Recorded from the core in #225 lane M7; on the same kernel the pytest digest f28c32edc575 passed.
+    // Recorded from the core in #225 lane M7.
     case.recorded(apply, &starts[1], "6aa85deed8a5a583d6827a8c2efc1038e8a7b643c0bd83a48ba6eb1560f1ae75");
-    // A modifier already active is suppressed, with the Python rule's text.
+    // A modifier already active is suppressed, with the recorded text.
     case.says(apply, &starts[1], SUPPRESSED, "facility availability modifier is already active");
     assert_eq!(case.effect_state()["active_facility_modifiers"][&facility]["modifiers"].as_array().unwrap().len(), 2);
     assert!(case.has_active_modifier(&facility));
-    // Recorded from the core in #225 lane M7; on the same kernel the pytest digest fc8c8d9822a1 passed.
+    // Recorded from the core in #225 lane M7.
     case.recorded(expire, &expiries[0], "3c9d56373f8ed92e14eae4a721b7e649245d134401f5078d6ec9ff346020f652");
     assert_eq!(case.effect_state()["active_facility_modifiers"][&facility]["modifiers"].as_array().unwrap().len(), 1);
     assert_eq!(case.facility(&facility)["working_units"], 0);
-    // Recorded from the core in #225 lane M7; on the same kernel the pytest digest 733a34c00d68 passed.
+    // Recorded from the core in #225 lane M7.
     case.recorded(expire, &expiries[1], "ef4678bda5230509636c3b852db1f8b3b37eff794764a77ffbac0eed2b706e27");
     // The last expiry takes the stack away and gives back the baseline.
     assert_eq!(case.facility(&facility)["working_units"], baseline);
@@ -243,7 +237,7 @@ fn a_facility_modifier_starts_stacks_and_expires() {
 }
 
 #[test]
-fn a_facility_event_that_fails_says_python_s_text_or_is_refused() {
+fn a_facility_event_that_fails_says_the_recorded_text_or_is_refused() {
     // A value the rule turns down is its text; an ID that is not a str is outside the contract.
     let units = "working_units must be an integer";
     let capacity = "facility availability modifier violates capacity or occupancy";
@@ -273,7 +267,7 @@ fn a_facility_event_that_fails_says_python_s_text_or_is_refused() {
     }
 }
 
-/// The zone conditions of the pytest file.
+/// The zone conditions.
 const ZONE_OPERATORS: [&str; 6] = ["modify_demand_rate", "set_ambient_noise", "set_lighting", "set_privacy", "set_temperature", "set_ventilation"];
 
 #[test]
@@ -286,7 +280,7 @@ fn a_zone_condition_starts_and_expires() {
         let before = parts_of(&case);
         case.says(expire, &expiry, SUPPRESSED, "zone environment modifier is not active");
         case.apply(apply, &start).unwrap_or_else(|error| panic!("{op}: {error:?}"));
-        // The start writes its modifier's record and nothing else: the world the pytest file made.
+        // The start writes its modifier's record and nothing else: the recorded world.
         let expected = load::loaded(&cases::entry(FILE, &format!("kernel_zone_{op}_started"))).cell.with(|world| parts(world)).unwrap();
         assert!(parts_of(&case) == expected, "{op}");
         case.says(apply, &start, SUPPRESSED, "zone environment modifier is already active");
@@ -305,7 +299,7 @@ fn a_temporary_space_starts_and_expires() {
     let (apply, expire) = (TemporarySpace { expire: false }, TemporarySpace { expire: true });
     let not_started = "temporary-space effect did not start or does not match its expiry";
     case.says(expire, &expiry, SUPPRESSED, not_started);
-    // Recorded from the core in #225 lane M7; on the same kernel the pytest digest 00662fd40043 passed.
+    // Recorded from the core in #225 lane M7.
     case.recorded(apply, &start, "cbf4dc30d10ecc5ff2a026f1b6a9f9062666c3e70c537714cacf30f96aa9cd66");
     let modifier = start["payload"]["modifier_id"].as_str().unwrap().to_owned();
     let space = case.document()["model_state"]["temporary_spaces_v1"]["spaces"][&modifier].clone();
@@ -327,7 +321,7 @@ fn a_temporary_space_starts_and_expires() {
         })
     );
     let expiry = changed(&expiry, json!({}), json!({"causation_id": start["event_id"]}));
-    // Recorded from the core in #225 lane M7; on the same kernel the pytest digest a113537dbdfe passed.
+    // Recorded from the core in #225 lane M7.
     case.recorded(expire, &expiry, "32a73349120a8bfde4de21610c520f00a811b43ce864aa109f2960ed03dd9c5d");
     let spaces = case.document()["model_state"]["temporary_spaces_v1"]["spaces"].clone();
     assert_eq!(spaces.as_object().unwrap().len(), 1);
@@ -335,9 +329,8 @@ fn a_temporary_space_starts_and_expires() {
 }
 
 #[test]
-fn a_new_member_or_toilet_is_the_python_rule_s() {
-    // Recorded from the core in #225 lane M7; on the same kernel the pytest digests b36fac765c95
-    // (add_staff) and 47fc03365bbc (add_toilet) passed.
+fn a_new_member_or_toilet_is_the_recorded_one() {
+    // Recorded from the core in #225 lane M7.
     for (op, digest) in [
         ("add_staff", "be51a7abe81e6a3f0237a3cbd4518eeae5148da8172bd81511c1e7d908fab1ba"),
         ("add_toilet", "143fabffe1e16bab0a08373a3edf045ba822e4df65d378d98729b6ddbbebf2ef"),
@@ -383,9 +376,8 @@ fn past_the_bound_of_members_is_the_rule_s_text() {
 }
 
 #[test]
-fn the_bound_of_an_addition_is_the_python_rule_s() {
-    // Recorded from the core in #225 lane M7; on the same kernel the pytest digests 73dfcd9ed2b1
-    // (add_staff) and 3f29f03a3ff7 (add_toilet) passed.
+fn the_bound_of_an_addition_is_the_recorded_one() {
+    // Recorded from the core in #225 lane M7.
     let bounds = [
         (
             "add_staff",
@@ -415,11 +407,10 @@ fn the_bound_of_an_addition_is_the_python_rule_s() {
 
 #[test]
 fn a_role_change_is_the_same() {
-    // The contract's own text of skills it turns down stays in the pytest file (pydantic's).
     let mut case = case("kernel_role");
     let staff_id = case.sorted_ids("staff").remove(0);
     let event = case.pending("effect_program_structure", Some("set_staff_role"));
-    // Recorded from the core in #225 lane M7; on the same kernel the pytest digest 605a5afbb934 passed.
+    // Recorded from the core in #225 lane M7.
     case.recorded(Structure, &event, "5ca1db24f8145d46587fbe3660b822ad95ee5932b9586b22bd96bf42bcc038d0");
     let document = case.document();
     let row = document["staff"].as_array().unwrap().iter().find(|row| row["id"] == *staff_id).unwrap();
@@ -432,7 +423,7 @@ fn a_repair_is_the_same_and_checks_what_it_expects() {
     let facility = toilet(&case);
     let capacity = case.facility(&facility)["capacity"].as_i64().unwrap();
     let event = case.pending("effect_program_structure", Some("facility_repair"));
-    // Recorded from the core in #225 lane M7; on the same kernel the pytest digest 0d3e34f6f0c3 passed.
+    // Recorded from the core in #225 lane M7.
     case.recorded(Structure, &event, "07c19f628c03475eb064e7abea622910c08278338eef93d13ab5723030c13c8e");
     assert_eq!(case.facility(&facility)["working_units"], capacity);
     let mut stale = self::case("kernel_repair");
@@ -445,7 +436,7 @@ fn an_order_is_the_same_and_only_for_its_minute() {
     let mut case = case("kernel_order");
     let event = case.pending("effect_program_structure", Some("staff_task_order"));
     let staff_id = event["payload"]["staff_id"].as_str().unwrap().to_owned();
-    // Recorded from the core in #225 lane M7; on the same kernel the pytest digest 89422db60646 passed.
+    // Recorded from the core in #225 lane M7.
     case.recorded(Structure, &event, "01ba3afaab1ce691c260674cb4a0702618202b5e0239897f84b5218dd265d597");
     let document = case.document();
     let row = document["staff"].as_array().unwrap().iter().find(|row| row["id"] == *staff_id).unwrap();
@@ -492,7 +483,7 @@ fn a_structure_event_with_other_fields_is_the_rule_s_text() {
 
 // ---- The guard --------------------------------------------------------------------------------
 
-/// `_guarded`: an event whose marker has the guard, of no program.
+/// An event whose marker has the guard, of no program.
 fn guarded(guard: Value, payload: Value) -> Value {
     json!({
         "event_id": "guarded-event",
@@ -509,9 +500,9 @@ fn guarded(guard: Value, payload: Value) -> Value {
 }
 
 #[test]
-fn a_large_int_and_a_float_or_a_wider_int_compare_as_python_s() {
-    // Python compares an int with a float, or with an int past 64 bits, exactly. The answers are
-    // those of the Python rule (`_guard_answer` of the pytest file restated it).
+fn a_large_int_and_a_float_or_a_wider_int_compare_exactly() {
+    // Python compares an int with a float, or with an int past 64 bits, exactly, and so does the
+    // guard.
     let two_53 = 1_i64 << 53;
     let two_62 = 1_i64 << 62;
     let two_70 = || big("1180591620717411303424");

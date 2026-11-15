@@ -1,14 +1,14 @@
-//! The fixtures of the core's tests: worlds the Python side exported, read back without Python
-//! (Issue #225, lane F2; the floor plan of #214).
+//! The fixtures of the core's tests: recorded worlds, read back (Issue #225, lane F2; the floor
+//! plan of #214).
 //!
-//! `tests/data/sections.json` holds a generated Scenario's world (`core_fixtures.sections_world`:
-//! the UI's floor plan with three people, ten ticks through `TickEngine`, then a facility moved and
-//! a partition set in its overlay by hand) and what the native path read of that world: the floor
-//! plan the movement rules read (`geo_summary_of`), the approach routes, whether queues are
-//! independent, and the sections as their read sites read them (`config_section`). The host
-//! `load::host` makes from the export must give the same: its Python-parsed sections are the
-//! world's (`support/sections.rs`), and its floor plan is `Geo::of` of the world. `json_dumps_*`
-//! checks the writer of Python's `json.dumps` text (`support/dumps.rs`) against Python's bytes.
+//! `data/sections.json` holds a generated Scenario's world (the UI's floor plan with three people,
+//! ten ticks, then a facility moved and a partition set in its overlay by hand) and what was read
+//! of that world: the floor plan the movement rules read, the approach routes, whether queues are
+//! independent, and the sections as their read sites read them. The host `load::host` makes from
+//! the export must give the same: its recorded sections are the world's (`support/sections.rs`),
+//! and its floor plan is `Geo::of` of the world. The values were recorded before #430 and pin the
+//! core's output now. `json_dumps_*` checks the writer of Python's `json.dumps` text
+//! (`support/dumps.rs`) against CPython 3.12's bytes.
 
 use crate::support;
 
@@ -245,7 +245,7 @@ fn sample() -> V {
     ])
 }
 
-/// What Python 3.12 wrote for `sample()`, with each set of options.
+/// What CPython 3.12's `json.dumps` writes for `sample()`, with each set of options.
 #[test]
 fn json_dumps_writes_python_s_text() {
     let value = sample();

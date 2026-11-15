@@ -67,9 +67,9 @@ const OVERLAY: &str = "geometry_overlay_v1";
 const SPACES: &str = "temporary_spaces_v1";
 const LEDGER: &str = "resource_ledger_v1";
 
-/// The event types of the care records (`care_history_by_agent`).
+/// The event types of the care records (`care_history`).
 const CARE_EVENT_TYPES: [&str; 2] = ["care_support_transition", "staff_support_continuity"];
-/// The event types of a frame's interactions (`social_event_records`).
+/// The event types of a frame's interactions (`social_events`).
 const SOCIAL_EVENT_TYPES: [&str; 3] = ["information_contact_update", "social_interaction", "information_correction"];
 /// The payload keys whose people are an interaction's actors.
 const ACTOR_KEYS: [&str; 4] = ["agent_id", "participant_agent_id", "sender_agent_id", "recipient_agent_id"];
@@ -81,7 +81,7 @@ const SOCIAL_SCAN_LIMIT: usize = 5000;
 const SOCIAL_LIMIT: usize = 200;
 /// The newest records a frame lists (`EventLog.recent(100)`).
 const RECENT_EVENTS: usize = 100;
-/// How many care records each person keeps (`care_history_by_agent`'s limit).
+/// How many care records each person keeps (`care_history`'s limit).
 const CARE_HISTORY_LIMIT: usize = 20;
 /// How many relationships a frame lists, of the sorted keys.
 const EDGE_LIMIT: usize = 2000;
@@ -183,12 +183,12 @@ pub fn frame<C: WorldCell, H: Host>(cell: &C, host: &mut H, request: &Request<'_
 struct Wanted {
     /// The newest records (`EventLog.recent(100)`).
     recent: std::ops::Range<usize>,
-    /// The newest applied interactions (`social_event_records`), and whether records were left
+    /// The newest applied interactions (`social_events`), and whether records were left
     /// unscanned.
     social: Vec<usize>,
     social_truncated: bool,
     /// The records of the care types since those the world's memo read, in append order
-    /// (`care_history_by_agent`), and whether the memo holds the ones before.
+    /// (`care_history`), and whether the memo holds the ones before.
     care: Vec<usize>,
     care_memo: bool,
 }
@@ -221,8 +221,8 @@ fn wanted_records(world: &mut World) -> Result<Wanted> {
     })
 }
 
-/// The care rows of each person that the world's frames read so far (`care_history_by_agent`
-/// keeps them on the EventLog, `log.derived`): the log only grows, so the next frame reads only the
+/// The care rows of each person that the world's frames read so far (`care_history` keeps them on
+/// the EventLog, `log.derived`): the log only grows, so the next frame reads only the
 /// records added since. Not state: it is kept in the world's `derived`, which a fork starts
 /// without, and a log that is not the one it read (rolled back, or another) is read again whole.
 #[derive(Clone, Default)]
@@ -280,7 +280,7 @@ fn unpacked(raw: &[u8]) -> Result<Unpacked> {
 /// How many records the digest reads from the world at a time.
 const DIGEST_BATCH: usize = 4096;
 
-/// `world.state_digest()` (`canonical::state_digest`), the log's records read a batch at a time,
+/// The world's state digest (`canonical::state_digest`), the log's records read a batch at a time,
 /// those the log does not keep from the host.
 fn digest<C: WorldCell, H: Host>(cell: &C, host: &mut H, rng_state: &V) -> std::result::Result<String, H::Error> {
     // The document holds the whole queue, the host's pending events too (H6,
@@ -341,11 +341,11 @@ fn raise<H: Host>(host: &mut H, which: SectionId, fault: &Fault) -> H::Error {
 
 // ---- The waits ----------------------------------------------------------------------------------
 
-/// What the frame reads of the waits: the minute's `MetricSnapshot` and each care request's wait.
+/// What the frame reads of the waits: the minute's metric sample and each care request's wait.
 struct Waits {
     sample: MetricSample,
-    /// `support_waited_minutes` and `support_wait_reason_codes` of each care request with a
-    /// support request, by its ID.
+    /// The minutes waited and the wait's reason codes (`rules::staff::open_waits`) of each care
+    /// request with a support request, by its ID.
     care: BTreeMap<Arc<str>, (i64, Vec<Arc<str>>)>,
 }
 
@@ -512,7 +512,7 @@ fn state(world: &World, name: &str) -> Result<Option<V>> {
     Ok(world.slots.try_value(name)?.map(|value| value.clone()))
 }
 
-/// `read_only_part(world, name, key, default)`: the part of a dict namespace, else the default.
+/// The part `key` of a dict namespace, else None (the caller's default).
 fn part(state: Option<&V>, key: &str) -> Option<V> {
     match state {
         Some(V::Map(map)) => map.get(key).cloned(),
@@ -522,7 +522,7 @@ fn part(state: Option<&V>, key: &str) -> Option<V> {
 
 // ---- The interactions and the care records -------------------------------------------------------
 
-/// `social_event_records`: the newest applied interactions.
+/// The newest applied interactions.
 fn social_events(records: &Records) -> Result<Vec<V>> {
     let mut events = Vec::with_capacity(records.wanted.social.len());
     for &index in &records.wanted.social {
@@ -555,8 +555,8 @@ fn social_events(records: &Records) -> Result<Vec<V>> {
     Ok(events)
 }
 
-/// `care_history_by_agent(world, limit=20)`: each person's applied care receipts, newest last,
-/// added to the world's memo from the records since it. The memo then holds them.
+/// Each person's applied care receipts (at most `CARE_HISTORY_LIMIT`), newest last, added to the
+/// world's memo from the records since it. The memo then holds them.
 fn care_history(world: &World, records: &Records) -> Result<()> {
     let mut derived = world.derived.try_borrow_mut()?;
     let mut memo = match derived.care_history.take() {
@@ -647,7 +647,8 @@ fn effective_geometry(document: &V, overrides: Option<&V>) -> Result<V> {
     Ok(geometry)
 }
 
-/// `effective_spatial_constraints(world).model_dump(mode="json")`.
+/// The world's effective spatial constraints, as their contract dumps them: the Scenario's with the
+/// overlay's partitions and moves.
 fn effective_spatial(document: &V, overlay: Option<&V>, configs: &Map) -> Result<V> {
     let mut constraints = document.clone();
     let V::Map(map) = &mut constraints else {
@@ -725,7 +726,8 @@ fn legacy_service_point(facility_id: &str, capacity: i64, at: &V) -> Result<V> {
 
 // ---- The frame ----------------------------------------------------------------------------------
 
-/// `MetricSnapshot.from_world(world).csv_row()` without `source_ids_json`.
+/// The KPIs of a metric sample by name (the sample's columns), the minute first, without
+/// `source_ids_json`.
 pub(crate) fn kpis(sample: &MetricSample, minute: i64) -> Map {
     let mut kpis = Map::new();
     let mut put = |name: &str, value: V| {
@@ -753,7 +755,7 @@ pub(crate) fn kpis(sample: &MetricSample, minute: i64) -> Map {
     kpis
 }
 
-/// The resource ledger's KPI columns (`resource_metric_values`), in their order.
+/// The resource ledger's KPI columns, in their order.
 pub(crate) const RESOURCE_COLUMNS: [[&str; 6]; 2] = [
     ["water_ml_initial", "water_ml_delivered", "water_ml_served", "water_ml_losses", "water_ml_remaining", "water_ml_reserved"],
     [
@@ -766,7 +768,7 @@ pub(crate) const RESOURCE_COLUMNS: [[&str; 6]; 2] = [
     ],
 ];
 
-/// `occupancy_snapshot(world)["zones"]`.
+/// The occupancy of each zone.
 fn occupancy_zones(world: &World, reads: &Reads, configs: &Map) -> Result<Vec<V>> {
     let rows = world.rows()?;
     let mut counts: IndexMap<Arc<str>, i64> = rows.zones.iter().map(|(id, _)| (id.clone(), 0)).collect();
@@ -943,8 +945,7 @@ fn build(world: &World, reads: &Reads, waits: &Waits, records: &Records, request
     let no_positions = IdMap::default();
     let geometry_overlay = overlay_view(world, overlay.as_ref(), movement.as_ref().map_or(&no_positions, |movement| &movement.positions))?;
 
-    // The projections of the declared namespaces (`entity_projections`): only the presence ledger
-    // has one.
+    // The projections of the declared namespaces: only the presence ledger has one.
     project_presence(configs, &presence, &context_people, &mut people)?;
 
     let mut frame = Map::new();
@@ -1596,8 +1597,8 @@ fn recent_items(items: Option<&dyn crate::row::Items>) -> Result<(usize, Vec<V>)
     Ok((count, recent))
 }
 
-/// `population_context_people(world)`: the Scenario's context of each person, then what was saved
-/// for the people who arrived since.
+/// The context of each person: the Scenario's, then what was saved for the people who arrived
+/// since.
 fn population_context(world: &World, configs: &Map, dynamics: Option<&V>) -> Result<Map> {
     let mut merged = match configs.get("population_context") {
         Some(V::Map(configured)) => match configured.get("people") {
@@ -1718,7 +1719,7 @@ struct Occupancy {
     zones: Vec<V>,
 }
 
-/// `operational_demand_snapshot(world)`, as its contract dumps it.
+/// The operational demand of the world now, as its contract dumps it.
 fn operational_demand(world: &World, reads: &Reads, configs: &Map, occupancy: Occupancy, shared: Option<&SharedOperationsRow>) -> Result<V> {
     let Occupancy { minute, population, pending, zones } = occupancy;
     // The Scenario's floor plan, without the overlay's moves, where the configs hold a truthy one.

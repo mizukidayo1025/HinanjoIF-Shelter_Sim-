@@ -82,7 +82,7 @@ state_row! {
     }
 }
 
-/// `_validate_information_id`: `^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$`, matched in full.
+/// Whether an information ID is stable: `^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$`, matched in full.
 pub fn is_stable_id(text: &str) -> bool {
     let bytes = text.as_bytes();
     !bytes.is_empty()
@@ -95,7 +95,7 @@ fn is_unit(value: f64) -> bool {
     (0.0..=1.0).contains(&value)
 }
 
-/// What a belief's status counts for: `_BELIEF_RANK`, or None for no status.
+/// What a belief's status counts for (its rank), or None for no status.
 pub fn belief_rank(status: &str) -> Option<u8> {
     match status {
         "unknown" => Some(0),
@@ -119,7 +119,8 @@ impl MessageRow {
 }
 
 impl BeliefRow {
-    /// `AgentInformationState.from_dict` takes this record of the row's exact types.
+    /// Whether this record, of the row's exact types, reads as a person's information state: its
+    /// IDs stable, its belief known, its levels within 0..1 and its corrections consistent.
     pub fn parses(&self) -> bool {
         is_stable_id(&self.message_id)
             && is_stable_id(&self.source)

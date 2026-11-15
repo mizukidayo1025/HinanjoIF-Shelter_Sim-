@@ -166,7 +166,7 @@ pub struct Receipts {
 
 impl Receipts {
     /// Where `records_since_previous_tick` starts.
-    /// `validate_shared_operations_state` of this tick passed, reading these.
+    /// `validate::shared_operations::validate` of this tick passed, reading these.
     pub fn recent_passed(&mut self, minute_index: i64) {
         let start = self.recent_start(minute_index);
         for item in self.items.iter_mut().skip(start) {

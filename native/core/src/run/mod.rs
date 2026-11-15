@@ -2,8 +2,8 @@
 //! lane 7-3; policy E7 of docs/rust-port/step5-plan.md, design-p7.md principle 1).
 //!
 //! `RunConfig` is read once, when the controller starts, from what it read of `model_configs`; the
-//! route graph (`Routes`) is built from the world's tables at each of the controller's
-//! `_refresh_space`. `Policies` (lane P8-0b) is what the rules read of the controller's policies and
+//! route graph (`Routes`) is built from the world's tables at each refresh (`Routes::refresh`).
+//! `Policies` (lane P8-0b) is what the rules read of the controller's policies and
 //! managers, read once when the controller starts (`policies.rs`); `Scratch` holds what one tick's
 //! phases hand on (`scratch.rs`); `actions` the open action of each agent (lane P8 a2), which the
 //! controller keeps from tick to tick. None of them is state: nothing saves, hashes or compares them,
@@ -53,7 +53,7 @@ pub struct RouteCapacities {
     pub by_edge: HashMap<Arc<str>, Capacity>,
     /// Whether the table has any key at all: then every route counts the trips under way.
     pub any: bool,
-    /// Whether a key was left out: one no edge of `world.zone_edges` can be, which `ZoneGraph`
+    /// Whether a key was left out: one no edge of `world.zone_edges` can be, which the zone graph
     /// turns down (`Router::of_tables`).
     pub unmatched_keys: bool,
 }
@@ -92,7 +92,7 @@ pub struct Run {
     /// Not state: the values of the tick under way.
     pub scratch: Scratch,
     /// The open action of each agent (lane P8 a2). Not saved: a restored Run makes it again from
-    /// the event log (`active_action_index`).
+    /// the event log.
     pub actions: ActiveActions,
     /// Not state: what the view keeps from one view to the next (lane P8 a1), by the stamps of what
     /// it was read from.

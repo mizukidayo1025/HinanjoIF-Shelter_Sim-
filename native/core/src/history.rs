@@ -4,7 +4,7 @@
 //! and the report reads the last sample.
 //!
 //! A row (`kpi_row`) is the index's: the sample's `MetricSnapshot` fields without
-//! `source_ids_json`, the ledger's columns where the sample holds them (`resource_snapshots`),
+//! `source_ids_json`, the ledger's columns where the sample holds them (`Balances`),
 //! `time_semantics`, `record_kind`, `run_id` and `branch_id`, as canonical JSON (keys sorted, the
 //! floats as Python writes them). `KpiTable` holds a stored Run's samples read back and pages them
 //! as the index's query does: the minutes from `start` to `end` that are `start` plus a multiple of
@@ -25,8 +25,8 @@ fn corrupt(what: &str) -> Error {
     Error::Value(format!("not stored samples: {what}"))
 }
 
-/// The history index's row of a sample (`HistoryIndex.ingest`, then the answer's `record_kind`,
-/// `run_id` and `branch_id`), as canonical JSON.
+/// The history index's row of a sample (its KPIs, then the answer's `record_kind`, `run_id` and
+/// `branch_id`), as canonical JSON.
 pub fn kpi_row(sample: &MetricSample, minute: i64, balances: Option<&Balances>, run_id: &str, branch_id: &str) -> Result<Vec<u8>> {
     let mut row = kpis(sample, minute);
     let mut put = |name: &str, value: V| {
@@ -46,7 +46,7 @@ pub fn kpi_row(sample: &MetricSample, minute: i64, balances: Option<&Balances>, 
     Ok(encoder.out)
 }
 
-/// The final metrics of the offline report's evidence (`build_review_evidence`): each field of the
+/// The final metrics of the offline report's evidence (`answers::report`): each field of the
 /// sample's `MetricSnapshot` but `minute_index` and `source_ids_json`, as a float, as canonical
 /// JSON.
 pub fn review_metrics(sample: &MetricSample) -> Result<Vec<u8>> {
@@ -73,7 +73,7 @@ pub struct KpiPage {
     pub more: bool,
 }
 
-/// What a page asks for: the index's query of `kind=kpis` (`HistoryIndex.search`).
+/// What a page asks for: the index's query of `kind=kpis`.
 #[derive(Clone, Debug)]
 pub struct KpiQuery<'a> {
     pub start: i64,

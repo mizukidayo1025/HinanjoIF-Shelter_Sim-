@@ -1,4 +1,4 @@
-//! The social model's step of the update phase (`_social_propagation`), with the rules of
+//! The social model's step of the update phase (`update`), with the rules of
 //! `StressPropagationPolicy`, `ExpressivenessChannelOpennessPolicy` and `DeGrootContactPolicy`.
 //!
 //! The step takes the psychology deltas of the minute (`Delta`, lane a3) and gives the deltas after
@@ -235,7 +235,7 @@ pub struct Plan {
     pub cooldowns: Option<IdMap<i64>>,
     /// (recipient, source) of what the step records in `social_network_v1`, in its order.
     pub observed: Vec<(usize, usize)>,
-    /// What `SocialPropagationResult` holds for its trace, if the Run keeps one.
+    /// What the plan keeps for its trace, if the Run keeps one.
     pub trace: Option<PlanTrace>,
 }
 
@@ -746,7 +746,7 @@ fn neighbors_of(neighbors: &Neighbors, zones: &[&str]) -> Result<HashMap<String,
     Ok(found)
 }
 
-/// `_social_propagation` of the update phase, with the model on: the plan of the minute and, when
+/// The social model's step of the update phase, with the model on: the plan of the minute and, when
 /// the namespace is in `model_state`, its writes. Unsupported before anything changes.
 pub fn update(world: &World, inputs: &Inputs<'_>) -> Result<Planned> {
     let settings = inputs.settings;
@@ -818,7 +818,7 @@ pub fn update(world: &World, inputs: &Inputs<'_>) -> Result<Planned> {
         })
         .collect();
 
-    // The first tick of a Run: `_read_runtime_state(None)`, and this step makes the namespace.
+    // The first tick of a Run: no state read yet, and this step makes the namespace.
     let first_use = kit::namespace_absent(world, NAME)?;
     let plan = if first_use {
         plan(inputs.seed, inputs.minute, settings, &people, &neighbors, Before { contacts: &IdMap::default(), cooldowns: &IdMap::default() }, inputs.traced)?
@@ -874,7 +874,7 @@ pub fn write(world: &World, planned: &mut Planned) -> Result<()> {
     }
 }
 
-/// The trace's document of a minute (`SocialPropagationResult.trace_document`) to the host's sink,
+/// The trace's document of a minute to the host's sink,
 /// when the plan keeps a trace. `policy_version` is the value the document holds.
 pub fn record_social<H: Host>(host: &mut H, planned: &Planned, minute: i64, policy_version: &V) -> std::result::Result<(), H::Error> {
     let Some(trace) = &planned.plan.trace else {

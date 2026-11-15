@@ -5,11 +5,11 @@
 //! keeps in the branch's stored Run.
 //!
 //! `QuestionPlan::new` checks the request and the branch; the caller makes the branch's frame at
-//! `QuestionPlan::minute`; `check_frame` checks the person; where `comparison_ids` names branches,
-//! the caller checks their comparison (`frames::comparison_range`, the receipts); `answer` gives
-//! the answer and the turn. The context's id is "c", the first 32 hex digits of the sha256 of the
-//! context's JSON, "-" and 24 random hex digits (the caller's), or the id the request gave when it
-//! is of the same context.
+//! `QuestionPlan::minute`; `check_frame` checks the person; where `comparison_branch_ids` names
+//! branches, the caller checks their comparison (`frames::comparison_range`, the receipts);
+//! `answer` gives the answer and the turn. The context's id is "c", the first 32 hex digits of the
+//! sha256 of the context's JSON, "-" and 24 random hex digits (the caller's), or the id the
+//! request gave when it is of the same context.
 
 use serde_json::{json, Map, Value};
 
@@ -439,7 +439,7 @@ fn json_of(bytes: &[u8]) -> Answer<Value> {
     serde_json::from_slice(bytes).map_err(|error| Failure::Error(Error::Value(error.to_string())))
 }
 
-/// The answer's output schema (`_OUTPUT_SCHEMA`).
+/// The answer's output schema.
 fn output_schema() -> Value {
     let aliases: Vec<String> = (1..=ALIASES).map(|index| format!("S{index}")).collect();
     let proof = json!({
@@ -485,8 +485,8 @@ fn output_schema() -> Value {
     })
 }
 
-/// `_proof_object`: lists as objects keyed by their indexes, a page's metadata left out, so that
-/// every scalar has a dotted path.
+/// The evidence as proof: lists as objects keyed by their indexes, a page's metadata left out, so
+/// that every scalar has a dotted path.
 fn proof_object(value: &Value) -> Value {
     const METADATA: [&str; 6] = ["cursor", "next_cursor", "anchor_hash", "state_hash", "total_items", "effective_limit"];
     match value {
@@ -498,7 +498,7 @@ fn proof_object(value: &Value) -> Value {
     }
 }
 
-/// `_evidence_value`: the value at a bounded dotted path of one evidence object.
+/// The value at a bounded dotted path of one evidence object.
 fn evidence_value<'v>(data: Option<&'v Value>, path: &str) -> Option<&'v Value> {
     let mut value = data.filter(|data| data.is_object())?;
     if path.is_empty() || path.chars().count() > 120 {
@@ -521,8 +521,8 @@ fn is_int(value: &Value) -> bool {
     matches!(value, Value::Number(number) if !number.to_string().contains(['.', 'e', 'E']))
 }
 
-/// `_proof_matches`: an exact copy of one recorded scalar (its JSON, or a string verbatim), never
-/// a rounded or retyped value.
+/// Whether a cited value is an exact copy of one recorded scalar (its JSON, or a string verbatim),
+/// never a rounded or retyped value.
 fn proof_matches(actual: Option<&Value>, copied: &Value) -> bool {
     let Some(actual) = actual.filter(|actual| is_scalar(actual)) else {
         return false;
@@ -706,8 +706,8 @@ impl Asking {
         Ok((asking::canonical(&result).into_bytes(), asking::canonical(&turn).into_bytes()))
     }
 
-    /// `_deterministic_exact_field_claim`: where the LLM cited nothing, the one scalar the question
-    /// names by its field (and alias, where it names one) quoted from the evidence.
+    /// Where the LLM cited nothing, the one scalar the question names by its field (and alias,
+    /// where it names one) quoted from the evidence.
     fn exact_field_fact(&self) -> Answer<Option<Value>> {
         let alias = crate::interpret::named_alias(&self.stored).map_err(Failure::Error)?;
         let fields: Vec<(&str, &str)> =

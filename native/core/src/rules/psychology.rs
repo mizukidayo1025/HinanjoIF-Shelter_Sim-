@@ -8,9 +8,9 @@
 //! into the rules' numbers with their refusals. A read that failed is a `PolicyFault` with the path
 //! it was read by, which `Tick::policy_error` turns into the error (policy E14).
 //!
-//! The comments below name the steps by their model names (`explain_update`,
-//! `deltas_without_traces`, `update_psychological_state`, `record_distress_monitor_tick`,
-//! `apply_state_deltas`). A step changes nothing until it knows its checks pass: everything is
+//! The steps are `update` (each person's values of the next minute, by `step`, with `person_trace`
+//! for a trace), the distress monitor and the long-term distress (`update_long_term`), and `apply`,
+//! which writes the values. A step changes nothing until it knows its checks pass: everything is
 //! computed from the rows first, and any value the checks turn down, or that the rules do not
 //! handle, is Unsupported. Then the plan is written to the rows. Every float operation keeps a
 //! fixed order (the rounding depends on it).
@@ -42,10 +42,10 @@ const MONITOR_PREFIX: &str = "acute_distress_monitor:";
 const MONITOR_SUFFIXES: [&str; 5] = [":current_run", ":longest_run", ":episodes", ":recovered_run_total", ":recovered_run_count"];
 const MINUTES_PER_DAY: i64 = 1440;
 
-/// `PsychologyUpdateResult.policy_version` of a result that does not name its model.
+/// The policy version of a result that does not name its model.
 pub const DEFAULT_POLICY_VERSION: &str = "causal-stress-v1";
 
-/// The names of the body values of `AgentStateDelta`, in the order of `Delta::body`.
+/// The names of the body values of a person's next values (`Delta`), in the order of `Delta::body`.
 pub const BODY_NAMES: [&str; 7] = ["sleep_debt_minutes", "uncertainty", "reassurance", "discontent", "positive_affect", "negative_affect", "hygiene_need"];
 
 #[track_caller]
@@ -501,16 +501,16 @@ fn write_long_term(row: &mut DistressRow, people: &[Person<'_>], minute: i64, pl
     Ok(())
 }
 
-/// `_update_long_term_psychology` of the update phase, for a model with long-term state: the
-/// distress monitor's five values of each person in `world.metric_state`, and each person's day in
-/// `psychological_distress_v1`. `finals` are each person's ID and final stress (`final_deltas`),
-/// which the caller checked to be str and floats within 0..1; `metric_state_held` is whether
-/// `world.metric_state` holds its slot's tree (a field assigned whole does not). Nothing is written
-/// unless every check passes.
+/// The long-term psychology of the update phase, for a model with long-term state: the distress
+/// monitor's five values of each person in `world.metric_state`, and each person's day in
+/// `psychological_distress_v1`. `finals` are each person's ID and final stress, which the caller
+/// checked to be str and floats within 0..1; `metric_state_held` is whether `world.metric_state`
+/// holds its slot's tree (a field assigned whole does not). Nothing is written unless every check
+/// passes.
 pub fn update_long_term(world: &World, long_term: &LongTerm<'_>, finals: &[(&str, f64)], minute: i64, metric_state_held: bool) -> Result<()> {
-    // `previous_by_agent` and `current_by_agent` of the step, or Unsupported if the rules would do
-    // anything but read them: their keys differ, or a value is out of bounds. The previous values
-    // are the rows': nothing has written a person since the view was made.
+    // Each person's previous and current stress, or Unsupported if the rules would do anything but
+    // read them: their keys differ, or a value is out of bounds. The previous values are the rows':
+    // nothing has written a person since the view was made.
     let mut people: Vec<Person<'_>> = finals.iter().map(|&(id, current)| Person { id, previous: 0.0, current }).collect();
     {
         let rows = world.rows()?;
@@ -596,7 +596,7 @@ struct BodyRates {
     negative_affect_stress: f64,
     sanitation_stress: f64,
     /// Whether `discontent_stress_rate` is an int, which a separated family's pressure is
-    /// (`life_state_before` of the trace keeps it).
+    /// (the trace's life state before the step keeps it).
     discontent_stress_int: bool,
     /// `body-feedback-sleep-debt-v1`: only the debt feeds back.
     sleep_debt_only: bool,
@@ -743,7 +743,7 @@ fn body_rates(policy: &Obj, config: &Table, formula: &Held) -> Got<BodyRates> {
         sleep_debt_only,
         tick_start_reference: bool_attr(policy, &["psychology", "use_tick_start_stress_for_feedback"])?,
     };
-    // The checks of sleep_debt_step on the rates; the others only meet arithmetic.
+    // The checks of the sleep debt's step on the rates; the others only meet arithmetic.
     let usable = |rate: f64| rate.is_finite() && rate >= 0.0;
     if !(usable(rates.awake_sleep_debt) && usable(rates.rest_sleep_debt_recovery) && usable(rates.sleep_sleep_debt_recovery)) {
         return refused("a sleep debt rate is out of bounds");
@@ -812,7 +812,8 @@ fn clamp(value: f64) -> f64 {
     py_min(1.0, py_max(0.0, value))
 }
 
-/// `_mean_reverting_terms(value, baseline, kappa, 1.0)`, whose checks the caller has done.
+/// The mean-reverting terms of `value` toward `baseline` at rate `kappa` over one minute, whose
+/// checks the caller has done.
 #[inline]
 fn mean_reverting_terms(value: f64, baseline: f64, kappa: f64) -> Result<(f64, f64)> {
     let decay = mathx::exp(-kappa * 1.0)?;
@@ -846,7 +847,7 @@ fn step(model: Model, rates: &Rates, body: Option<&BodyRates>, a: &Input, mut st
     };
     match model {
         Model::Simple => return Ok(needs(simple_stress, None)),
-        // BoundedStressPolicy.explain_update
+        // BoundedStressPolicy's step.
         Model::Bounded => {
             let pressure = py_sum(&[need_pressure_stress, queue_wait_stress, support_wait_stress, environmental_stress]);
             let added = (1.0 - a.stress) * -mathx::expm1(-pressure)?;
@@ -857,7 +858,7 @@ fn step(model: Model, rates: &Rates, body: Option<&BodyRates>, a: &Input, mut st
             }
             return Ok(needs(py_min(1.0, py_max(0.0, a.stress + added - recovery)), None));
         }
-        // MeanRevertingDistressPolicy.explain_update
+        // MeanRevertingDistressPolicy's step.
         Model::MeanReverting => {
             let (natural, multiplier) = mean_reverting_terms(a.stress, a.baseline, a.kappa)?;
             if let Some(stages) = stages {
@@ -877,14 +878,15 @@ fn step(model: Model, rates: &Rates, body: Option<&BodyRates>, a: &Input, mut st
         Model::LifeState | Model::Integrated => {}
     }
 
-    // LifeStatePsychologyPolicy.explain_update and sleep_debt_step
+    // LifeStatePsychologyPolicy's step, with the sleep debt's step.
     let Some(g) = body else {
         return unsupported("the model has no body rates");
     };
     let life = &a.life;
     let LifeValues { family_pressure, debt, reassurance, uncertainty_without, uncertainty, discontent, positive, hygiene, negative } =
         life_values(g, a, queued, simple_stress);
-    // BodyDynamicsFormula.stress_feedback, and the same with the shared rates without a formula.
+    // The body dynamics formula's stress feedback, and the same with the shared rates without a
+    // formula.
     let feedback_with = |uncertainty: f64| -> f64 {
         let debt_component = debt / 1440.0 * life.sleep_rate;
         if g.sleep_debt_only {
@@ -911,7 +913,7 @@ fn step(model: Model, rates: &Rates, body: Option<&BodyRates>, a: &Input, mut st
         return Ok(needs(py_min(1.0, py_max(0.0, simple_stress + feedback)), body_values));
     }
 
-    // IntegratedDistressLifeStatePolicy.explain_update
+    // IntegratedDistressLifeStatePolicy's step.
     let information_feedback = feedback - feedback_with(uncertainty_without);
     let life_feedback = feedback - information_feedback;
     let (natural, multiplier) = mean_reverting_terms(a.stress, a.baseline, a.kappa)?;
@@ -934,7 +936,7 @@ fn step(model: Model, rates: &Rates, body: Option<&BodyRates>, a: &Input, mut st
     Ok(needs(clamp(a.stress + (natural + forced)), body_values))
 }
 
-/// The terms of `SimplePsychologyPolicy.explain_update`, which the other models read too.
+/// The terms of `SimplePsychologyPolicy`'s step, which the other models read too.
 #[derive(Clone, Copy)]
 struct SimpleTerms {
     fatigue_delta: f64,
@@ -950,7 +952,7 @@ struct SimpleTerms {
 /// The first part of `step`: the terms of the simple model, kept in `stages` too.
 #[inline]
 fn simple_terms(rates: &Rates, a: &Input, mut stages: Option<&mut Stages>) -> SimpleTerms {
-    // SimplePsychologyPolicy.explain_update
+    // SimplePsychologyPolicy's step.
     let (fatigue_delta, stress_recovery) = match a.activity {
         Activity::Sleeping => {
             (-rates.sleeping_fatigue_recovery * a.rest_efficiency, if rates.direct_rest_recovery { rates.sleeping_stress_recovery } else { 0.0 })
@@ -1000,8 +1002,8 @@ struct LifeValues {
     negative: f64,
 }
 
-/// The life-state values of `step` (`LifeStatePsychologyPolicy.explain_update` and
-/// `sleep_debt_step`), before the stress feedback.
+/// The life-state values of `step` (`LifeStatePsychologyPolicy`'s step, with the sleep debt's
+/// step), before the stress feedback.
 #[inline]
 fn life_values(g: &BodyRates, a: &Input, queued: bool, simple_stress: f64) -> LifeValues {
     let life = &a.life;
@@ -1080,8 +1082,8 @@ struct Stages {
     information_feedback: f64,
 }
 
-/// `AgentPsychologyTrace` of `explain_update`, on what `step` found. Every float operation keeps
-/// the same order as `step`, and each field stays what the stage that last replaces it says.
+/// A person's psychology trace, on what `step` found. Every float operation keeps the same order as
+/// `step`, and each field stays what the stage that last replaces it says.
 fn person_trace(model: Model, rates: &Rates, a: &Input, next: &Next, stages: &Stages, index: usize) -> PersonTrace {
     let s = stages;
     let before = a.stress;
@@ -1214,7 +1216,7 @@ fn revert_to_mean(trace: &mut PersonTrace, s: &Stages, forced: &[(&'static str, 
     trace.components.extend_from_slice(forced);
 }
 
-/// Whether `AgentStateDelta`'s checks pass these values. NaN fails the comparison.
+/// Whether the checks of a person's next values pass these values. NaN fails the comparison.
 #[inline]
 fn within_bounds(next: &Next) -> bool {
     let unit = |value: f64| (0.0..=1.0).contains(&value);
@@ -1270,7 +1272,7 @@ fn read_life(agent: &ViewAgent, zone: &ViewZone, tables: &RateTables<'_>, g: &Bo
         negative_rate: rate(tables.negative, g.negative_affect_stress)?,
         discontent_rate: rate(tables.discontent, g.discontent_stress)?,
     };
-    // The checks of sleep_debt_step on what the view holds.
+    // The checks of the sleep debt's step on what the view holds.
     if !(life.debt.is_finite() && (0.0..=1440.0).contains(&life.debt)) || !(0.0..=1.0).contains(&rest_efficiency) {
         return unsupported("the sleep debt or the sleep efficiency is out of bounds");
     }
@@ -1282,7 +1284,7 @@ fn read_view_people(data: &ViewData, params: &Params<'_>) -> Result<Vec<ViewPers
     let reversion = matches!(params.model, Model::MeanReverting | Model::Integrated);
     let mut found = Vec::with_capacity(data.agents.len());
     for agent in &data.agents {
-        // An empty id fails the checks of AgentStateDelta.
+        // An empty id fails the checks of a person's next values.
         if agent.id.is_empty() {
             return unsupported("an id is empty");
         }
@@ -1334,7 +1336,7 @@ fn separated_groups<'a>(people: &'a [ViewPerson], zones: &[Arc<str>]) -> FxHashM
     groups
 }
 
-/// A person's values of the next minute: what `AgentStateDelta` holds.
+/// A person's values of the next minute.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Delta {
     pub agent_id: Arc<str>,
@@ -1355,12 +1357,12 @@ pub struct Delta {
 pub struct PsychologyResult {
     pub deltas: Arc<[Delta]>,
     pub traces: Option<Arc<Traces>>,
-    /// `PsychologyUpdateResult.policy_version`.
+    /// The policy version of the result.
     pub policy_version: Arc<str>,
 }
 
-/// `_psychology_update` of the update phase: each person's values of the next minute, from the
-/// view and the rows. `minute` is the view's, which the caller checked. Nothing changes.
+/// The psychology of the update phase: each person's values of the next minute, from the view and
+/// the rows. `minute` is the view's, which the caller checked. Nothing changes.
 pub fn update(world: &World, view: &ViewData, params: &Params<'_>, minute: i64, traced: bool) -> Result<PsychologyResult> {
     if traced && view.partial {
         return unsupported("a trace reads what a view Python made doesn't fill here");
@@ -1390,7 +1392,7 @@ pub fn update(world: &World, view: &ViewData, params: &Params<'_>, minute: i64, 
             if !(0.0..=1.0).contains(&row.trust) {
                 return unsupported("a trust is outside 0..1");
             }
-            // The checks of _mean_reverting_terms.
+            // The checks of mean_reverting_terms.
             if reversion && !((0.0..=1.0).contains(&row.stress) && (0.0..=1.0).contains(&person.baseline) && person.kappa.is_finite() && person.kappa >= 0.0) {
                 return unsupported("a value of the mean reversion is out of bounds");
             }
@@ -1437,7 +1439,7 @@ pub fn update(world: &World, view: &ViewData, params: &Params<'_>, minute: i64, 
     let mut stages = Stages::default();
     for (index, ((input, trust), agent)) in inputs.iter().zip(&trusts).zip(&view.agents).enumerate() {
         let next = step(model, &params.rates, params.body.as_ref(), input, traced.then_some(&mut stages))?;
-        // Values outside AgentStateDelta's bounds fail its checks.
+        // Values outside the bounds of a person's next values fail their checks.
         if !within_bounds(&next) {
             return unsupported("a new value is out of bounds");
         }
@@ -1483,9 +1485,9 @@ impl Applied<'_> {
     }
 }
 
-/// `apply_state_deltas`. Everything is checked before anything changes. `body_state` is whether
-/// `model_state` holds `body_state_v1` (the caller refuses anything else it may hold). A person
-/// whose six values all have the bits of the row is not written again.
+/// Writes each person's next values. Everything is checked before anything changes. `body_state` is
+/// whether `model_state` holds `body_state_v1` (the caller refuses anything else it may hold). A
+/// person whose six values all have the bits of the row is not written again.
 pub fn apply(world: &World, deltas: &[Applied<'_>], body_state: bool) -> Result<()> {
     let mut seen = FxHashSet::with_capacity_and_hasher(deltas.len(), Default::default());
     for applied in deltas {

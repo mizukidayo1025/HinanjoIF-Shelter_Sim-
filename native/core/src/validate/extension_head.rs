@@ -1,4 +1,4 @@
-//! The head of the extensions' check (`validate_simulator_extensions`): `temporary_spaces_v1`
+//! The head of the extensions' check (`validate::extensions`): `temporary_spaces_v1`
 //! without its contract, the legacy queue marker, and the required states that are missing, with
 //! their errors and texts (lane D of #250, #349). Raw errors: `validate::extensions` calls it
 //! first.
@@ -17,11 +17,12 @@ use crate::value::V;
 #[path = "extension_py.rs"]
 pub(crate) mod py;
 
-/// `FACILITY_QUEUES_LEGACY_MODE_KEY`.
+/// The key of the legacy queue marker in `model_state`.
 pub const LEGACY_MODE: &str = "facility_queues_legacy_mode_v1";
 
 /// `is_legacy_queue_checkpoint(world)`: independent queues are required,
-/// `facility_queues_v1` is absent (or None), and the legacy marker is `FACILITY_QUEUES_LEGACY_MODE`.
+/// `facility_queues_v1` is absent (or None), and the legacy marker is the one of a checkpoint from
+/// before independent queues.
 pub fn is_legacy_queue_checkpoint(view: &View<'_>) -> Result<bool> {
     let required = match &*view.configs()? {
         V::Map(configs) => independent_queues_required(configs)?,

@@ -137,7 +137,7 @@ impl EntityField for Vec<Arc<str>> {
     }
 }
 
-/// `StaffState.skills`: a tuple of str, which a document writes as a list.
+/// A staff member's `skills`: a tuple of str, which a document writes as a list.
 #[derive(Clone, PartialEq)]
 pub struct Skills(pub Vec<Arc<str>>);
 
@@ -340,7 +340,7 @@ entity_row!(TaskRow {
     staff_id: Option<Arc<str>>,
 });
 
-// `ZoneState`. A WorldState document writes `zone.to_dict()`, the same in v5 and v6.
+// A zone. A world document writes its fields, the same in v5 and v6.
 entity_row!(ZoneRow {
     id: Arc<str>,
     name: Arc<str>,
@@ -349,7 +349,7 @@ entity_row!(ZoneRow {
     display_y: Option<f64>,
 });
 
-// `ZoneEdgeState`.
+// An edge between two zones.
 entity_row!(EdgeRow {
     id: Arc<str>,
     from_zone_id: Arc<str>,

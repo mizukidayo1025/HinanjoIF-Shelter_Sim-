@@ -110,7 +110,7 @@ impl Class {
 /// An attribute's value as the run read it.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Held {
-    /// A plain JSON value (`VPy::from_py`): None, bool, int, float, str, dict and list.
+    /// A plain JSON value: None, bool, int, float, str, dict and list.
     Value(V),
     /// An instance of a str subclass (a `StrEnum`), by its text.
     Text(Arc<str>),
@@ -210,7 +210,7 @@ impl Obj {
         }
     }
 
-    /// `exact_dict` of the attribute.
+    /// The attribute as a dict, of exactly that type (`config::read::map`).
     pub fn map(&self, name: &str) -> Read<&IndexMap<Arc<str>, V>> {
         match self.get(name)? {
             Held::Value(value) => read::map(value),

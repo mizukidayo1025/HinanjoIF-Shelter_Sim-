@@ -184,9 +184,9 @@ pub fn key_is_valid<T>(key: &str, people: &IdMap<T>) -> bool {
 }
 
 impl BodyRow {
-    /// `_ROWS_VALID`, the validator of the rows (#152; in the core since #250, for the end-of-tick
-    /// check too): true only if the header, the Agent records and the
-    /// relationships pass every rule `validate_body_state` has for them, for a world of these
+    /// The validator of the rows (for the end-of-tick check too): true only if the header, the
+    /// Agent records and the relationships pass every rule `validate::body_state::validate` has
+    /// for them, for a world of these
     /// people. Its checks of the config and the history read what the row doesn't hold. False
     /// decides nothing: the rules then run, with their texts. What is accepted is not read again
     /// until it is written (`Relationships::written`); after a false, the next call reads every
@@ -237,7 +237,7 @@ impl BodyRow {
     }
 }
 
-/// The record `_record_relationship` starts a pair with.
+/// The record a pair's first contact starts with.
 pub fn new_relationship() -> Relationship {
     Relationship { contact_count: 0, trust: Some(0.5), contact_minutes: 0, last_contact_minute: None, last_interaction: None, topic_ids: Vec::new() }
 }

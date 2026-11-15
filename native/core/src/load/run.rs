@@ -52,7 +52,7 @@ fn read(json: &Value) -> Result<std::result::Result<Held, Fault>> {
     })
 }
 
-/// An object as `RunCore.policies_document` wrote it.
+/// An object of the Run's policies document (`initial::policies`).
 pub fn obj(json: &Value) -> Result<Obj> {
     let class = &json["class"];
     let mut object =

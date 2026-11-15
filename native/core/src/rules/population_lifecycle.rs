@@ -332,9 +332,9 @@ fn check_writable(inputs: &Inputs<'_>) -> Result<()> {
     Ok(())
 }
 
-// ---- `_set_presence`, `_history` -----------------------------------------------------------------
+// ---- A person's presence and its history --------------------------------------------------------
 
-/// What `_set_presence` reads of an event.
+/// What `set_presence` reads of an event.
 #[derive(Clone)]
 pub struct EventIds {
     pub event_id: Arc<str>,
@@ -371,7 +371,8 @@ fn has_presence(world: &World, inputs: &Inputs<'_>) -> Result<bool> {
     population::is_dict_namespace(world, PRESENCE, &inputs.population.namespaces.presence)
 }
 
-/// `_set_presence`. A plan has called `presence_state`, so the record there is a plain one.
+/// Sets a person's presence. A plan has called `presence_state`, so the record there is a plain
+/// one.
 fn set_presence(world: &World, inputs: &Inputs<'_>, event: &EventIds, agent_id: &Arc<str>, status: &str, minute: i64, change: &PresenceChange) -> Result<()> {
     let old = {
         let raw = value_of(world, PRESENCE, &inputs.population.namespaces.presence)?.ok_or_else(|| Error::unsupported("the presence left"))?;
@@ -440,7 +441,7 @@ fn append_history(world: &World, row: &HistoryRow<'_>) -> Result<()> {
     Ok(())
 }
 
-/// `current_household_id`: with the presence ledger as a dict, the household of the person's
+/// A person's current household: with the presence ledger as a dict, the household of the person's
 /// record there (None for no record); otherwise the profile's group of an admitted person. Its own
 /// refusals, which are not those of `kit::household_of`.
 pub fn household_of(world: &World, presence: &Held, agent_id: &str) -> Result<Option<Arc<str>>> {
@@ -536,9 +537,9 @@ fn history(world: &World, inputs: &Inputs<'_>, event: &EventIds, moved: Moved<'_
     Ok(row.value())
 }
 
-// ---- `_archive_person` ---------------------------------------------------------------------------
+// ---- A person archived (`archive_person`) -------------------------------------------------------
 
-/// `_archive_relationship`: the tie, unless the archive holds one of this namespace and key.
+/// A tie archived, unless the archive holds one of this namespace and key.
 fn archive_relationship<T: Tree>(world: &World, namespace: &str, key: &Arc<str>, tie: &T) -> Result<()> {
     let pair = population::pair_of(key)?;
     let mut state = lifecycle_mut(world)?;
@@ -559,7 +560,7 @@ fn archive_relationship<T: Tree>(world: &World, namespace: &str, key: &Arc<str>,
     Ok(())
 }
 
-/// `_agent_record`.
+/// The archived record of an agent.
 fn agent_record(agent: &AgentRow) -> V {
     V::Map(doc([
         ("profile", population::profile_record(agent)),
@@ -749,8 +750,8 @@ impl<'a> ArchivedTie<'a> {
     }
 }
 
-/// `_validate_agent_snapshot` of the record `_agent_record` will make, and the other asks of
-/// `_archive_person`.
+/// The check of the snapshot (`snapshot_checked`) of the record `agent_record` will make, and the
+/// other asks of `archive_person`.
 fn check_archive(world: &World, inputs: &Inputs<'_>, state: LifecycleState<'_>, agent_id: &str) -> Result<()> {
     if state.retains(agent_id)? {
         return failed("person already has a retained lifecycle archive");
@@ -787,7 +788,7 @@ struct Information {
     query_pressure: Option<f64>,
 }
 
-/// The information part of `_archive_person`, of a world that holds the namespace: the person's
+/// The information part of `archive_person`, of a world that holds the namespace: the person's
 /// beliefs and pressure leave, their contacts are archived, and the claims they started are kept
 /// with everyone's beliefs in them, deferred.
 fn archive_information(world: &World, agent_id: &Arc<str>) -> Result<Information> {
@@ -853,7 +854,7 @@ fn archive_ties<T: Tree>(world: &World, namespace: &str, ties: Vec<(Arc<str>, T)
     Ok(())
 }
 
-/// `_archive_person`. Gives the serials of the queue's slots its cancellations took out.
+/// Archives a person. Gives the serials of the queue's slots its cancellations took out.
 fn archive_person(world: &World, inputs: &Inputs<'_>, agent_id: &Arc<str>, row: &EventRow) -> Result<Vec<u64>> {
     let namespaces = &inputs.population.namespaces;
     let agent = world.rows()?.agents.get(agent_id).cloned().ok_or_else(|| Error::Key(agent_id.to_string()))?;
@@ -948,7 +949,7 @@ fn archive_person(world: &World, inputs: &Inputs<'_>, agent_id: &Arc<str>, row: 
     Ok(serials)
 }
 
-/// `_cancel_agent_events`: the person's pending events, then the claims of theirs withdrawn,
+/// The person's events cancelled: the person's pending events, then the claims of theirs withdrawn,
 /// settled as SUPPRESSED on the world's queue and log. Gives the serials of the slots taken out.
 fn cancel_agent_events(world: &World, agent_id: &str, withdrawn: &HashSet<Arc<str>>) -> Result<Vec<u64>> {
     let pending: Vec<Arc<EventRow>> = {
@@ -969,8 +970,8 @@ fn cancel_agent_events(world: &World, agent_id: &str, withdrawn: &HashSet<Arc<st
     Ok(serials)
 }
 
-/// `release_sleep_bed` and `release_temporary_room_admission`, of an overlay that is a dict: each
-/// of the two parts that is a dict lets the person go.
+/// The person's bed and room admission released (`overlay::release`), of an overlay that is a dict:
+/// each of the two parts that is a dict lets the person go.
 fn release_room(world: &World, inputs: &Inputs<'_>, agent_id: &str) -> Result<()> {
     let held = &inputs.population.namespaces.overlay;
     let parts: Vec<&str> = {
@@ -995,24 +996,24 @@ fn release_room(world: &World, inputs: &Inputs<'_>, agent_id: &str) -> Result<()
     Ok(())
 }
 
-// ---- `_restore_person` ---------------------------------------------------------------------------
+// ---- A person restored (`restore_person`) -------------------------------------------------------
 
-/// The keys `NeedState(**needs)` takes.
+/// The keys of a person's need levels.
 const NEED_NAMES: [&str; 4] = ["toilet_urgency", "hunger", "fatigue", "hydration_need"];
 
-/// `AgentState(profile=..., zone_id=zone, needs=NeedState(**needs), stress=..., trust=...,
-/// next_decision_at=minute, support_cooldown_until=...)` of an archived agent, as `_restore_person`
-/// makes it (`schema_version` is the world's: v5 has no hydration, which is then 0.0): the row, or
-/// the `ValueError` the constructors raise in their order (`Mobility`, `InitialNeedProfile`, then
-/// `AgentState`'s stress, trust, `next_decision_at` and `support_cooldown_until`). Unsupported where
-/// they raise another error or make an object no row holds.
+/// The agent of an archived person in `zone`, with its needs, stress, trust and support cooldown
+/// and its next decision at `minute`, as `restore_person` makes it (`schema_version` is the
+/// world's: v5 has no hydration, which is then 0.0): the row, or the `ValueError` of the checks in
+/// their order (the mobility, the initial needs, then the stress, trust, `next_decision_at` and
+/// `support_cooldown_until`). Unsupported where they raise another error or make an object no row
+/// holds.
 pub fn restored_agent(raw: &V, zone_id: &Arc<str>, minute: i64, schema_version: i64) -> Result<Built> {
     // The profile's constructors; the minute is checked after the person's values.
     let mut agent = match build_agent(field(raw, "profile")?, zone_id, minute.max(0), schema_version)? {
         Built::Row(agent) => agent,
         raises @ Built::Raises(_) => return Ok(raises),
     };
-    // `NeedState(**needs)`, with v5's hydration: the levels are not checked, but each is a float.
+    // The need levels, with v5's hydration: the levels are not checked, but each is a float.
     let mut needs: Doc = map_of(field(raw, "needs")?)?.clone();
     if schema_version == 5 {
         needs.insert(Arc::from("hydration_need"), V::Float(0.0));
@@ -1063,14 +1064,14 @@ pub fn restored_agent(raw: &V, zone_id: &Arc<str>, minute: i64, schema_version: 
     Ok(Built::Row(agent))
 }
 
-/// What `_restore_person` asks that only the plan answers: the archive, the paths it writes
-/// through, and that each archived value fits the row it goes back to.
+/// What `restore_person` asks that only the plan answers: the archive, the paths it writes through,
+/// and that each archived value fits the row it goes back to.
 fn check_restore(world: &World, inputs: &Inputs<'_>, state: LifecycleState<'_>, agent_id: &str, zone: &Arc<str>) -> Result<()> {
     let Some(snapshot) = state.archived(agent_id)? else {
         return refuse("the retained person is missing");
     };
     let namespaces = &inputs.population.namespaces;
-    // `_initial_dynamics` of a person saved without their record.
+    // The initial dynamics record of a person saved without their record.
     if is_held(&namespaces.agent_dynamics) && snapshot.lacks_dynamics()? {
         agent_dynamics::check_add_agent(world, &inputs.population.policy, &inputs.population.awareness)?;
     }
@@ -1106,7 +1107,7 @@ fn check_archive_ties(inputs: &Inputs<'_>, state: LifecycleState<'_>) -> Result<
     Ok(())
 }
 
-/// `_restore_person`. The plan checked what it reads (`check_restore`).
+/// Restores a person. The plan checked what it reads (`check_restore`).
 fn restore_person(
     world: &World,
     inputs: &Inputs<'_>,
@@ -1129,7 +1130,7 @@ fn restore_person(
     // At the end of the table.
     world.rows_mut()?.agents.insert(agent_id.clone(), *agent);
     if is_held(&namespaces.agent_dynamics) {
-        // `_initial_dynamics`, of the person just added, for one saved without their record.
+        // The initial dynamics record of the person just added, for one saved without their record.
         let mut record = match snapshot.dynamics()? {
             Some(record) => record,
             None => {
@@ -1171,8 +1172,8 @@ fn restore_person(
     Ok(())
 }
 
-/// The information part of `_restore_person`: the beliefs in claims still told, the others
-/// deferred, the pressure, and the claims the person started back.
+/// The information part of `restore_person`: the beliefs in claims still told, the others deferred,
+/// the pressure, and the claims the person started back.
 fn restore_information(world: &World, agent_id: &Arc<str>, snapshot: ArchivedPerson<'_>) -> Result<()> {
     let saved = field(snapshot.0, "information")?;
     let beliefs = map_of(field(saved, "beliefs")?)?;
@@ -1217,8 +1218,8 @@ fn restore_information(world: &World, agent_id: &Arc<str>, snapshot: ArchivedPer
     Ok(())
 }
 
-/// `_restore_ready_relationships`: each archived tie whose two people are back, into its namespace
-/// unless the namespace has one of its key.
+/// The archived ties whose two people are back, each into its namespace unless the namespace has
+/// one of its key.
 fn restore_ready_relationships(world: &World, inputs: &Inputs<'_>) -> Result<()> {
     let namespaces = &inputs.population.namespaces;
     let archive = {
@@ -1285,7 +1286,7 @@ fn restore_ready_relationships(world: &World, inputs: &Inputs<'_>) -> Result<()>
     Ok(())
 }
 
-/// `_restore_deferred_beliefs`: the deferred beliefs of the people here in claims still told.
+/// The deferred beliefs of the people here in claims still told, restored.
 fn restore_deferred_beliefs(world: &World, inputs: &Inputs<'_>) -> Result<()> {
     if !is_held(&inputs.population.namespaces.information) {
         return Ok(());
@@ -1320,7 +1321,7 @@ fn restore_deferred_beliefs(world: &World, inputs: &Inputs<'_>) -> Result<()> {
     Ok(())
 }
 
-// ---- Room in a zone: `_zone_has_room` ------------------------------------------------------------
+// ---- Room in a zone (`zone_has_room`) -----------------------------------------------------------
 
 /// What `effective_capacity` is made of, for one zone.
 #[derive(Clone, Copy)]
@@ -1384,8 +1385,8 @@ impl Places {
         Ok(found)
     }
 
-    /// `_zone_has_room`: the residents and the people bound for the zone, `excluding` one person,
-    /// below its effective capacity (none: always).
+    /// Whether the zone has room: the residents and the people bound for the zone, `excluding` one
+    /// person, below its effective capacity (none: always).
     pub fn has_room_for(&mut self, world: &World, inputs: &Inputs<'_>, zone_id: &str, excluding: Option<&str>) -> Result<bool> {
         let mut total = self.occupancy.get(zone_id).copied().unwrap_or(0) + self.incoming.get(zone_id).copied().unwrap_or(0);
         if let Some(excluded) = excluding {
@@ -1406,7 +1407,8 @@ impl Places {
         *self.occupancy.entry(zone_id.clone()).or_default() += 1;
     }
 
-    /// `available_temporary_room`, and the point `admit_to_temporary_room` then gives.
+    /// The temporary room open in the zone (`overlay::available_room_after`), and the point
+    /// `overlay::admit` then gives.
     pub fn available_room(&self, world: &World, inputs: &Inputs<'_>, zone_id: &str) -> Result<Option<(Arc<str>, Pt)>> {
         overlay::available_room_after(world, &inputs.intake(), zone_id, &self.planned_rooms)
     }
@@ -1417,7 +1419,7 @@ impl Places {
     }
 }
 
-/// `_zone_has_room`.
+/// Whether the zone has room for one more, `excluding` one person (`Places::has_room_for`).
 pub fn zone_has_room(world: &World, inputs: &Inputs<'_>, zone_id: &str, excluding: Option<&str>) -> Result<bool> {
     Places::of(world)?.has_room_for(world, inputs, zone_id, excluding)
 }
@@ -1428,7 +1430,7 @@ fn free(activity: Activity) -> bool {
     matches!(activity, Activity::Idle | Activity::Resting | Activity::Sleeping)
 }
 
-/// What `_defer_while_busy` says: None for someone who is free.
+/// Why a command waits for a busy person: None for someone who is free.
 fn busy_reason(world: &World, agent_id: &str) -> Result<Option<String>> {
     let rows = world.rows()?;
     let Some(agent) = rows.agents.get(agent_id) else {
@@ -1466,8 +1468,8 @@ pub fn program_event_ids(world: &World, effects: &Held, row: &EventRow) -> Resul
     Ok(programs.programs.get(&**program_id).map_or(Vec::new(), |program| program.scheduled_event_ids.clone()))
 }
 
-/// `_program_presence_minutes`: the due minutes of the program's population commands of this
-/// action for this person, pending or in the log.
+/// The due minutes of the program's population commands of this action for this person, pending or
+/// in the log.
 fn program_minutes(world: &World, effects: &Held, logged: &Logged, row: &EventRow, agent_id: &str, action: &str) -> Result<Vec<i64>> {
     let mut minutes = Vec::new();
     let ids = program_event_ids(world, effects, row)?;
@@ -1537,7 +1539,7 @@ struct PlannedRoute {
 enum Plan {
     /// The rule's `EventSuppressed`, with nothing changed.
     Suppress(&'static str),
-    /// `_defer_while_busy`: the retry on the world itself, and then the suppression.
+    /// Deferred while the person is busy: the retry on the world itself, and then the suppression.
     Defer(String),
     Exit {
         agent_id: Arc<str>,
@@ -1604,7 +1606,7 @@ fn plan_relocation(
     if route.edge_ids.iter().any(|edge| !geo.route_is_clear(edge, mobility)) {
         return failed(NO_ROUTE);
     }
-    // `route_with_movement_time`.
+    // The route's minutes under the movement model, where the configs time routes.
     let minutes = match relocation.timing.as_ref().map_err(|error| error.clone())? {
         None => route.minutes,
         Some(model) => {
@@ -1998,8 +2000,8 @@ fn write_relocation(writing: Writing<'_>, agent_id: Arc<str>, from_zone: Arc<str
     ])))
 }
 
-/// What a command did: what it wrote, or why it waits for the person (`_defer_while_busy`), whose
-/// retry the caller schedules on the world as it was before the command.
+/// What a command did: what it wrote, or why it waits for the person (`busy_reason`), whose retry
+/// the caller schedules on the world as it was before the command.
 pub enum Acted {
     Done(Written),
     Deferred(String),
@@ -2010,9 +2012,9 @@ pub fn deferred_text(reason: &str) -> String {
     format!("population exit waits until the person is free: {reason}")
 }
 
-/// The part of `apply_population_presence_command` between the command's parse and the validation
-/// of the world it changed: the plan reads `world` and `reads` (what it reads of the world the
-/// command came from, the same world in a transaction), and the writes go to `world`.
+/// The part of a presence command (`presence_command`) between the command's parse and the
+/// validation of the world it changed: the plan reads `world` and `reads` (what it reads of the
+/// world the command came from, the same world in a transaction), and the writes go to `world`.
 pub fn presence_action(world: &World, inputs: &Inputs<'_>, row: &EventRow, command: &Command, reads: &WorldReads) -> Result<Acted> {
     let (event, plan) = {
         let Some(state) = lifecycle_of(world, inputs)? else {
@@ -2029,8 +2031,8 @@ pub fn presence_action(world: &World, inputs: &Inputs<'_>, row: &EventRow, comma
     }
 }
 
-/// The checks of `apply_population_presence_command` on the world of its transaction, before the
-/// command: whether the command is dropped (a retried exit whose expected return has passed).
+/// The checks of a presence command on the world of its transaction, before the command: whether
+/// the command is dropped (a retried exit whose expected return has passed).
 pub fn check_command(world: &World, row: &EventRow, expected_return: Option<i64>) -> Result<bool> {
     if row.due_minute != world.minute_index()? {
         return failed("population command minute must match the current event boundary");
@@ -2049,7 +2051,7 @@ pub fn check_command(world: &World, row: &EventRow, expected_return: Option<i64>
 /// The text of a dropped command.
 pub const DROPPED: &str = "temporary exit dropped: the person was not free before the expected return";
 
-// ---- `admit_pending_returns` ---------------------------------------------------------------------
+// ---- The returns admitted (`admit_returns`) -----------------------------------------------------
 
 struct PendingReturn {
     item: V,
@@ -2219,7 +2221,7 @@ fn check_waiting_returns(world: &World, inputs: &Inputs<'_>) -> Result<()> {
     check_relationship_keys(world, inputs.population)
 }
 
-// ---- `complete_presence_relocation` --------------------------------------------------------------
+// ---- A relocation's completion (`complete_relocation`) ------------------------------------------
 
 const MISMATCH: &str = "relocation completion does not match its pending route";
 
@@ -2232,8 +2234,8 @@ struct Completion {
     sources: Vec<Arc<str>>,
 }
 
-/// The plan of `complete_presence_relocation`, or the rule's text, before anything is written.
-/// `arriving` is the zone a caller's writes will put the person in.
+/// The plan of `complete_relocation`, or the rule's text, before anything is written. `arriving` is
+/// the zone a caller's writes will put the person in.
 fn plan_completion(world: &World, inputs: &Inputs<'_>, row: &EventRow, arriving: Option<&str>) -> Result<std::result::Result<Completion, &'static str>> {
     let Some(V::Str(agent_id)) = kit::payload(row, "agent_id").cloned() else {
         return refuse("the event names no one");
@@ -2276,8 +2278,8 @@ fn plan_completion(world: &World, inputs: &Inputs<'_>, row: &EventRow, arriving:
     Ok(Ok(Completion { agent_id, event, from_zone, to_zone, household, sources }))
 }
 
-/// What `complete_presence_relocation` refuses, for a rule that writes first and then calls it:
-/// `arriving` is the zone the caller's writes will put the person in.
+/// What `complete_relocation` refuses, for a rule that writes first and then calls it: `arriving`
+/// is the zone the caller's writes will put the person in.
 pub fn check_relocation_completes(world: &World, inputs: &Inputs<'_>, row: &EventRow, arriving: &str) -> Result<()> {
     match plan_completion(world, inputs, row, Some(arriving))? {
         Ok(_) => Ok(()),
@@ -2286,9 +2288,9 @@ pub fn check_relocation_completes(world: &World, inputs: &Inputs<'_>, row: &Even
     }
 }
 
-/// `complete_presence_relocation`: the presence change and the history row of a relocation that
-/// arrived, the relocation dropped, then `admit_pending_returns` at the due minute. Gives the IDs
-/// that admitted.
+/// A relocation's completion: the presence change and the history row of a relocation that arrived,
+/// the relocation dropped, then `admit_pending_returns` at the due minute. Gives the IDs that
+/// admitted.
 pub fn complete_relocation(world: &World, inputs: &Inputs<'_>, row: &EventRow) -> Result<Vec<Arc<str>>> {
     let completion = match plan_completion(world, inputs, row, None)? {
         Ok(completion) => completion,
@@ -2324,7 +2326,7 @@ pub fn complete_relocation(world: &World, inputs: &Inputs<'_>, row: &EventRow) -
     kit::writing(admit_returns(world, inputs, row.due_minute))
 }
 
-// ---- `validate_population_lifecycle_state` -------------------------------------------------------
+// ---- The check of `population_lifecycle_v1` (`validate::population_lifecycle`) ------------------
 
 /// The first value `json.dumps(value, allow_nan=False, sort_keys=True)` refuses, in its order: the
 /// keys of each dict sorted.
@@ -2341,8 +2343,8 @@ fn first_not_finite(value: &V) -> Option<f64> {
     }
 }
 
-/// `_validate_json(value)`: `json.dumps`' ValueError for a value that is not finite, with its text.
-/// A value read into `V` holds nothing else `json.dumps` refuses.
+/// `json.dumps`' ValueError for a value that is not finite, with its text. A value read into `V`
+/// holds nothing else `json.dumps` refuses.
 fn json_checked(value: &V) -> Result<()> {
     match first_not_finite(value) {
         None => Ok(()),
@@ -2370,7 +2372,7 @@ fn enum_checked<E: StrEnum>(name: &str, value: &V) -> Result<()> {
     }
 }
 
-/// `_validate_agent_snapshot`.
+/// The check of an archived agent's snapshot.
 fn snapshot_checked(raw: &V, expected_id: &str) -> Result<()> {
     const FIELDS: [&str; 10] =
         ["profile", "zone_id", "activity", "target_id", "needs", "stress", "trust", "next_decision_at", "support_request_id", "support_cooldown_until"];
@@ -2891,9 +2893,9 @@ enum Step<E> {
     Invalid(E),
 }
 
-/// `apply_population_presence_command` of a command as a payload gives it: the contract
-/// (`Host::contract`, policy E15) and its `selected_ids`, whose `TypeError` or `ValueError` is the
-/// rule's text, then `presence_command_typed`.
+/// A presence command as a payload gives it: the contract (`Host::contract`, policy E15) and its
+/// `selected_ids`, whose `TypeError` or `ValueError` is the rule's text, then
+/// `presence_command_typed`.
 pub fn presence_command<C: WorldCell, H: Host>(cell: &C, host: &mut H, row: &EventRow, command: &V) -> std::result::Result<V, H::Error> {
     let dumped = match host.contract(&Contract::PresenceCommand, command) {
         Ok(dumped) => dumped,
@@ -2905,11 +2907,11 @@ pub fn presence_command<C: WorldCell, H: Host>(cell: &C, host: &mut H, row: &Eve
     presence_command_typed(cell, host, row, &dumped)
 }
 
-/// `apply_population_presence_command` of a command the contract validated (its dump): the
-/// `selected_ids`, the installed lifecycle, then the command's rule in a transaction that stands
-/// for a copy of the world (`from_dict(deepcopy(to_dict()))`, the EventLog included). A dropped
-/// exit, a deferral and a world that fails its checks roll it back, and their outcome is raised
-/// after: a deferral schedules its retry on the world as it was. The receipt.
+/// A presence command the contract validated (its dump): the `selected_ids`, the installed
+/// lifecycle, then the command's rule in a transaction that stands for a copy of the world
+/// (`from_dict(deepcopy(to_dict()))`, the EventLog included). A dropped exit, a deferral and a
+/// world that fails its checks roll it back, and their outcome is raised after: a deferral
+/// schedules its retry on the world as it was. The receipt.
 pub fn presence_command_typed<C: WorldCell, H: Host>(cell: &C, host: &mut H, row: &EventRow, dumped: &V) -> std::result::Result<V, H::Error> {
     let command = (|| -> std::result::Result<Command, H::Error> {
         let ids = match selected_ids(dumped)? {
@@ -2981,7 +2983,7 @@ pub fn admit_returns_through<C: WorldCell, H: Host>(cell: &C, host: &mut H, minu
     read.run(cell, |world, inputs| admit_returns(world, inputs, minute))
 }
 
-/// `complete_presence_relocation`.
+/// A relocation's completion (`complete_relocation`) through the host.
 pub fn complete_relocation_through<C: WorldCell, H: Host>(cell: &C, host: &mut H, row: &EventRow) -> std::result::Result<Vec<Arc<str>>, H::Error> {
     let read = Read::read(cell, host, false)?;
     host.read_queue_rows()?;

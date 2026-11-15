@@ -9,8 +9,8 @@
 //! against its contract's fields here, and one the contract would turn down is refused (policy
 //! E15).
 //!
-//! `ingest_applied_shared_operation_records` reads each receipt from its event's payload with
-//! `Receipt::of` (the Rust check of `OperationHistoryRecord`) and records it with
+//! The dispatcher's ingest of applied records (`rules::dispatch`) reads each receipt from its
+//! event's payload with `Receipt::of` (the check of the receipt's contract) and records it with
 //! `common_operations::record_shared_operation`. `ingest_applied` does it for one record, looking
 //! up the records the receipt needs through the host (`Host::find_record`).
 
@@ -72,7 +72,7 @@ fn is_realized(world: &World, event_id: &str, sequence: i64) -> Result<bool> {
 
 // ---- A care transition ------------------------------------------------------------------------------
 
-/// What a transition says, as the arguments of `append_applied_care_transition`.
+/// What a transition says, as `append` takes it.
 pub struct Transition {
     pub request_id: Arc<str>,
     pub agent_id: Arc<str>,
@@ -128,8 +128,8 @@ impl PlannedTransition {
     }
 }
 
-/// `make_care_transition_record` and the checks of `record_shared_operation`, with `sequence` for
-/// what `allocate_event_sequence` will give then.
+/// The care transition's record and the checks of `common_operations::record_shared_operation`,
+/// with `sequence` for the sequence the log will allocate then.
 pub fn plan_transition(world: &World, transition: Transition, sequence: i64) -> Result<PlannedTransition> {
     let Transition { request_id, agent_id, household_id, support_kind, status, staff_id, causation_id, source_ids, outcome } = transition;
     let (status_text, care_status) = status_of(status)?;
@@ -202,7 +202,7 @@ pub fn plan_transition(world: &World, transition: Transition, sequence: i64) -> 
     Ok(PlannedTransition { care, document, row, plan, detail })
 }
 
-/// `allocate_event_sequence` for what `plan_transition` planned.
+/// Allocates the event sequence of what `plan_transition` planned.
 pub fn allocate_transition(world: &World, planned: &PlannedTransition) -> Result<()> {
     let sequence = allocate_sequence(world)?;
     if sequence != planned.row.sequence {
@@ -224,7 +224,7 @@ pub fn write_transition(world: &mut World, planned: PlannedTransition) -> WriteR
     record_transition(world, planned)
 }
 
-/// `append_applied_care_transition` once the namespace is known to be there.
+/// Appends a care transition once the namespace is known to be there.
 pub fn append(world: &mut World, transition: Transition) -> WriteResult<()> {
     let sequence = world.id_counter("event")?.unwrap_or(0);
     let planned = plan_transition(world, transition, sequence)?;
@@ -233,8 +233,9 @@ pub fn append(world: &mut World, transition: Transition) -> WriteResult<()> {
 
 // ---- The person's context ---------------------------------------------------------------------------
 
-/// `population_context_people(world).get(agent_id)`, without merging the three: the last that has
-/// the person wins. A copy of the person's document.
+/// A person's population context, from the configs' `population_context`, the world's population
+/// context and the population dynamics' `profile_context`, without merging the three: the last that
+/// has the person wins. A copy of the person's document.
 pub fn person_context(world: &World, agent_id: &str) -> Result<Option<V>> {
     // `part.get(name).get(agent)`, where each must be a dict to be read.
     let in_part = |part: Option<&V>, name: &str| -> Option<V> {
@@ -269,7 +270,7 @@ pub fn person_context(world: &World, agent_id: &str) -> Result<Option<V>> {
     Ok(in_part(configs.get("population_context"), "people"))
 }
 
-/// `care_source_ids_for_agent`.
+/// The source IDs of a person's care.
 pub fn source_ids_of(world: &World, agent_id: &str) -> Result<Vec<Arc<str>>> {
     let mut sources = vec![Arc::from(LIFECYCLE_SOURCE)];
     let Some(V::Map(person)) = person_context(world, agent_id)? else {
@@ -376,7 +377,7 @@ pub struct Recovery<'a> {
     pub units: i64,
 }
 
-/// `make_facility_recovery_record(...)[0]` of a world that has the shared contract.
+/// The receipt of a facility's recovery, of a world that has the shared contract.
 pub fn facility_recovery_record(world: &World, recovery: Recovery<'_>, causation: &str, source_ids: Vec<Arc<str>>) -> Result<Made> {
     let Recovery { facility_id, component_id, status, previous, units } = recovery;
     let fits = is_identifier(facility_id)
@@ -421,7 +422,7 @@ pub fn facility_recovery_record(world: &World, recovery: Recovery<'_>, causation
     })
 }
 
-/// `make_staff_handoff_record(...)[0]` of a world that has the shared contract.
+/// The receipt of a staff handoff, of a world that has the shared contract.
 pub fn handoff_record(
     world: &World,
     task_id: &str,
@@ -476,7 +477,7 @@ pub struct Continuity<'a> {
     pub status: &'a str,
 }
 
-/// `make_staff_support_continuity_record`.
+/// The receipt of a support's continuity.
 pub fn continuity_record(world: &World, continuity: Continuity<'_>, causation: &str, cause_type: &str) -> Result<Made> {
     let Continuity { request_id, agent_id, task_id, previous_staff, status } = continuity;
     let fits = [request_id, agent_id, task_id, previous_staff, causation].iter().all(|id| is_identifier(id))
@@ -514,7 +515,7 @@ pub fn continuity_record(world: &World, continuity: Continuity<'_>, causation: &
     })
 }
 
-/// What a completed staff operation says, for `make_staff_operation_record`: the values of the
+/// What a completed staff operation says, for `staff_operation_record`: the values of the
 /// operation's record that the receipt copies.
 pub struct OperationOutcome {
     pub task_id: Arc<str>,
@@ -533,12 +534,12 @@ pub struct OperationOutcome {
     pub causation: Arc<str>,
 }
 
-/// What `make_staff_operation_record` asks of one change: an identifier and two finite numbers.
+/// What `staff_operation_record` asks of one change: an identifier and two finite numbers.
 fn change_fits(change: &Change) -> bool {
     is_identifier(&change.entity_id) && change.before.is_finite() && change.after.is_finite()
 }
 
-/// `make_staff_operation_record(...)[0]` of a world that has the shared contract.
+/// The receipt of a completed staff operation, of a world that has the shared contract.
 pub fn staff_operation_record(world: &World, outcome: OperationOutcome) -> Result<Made> {
     let minute = world.minute_index()?;
     let observation = if !outcome.changes.is_empty() {
@@ -617,8 +618,8 @@ pub fn staff_operation_record(world: &World, outcome: OperationOutcome) -> Resul
 /// The refusal of a namespace that is None in `model_state`.
 pub const NAMESPACE_IS_NONE: &str = "the namespace is None";
 
-/// Whether `append_applied_care_transition` has nothing to append to, as the host's `Holding`
-/// answers: no namespace. One that is None is refused, as is a table that is not a plain dict.
+/// Whether a care transition has nothing to append to, as the host's `Holding` answers: no
+/// namespace. One that is None is refused, as is a table that is not a plain dict.
 pub fn nothing_to_append(holding: &Holding) -> Result<bool> {
     if !holding.is_absent(NAME).map_err(Error::unsupported)? {
         return Ok(false);
@@ -661,10 +662,10 @@ pub fn has_namespace(holding: &Holding) -> Result<bool> {
     }
 }
 
-/// `ingest_applied_shared_operation_records(world, (record,))` of one APPLIED record a kernel of the
-/// core wrote at `realized_minute`, of an event it made (lane c6: the continuity receipt of a
-/// replanned support): whether `model_state` has the namespace is the host's `Holding` (H1), and the
-/// EventLog's records the receipt reads are looked up through the host (`Host::find_record`).
+/// The ingest of one APPLIED record a kernel of the core wrote at `realized_minute`, of an event it
+/// made (lane c6: the continuity receipt of a replanned support): whether `model_state` has the
+/// namespace is the host's `Holding` (H1), and the EventLog's records the receipt reads are looked
+/// up through the host (`Host::find_record`).
 pub fn ingest_applied<C: WorldCell, H: Host>(cell: &C, host: &mut H, event: &EventRow, realized_minute: i64) -> std::result::Result<(), H::Error> {
     let holding = kit::holding(cell, host)?;
     if !has_namespace(&holding)? {

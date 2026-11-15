@@ -24,7 +24,7 @@ const POLICY_SPEC: Spec = Spec::of(&[Attr::value("config")]);
 pub struct Proximity {
     /// `proximity_contact_config`, `V::Null` for None.
     pub config: Read<V>,
-    /// Whether the policy is `DistanceSampledProximityPolicy` (`is_the_policy`).
+    /// Whether the policy is `DistanceSampledProximityPolicy`, by its class.
     pub known: Read<bool>,
     pub policy: Read<Option<Arc<Obj>>>,
 }

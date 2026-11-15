@@ -1,5 +1,5 @@
 //! The metrics phase: the minute's metrics, to the sink the host says (`Host::metric_sink`), and
-//! the open actions closed at the Run's last minute (`finalize_active_actions`, with the Run's
+//! the open actions closed at the Run's last minute (`action_lifecycle::finalize`, with the Run's
 //! actions).
 
 use crate::config::movement::Movement;
@@ -30,7 +30,7 @@ pub fn metrics<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R>) 
         },
         MetricSink::Sink => tick.host.capture_by_sink(minute).bare()?,
     }
-    // `_finalize_actions_at_end` reads the duration again, and acts at the Run's last minute.
+    // The duration is read again; the actions are closed at the Run's last minute.
     let duration = tick.cell.with(|world| world.duration_minutes()).map_err(H::Error::from).bare()?;
     if duration.map_or(true, |duration| minute + 1 >= duration) {
         let done = tick.run.with(|run| tick.cell.with(|world| action_lifecycle::finalize(world, &mut run.actions, minute)));
@@ -39,7 +39,7 @@ pub fn metrics<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R>) 
     Ok(())
 }
 
-/// `capture_of_run`: the core's sample of the open requests the world has, first without the
+/// The core's sample of the open requests the world has, first without the
 /// waits' routes and again with them where the waits need them.
 fn capture<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R>) -> std::result::Result<(), H::Error> {
     let holding = tick.holding()?;

@@ -290,8 +290,8 @@ pub const TREE_CHUNK_ITEMS: usize = 128;
 /// The inner nodes start with NUL, which canonical JSON (the bytes of a leaf) never does.
 const TREE_LIST: &[u8] = b"\0sheltersim-tree-list\0";
 const TREE_OBJECT: &[u8] = b"\0sheltersim-tree-object\0";
-/// The namespaces of `model_state` whose lists the tree splits into chunks, and those lists
-/// (`_WORLD_TREE`); every other value is a leaf.
+/// The namespaces of `model_state` whose lists the tree splits into chunks, and those lists; every
+/// other value is a leaf.
 const TREE_NAMESPACES: [(&str, &[&str]); 4] = [
     ("body_state_v1", &["history"]),
     ("shared_operations_v1", &["history"]),
@@ -299,8 +299,8 @@ const TREE_NAMESPACES: [(&str, &[&str]); 4] = [
     ("resource_service_v1", &["request_history", "queue_stall_history"]),
 ];
 
-/// `world.state_digest()`: the hash tree of the world's canonical document, with its `rng_state`
-/// (`CanonicalEncoder.world_tree_digest`, the `state_hash` of a Checkpoint v2). The bytes are
+/// The state digest of a world: the hash tree of the world's canonical document, with its
+/// `rng_state` (the `state_hash` of a Checkpoint v2). The bytes are
 /// streamed into the hashers: the log a record at a time, `model_state` a namespace at a time, so
 /// no copy of the whole document is made (#252: the copy of a day-7 world took 1.59 GiB).
 pub fn state_digest(world: &World, rng_state: &V) -> Result<String> {

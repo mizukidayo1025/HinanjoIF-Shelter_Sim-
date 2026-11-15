@@ -1,8 +1,8 @@
 //! `controller.stress_policy`: the stress propagation policy and its `SocialPropagationParameters`
 //! (lane P8-0b; lane a4 reads them in the core).
 //!
-//! `update_social_propagation` of `social_propagation.rs` reads `parameters.enabled` first, then
-//! knows the policy by `is` (`settings_of`) and reads the parameters.
+//! `social_propagation::update` reads `parameters.enabled` first, then knows the policy by its
+//! class and reads the parameters.
 
 use std::sync::Arc;
 

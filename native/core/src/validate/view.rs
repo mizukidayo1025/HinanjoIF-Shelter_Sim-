@@ -32,10 +32,10 @@ use crate::world::{Place, World, MODEL_CONFIGS};
 /// The world as a validator reads it, and what the call asks.
 pub struct View<'w> {
     pub world: &'w World,
-    /// `validate_event_history`: the whole append-only histories are read (a save, a restore,
-    /// `world.validate()`), not only the records of the last tick.
+    /// Whether the whole append-only histories are read (a save, a restore, the whole world's
+    /// validation), not only the records of the last tick.
     pub history: bool,
-    /// `_in_flight_event`: a pending event a handler is applying now.
+    /// A pending event a handler is applying now.
     pub in_flight: Option<&'w EventRow>,
 }
 

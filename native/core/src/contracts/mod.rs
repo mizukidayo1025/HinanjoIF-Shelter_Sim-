@@ -3,7 +3,7 @@
 //! 2.11.9 writes it (Issue #346, part of #250).
 //!
 //! Each contract is given its input as the Python host gave it to `model_validate` before #430:
-//! an event's values as the event holds them, frozen (`_freeze_json`: mapping proxies and tuples),
+//! an event's values as the event holds them, frozen (mapping proxies and tuples),
 //! and the other inputs as dicts and lists; the texts show which (`input_value=mappingproxy(...)`).
 //! `pydantic` holds the part of pydantic the models use, `models` the models and their validators.
 //! `tests/contracts.rs` compares each answer with the recorded one for the same input

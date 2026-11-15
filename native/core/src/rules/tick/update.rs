@@ -75,7 +75,7 @@ impl<C: WorldCell, H: Host, R: RunCell> Tick<'_, C, H, R> {
         Ok(Gathered { selection, configs })
     }
 
-    /// `simulator_extensions.get("enabled")` of the configs, truthy (`extensions_enabled_of`).
+    /// `simulator_extensions.get("enabled")` of the configs, truthy.
     pub fn extensions_enabled(&mut self, holding: &Holding) -> std::result::Result<bool, H::Error> {
         match self.host_section(holding, SectionId::ExtensionsEnabled, |configs| &configs.extensions_enabled)? {
             Ok(enabled) => Ok(*enabled),
@@ -83,8 +83,8 @@ impl<C: WorldCell, H: Host, R: RunCell> Tick<'_, C, H, R> {
         }
     }
 
-    /// `from_world` without its hash: the core's `build` with what the Run keeps, then the
-    /// extensions' flag, which `from_world` read last.
+    /// The world's view without its hash: the core's `build` with what the Run keeps, then the
+    /// extensions' flag, read last.
     pub fn build_view(&mut self, holding: &Holding, gathered: &Gathered) -> std::result::Result<ViewData, H::Error> {
         let mut cache = self.on_run(|run| std::mem::take(&mut run.views))?;
         let inputs = Inputs { selection: &gathered.selection, configs: gathered.configs.as_ref() };
@@ -130,11 +130,10 @@ where
     Ok(())
 }
 
-/// `_replan_journeys` of the people `advance_movement` returned, in that order (lane c6; its inputs
-/// through the host since lane P9-3b): what the world holds, then the Run's graph, the rows of the
-/// queue, the floor plan, the movement section and the overlay's schema, read once. Each person is
-/// two steps; a refusal before the first stop of the call changes nothing, and one after it is a
-/// `RuntimeError`.
+/// The new routes of the people the walk returned (`movement::advance_through`), in that order:
+/// what the world holds, then the Run's graph, the rows of the queue, the floor plan, the movement
+/// section and the overlay's schema, read once. Each person is two steps; a refusal before the
+/// first stop of the call changes nothing, and one after it is a `RuntimeError`.
 pub fn replan_journeys<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R>, ids: &[Arc<str>]) -> std::result::Result<(), H::Error>
 where
     H::Error: From<WriteError>,
@@ -242,14 +241,14 @@ where
     }
 }
 
-/// `_view_after_movement`.
+/// The world's view after the walk of the minute.
 pub fn view_after_movement<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R>) -> std::result::Result<ViewData, H::Error> {
     let holding = tick.holding()?;
     let gathered = tick.gather(&holding)?;
     tick.build_view(&holding, &gathered)
 }
 
-/// `_psychology_update`: the deltas of each person, and the trace's rows.
+/// The psychology step: the deltas of each person, and the trace's rows.
 fn update_psychology<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R>, data: &ViewData) -> std::result::Result<PsychologyResult, H::Error> {
     let policies = tick.policies.clone();
     let traced = tick.host.trace_level()? != TraceLevel::Off;
@@ -266,7 +265,8 @@ fn update_psychology<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H
     tick.world(|world| psychology::update(world, data, &params, minute, traced))
 }
 
-/// `_social_propagation`: the deltas after the social model, in ID order.
+/// The social model's step (`social_propagation::update`): the deltas after the social model, in ID
+/// order.
 fn update_social<C: WorldCell, H: Host, R: RunCell>(
     tick: &mut Tick<'_, C, H, R>,
     data: &ViewData,
@@ -301,7 +301,7 @@ fn update_social<C: WorldCell, H: Host, R: RunCell>(
     };
     let mut planned = tick.world(|world| social::update(world, &inputs))?;
     if planned.first_use {
-        // `_read_runtime_state(None)` of the first tick: the step makes the namespace.
+        // The first tick, with no state read yet: the step makes the namespace.
         let mut state = IndexMap::new();
         state.insert(Arc::from("schema_version"), V::Int(crate::state::social_propagation::SCHEMA_VERSION));
         state.insert(Arc::from("contacts"), V::Map(IndexMap::new()));
@@ -336,7 +336,7 @@ fn held_value(held: &Read) -> crate::error::Result<V> {
     }
 }
 
-/// `_record_psychology_trace`.
+/// The psychology trace of the minute (`trace::record_psychology`).
 fn record_trace<C: WorldCell, H: Host, R: RunCell>(
     tick: &mut Tick<'_, C, H, R>,
     data: &ViewData,
@@ -370,7 +370,7 @@ fn unit(value: f64) -> crate::error::Result<f64> {
     Ok(value)
 }
 
-/// `_update_long_term_psychology`.
+/// The long-term psychology of the minute.
 fn update_long_term<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R>, finals: &[Delta]) -> std::result::Result<(), H::Error> {
     let policies = tick.policies.clone();
     let psychology = &policies.psychology;
@@ -389,7 +389,7 @@ fn update_long_term<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H,
     tick.world(|world| psychology::update_long_term(world, &long_term, &people, minute, held))
 }
 
-/// `_apply_state_deltas`: every delta is checked before anything changes.
+/// The deltas applied to the people's states: every delta is checked before anything changes.
 fn apply_deltas<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R>, finals: &[Delta]) -> std::result::Result<(), H::Error> {
     let holding = tick.holding()?;
     if !holding.table {

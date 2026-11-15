@@ -41,7 +41,7 @@ const LEDGER: &str = "resource_ledger_v1";
 const SERVICE: &str = "resource_service_v1";
 const SPACES: &str = "temporary_spaces_v1";
 const OVERLAY: &str = "geometry_overlay_v1";
-/// The label of the refusal of `effective_total_zone_capacity` (`rules/overlay.rs`).
+/// The label of the refusal of a zone's capacity (`overlay::zone_capacity`, `rules/overlay.rs`).
 const CAPACITY_KERNEL: &str = "overlay.effective_total_zone_capacity";
 
 /// The check, as `validate` (`validate/mod.rs`) calls it in its order, with the resource
@@ -172,7 +172,7 @@ fn unit(value: f64) -> bool {
     value.is_finite() && (0.0..=1.0).contains(&value)
 }
 
-/// `NeedState.validate()`: the first level outside 0..1.
+/// The check of a person's needs: the first level outside 0..1.
 fn need_levels(needs: &NeedRow) -> Option<&'static str> {
     [("toilet_urgency", needs.toilet_urgency), ("hunger", needs.hunger), ("fatigue", needs.fatigue), ("hydration_need", needs.hydration_need)]
         .into_iter()
@@ -215,8 +215,8 @@ fn agents(rows: &Entities, version: i64) -> Result<IndexMap<Arc<str>, i64>> {
     Ok(occupancy)
 }
 
-/// `_validate_zone_capacity` of each zone: its nominal capacity with the approved temporary spaces
-/// and the physical rooms (`effective_total_zone_capacity` of `rules/overlay.rs`, whose refusal is
+/// The capacity check of each zone: its nominal capacity with the approved temporary spaces
+/// and the physical rooms (`zone_capacity` of `rules/overlay.rs`, whose refusal is
 /// an `Error::Refused` labelled `CAPACITY_KERNEL`).
 fn zone_capacities(view: &View<'_>, occupancy: &IndexMap<Arc<str>, i64>) -> Result<()> {
     let held = |name: &str| -> Result<Held> { Ok(if view.contains(name)? { Held::Held } else { Held::Absent }) };
@@ -363,8 +363,7 @@ fn facilities(rows: &Entities, version: i64) -> Result<(FxHashSet<Arc<str>>, FxH
 // ---- The events that serve tasks ------------------------------------------------------------------
 
 /// The pending completion events by the task they name (a `task_id` that is a str), in the queue's
-/// order: `completion_events_by_task`, `resource_completion_events_by_task`,
-/// `travel_events_by_task` and `staff_events_by_task`.
+/// order: of the toilets, of the resources, of the trips and of the staff.
 struct Events<'a> {
     toilet: FxHashMap<&'a str, Vec<&'a EventRow>>,
     resource: FxHashMap<&'a str, Vec<&'a EventRow>>,
@@ -400,7 +399,7 @@ fn named<'m, 'a>(map: &'m FxHashMap<&'a str, Vec<&'a EventRow>>, task_id: &str) 
 type Pair<'a> = (&'a str, &'a str);
 
 /// The tasks of each kind as dicts, in the tasks' order: by (facility, Agent), and the travel
-/// tasks by Agent (`travel_tasks`).
+/// tasks by Agent.
 struct Tasks<'a> {
     toilet_queue: IndexMap<Pair<'a>, &'a TaskRow>,
     toilet_service: IndexMap<Pair<'a>, &'a TaskRow>,
@@ -543,7 +542,7 @@ impl<'a> Tasks<'a> {
 
     /// The resource facilities' queues and services, and the tasks, completion events, ledger
     /// reservations and staff that hold them: the reservations of the services
-    /// (`active_resource_reservations`).
+    /// (the active resource reservations).
     fn resources(&self, view: &View<'_>, rows: &Entities, events: &Events<'_>, service: Option<&ServiceConfig>) -> Result<FxHashSet<Arc<str>>> {
         let targets = |agent_id: &str, facility_id: &str| rows.agents.get(agent_id).is_some_and(|agent| agent.target_id.as_deref() == Some(facility_id));
         for (_, facility) in rows.facilities.iter() {
@@ -765,7 +764,7 @@ const WAIT_REASONS: [&str; 4] =
 fn requests(rows: &Entities, tasks: &Tasks<'_>, events: &Events<'_>, pending: &[Arc<EventRow>], minute: i64, duration: i64) -> Result<()> {
     // The open (pending or assigned) requests of each Agent, in the requests' order.
     let mut open: FxHashMap<&str, Vec<&str>> = FxHashMap::default();
-    // `timeouts_by_request`, made at the first pending request.
+    // The timeouts by request, made at the first pending request.
     let mut timeouts: Option<FxHashMap<&str, Vec<&EventRow>>> = None;
     for (_, request) in rows.support_requests.iter() {
         let id = py_repr(&request.id);

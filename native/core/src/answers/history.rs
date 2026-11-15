@@ -171,9 +171,10 @@ impl HistoryQuery {
     }
 
     /// Whether a KPI row could pass the query's filters: the index has no identity, type, source,
-    /// status or text term of a KPI row, so any of them leaves no rows (`HistoryIndex.search`).
+    /// status or text term of a KPI row, so any of them leaves no rows.
     fn filtered(&self) -> bool {
-        // `_terms`: `re.findall(r"[\w:-]{1,80}", text.casefold())`; Python's \w is letters, numbers and _.
+        // The text's terms: `re.findall(r"[\w:-]{1,80}", text.casefold())`; Python's \w is letters,
+        // numbers and _.
         let terms = self.text.as_deref().is_some_and(|text| text.chars().any(|c| c == '_' || c == ':' || c == '-' || letter_or_number(c)));
         terms || ["zone_id", "event_type", "source_id", "status"].iter().any(|name| self.identifier(name).is_some())
     }
@@ -259,8 +260,8 @@ fn base64_decode(text: &str) -> Option<Vec<u8>> {
     Some(out)
 }
 
-/// The cursor's row for this scope and anchor (`cursor_decode` of the index): its minute and the
-/// key after `kpis:`, or the server's refusal.
+/// The cursor's row for this scope and anchor: its minute and the key after `kpis:`, or the
+/// server's refusal.
 fn cursor_row(cursor: &str, scope: &str, anchor: Option<&str>) -> Result<(i64, String), Refusal> {
     let stale = || Refusal::storage("stale_or_foreign_cursor: restart this query");
     let data = base64_decode(cursor).ok_or_else(stale)?;

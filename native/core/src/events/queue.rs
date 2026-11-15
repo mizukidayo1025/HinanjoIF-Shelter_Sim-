@@ -100,7 +100,7 @@ impl Queue {
         Some((serial, slot))
     }
 
-    /// `EventQueue.schedule` of a row: 0, or 1 for a pending ID, 2 for a pending sequence.
+    /// Schedules a row: 0, or 1 for a pending ID, 2 for a pending sequence.
     pub fn schedule_row(&mut self, row: EventRow) -> u8 {
         if self.by_id.contains_key(&*row.event_id) {
             return 1;

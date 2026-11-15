@@ -73,7 +73,7 @@ fn selection(json: &Value) -> Parsed<Selection> {
     Ok(Ok(Selection::new(pairs)))
 }
 
-/// `Plan.__new__` of `rules/after_tick.rs`, from `tick_plan_fields`.
+/// The tick's plan (`TickPlan`), from the fields `initial::sections` writes of it.
 fn tick_plan(json: &Value) -> Parsed<TickPlan> {
     let flag = |name: &str| bool_of(&json[name], name);
     let set = |name: &str| texts(&json[name], name).map(|items| items.into_iter().collect::<FxHashSet<_>>());
@@ -203,7 +203,8 @@ fn approach_route(json: &Value) -> Parsed<ApproachRoute> {
     }))
 }
 
-/// `independent_of`: a service point whose queue is not its facility's ID, or a facility with two.
+/// Whether some facility is served independently: a service point whose queue is not its
+/// facility's ID, or a facility with two.
 fn independent(json: &Value) -> Result<bool> {
     let mut facilities = HashSet::new();
     for item in array(&json["service_points"], "service_points")? {
@@ -252,7 +253,8 @@ fn geometry_document(json: &Value) -> Result<V> {
     Ok(document)
 }
 
-/// `spatial_of`.
+/// The spatial constraints of the section's dump: the obstacles, equipment footprints, walls and
+/// openings the movement rules read.
 fn spatial_constraints(json: &Value) -> Parsed<SpatialConstraints> {
     let mut spatial = SpatialConstraints { document: Some(Arc::new(value(json)?)), ..SpatialConstraints::default() };
     for item in array(&json["obstacles"], "obstacles")? {

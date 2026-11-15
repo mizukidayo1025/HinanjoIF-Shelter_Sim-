@@ -34,7 +34,8 @@ state_row! {
 }
 
 impl AgentMemory {
-    /// The per-record rules of `validate_agent_dynamics_state`, for a record already of its types.
+    /// The per-record rules of `validate::agent_dynamics::validate`, for a record already of its
+    /// types.
     pub fn is_valid(&self, is_facility: impl Fn(&str) -> bool) -> bool {
         self.decision_due_minute >= 0
             && self.last_decision_minute.is_none_or(|minute| minute >= 0)
@@ -44,8 +45,8 @@ impl AgentMemory {
 }
 
 impl AgentDynamicsRow {
-    /// `validate_agent_dynamics_state` of a world whose configs select this policy, for a row of its
-    /// types (#152; in the core since #250): true only if the whole check passes. A record for each
+    /// `validate::agent_dynamics::validate` of a world whose configs select this policy, for a row
+    /// of its types: true only if the whole check passes. A record for each
     /// Agent and none else, each valid and knowing only facilities of the world.
     pub fn accepts(&self, policy: &str, rows: &Entities) -> bool {
         if self.schema_version != 1 || &*self.policy_version != policy {

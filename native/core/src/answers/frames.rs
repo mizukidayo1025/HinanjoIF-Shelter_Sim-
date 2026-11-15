@@ -54,9 +54,8 @@ pub fn timeline_plan(minute: &str, project_id: &str, run_id: &str, files: &RunFi
 
 // ---- Comparisons ---------------------------------------------------------------------------------
 
-/// The common computed range of branches of a Run, with the server's checks of a comparison
-/// (`ProjectWorkspace.comparison_context`): 2 to 8 distinct branches, each of the Run, the minute
-/// within the range they all computed.
+/// The common computed range of branches of a Run, with the server's checks of a comparison: 2 to
+/// 8 distinct branches, each of the Run, the minute within the range they all computed.
 pub fn comparison_range(branch_ids: &[String], minute: Option<f64>, project_id: &str, run_id: &str, files: &RunFiles) -> Answer<(i64, i64)> {
     let distinct = branch_ids.iter().enumerate().all(|(index, id)| !branch_ids[..index].contains(id));
     if !(2..=8).contains(&branch_ids.len()) || !distinct {
@@ -136,8 +135,8 @@ impl Comparison {
         Comparison { branch_ids, common_range, receipts, paired }
     }
 
-    /// `comparison_projection`: the comparison of the frames (JSON texts, in `branch_ids`' order) at
-    /// `minute`, each branch's KPI differences from the first (the core's: ints stay ints).
+    /// The comparison of the frames (JSON texts, in `branch_ids`' order) at `minute`, each
+    /// branch's KPI differences from the first (the core's: ints stay ints).
     pub fn answer(&self, run_id: &str, minute: i64, frames: &[&[u8]]) -> Answer {
         let Some((first, rest)) = frames.split_first() else {
             return Err(Failure::Error(crate::error::Error::Value("a comparison has no frames".to_owned())));
@@ -293,7 +292,7 @@ pub fn require_current_model(journal: &[u8], scenario: &[u8]) -> Answer<()> {
 }
 
 /// The frame of a Run of other model versions: the frame of the saved point at or before the
-/// minute asked for (`saved_minute`), with the fields `SavedPointView.describe()` adds
+/// minute asked for (`saved_minute`), with the fields that describe the view
 /// (`ModelStatus::describe_json`).
 pub fn view_frame(frame: &[u8], status: &ModelStatus, saved_minute: i64, requested_minute: i64) -> Answer {
     Ok(merge_objects(frame, &status.describe_json(saved_minute, requested_minute))?)

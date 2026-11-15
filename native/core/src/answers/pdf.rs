@@ -1,6 +1,5 @@
 //! `POST runs/{run}/pdf-report` with an API key (#463): the PDF report's data, its facts and the
-//! analysis asked of an LLM (Opus), as the Python report (`collect_report`, `analysis_facts`,
-//! `generate_analysis`, `validate_analysis`) made them before #427.
+//! analysis asked of an LLM (Opus), as the Python report made them before #427.
 //!
 //! `PdfPlan::new` makes the route's checks (`routes::pdf_report_answer`'s, in its order). For each
 //! branch, the caller restores the branch's Run at the minute and gives it with its frame there,
@@ -188,7 +187,7 @@ fn problem_window(rows: &[Value], key: &str, start: i64, end: i64) -> Value {
     })
 }
 
-/// `_source_ids(value)`: every `source_id` and `*source_ids` of a document.
+/// Every `source_id` and `*source_ids` of a document.
 fn source_ids(value: &Value, found: &mut BTreeSet<String>) {
     match value {
         Value::Object(object) => {
@@ -498,8 +497,8 @@ impl PdfPlan {
     }
 }
 
-/// `analysis_facts(data)`: opaque aliases keep the user's labels, places, ids and free text off
-/// the Provider.
+/// The facts of the report's data the LLM may cite: opaque aliases keep the user's labels, places,
+/// ids and free text off the Provider.
 fn facts(data: &Value) -> Value {
     let conditions = &data["conditions"];
     let mut facts = Map::new();
@@ -610,7 +609,7 @@ fn facts(data: &Value) -> Value {
     Value::Object(facts)
 }
 
-/// The analysis's output schema (`OUTPUT_SCHEMA`).
+/// The analysis's output schema.
 fn output_schema() -> Value {
     let paragraph = json!({
         "type": "object",
@@ -650,7 +649,7 @@ impl PdfAnalysis {
     }
 
     /// The analysis of the link's reply (`llm::Reply`'s JSON; None where the call failed), as
-    /// `generate_analysis` gives it, or the refusal: no Opus answer (`pdf_analysis_<outcome>`), not
+    /// the report keeps it, or the refusal: no Opus answer (`pdf_analysis_<outcome>`), not
     /// Opus (`pdf_opus_required`), or an answer the checks refuse (`pdf_analysis_invalid`).
     pub fn read(&self, reply: Option<&[u8]>) -> Answer {
         let Some(raw) = reply else {
@@ -685,8 +684,8 @@ impl PdfAnalysis {
         Ok(asking::canonical(&analysis).into_bytes())
     }
 
-    /// `validate_analysis(document, facts)`: each paragraph cites known facts once each, holds no
-    /// private text, quantity, quote or causal assertion, and ends as its section asks.
+    /// The analysis's checks against the facts: each paragraph cites known facts once each, holds
+    /// no private text, quantity, quote or causal assertion, and ends as its section asks.
     fn validate(&self, document: &Value) -> Answer<()> {
         let invalid = || Failure::from(Refusal::storage("pdf_analysis_invalid: AI分析の根拠・表現の検証に失敗しました。"));
         for key in SECTIONS {

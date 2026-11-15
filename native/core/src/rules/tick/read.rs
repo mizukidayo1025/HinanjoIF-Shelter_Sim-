@@ -15,7 +15,7 @@ use super::{RunCell, Tick};
 
 /// The refusal of a section the configs do not have.
 pub const NO_SUCH_SECTION: &str = "the configs have no such section";
-/// `as_readable_dict(model_state)` failed where a step checks it (`body_state_of` of psychology).
+/// `model_state` could not be read where a step checks it (the body states psychology reads).
 pub const NOT_READABLE: &str = "model_state is not readable";
 /// `model_state` is not a plain dict where a step checks it.
 pub const NOT_PLAIN: &str = "a value is not a plain dict";
@@ -46,7 +46,7 @@ impl<C: WorldCell, H: Host, R: RunCell> Tick<'_, C, H, R> {
         Ok(kept_of(kit::section_value(self.cell, self.host, holding, which, get, parse)?))
     }
 
-    /// A section the core parses, raised at once where it is a fault (`configs::kept_value`).
+    /// A section the core parses, raised at once where it is a fault.
     pub fn value_now<T>(
         &mut self,
         holding: &Holding,
@@ -82,7 +82,7 @@ impl<C: WorldCell, H: Host, R: RunCell> Tick<'_, C, H, R> {
         Plan(self.host.floor_plan())
     }
 
-    /// `namespace_is_absent(world, name)`, its refusal raised.
+    /// Whether the namespace is absent (`Holding::is_absent`), its refusal raised.
     pub fn is_absent(&self, holding: &Holding, name: &str) -> std::result::Result<bool, H::Error> {
         holding.is_absent(name).map_err(|reason| Error::unsupported(reason).into())
     }

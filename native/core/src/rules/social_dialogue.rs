@@ -16,8 +16,8 @@ use crate::world::World;
 const NEEDS: [&str; 4] = ["toilet_urgency", "hunger", "fatigue", "hydration_need"];
 const AFFECT: [&str; 6] = ["positive_affect", "negative_affect", "reassurance", "discontent", "uncertainty", "hygiene_need"];
 
-/// The texts of `validate_social_state_context` and `capture_social_state_context`, in the order of
-/// their checks.
+/// The texts of the context's checks (`validate_context`) and of its capture (`capture_context`),
+/// in the order of their checks.
 pub const NOT_ITS_EVENT: &str = "social dialogue state context does not match its event";
 pub const STATE_FIELDS: &str = "social dialogue participant state has unsupported fields";
 pub const NEEDS_INVALID: &str = "social dialogue needs context is invalid";
@@ -44,16 +44,16 @@ impl Captured {
     }
 }
 
-/// What `capture_social_state_context` copies: the participants, in sorted order.
+/// What `capture_context` copies: the participants, in sorted order.
 struct Capture {
     minute: i64,
     people: Vec<Captured>,
     affects: Vec<Option<[f64; 6]>>,
-    /// What `validate_social_state_context` then raises for the copy, or None.
+    /// What `validate_context` then raises for the copy, or None.
     problem: Option<&'static str>,
 }
 
-/// `capture_social_state_context`, for one or two IDs of no repeats in sorted order.
+/// The capture of the participants' state, for one or two IDs of no repeats in sorted order.
 fn read_capture(world: &World, ids: &[&str]) -> Result<Capture> {
     let minute = world.minute_index().map_err(|_| Error::unsupported("a value is not an int"))?;
     let duration = world.duration_minutes().map_err(|_| Error::unsupported("a value is not an int"))?;
@@ -144,9 +144,9 @@ fn context_of(ids: &[&str], capture: &Capture) -> V {
     V::Map(context)
 }
 
-/// `capture_social_state_context` of `set(participant_ids)`: the IDs without repeats, in their
+/// The capture of the participants' state, of the participants' IDs without repeats, in their
 /// order. One or two people in the world, or its ValueError; then the copy, or the ValueError of
-/// `validate_social_state_context` for it.
+/// `validate_context` for it.
 pub fn capture_context(world: &World, ids: &[&str]) -> Result<V> {
     if ids.is_empty() || ids.len() > 2 {
         return Err(Error::value_error(NOT_ONE_OR_TWO));
@@ -183,16 +183,16 @@ pub fn context_value(world: &World, first: &str, second: &str) -> Result<V> {
 
 // ---- The verdict on any context -----------------------------------------------------------------
 //
-// `SocialInteractionHandler` words a ValueError of `validate_social_state_context` as its own saved
-// text, so this decides in a fixed order of checks, for any JSON value an event's payload holds.
+// `SocialInteractionHandler` words a ValueError of `validate_context` as its own saved text, so
+// this decides in a fixed order of checks, for any JSON value an event's payload holds.
 
 /// `set(mapping) == set(names)`, of distinct names.
 fn keys_are(mapping: &IndexMap<Arc<str>, V>, names: &[&str]) -> bool {
     mapping.len() == names.len() && names.iter().all(|name| mapping.contains_key(*name))
 }
 
-/// `_validate_unit(value)` returns (true) or raises its ValueError (false). Unsupported for an int
-/// past 64 bits, which `math.isfinite` may refuse with another error.
+/// Whether a value is a unit (finite, in 0..1): true, or false for its ValueError. Unsupported for
+/// an int past 64 bits, which `math.isfinite` may refuse with another error.
 #[track_caller]
 fn unit_verdict(value: &V) -> Result<bool> {
     match value {
@@ -214,8 +214,7 @@ fn is_version_one(value: &V) -> bool {
     }
 }
 
-/// The text `validate_social_state_context(context, ids, due_minute)` raises, or None where it
-/// returns. `ids` have no repeats.
+/// The text the context's checks raise, or None where they pass. `ids` have no repeats.
 pub fn context_problem(context: &V, ids: &[&str], due_minute: i64) -> Result<Option<&'static str>> {
     let V::Map(context) = context else {
         return Ok(Some(NOT_ITS_EVENT));
@@ -279,13 +278,13 @@ pub fn context_problem(context: &V, ids: &[&str], due_minute: i64) -> Result<Opt
     Ok(None)
 }
 
-/// `validate_social_state_context(context, ids, due_minute)` returns (true) or raises its ValueError
-/// (false). `ids` have no repeats.
+/// Whether the context's checks pass (true) or raise their ValueError (false). `ids` have no
+/// repeats.
 pub fn context_verdict(context: &V, ids: &[&str], due_minute: i64) -> Result<bool> {
     Ok(context_problem(context, ids, due_minute)?.is_none())
 }
 
-/// `validate_social_state_context`: Ok, or its ValueError.
+/// The context's checks: Ok, or their ValueError.
 pub fn validate_context(context: &V, ids: &[&str], due_minute: i64) -> Result<()> {
     match context_problem(context, ids, due_minute)? {
         None => Ok(()),

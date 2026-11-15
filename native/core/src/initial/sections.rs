@@ -40,10 +40,10 @@ const INFORMATION_FIELDS: [&str; 12] = [
     "correction_source_sensitivity",
 ];
 
-/// `H03_EVENT_TYPES | {"resource_delivery"}`, sorted.
+/// The operational events' types, sorted.
 const OPERATIONAL_EVENTS: [&str; 6] = ["delivery_delayed", "resource_delivery", "staff_shift_change", "staff_unavailable", "water_outage", "water_restored"];
 
-/// `INFRASTRUCTURE_EVENT_TYPES`, sorted.
+/// The infrastructure events' types, sorted.
 const INFRASTRUCTURE_EVENTS: [&str; 10] = [
     "environmental_stressor_end",
     "equipment_failure",
@@ -57,7 +57,7 @@ const INFRASTRUCTURE_EVENTS: [&str; 10] = [
     "supply_route_restored",
 ];
 
-/// The default staff-task ranking rule (`create_staff_operations_formula`).
+/// The default staff-task ranking rule (`config::staff::StaffOperations`).
 const STAFF_OPERATIONS_DEFAULT: &str = "staff-urgency-first-v1";
 
 // ---- Faults ------------------------------------------------------------------------------------
@@ -70,7 +70,7 @@ fn value(found: V) -> V {
     vmap([("value", found)])
 }
 
-/// `_fault(error)`: the class by `FaultClass`'s name, with `str(error)`.
+/// The fault of an error: the class by `FaultClass`'s name, with the error's text.
 fn fault_of(error: &Error) -> V {
     match error {
         Error::Value(text) | Error::MarkedValue(text) => fault("Value", text),
@@ -85,7 +85,7 @@ fn fault_of(error: &Error) -> V {
     }
 }
 
-/// `_fault(error, refusal=True)`: an `Unsupported` kept as a refusal.
+/// The fault of an error, an `Unsupported` kept as a refusal.
 fn refusal_or_fault(error: &Error) -> V {
     match error {
         Error::Unsupported(text) => fault("Refused", text),
@@ -119,7 +119,7 @@ fn refused(text: &'static str) -> Error {
     Error::unsupported(text)
 }
 
-/// `_exact_int(value)`.
+/// The value, an int of exactly that type (refused otherwise).
 fn exact_int(found: Option<&V>) -> Result<V> {
     match found {
         Some(V::Int(number)) => Ok(V::Int(*number)),
@@ -128,7 +128,7 @@ fn exact_int(found: Option<&V>) -> Result<V> {
     }
 }
 
-/// `_exact_str(value)`.
+/// The value, a str of exactly that type (refused otherwise).
 fn exact_str(found: Option<&V>) -> Result<V> {
     match found {
         Some(V::Str(text)) => Ok(V::Str(text.clone())),
@@ -156,7 +156,7 @@ fn selection_section(selection: &Result<Selection>) -> V {
     }
 }
 
-/// `tick_plan_fields(world)`.
+/// The fields of the tick's plan (`config::tick_plan::TickPlan`).
 fn tick_plan(view: &View<'_>, configs: &Map, selection: &Result<Selection>) -> Result<V> {
     let configs_value = V::Map(configs.clone());
     let psychology = selection.clone()?.get("psychology").cloned().ok_or_else(|| Error::Key("'psychology'".into()))?;
@@ -284,8 +284,8 @@ pub(crate) fn information_config(document: Option<&V>) -> Result<Map> {
     Ok(config)
 }
 
-/// `facility_geometry_section(configs)`: the model's dump with each approach route's `distance_m`
-/// and `travel_minutes`.
+/// The facility geometry's section: the model's dump with each approach route's `distance_m` and
+/// `travel_minutes`.
 pub(crate) fn facility_geometry(configs: &Map) -> V {
     let Some(raw) = configs.get("facility_geometry").filter(|raw| !matches!(raw, V::Null)) else {
         return vmap([("absent", V::Bool(true))]);
@@ -342,13 +342,15 @@ pub(crate) fn facility_geometry(configs: &Map) -> V {
     value(dumped)
 }
 
-/// `spatial_constraints_section(configs)`.
+/// The spatial constraints' section: the configs' `spatial_constraints` as their contract dumps
+/// them.
 pub(crate) fn spatial_constraints(configs: &Map) -> V {
     let raw = configs.get("spatial_constraints").cloned().unwrap_or_else(empty);
     section_of(|| contracts::validate(&Contract::SpatialConstraints, &raw).map_err(validation))
 }
 
-/// `_staff_operations(configs)`.
+/// The staff-task ranking formula's section: the model `policy_registry` selects (urgency first by
+/// default) and its source where the registry names one.
 fn staff_operations(configs: &Map) -> V {
     parsed(|| {
         let registry = configs.get("policy_registry");
@@ -368,7 +370,7 @@ fn staff_operations(configs: &Map) -> V {
     })
 }
 
-/// `_care_outcome(configs)`.
+/// The care formula's section: the selected model, its source and `body_dynamics`.
 fn care_outcome(configs: &Map, selection: &Result<Selection>) -> V {
     parsed(|| {
         let Ok(selection) = selection else {
@@ -386,7 +388,8 @@ fn care_outcome(configs: &Map, selection: &Result<Selection>) -> V {
     })
 }
 
-/// `_body_models(world, selection)`.
+/// The body models' section: the affect model (the selection's, else the body config's) and the
+/// relationship model.
 fn body_models(configs: &Map, selection: &Result<Selection>) -> V {
     let selection = match selection {
         Ok(selection) => selection,
@@ -410,7 +413,7 @@ fn body_models(configs: &Map, selection: &Result<Selection>) -> V {
     value(vmap([("affect", affect), ("relationship", relationship)]))
 }
 
-/// `_validated(configs, key, contract)`.
+/// The section of `configs[key]` as `contract` dumps it.
 fn validated(configs: &Map, key: &str, contract: Contract) -> V {
     parsed(|| {
         let raw = configs.get(key).ok_or_else(|| Error::Key(crate::text::py_repr(key)))?;
@@ -418,7 +421,8 @@ fn validated(configs: &Map, key: &str, contract: Contract) -> V {
     })
 }
 
-/// `_proximity(configs)`: `canonical_proximity_contact_config(configs.get("social_proximity"))`.
+/// The proximity section: the canonical config of `social_proximity`
+/// (`validate::signatures::canonical_proximity`).
 fn proximity(configs: &Map) -> V {
     parsed(|| {
         Ok(match signatures::canonical_proximity(configs.get("social_proximity"))? {
@@ -435,7 +439,8 @@ fn proximity(configs: &Map) -> V {
     })
 }
 
-/// `_overlay_rooms(configs)`.
+/// The overlay's rooms section: whether the overlay config is a dict and whether its schema has
+/// rooms (3 or 4).
 fn overlay_rooms(configs: &Map) -> V {
     let config = configs.get("geometry_overlay").cloned().unwrap_or_else(empty);
     let is_dict = matches!(config, V::Map(_));
@@ -453,7 +458,7 @@ fn overlay_rooms(configs: &Map) -> V {
     value(vmap([("is_dict", V::Bool(is_dict)), ("room_schema", schema)]))
 }
 
-/// `_extensions_enabled(configs)`.
+/// Whether the simulator extensions are enabled.
 fn extensions_enabled(configs: &Map) -> V {
     parsed(|| {
         Ok(V::Bool(match configs.get("simulator_extensions") {
@@ -464,7 +469,7 @@ fn extensions_enabled(configs: &Map) -> V {
     })
 }
 
-/// `sections(world)`: every section the host parses, by its field of `Configs`.
+/// Every section the host parses, by its field of `Configs`.
 pub(crate) fn sections(world: &World) -> Result<V> {
     let view = View::new(world, true, None);
     let configs = match &*view.configs()? {

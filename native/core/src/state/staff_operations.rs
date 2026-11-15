@@ -92,7 +92,7 @@ state_row! {
 }
 
 impl OperationRecord {
-    /// `record == _idle_record()`, when `phase` is idle.
+    /// Whether the record is the idle one (no task), when `phase` is idle.
     fn is_the_idle_record(&self) -> bool {
         self.task_id.is_none()
             && self.task_kind.is_none()
@@ -214,8 +214,8 @@ pub struct Active {
     pub duration: i64,
 }
 
-/// The fields of an active record that `validate_staff_operations_state` reads of it alone, or None
-/// if one fails, which is then the whole validation's to say.
+/// The fields of an active record that `validate::staff_operations::validate` reads of it alone, or
+/// None if one fails, which is then the whole validation's to say.
 fn active_of(staff_id: &str, record: &OperationRecord, config: &V) -> Option<Active> {
     let (Some(task_id), Some(task_kind), Some(target_zone_id), Some(reason), Some(started), Some(due)) = (
         record.task_id.as_deref(),
@@ -307,9 +307,9 @@ impl StaffOperationsRow {
         }
     }
 
-    /// The rules of `validate_staff_operations_state` that read the row alone, for a world of these
-    /// zones: the active records if they pass, or None, which is then the whole validation's to
-    /// say.
+    /// The rules of `validate::staff_operations::validate` that read the row alone, for a world of
+    /// these zones: the active records if they pass, or None, which is then the whole validation's
+    /// to say.
     pub fn active_records(&self, zones: &HashSet<String>) -> Option<Vec<Active>> {
         if self.schema_version != 1
             || &*self.policy_version != POLICY
@@ -342,7 +342,7 @@ impl StaffOperationsRow {
             && self.history.iter().all(|item| item.is_valid(rows, zones))
     }
 
-    /// `_validate_staff_operation_receipt` (`validate/shared_operations.rs`) of a receipt that
+    /// The check of a staff operation's receipt (`validate/shared_operations.rs`) of a receipt that
     /// passed its contract, of this task at this minute: whether the retained completions agree
     /// with it (#152; in the core since #250).
     pub fn completion_agrees(&self, task_id: &str, minute: i64, receipt: &serde_json::Value, history_truncated: bool) -> bool {

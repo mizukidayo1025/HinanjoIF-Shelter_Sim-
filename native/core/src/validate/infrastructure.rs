@@ -170,7 +170,7 @@ pub fn validate(view: &View<'_>) -> Result<()> {
     validate_history(view, &log, &canonical, Records { base, outages, stressors, routes }, &rows)
 }
 
-/// The check with the history (`validate_event_history`): each outage, stressor and route
+/// The check with the history (`View::history`): each outage, stressor and route
 /// interruption against its start and end events, the facilities' capacity under the active
 /// outages and the completion events.
 fn validate_history(view: &View<'_>, log: &Log<'_, '_>, canonical: &V, records: Records<'_>, rows: &Entities) -> Result<()> {
@@ -547,7 +547,7 @@ fn known_shipments(ids: Option<&V>, known: &FxHashSet<Arc<str>>) -> Result<bool>
     Ok(all)
 }
 
-/// `effective_facility_capacities`: the working units each facility of the base keeps under the
+/// The effective facility capacities: the working units each facility of the base keeps under the
 /// active outages.
 fn effective_capacities(
     base: &IndexMap<Arc<str>, V>,

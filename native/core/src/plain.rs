@@ -136,8 +136,8 @@ pub struct MetricSamples {
     balances: Option<bool>,
 }
 
-/// The resource ledger's KPI columns of a sample (`resource_metric_values`,
-/// `rules::resources::metric_values`): initial, delivered, served, losses, remaining and reserved,
+/// The resource ledger's KPI columns of a sample (`rules::resources::metric_values`): initial,
+/// delivered, served, losses, remaining and reserved,
 /// of water and then of meals.
 pub type Balances = [[i64; 6]; 2];
 
@@ -510,7 +510,7 @@ impl Host for PlainHost {
         Ok(())
     }
 
-    /// `policy_sources.get(policy_version)` of `_IndexedMetricSink`: the assumption source of the
+    /// The source an indexed sink writes for a policy version: the assumption source of the
     /// Model Catalog's model of that ID (`validate::catalog`), None for a version no model has.
     fn decision_source(&mut self, policy_version: &str) -> Result<Option<Option<Arc<str>>>> {
         let catalog = crate::validate::catalog::catalog()?;
@@ -717,10 +717,9 @@ impl PlainRun {
         self.loaded.cell.with(|world| crate::summary::scenario_summary(world))?
     }
 
-    /// `validate_effect_program(world, program)` on the world now (`program::validate`, #304): the
-    /// issues, in the order the checks run, with their texts. It changes nothing: the toilets an
-    /// addition would place
-    /// are placed on a copy of the world, on the floor plan of that copy.
+    /// The checks of a program on the world now (`program::validate`, #304): the issues, in the
+    /// order the checks run, with their texts. It changes nothing: the toilets an addition would
+    /// place are placed on a copy of the world, on the floor plan of that copy.
     pub fn validate_effect_program(&mut self, program: &crate::program::EffectProgram) -> Result<Vec<String>> {
         let enabled = self.placement_enabled()?;
         let host = &mut self.host;
@@ -732,9 +731,9 @@ impl PlainRun {
         self.loaded.cell.with(|world| crate::program::validate(world, program, &mut placement))?
     }
 
-    /// `schedule_effect_program(world, program)` on the world now, as a fork's
-    /// `BranchRuntime.apply_effect_program` calls it (`program::schedule`, #305): the program's
-    /// record and events are written, all or none, and the receipt says what was scheduled.
+    /// The program scheduled on the world now, as a fork does to its child (`program::schedule`,
+    /// #305): the program's record and events are written, all or none, and the receipt says what
+    /// was scheduled.
     pub fn apply_effect_program(&mut self, program: &crate::program::EffectProgram) -> Result<crate::program::Receipt> {
         let enabled = self.placement_enabled()?;
         let host = &mut self.host;
@@ -763,7 +762,8 @@ impl PlainRun {
         utf8(receipt.command().to_json()?)
     }
 
-    /// `installed_facility_placement_enabled(world)`.
+    /// Whether the Scenario places installed facilities on its floor plan
+    /// (`rules::overlay::placement_enabled`).
     fn placement_enabled(&mut self) -> Result<bool> {
         let holding = crate::rules::kit::holding(&self.loaded.cell, &mut self.host)?;
         let schema = crate::rules::kit::kept_section_value(
@@ -778,7 +778,7 @@ impl PlainRun {
         crate::rules::overlay::placement_enabled(&schema, &overlay)
     }
 
-    /// `world.state_digest()` (`canonical::state_digest`) of the world now. The log's node is kept
+    /// The state digest (`canonical::state_digest`) of the world now. The log's node is kept
     /// between calls, so a call reads only the records added since the last
     /// (`canonical::state_digest_with`).
     pub fn state_digest(&self) -> Result<String> {

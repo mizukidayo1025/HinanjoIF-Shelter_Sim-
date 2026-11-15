@@ -289,7 +289,7 @@ fn pending_named(world: &World, wanted: &V) -> Result<Option<(u64, Arc<EventRow>
     }
 }
 
-/// `_ensure_event_identity_free`: no pending event and no record has this ID or sequence.
+/// No pending event and no record has this ID or sequence.
 fn identity_free(world: &World, event_id: &str, sequence: i64) -> Result<()> {
     let pending = {
         let queue = world.queue()?;
@@ -314,8 +314,8 @@ fn derived_of(marker: &IndexMap<Arc<str>, V>) -> V {
     V::Map(derived)
 }
 
-/// `derived_effect_marker(event.to_dict()["provenance"]["effect_program_v1"])` if the event has a
-/// marker.
+/// The EffectProgram marker a derived event takes from the event's provenance, if the event has
+/// one.
 fn derived_marker(event: &EventRow) -> Option<V> {
     match kit::provenance(event, "effect_program_v1") {
         Some(V::Map(marker)) => Some(derived_of(marker)),
@@ -514,7 +514,7 @@ fn ledger_payload(world: &World, inputs: &LedgerIn<'_>, event: &EventRow, operat
     Ok(ledger_payload)
 }
 
-/// `ResourceLedgerHandler.apply`, with `apply_resource_operation`'s own kernel: the world's new
+/// `ResourceLedgerHandler.apply`, with the ledger's own kernel (`resources`): the world's new
 /// balance of the resource, which the dispatcher writes to the world's resources
 /// (`resources_taken`). The ledger's error is `Fail::Ledger`, which the handler raises as
 /// `EventApplicationError(str(exc))`.
@@ -533,7 +533,7 @@ pub fn resource_ledger(world: &mut World, inputs: &LedgerIn<'_>, event: &EventRo
 
 /// What a facility's outage or recovery reads of the namespaces.
 pub struct FacilityIn<'a> {
-    /// `effect_program_v1`, for `has_active_facility_modifier`.
+    /// `effect_program_v1`, for `effects::has_active_modifier`.
     pub program: &'a Held,
     pub infrastructure: &'a Held,
     /// `SHARED_OPERATIONS_KEY not in world.model_state`: no receipt.
@@ -626,11 +626,11 @@ pub fn facility_units(world: &World, inputs: &FacilityIn<'_>, event: &EventRow, 
 
 // ---- The operational transaction --------------------------------------------------------------------
 
-/// The end of `_apply_operational_transaction`, on the transaction's world. Without records, the
-/// world is validated with the event in flight. Otherwise the event leaves the queue, its APPLIED
-/// record and the records go to the log, each continuity receipt goes into `shared_operations_v1`
-/// where the configs select the shared contract, and the world is validated. `shared` is whether the
-/// world holds `shared_operations_v1`.
+/// The end of `operational`, on the transaction's world. Without records, the world is validated
+/// with the event in flight. Otherwise the event leaves the queue, its APPLIED record and the
+/// records go to the log, each continuity receipt goes into `shared_operations_v1` where the
+/// configs select the shared contract, and the world is validated. `shared` is whether the world
+/// holds `shared_operations_v1`.
 pub fn settle<C: WorldCell, H: Host>(
     cell: &C,
     host: &mut H,
@@ -889,8 +889,8 @@ fn pending_reserves(world: &World) -> Result<Vec<Pending>> {
     Ok(found)
 }
 
-/// `ResourceServiceManager(world).interrupt_for_staff(staff_id, causation_event=event)`, counted
-/// under its label.
+/// The resource services the staff member serves, interrupted by the event (`service::interrupt`),
+/// counted under its label.
 fn interrupt_service(world: &mut World, inputs: &StaffIn<'_>, staff_id: &str, event: &EventRow) -> service::Outcome<Option<Applied>> {
     const LABEL: &str = "interrupt_for_staff";
     let result = match &inputs.service {
@@ -1006,7 +1006,7 @@ pub fn staff_unavailable(world: &mut World, inputs: &StaffIn<'_>, event: &EventR
     Ok(done)
 }
 
-/// `_interrupt_support_task`, on the transaction's world: its continuity receipt.
+/// A support task interrupted, on the transaction's world: its continuity receipt.
 fn interrupt_support_task(
     world: &World,
     inputs: &StaffIn<'_>,
@@ -1407,7 +1407,7 @@ impl Spec {
     }
 }
 
-/// `_infrastructure_state`: the namespace's value, which must be a dict.
+/// The infrastructure namespace's value, which must be a dict.
 fn infrastructure_state(world: &World, inputs: &InfraIn<'_>, event: &EventRow) -> Result<V> {
     let state = state_value(world, INFRASTRUCTURE, inputs.infrastructure)?;
     if !matches!(state, V::Map(_)) {
@@ -1420,7 +1420,7 @@ fn facility_ids(world: &World) -> Result<BTreeSet<String>> {
     Ok(world.rows()?.facilities.iter().map(|(id, _)| id.to_string()).collect())
 }
 
-/// `effective_facility_capacities`.
+/// The facilities' capacities under the active outages.
 fn capacities_of(world: &World, state: &V, config: &Infrastructure) -> Result<BTreeMap<String, i64>> {
     let facilities = facility_ids(world)?;
     let mut forced: BTreeSet<String> = BTreeSet::new();
@@ -1477,7 +1477,7 @@ fn record_of(state: &V, kind: &str, id: &V) -> Result<V> {
     Ok(lookup(item(state, kind)?, id)?.cloned().unwrap_or(V::Null))
 }
 
-/// `_recalculate_infrastructure_capacity`.
+/// The facilities' capacities computed again after an infrastructure event.
 fn recalculate_capacity<C: WorldCell, H: Host>(
     cell: &C,
     host: &mut H,
@@ -1513,7 +1513,8 @@ fn recalculate_capacity<C: WorldCell, H: Host>(
     Ok(())
 }
 
-/// `_schedule_infrastructure_completion`: the new event's ID, or None at or past the Run's end.
+/// The completion event of an infrastructure event, scheduled: the new event's ID, or None at or
+/// past the Run's end.
 fn schedule_completion<C: WorldCell, H: Host>(
     cell: &C,
     host: &mut H,
@@ -1731,7 +1732,7 @@ fn end_stressor(world: &World, inputs: &InfraIn<'_>, event: &EventRow) -> Result
     write_infrastructure(world, "environmental_stressors", stressor_id, |record| put(record, "active", V::Bool(false)))
 }
 
-/// What `_interrupt_route` checked before its first write: the end, the route, and each shipment
+/// What `interrupt_route` checked before its first write: the end, the route, and each shipment
 /// with its delivery's new minute.
 struct RoutePlan {
     until: i64,
@@ -1794,10 +1795,10 @@ fn plan_route(world: &World, inputs: &InfraIn<'_>, event: &EventRow, outage_id: 
     Ok(RoutePlan { until, route_id, delays })
 }
 
-/// `_interrupt_route`: the APPLIED records of the deliveries it delays, which the dispatcher appends.
-/// Each delay runs inside this rule's transaction, as `DeliveryDelayHandler` did inside it: the world
-/// is validated as a transaction's start validates it, the delay's rule writes it, the world is
-/// validated with the delay in flight, and the delay leaves the queue.
+/// A route interrupted: the APPLIED records of the deliveries it delays, which the dispatcher
+/// appends. Each delay runs inside this rule's transaction, as `DeliveryDelayHandler` did inside
+/// it: the world is validated as a transaction's start validates it, the delay's rule writes it,
+/// the world is validated with the delay in flight, and the delay leaves the queue.
 fn interrupt_route<C: WorldCell, H: Host>(
     cell: &C,
     host: &mut H,
@@ -1984,10 +1985,10 @@ const OPERATIONAL_OTHER: &str = "the world holds another operational state";
 /// `SHARED_OPERATIONS_KEY` of `contracts/operations.py`.
 const SHARED_OPERATIONS: &str = "shared_operations_v1";
 
-/// `_apply_operational_transaction`: the rule (`body`, with the slots it took out) and the core's
-/// end of it (`settle`), in a rule transaction, the EventLog included: the APPLIED record and the
-/// follow-ups go to the world's log, and a rollback takes them out again. The host lets go its
-/// views of the slots the rule and the end took out (`Host::slots_changed`).
+/// An operational handler's transaction: the rule (`body`, with the slots it took out) and the
+/// core's end of it (`settle`), in a rule transaction, the EventLog included: the APPLIED record
+/// and the follow-ups go to the world's log, and a rollback takes them out again. The host lets go
+/// its views of the slots the rule and the end took out (`Host::slots_changed`).
 pub fn operational<C: WorldCell, H: Host, T>(
     cell: &C,
     host: &mut H,

@@ -19,7 +19,7 @@ pub const OPERATIONS_POLICY: &str = "autonomous-routed-staff-v1";
 /// `model_configs["staff"].get("support_task_minutes", 10)`.
 pub const DEFAULT_SUPPORT_MINUTES: i64 = 10;
 
-/// What `update_staff_dynamics` takes of `create_staff_fatigue_formula` (`rules/staff_dynamics.rs`).
+/// What `rules::staff_dynamics::update` takes of the staff fatigue formula.
 #[derive(Clone, PartialEq, Debug, Default)]
 pub struct StaffFatigue {
     /// `staff-fatigue-saturating-v1`, else the linear formula.
@@ -65,7 +65,7 @@ impl StaffFatigue {
     }
 }
 
-/// What the staff rules take of `create_staff_operations_formula(configs)`.
+/// What the staff rules take of the staff-task ranking formula.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct StaffOperations {
     /// The formula's `model_id`.
@@ -80,7 +80,7 @@ const URGENCY_FIRST_SOURCE: &str = "ASM-STAFF-URGENCY-FIRST-V1";
 const TRAVEL_FIRST_SOURCE: &str = "ASM-STAFF-TRAVEL-FIRST-V1";
 
 impl StaffOperations {
-    /// `create_staff_operations_formula(configs)` of the built-in formulas: the formula
+    /// The staff-task ranking formula of the built-in formulas: the formula
     /// `policy_registry` selects, urgency first by default; its source where the registry names
     /// one. Another formula is refused.
     pub fn parse(configs: &V) -> Read<Self> {
@@ -114,8 +114,8 @@ impl StaffOperations {
     }
 }
 
-/// `assign_staff_operations`' check of `policy_registry["staff_operations"]`: the two formulas
-/// this kernel ranks by.
+/// The staff tasks' check of `policy_registry["staff_operations"]` (`tick::arbitrate`): the two
+/// formulas this kernel ranks by.
 pub fn known_staff_operations(configs: &V) -> Read<()> {
     if let Some(registry) = map(configs)?.get("policy_registry") {
         if let Some(selected) = map(registry)?.get("staff_operations") {
@@ -127,8 +127,8 @@ pub fn known_staff_operations(configs: &V) -> Read<()> {
     Ok(())
 }
 
-/// `model_configs["staff"].get("support_task_minutes", 10)` as `_support_route_wait_reasons`
-/// reads it.
+/// `model_configs["staff"].get("support_task_minutes", 10)` as the route waits read it
+/// (`rules::staff`'s `route_wait_reasons`).
 pub fn support_task_minutes(configs: &V) -> Read<i64> {
     match map(configs)?.get("staff") {
         Some(staff) => int_or(staff, "support_task_minutes", DEFAULT_SUPPORT_MINUTES),

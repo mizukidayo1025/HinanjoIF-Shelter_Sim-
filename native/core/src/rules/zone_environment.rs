@@ -1,4 +1,4 @@
-//! `zone_environment_view` and the formulas it selects (`ZoneEnvironmentFormula`): a zone's
+//! A zone's environment (`ZoneInputs::conditions`) and the formulas it selects: a zone's
 //! conditions, read from `model_configs` and the modifiers of `zone_environment_v1`, as `V`.
 //!
 //! `rules/world_view.rs` keeps what this makes while its inputs stay the same. The coefficients
@@ -27,9 +27,9 @@ const LEGACY_SOURCE_ID: &str = "ASM-H19-ZONE-ENVIRONMENT-V1";
 /// The key of `model_state` the modifiers are in.
 pub const STATE: &str = "zone_environment_v1";
 
-// ---- `ZoneEnvironmentView` -------------------------------------------------------------------------
+// ---- A zone's conditions ------------------------------------------------------------------------
 
-/// `ZoneDemandView`.
+/// A demand modifier of a zone.
 #[derive(Clone, Debug, PartialEq)]
 pub struct DemandModifier {
     pub action: Arc<str>,
@@ -39,7 +39,7 @@ pub struct DemandModifier {
     pub assumption_ids: Vec<Arc<str>>,
 }
 
-/// `ZoneEnvironmentView`.
+/// A zone's conditions.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ZoneConditions {
     pub ambient_noise_level: f64,
@@ -61,7 +61,7 @@ pub struct ZoneConditions {
 }
 
 impl ZoneConditions {
-    /// `ZoneEnvironmentView()`: a world without the opt-in policy.
+    /// The neutral conditions: a world without the opt-in policy.
     fn neutral() -> Self {
         Self {
             ambient_noise_level: 0.0,
@@ -267,7 +267,7 @@ fn read_config(raw: &IndexMap<Arc<str>, V>) -> Result<Config> {
     Ok(config)
 }
 
-// ---- `ZoneEnvironmentFormula` ----------------------------------------------------------------------
+// ---- The formulas -------------------------------------------------------------------------------
 
 #[derive(Clone, Copy, PartialEq)]
 enum Temperature {
@@ -327,8 +327,8 @@ fn privacy_discontent(model: Privacy, privacy: f64, config: &Config) -> f64 {
     deficit * config.privacy_discontent_per_minute
 }
 
-/// The selected formulas, and the source IDs a selection adds. `create_zone_*_formula` of an ID the
-/// registry does not hold raises; a formula another module registered is not one of these.
+/// The selected formulas, and the source IDs a selection adds. A formula ID the registry does not
+/// hold is refused; a formula another module registered is not one of these.
 struct Formulas {
     temperature: Temperature,
     rest: Rest,
@@ -561,7 +561,7 @@ pub struct ZoneInputs {
 }
 
 impl ZoneInputs {
-    /// The head of `zone_environment_view`: `model_configs` (a map) and `model_state.get(STATE)`
+    /// What `conditions` reads for every zone: `model_configs` (a map) and `model_state.get(STATE)`
     /// as it finds them, and what it would raise on for any zone.
     pub fn read(configs: &IndexMap<Arc<str>, V>, state: Option<&V>) -> Result<Self> {
         let (Some(V::Map(config)), Some(V::Map(state))) = (configs.get("zone_environment"), state) else {
@@ -590,7 +590,7 @@ impl ZoneInputs {
         Ok(Self { parts: Some((config, formulas, modifiers)) })
     }
 
-    /// `zone_environment_view(world, zone_id)`.
+    /// The conditions of the zone `zone_id`.
     pub fn conditions(&self, zone_id: &str) -> Result<ZoneConditions> {
         let Some((config, formulas, modifiers)) = &self.parts else {
             return Ok(ZoneConditions::neutral());

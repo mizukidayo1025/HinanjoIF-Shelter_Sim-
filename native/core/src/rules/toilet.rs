@@ -73,11 +73,11 @@ pub struct Request<'a> {
     pub queues: &'a Held,
     /// The floor plan (`Geo::of`).
     pub geo: &'a Geo,
-    /// The population's accessibility needs (`choose_queue_id`'s), as the caller read them.
+    /// The population's accessibility needs (for the choice of a queue), as the caller read them.
     pub needs: &'a Kept<AccessibilityNeeds>,
 }
 
-/// `ToiletRequestReceipt`.
+/// What a toilet request gives back.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Receipt {
     pub agent_id: Arc<str>,
@@ -88,7 +88,7 @@ pub struct Receipt {
 }
 
 /// `request` without the world's validation: the receipt. A refused request at the end of a walk is
-/// saved as the event's detail (`_after_arrival`), so the checks keep a fixed order and their
+/// saved as the event's detail (at the walk's arrival), so the checks keep a fixed order and their
 /// texts.
 pub fn queue_up(world: &World, request: &Request<'_>) -> WriteResult<Receipt> {
     let (agent_name, facility_name) = (request.agent_id, request.facility_id);
@@ -281,7 +281,7 @@ pub struct Start<'a> {
     pub minute: i64,
     /// The independent queue of the pass, or None for the facility's shared queue.
     pub queue_id: Option<&'a str>,
-    /// `min_service_minutes`, `max_service_minutes` and `policy_version` of the manager.
+    /// The manager's shortest and longest service, in minutes, and its `policy_version`.
     pub lowest: i64,
     pub highest: i64,
     pub policy: Arc<str>,
@@ -289,7 +289,7 @@ pub struct Start<'a> {
     /// Whether the world holds `facility_queues_v1`.
     pub queues: &'a Held,
     pub geo: &'a Geo,
-    /// The walk of `progress_physical_queue_head_to_service`, where the world is placed.
+    /// The head's walk to the service (`queues::head_to_service`), where the world is placed.
     pub walk: Option<&'a Walk<'a>>,
     /// Whether `world.metric_state` is its slot's tree.
     pub metric_state_held: bool,
@@ -320,8 +320,9 @@ struct IndependentHead {
     required_skills: Vec<Arc<str>>,
 }
 
-/// `_start_head` and `_serve_independent_head`: the host draws for a random source that is not a
-/// `CounterRNG`, with the world let go of, and the pass then plans again from the start.
+/// The start of the head of a shared or an independent queue: the host draws for a random source
+/// that is not a `CounterRNG`, with the world let go of, and the pass then plans again from the
+/// start.
 pub fn start<C: WorldCell, H: Host>(cell: &C, host: &mut H, start: &Start<'_>) -> std::result::Result<Started, H::Error> {
     match cell.with(|world| pass(world, start, None))?.map_err(plain)? {
         Pass::Done(started) => Ok(started),
@@ -524,7 +525,7 @@ fn independent_head(world: &World, start: &Start<'_>) -> Result<Option<Independe
     Ok(head)
 }
 
-/// `_queue_task` of the head: the person, the queue task and its start.
+/// The head's queue task: the person, the queue task and its start.
 fn queue_task(world: &World, facility_name: &str, head: &Option<IndependentHead>) -> Result<(Arc<str>, Arc<str>, i64)> {
     let (agent_id, queue_task_id, queue_start) = {
         let rows = world.rows()?;
@@ -545,7 +546,7 @@ fn queue_task(world: &World, facility_name: &str, head: &Option<IndependentHead>
                 let Some(agent_id) = facility.queue_agent_ids.first() else {
                     return Err(Error::unsupported("the queue is empty").into());
                 };
-                // `_queue_task`.
+                // The person's toilet queue task.
                 let mut found = None;
                 for (_, task) in rows.active_tasks.iter() {
                     if &*task.kind == "toilet_queue" && task.agent_id.as_deref() == Some(&**agent_id) && task.resource_id.as_deref() == Some(facility_name) {
@@ -704,8 +705,8 @@ fn rng_key(start: &Start<'_>, facility_arc: &Arc<str>, agent_id: &Arc<str>, head
 #[derive(Debug, PartialEq, Eq)]
 pub struct ScheduleReturn;
 
-/// `ToiletServiceCompletionHandler.apply` up to `after_complete`, with `complete_toilet_service`.
-/// `body` says whether the world holds `body_state_v1`.
+/// `ToiletServiceCompletionHandler.apply` up to `after_complete`: the completion of a toilet's
+/// service. `body` says whether the world holds `body_state_v1`.
 pub fn complete(world: &World, event: &EventRow, queues: &Held, geo: &Geo, body: &Held, metric_state_held: bool) -> WriteResult<ScheduleReturn> {
     let ids = (payload_text(event, "facility_id"), payload_text(event, "agent_id"), payload_text(event, "task_id"));
     let (Some(facility_id), Some(agent_id), Some(task_id)) = ids else {
@@ -718,7 +719,7 @@ pub fn complete(world: &World, event: &EventRow, queues: &Held, geo: &Geo, body:
     if !world.rows()?.active_tasks.get(&task_id).is_some_and(|task| task.due_minute == due) {
         return Err(Error::failed("toilet completion does not match an active due task").into());
     }
-    // `complete_toilet_service`'s checks, in its order: the handler raises its `ValueError`'s text.
+    // The completion's checks, in a fixed order: the handler raises its `ValueError`'s text.
     let (staff_id, task_start) = {
         let rows = world.rows()?;
         let (agent, facility) = (py_repr(&agent_id), py_repr(&facility_id));
@@ -756,7 +757,7 @@ pub fn complete(world: &World, event: &EventRow, queues: &Held, geo: &Geo, body:
         (task.staff_id.clone(), task.start_minute)
     };
     check_metric_state(world, metric_state_held)?;
-    // `finish_service` and `record_queue_transition`.
+    // The request taken out of its queue (`service::finishing_request`) and its transition record.
     let events = Events::of(world)?;
     let minute = world.minute_index()?;
     let finished = match finishing_request(world, queues, &task_id)? {
@@ -825,7 +826,7 @@ pub fn complete(world: &World, event: &EventRow, queues: &Held, geo: &Geo, body:
 // ---- arbitrate (the arbitrate phase's loop) -----------------------------------------------------
 
 /// `ToiletServiceManager.arbitrate`: each facility with anyone queued, in ID order; a facility with
-/// independent queues serves each of them (`_arbitrate_independent_facility`), any other its shared
+/// independent queues serves each of them (`arbitrate_independent`), any other its shared
 /// queue while it has room. Returns the IDs of the started events, in order. The manager is the one
 /// `tick.policies` read: the controller's.
 pub fn arbitrate<C: WorldCell, H: Host, R: crate::rules::tick::RunCell>(
@@ -854,7 +855,7 @@ pub fn arbitrate<C: WorldCell, H: Host, R: crate::rules::tick::RunCell>(
     Ok(started)
 }
 
-/// `_arbitrate_independent_facility`: each queue, with the check of its signed point. Returns the
+/// A facility with independent queues: each queue, with the check of its signed point. Returns the
 /// IDs of the started events, in order.
 pub fn arbitrate_independent<C: WorldCell, H: Host, R: crate::rules::tick::RunCell>(
     tick: &mut crate::rules::tick::Tick<'_, C, H, R>,
@@ -902,8 +903,8 @@ fn room_of<C: WorldCell, H: Host, R: crate::rules::tick::RunCell>(
     tick.cell.with(|world| has_room(world, &queues, placement.as_deref(), id)).and_then(|room| room).map_err(H::Error::from)
 }
 
-/// A pass of the loop after the positions (`start_one` of the toilet's glue): the manager's
-/// durations and policy as the Run read them, the tick's random source.
+/// A pass of the loop after the positions: the manager's durations and policy as the Run read them,
+/// the tick's random source.
 fn start_of<C: WorldCell, H: Host, R: crate::rules::tick::RunCell>(
     tick: &mut crate::rules::tick::Tick<'_, C, H, R>,
     facility_id: &str,

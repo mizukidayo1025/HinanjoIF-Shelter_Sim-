@@ -1,5 +1,5 @@
 //! The check of `temporary_spaces_v1`, with its errors and texts (lane E of #250, #350). Raw
-//! errors: `validate_simulator_extensions` passes them on.
+//! errors: `validate::extensions` passes them on.
 
 use std::cmp::Ordering;
 

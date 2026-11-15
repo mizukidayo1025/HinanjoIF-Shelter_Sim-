@@ -1,5 +1,5 @@
-//! The `WorldView` of the phases, built from the rows of the core's `World`: a detached snapshot in
-//! plain Rust values (`ViewData`), which the rules read directly (lane P8 a1 of Issue #152).
+//! The view of the world the phases read, built from the rows of the core's `World`: a detached
+//! snapshot in plain Rust values (`ViewData`), which the rules read directly.
 //!
 //! `build` makes a view without its hash, `refresh` is the prior view with what the update phase
 //! writes read again, and `state_hash` is the view's audit hash, over canonical JSON. The tick
@@ -19,7 +19,7 @@
 //! A person's context is parsed by `person_context.rs`, and a zone's conditions come from
 //! `zone_environment.rs`; what they make is kept in a `ViewCache` (on the controller's `Run`) while
 //! the stamps of the slots it was read from stay the same. The one coefficient in this file is in
-//! `misinformation_of`, with `from_world`'s weight, threshold and cap; stressors sum their rates.
+//! `misinformation_of`, with the view's weight, threshold and cap; stressors sum their rates.
 
 use std::ops::Deref;
 use std::sync::Arc;
@@ -64,7 +64,7 @@ fn unsupported<T>(reason: &'static str) -> Result<T> {
 
 // ---- The snapshot ---------------------------------------------------------------------------------
 
-/// What everyone in a zone shares of an `AgentView`.
+/// What everyone in a zone shares of a person's view (`ViewAgent`).
 #[derive(Clone, Debug, PartialEq)]
 pub struct ViewZone {
     pub id: Arc<str>,
@@ -99,7 +99,7 @@ pub struct MisinformationSource {
     pub time: i64,
 }
 
-/// A person's values from `body_state_v1`, with `from_world`'s defaults.
+/// A person's values from `body_state_v1`, with the view's defaults.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct BodyFields {
     pub sleep_debt_minutes: f64,
@@ -115,7 +115,7 @@ pub struct BodyFields {
 pub const NO_BODY: BodyFields =
     BodyFields { sleep_debt_minutes: 0.0, uncertainty: 0.0, reassurance: 0.0, discontent: 0.0, positive_affect: 0.5, negative_affect: 0.0, hygiene_need: 0.0 };
 
-/// `AgentView`, except what `zone` and `person` hold.
+/// A person's view, except what `zone` and `person` hold.
 #[derive(Clone)]
 pub struct ViewAgent {
     pub id: Arc<str>,
@@ -150,7 +150,7 @@ pub struct ViewAgent {
     pub person: Arc<PersonFields>,
 }
 
-/// `FacilityView`.
+/// A facility's view.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ViewFacility {
     pub id: Arc<str>,
@@ -165,7 +165,7 @@ pub struct ViewFacility {
     pub facility_event_context_ids: Vec<Arc<str>>,
 }
 
-/// All of a `WorldView`. Nothing here refers to the world, so a rule can read it on any thread.
+/// All of a view. Nothing here refers to the world, so a rule can read it on any thread.
 #[derive(Clone)]
 pub struct ViewData {
     pub minute_index: i64,
@@ -193,7 +193,7 @@ impl ViewData {
         self.agents.binary_search_by(|agent| (*agent.id).cmp(id)).ok()
     }
 
-    /// `WorldView.zone_members`: each zone with people, in ID order, with their indexes in ID order.
+    /// Each zone with people, in ID order, with their indexes in ID order.
     pub fn zone_members(&self) -> Vec<(&Arc<str>, Vec<usize>)> {
         let mut members: Vec<(&Arc<str>, Vec<usize>)> = self.zones.iter().map(|zone| (&zone.id, Vec::new())).collect();
         for (index, agent) in self.agents.iter().enumerate() {
@@ -203,7 +203,7 @@ impl ViewData {
         members
     }
 
-    /// `WorldView.group_members`: each group, in ID order, with its people's indexes in ID order.
+    /// Each group, in ID order, with its people's indexes in ID order.
     pub fn group_members(&self) -> Vec<(&Arc<str>, Vec<usize>)> {
         let mut positions: FxHashMap<&str, usize> = FxHashMap::default();
         let mut members: Vec<(&Arc<str>, Vec<usize>)> = Vec::new();
@@ -469,7 +469,7 @@ impl ViewCache {
     }
 }
 
-/// `state.get("people")` if both are dicts: one of the dicts `population_context_people` merges.
+/// `state.get("people")` if both are dicts: one of the dicts `person_contexts` merges.
 fn people_of(state: Option<&V>) -> Option<&IndexMap<Arc<str>, V>> {
     match state? {
         V::Map(state) => match state.get("people")? {
@@ -480,8 +480,8 @@ fn people_of(state: Option<&V>) -> Option<&IndexMap<Arc<str>, V>> {
     }
 }
 
-/// `_parsed_person_contexts` and `_person_fields` of a world: who has a context, and its fields,
-/// merged as `population_context_people` merges them, the later dict winning. Whether anyone has one.
+/// The people's contexts of a world: who has a context, and its fields, merged from the dicts of
+/// `people_of`, the later dict winning. Whether anyone has one.
 fn person_contexts(world: &World, configs: &ModelConfigs<'_>, cache: &mut KeptPeople) -> Result<(Arc<FxHashMap<Arc<str>, Arc<PersonFields>>>, bool)> {
     let stamps = match configs.stamp {
         Some(stamp) => Some([Some(stamp), world.stamp_of(POPULATION_CONTEXT)?, world.stamp_of(POPULATION_DYNAMICS)?]),
@@ -530,7 +530,7 @@ fn person_contexts(world: &World, configs: &ModelConfigs<'_>, cache: &mut KeptPe
     Ok((found, any))
 }
 
-/// An active stressor of a zone: `active_environmental_stress`.
+/// An active environmental stressor of a zone.
 struct Stressor {
     id: Arc<str>,
     stress_per_minute: f64,
@@ -598,7 +598,7 @@ fn kept_environment<'c>(world: &World, configs: &ModelConfigs<'_>, cache: &'c mu
     }
 }
 
-/// The zones of a view: the head of `from_world`.
+/// The zones of a view, read first by `build`.
 fn read_zones(world: &World, rows: &Entities, configs: &ModelConfigs<'_>, cache: &mut Option<KeptEnvironment>) -> Result<Vec<Arc<ViewZone>>> {
     let mut zone_ids: Vec<Arc<str>> = rows.zones.iter().map(|(id, _)| id.clone()).collect();
     zone_ids.sort_unstable();
@@ -746,7 +746,7 @@ fn read_rows(rows: &Entities, zones: &[Arc<ViewZone>], no_person: &Arc<PersonFie
     Ok((agents, facilities))
 }
 
-/// `min(1.0, pressure)` and the sources of the false claims a person believes, in `from_world`'s
+/// `min(1.0, pressure)` and the sources of the false claims a person believes, in the view's
 /// order. `beliefs_parse` holds, so the claims and beliefs would parse.
 pub fn misinformation_of(row: &InformationRow, id: &str) -> (f64, Vec<MisinformationSource>) {
     let mut pressure = 0.0;
@@ -888,7 +888,7 @@ fn read_facility_contexts(world: &World, facilities: &mut [ViewFacility]) -> Res
     Ok(())
 }
 
-/// `_misinformation_applies`: whether the selected psychology reads beliefs in false claims, as the
+/// Whether the selected psychology reads beliefs in false claims, as the
 /// life-state policies do. `selection` is `selected_models(model_configs)` as the tick read it (a
 /// fault for what it raised).
 pub fn misinformation_applies(selection: &std::result::Result<Arc<Selection>, Fault>) -> Result<bool> {
@@ -913,8 +913,7 @@ pub struct Inputs<'a> {
     pub configs: Option<&'a V>,
 }
 
-/// A view without `simulator_extensions.enabled`, which is read after the rest, as
-/// `from_world` read it last.
+/// A view without `simulator_extensions.enabled`, which is read last, after the rest.
 pub struct Draft {
     data: ViewData,
     body_present: bool,
@@ -928,7 +927,7 @@ impl Draft {
     }
 }
 
-/// `from_world`, without its hash and the extensions' flag.
+/// The view of the world, without its hash and the extensions' flag.
 pub fn build(world: &World, inputs: &Inputs<'_>, cache: &mut ViewCache) -> Result<Draft> {
     let minute = world.minute_index()?;
     let schema_version = world.schema_version()?;
@@ -969,8 +968,7 @@ pub fn build(world: &World, inputs: &Inputs<'_>, cache: &mut ViewCache) -> Resul
     })
 }
 
-/// The prior view with what the update phase writes read again (`after_state_update`), without
-/// its hash.
+/// The prior view with what the update phase writes read again, without its hash.
 pub fn refresh(prior: &ViewData, world: &World) -> Result<ViewData> {
     let mut agents = prior.agents.clone();
     {
@@ -1048,7 +1046,7 @@ fn write_texts(out: &mut Vec<u8>, items: &[Arc<str>]) {
     out.push(b']');
 }
 
-/// `model_configs[name]`; a None is refused, as `_view_state_hash` raised on it.
+/// `model_configs[name]`; a None is refused, as the view's hash refuses it.
 #[track_caller]
 fn hashed_config<'a>(configs: &'a ModelConfigs<'_>, name: &str) -> Result<&'a V> {
     match configs.get(name) {
@@ -1210,9 +1208,9 @@ fn agent_parts(data: &ViewData, life: bool, information: bool, resource: bool) -
     Ok((if life { life_parts } else { Vec::new() }, agents_parts))
 }
 
-/// The canonical JSON of the document `_view_state_hash` builds, handed to `sink` in pieces whose
-/// bytes, one after the other, are the document. Keys are written sorted. A float the canonical
-/// form does not hold says Unsupported.
+/// The canonical JSON of the document the view's hash (`state_hash`) is taken of, handed to `sink`
+/// in pieces whose bytes, one after the other, are the document. Keys are written sorted. A float
+/// the canonical form does not hold says Unsupported.
 fn write_document(data: &ViewData, world: &World, configs: Option<&V>, mut sink: impl FnMut(&[u8])) -> Result<()> {
     let configs = ModelConfigs::of(world, configs)?;
     let resource = data.resource_service_enabled;
@@ -1293,7 +1291,7 @@ fn write_document(data: &ViewData, world: &World, configs: Option<&V>, mut sink:
     Ok(())
 }
 
-/// `canonical_sha256` of the document `_view_state_hash` builds, as lowercase hex. `configs` is
+/// The sha256 of the view's document (`write_document`), as lowercase hex. `configs` is
 /// `world.model_configs` while the world's slot does not hold it (`Inputs::configs`).
 pub fn state_hash(data: &ViewData, world: &World, configs: Option<&V>) -> Result<String> {
     let mut hasher = Sha256::new();

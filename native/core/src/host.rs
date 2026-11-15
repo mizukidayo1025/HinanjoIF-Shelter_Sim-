@@ -65,8 +65,8 @@ pub trait HostFailure {
         false
     }
     /// Which outcome it is, if it is an `EventSuppressed` (`Suppressed`) or an
-    /// `EventApplicationError` (`Failed`), as `dispatch_one`'s `except` clauses ask in that order
-    /// (lane P9-1c).
+    /// `EventApplicationError` (`Failed`), asked in that order as the dispatcher settles an event
+    /// (`rules::dispatch`).
     fn outcome(&self) -> Option<crate::error::Outcome> {
         None
     }
@@ -162,14 +162,14 @@ pub enum Contract {
     SpatialConstraints,
 }
 
-/// A trace document, as `artifacts.record_*_trace` takes it.
+/// A trace document, as a host's trace takes it (`Host::trace`).
 #[derive(Clone, Debug, PartialEq)]
 pub enum Trace {
-    /// `record_psychology_trace(document, agent_contributions=contributions)`.
+    /// The psychology model's trace, with each person's contributions.
     Psychology { document: V, contributions: V },
-    /// `record_social_contact_trace(document)`.
+    /// The social contacts' trace.
     SocialContact(V),
-    /// `record_information_spread_trace(document)`.
+    /// The information spread's trace.
     InformationSpread(V),
 }
 
@@ -177,9 +177,9 @@ pub enum Trace {
 /// record of (`DecisionSink::Host`) goes to `Host::record_host_decision` instead.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Decision {
-    /// `artifacts.record_decision_document(document, observed_state)` of a writer whose trace is on.
+    /// The decision's document and the state it observed, for a sink whose trace is on.
     Document { document: V, observed: V },
-    /// The record's JSON bytes, appended to `artifacts.observations` (`_IndexedMetricSink`).
+    /// The record's JSON bytes, appended to the sink's observations (`DecisionSink::Indexed`).
     Indexed(Vec<u8>),
 }
 
@@ -206,7 +206,7 @@ impl Phase {
         Phase::CollectMetrics,
     ];
 
-    /// The value of the `TickPhase` member.
+    /// The phase's name, as an observer and the census see it.
     pub fn name(self) -> &'static str {
         match self {
             Phase::DispatchDueEvents => "dispatch_due_events",
@@ -229,10 +229,10 @@ pub enum Part {
 
 // ---- What the world holds (lane P9-0, H1 of design-p9.md) -----------------------------------------
 
-/// The refusal of a `model_state` that is not a dict the kernels read (`namespace_held`).
+/// The refusal of a `model_state` that is not a dict the kernels read (`Holding::held`).
 pub const TABLE_MAPPING: &str = "model_state is another kind of mapping";
 /// The refusal of the same table where a rule asks whether a namespace is absent
-/// (`namespace_is_absent`).
+/// (`Holding::is_absent`).
 pub const TABLE_NOT_PLAIN: &str = "a value is not a plain dict";
 /// The refusal of a key of `model_state` no slot owns.
 pub const NOT_OWNED: &str = "the namespace is not owned";
@@ -269,8 +269,8 @@ impl Key {
     }
 }
 
-/// Whether the world holds each namespace and owned field (`namespace_held`, `namespace_is_absent`
-/// and `field_held`), read once (`Host::holding`, or `Holding::of_world` where the host has no
+/// Whether the world holds each namespace and owned field (`Holding::held`, `Holding::is_absent`
+/// and `Holding::field`), read once (`Host::holding`, or `Holding::of_world` where the host has no
 /// view of its own). A rule says its own refusal for a namespace the world holds another value of
 /// (`held`).
 ///
@@ -283,7 +283,7 @@ pub struct Holding {
     /// The keys of `model_state`, in its order, and what each holds.
     pub keys: IndexMap<Arc<str>, Key>,
     /// The owned fields (`world.metric_state` and the others) and whether each holds its slot's
-    /// tree. A field not listed is held (`field_held` of a name that is not owned).
+    /// tree. A field not listed is held (`Holding::field` of a name that is not owned).
     pub fields: IndexMap<Arc<str>, bool>,
 }
 
@@ -316,8 +316,8 @@ impl Holding {
         Ok(holding)
     }
 
-    /// `namespace_held(world, name, other)`: absent, held, or the refusal `other` of a namespace
-    /// the world holds another value of (or the table's or the slot's own).
+    /// Whether the world holds the namespace `name`: absent, held, or the refusal `other` of a
+    /// namespace the world holds another value of (or the table's or the slot's own).
     pub fn held(&self, name: &str, other: &'static str) -> Held {
         if !self.table {
             return Held::Other(TABLE_MAPPING);
@@ -330,7 +330,7 @@ impl Holding {
         }
     }
 
-    /// `namespace_is_absent(world, name)`: the key is missing or None. The refusal of a table
+    /// Whether the namespace `name` is absent: the key is missing or None. The refusal of a table
     /// that is not a plain dict.
     pub fn is_absent(&self, name: &str) -> Result<bool, &'static str> {
         if !self.table {
@@ -353,7 +353,7 @@ impl Holding {
         self.keys.contains_key(name)
     }
 
-    /// `field_held(world, name)`: whether `world.<name>` is its slot's tree.
+    /// Whether the owned field `name` of the world is its slot's tree.
     pub fn field(&self, name: &str) -> bool {
         self.fields.get(name).copied().unwrap_or(true)
     }
@@ -418,16 +418,15 @@ pub enum Again<'a> {
 /// Where a minute's metrics go (`Host::metric_sink`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MetricSink {
-    /// A `MetricsRecorder` the sink holds, whose `capture` is the sink's: it takes the core's sample.
+    /// The host takes the core's sample (`Host::capture_metric`).
     Recorder,
-    /// Any other sink: `artifacts.capture_metric(world, minute=)` samples on its own.
+    /// A sink that samples on its own (`Host::capture_by_sink`), only a test's.
     Sink,
 }
 
 /// The outside of the world. Each call runs with nothing of the world borrowed (rule R6).
 pub trait Host {
-    /// A write's error is the host's as `From<WriteError>` makes it (lane P9-3b; P9-2a's
-    /// `write_error`; `events::writer`).
+    /// A write's error is the host's as `From<WriteError>` makes it (`events::writer`).
     type Error: From<Error> + From<WriteError> + HostFailure;
 
     // ---- The whole world's validation and a transaction's views (policy E6, lane 6-2) ----------
@@ -455,13 +454,13 @@ pub trait Host {
     fn txn_check(&mut self) -> Result<(), Self::Error> {
         Ok(())
     }
-    /// `world.validate()` in place, where a rule validates the world it changed (`validate_state`).
+    /// The whole world's validation in place, where a rule validates the world it changed.
     fn validate_world(&mut self) -> Result<(), Self::Error>;
     /// The simulator extensions' validation (`validate::extensions`).
     fn validate_extensions(&mut self) -> Result<(), Self::Error>;
-    /// `world.validate(_in_flight_event=event)`: the whole world, with this pending event in flight
-    /// (lane P8 d2, the operational events). A host that validates nothing validates this as the
-    /// world.
+    /// The whole world's validation with this pending event in flight (`validate::world` with
+    /// `Options::in_flight`, for the operational events). A host that validates nothing validates
+    /// this as the world.
     fn validate_in_flight(&mut self, _event: &EventRow) -> Result<(), Self::Error> {
         self.validate_world()
     }
@@ -515,31 +514,30 @@ pub trait Host {
     fn social_limits(&self) -> Option<crate::llm::SocialLimits> {
         None
     }
-    /// `controller._prioritize_support_request(request_id, agent_id, observed_state_hash)`.
+    /// The LLM's priority of a support request (`rules::llm_runtime::prioritize_support_request`
+    /// where the host has a link).
     fn prioritize_support_request(&mut self, request_id: &str, agent_id: &str, observed_state_hash: &str) -> Result<(), Self::Error>;
-    /// `social_policy.consider_support_request(world, agent_id=, request_id=)`.
+    /// The social policy's reaction to a support request (`llm_runtime::consider_support_request`).
     fn consider_support_request(&mut self, agent_id: &str, request_id: &str) -> Result<(), Self::Error>;
-    /// `social_policy.consider_complaint_response(world, agent_id=, request_id=)`.
+    /// The social policy's reaction to a complaint's response
+    /// (`llm_runtime::consider_complaint_response`).
     fn consider_complaint_response(&mut self, agent_id: &str, request_id: &str) -> Result<(), Self::Error>;
-    /// `social_policy.consider_cooperation(world, initiator_agent_id=, participant_agent_id=,
-    /// trigger_event_id=)`.
+    /// The social policy's cooperation of two people (`llm_runtime::consider_cooperation`).
     fn consider_cooperation(&mut self, initiator: &str, participant: &str, trigger_event_id: &str) -> Result<(), Self::Error>;
-    /// `social_policy.consider_information_reaction(world, agent_id=, participant_agent_id=,
-    /// message_id=, trigger_event_id=)`.
+    /// The social policy's reaction to a message (`llm_runtime::consider_information_reaction`).
     fn consider_information_reaction(&mut self, agent_id: &str, participant: &str, message_id: &str, trigger_event_id: &str) -> Result<(), Self::Error>;
 
     // ---- Outside sinks ---------------------------------------------------------------------------
 
-    /// The minute's metrics: a `MetricSnapshot` of the sample for a `MetricsRecorder`, or
-    /// `artifacts.capture_metric(world, minute=)` for any other sink.
+    /// The minute's metric sample, which the host keeps (`PlainHost`: `MetricSamples`).
     fn capture_metric(&mut self, sample: &MetricSample, minute: i64) -> Result<(), Self::Error>;
     /// Where the decisions go (read once per Run).
     fn decision_sink(&self) -> Result<DecisionSink, Self::Error>;
     /// A decision's record.
     fn decision(&mut self, decision: Decision) -> Result<(), Self::Error>;
-    /// The `source_id` an indexed sink writes for a policy version (`policy_sources.get(version)`,
-    /// None for None), or None when the sink takes this record only through its own
-    /// `record_decision`: its `world` is another, or what it keeps for the version is not a str.
+    /// The `source_id` an indexed sink writes for a policy version (the Model Catalog's
+    /// assumption source; None for no model), or None when the sink takes this record only its own
+    /// way: its world is another, or what it keeps for the version is not a str.
     fn decision_source(&mut self, _policy_version: &str) -> Result<Option<Option<Arc<str>>>, Self::Error> {
         Ok(Some(None))
     }
@@ -589,10 +587,10 @@ pub trait Host {
 
     // ---- A decision the core writes no record of (lane P9-0, H5) --------------------------------
 
-    /// `artifacts.record_decision(proposal.with_outcome(target_id, next_decision_at),
-    /// observed_state=observed)`, for `DecisionSink::Host` and what `decisions::record` gives
-    /// `Sunk::Host`. The core commits and remembers the decision itself after it. `PlainHost`
-    /// counts it where the Run collects its decisions, and refuses it otherwise.
+    /// A decision's record, the proposal with its target and next decision minute and the state it
+    /// observed, for `DecisionSink::Host` and what `decisions::record` gives `Sunk::Host`. The core
+    /// commits and remembers the decision itself after it. `PlainHost` counts it where the Run
+    /// collects its decisions, and refuses it otherwise.
     fn record_host_decision(
         &mut self,
         _data: &ViewData,
@@ -606,10 +604,10 @@ pub trait Host {
 
     // ---- An older state (policy E11) ---------------------------------------------------------------
 
-    /// `upgrade_information_runtime_state(model_state["information_spread_v1"])` of a state whose
-    /// schema is not 2, and the namespace's row read again from the tree: what an information event
+    /// The upgrade of an `information_spread_v1` state whose schema is not 2, and the namespace's
+    /// row read again from the tree: what an information event
     /// does first, after the model's checks, to a state its row does not hold as schema 2. Only a
-    /// test writes such a state in memory; a save of it is view-only (`LEGACY_SHAPES_TICKABLE`).
+    /// test writes such a state in memory; a save of it is view-only (`model_version`).
     /// Its `ValueError` is the event's failure. A host that cannot upgrade it refuses (`PlainHost`
     /// does).
     fn upgrade_information_state(&mut self) -> Result<(), Self::Error> {
@@ -657,7 +655,7 @@ pub trait Host {
         Ok(MetricSink::Recorder)
     }
 
-    /// `artifacts.capture_metric(world, minute=)` of a sink that samples on its own.
+    /// The minute's metrics, taken by a sink that samples on its own (a test's).
     fn capture_by_sink(&mut self, _minute: i64) -> Result<(), Self::Error> {
         Err(Error::unsupported(NO_SINK).into())
     }

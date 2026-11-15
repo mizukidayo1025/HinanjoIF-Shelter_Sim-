@@ -44,7 +44,7 @@ use crate::world::{set_id_counter, World, WorldCell, ID_COUNTERS};
 const OPERATIONAL_KEY: &str = "operational_events_v1";
 pub const WATER: &str = "water_ml";
 pub const FOOD: &str = "food_meal_units";
-/// The tasks `_agent_has_exclusive_task` looks for.
+/// The tasks that keep a person from queueing again (an exclusive task).
 const EXCLUSIVE_TASKS: [&str; 8] = [
     "toilet_queue",
     "toilet_service",
@@ -55,7 +55,7 @@ const EXCLUSIVE_TASKS: [&str; 8] = [
     "travel_to_resource",
     "travel_return",
 ];
-/// The fields of a completion's payload, as `_assert_service_event_matches_task` wants them.
+/// The fields of a completion's payload, as the completion's check of its task wants them.
 const COMPLETION_FIELDS: [&str; 7] = ["facility_id", "agent_id", "task_id", "resource_id", "reservation_id", "quantity", "staff_id"];
 
 /// The fixed strings of the events, each shared by all their rows.
@@ -99,7 +99,7 @@ static NAMES: LazyLock<Names> = LazyLock::new(|| Names {
     service_scheduled: Arc::from("service_scheduled"),
 });
 
-/// `resource_for_facility`.
+/// The resource a facility kind serves (water or meals), or None.
 pub fn resource_of(kind: &str) -> Option<&'static str> {
     match kind {
         "water_station" => Some(WATER),
@@ -175,8 +175,8 @@ fn held_service<'w>(world: &'w World, held: &Held) -> Result<ShardRef<'w, Servic
     }
 }
 
-/// The `reservation_id` of a pending `resource_reserve` event, in the queue's order: what
-/// `_reservation_id_is_in_use` reads of each. `reserves_of` reads them from the queue's rows.
+/// The `reservation_id` of a pending `resource_reserve` event, in the queue's order: what the check
+/// that a reservation ID is in use reads of each. `reserves_of` reads them from the queue's rows.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Pending {
     Id(Arc<str>),
@@ -269,7 +269,7 @@ pub(crate) fn plain(error: WriteError) -> Error {
 
 // ---- Shared pieces -----------------------------------------------------------------------------
 
-/// What `_provenance` and `_audit_event` read of the config.
+/// What the provenance and the audit event (`audit_row`) read of the config.
 struct Source {
     source_type: Arc<str>,
     source_id: Arc<str>,
@@ -296,10 +296,10 @@ impl Source {
     }
 }
 
-/// `_audit_event` from the sequence given: the row of the first sequence whose identity is free.
+/// The audit event from the sequence given: the row of the first sequence whose identity is free.
 /// The rule allocates each sequence it tries, so the caller allocates up to the row's. A pending
-/// event's sequence is below the counter (`schedule_event` keeps it so), so only the IDs and the
-/// log's sequences can be taken.
+/// event's sequence is below the counter (`events::writer::schedule` keeps it so), so only the IDs
+/// and the log's sequences can be taken.
 fn audit_row(
     events: &Events<'_>,
     source: &Source,
@@ -345,7 +345,8 @@ fn operation_payload(warehouse_id: &Arc<str>, resource_id: &Arc<str>, reservatio
     payload
 }
 
-/// The record of `record_queue_transition`, changing nothing: `sequence` is the one it will take.
+/// The record of a queue's transition (`facility_queues::transition_record`), changing nothing:
+/// `sequence` is the one it will take.
 pub(crate) fn transition_row(events: &Events<'_>, change: &fifo::Transition<'_>, place: fifo::Place, sequence: i64, minute: i64) -> Result<EventRow> {
     let taken = events.is_realized(&fifo::transition_id(sequence), Some(sequence))?;
     let record = fifo::transition_record(taken, change, place, sequence, minute)?;
@@ -388,7 +389,7 @@ pub(crate) fn remove_task(world: &World, task_id: &str) -> Result<()> {
     }
 }
 
-/// `_release_staff`.
+/// The staff member let go: no work queue, no active task, not busy.
 pub(crate) fn release_staff(world: &World, staff_id: &str) -> Result<()> {
     let mut rows = world.rows_mut()?;
     let Some(row) = rows.staff.get_mut(staff_id) else {
@@ -400,7 +401,7 @@ pub(crate) fn release_staff(world: &World, staff_id: &str) -> Result<()> {
     Ok(())
 }
 
-/// `_record_queue_wait`: the wait counted under `key` (`toilet_wait`, `water_service_wait`, ...).
+/// A queue's wait counted under `key` (`toilet_wait`, `water_service_wait`, ...).
 pub(crate) fn record_wait(world: &World, key: &str, wait: i64) -> Result<()> {
     let (count, total, maximum) = (format!("{key}_count"), format!("{key}_total_minutes"), format!("{key}_max_minutes"));
     let mut row = metrics_of(world)?;
@@ -413,7 +414,7 @@ pub(crate) fn record_wait(world: &World, key: &str, wait: i64) -> Result<()> {
     Ok(())
 }
 
-/// `_record_queue_stall`.
+/// The facility's stall recorded: who waits at its head, and why.
 fn record_stall(world: &World, manager: &Manager<'_>, minute: i64, facility_id: &str, agent_id: &Arc<str>, reason: &str) -> Result<()> {
     let stall = Stall { agent_id: agent_id.clone(), reason: Arc::from(reason) };
     {
@@ -428,7 +429,7 @@ fn record_stall(world: &World, manager: &Manager<'_>, minute: i64, facility_id: 
     add_metric(world, &format!("resource_service_wait_{reason}_count"))
 }
 
-/// `_clear_queue_stall`.
+/// The facility's stall cleared.
 fn clear_stall(world: &World, manager: &Manager<'_>, facility_id: &str) -> Result<()> {
     let held = manager.service(world)?.stall_state.get(facility_id).is_some();
     if held {
@@ -437,7 +438,7 @@ fn clear_stall(world: &World, manager: &Manager<'_>, facility_id: &str) -> Resul
     Ok(())
 }
 
-/// `water_service_blocked`, of `operational_events_v1`.
+/// Whether an outage of `operational_events_v1` blocks the water service at the facility.
 fn water_is_blocked(world: &World, facility_id: &str, zone_id: &str) -> Result<bool> {
     let state = world.slots.try_value(OPERATIONAL_KEY)?;
     let outages = match state.as_deref() {
@@ -471,9 +472,9 @@ fn water_is_blocked(world: &World, facility_id: &str, zone_id: &str) -> Result<b
     Ok(false)
 }
 
-/// `physical_service_capacity`, for a facility's own queue: one at a facility with a place on the
-/// floor plan of a placed world (`placement`: the plan, where the world holds `movement_v1` and
-/// its configs have `facility_geometry`).
+/// The physical service capacity, for a facility's own queue: one at a facility with a place on the
+/// floor plan of a placed world (`placement`: the plan, where the world holds `movement_v1` and its
+/// configs have `facility_geometry`).
 pub fn service_capacity(placement: Option<&Geo>, facility_id: &str, configured: i64) -> i64 {
     let placed = placement.is_some_and(|geo| geo.layout.as_ref().is_some_and(|layout| layout.facility_points.contains_key(facility_id)));
     if placed {
@@ -483,7 +484,7 @@ pub fn service_capacity(placement: Option<&Geo>, facility_id: &str, configured: 
     }
 }
 
-/// `staff_dynamics_is_available` of one member.
+/// `staff_dynamics::is_available_now` of one member: true without the namespace.
 fn available_now(world: &World, staff_id: &str, minute: i64) -> Result<bool> {
     if namespace_absent(world, crate::state::staff_dynamics::NAME)? {
         return Ok(true);
@@ -491,8 +492,8 @@ fn available_now(world: &World, staff_id: &str, minute: i64) -> Result<bool> {
     staff_dynamics::is_available_now(world, staff_id, minute, false)
 }
 
-/// The first free member in ID order who is available now, as `staff_is_available` and
-/// `staff_dynamics_is_available` say.
+/// The first free member in ID order who is available now, as the staff's status
+/// (`StaffStatus::is_available`) and their dynamics (`available_now`) say.
 pub(crate) fn first_available(world: &World, mut candidates: Vec<Arc<str>>, minute: i64) -> Result<Option<Arc<str>>> {
     candidates.sort_unstable_by(|first, second| first.as_bytes().cmp(second.as_bytes()));
     // `staff_status(world)`, read once before the members, as the rule reads it.
@@ -535,9 +536,9 @@ pub struct Serve<'a> {
     pub resource_id: &'a str,
     pub minute: i64,
     pub queue_id: Option<&'a str>,
-    /// The walk of `progress_physical_queue_head_to_service`, where the world is placed.
+    /// The head's walk to the service (`queues::head_to_service`), where the world is placed.
     pub walk: Option<&'a Walk<'a>>,
-    /// The plan `physical_service_capacity` reads, where the world is placed.
+    /// The plan `service_capacity` reads, where the world is placed.
     pub placement: Option<&'a Geo>,
 }
 
@@ -580,7 +581,7 @@ struct Start {
     wait: i64,
 }
 
-/// `_serve_head` and `_serve_independent_head`.
+/// The service of the head of a facility's own queue or of an independent queue.
 pub fn serve(world: &mut World, manager: &Manager<'_>, serve: &Serve<'_>, pending: &[Pending]) -> Outcome<Served> {
     let start = match plan_serve(world, manager, serve, pending)? {
         Ok(start) => start,
@@ -610,7 +611,7 @@ pub fn serve(world: &mut World, manager: &Manager<'_>, serve: &Serve<'_>, pendin
     Ok(Served::Started(completion_id, applied))
 }
 
-/// `_serve_head`'s checks and plan, with nothing changed but what ends the pass: `Err` is the pass's
+/// The service's checks and plan, with nothing changed but what ends the pass: `Err` is the pass's
 /// end (a recorded wait, a walk to the service point, or a question).
 fn plan_serve(world: &World, manager: &Manager<'_>, serve: &Serve<'_>, pending: &[Pending]) -> Result<std::result::Result<Start, Served>> {
     let facility_name = serve.facility_id;
@@ -631,14 +632,14 @@ fn plan_serve(world: &World, manager: &Manager<'_>, serve: &Serve<'_>, pending: 
     let events = Events::of(world)?;
     let head = independent_head(world, manager, serve)?;
 
-    // `_queue_task` and what is read of the facility.
+    // The head's queue task and what is read of the facility.
     let (agent_id, task_id, task_start, zone_id, configured, active_count) = queue_task(world, facility_name, &head)?;
     if !is_stable_id(&task_id) || !is_stable_id(&agent_id) {
         return Err(Error::unsupported("an ID is for the Python rule to judge"));
     }
     let (used, warehouse, available) = ledger_of(world, manager, index, &task_id)?;
-    // `_assert_service_task_id_available`: at once for a facility's own queue, and just before the
-    // completion's identity for an independent one.
+    // Whether the service task's ID is free: at once for a facility's own queue, and just before
+    // the completion's identity for an independent one.
     let taken_id = used || pending_reserves(pending, &task_id)?;
     let id_is_taken = || Error::invariant(format!("resource service task ID {} conflicts with an H01 reservation", py_repr(&task_id)));
     if taken_id && head.is_none() {
@@ -707,7 +708,7 @@ fn plan_serve(world: &World, manager: &Manager<'_>, serve: &Serve<'_>, pending: 
     if taken_id {
         return Err(id_is_taken());
     }
-    // `_ensure_event_identity_free`.
+    // The completion's event identity must be free.
     if events.is_taken(&completion_id, Some(completion_sequence))? {
         return Err(Error::invariant(format!("resource event identity {} is not unique", py_repr(&completion_id))));
     }
@@ -741,7 +742,7 @@ fn plan_serve(world: &World, manager: &Manager<'_>, serve: &Serve<'_>, pending: 
     if wait.abs() >= 1 << 53 {
         return Err(Error::unsupported("a wait too long for a float"));
     }
-    // `record_queue_transition` after the start: the record takes the next sequence.
+    // The queue's transition after the start: the record takes the next sequence.
     let transition = start_transition(&events, &head, &task_id, wait, &completion_id, audit.sequence + 1, minute)?;
     Ok(Ok(Start {
         completion,
@@ -796,7 +797,7 @@ fn independent_head(world: &World, manager: &Manager<'_>, serve: &Serve<'_>) -> 
     Ok(head)
 }
 
-/// `_queue_task` of the head and what is read of the facility: the person, the queue task and its
+/// The head's queue task and what is read of the facility: the person, the queue task and its
 /// start, the facility's zone, its configured capacity and the people it serves now.
 fn queue_task(world: &World, facility_name: &str, head: &Option<IndependentHead>) -> Result<(Arc<str>, Arc<str>, i64, Arc<str>, i64, i64)> {
     let (agent_id, task_id, task_start, zone_id, configured, active_count) = {
@@ -912,7 +913,7 @@ fn completion_payload(
     payload
 }
 
-/// `record_queue_transition` of an independent head's start: its request's ID and the record, which
+/// The queue's transition of an independent head's start: its request's ID and the record, which
 /// takes `sequence`.
 fn start_transition(
     events: &Events<'_>,
@@ -945,7 +946,7 @@ fn start_transition(
     Ok(transition)
 }
 
-/// `_serve_head`'s writes, once the ledger took the reservation.
+/// The service's writes, once the ledger took the reservation.
 fn write_start(world: &World, manager: &Manager<'_>, serve: &Serve<'_>, start: Start) -> WriteResult<()> {
     let Start { completion, completion_sequence, audit, transition, agent_id, task_id, staff_id, due, wait, .. } = start;
     let minute = serve.minute;
@@ -1013,8 +1014,8 @@ pub fn previous_stall(world: &World, service: &Held, facility_id: &str) -> Resul
     Ok(held_service(world, service)?.stall_state.get(facility_id).cloned())
 }
 
-/// `_record_independent_queue_stall`: keep a still-waiting head's record, else record the first
-/// stalled queue's head.
+/// The stall of a facility with independent queues: keep a still-waiting head's record, else record
+/// the first stalled queue's head.
 pub fn record_independent_stall(
     world: &World,
     manager: &Manager<'_>,
@@ -1143,7 +1144,7 @@ fn plan_complete(world: &World, manager: &Manager<'_>, event: &EventRow) -> Resu
         return Err(Error::failed("resource completion does not match an active task"));
     };
 
-    // `_assert_service_event_matches_task`.
+    // The completion must match its task.
     if event.kind != EventKind::Completion || &*event.event_type != "resource_service_complete" || !payload_fields_are(event, &COMPLETION_FIELDS) {
         return Err(Error::failed("resource completion payload or event kind is invalid"));
     }
@@ -1245,7 +1246,7 @@ fn plan_complete(world: &World, manager: &Manager<'_>, event: &EventRow) -> Resu
         operation_payload(&warehouse, &resource_arc, &task_arc, &agent_id, quantity),
         event_id.clone(),
     )?;
-    // `finish_service` and `record_queue_transition`, with the record's next sequence.
+    // The request taken out of its queue and its transition, with the record's next sequence.
     let finished = completed_transition(world, manager, &events, task_id, &event_id, audit.sequence + 1, minute)?;
     manager.service(world)?;
     Ok(Completion {
@@ -1277,8 +1278,8 @@ fn reservation_of(world: &World, manager: &Manager<'_>, index: usize, task: &Tas
     Ok((reserved, row.warehouse_id.clone()))
 }
 
-/// `finish_service`'s request and its `record_queue_transition`, which takes `sequence`; None where
-/// the queues hold no request of the task.
+/// The request taken out of its queue (`finishing_request`) and its transition record, which takes
+/// `sequence`; None where the queues hold no request of the task.
 fn completed_transition(
     world: &World,
     manager: &Manager<'_>,
@@ -1349,7 +1350,7 @@ fn write_complete(world: &World, manager: &Manager<'_>, plan: Completion) -> Wri
 
 // ---- request -------------------------------------------------------------------------------------
 
-/// `record_request_outcome`: the record at the end of the service's `request_history`.
+/// A request's outcome: the record at the end of the service's `request_history`.
 pub fn append_outcome(world: &World, service: &Held, record: RequestRecord) -> Result<()> {
     drop(held_service(world, service)?);
     world.row_mut::<ServiceRow>(KEY)?.request_history.push(record);
@@ -1371,11 +1372,11 @@ pub struct Request<'a> {
     pub minute: Minute,
     /// The given `queue_id`, unless None.
     pub queue_id: Option<&'a str>,
-    /// The population's accessibility needs (`choose_queue_id`'s), as the caller read them.
+    /// The population's accessibility needs (for `choose_queue`), as the caller read them.
     pub needs: &'a Kept<AccessibilityNeeds>,
 }
 
-/// `ResourceRequestReceipt`.
+/// What a resource request gives back.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Receipt {
     pub agent_id: Arc<str>,
@@ -1627,7 +1628,7 @@ fn person_and_facility(world: &World, agent_name: &str, facility_name: &str) -> 
     })
 }
 
-/// `choose_queue_id`, with the population's accessibility needs as the caller read them.
+/// The queue a person joins, with the population's accessibility needs as the caller read them.
 pub(crate) fn choose_queue(
     world: &World,
     queues: &Held,
@@ -1643,7 +1644,7 @@ pub(crate) fn choose_queue(
     fifo::choose_queue(world, queues, geo, facility_id, agent_id, needs)
 }
 
-/// `_next_queue_task_id`: the ID, with `counter` left after it.
+/// The next free queue task ID, with `counter` left after it.
 fn next_queue_task_id(world: &World, manager: &Manager<'_>, pending: &[Pending], counter: &mut i64) -> Result<Arc<str>> {
     loop {
         let candidate = format!("resource-service-task-{counter}");
@@ -1665,7 +1666,7 @@ struct Releasing {
     staff_id: Arc<str>,
     warehouse: Arc<str>,
     source_id: Arc<str>,
-    /// The first sequence `_audit_event` tried: it took each one up to the audit's.
+    /// The first sequence the audit event tried: it took each one up to the audit's.
     first: i64,
     audit: EventRow,
 }
@@ -1901,11 +1902,11 @@ pub fn cancel(world: &mut World, manager: &Manager<'_>, event: &EventRow) -> Out
     Ok(applied)
 }
 
-/// What `interrupt_for_staff` found the member serving: the task, its person, the facility, the
+/// What `interrupt` found the member serving: the task, its person, the facility, the
 /// person's zone and the resource.
 type Interrupted = (Arc<str>, Arc<str>, Arc<str>, Arc<str>, &'static str);
 
-/// `interrupt_for_staff`'s checks of the member's service, in a fixed order, with their texts.
+/// The checks of the member's service by `interrupt`, in a fixed order, with their texts.
 fn interrupted_service(world: &World, staff_id: &str) -> Result<Option<Interrupted>> {
     let rows = world.rows()?;
     let mut tasks = rows
@@ -1946,8 +1947,8 @@ fn interrupted_service(world: &World, staff_id: &str) -> Result<Option<Interrupt
     Ok(Some((task.id.clone(), agent.profile.id.clone(), facility_id.clone(), agent.zone_id.clone(), resource)))
 }
 
-/// `interrupt_for_staff`: the reservation's new balance, if the member served anyone. `cause` is
-/// the causation event's ID, None where it is not a str.
+/// The member's service interrupted: the reservation's new balance, if the member served anyone.
+/// `cause` is the causation event's ID, None where it is not a str.
 pub fn interrupt(world: &mut World, manager: &Manager<'_>, pending: &[Pending], staff_id: &str, cause: Option<&Arc<str>>) -> Outcome<Option<Applied>> {
     let Some((task_id, agent_id, facility_id, zone_id, resource)) = interrupted_service(world, staff_id)? else {
         return Ok(None);
@@ -2150,7 +2151,7 @@ fn requeue_of<'g>(
 
 /// `ResourceServiceManager.arbitrate`: each facility with anything to do, in ID order; one with
 /// independent queues serves each of them and records the facility's stall
-/// (`_arbitrate_independent_facility`), any other its shared queue while it has people. Returns the
+/// (`arbitrate_independent`), any other its shared queue while it has people. Returns the
 /// IDs of the started events, in order. The manager is the one `tick.policies` reads.
 pub fn arbitrate<C: WorldCell, H: Host, R: crate::rules::tick::RunCell>(
     tick: &mut crate::rules::tick::Tick<'_, C, H, R>,
@@ -2194,7 +2195,7 @@ fn has_queue<C: WorldCell, H: Host, R: crate::rules::tick::RunCell>(
         .map_err(H::Error::from)
 }
 
-/// `_arbitrate_independent_facility`: each queue, with the check of its signed point, then the
+/// A facility with independent queues: each queue, with the check of its signed point, then the
 /// facility's stall of the pass. Returns the IDs of the started events, in order.
 pub fn arbitrate_independent<C: WorldCell, H: Host, R: crate::rules::tick::RunCell>(
     tick: &mut crate::rules::tick::Tick<'_, C, H, R>,
@@ -2367,7 +2368,7 @@ pub fn failure_of<H: Host>(failure: Failure) -> H::Error {
 /// the head's wait.
 type Pass = (Option<Arc<str>>, Option<HeadWait>);
 
-/// One pass of the loop after the positions (`serve_one`).
+/// One pass of the loop after the positions.
 fn serve_of<C: WorldCell, H: Host, R: crate::rules::tick::RunCell>(
     tick: &mut crate::rules::tick::Tick<'_, C, H, R>,
     facility_id: &str,
@@ -2402,7 +2403,7 @@ fn previous_of<C: WorldCell, H: Host, R: crate::rules::tick::RunCell>(
     tick.cell.with(|world| previous_stall(world, &service, id)).and_then(|stall| stall).map_err(H::Error::from)
 }
 
-/// `_record_independent_queue_stall`.
+/// The stall of a facility with independent queues (`record_independent_stall`).
 fn record_stall_of<C: WorldCell, H: Host, R: crate::rules::tick::RunCell>(
     tick: &mut crate::rules::tick::Tick<'_, C, H, R>,
     id: &str,

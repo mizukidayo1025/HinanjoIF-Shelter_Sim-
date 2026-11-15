@@ -315,7 +315,7 @@ struct Found<'a> {
 /// A v5 world is one whose Scenario has no resource service, and is written today. Its rules are the
 /// v6 rules but for the resource service: no resource slots, tasks, completions or service state, no
 /// ledger reservations to match, both hydration levels 0, and a water or meal facility may use the
-/// ordinary queues (`_validate_entity_rules`, `if self.schema_version == 5`).
+/// ordinary queues (the entity rules of schema version 5).
 pub fn entity_rules(world: &World, inputs: &EntityInputs<'_>, watch: &mut dyn FnMut(&str)) -> Result<Vec<(Arc<str>, i64)>> {
     let v6 = match world.schema_version()? {
         6 => true,
@@ -1119,7 +1119,7 @@ fn capacity_left(world: &World, inputs: &EntityInputs<'_>, rows: &Entities, occu
     Ok(left)
 }
 
-/// `_validate_zone_capacity` of the zones the entity rules leave: their temporary spaces and rooms
+/// The capacity check of the zones the entity rules leave: their temporary spaces and rooms
 /// count too (`rules/overlay.rs`).
 pub fn zone_capacity_passes(world: &World, places: &Places<'_>, left: &[(Arc<str>, i64)]) -> Result<()> {
     for (zone, occupancy) in left {
@@ -1150,12 +1150,13 @@ pub enum Dynamics {
     /// The rules pass.
     Taken,
     /// Someone waits, or has a context: the population's own validation reads those
-    /// (`validate_population_dynamics_state`, `rules/population.rs`), and its answer is this one.
+    /// (`population::validate`), and its answer is this one.
     Validate,
 }
 
-/// `validate_population_dynamics_state` of a state with no dynamic context and no one pending, the
-/// parts of it that read `PersonContext`, `PersonTraits` and the approach routes.
+/// The population's own validation (`population::validate`) of a state with no dynamic context and
+/// no one pending: the parts of it that read `PersonContext`, `PersonTraits` and the approach
+/// routes.
 pub fn population_dynamics(world: &World, dynamics: &Held) -> Result<Dynamics> {
     let Some(state) = held_value(world, DYNAMICS, dynamics)? else {
         return Ok(Dynamics::Taken);

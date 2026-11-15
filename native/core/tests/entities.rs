@@ -1,12 +1,10 @@
-//! The entity rows from outside the core: the bytes of each kind of row in a WorldState document
-//! of v5 and v6, the order of a table's rows in a document, the order of its keys as entities
-//! come and go, and what the views of the rows follow (PR 6-1): the fields that differ, the core's
-//! inserts and removals.
+//! The entity rows from outside the core: the bytes of each kind of row in a WorldState document of
+//! v5 and v6, the order of a table's rows in a document, the order of its keys as entities come and
+//! go, and what the views of the rows follow (PR 6-1): the fields that differ, the core's inserts
+//! and removals.
 //!
-//! The expected bytes are those `EntityStore.rows_json(version)` of the `main` build (`174e229`)
-//! wrote for the same Python objects; `tests/integration/test_capture_rows.py` checks that those
-//! are the bytes `canonical_json` writes for `WorldState._canonical_data`. Those of the zones and
-//! zone edges (PR 5-2) are `WorldState._canonical_text(zone.to_dict())` of CPython 3.12.
+//! The expected bytes were recorded before #430 (those of the zones and zone edges, PR 5-2, as
+//! CPython 3.12's `json.dumps` writes them) and pin the core's output now.
 
 use std::sync::Arc;
 
@@ -226,7 +224,7 @@ fn a_nan_is_refused_with_the_text_of_canonical_json() {
 }
 
 #[test]
-fn enum_members_keep_the_order_and_values_of_the_python_enums() {
+fn enum_members_keep_their_recorded_order_and_values() {
     assert_eq!(
         ACTIVITIES.iter().map(|member| member.as_text()).collect::<Vec<_>>(),
         ["idle", "moving", "queued", "in_service", "seeking_help", "sleeping", "resting"]

@@ -1,19 +1,14 @@
-//! An EffectProgram event's suppressed and failed texts (Issue #225, lane M2; moved from
-//! `tests/integration/test_effect_program_texts.py`).
+//! An EffectProgram event's suppressed and failed texts (Issue #225, lane M2).
 //!
-//! The environment, temporary-space, geometry and structure handlers (`rules::effects`): these texts
-//! are saved, as the dispatcher writes them to the event's record as `detail`. Each case checks the
-//! class and text the deleted Python rule gave (written down from it: lane L10, `kernel_only`) and
-//! that the world's canonical bytes did not change.
+//! The environment, temporary-space, geometry and structure handlers (`rules::effects`): these
+//! texts are saved, as the dispatcher writes them to the event's record as `detail`. Each case
+//! checks the recorded class and text and that the world's canonical bytes did not change.
 //!
 //! The worlds are the generated Scenario the Project screen makes, with each test's program
-//! scheduled by `schedule_effect_program` in Python (its EffectProgram built and validated with
-//! pydantic: `tests/data/generated_texts.json`), and the world of a patrol under way whose handoff
-//! is due (`tests/data/handoff_texts.json`, without its EventLog; `tests/support/core_fixtures_texts.py`).
-//! The host's contracts give their input back as given (decision (c)): the texts of a contract's own
-//! error are pydantic's, and the pytest file keeps those cases, which also test each handler's
-//! Python entry. It keeps the start the world's check turns down too: the check is a Python
-//! validator's (`domain/environment.py`), which the host here does not run.
+//! scheduled (`data/generated_texts.json`), and the world of a patrol under way whose handoff is
+//! due (`data/handoff_texts.json`, without its EventLog). The host's contracts give their input
+//! back as given (decision (c)), so a contract's own errors are not checked here. The values were
+//! recorded before #430 and pin the core's output now.
 
 use crate::support;
 
@@ -66,7 +61,7 @@ fn generated(name: &str) -> Case {
     case(FILE, name)
 }
 
-/// The handlers, by the class of the pytest file.
+/// The handlers, by kind.
 #[derive(Clone, Copy, Debug)]
 enum Handler {
     Environment { expire: bool },
@@ -104,8 +99,7 @@ impl Case {
         }
     }
 
-    /// The handler's outcome is `class` with `expected`, and the world did not change
-    /// (`kernel_says_python_s_text`).
+    /// The handler's outcome is `class` with `expected`, and the world did not change.
     fn says(&mut self, handler: Handler, event: &Value, class: &str, expected: &str) {
         let before = self.bytes();
         let said = texts::outcome(self.apply(handler, event));
@@ -131,7 +125,7 @@ fn class_name(class: &str) -> &'static str {
     }
 }
 
-/// The provenance of an event with its program's marker's fields set (`_marker`).
+/// The provenance of an event with its program's marker's fields set.
 fn marker(event: &Value, fields: Value) -> Value {
     let mut provenance = event["provenance"].clone();
     for (key, value) in fields.as_object().unwrap() {
@@ -147,7 +141,7 @@ fn payload(event: &Value, changes: Value) -> Value {
 // ---- EffectProgramEnvironmentHandler -------------------------------------------------------------
 
 #[test]
-fn a_zone_environment_event_s_texts_are_python_s() {
+fn a_zone_environment_event_s_texts_are_the_recorded_ones() {
     let mut case = generated("environment");
     let start = case.pending("effect_program_environment", None);
     let expiry = case.pending("effect_program_environment_expire", None);
@@ -197,7 +191,7 @@ fn a_zone_environment_event_s_texts_are_python_s() {
 // ---- EffectProgramTemporarySpaceHandler ----------------------------------------------------------
 
 #[test]
-fn a_temporary_space_event_s_texts_are_python_s() {
+fn a_temporary_space_event_s_texts_are_the_recorded_ones() {
     let mut case = generated("temporary_space");
     let start = case.pending("effect_program_temporary_space", None);
     let expiry = case.pending("effect_program_temporary_space_expire", None);
@@ -245,7 +239,7 @@ fn a_temporary_space_whose_guard_is_false_is_suppressed() {
 // ---- EffectProgramGeometryHandler ----------------------------------------------------------------
 
 #[test]
-fn a_geometry_event_s_texts_are_python_s() {
+fn a_geometry_event_s_texts_are_the_recorded_ones() {
     let mut case = generated("geometry");
     let start = case.pending("effect_program_geometry", None);
     let expiry = case.pending("effect_program_geometry_expire", None);
@@ -262,7 +256,7 @@ fn a_geometry_event_s_texts_are_python_s() {
         (apply, payload(&start, json!({"op": "set_partition"})), FAILED, approved),
         (apply, payload(&start, json!({"modifier_id": "modifier-other"})), FAILED, approved),
         (expire, expiry.clone(), SUPPRESSED, "geometry modifier was not applied or already expired"),
-        // What `apply_geometry_change` raises is the text, as the Python rule words it.
+        // What `apply_geometry_change` raises is the text.
         (apply, payload(&start, json!({"target_id": "no-such-route"})), FAILED, "target_missing: route does not exist"),
     ];
     for (handler, event, class, expected) in cases {
@@ -273,7 +267,7 @@ fn a_geometry_event_s_texts_are_python_s() {
 // ---- EffectProgramStructureHandler: additions, roles, repairs ------------------------------------
 
 #[test]
-fn an_addition_s_texts_are_python_s() {
+fn an_addition_s_texts_are_the_recorded_ones() {
     for (op, table, bound) in [("add_staff", "staff", 100_i64), ("add_toilet", "facilities", 200)] {
         // The floor plan has no place for so many toilets; this is about the bound.
         let mut case = generated(op);
@@ -311,7 +305,7 @@ fn an_addition_s_texts_are_python_s() {
 }
 
 #[test]
-fn a_toilet_without_a_free_point_is_python_s_text() {
+fn a_toilet_without_a_free_point_is_the_recorded_text() {
     let mut case = generated("add_toilet_plain");
     // Each toilet's point is chosen on the floor plan with the toilets placed before it, as the
     // native host builds the plan again from the world's overlay at each call.
@@ -321,7 +315,7 @@ fn a_toilet_without_a_free_point_is_python_s_text() {
     let event = case.pending("effect_program_structure", Some("add_toilet"));
     let facilities = case.entry["world"]["facilities"].as_array().unwrap().len() as i64;
     let many = payload(&event, json!({"count": 200 - facilities}));
-    // The first toilet the floor plan has no free point for, as the Python rule named it.
+    // The first toilet the floor plan has no free point for, as recorded.
     let suffix = event["payload"]["modifier_id"].as_str().unwrap().strip_prefix("modifier-").unwrap().to_owned();
     assert_eq!(suffix, "1a1febf9fee93453e26e19f2ed94ab22");
     let before = texts::canonical_of(cell, &case.entry);
@@ -332,7 +326,7 @@ fn a_toilet_without_a_free_point_is_python_s_text() {
 }
 
 #[test]
-fn a_role_change_s_texts_are_python_s() {
+fn a_role_change_s_texts_are_the_recorded_ones() {
     let mut case = generated("role");
     let event = case.pending("effect_program_structure", Some("set_staff_role"));
     let target = "staff-role event does not reference an approved staff target";
@@ -349,7 +343,7 @@ fn a_role_change_s_texts_are_python_s() {
 }
 
 #[test]
-fn a_repair_s_texts_are_python_s() {
+fn a_repair_s_texts_are_the_recorded_ones() {
     let mut case = generated("repair");
     let event = case.pending("effect_program_structure", Some("facility_repair"));
     let facility = event["payload"]["facility_id"].as_str().unwrap().to_owned();
@@ -388,7 +382,7 @@ fn handing_off() -> Case {
     case(HANDOFF, "handing_off")
 }
 
-/// `EventRecord.to_dict()` of a receipt.
+/// The record document of a receipt: its event, realized minute, status and detail.
 fn record_document(made: &Made) -> V {
     let event = &made.event;
     let text = |value: &str| V::Str(text(value));
@@ -419,7 +413,7 @@ fn record_document(made: &Made) -> V {
 }
 
 /// `json.dumps(world.to_dict(), ensure_ascii=False) + "\n" + json.dumps([record.to_dict()],
-/// ensure_ascii=False)`, the documents the pytest file took the digest of.
+/// ensure_ascii=False)`, the documents of the recorded digest.
 fn documents(case: &Case, made: &Made) -> String {
     let canonical: Value = serde_json::from_str(&case.bytes()).unwrap();
     let dumps = Dumps::default().unicode();
@@ -444,7 +438,7 @@ fn get<'a>(value: &'a V, path: &[&str]) -> &'a V {
 }
 
 #[test]
-fn a_handoff_s_texts_are_python_s() {
+fn a_handoff_s_texts_are_the_recorded_ones() {
     let base = handing_off();
     let event = base.pending("effect_program_structure", Some("staff_handoff"));
     let worker = event["payload"]["staff_id"].as_str().unwrap().to_owned();
@@ -459,7 +453,7 @@ fn a_handoff_s_texts_are_python_s() {
         .find(|id| *id != worker && *id != replacement && base.cell.with(|world| staff_of(world, id).1).unwrap() != replacement_zone)
         .unwrap();
 
-    // The handoff itself is the Python rule's, receipt and all.
+    // The handoff itself is the recorded one, receipt and all.
     let mut case = handing_off();
     let made = case.apply(Structure, &event).unwrap().expect("a receipt");
     assert_eq!(made.detail, "staff task assignment updated before handoff receipt");
@@ -479,10 +473,8 @@ fn a_handoff_s_texts_are_python_s() {
         })
         .unwrap();
     assert_eq!((phase_of(&case, &worker), phase_of(&case, &replacement)), (Phase::Idle, Phase::Working));
-    // The whole world (without the EventLog the fixture leaves out) and the receipt, as the pytest
-    // file took them: recorded from the core in #225 lane M2. On the same kernel the pytest
-    // test_effect_program_texts.py::test_a_handoff_s_texts_are_python_s, whose world had its
-    // EventLog, passed with the digest b2c8d110332d (recorded from the Python rule on 2d8fb46).
+    // The whole world (without the EventLog the fixture leaves out) and the receipt: recorded from
+    // the core in #225 lane M2.
     assert_eq!(texts::sha(&documents(&case, &made)), "e6d8acece25965b78b621a68c4fef6bdf2251f54134fbc54c7fb5debb0195487");
 
     let approved = "staff handoff does not reference an approved program";
@@ -565,18 +557,18 @@ fn a_handoff_s_texts_are_python_s() {
 }
 
 #[test]
-fn a_role_change_during_work_is_python_s_text() {
+fn a_role_change_during_work_is_the_recorded_text() {
     let mut case = handing_off();
     let role = case.pending("effect_program_structure", Some("set_staff_role"));
     case.says(Structure, &role, FAILED, "staff role cannot change while work is active");
 }
 
-/// The loaded worlds write the canonical text Python wrote of them.
+/// The loaded worlds write the canonical text recorded in the fixture.
 #[test]
-fn the_loaded_worlds_write_python_s_canonical_text() {
+fn the_loaded_worlds_write_the_recorded_canonical_text() {
     for (file, name) in [(FILE, "generated"), (FILE, "environment"), (FILE, "repair"), (HANDOFF, "handing_off")] {
         let case = case(file, name);
-        let python = Dumps::default().unicode().compact().sorted().text(&load::v(&case.entry["world"]));
-        assert!(case.bytes() == python, "{file} {name}");
+        let recorded = Dumps::default().unicode().compact().sorted().text(&load::v(&case.entry["world"]));
+        assert!(case.bytes() == recorded, "{file} {name}");
     }
 }

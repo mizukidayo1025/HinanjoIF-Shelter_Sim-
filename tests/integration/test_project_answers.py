@@ -213,3 +213,92 @@ def test_conversations_and_delete_are_answered_as_the_browser_answers_them() -> 
         400,
         '{"error":"invalid project request"}',
     )
+
+
+@pytest.fixture(scope="module")
+def fixture_run() -> Any:
+    """The fixture's Run computed to its end without Python (`PlainRun`), its blocks sealed."""
+    run = native.rules("plain").PlainRun.from_worlds(
+        (CORE_TEST_DATA / "api_answers.json").read_bytes(), "history"
+    )
+    assert run.advance(FIXTURE["run"]["minutes"]) == FIXTURE["run"]["minutes"]
+    run.seal_blocks()
+    return run
+
+
+def _samples(run: Any) -> Any:
+    """The Run's metric samples read back as a store reads its pieces: tables, then blocks."""
+    table = ANSWERS.KpiTable()
+    table.read_sample_tables(run.sample_tables(0, 0))
+    for index in range(run.sample_block_counts()[0]):
+        table.read_sample_block(run.sample_block(index))
+    assert table.sample_count() == run.metric_count()
+    return table
+
+
+def _branch_file(branch_id: str) -> bytes | None:
+    """The `branch.json` a store reads for a branch of the fixture's Run: `main`'s, or None."""
+    _, [(name, branch)] = _fixture_run()
+    return branch if branch_id == name else None
+
+
+def _history(query: str, branch_id: str, table: Any) -> tuple[int, str]:
+    """The core's answer to a history request of the fixture's Run: status and body."""
+    run = FIXTURE["run"]
+    branch = _branch_file(branch_id)
+    try:
+        plan = ANSWERS.history_plan(query, run["project_id"], run["run_id"], branch_id, branch)
+        return 200, plan.answer(table).decode()
+    except ANSWERS.Refused as refused:
+        return refused.args[0], refused.args[3].decode()
+
+
+def _same(got: tuple[int, str], expected: dict[str, Any]) -> bool:
+    status, body = got
+    if status != expected["status"]:
+        return False
+    if status != 200:
+        return body == expected["body"]
+    return hashlib.sha256(normalize(body, HEAD).encode()).hexdigest() == expected["sha256"]
+
+
+def test_the_history_and_its_pages_are_the_server_s(fixture_run: Any) -> None:
+    table = _samples(fixture_run)
+    cases = [case for case in FIXTURE["cases"] if case["route"] == "history"]
+    assert cases
+    for case in cases:
+        query = case["query"]
+        for index, expected in enumerate(case["pages"]):
+            got = _history(query, case["branch"], table)
+            assert _same(got, expected), f"{query} page {index + 1}: {got[1][:300]}"
+            if index + 1 < len(case["pages"]):
+                query = f"{case['query']}&cursor={json.loads(got[1])['next_cursor']}"
+    for foreign in FIXTURE["foreign_cursors"]:
+        first = json.loads(_history(foreign["from"], "main", table)[1])
+        got = _history(f"{foreign['to']}&cursor={first['next_cursor']}", "main", table)
+        assert _same(got, foreign), foreign
+
+
+def test_the_report_is_the_server_s(fixture_run: Any) -> None:
+    run = FIXTURE["run"]
+    _, [(_, branch)] = _fixture_run()
+    ids = (run["project_id"], run["run_id"], run["branch_id"])
+    for case in [case for case in FIXTURE["cases"] if case["route"] == "report"]:
+        expected = case["pages"][0]
+        try:
+            stored = _branch_file(case["branch"])
+            kept = ANSWERS.report_answer(case["query"], *ids[:2], case["branch"], stored, None)
+        except ANSWERS.Refused as refused:
+            assert (refused.args[0], refused.args[3].decode()) == (
+                expected["status"],
+                expected["body"],
+            )
+            continue
+        assert kept is None, "a completed branch without a kept report makes it"
+        scenario = FIXTURE["scenario_json"].encode()
+        report = ANSWERS.build_report(fixture_run, scenario, case["branch"])
+        assert _same((200, report.decode()), expected)
+        assert ANSWERS.report_answer("", *ids, branch, report + b"\n") == report
+    waiting = json.loads(branch)
+    waiting["status"] = "paused"
+    assert ANSWERS.report_answer("", *ids, _record(waiting), None) == b'{"status":"not_generated"}'

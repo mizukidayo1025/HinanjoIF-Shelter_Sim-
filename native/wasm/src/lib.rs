@@ -628,6 +628,8 @@ impl RunWriter {
     /// Queues the start of the Run of a branch made by a fork from `parent` at `minute` (#306),
     /// which reads `parent`'s pieces up to its line `base` (the line the fork's world was restored
     /// from): its "run" and "fork" lines.
+    // Kept (#493): a method of the JavaScript API, which passes plain values one by one; the core
+    // takes them as structs.
     #[allow(clippy::too_many_arguments)]
     #[wasm_bindgen(js_name = forkStart)]
     pub fn fork_start(
@@ -946,6 +948,8 @@ impl KpiHistory {
 
     /// A page of rows (`history::KpiQuery`): `afterMinute` and `afterKey` are the cursor's row
     /// (both or neither).
+    // Kept (#493): a method of the JavaScript API, which passes plain values one by one; the core
+    // takes them as structs.
     #[allow(clippy::too_many_arguments)]
     pub fn page(
         &self,

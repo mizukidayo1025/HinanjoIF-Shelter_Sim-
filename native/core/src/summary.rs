@@ -2,8 +2,7 @@
 //! made from the core's World alone, as the server's `intervention-preview` gives it (no default
 //! zone and no start date given: `default_zone_id` is the zone of a world with one zone,
 //! `start_date` is null). Its canonical JSON (`V::write_json`: the keys sorted, the floats as
-//! Python's `repr` writes them) keeps the bytes of the Python `scenario_summary_from_world` that
-//! #430 removed.
+//! Python's `repr` writes them) keeps the bytes the Python summary wrote before #430.
 //!
 //! It reads the world and changes nothing, draws nothing and calls no LLM. A namespace of another
 //! shape than its rules write is `Unsupported`; a summary the contract `ScenarioSummary` refuses
@@ -200,8 +199,8 @@ fn namespace(world: &World, name: &str) -> Result<Option<V>> {
     Ok(Some(slot.row::<ValueRow>()?.0.clone()))
 }
 
-/// The resources the ledger accounts for, sorted, and its warehouse: `read_only_part` of
-/// `accounts` (a dict's keys, else none) and of `warehouse_id`.
+/// The resources the ledger accounts for, sorted, and its warehouse: the keys of its `accounts`
+/// (where it is a dict, else none) and its `warehouse_id`.
 fn ledger(world: &World) -> Result<(Vec<Arc<str>>, Option<Arc<str>>)> {
     if !has(world, resource_ledger::NAME)? {
         return Ok((Vec::new(), None));
@@ -227,7 +226,7 @@ fn ledger(world: &World) -> Result<(Vec<Arc<str>>, Option<Arc<str>>)> {
     Ok((resources, warehouse))
 }
 
-/// The shipments whose delivery is still pending, by their IDs: `(id, ShipmentTarget)`.
+/// The shipments whose delivery is still pending, by their IDs: `(id, shipment target)`.
 fn pending_shipments(world: &World, operational: Option<&Map>) -> Result<Vec<(Arc<str>, V)>> {
     let shipments = match operational.and_then(|map| map.get("shipments")) {
         None => return Ok(Vec::new()),
@@ -270,7 +269,7 @@ fn pending_shipments(world: &World, operational: Option<&Map>) -> Result<Vec<(Ar
     Ok(found)
 }
 
-/// The zones by ID: `(id, ZoneTarget)`.
+/// The zones by ID: `(id, zone target)`.
 fn zones(rows: &Entities) -> Result<Vec<(Arc<str>, V)>> {
     let mut ids: Vec<&Arc<str>> = rows.zones.iter().map(|(id, _)| id).collect();
     ids.sort_by(|first, second| first.as_bytes().cmp(second.as_bytes()));
@@ -298,7 +297,7 @@ fn zones(rows: &Entities) -> Result<Vec<(Arc<str>, V)>> {
     Ok(found)
 }
 
-/// The facilities by ID: `(id, FacilityTarget)`.
+/// The facilities by ID: `(id, facility target)`.
 fn facilities(rows: &Entities) -> Result<Vec<(Arc<str>, V)>> {
     let mut ids: Vec<&Arc<str>> = rows.facilities.iter().map(|(id, _)| id).collect();
     ids.sort_by(|first, second| first.as_bytes().cmp(second.as_bytes()));
@@ -333,7 +332,7 @@ fn facilities(rows: &Entities) -> Result<Vec<(Arc<str>, V)>> {
 }
 
 /// The people the world has and those the population's lifecycle keeps (who left, who is still
-/// to come), sorted: `set(world.agents) | set(read_only_part(world, LIFECYCLE, "people", {}))`.
+/// to come), sorted: the world's agents and the keys of the lifecycle's `people`.
 fn people(world: &World, rows: &Entities) -> Result<Vec<Arc<str>>> {
     let mut ids: BTreeSet<Arc<str>> = rows.agents.iter().map(|(id, _)| id.clone()).collect();
     if let Some(V::Map(lifecycle)) = namespace(world, LIFECYCLE)? {

@@ -1,5 +1,5 @@
 //! The check of `shared_operations_v1`, its history included, with its errors and texts (lane E of
-//! #250, #350). Raw errors: `validate_simulator_extensions` passes them on. The check before it
+//! #250, #350). Raw errors: `validate::extensions` passes them on. The check before it
 //! (the namespace without its signed contract) is `validate::extensions`'s.
 //!
 //! Without the history (`View::history` false) the receipts checked are those since the previous
@@ -397,7 +397,8 @@ static STATE_PARTS: Model = model(
     None,
 );
 
-/// `OperationHistoryRecord`: the model its `event_type` names, validated; None where it fails.
+/// An operation's history record: the model its `event_type` names, validated; None where it
+/// fails.
 fn receipt(value: &V) -> Option<Fields> {
     let V::Map(map) = value else {
         return None;
@@ -492,7 +493,7 @@ fn option_eq(found: Option<&Arc<str>>, value: &V) -> bool {
     }
 }
 
-/// `_event_payload_matches(event_record, record)`.
+/// Whether the event's payload matches the record.
 fn payload_matches(found: &Found, record: &Fields) -> bool {
     let payload = &found.event.payload;
     let mut expected = record.clone();
@@ -514,7 +515,7 @@ fn greater(left: &V, right: &V) -> Result<bool> {
         .ok_or_else(|| Error::Type(format!("'>' not supported between instances of '{}' and '{}'", type_name(left), type_name(right))))
 }
 
-/// `_validate_staff_operation_receipt`.
+/// The check of a staff operation's receipt against the staff operations' history.
 fn staff_operation_receipt(view: &View<'_>, record: &Fields, truncated: bool) -> Result<()> {
     let operations = view.state("staff_operations_v1")?;
     let history: Vec<V> = match operations.as_deref() {
@@ -605,7 +606,8 @@ fn value_error<T>(text: &str) -> Result<T> {
     Err(Error::Value(text.to_owned()))
 }
 
-/// `_care_interruption_due`.
+/// Whether a care interruption is due: the head is requested, the request unresolved, and the log
+/// applied the request's timeout (`support_request_timeout`) at this minute.
 fn interruption_due(log: &EventLog, minute: i64, request_id: &str, head_status: &str, request_status: &str) -> Result<bool> {
     if head_status != "requested" || request_status != "unresolved" {
         return Ok(false);

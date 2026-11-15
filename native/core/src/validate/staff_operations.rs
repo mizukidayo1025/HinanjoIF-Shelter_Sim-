@@ -161,7 +161,7 @@ pub fn canonical_staff_operations_config(raw: &V) -> Result<Map> {
     Ok(config)
 }
 
-/// `_idle_record()`.
+/// A staff member's idle record (no task).
 fn idle_record() -> V {
     let mut record = Map::new();
     for name in RECORD_FIELDS {

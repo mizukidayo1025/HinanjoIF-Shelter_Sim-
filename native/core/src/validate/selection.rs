@@ -88,7 +88,7 @@ pub fn selected_models(view: &View<'_>) -> Result<Selection> {
     select(&*view.configs()?)
 }
 
-/// `_select_models(configs)`.
+/// The models the configs select, by domain, in the selection's order.
 pub fn select(configs: &V) -> Result<Selection> {
     let catalog = catalog()?;
     let empty = IndexMap::new();

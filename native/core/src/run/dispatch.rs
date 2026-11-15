@@ -103,8 +103,8 @@ impl HandlerKind {
     }
 }
 
-/// The name of the controller's own step a toilet's completion leads to
-/// (`DispatchPhase._schedule_return_to_initial_zone`), as `Held::Method` names it.
+/// The name of the controller's own step a toilet's completion leads to (the walk back to the
+/// person's initial zone), as `Held::Method` names it.
 pub const RETURN_RULE: &str = "_schedule_return_to_initial_zone";
 
 /// The refusal of a value the run cannot test for truth (an object it did not read).

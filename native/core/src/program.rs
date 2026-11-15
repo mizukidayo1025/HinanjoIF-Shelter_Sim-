@@ -1,6 +1,6 @@
 //! The EffectProgram of an intervention, before it is scheduled (#304, under #292): its contract
 //! (`EffectProgram`), read strictly and dumped with its defaults as
-//! `program.model_dump(mode="json")` writes it, and the checks of `validate_effect_program` for the
+//! `program.model_dump(mode="json")` writes it, and its checks on a world (`validate`) for the
 //! six operators the offline reading of a text makes (`facility_outage`, `add_staff`, `add_toilet`,
 //! `water_outage`, `add_evacuees`, `depart_evacuees`), with their texts.
 //!
@@ -12,7 +12,7 @@
 //!   The reader takes the JSON types a dump has (an int where an int is, a bool where a bool is),
 //!   and refuses a value pydantic would coerce. The screen sends no typed program; the reading of
 //!   a text makes its dump.
-//! - The world's own check (`world.validate()`, E6 of #250) is not run: a valid world gives no
+//! - The world's own check (`validate::world`, E6 of #250) is not run: a valid world gives no
 //!   issue there.
 //! - An effect of another operator of the registry, or parameters its model refuses (whose issue
 //!   holds pydantic's text), is `Unsupported`.
@@ -270,7 +270,8 @@ fn guard(value: &V) -> Result<Guard> {
     Ok(found)
 }
 
-/// `_validate_bounded_json`.
+/// The checks of an effect's JSON parameters: at most 8 deep, numbers that fit 64 bits, and the
+/// other bounds of a program's JSON.
 fn bounded(value: &V, depth: usize) -> Result<()> {
     if depth > 8 {
         return refuse("effect JSON parameters exceed maximum nesting depth");
@@ -506,7 +507,7 @@ impl Guard {
         ])
     }
 
-    /// `_guard_fields`: the leaves' fields.
+    /// The fields of the guard's leaves.
     fn fields(&self, into: &mut BTreeSet<Arc<str>>) {
         match &self.field {
             Some(field) => {
@@ -558,7 +559,7 @@ fn ids(items: &[Arc<str>]) -> V {
 
 // ---- The operators ----------------------------------------------------------------------------------
 
-/// What `DEFAULT_PRIMITIVE_REGISTRY` says of an operator the browser checks.
+/// What the primitives' registry says of an operator the browser checks.
 struct Primitive {
     target_kinds: &'static [&'static str],
     units: &'static [&'static str],
@@ -750,16 +751,16 @@ fn list_repr(items: &[&str]) -> String {
 }
 
 /// How the checks place added toilets: whether the Scenario places installed facilities on its
-/// floor plan (`installed_facility_placement_enabled`), and the floor plan of a world with its
+/// floor plan (`rules::overlay::placement_enabled`), and the floor plan of a world with its
 /// overlay as it is (`Host::floor_plan` of that world).
 pub struct Placement<'a> {
     pub enabled: bool,
     pub plan: &'a mut dyn FnMut(&World) -> Result<Arc<Geo>>,
 }
 
-// ---- validate_effect_program -------------------------------------------------------------------------
+// ---- The checks on a world --------------------------------------------------------------------------
 
-/// `validate_effect_program(world, program)`: the issues, in the order of the checks, each once.
+/// The checks of a program on a world: the issues, in the order of the checks, each once.
 /// It changes nothing. `Unsupported` for a program the browser does not check (above).
 pub fn validate(world: &World, program: &EffectProgram, placement: &mut Placement<'_>) -> Result<Vec<String>> {
     for effect in &program.effects {
@@ -1138,7 +1139,7 @@ fn space_capacity(parameters: &Map) -> Option<i64> {
 
 /// The arrival approach's problem, as `ValueError`'s text, or None: the route must be one of the
 /// approved geometry's, into the selected zone. The geometry a world holds is one its Scenario
-/// validated (`parsed_facility_geometry` gives it back).
+/// validated.
 fn approach_problem(configs: &Map, route_id: &str, zone_id: &str) -> Result<Option<String>> {
     let Some(V::Map(geometry)) = configs.get("facility_geometry") else {
         return Ok(Some("arrival approach requires approved physical Geometry".to_owned()));
@@ -1216,7 +1217,7 @@ fn environment_limits(
     Ok(())
 }
 
-/// `_toilet_placement_issues`: each added toilet gets a free point on the floor plan of a copy of
+/// The placement's issues: each added toilet gets a free point on the floor plan of a copy of
 /// the world, the toilets before it placed there.
 fn toilet_placement(world: &World, additions: &[(String, Arc<str>, i64)], placement: &mut Placement<'_>) -> Result<Vec<String>> {
     if !placement.enabled {
@@ -1272,10 +1273,10 @@ fn toilet_placement(world: &World, additions: &[(String, Arc<str>, i64)], placem
     Ok(Vec::new())
 }
 
-// ---- schedule_effect_program ---------------------------------------------------------------------------
+// ---- Scheduling -------------------------------------------------------------------------------------
 
-/// What scheduling a program gives back (`ScheduledEffectProgram`), with the branch's minute: the
-/// `command_log` entry of `BranchRuntime.apply_effect_program` but its `"command"`.
+/// What scheduling a program gives back, with the branch's minute: the branch's `command_log`
+/// entry of the program but its `"command"`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Receipt {
     pub program_id: Arc<str>,
@@ -1285,8 +1286,8 @@ pub struct Receipt {
 }
 
 impl Receipt {
-    /// `{"command": "effect_program", "program_id", "program_hash", "event_ids", "minute"}`, as
-    /// `BranchRuntime.apply_effect_program` appends it to the branch's `command_log`.
+    /// `{"command": "effect_program", "program_id", "program_hash", "event_ids", "minute"}`, the
+    /// entry a fork appends to the branch's `command_log`.
     pub fn command(&self) -> V {
         object([
             ("command", V::Str(Arc::from("effect_program"))),
@@ -1302,7 +1303,7 @@ fn sha256_text(text: &str) -> String {
     crate::checkpoint::sha256_hex(text.as_bytes())
 }
 
-/// `_modifier_id`: `modifier-` and the first 32 hex digits of `sha256(f"{program}:{effect}")`.
+/// A modifier's ID: `modifier-` and the first 32 hex digits of `sha256(f"{program}:{effect}")`.
 fn modifier_id(program_id: &str, effect_id: &str) -> Arc<str> {
     Arc::from(format!("modifier-{}", &sha256_text(&format!("{program_id}:{effect_id}"))[..32]))
 }
@@ -1335,7 +1336,7 @@ fn parameters_dump(effect: &Effect, parameters: &Parameters) -> Map {
     dump
 }
 
-/// `_projected_facility_units`: the working units a facility modifier sets, the program's earlier
+/// The working units a facility modifier sets, the program's earlier
 /// modifiers of the facility in force.
 fn projected_units(world: &World, program: &EffectProgram, target: &Effect) -> Result<i64> {
     let facility_id = target.target_selector.target_id.as_deref().unwrap_or_default();
@@ -1359,7 +1360,7 @@ fn projected_units(world: &World, program: &EffectProgram, target: &Effect) -> R
     Err(Error::Value(format!("facility modifier effect {} was not found", py_repr(&target.effect_id))))
 }
 
-/// `schedule_effect_program(world, program)` as `BranchRuntime.apply_effect_program` calls it: the
+/// A program scheduled on the world, as a fork does to its child: the
 /// program checked (`validate`; its issues are the error, joined by `; `), then its
 /// record and its start and expiry events written to the world, all or none. The world's own check
 /// after the writes (`candidate.validate()`, E6 of #250) is not run.
@@ -1381,7 +1382,7 @@ pub fn schedule(world: &mut World, program: &EffectProgram, placement: &mut Plac
     }
 }
 
-/// `_schedule_on`: the writes, for the six operators.
+/// The writes of a program's schedule, for the six operators.
 fn schedule_on(world: &World, program: &EffectProgram) -> Result<Receipt> {
     use crate::events::EventKind;
     use crate::rules::kit::{new_event, Events, NewEvent};

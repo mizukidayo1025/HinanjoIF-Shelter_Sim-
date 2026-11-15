@@ -1,10 +1,10 @@
-//! The offline intervention compiler (Issue #303): what `compile_natural_language` answers without
-//! an API key, as the canonical JSON of the `CompilerResult` (`model_dump(mode="json")`), byte for
-//! byte as the Python compiler wrote it before #430.
+//! The offline intervention compiler (Issue #303): what the intervention compiler answers without
+//! an API key (`compile_offline`), as the canonical JSON of the `CompilerResult`
+//! (`model_dump(mode="json")`), byte for byte as the Python compiler wrote it before #430.
 //!
 //! Without a key the router never calls a provider: it records the fixed fallback, and the compiler
 //! takes the rule parser's plan (`parse.rs`) when it covers every clause of the text and passes the
-//! semantic checks of `_validate_model_effects`, or explains why not. The usage keeps the hashes of
+//! semantic checks (`validate_plan`), or explains why not. The usage keeps the hashes of
 //! the prompt (the instructions and the output schema made from the installed primitives) and of the
 //! payload (the sanitized text, the whole scenario summary and the primitives' descriptions); the
 //! summary holds floats, so the hashes are made here, where a float keeps Python's digits.
@@ -53,7 +53,7 @@ const OFFLINE_REASON: &str = "offline modeのため、AI（Opus）を呼び出�
 const NO_PRIMITIVE_REASON: &str = "この分岐に登録済みのprimitiveと有効policyの組み合わせがありません。";
 const TARGET_KINDS: [&str; 7] = ["facility", "zone", "staff", "resource", "shipment", "person", "route"];
 
-/// A `FacilityTarget` of the summary.
+/// A facility of the summary's targets.
 pub(crate) struct Facility {
     id: String,
     name: String,
@@ -62,7 +62,7 @@ pub(crate) struct Facility {
     working_units: i64,
 }
 
-/// A `ZoneTarget` of the summary.
+/// A zone of the summary's targets.
 pub(crate) struct Zone {
     id: String,
     name: String,
@@ -84,7 +84,7 @@ pub(crate) struct Summary {
     target_ids: Vec<(&'static str, Vec<String>)>,
 }
 
-/// One primitive of the registry (`available_primitives()`).
+/// One primitive of the registry (`primitives.json`).
 struct Primitive {
     op: String,
     target_kinds: Vec<String>,
@@ -281,7 +281,7 @@ fn opt(value: &Option<String>) -> V {
     value.as_deref().map(s).unwrap_or(V::Null)
 }
 
-/// `_inline_parameter_schema(value, definitions)`.
+/// The parameter schema `value` with its references to `definitions` put inline (at most 24 deep).
 fn inline_schema(value: &V, definitions: &IndexMap<Arc<str>, V>, depth: usize) -> Result<V> {
     if depth > 24 {
         return Err(refused("recursive or excessively nested primitive schema"));
@@ -319,7 +319,8 @@ fn number(value: &V) -> Option<f64> {
     }
 }
 
-/// `_merge_parameter_schema(properties, key, incoming)`.
+/// The schema `incoming` of the parameter `key` put into `properties`, merged with the one there:
+/// differing types become a number or a string, and the bounds widen.
 fn merge_schema(properties: &mut IndexMap<Arc<str>, V>, key: &Arc<str>, incoming: V) {
     let Some(V::Map(current)) = properties.get_mut(key) else {
         properties.insert(key.clone(), incoming);
@@ -369,7 +370,7 @@ fn merge_schema(properties: &mut IndexMap<Arc<str>, V>, key: &Arc<str>, incoming
     }
 }
 
-/// `_compiler_output_schema(summary, target_ids, eligible)`.
+/// The compiler's output schema for the summary's targets and the eligible primitives.
 fn output_schema(summary: &Summary, eligible: &[&Primitive]) -> Result<V> {
     let operator_names: Vec<&str> = eligible.iter().map(|item| item.op.as_str()).collect();
     let target_kinds: BTreeSet<&str> =
@@ -523,8 +524,8 @@ fn read_request(bytes: &[u8]) -> Result<Request> {
     Ok(Request { text: text.to_string(), branch_id: branch_id.to_string(), selected_minute: *selected_minute, summary, summary_value })
 }
 
-/// The semantic checks of `_validate_existing_plan` and `_validate_model_effects` on the parser's
-/// plan: Err with the ValueError's text.
+/// The semantic checks of the parser's plan against the summary and the eligible primitives: Err
+/// with the ValueError's text.
 fn validate_plan(plan: &Plan, summary: &Summary, eligible: &[&Primitive]) -> std::result::Result<(), String> {
     let spec = |op: &str| eligible.iter().find(|item| item.op == op);
     for effect in &plan.effects {
@@ -694,7 +695,7 @@ struct Answer {
     fallback_used: bool,
 }
 
-/// `_with_fallback_reason(limitations, reason)`.
+/// The limitations with the reason the LLM's reading was not used, where there is one.
 fn with_reason(mut limitations: Vec<String>, reason: &str) -> Vec<String> {
     if !reason.is_empty() {
         limitations.push(text::head(&format!("AI（Opus）の解釈を使わなかった理由: {reason}"), 500).to_owned());
@@ -702,7 +703,8 @@ fn with_reason(mut limitations: Vec<String>, reason: &str) -> Vec<String> {
     limitations
 }
 
-/// `_offline_compiler_result(...)`.
+/// The offline compiler's result: the parser's plan where it passes, else why not, with the
+/// fallback's reason.
 fn offline_result(request: &Request, parsed: Parsed, eligible: &[&Primitive], fallback_used: bool, reason: &str) -> Result<Answer> {
     let mut reason = reason.to_owned();
     let issues = match parsed {
@@ -803,7 +805,7 @@ fn offline_result(request: &Request, parsed: Parsed, eligible: &[&Primitive], fa
     })
 }
 
-/// What `compile_natural_language(request, router)` answers without an API key: the canonical JSON
+/// What the intervention compiler answers without an API key: the canonical JSON
 /// of the `CompilerResult`'s `model_dump(mode="json")`. The request is the JSON of a `ParseRequest`
 /// (`text`, `branch_id`, `selected_minute` and `scenario_summary`, the summary's dump). `Error::Value`
 /// is a request the contract refuses (the route's 400); other errors are input that is
@@ -840,8 +842,7 @@ pub fn compile_offline(request: &[u8]) -> Result<Vec<u8>> {
     canonical(&answer_value(answer, usage))
 }
 
-/// The primitives the summary's policies and targets allow (`_eligible_primitive_specs`), of
-/// those `keep` takes.
+/// The primitives the summary's policies and targets allow, of those `keep` takes.
 fn eligible(summary: &Summary, keep: impl Fn(&str) -> bool) -> Result<Vec<&'static Primitive>> {
     let policies: BTreeSet<&str> = summary.available_policies.iter().map(String::as_str).collect();
     Ok(primitives()?
@@ -861,7 +862,7 @@ fn prompt_hash(schema: &V) -> Result<String> {
     ]))?))
 }
 
-/// `_compiler_payload`: what the compiler asks Opus with.
+/// What the compiler asks Opus with.
 fn payload(request: &Request, eligible: &[&Primitive]) -> Result<V> {
     let summary = &request.summary;
     let target_ids = V::Map(TARGET_KINDS.iter().map(|kind| (Arc::from(*kind), strs(summary.ids(kind)))).collect());
@@ -980,17 +981,17 @@ static REDACT_ENTITY: text::Pattern = text::Pattern::new(
 );
 
 /// The question a result question stores:
-/// `_REDACT_ENTITY.sub("[selected entity]", _sanitize_narrative(question)).strip()`. The route
-/// then puts "[selected entity]" for the request's own IDs.
+/// The question sanitized (`sanitize`), each entity's name or id it names (`REDACT_ENTITY`) put as
+/// "[selected entity]", and stripped. The route then puts "[selected entity]" for the request's
+/// own IDs.
 pub fn question_text(question: &str) -> Result<String> {
     let sanitized = sanitize(question)?;
     Ok(text::strip(&text::blank(REDACT_ENTITY.get()?, &sanitized, "[selected entity]")?).to_owned())
 }
 
-/// The `metrics` of a comparison's difference (`comparison_projection`) of the frame `other` from
-/// the frame `base`, as canonical JSON: for each
-/// KPI of `base` that is an int or a float in both, `other`'s minus `base`'s, an int when both are
-/// ints, else a float, as Python subtracts them (#307).
+/// The `metrics` of a comparison's difference of the frame `other` from the frame `base`, as
+/// canonical JSON: for each KPI of `base` that is an int or a float in both, `other`'s minus
+/// `base`'s, an int when both are ints, else a float, as Python subtracts them (#307).
 pub fn kpi_differences(base: &[u8], other: &[u8]) -> Result<Vec<u8>> {
     let kpis = |bytes: &[u8]| -> Result<IndexMap<Arc<str>, V>> {
         let json: serde_json::Value = serde_json::from_slice(bytes).map_err(|_| bad("not JSON"))?;
@@ -1036,7 +1037,7 @@ pub fn py_strip(raw: &str) -> &str {
     text::strip(raw)
 }
 
-/// Whether `_REDACT_ENTITY` (`question_text`) finds an entity's name or id in
+/// Whether `REDACT_ENTITY` (`question_text`) finds an entity's name or id in
 /// the text: an LLM's explanation must not name one.
 pub fn names_entity(raw: &str) -> Result<bool> {
     text::found(REDACT_ENTITY.get()?, raw)
@@ -1066,9 +1067,8 @@ static PDF_UNSUPPORTED: text::Pattern = text::Pattern::new(
 );
 static JAPANESE: text::Pattern = text::Pattern::new(r"[ぁ-んァ-ン一-龥]", false);
 
-/// Whether a PDF analysis's paragraph says what the program prints instead (`_UNSUPPORTED`: a
-/// quantity, a quote, a causal or effect assertion), or
-/// holds no Japanese.
+/// Whether a PDF analysis's paragraph says what the program prints instead (`PDF_UNSUPPORTED`: a
+/// quantity, a quote, a causal or effect assertion), or holds no Japanese.
 pub fn pdf_prose_refused(raw: &str) -> Result<bool> {
     Ok(text::found(PDF_UNSUPPORTED.get()?, raw)? || !text::found(JAPANESE.get()?, raw)?)
 }

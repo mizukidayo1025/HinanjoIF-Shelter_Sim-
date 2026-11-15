@@ -5,7 +5,7 @@
 //! for a test the kernel's check alone, with no validator to ask (`AllValid`).
 //!
 //! `metric_line` writes a metric sample as the JSON list of the snapshot's fields, as `json.dumps`
-//! of `_snapshot_fields` with `separators=(",", ":")` writes it: the lines a host keeps for the
+//! of that list with `separators=(",", ":")` writes it: the lines a host keeps for the
 //! digest of a Run's samples (`PlainHost::metrics_digest`).
 
 use std::cell::RefCell;

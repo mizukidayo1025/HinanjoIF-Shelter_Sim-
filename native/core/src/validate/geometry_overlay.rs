@@ -1,10 +1,10 @@
 //! The check of `geometry_overlay_v1`, with its errors and texts (lane E of #250, #350). Raw
-//! errors: `validate_simulator_extensions` passes them on.
+//! errors: `validate::extensions` passes them on.
 //!
-//! Also the floor plans the validators of this lane read: `parsed_facility_geometry` (the
+//! Also the floor plans the validators of this lane read: `parsed_geometry` (the
 //! Scenario's `FacilityGeometry`, `contracts::validate`) and `effective_geometry` (with the
 //! overlay's moved facilities), with the errors met making them, and
-//! `effective_spatial_constraints`' equipment footprints.
+//! the effective spatial constraints' equipment footprints (`effective_footprints`).
 //!
 //! `_GeometryOverlayState` is a pydantic model; only whether it validates matters (the check wraps
 //! its error), so its models here are the core's pydantic (`contracts::pydantic`).
@@ -144,13 +144,13 @@ fn contract(which: &Contract, raw: &V) -> Result<V> {
     })
 }
 
-/// `parsed_facility_geometry(raw)`: the dump of `FacilityGeometry.model_validate(raw)`, or its
+/// The Scenario's facility geometry: the dump of `FacilityGeometry.model_validate(raw)`, or its
 /// error.
 pub fn parsed_geometry(raw: &V) -> Result<V> {
     contract(&Contract::FacilityGeometry, raw)
 }
 
-/// `read_only_part(world, GEOMETRY_OVERLAY_KEY, part, None)`: the part of the overlay, None where
+/// The part `part` of the overlay, None where
 /// the overlay or the part is missing or the overlay is not a dict.
 fn overlay_part(view: &View<'_>, part: &str) -> Result<Option<V>> {
     let Some(state) = view.state(KEY)? else {
@@ -207,7 +207,7 @@ pub fn effective_geometry(view: &View<'_>) -> Result<Option<Plan>> {
     Ok(Some(plan))
 }
 
-/// The equipment footprints of `effective_spatial_constraints(world)`: each facility and its
+/// The equipment footprints of the effective spatial constraints: each facility and its
 /// polygon, a moved facility's moved with it; or the error met making them.
 fn effective_footprints(view: &View<'_>) -> Result<Vec<(Arc<str>, Vec<Pt>)>> {
     let raw = view.config("spatial_constraints")?.unwrap_or(V::Map(IndexMap::new()));
@@ -552,7 +552,7 @@ fn polygons_overlap(left: &[Pt], right: &[Pt]) -> bool {
     sides(left).any(|(a, b)| sides(right).any(|(c, d)| segments_meet(a, b, c, d)))
 }
 
-/// `_validate_room_polygon`.
+/// The check of a temporary room's polygon: simple, nondegenerate and inside its zone.
 fn room_polygon(zone: &[Pt], polygon: &[Pt]) -> Result<()> {
     if !valid_simple(polygon) {
         return invalid("area_invalid: temporary room polygon must be simple and nondegenerate");
@@ -566,7 +566,7 @@ fn room_polygon(zone: &[Pt], polygon: &[Pt]) -> Result<()> {
     Ok(())
 }
 
-/// `_validate_partition_polygon`.
+/// The check of a partition's polygon: simple, of positive area and inside its zone.
 fn partition_polygon(zone: &[Pt], polygon: &[Pt]) -> Result<()> {
     if !valid_simple(polygon) || polygon.iter().any(|point| !point_in_polygon(*point, zone)) {
         return invalid("area_invalid: partition requires a simple positive-area polygon inside its zone");

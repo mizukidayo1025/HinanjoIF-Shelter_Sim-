@@ -37,12 +37,13 @@ use crate::value::V;
 
 /// The stage of every task a tick asks: Python's `LLMStage.RUNTIME` (Haiku).
 pub const STAGE_RUNTIME: &str = "runtime";
-/// A support request's queue priority (`_prioritize_support_request`).
+/// A support request's queue priority (`rules::llm_runtime::prioritize_support_request`).
 pub const SUPPORT_PRIORITY: &str = "support_priority";
 /// The social policy's response to a pending support request (`consider_support_request`).
 pub const SOCIAL_SUPPORT_REQUEST: &str = "social_support_request";
 /// The social policy's typed interaction: a complaint's response, a cooperation, an information
-/// reaction (`_consider_typed_interaction`).
+/// reaction (`llm_runtime::consider_complaint_response`, `consider_cooperation`,
+/// `consider_information_reaction`).
 pub const SOCIAL_INTERACTION: &str = "social_interaction";
 /// A question about a branch's results (`answers::questions`, #463).
 pub const RESULT_QUESTION: &str = "result_question";
@@ -253,7 +254,7 @@ impl SocialLimits {
     }
 }
 
-/// The support priority's limits (`SupportPriorityLimits`; source ASM-SUPPORT-PRIORITY-LIMITS-V1).
+/// The support priority's limits (source ASM-SUPPORT-PRIORITY-LIMITS-V1).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PriorityLimits {
     pub stress_threshold: f64,

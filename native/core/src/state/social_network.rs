@@ -52,7 +52,7 @@ impl Relationship {
         }
     }
 
-    /// The rules of `validate_social_network_state` that read the record's values. NaN fails.
+    /// The rules of `validate::social_network::validate` that read the record's values. NaN fails.
     pub fn is_valid(&self) -> bool {
         self.contact_count >= 0
             && self.conversation_count >= 0
@@ -67,7 +67,7 @@ pub fn is_plain_id(id: &str) -> bool {
     id.bytes().all(|byte| (0x20..0x7f).contains(&byte) && byte != b'"' && byte != b'\\')
 }
 
-/// `_pair_key_problem` found nothing wrong: the compact JSON of two different strings. A key with
+/// Whether a pair's key is good: the compact JSON of two different strings. A key with
 /// anything `json.dumps` escapes says false here, and the whole validation then decides.
 pub fn pair_key_is_good(key: &str) -> bool {
     let Some(inner) = key.strip_prefix("[\"").and_then(|rest| rest.strip_suffix("\"]")) else {

@@ -17,7 +17,8 @@ pub struct AccessibilityNeeds {
 }
 
 impl AccessibilityNeeds {
-    /// `exact_dict` of the configs, of `population` and of its `people`, where each is there.
+    /// The configs, `population` and its `people` read as dicts (`read::map`), where each is
+    /// there.
     pub fn parse(configs: &V) -> Read<Self> {
         let mut people = IndexMap::new();
         if let Some(population) = map(configs)?.get("population") {

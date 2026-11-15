@@ -26,8 +26,8 @@ fn reads_routes(state: &V) -> bool {
         if pending.iter().any(|item| matches!(item, V::Map(item) if item.contains_key("approach_route_id")))))
 }
 
-/// `parsed_facility_geometry(model_configs.get("facility_geometry", {})).arrival_approach_routes`:
-/// the routes of the config's `FacilityGeometry` (`contracts`), each with its `distance_m` and
+/// The arrival approach routes of the configs' facility geometry: the routes of the config's
+/// `FacilityGeometry` (`contracts`), each with its `distance_m` and
 /// `travel_minutes` properties, or the contract's error as the plan's refusal.
 fn approach_routes(view: &View<'_>) -> Result<Routes> {
     let raw = view.config("facility_geometry")?.unwrap_or_else(|| V::Map(Default::default()));

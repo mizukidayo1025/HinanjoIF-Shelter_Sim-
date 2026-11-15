@@ -93,7 +93,7 @@ const PER_AGENT: [(&str, &str); 14] = [
     ("dependent_assistance_reassurance_gain_by_agent", "dependent-assistance reassurance gains"),
 ];
 
-/// The fields a saved config may lack (`optional_compatibility_fields`), besides `affect_policy`
+/// The fields a saved config may lack, besides `affect_policy`
 /// where the Policy Registry selects no affect model.
 const OPTIONAL: [&str; 13] = [
     "social_interaction_minutes",
@@ -204,7 +204,7 @@ pub(crate) fn canonical_body_config(raw: &V) -> Result<Map> {
     Ok(config)
 }
 
-/// `read_only_state(world, "population_dynamics_v1", {})`, as the history reads it: the IDs of
+/// The people the population's dynamics know of, as the history reads them: the IDs of
 /// `world.agents` and of `initial_agent_ids` and `profile_traits`, with the departures' when
 /// `departures` is true.
 fn historical_ids(view: &View<'_>, departures: bool) -> Result<HashSet<Key>> {
@@ -288,7 +288,7 @@ pub(crate) fn body_config_ids(view: &View<'_>, config: &V) -> Result<Vec<Arc<str
     Ok(named)
 }
 
-/// `_validate_body_rows(world, state)`.
+/// The checks of the state's Agent records against the world's people.
 fn validate_rows(view: &View<'_>, state: &Map) -> Result<()> {
     let V::Map(agents) = get(state, "agents") else {
         return Ok(());

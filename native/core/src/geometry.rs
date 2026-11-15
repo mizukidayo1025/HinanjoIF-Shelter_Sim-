@@ -22,7 +22,7 @@ use crate::value::V;
 
 /// Past this a product could overflow where `Point2D` would refuse it. Nothing real is here.
 const COORDINATE_LIMIT: f64 = 1e100;
-/// `MAX_REMEMBERED_ROOM_ROUTES`.
+/// How many in-room routes a plan remembers before it forgets them all.
 const REMEMBERED_ROUTES: usize = 4096;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -88,7 +88,8 @@ fn segment_intersection_parameter(start: Pt, end: Pt, first: Pt, second: Pt) -> 
     (-1e-9 <= t && t <= 1.0 + 1e-9 && -1e-9 <= u && u <= 1.0 + 1e-9).then_some(t)
 }
 
-/// `_segment_intersection`.
+/// Where the segment `start`-`end` meets the segment `first`-`second`: the crossing, or for
+/// overlapping collinear segments the middle of the overlap; None where they do not meet.
 pub fn segment_intersection(start: Pt, end: Pt, first: Pt, second: Pt) -> Option<Pt> {
     if let Some(t) = segment_intersection_parameter(start, end, first, second) {
         return Some(Pt { x: start.x + (end.x - start.x) * t, y: start.y + (end.y - start.y) * t });
@@ -114,7 +115,8 @@ fn sides(polygon: &[Pt]) -> impl Iterator<Item = (Pt, Pt)> + '_ {
     polygon.iter().copied().zip(polygon.iter().copied().skip(1).chain(polygon.first().copied()))
 }
 
-/// `_segment_inside_polygon`.
+/// Whether the segment stays inside the polygon: the middle of each piece between its crossings
+/// with the sides is inside.
 pub fn segment_inside_polygon(start: Pt, end: Pt, polygon: &[Pt]) -> bool {
     let mut cuts = vec![0.0, 1.0];
     cuts.extend(sides(polygon).filter_map(|(first, second)| segment_intersection_parameter(start, end, first, second)));
@@ -147,7 +149,8 @@ pub fn point_segment_distance(point: Pt, start: Pt, end: Pt) -> f64 {
     distance(point, Pt { x: start.x + fraction * dx, y: start.y + fraction * dy })
 }
 
-/// `_segment_clear_of_polygon`.
+/// Whether the segment keeps `clearance` from the polygon: it does not touch it, and no end of
+/// either is nearer than the clearance to the other.
 pub fn segment_clear_of_polygon(start: Pt, end: Pt, polygon: &[Pt], clearance: f64) -> bool {
     if segment_hits_polygon(start, end, polygon) {
         return false;
@@ -161,7 +164,7 @@ pub fn segment_clear_of_polygon(start: Pt, end: Pt, polygon: &[Pt], clearance: f
     })
 }
 
-/// The clearance of `route_is_physically_clear` and `_room_segment_clear`, by the mobility's value.
+/// The clearance of `Geo::route_is_clear` and `Geo::room_segment_clear`, by the mobility's value.
 pub fn walking_clearance(mobility: &str) -> Option<f64> {
     match mobility {
         "independent" => Some(0.25),
@@ -171,7 +174,8 @@ pub fn walking_clearance(mobility: &str) -> Option<f64> {
     }
 }
 
-/// `_point_along_polyline`, for points that are not empty. None when `math.fsum` would not be the plain case.
+/// The point at the fraction `progress` of the polyline's length, for points that are not empty.
+/// None when `math.fsum` would not be the plain case.
 pub fn point_along_polyline(points: &[Pt], progress: f64) -> Option<Pt> {
     let lengths: Vec<f64> = points.windows(2).map(|pair| distance(pair[0], pair[1])).collect();
     let total = py_fsum(&lengths)?;
@@ -197,7 +201,7 @@ pub fn point_along_polyline(points: &[Pt], progress: f64) -> Option<Pt> {
 pub struct Zone {
     pub polygon: Vec<Pt>,
     pub usable_area: f64,
-    /// `_zone_center`. Err for a centre `Point2D` would refuse.
+    /// The zone's centre (`zone_center`). Err for a centre `Point2D` would refuse.
     pub center: std::result::Result<Option<Pt>, ()>,
 }
 
@@ -251,7 +255,7 @@ pub struct Opening {
     pub edge_ids: Vec<Arc<str>>,
 }
 
-/// `effective_spatial_constraints(world)`.
+/// The world's effective spatial constraints (`Constraints::of`).
 pub struct Constraints {
     pub walls: Vec<Wall>,
     pub openings: Vec<Opening>,
@@ -272,16 +276,16 @@ struct RouteKey {
     destination: (u64, u64),
 }
 
-/// What `_geometry(world)` and `_spatial_constraints(world)` return.
+/// The floor plan of a world: its facility layout and its spatial constraints.
 #[derive(Default)]
 pub struct Geo {
     pub layout: Option<Layout>,
     pub constraints: Option<Constraints>,
-    /// `plan_in_room_route`'s memo. A route is a pure function of this plan and its key.
+    /// `Geo::room_route`'s memo. A route is a pure function of this plan and its key.
     routes: Mutex<HashMap<RouteKey, Option<Arc<[Pt]>>, FxBuildHasher>>,
 }
 
-/// `_zone_center` of one polygon.
+/// The centre of a zone's polygon: its centroid, or the mean of its points where its area is 0.
 pub fn zone_center(polygon: &[Pt]) -> std::result::Result<Option<Pt>, ()> {
     let crosses: Vec<f64> = sides(polygon).map(|(a, b)| a.x * b.y - b.x * a.y).collect();
     let twice_area = py_sum(&crosses);
@@ -405,7 +409,7 @@ impl Layout {
 }
 
 impl Constraints {
-    /// `effective_spatial_constraints`: the Scenario's with the partitions as obstacles, in ID
+    /// The effective constraints: the Scenario's with the partitions as obstacles, in ID
     /// order, and the footprints of moved facilities moved with them. `signed` is the Scenario's
     /// facility points, which a moved footprint is moved from.
     pub fn of(spatial: &SpatialConstraints, partitions: Option<&V>, moves: Option<&V>, signed: Option<&IdMap<Pt>>) -> Result<Constraints> {
@@ -467,7 +471,7 @@ impl Constraints {
 
 impl Geo {
     /// The plan of a world: the Scenario's facility geometry (None without one) and spatial
-    /// constraints (None where `_spatial_constraints` gives None), with the overlay's facility
+    /// constraints (None without them), with the overlay's facility
     /// moves and partitions where it has entries. The overlay is read by key, and the partitions
     /// in ID order, so only `Layout.facility_points` follows the overlay's order.
     pub fn new(facility: Option<&FacilityPlan>, spatial: Option<&SpatialConstraints>, moves: Option<&V>, partitions: Option<&V>) -> Result<Geo> {
@@ -482,7 +486,7 @@ impl Geo {
         Ok(Geo { layout, constraints, routes: Mutex::default() })
     }
 
-    /// `_zone_center`. Unsupported for a zone it cannot place.
+    /// The centre of a zone of the layout. Unsupported for a zone it cannot place.
     pub fn center(&self, zone_id: &str) -> Result<Option<Pt>> {
         let Some(zone) = self.layout.as_ref().and_then(|layout| layout.zones.get(zone_id)) else {
             return Ok(None);
@@ -490,7 +494,8 @@ impl Geo {
         zone.center.map_err(|()| Error::unsupported("the centre of a zone is not finite"))
     }
 
-    /// `_room_segment_clear`, for a zone polygon.
+    /// Whether a person of the mobility can walk the segment inside the zone polygon: clear of the
+    /// blocked areas, and through a wall only at an opening wide enough.
     pub fn room_segment_clear(constraints: &Constraints, start: Pt, end: Pt, polygon: &[Pt], mobility: &str) -> bool {
         let Some(clearance) = walking_clearance(mobility) else {
             return false;
@@ -514,7 +519,7 @@ impl Geo {
         })
     }
 
-    /// `route_is_physically_clear`.
+    /// Whether the edge's route is clear for a person of the mobility.
     pub fn route_is_clear(&self, edge_id: &str, mobility: &str) -> bool {
         let Some(layout) = &self.layout else {
             return true;
@@ -664,7 +669,8 @@ impl GeoCache {
 }
 
 impl Geo {
-    /// `plan_in_room_route`. Err for a route it refuses or a kernel doesn't decide.
+    /// The route inside a zone from `start` (its centre where None) to `destination`, remembered.
+    /// Err for a route it refuses or a kernel doesn't decide.
     pub fn room_route(
         &self,
         zone_id: &str,
@@ -694,7 +700,8 @@ impl Geo {
         Ok(route)
     }
 
-    /// `_plan_in_room_route`.
+    /// The route inside a zone, found: the shortest walkable path over the origin, the destination,
+    /// points kept clear of the blocked areas' corners and points beside the walls' openings.
     fn find_room_route(&self, zone_id: &str, start: Option<Pt>, destination: Pt, mobility: &str) -> std::result::Result<Option<Vec<Pt>>, &'static str> {
         const REFUSED: &str = "the centre of a zone is not finite";
         let Some(zone) = self.layout.as_ref().and_then(|layout| layout.zones.get(zone_id)) else {
@@ -833,7 +840,7 @@ impl Geo {
     }
 }
 
-/// `_point_walkable`.
+/// Whether the point is in the zone and in none of the blocked areas.
 pub fn point_walkable(point: Pt, zone: &[Pt], blocked: &[Vec<Pt>]) -> bool {
     point_in_polygon(point, zone) && !blocked.iter().any(|polygon| point_in_polygon(point, polygon))
 }
@@ -876,7 +883,7 @@ impl Ord for Walk {
     }
 }
 
-/// `_polyline_length`. None when `math.fsum` is not the plain case.
+/// The polyline's length. None when `math.fsum` is not the plain case.
 pub fn polyline_length(points: &[Pt]) -> Option<f64> {
     let lengths: Vec<f64> = points.windows(2).map(|pair| distance(pair[0], pair[1])).collect();
     py_fsum(&lengths)

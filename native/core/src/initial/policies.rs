@@ -90,7 +90,7 @@ fn number(found: &V) -> Option<f64> {
 
 // ---- Behavior ----------------------------------------------------------------------------------
 
-/// `behavior_policy_definition(variant, ...)["policy_version"]`.
+/// The `policy_version` of the behavior policy of a variant.
 fn behavior_version(variant: &str, resource_service: bool, autonomy: bool) -> Result<String> {
     let base = match variant {
         "utility-softmax-v1" | "sleep-aware-utility-softmax-v2" | "priority-rule-v1" => variant,
@@ -103,7 +103,7 @@ fn behavior_version(variant: &str, resource_service: bool, autonomy: bool) -> Re
     Ok(version)
 }
 
-/// `UtilityBehaviorPolicy.__post_init__`.
+/// The checks of the utility behavior policy's coefficients, as its constructor makes them.
 fn check_behavior(parameters: &[(&'static str, V)]) -> Result<()> {
     let field = |name: &str| parameters.iter().find(|(known, _)| *known == name).map(|(_, found)| found.clone()).unwrap_or(V::Null);
     let float = |name: &str| number(&field(name)).ok_or_else(|| refused("a behavior coefficient is not a number"));
@@ -153,7 +153,7 @@ fn check_behavior(parameters: &[(&'static str, V)]) -> Result<()> {
     Ok(())
 }
 
-/// The controller's `decisions`: `BehaviorDecisionRunner(create_behavior(configs, **parameters))`.
+/// The policies' `decisions`: the behavior policy the configs make, run every decision interval.
 fn decisions(configs: &Map, selection: &Selection, world: &World, information: &Map) -> Result<V> {
     let interval = setting(configs, "behavior", "decision_interval_minutes", V::Int(15));
     if !matches!(interval, V::Int(minutes) if minutes > 0) {
@@ -513,7 +513,7 @@ fn proximity(configs: &Map, selection: &Selection, world: &World) -> Result<(V, 
     Ok((policy, value(config)))
 }
 
-/// `ToiletServiceManager(world, ...)` of `ToiletServiceConfig.model_validate(toilet_service)`.
+/// The toilet service's manager, from the configs' `toilet_service` as its contract reads it.
 fn toilet_service(configs: &Map) -> Result<V> {
     let minimum = setting(configs, "toilet_service", "minimum_minutes", V::Int(4));
     let maximum = setting(configs, "toilet_service", "maximum_minutes", V::Int(8));
@@ -644,7 +644,7 @@ const HANDLERS: [(&str, &str, &str); 47] = [
     ("water_restored", "handlers", "WaterRestorationHandler"),
 ];
 
-/// `controller.event_dispatcher`, as `load::run`'s `dispatch` reads it.
+/// The event dispatcher and its handlers, as `load::run`'s `dispatch` reads them.
 fn dispatch(resource_service: bool, cooldown: i64) -> V {
     let manager = |module: &str, class: &str| vmap([("object", object_of(module, class, Vec::new(), Vec::new()))]);
     let service_manager = || manager("sheltersim.domain.resource_service", "ResourceServiceManager");

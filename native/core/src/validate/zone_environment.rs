@@ -26,7 +26,7 @@ const POLICY: &str = "zone_environment_v1";
 const EVENT_PREFIX: &str = "effect_program_environment";
 const START: &str = "effect_program_environment";
 const EXPIRY: &str = "effect_program_environment_expire";
-/// `LEGACY_ZONE_ENVIRONMENT_FIELDS`: fields an older canonical config lacks.
+/// The fields an older canonical config lacks.
 pub(crate) const LEGACY_FIELDS: [&str; 7] = [
     "lighting_sleep_efficiency_loss",
     "ventilation_hygiene_growth_per_minute",
@@ -66,7 +66,7 @@ fn text(value: &str) -> V {
     V::Str(Arc::from(value))
 }
 
-/// `_has_exact_schema(state)`.
+/// The state's modifiers, where it is a dict of schema 1 with its keys and a dict of modifiers.
 fn exact_schema(state: Option<&V>) -> Option<&Map> {
     match state {
         Some(V::Map(state))

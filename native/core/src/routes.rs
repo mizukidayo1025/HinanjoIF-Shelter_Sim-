@@ -1,8 +1,8 @@
-//! The route graph of a Run: `ShortestTravelTimePolicy.route` over a snapshot of the zone graph
-//! (Issue #152, lane 7-3; design-p7.md, principle 4).
+//! The route graph of a Run: the shortest travel time over a snapshot of the zone graph
+//! (`Router::shortest`; design-p7.md, principle 4).
 //!
 //! A `Router` is built from the world's zone and zone-edge tables (`Entities::zones`,
-//! `zone_edges`) with the checks and the words of `ZoneGraph` (lane 7-4), and `Routes` keeps a
+//! `zone_edges`) with the checks and the words of the zone graph's rules, and `Routes` keeps a
 //! Run's two routers (people's and staff's) for the epoch they were built in. The epoch changes at
 //! the Run's start and after a dispatch that applied a geometry or structure event
 //! (`Routes::refresh`, called by `rules::dispatch`). It is a snapshot on purpose: an edge closed
@@ -17,7 +17,7 @@ use crate::error::{Error, Result};
 use crate::geometry::Geo;
 use crate::run::{Capacity, RouteCapacities};
 
-/// `edge_loads`: looked up, never walked, so its order decides nothing.
+/// The trips on each edge: looked up, never walked, so its order decides nothing.
 pub type EdgeLoads = HashMap<Arc<str>, i64>;
 
 /// An open edge of the graph: closed ones, and ones whose capacity no trip fits, are left out by
@@ -33,7 +33,7 @@ pub struct Edge {
     pub capacity: Option<i64>,
 }
 
-/// A route: `ZoneRoute` of a walk through the graph.
+/// A route: a walk through the graph.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Route {
     pub origin: Arc<str>,
@@ -84,9 +84,9 @@ impl Router {
         Self { zones: zones.into_iter().collect(), outgoing, closed: Mutex::default() }
     }
 
-    /// `ZoneGraph.from_states(zones, edges, edge_capacities=capacities)` of the tables, as a router
-    /// of its open edges: what the constructor turns down raises its ValueError, checked in its
-    /// order (the capacities' keys, then each zone in the dict's order, then each edge by ID).
+    /// The zone graph of the tables with these capacities, as a router of its open edges: what the
+    /// graph's checks turn down raises their ValueError, checked in their order (the capacities'
+    /// keys, then each zone in the dict's order, then each edge by ID).
     pub fn of_tables(zones: &Table<ZoneRow>, edges: &Table<EdgeRow>, capacities: &RouteCapacities) -> Result<Self> {
         // `set(capacities) - set(edges)`: by the dict's keys.
         if capacities.unmatched_keys || capacities.by_edge.keys().any(|key| edges.get(key).is_none()) {
@@ -140,7 +140,7 @@ impl Router {
 
     /// The graph `world_graph` of `rules/travel.rs` reads: the open edges of the
     /// tables in the dict's order, with these capacities (checked by the caller). An edge
-    /// `ZoneGraph` turns down for its zones or its time is refused, in the dict's order.
+    /// the graph's checks turn down for its zones or its time is refused, in the dict's order.
     pub fn of_world_tables(zones: &Table<ZoneRow>, edges: &Table<EdgeRow>, capacities: &HashMap<Arc<str>, i64>) -> Result<Self> {
         let mut open = Vec::with_capacity(edges.len());
         for (_, edge) in edges.iter() {
@@ -175,8 +175,8 @@ impl Router {
         ids
     }
 
-    /// `_physically_closed_edges`: the routes of the plan `route_is_physically_clear` turns down for
-    /// this mobility, kept while the plan is the same `Geo`.
+    /// The edges whose routes the plan turns down for this mobility (`Geo::route_is_clear`), kept
+    /// while the plan is the same `Geo`.
     pub fn closed_to(&self, geo: &Arc<Geo>, mobility: &'static str) -> Result<Arc<HashSet<Arc<str>>>> {
         let mut known = self.closed.lock().map_err(|_| Error::unsupported("the closed edges are poisoned"))?;
         if let Some((_, _, closed)) = known.iter().find(|(name, plan, _)| *name == mobility && Arc::ptr_eq(plan, geo)) {
@@ -192,12 +192,13 @@ impl Router {
         Ok(closed)
     }
 
-    /// The edges of this graph `route_is_physically_clear` turns down, for a person of this mobility.
+    /// The edges of this graph whose routes the plan turns down (`Geo::route_is_clear`), for a
+    /// person of this mobility.
     pub fn edges_closed_by(&self, geo: &Geo, mobility: &str) -> HashSet<Arc<str>> {
         self.outgoing.values().flatten().filter(|edge| !geo.route_is_clear(&edge.id, mobility)).map(|edge| edge.id.clone()).collect()
     }
 
-    /// `ShortestTravelTimePolicy.route`, without these edges and with these trips counted.
+    /// The shortest route by travel time, without these edges and with these trips counted.
     ///
     /// The whole path is part of the priority, so of the routes of equal minutes the one of the
     /// least edge IDs, then zone IDs, wins whatever order the edges were given in: travel times
@@ -253,13 +254,13 @@ impl Router {
     }
 }
 
-/// Which of a Run's routers: `controller.space`'s or `controller.staff_space`'s.
+/// Which of a Run's routers: the people's or the staff's.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Which {
-    /// People's routes (`_route`, `_schedule_travel`, the choice of a facility).
+    /// People's routes (`travel::route`, `travel::schedule_travel`, the choice of a facility).
     People,
-    /// Staff's routes (`assign_staff_operations`): with a floor plan, only the edges clear for an
-    /// independent walker.
+    /// Staff's routes (their tasks, `tick::arbitrate`): with a floor plan, only the edges clear for
+    /// an independent walker.
     Staff,
 }
 
@@ -277,7 +278,7 @@ impl Routes {
         self.epoch
     }
 
-    /// `_refresh_space`: the routers built so far are of an old graph.
+    /// A new epoch: the routers built so far are of an old graph.
     pub fn refresh(&mut self) {
         self.epoch += 1;
         self.people = None;

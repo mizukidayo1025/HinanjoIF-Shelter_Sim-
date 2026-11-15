@@ -1,5 +1,5 @@
 //! The check of `movement_v1`, with its errors and texts (lane E of #250, #350). Raw errors:
-//! `validate_simulator_extensions` passes them on.
+//! `validate::extensions` passes them on.
 //!
 //! `py` holds Python's semantics of a JSON value where the validators of this lane read one.
 

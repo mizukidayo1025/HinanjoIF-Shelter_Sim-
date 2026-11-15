@@ -2,8 +2,8 @@
 //! `rules/resources.rs` writes it in place (docs/rust-port/lanes/m4-resources.md).
 //!
 //! The audit trail is the canonical JSON of each record. Rules read only the newest record of each
-//! resource, which the row keeps typed. A record joins the row only if it passes every rule of
-//! `_validate_audit_record` that reads the record alone; any other record does not fit the row: a
+//! resource, which the row keeps typed. A record joins the row only if it passes every rule of the
+//! audit record's check that reads the record alone; any other record does not fit the row: a
 //! Run refuses to load such a world (`load::put_namespace`), and the whole validation reads it as a
 //! value (`load::Namespaces::Lenient`).
 //!
@@ -106,7 +106,8 @@ pub fn resource_index(id: &str) -> Option<usize> {
 }
 
 impl AuditRecord {
-    /// The rules of `_validate_audit_record` that read the record alone.
+    /// The rules of the audit record's check (`validate::resource_ledger`) that read the record
+    /// alone.
     fn is_valid(&self) -> bool {
         let id_is_valid = |id: &Option<Arc<str>>| id.as_ref().is_none_or(|id| is_valid_id(id));
         self.schema_version == AUDIT_SCHEMA_VERSION
@@ -315,9 +316,9 @@ pub trait LedgerWorld {
 }
 
 impl LedgerRow {
-    /// Every rule `validate_resource_ledger_state` has, given a row of the right types, for a world
-    /// holding these resources, people and zones. True says the whole validation accepts; false
-    /// decides nothing.
+    /// Every rule `validate::resource_ledger::validate` has, given a row of the right types, for a
+    /// world holding these resources, people and zones. True says the whole validation accepts;
+    /// false decides nothing.
     pub fn passes_rules_in<W: LedgerWorld>(&self, world: &W) -> std::result::Result<bool, W::Error> {
         if self.schema_version != SCHEMA_VERSION
             || !is_valid_id(&self.warehouse_id)

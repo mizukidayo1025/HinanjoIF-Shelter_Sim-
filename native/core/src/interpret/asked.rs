@@ -1,10 +1,10 @@
-//! The intervention compiler asked of an LLM (#463): what `compile_natural_language(request,
-//! router)` does with an API key, around the core's port to an LLM (`crate::llm`).
+//! The intervention compiler asked of an LLM (#463): what the compiler does with an API key,
+//! around the core's port to an LLM (`crate::llm`).
 //!
 //! `Compiling::new` reads the request and builds the task (`intervention_compiler`, the
 //! intervention stage, the same payload, instructions and output schema as the offline answer's
 //! hashes name); the caller hands each task to its link and gives the reply to `read`. An answer
-//! that fits the schema is checked as `_parse_compiler_output` checks it (the status's rules, the
+//! that fits the schema is checked (`Compiling::accept`: the status's rules, the
 //! effects against the summary, the program read by the core's EffectProgram contract); one that
 //! fails those checks is asked to be repaired once (`intervention_repair`, the errors given back).
 //! The result is the `CompilerResult` dump: the LLM's plan, or what the rules make of the text
@@ -62,7 +62,7 @@ pub enum Step {
     /// The `CompilerResult` dump's canonical JSON.
     Done(Vec<u8>),
     /// No plan was accepted and the router's policy stops instead of falling back
-    /// (`InterventionCompilerUnavailable`): the reason, at most 500 characters.
+    /// (`intervention_compiler_unavailable`): the reason, at most 500 characters.
     Unavailable(String),
 }
 
@@ -198,8 +198,7 @@ impl Compiling {
         }
     }
 
-    /// `_compiler_usage(records, task, prompt_hash)`: the first task's version and input, the
-    /// replies' sums.
+    /// The compiler's usage: the first task's version and input, the replies' sums.
     fn usage(&self) -> V {
         let last = self.replies.last();
         let model_id = last.and_then(|reply| reply.model_id.as_deref()).filter(|model| !model.starts_with("offline:"));
@@ -218,7 +217,7 @@ impl Compiling {
         ])
     }
 
-    /// `_provider_failure_reason(records)`.
+    /// Why the provider's answer was not used, from the last reply.
     fn failure_reason(&self) -> String {
         match self.replies.last() {
             Some(last) if last.fallback_used => {
@@ -303,8 +302,8 @@ impl Compiling {
         Ok(Step::Done(canonical(&result)?))
     }
 
-    /// `_parse_compiler_output`: the document's checks, and for a compiled one its plan (the
-    /// `DraftPlan` dump); Err with the errors to repair.
+    /// The answer's checks, and for a compiled one its plan (the `DraftPlan` dump); Err with the
+    /// errors to repair.
     fn accept(&self, document: &Value) -> std::result::Result<Option<V>, Vec<String>> {
         let one = |message: String| vec![message];
         let status = document["status"].as_str().unwrap_or_default();
@@ -377,7 +376,8 @@ impl Compiling {
         self.plan(document).map(Some).map_err(|error| one(error.to_string()))
     }
 
-    /// `_validate_model_effects` for the operators the core runs.
+    /// The semantic checks of the answer's effects against the summary, for the operators the core
+    /// runs.
     fn check_effects(&self, effects: &[Value], assumptions: usize) -> std::result::Result<(), String> {
         let summary = &self.request.summary;
         let events: usize = effects.iter().map(|effect| if effect.get("end_minute").is_some() { 2 } else { 1 }).sum();
@@ -463,7 +463,7 @@ impl Compiling {
         Ok(())
     }
 
-    /// `_compiler_result_from_output`'s `DraftPlan` dump, its parameters as the core's
+    /// The plan of an accepted answer, as the `DraftPlan` dump, its parameters as the core's
     /// EffectProgram contract reads and dumps them (the contract refuses what it cannot read).
     fn plan(&self, document: &Value) -> Result<V> {
         let request = &self.request;

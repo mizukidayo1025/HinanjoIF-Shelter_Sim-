@@ -80,7 +80,7 @@ const PROMPT_CONSTRAINTS: [&str; 8] = [
     "Prefer the most decision-relevant recorded evidence; do not repeat a metric or event.",
     "Return only the required JSON object. Do not include prose or numbers.",
 ];
-// `render_review_markdown` of a rule fallback with the empty review.
+// The markdown of a rule fallback with the empty review (`render_markdown`).
 const FALLBACK_MARKDOWN: &str = "# Evidence-bound Opus review\n\n- Status: `rule_fallback`\n\nOpus review was unavailable; the recorded run evidence below \
 remains authoritative.\n\n## Observed evidence\n\nNo structured observations were returned.\n\n## Assumptions\n\nNo assumption references were \
 selected.\n\n## Hypotheses\n\nNo hypotheses were selected.\n\n## Recommendations\n\nNo recommendations were selected.\n\n## Limitations\n\nThis \
@@ -200,7 +200,7 @@ pub fn scenario_assumption_ids(scenario: &Value) -> Answer<Vec<String>> {
     Ok(ids)
 }
 
-/// The log's record `index` as its canonical JSON (`EventRecord.to_dict()`).
+/// The log's record `index` as its canonical JSON (the record's JSON form).
 fn log_record(run: &PlainRun, index: usize) -> Answer<Vec<u8>> {
     let mut out = Vec::new();
     let written = run.loaded.cell.with(|world| world.log().and_then(|log| log.write_record(index, &mut out)))??;
@@ -224,8 +224,8 @@ fn integer_json(value: &Value) -> Answer<Vec<u8>> {
     }
 }
 
-/// The evidence of a review (`build_review_evidence`) of the Run at its last minute: the canonical
-/// JSON of its parts, and the prompt's.
+/// The evidence of a review of the Run at its last minute (`review_evidence`): the canonical JSON
+/// of its parts, and the prompt's.
 struct Evidence {
     /// `{"metrics", "events", "assumptions", "comparison_deltas", "event_id_by_ref", "generated_minute"}`.
     evidence: Vec<u8>,
@@ -250,7 +250,7 @@ fn review_evidence(run: &PlainRun, scenario: &[u8]) -> Answer<Evidence> {
         }
         None => (b"{}".to_vec(), b"null".to_vec()),
     };
-    // `build_review_evidence` of the last 100 records: the critical ones, the last 20.
+    // The review's events of the last 100 records: the critical ones, the last 20.
     let total = run.log_records()?;
     let mut critical = Vec::new();
     for index in total.saturating_sub(100)..total {
@@ -322,7 +322,7 @@ fn empty_review() -> Vec<u8> {
     empty.finish()
 }
 
-/// The report's JSON: the review's `status`, its markdown, the review's record (`ReviewResult`).
+/// The report's JSON: the review's `status`, its markdown and the review's record.
 fn report_json(branch_id: &str, evidence: &Evidence, status: &str, markdown: &str, review: Vec<u8>, issue: Option<&str>) -> Vec<u8> {
     let mut result = Obj::new();
     result.int("schema_version", 1).str("status", status).str("prompt_version", "evidence-review-v1").str("input_hash", &evidence.input_hash);
@@ -333,14 +333,14 @@ fn report_json(branch_id: &str, evidence: &Evidence, status: &str, markdown: &st
     report.finish()
 }
 
-/// The report of the Run `run` at its last minute (`finish_review` with the offline router) and
-/// the Scenario's JSON bytes, for the branch `branch_id`: its JSON.
+/// The report of the Run `run` at its last minute without an LLM (the rule fallback) and the
+/// Scenario's JSON bytes, for the branch `branch_id`: its JSON.
 pub fn build_report(run: &PlainRun, scenario: &[u8], branch_id: &str) -> Answer {
     let evidence = review_evidence(run, scenario)?;
     Ok(report_json(branch_id, &evidence, "rule_fallback", FALLBACK_MARKDOWN, empty_review(), None))
 }
 
-/// The review of a completed branch asked of an LLM (#463, `generate_evidence_review`): the task
+/// The review of a completed branch asked of an LLM (#463): the task
 /// of the Run `run` at its last minute and the Scenario's JSON bytes; `Reviewing::report` reads
 /// the link's reply into the report the server keeps.
 pub fn review(run: &PlainRun, scenario: &[u8], branch_id: &str) -> Answer<Reviewing> {
@@ -455,7 +455,7 @@ fn label(table: &[(&str, &'static str)], key: &str) -> &'static str {
     table.iter().find(|(name, _)| *name == key).map_or("", |(_, label)| *label)
 }
 
-/// `_review_schema(evidence)`.
+/// The review's output schema for the evidence's metric ids, event references and assumptions.
 fn review_schema(metric_ids: &[String], event_refs: &[String], assumptions: &[String]) -> Value {
     let refs = |values: &[String]| json!({"type": "array", "items": {"type": "string", "enum": values}});
     let mut classes: Vec<&str> = EVENT_TYPE_ALIASES.iter().map(|(_, class)| *class).chain(["failure", "suppressed", "other"]).collect();
@@ -520,7 +520,7 @@ fn items<'v>(value: &'v Value, key: &str) -> &'v [Value] {
     value.get(key).and_then(Value::as_array).map(Vec::as_slice).unwrap_or(&[])
 }
 
-/// `_validate_review(review, evidence)`: the issue, or None where the codes fit the evidence.
+/// The review's checks against the evidence: the issue, or None where the codes fit the evidence.
 fn validation_issue(review: &Value, evidence: &Value) -> Option<String> {
     for item in items(review, "observed") {
         let metric = item["metric_id"].as_str().unwrap_or_default();
@@ -576,8 +576,7 @@ pub fn format_g(value: f64) -> String {
     }
 }
 
-/// `render_review_markdown(result)`: fixed vocabulary and the evidence's facts, no text of the
-/// model's.
+/// The review's markdown: fixed vocabulary and the evidence's facts, no text of the model's.
 fn render_markdown(status: &str, issue: Option<&str>, review: &Value, evidence: &Value) -> String {
     let mut lines: Vec<String> = vec!["# Evidence-bound Opus review".to_owned(), String::new(), format!("- Status: `{status}`")];
     if status == "rejected" {

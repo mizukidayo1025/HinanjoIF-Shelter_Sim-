@@ -47,8 +47,7 @@ const PAIRS: [(&str, &str); 9] = [
 ];
 const STALL_REASONS: [&str; 5] = ["capacity", "staff", "stock", "run_end", "water_outage"];
 
-/// `ResourceServiceConfig`: what the entity rules read of it (`resource_config` of
-/// `_validate_entity_rules`).
+/// `ResourceServiceConfig`: what the entity rules (`validate/entities.rs`) read of it.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ServiceConfig {
     pub service_minutes: i64,

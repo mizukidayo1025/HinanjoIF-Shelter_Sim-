@@ -1,7 +1,7 @@
 //! The Model Catalog: the installed models a Scenario selects (`model-catalog.json`), with the
 //! models' definitions (domain, formula, reference, versions, assumption source, parameters with
-//! their units and bounds, required state contracts), `DEFAULT_MODELS`, the model suites
-//! (`CORE_MODEL_SUITES`) and the psychology models of each kind. It is the one copy: the
+//! their units and bounds, required state contracts), the default models (`default_models`), the
+//! model suites (`suites`) and the psychology models of each kind. It is the one copy: the
 //! validation (`selection`), the Run's records (`initial::records`: the model signatures and the
 //! evidence's `operator_evidence`) and Python's Scenario authoring (`sheltersim_native.model_catalog`,
 //! `contracts/policies.py`) read it. A definition is part of its model's signature, so a change to
@@ -37,7 +37,7 @@ pub struct ModelDefinition {
     /// The parameters whose name starts with `behavior.`, by name.
     pub behavior_parameters: IndexMap<Arc<str>, Bounds>,
     /// `assumption_source_id`: the source an indexed decision sink writes for a decision whose
-    /// policy version is this model's ID (`_IndexedMetricSink.policy_sources`, #368).
+    /// policy version is this model's ID (`Host::decision_source`, #368).
     pub assumption_source_id: Arc<str>,
 }
 
@@ -70,7 +70,7 @@ impl Catalog {
         self.life_state_psychology.iter().any(|known| &**known == model)
     }
 
-    /// Whether a model is a mean-reverting psychology model (`MEAN_REVERTING_PSYCHOLOGY_POLICIES`).
+    /// Whether a model is a mean-reverting psychology model.
     pub fn is_mean_reverting(&self, model: &str) -> bool {
         self.mean_reverting_psychology.iter().any(|known| &**known == model)
     }
@@ -196,10 +196,9 @@ pub fn catalog() -> Result<&'static Catalog> {
 mod tests {
     use super::*;
 
-    /// What a model of the catalog must declare (`PolicyModelDefinition` of Python's registry
-    /// before #475): its domain, reference, formula, source and versions, no claim of external
-    /// validity, and each parameter's config path, unit and ordered, finite bounds around its
-    /// default.
+    /// What a model of the catalog must declare (as Python's registry did before #475): its
+    /// domain, reference, formula, source and versions, no claim of external validity, and each
+    /// parameter's config path, unit and ordered, finite bounds around its default.
     #[test]
     fn each_model_declares_its_formula_source_and_bounded_parameters() {
         let number = |value: &Value| value.as_f64().filter(|_| value.is_number());

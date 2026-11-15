@@ -50,7 +50,7 @@
 //! A Run of an older format ("sheltersim-browser-run-v1" to "-v4", "sheltersim-run-v5") is not
 //! read: its "run" line is the error `stored_run_outdated` (`outdated`), and the Run is computed
 //! again (decision 7). v5 also stored the records of the decisions (the old local version's
-//! `_IndexedMetricSink`), which nothing read; v6 has no such piece (#478).
+//! indexed sink), which nothing read; v6 has no such piece (#478).
 //!
 //! The log and the samples are only appended to, so a saved point holds no copy of them: seeking
 //! (`Chain::seek`) restores the nearest saved point at or before the minute from it and the stored

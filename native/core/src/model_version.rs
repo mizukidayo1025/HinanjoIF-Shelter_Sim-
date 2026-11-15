@@ -10,9 +10,9 @@
 //! not computed again with the installed model: the saved point at or before it is shown, and the
 //! answer says so (`ModelStatus::describe_json`, D2).
 //!
-//! What that rule (`model_version_status`) read besides the two maps is left out, as no stored Run
+//! What that Python rule read besides the two maps is left out, as no stored Run
 //! of this format can need it: the explicit migration of saves from before independent facility
-//! queues and the older shapes of `model_state` (`_legacy_shapes`) were the Python Checkpoints',
+//! queues and the older shapes of `model_state` were the Python Checkpoints',
 //! and the configs decide nothing when the recorded map holds model items, which every Run of this
 //! format's does.
 
@@ -71,7 +71,7 @@ fn model_items(versions: &Versions) -> Versions {
         .collect()
 }
 
-/// How a stored Run's recorded versions compare with the installed ones (`ModelVersionStatus`).
+/// How a stored Run's recorded versions compare with the installed ones.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ModelStatus {
     pub recorded_version: String,
@@ -81,7 +81,7 @@ pub struct ModelStatus {
 }
 
 impl ModelStatus {
-    /// `model_version_status(recorded, …, installed)` of two maps (see the module's note).
+    /// The status of two maps, the recorded and the installed versions (see the module's note).
     pub fn of(recorded: &Versions, installed: &Versions) -> Self {
         let engine_recorded = recorded_engine(recorded);
         let engine_installed: Versions =
@@ -102,7 +102,7 @@ impl ModelStatus {
         }
     }
 
-    /// `unreadable_status`: a save whose configs the installed code cannot sign at all.
+    /// The status of a save whose configs the installed code cannot sign at all.
     pub fn unreadable(recorded: &Versions) -> Self {
         Self {
             recorded_version: recorded_engine(recorded)[ENGINE_VERSION_KEY].clone(),
@@ -116,7 +116,7 @@ impl ModelStatus {
         self.differences.is_empty()
     }
 
-    /// The user-facing Japanese text of a Run of other versions (`ModelVersionStatus.message`).
+    /// The user-facing Japanese text of a Run of other versions.
     pub fn message(&self) -> String {
         let tail = "閲覧のみです。保存した時点だけを表示し、続きの計算、分岐、介入の適用はできません。";
         if self.recorded_version != self.installed_version {
@@ -139,12 +139,13 @@ impl ModelStatus {
         format!("このシナリオは以前の保存の形（{}）で保存されました。{tail}", named(&shapes))
     }
 
-    /// `ViewOnlyRunError`'s text: `run_model_view_only: ` and the message.
+    /// The refusal's text: `run_model_view_only: ` and the message.
     pub fn error_text(&self) -> String {
         format!("{VIEW_ONLY_CODE}: {}", self.message())
     }
 
-    /// Nothing for a current Run; else the refusal to go on with it (`ViewOnlyRunError`).
+    /// Nothing for a current Run; else the refusal to go on with it (a `Value` error with
+    /// `error_text`).
     pub fn require_current(&self) -> Result<(), Error> {
         if self.current() {
             Ok(())
@@ -153,7 +154,7 @@ impl ModelStatus {
         }
     }
 
-    /// `to_dict()`, as canonical JSON: `current`, `differences`, `installed_version`, `message`
+    /// The status as canonical JSON: `current`, `differences`, `installed_version`, `message`
     /// (null for a current Run), `recorded_version`, `view_only`.
     pub fn to_json(&self) -> Vec<u8> {
         let mut out = Encoder::with_capacity(512);
@@ -182,10 +183,10 @@ impl ModelStatus {
         out.out
     }
 
-    /// `SavedPointView(self, saved_minute, requested_minute).describe()` (D2), as canonical JSON:
-    /// the fields a view's answer adds, `model_view` for a Run of other versions and
-    /// `saved_point_rounding` where the minute shown (`saved_minute`, the saved point at or before
-    /// the one asked for) is not the minute asked for.
+    /// The view of a saved point (D2), as canonical JSON: the fields a view's answer adds,
+    /// `model_view` for a Run of other versions and `saved_point_rounding` where the minute shown
+    /// (`saved_minute`, the saved point at or before the one asked for) is not the minute asked
+    /// for.
     pub fn describe_json(&self, saved_minute: i64, requested_minute: i64) -> Vec<u8> {
         let mut out = Encoder::with_capacity(1024);
         out.out.push(b'{');
@@ -210,7 +211,7 @@ impl ModelStatus {
     }
 }
 
-/// `SavedPointView.rounding()`'s message: a minute between saved points of a Run of other versions
+/// The rounding's message: a minute between saved points of a Run of other versions
 /// is not computed again; the saved point at or before it is shown (D2).
 pub fn rounding_message(requested_minute: i64, saved_minute: i64) -> String {
     format!("旧モデルのRunのため、{requested_minute}分は計算し直さず、保存した時点（{saved_minute}分）の状態を表示しています。")

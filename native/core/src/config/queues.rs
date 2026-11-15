@@ -1,5 +1,5 @@
-//! The section of the queue policy (lane 7-5a of Issue #152): `create_queue_policy` of the two
-//! bundled policies, from `model_configs["facility_queues"]`, with the checks of their constructors.
+//! The section of the queue policy: the two bundled policies, from
+//! `model_configs["facility_queues"]`, with the checks of their constructors.
 //!
 //! Which policy the configs select also turns on the model selection, which has its own section; so
 //! this one keeps both policies, each read as it would be: the policy, the `ValueError` its
@@ -15,7 +15,7 @@ pub const LIMIT_MEAL: i64 = 360;
 pub const PERSISTENCE_THRESHOLD: f64 = 0.8;
 pub const RETRY_DELAY: i64 = 15;
 
-/// `create_queue_policy`, for the two bundled policies.
+/// The queue policy, of the two bundled policies.
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum QueuePolicy {
     Strict,
@@ -32,7 +32,7 @@ pub struct QueueConfig {
 }
 
 impl QueueConfig {
-    /// `exact_dict(model_configs)`, then each policy as it would be read.
+    /// The configs as a dict (`read::map`), then each policy as it would be read.
     pub fn parse(configs: &V) -> Read<Self> {
         let configs = map(configs)?;
         let raw = configs.get("facility_queues");
@@ -89,7 +89,8 @@ fn is_not_one(value: &V) -> bool {
     }
 }
 
-/// The checks of `NeedWeightedPhysicalQueuePolicy.__init__` (or of the strict policy), in their order.
+/// The checks of the need-weighted policy's constructor (or of the strict policy's), in their
+/// order.
 fn config_errors(raw: &V, need_weighted: bool) -> Read<()> {
     if matches!(raw, V::Null) {
         return Ok(());

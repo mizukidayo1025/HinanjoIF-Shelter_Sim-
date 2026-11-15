@@ -19,7 +19,7 @@ pub struct ResourceService {
     /// `dict(model_configs["resource_service"])` where it is a dict: a copy of its items. None for no
     /// config, or one that is not a dict.
     pub config: Option<Arc<IndexMap<Arc<str>, V>>>,
-    /// The skills `_require_service_staff_in_zone` reads, or its refusal of a config that is not a dict.
+    /// The skills the service's staff check reads, or its refusal of a config that is not a dict.
     pub skills: Read<ServiceSkills>,
 }
 
@@ -31,7 +31,7 @@ pub struct ServiceSkills {
 }
 
 impl ResourceService {
-    /// `exact_dict(model_configs)` and its `resource_service`.
+    /// The configs as a dict (`read::map`) and its `resource_service`.
     pub fn parse(configs: &V) -> Read<Self> {
         let raw = map(configs)?.get("resource_service");
         let (config, skills) = match raw {

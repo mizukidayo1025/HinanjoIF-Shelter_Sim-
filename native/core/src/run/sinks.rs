@@ -1,8 +1,8 @@
 //! Where a Run's records go and whether it has an LLM: `controller.artifacts` (its decision sink
 //! and trace level), `controller.llm_router` and `controller.social_policy` (lane P8-0b).
 //!
-//! The kernels read these at each step (`decisions.rs` `sink_of`, `trace.rs` `Level::of`,
-//! `proposals.rs` and `staff.rs`); the Run reads them once. Whether a trace writer has started or
+//! The kernels read these at each step (the decisions' sink, the trace's level, `proposals.rs` and
+//! `staff.rs`); the Run reads them once. Whether a trace writer has started or
 //! finished changes during the Run, so the `Host` asks that where it records.
 
 use std::sync::Arc;
@@ -26,9 +26,9 @@ pub const UNKNOWN_LEVEL: &str = "a trace level this kernel does not know";
 /// What a sink does with a decision (`decision_sink` of the sink's own class).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DecisionSink {
-    /// `"silent"`: nothing (`_MetricSink`).
+    /// `"silent"`: nothing.
     Silent,
-    /// `"indexed"`: the record's JSON bytes go into `observations` (`_IndexedMetricSink`).
+    /// `"indexed"`: the record's JSON bytes go into the sink's observations.
     Indexed,
     /// `"artifacts"`: `RunArtifactWriter`, which takes the document while its trace is on.
     Artifacts,
@@ -88,7 +88,7 @@ impl Sinks {
     }
 }
 
-/// `sink_of` of `decisions.rs` without its moment: no `artifacts`, or a class without its own
+/// The decisions' sink, read once for the Run: no `artifacts`, or a class without its own
 /// `decision_sink`, is `DecisionSink::Host`; a declaration that is not exactly a str raises
 /// (`TypeError`).
 fn decision_sink(artifacts: Read<Read<Option<&Arc<Obj>>>>) -> Read<DecisionSink> {

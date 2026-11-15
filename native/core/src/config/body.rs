@@ -1,6 +1,6 @@
-//! The body's sections: the operators of `body_state_v1` (`create_affect`,
-//! `create_relationship_policy`), the minutes of a social action, and the selected care formula
-//! (`create_care_outcome_formula`) (lane 7-5b of Issue #152).
+//! The body's sections: the operators of `body_state_v1` (its affect model and its relationship
+//! policy, `BodyModels`), the minutes of a social action, and the selected care formula
+//! (`CareOutcome`).
 
 use std::sync::Arc;
 
@@ -49,7 +49,7 @@ impl BodyModels {
             _ => return Err(Fault::refused("an affect model this kernel doesn't know")),
         };
         let Some(relationship) = relationship else {
-            // `create_relationship_policy` without a selection.
+            // No relationship policy selected: trust by duration only.
             return Ok(Self { affect, trust: TrustModel::DurationOnly });
         };
         let trust = match relationship {
@@ -89,8 +89,8 @@ pub fn social_interaction_minutes(configs: &V) -> Read<i64> {
     }
 }
 
-/// What the support rule reads of a `CareOutcomeFormula`: its model, its source and its config, a
-/// copy of `body_dynamics`.
+/// What the support rule reads of the selected care formula: its model, its source and its config,
+/// a copy of `body_dynamics`.
 #[derive(Clone, PartialEq, Debug)]
 pub struct CareOutcome {
     pub model_id: Arc<str>,
@@ -104,8 +104,8 @@ impl CareOutcome {
         Ok(Self { model_id, source_id, config })
     }
 
-    /// `create_care_outcome_formula(configs)` of the installed formulas, for the model the
-    /// selection names for `care_outcome`: its model, the catalog's `assumption_source_id`
+    /// The care formula of the installed formulas, for the model the selection names for
+    /// `care_outcome`: its model, the catalog's `assumption_source_id`
     /// (the Model Catalog, `validate/model-catalog.json`) and a copy of `body_dynamics`. Another
     /// model is refused.
     pub fn parse(configs: &V, model_id: &str) -> Read<Self> {
@@ -122,7 +122,8 @@ impl CareOutcome {
         Self::new(Arc::from(model_id), Arc::from(source), config)
     }
 
-    /// `configured_value` of `support_state_deltas`.
+    /// A configured value of the deltas: the person's (`<name>_by_agent`), else the formula's,
+    /// else `default`.
     fn configured(&self, name: &str, default: f64, agent_id: &str) -> Read<f64> {
         let config = map(&self.config)?;
         if let Some(V::Map(per_agent)) = config.get(format!("{name}_by_agent").as_str()) {
@@ -136,7 +137,8 @@ impl CareOutcome {
         }
     }
 
-    /// `CareOutcomeFormula.support_state_deltas`: each field with its delta, in the formula's order.
+    /// The state deltas of a care of `kind` for a person: each field with its delta, in the
+    /// formula's order.
     pub fn deltas(&self, kind: &str, agent_id: &str) -> Read<Vec<(&'static str, f64)>> {
         if &*self.model_id != TYPED_CARE_MODEL {
             return Ok(Vec::new());
@@ -158,7 +160,8 @@ impl CareOutcome {
         })
     }
 
-    /// `CareOutcomeFormula.hygiene_need_after_support`.
+    /// The hygiene need after a support's relief: proportional or subtracted, by the model, both
+    /// bounded to 0..1.
     pub fn hygiene_after(&self, need: f64, relief: f64) -> f64 {
         let bounded_need = py_min(1.0, py_max(0.0, need));
         let bounded_relief = py_min(1.0, py_max(0.0, relief));

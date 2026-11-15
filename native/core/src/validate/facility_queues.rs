@@ -1,8 +1,9 @@
 //! The check of `facility_queues_v1`, with its errors and texts (lane E of #250, #350). Raw errors:
-//! `validate_simulator_extensions` passes them on.
+//! `validate::extensions` passes them on.
 //!
 //! `independent_queues_required` (`signatures.rs`), `is_legacy_queue_checkpoint`
-//! (`extension_head.rs`) and `request_for_agent` read the world's values as the tick's rules do.
+//! (`extension_head.rs`) and the queued request of a journey (`queue_journeys`) read the world's
+//! values as the tick's rules do.
 
 use std::cmp::Ordering;
 use std::collections::HashSet;
@@ -46,7 +47,7 @@ fn text(map: &Map, name: &str) -> Arc<str> {
     }
 }
 
-/// `service_points(world)`: the Scenario's own (`parsed_facility_geometry`), by queue ID; none
+/// The service points: the Scenario's own (`geometry_overlay::parsed_geometry`), by queue ID; none
 /// without a config dict.
 fn service_points(view: &View<'_>) -> Result<IndexMap<Arc<str>, Point>> {
     let raw = match view.config("facility_geometry")? {
@@ -342,7 +343,7 @@ fn request_valid(
     Ok(matches!(get("queue_task_id"), V::Str(_)) && matches!(get("active_task_id"), V::Str(_)))
 }
 
-/// Each movement journey to a queue has its queued request (`request_for_agent`).
+/// Each movement journey to a queue has its queued request.
 fn queue_journeys(view: &View<'_>, requests: &Map) -> Result<()> {
     let Some(movement) = view.state("movement_v1")? else {
         return Ok(());

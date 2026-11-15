@@ -40,7 +40,7 @@ fn int(value: &V) -> Option<i64> {
     }
 }
 
-/// `validate_psychological_state(state)`; None for an absent namespace.
+/// The check of the psychological state; None for an absent namespace.
 pub fn validate_state(state: Option<&V>) -> Result<()> {
     let state = match state {
         Some(V::Map(state)) if state.len() == 3 && ["schema_version", "last_updated_minute", "agents"].iter().all(|key| state.contains_key(*key)) => state,

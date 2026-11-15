@@ -47,7 +47,7 @@ pub fn counts() -> [(&'static str, u64); 4] {
 /// Which copy a transaction stands for, which says how its candidate is validated.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TxnKind {
-    /// The candidate of an effect (`_effect_candidate`): the world's own EventLog.
+    /// The candidate of an effect: the world's own EventLog.
     Effect,
     /// The whole world read back from its document, the log included.
     Full,
@@ -56,11 +56,11 @@ pub enum TxnKind {
 /// What a validation is of.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Stage {
-    /// The world as the transaction finds it, as `to_dict` (or `_effect_candidate`) validated it
-    /// first: its error passes on as it is.
+    /// The world as the transaction finds it, validated first as it is (or as an effect's
+    /// candidate): its error passes on as it is.
     World,
-    /// The world in canonical order, as `from_dict` validated the copy: its error is wrapped as
-    /// from_dict wraps it (`StateInvariantError("invalid WorldState document: ...")`).
+    /// The world in canonical order, validated as a copy read back from its document: its error is
+    /// wrapped (`StateInvariantError("invalid WorldState document: ...")`).
     Candidate,
 }
 

@@ -1013,33 +1013,6 @@ main {
 .tone-record {
   border-color: #b8c2d3;
 }
-.compute-controls {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  flex-wrap: wrap;
-  border-top: 1px solid var(--line);
-  padding-top: 10px;
-}
-.compute-controls label {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  font-size: 10px;
-}
-.compute-controls input {
-  width: 90px;
-  padding: 6px;
-  margin: 0;
-}
-.compute-controls button {
-  font-size: 11px;
-  padding: 7px 10px;
-}
-.compute-controls progress {
-  width: 100px;
-  accent-color: var(--blue);
-}
 .comparison-intro {
   display: grid;
   grid-template-columns: 1.1fr 1.5fr 0.8fr;
@@ -1324,11 +1297,8 @@ main {
 }
 body.is-busy #preview,
 body.is-busy #approve,
-body.is-busy #compute,
-body.is-busy #compute-end,
 body.is-busy #intervention-preview,
-body.is-busy #intervention-apply,
-body.is-busy #compute-pair {
+body.is-busy #intervention-apply {
   pointer-events: none;
   opacity: 0.5;
 }
@@ -1726,9 +1696,6 @@ body.is-busy #compute-pair {
   }
   .timeline-panel .event-item {
     font-size: 9px;
-  }
-  .compute-panel .compute-controls {
-    padding-top: 7px;
   }
   .comparison-map {
     height: 290px;
@@ -2368,27 +2335,6 @@ h2 {
 }
 .event-item b {
   font-weight: 650;
-}
-.compute-controls {
-  padding-top: 7px;
-  gap: 7px;
-}
-.compute-controls button {
-  padding: 5px 9px;
-  font-size: 10px;
-}
-.compute-controls label {
-  font-size: 9px;
-}
-.compute-controls input {
-  padding: 5px;
-  width: 76px;
-}
-.compute-controls progress {
-  width: 80px;
-}
-.compute-controls .fine {
-  font-size: 9px;
 }
 .comparison-intro {
   grid-template-columns: 0.9fr 1.4fr 0.8fr;
@@ -3069,66 +3015,7 @@ h2 {
   font-size: 10px;
   color: var(--muted);
 }
-#replay-status {display:block;font-size:8px;line-height:1.3;max-width:185px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .clock {font-variant-numeric:tabular-nums;}
-
-/* 計算パネル：マップの下・タイムラインの上に独立させ、操作を大きく見せる */
-#compute-panel {
-  margin-top: 14px;
-  border: 2px solid var(--blue);
-}
-#compute-panel h2 {
-  font-size: 16px;
-  margin: 0 0 10px;
-}
-#compute-panel h2 small {
-  font-size: 11px;
-  font-weight: normal;
-  margin-left: 8px;
-}
-#compute-panel .compute-controls {
-  gap: 12px;
-  border-top: 0;
-  padding-top: 0;
-}
-#compute-panel .compute-controls label {
-  font-size: 13px;
-}
-#compute-panel .compute-controls input {
-  width: 110px;
-  padding: 9px;
-  font-size: 15px;
-}
-#compute-panel .compute-controls button {
-  font-size: 15px;
-  padding: 11px 18px;
-}
-#compute-panel .compute-controls #compute {
-  font-size: 16px;
-  padding: 12px 24px;
-}
-#compute-panel .compute-controls progress {
-  width: 160px;
-  height: 12px;
-}
-#compute-panel .compute-controls .fine {
-  font-size: 12px;
-}
-
-/* 分岐比較：計算目標をレイヤーの横に置き、文字を大きく */
-.compare-controls .compare-target-label {
-  font-size: 13px;
-  font-weight: 600;
-}
-.compare-controls .compare-target-label input[type="number"] {
-  width: 130px;
-  padding: 8px;
-  font-size: 15px;
-}
-.compare-controls #compute-pair {
-  font-size: 13px;
-  padding: 9px 14px;
-}
 
 /* 介入・分岐のアイコンを、ナビの「分岐比較」と同じ図形に揃える */
 .inline-icon {
@@ -3784,6 +3671,18 @@ body[data-scenario="unavailable"] #page-scenario .scenario-grid {
   .app-header #play .play-label {
     display: none;
   }
+  /* 計算と中止は、再生と違う操作なので、狭い画面でも言葉を出す（#441） */
+  .app-header #play:not([data-mode="play"]) {
+    width: auto;
+    padding: 0 10px;
+  }
+  .app-header #play:not([data-mode="play"]) .play-label {
+    display: inline;
+  }
+  /* その間は時計を隠し、ボタンの言葉を切らない（中止のボタンが進み具合を出す） */
+  .app-header:has(#play:not([data-mode="play"])) .clock {
+    display: none;
+  }
 }
 @media (max-width: 540px) {
   .playback {
@@ -3821,8 +3720,33 @@ body[data-scenario="unavailable"] #page-scenario .scenario-grid {
 .intervention-panel #intervention-result:empty {
   display: none;
 }
-.branch-here-panel h2 {
-  font-size: 14px;
+/* 分岐を作る時刻（#441） */
+.fork-time {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  align-items: center;
+  margin: 6px 0 10px;
+}
+.fork-time #intervention-base {
+  flex-basis: 100%;
+}
+.fork-time label {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.fork-time select,
+.fork-time input {
+  margin: 0;
+  padding: 6px;
+}
+.playback #branch-here {
+  flex: none;
+  padding: 7px 12px;
 }
 @media (max-width: 1250px) {
   .comparison-top {

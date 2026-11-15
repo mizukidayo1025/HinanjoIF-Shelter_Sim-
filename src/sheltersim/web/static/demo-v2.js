@@ -70,6 +70,12 @@
     mode: null,
     homeVersion: 0,
     forkFrom: null,
+    // The minute picked in 「この時刻から分岐を作る」 ({ branch, minute }), when it is not the
+    // shown one (#441).
+    forkPick: null,
+    // A computation this page started to the end (「計算する」), and whether 「中止」 was pressed.
+    computing: false,
+    cancelled: false,
     multiTouched: false,
   };
   const metricDefs = [
@@ -388,15 +394,46 @@
       });
     return result;
   }
-  // The play buttons' icon and words (the header's shows the icon alone on a narrow screen).
-  function setPlayLabels(playing) {
-    const label = playing ? "再生を一時停止" : "シミュレーションを再生";
-    for (const id of ["play"]) {
-      const button = $(id);
-      button.querySelector(".play-icon").textContent = playing ? "Ⅱ" : "▶";
-      button.querySelector(".play-label").textContent = label;
-      button.setAttribute("aria-label", label);
+  // The header's one button (#441): 「計算する」 (or 「続きから計算する」) while the shown branch
+  // (on the comparison page, the pair) is not computed to its end, 「中止」 with how far it is
+  // while the Run computes, and 「シミュレーションを再生」 once computed. On a narrow screen it shows
+  // its icon alone.
+  function computeTargets() {
+    if (!state.run || !state.data) return [];
+    const ids =
+      state.page === "comparison" && comparing() ? pairIds() : [state.branch];
+    return ids.filter((id) => reference(id) && reference(id).computed_until < duration());
+  }
+  function mainButtonMode() {
+    if (state.data?.status === "running") return "cancel";
+    return state.run && state.frame && computeTargets().length ? "compute" : "play";
+  }
+  function setPlayLabels() {
+    const button = $("play"),
+      mode = mainButtonMode();
+    let icon = state.playing ? "Ⅱ" : "▶",
+      label = state.playing ? "再生を一時停止" : "シミュレーションを再生";
+    if (mode === "cancel") {
+      const branch =
+          (state.data.branches || []).find((b) => b.status === "running") ||
+          reference(),
+        span = Math.max(1, duration() - (branch?.fork_minute ?? 0)),
+        done = (branch?.computed_until ?? 0) - (branch?.fork_minute ?? 0),
+        percent = Math.max(0, Math.min(99, Math.floor((done / span) * 100)));
+      icon = "■";
+      label = `中止（計算中 ${percent}%）`;
+    } else if (mode === "compute") {
+      const resumed = computeTargets().some(
+        (id) => reference(id).computed_until > reference(id).fork_minute,
+      );
+      label = resumed ? "続きから計算する" : "計算する";
     }
+    button.dataset.mode = mode;
+    button.classList.toggle("danger", mode === "cancel");
+    button.classList.toggle("primary", mode !== "cancel");
+    button.querySelector(".play-icon").textContent = icon;
+    button.querySelector(".play-label").textContent = label;
+    button.setAttribute("aria-label", label);
   }
   function stopPlayback(preserve = false) {
     state.playing = false;
@@ -410,10 +447,7 @@
       state.motion = null;
       state.visualMs = 0;
     }
-    setPlayLabels(false);
-    $("replay-status").textContent = preserve
-      ? "一時停止 · 位置と姿勢を保持"
-      : "計算済みの記録を再生";
+    setPlayLabels();
     if (window.HinanjoReplayView)
       window.HinanjoReplayView = {
         ...window.HinanjoReplayView,
@@ -1092,37 +1126,34 @@
     const has = Boolean(state.run && state.frame),
       running = state.data?.status === "running",
       working = state.busy || running;
-    for (const id of ["compute", "compute-end", "intervention-preview"])
-      $(id).disabled = !has || working;
+    $("intervention-preview").disabled = !has || working;
     $("branch-here").disabled = !has || working;
     $("intervention-panel").classList.toggle(
       "has-intervention",
       Boolean(state.intervention),
     );
-    // The computing panel shows while the branch has minutes left to compute (#374).
-    $("compute-panel").hidden =
-      has && !running && reference()?.computed_until >= duration();
-    const from = interventionBase();
-    $("intervention-base").textContent = from
-      ? `元：${shortBranch(from.branch)} · ${time(from.minute)}`
-      : "シナリオを開くと使えます";
-    $("cancel").disabled = !running;
+    renderForkPicker(working);
     document.querySelectorAll(".nav-item[data-page]").forEach((n) => {
       const why = pageBlocked(n.dataset.page);
       n.disabled = Boolean(why);
       n.title = why;
     });
-    $("target").disabled = !has || running;
-    const single = !has || state.busy || upper() <= lower();
+    const single = !has || state.busy || upper() <= lower(),
+      mode = mainButtonMode();
+    setPlayLabels();
     $("play").disabled =
-      state.page === "simulation"
-        ? single
-        : state.page === "comparison"
-          ? comparing()
-            ? state.busy ||
-              state.comparison.common_range[1] <= state.comparison.common_range[0]
-            : single
-          : true;
+      mode === "cancel"
+        ? false
+        : mode === "compute"
+          ? !has || state.busy || state.computing
+          : state.page === "simulation"
+            ? single
+            : state.page === "comparison"
+              ? comparing()
+                ? state.busy ||
+                  state.comparison.common_range[1] <= state.comparison.common_range[0]
+                : single
+              : true;
     $("seek").disabled = !has || state.busy;
     $("branch-select").disabled = !has || working;
     $("approve").disabled =
@@ -1136,8 +1167,7 @@
     $("save-report").disabled = !has || working;
     const branches = state.data?.branches || [],
       pair = branches.length > 1;
-    for (const id of ["compare-refresh", "compare-branch", "compute-pair"])
-      $(id).disabled = !pair || working;
+    $("compare-branch").disabled = !pair || working;
     const many = multiChosen().length;
     $("multi-compare-run").disabled = many < 2 || many > 8 || working;
     $("compare-seek").disabled = comparing() ? state.busy : single;
@@ -1147,9 +1177,6 @@
       $("compare-seek").value = state.minute;
       $("compare-time").textContent = time(state.minute);
     }
-    $("compute-status").textContent = running
-      ? `実計算中 · 保存済み ${upper()} 分 / 目標 ${state.target ?? "不明"} 分`
-      : `${runStatusLabel(state.data?.status)} · 計算速度と再生速度は独立しています`;
     if (has) {
       $("seek").min = lower();
       $("seek").max = upper();
@@ -1162,8 +1189,6 @@
       );
       $("computed-label").textContent =
         `実計算の記録 · ${upper()}分まで計算済み`;
-      $("progress").max = Math.max(1, state.target ?? upper());
-      $("progress").value = upper();
     }
   }
   // Whether the comparison page shows two branches; it shows the open branch alone while there
@@ -1171,12 +1196,82 @@
   const comparing = () => Boolean(state.comparison && !state.forkFrom);
   // Where a new branch starts: the minute the simulation page chose (「この時刻から分岐を作る」),
   // or on the comparison page the shown pair's A at its minute, or the open branch and minute.
-  function interventionBase() {
+  // The minute picked in the panel (#441) replaces it while it is of the same branch.
+  function forkBase() {
     if (!state.run || !state.frame) return null;
     if (state.forkFrom) return state.forkFrom;
     if (state.page === "comparison" && comparing())
       return { branch: pairIds()[0], minute: state.comparison.minute };
     return { branch: state.branch, minute: state.minute };
+  }
+  function interventionBase() {
+    const base = forkBase(),
+      pick = state.forkPick;
+    if (!base) return null;
+    const range = pick && pick.branch === base.branch && forkRange(pick.branch);
+    return range && pick.minute >= range[0] && pick.minute <= range[1] ? pick : base;
+  }
+  // The minutes a branch can be made from: the base branch's computed ones.
+  function forkRange(branch) {
+    const ref = reference(branch);
+    return ref ? [ref.fork_minute, ref.computed_until] : null;
+  }
+  let forkDays = "";
+  function renderForkPicker(working) {
+    const from = interventionBase(),
+      range = from && forkRange(from.branch),
+      day = $("fork-day"),
+      clock = $("fork-clock");
+    day.disabled = clock.disabled = !range || working;
+    if (!range) {
+      $("intervention-base").textContent = "シナリオを開くと使えます";
+      $("fork-range").textContent = "";
+      return;
+    }
+    const [lo, hi] = range,
+      first = Math.floor(lo / 1440) + 1,
+      last = Math.floor(hi / 1440) + 1,
+      key = `${first}-${last}`;
+    if (key !== forkDays) {
+      forkDays = key;
+      day.replaceChildren(
+        ...Array.from({ length: last - first + 1 }, (_, i) => {
+          const option = el("option", `${first + i}日目`);
+          option.value = String(first + i);
+          return option;
+        }),
+      );
+    }
+    day.value = String(Math.floor(from.minute / 1440) + 1);
+    if (document.activeElement !== clock)
+      clock.value = time(from.minute).split(" ")[1];
+    $("intervention-base").textContent = `元：${shortBranch(from.branch)}`;
+    $("fork-range").textContent = `${time(lo)}〜${time(hi)}の間で選べます`;
+  }
+  function pickForkTime() {
+    const base = forkBase(),
+      range = base && forkRange(base.branch);
+    if (!range) return;
+    const [hours, minutes] = $("fork-clock").value.split(":").map(Number),
+      minute = (Number($("fork-day").value) - 1) * 1440 + hours * 60 + minutes;
+    if (!Number.isInteger(minute) || minute < range[0] || minute > range[1]) {
+      note(`分岐できるのは、計算済みの${time(range[0])}〜${time(range[1])}です。`, "error");
+      controls();
+      return;
+    }
+    state.forkPick = { branch: base.branch, minute };
+    invalidateIntervention();
+    controls();
+    // Without a pair on show, the open branch is shown at the picked minute.
+    if (!comparing() && base.branch === state.branch && minute !== state.minute) {
+      if (state.forkFrom) {
+        state.forkFrom = { ...state.forkFrom, minute };
+        $("comparison-instruction").textContent =
+          `${time(minute)}から分岐を作ります。左の欄に介入の指示を書いてください。`;
+      }
+      // Not an action: a later pick replaces an earlier one still loading (seek keeps the last).
+      loading(() => seek(minute)).catch((e) => note(e.message, "error"));
+    }
   }
   async function ensureProject(id = state.project) {
     const list = await api("/api/v1/projects");
@@ -1516,10 +1611,6 @@
       state.displayName = req
         ? `${req.municipality} · ${disasterName(req.disaster)}`
         : data.scenario_id;
-      $("target").max = state.total;
-      $("compare-target").max = state.total;
-      $("target").value = Math.min(state.total, 60);
-      $("compare-target").value = $("target").value;
     }
     state.data = data;
     const branches = data.branches || [];
@@ -2010,11 +2101,6 @@
           $("clock").textContent = replayTime(player.clock.position);
           if (comparing)
             $("compare-time").textContent = replayTime(player.clock.position);
-          const minute = Math.floor(player.clock.position);
-          $("replay-status").textContent =
-            player.clock.position >= player.head && player.head < player.hi
-              ? "記録を読込中 · 時刻を保持"
-              : `${player.clock.rate}× · 記録 ${minute}→${Math.min(minute + 1, player.hi)}分を補間`;
         },
         onState: (status) => {
           if (status === "paused" || status === "end") {
@@ -2024,11 +2110,8 @@
                 ...window.HinanjoReplayView,
                 playing: false,
               };
-            $("replay-status").textContent = "一時停止 · 位置と姿勢を保持";
-            setPlayLabels(false);
+            setPlayLabels();
           }
-          if (status === "end")
-            $("replay-status").textContent = "計算済み範囲の終点";
         },
         onError: (e) => note(e.message, "error"),
         onStats: (stats) => {
@@ -2038,44 +2121,61 @@
     }
     state.playing = true;
     state.replay.setRate(Number($("speed").value));
-    setPlayLabels(true);
+    setPlayLabels();
     state.replay.play();
   }
-  async function compute(
-    target = Number($("target").value),
-    branch = state.branch,
-  ) {
-    if (
-      !Number.isInteger(target) ||
-      target <= reference(branch).computed_until ||
-      target > duration()
-    )
-      throw new Error(
-        `計算時刻は計算済みの先から終了時刻 ${duration()} 分までの整数で指定してください。`,
-      );
-    state.target = target;
-    await api(`${runBase()}/resume`, {
-      branch_id: branch,
-      target_minute: target,
-    });
-    await refreshRun();
+  // 「計算する」 (#441): each branch of `ids` to the end, one after the other (the server and the
+  // browser compute one at a time). The page stays usable, so 「中止」 can stop it; a cancelled
+  // computation keeps what it computed, and 「続きから計算する」 goes on from there.
+  async function computeToEnd(ids) {
+    if (state.computing) return;
+    state.computing = true;
+    state.cancelled = false;
+    stopPlayback();
+    controls();
+    try {
+      for (const id of ids) {
+        if (reference(id).computed_until >= duration()) continue;
+        await api(`${runBase()}/resume`, {
+          branch_id: id,
+          target_minute: duration(),
+        });
+        await refreshRun();
+        await followComputing(id);
+      }
+      await refreshRun();
+      if (state.page === "comparison" && !state.forkFrom && pairIds().length > 1)
+        await loadComparison();
+    } catch (error) {
+      // A cancel needs no notice (#442): the button now says 「続きから計算する」.
+      if (!state.cancelled) note(`計算できませんでした：${error.message}`, "error");
+      await refreshRun().catch(() => {});
+    } finally {
+      state.computing = false;
+      controls();
+    }
   }
-  async function waitComputed(branch, target) {
+  // Waits for the computation of `branch` to end, reading the Run as the screen does (refreshRun),
+  // so the clock follows the computed head while it is shown there.
+  async function followComputing(branch) {
+    const scope = state.scope;
     for (;;) {
       await new Promise((resolve) => setTimeout(resolve, 900));
-      const scope = state.scope,
-        data = await api(runBase());
-      if (scope !== state.scope)
-        throw new Error("表示するシナリオが変更されました。");
-      state.data = data;
-      controls();
-      if (data.status !== "running") {
-        if (reference(branch).computed_until < target)
-          throw new Error(
-            `計算は「${runStatusLabel(data.status)}」で停止しました。保存済み範囲は保持されています。`,
-          );
-        return;
-      }
+      if (scope !== state.scope) throw new Error("表示するシナリオが変更されました。");
+      await refreshRun();
+      if (state.data?.status === "running") continue;
+      if (reference(branch).computed_until < duration())
+        throw new Error(`計算は「${runStatusLabel(state.data?.status)}」で止まりました。`);
+      return;
+    }
+  }
+  async function cancelCompute() {
+    state.cancelled = true;
+    try {
+      await api(`${runBase()}/cancel`, {});
+      await refreshRun();
+    } catch (error) {
+      note(error.message, "error");
     }
   }
   async function waitForked(child) {
@@ -2236,11 +2336,15 @@
         program: i.program,
       }),
     );
+    state.forkPick = null;
     invalidateIntervention();
     await refreshRun();
     $("compare-branch").value = child;
     await loadComparison();
     show("comparison");
+    // The new branch is computed to the end at once (#441), after this action has ended so
+    // 「中止」 can be pressed meanwhile; the comparison follows when it ends.
+    setTimeout(() => void computeToEnd([child]), 0);
   }
   function effectSummary(program) {
     const box = el("div"),
@@ -2366,12 +2470,6 @@
         `${state.sceneMode === "schematic" && window.HinanjoScene.supported(frame) ? "模式図（距離非対応）" : "実座標"} · 稼働トイレ ${num(frame.kpis.toilet_working_units)}基 · 実座標未記録設備 ${missing}件`;
     }
     if (state.page === "comparison") renderMultiChoices();
-    $("comparison-provenance").textContent = json({
-      minute: result.minute,
-      shared_origin: result.shared_origin,
-      origin_receipts: result.origin_receipts,
-      interpretation: result.interpretation,
-    });
     try {
       const record = JSON.parse(
         sessionStorage.getItem(`hinanjo-if-intervention-${ids[1]}`) || "null",
@@ -2387,13 +2485,6 @@
         $("comparison-instruction").textContent =
           `${time(refs[1].fork_minute)} に分岐`;
         $("comparison-effect").replaceChildren(
-          el(
-            "span",
-            result.shared_origin
-              ? "同じ起点（保存した時点）を確認"
-              : "分岐の根拠を要確認",
-            "badge teal-badge",
-          ),
           el(
             "p",
             `稼働トイレ ${num(result.frames[0].kpis.toilet_working_units)} → ${num(result.frames[1].kpis.toilet_working_units)}基 · 介入文の端末記録なし。保存された分岐と施設条件を比較しています。`,
@@ -2533,32 +2624,6 @@
     table.replaceChildren(head, ...rows);
     $("multi-compare-note").textContent =
       `共通の計算済みの時刻 ${time(lo)}〜${time(hi)} のうち、${time(result.minute)}で比べました。`;
-  }
-  async function computePair() {
-    const ids = pairIds();
-    const fallback = Math.min(
-        duration(),
-        Math.max(...ids.map((id) => reference(id).computed_until)) + 60,
-      ),
-      target = $("compare-target").value
-        ? Number($("compare-target").value)
-        : fallback;
-    if (
-      !Number.isInteger(target) ||
-      target > duration() ||
-      target < Math.max(...ids.map((id) => reference(id).computed_until))
-    )
-      throw new Error(
-        "計算目標を両分岐の計算済み時刻以上、シナリオの終了時刻以下に設定してください。",
-      );
-    for (const id of ids) {
-      if (reference(id).computed_until >= target) continue;
-      note(`${shortBranch(id)}を ${target}分まで計算しています…`, "loading");
-      await compute(target, id);
-      await waitComputed(id, target);
-    }
-    await refreshRun();
-    await loadComparison(target);
   }
   async function loadHistory() {
     const lo = lower(),
@@ -3355,7 +3420,10 @@
   $("scenario-check").addEventListener("change", controls);
   on("approve", approveScenario);
   $("play").addEventListener("click", () => {
-    togglePlayback().catch((e) => note(e.message, "error"));
+    const mode = $("play").dataset.mode;
+    if (mode === "cancel") void cancelCompute();
+    else if (mode === "compute") void computeToEnd(computeTargets());
+    else togglePlayback().catch((e) => note(e.message, "error"));
   });
   $("speed").addEventListener("change", () =>
     state.replay?.setRate(Number($("speed").value)),
@@ -3369,17 +3437,8 @@
       seek(Number($("seek").value)),
     );
   });
-  on("compute", () => compute());
-  on("compute-end", () => compute(duration()));
-  $("cancel").addEventListener("click", async () => {
-    try {
-      await api(`${runBase()}/cancel`, {});
-      note("計算の停止を要求しました。保存済み範囲は保持されます。");
-      await refreshRun();
-    } catch (e) {
-      note(e.message, "error");
-    }
-  });
+  $("fork-day").addEventListener("change", pickForkTime);
+  $("fork-clock").addEventListener("change", pickForkTime);
   $("intervention-text").addEventListener("input", invalidateIntervention);
   on("intervention-preview", previewIntervention);
   $("intervention-check").addEventListener("change", controls);
@@ -3406,24 +3465,21 @@
     $("people-expand").textContent = open ? "× 閉じる" : "⤢ 大きく表示";
     if (state.frame) renderPeople();
   });
-  on("compare-refresh", () => {
-    state.forkFrom = null;
-    return loadComparison();
-  });
   // 「この時刻から分岐を作る」: the comparison page with the simulation page's minute (#374).
   $("branch-here").addEventListener("click", () => {
     stopPlayback();
     state.forkFrom = { branch: state.branch, minute: state.minute };
+    state.forkPick = null;
     state.comparison = null;
     invalidateIntervention();
     show("comparison");
     scrollTo(0, 0);
     $("intervention-text").focus({ preventScroll: true });
   });
-  on("compute-pair", computePair);
   on("multi-compare-run", loadMultiCompare);
   $("compare-branch").addEventListener("change", () => {
     state.comparison = null;
+    state.forkPick = null;
     state.forkFrom = null;
     drawAll();
     void action("共通の計算済み範囲を取得しています…", () =>
@@ -3432,6 +3488,7 @@
   });
   $("compare-seek").addEventListener("change", () => {
     stopPlayback();
+    state.forkPick = null;
     const minute = Number($("compare-seek").value);
     if (!comparing()) {
       if (state.forkFrom) state.forkFrom = { ...state.forkFrom, minute };
@@ -3439,12 +3496,6 @@
       return;
     }
     void action("両分岐の同じ時刻を取得しています…", () => loadComparison(minute));
-  });
-  $("target").addEventListener("input", () => {
-    $("compare-target").value = $("target").value;
-  });
-  $("compare-target").addEventListener("input", () => {
-    $("target").value = $("compare-target").value;
   });
   function syncLayerTabs() {
     document
@@ -3690,8 +3741,6 @@
     document
       .querySelectorAll("[data-icon]")
       .forEach((n) => n.replaceChildren(uiIcon(n.dataset.icon)));
-    document.querySelector(".compare-controls").prepend($("compare-refresh"));
-    $("compare-refresh").textContent = "比較を更新";
     document.querySelectorAll(".compare-controls [data-zoom]").forEach((b) => {
       b.title =
         "両マップを" +

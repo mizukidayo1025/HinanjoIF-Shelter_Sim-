@@ -251,7 +251,6 @@ def main():
         page.locator("#play").click()
         page.locator('[data-page="comparison"]').click()
         page.locator("#compare-branch").select_option(args.branch)
-        page.locator("#compare-refresh").click()
         idle()
         page.locator("#compare-seek").fill("6")
         page.locator("#compare-seek").dispatch_event("change")

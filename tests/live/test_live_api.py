@@ -111,7 +111,6 @@ def test_live_scenario_intervention_runtime_and_review(tmp_path, monkeypatch) ->
 
     from sheltersim.core.engine import TraceLevel
     from sheltersim.core.world import WorldState
-    from sheltersim.domain.staff import StaffService
     from sheltersim.events.handlers import EventDispatcher, SocialInteractionHandler
     from sheltersim.experiments.runner import run_scenario
     from sheltersim.experiments.scenario import ScenarioSpec
@@ -122,6 +121,7 @@ def test_live_scenario_intervention_runtime_and_review(tmp_path, monkeypatch) ->
     from sheltersim.llm.prepare import generate_scenario_draft
     from sheltersim.llm.runtime import EventTriggeredSocialPolicy
     from sheltersim.llm.schemas import ParseRequest
+    from sheltersim.scenario_authoring.configs.staff import StaffService
 
     run_tag = uuid.uuid4().hex[:12]
     cache_path = tmp_path / f"feature-{run_tag}-qna-tape.json"

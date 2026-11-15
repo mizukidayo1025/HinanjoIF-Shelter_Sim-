@@ -8,7 +8,7 @@ from enum import IntEnum, StrEnum
 
 import pytest
 
-from sheltersim.core.rng import CounterRNG
+from sheltersim.scenario_authoring.rng import CounterRNG
 
 
 def test_counter_rng_uses_stable_domain_keys_not_call_order() -> None:

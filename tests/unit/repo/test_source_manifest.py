@@ -2,8 +2,8 @@
 
 AGENTS.md asks that a new coefficient is registered in the source manifest. This
 test finds the assumption (ASM-) and source (SRC-) IDs written as fixed strings
-in src/ and in the string literals of native/src/ and native/core/src/ (the kernels that write
-provenance) and fails
+in src/, in the string literals of native/src/ and native/core/src/ (the kernels that write
+provenance) and in the core's JSON catalogs (the Model Catalog), and fails
 when one is neither in the manifest nor a known gap below.
 IDs built at runtime (SRC-PLAN-<digest>, ASM-POLICY-OVERRIDE-<hash>) and
 prefixes passed to str.startswith are not IDs and are skipped.
@@ -30,12 +30,14 @@ RUST_STRING = re.compile(r'"(?:[^"\\]|\\.)*"')
 # Described in another file, but not in the manifest.
 RECORDED_ELSEWHERE = {
     "ASM-A03-INFRASTRUCTURE-V1": "docs/infrastructure-events.md",
-    "ASM-ACTION-LIFECYCLE-V1": "fixtures/regression-contract.json",
     "ASM-H19-ZONE-ENVIRONMENT-V1": "docs/environmental-demand-effects.md",
 }
 # Not described in any manifest, fixture or document.
 NOT_RECORDED = frozenset(
     {
+        # Listed only among the event sources of a stale entry of fixtures/regression-contract.json
+        # until #494 removed it; never described there.
+        "ASM-ACTION-LIFECYCLE-V1",
         "ASM-AFFECT-TRANSFER-V1",
         "ASM-AFFECT-TRUST-WEIGHTING-V1",
         "ASM-BODY-FEEDBACK-COMPLETE-V1",
@@ -156,6 +158,9 @@ def _cited_ids() -> set[str]:
     for crate in (ROOT / "native" / "src", ROOT / "native" / "core" / "src"):
         for path in crate.rglob("*.rs"):
             cited |= _ids_in_rust(path.read_text(encoding="utf-8"))
+        # The core's catalogs: the Model Catalog (validate/model-catalog.json) and the evidence's.
+        for path in crate.rglob("*.json"):
+            cited |= set(EVIDENCE_ID.findall(path.read_text(encoding="utf-8")))
     return cited
 
 

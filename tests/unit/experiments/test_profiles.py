@@ -9,7 +9,6 @@ import pytest
 import sheltersim_native
 from support.paths import AGENTS_INITIAL, PROFILES_SMALL, SCENARIO_100_AGENTS
 
-from sheltersim.domain.models import Mobility
 from sheltersim.experiments.profiles import (
     GeneratedProfileSet,
     ProfileTemplate,
@@ -17,6 +16,7 @@ from sheltersim.experiments.profiles import (
     select_representative_profiles,
 )
 from sheltersim.experiments.scenario import ScenarioSpec
+from sheltersim.scenario_authoring.configs.models import Mobility
 
 
 def test_same_seed_generates_same_complete_100_agent_profile_set() -> None:

@@ -93,7 +93,7 @@ TIMEOUT_MS = site_check.TIMEOUT_MS
 # The screen's 「例文を使う」 (demo-v2.js).
 EXAMPLE_TEXT = "墨田区で地震が発生。避難者100人、7日間。高齢者や子ども連れの支援ニーズも見たい。"
 # The form variant: the fields the harness fills (element id → value) and the request the screen
-# makes of them (demo-v2.js scenarioRequest), with no text.
+# makes of them (demo-v2-scenario.js scenarioRequest), with no text.
 FORM_FIELDS = {
     "municipality": "墨田区",
     "disaster": "洪水",

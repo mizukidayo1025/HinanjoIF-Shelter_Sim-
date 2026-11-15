@@ -1,10 +1,11 @@
 """The table and the worlds of the core's minute-0 builder (Issue #249).
 
-The core builds the entry of a Scenario's world at minute 0 (`native/core/src/initial/`) from the
-Scenario's canonical JSON, the bytes `export_world` writes for the browser
-(`scripts/build_browser_sample.py`). What it does not compute it reads from a table Python writes,
-`native/core/src/initial/table.json` (`initial_table`): for each fingerprint of the configs
-(`world_export.configs_fingerprint`), the Run's policies (`world_export.initial_table_entry`).
+The core builds the entry of any Scenario's world at minute 0 (`native/core/src/initial/`, #429)
+from the Scenario's canonical JSON, the bytes `export_world` writes for the browser
+(`scripts/build_browser_sample.py`). A new Run's records (`model_versions` and the evidence
+route's answer, #301) it still makes from a table Python writes,
+`native/core/src/initial/table.json` (`initial_table`): their templates for each fingerprint of
+the configs (`world_export.configs_fingerprint`, `run_records_template`).
 The table is made from the Scenarios of `TABLE_REQUESTS`, the requests of the Scenario screen
 (the structured form and the example text's), with edge values; two Scenarios of one fingerprint
 must give the same entry, so a config the fingerprint leaves out that changes what the table
@@ -22,10 +23,10 @@ import hashlib
 import json
 from typing import Any
 
-from sheltersim.core.world_export import configs_fingerprint, export_world, initial_table_entry
+from sheltersim.core.world_export import configs_fingerprint, export_world
 from support.core_fixtures import run_world
 
-TABLE_SCHEMA_VERSION = 3
+TABLE_SCHEMA_VERSION = 4
 # The model signature that depends on the floor plan: the core adds it (`initial::model_versions`).
 SERVICE_POINTS_SIGNATURE = "operator:facility_service_points"
 # The requests whose Scenarios the table is made of: the screen's form with edge values and the
@@ -132,8 +133,8 @@ def run_records_template(scenario: Any) -> dict[str, Any]:
 
 
 def initial_table() -> dict[str, Any]:
-    """`native/core/src/initial/table.json`: the table entry of each fingerprint of the Scenarios
-    of `TABLE_REQUESTS`, with the templates of a new Run's records (`run_records_template`); the
+    """`native/core/src/initial/table.json`: the templates of a new Run's records
+    (`run_records_template`) of each fingerprint of the Scenarios of `TABLE_REQUESTS`; the
     evidence's members every entry has the same are kept once (`shared_evidence`). Two Scenarios
     of one fingerprint that give different entries raise."""
     entries: dict[str, Any] = {}
@@ -141,8 +142,7 @@ def initial_table() -> dict[str, Any]:
     for name, request in TABLE_REQUESTS.items():
         scenario = scenario_of(request)
         fingerprint = configs_fingerprint(json.loads(scenario.canonical_json())["model_configs"])
-        made = json.loads(json.dumps(initial_table_entry(minute_zero_entry(scenario))))
-        made.update(run_records_template(scenario))
+        made = json.loads(json.dumps(run_records_template(scenario)))
         if fingerprint in entries and entries[fingerprint] != made:
             raise ValueError(
                 f"{name} and {made_by[fingerprint]} have one fingerprint but different entries"

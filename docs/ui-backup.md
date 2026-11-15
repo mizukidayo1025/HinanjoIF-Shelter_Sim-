@@ -101,6 +101,37 @@ SHELTERSIM_LLM_MODE=record SHELTERSIM_LLM_ERROR_POLICY=stop \
 - UIのサマリーは記録値と一般的な検討案です。AIによる因果説明や人物の実発言として表示しません。
 - 新しい永続スキーマ・係数・モデルは導入しません。承認・分岐・再現性の検証は既存APIへ委ね、UI側でも条件変更時の承認無効化を行います。
 
+## ファイルの構成（#491）
+
+画面は`src/sheltersim/web/static/`の`demo-v2.html`、`demo-v2.css`と、次のJavaScriptです。どれもビルドの道具を通さないclassic script（`defer`）で、`demo-v2.html`に書いた順に読み込みます。
+
+| ファイル | 中身 |
+|---|---|
+| `demo-v2-scene.js`、`demo-v2-clock.js`、`demo-v2-replay.js`、`demo-v2-sprites.js`、`demo-v2-map.js` | 地図の模式図への変換、再生の時計と読み込み、人物の絵、地図の描画。それぞれ`window.HinanjoScene`などを1つずつ出します |
+| `demo-v2-state.js` | 開いているもの（Project、Run、分岐、分などの`state`）と、それを表すアドレス（`remember`）。下の`window.HinanjoApp`を作ります |
+| `demo-v2-text.js` | 画面の言葉（指標・区画・出来事の名前など）、数と時刻の書き方、要素を作る小さな関数（`$`、`el`、`uiIcon`） |
+| `demo-v2-api.js` | APIの呼び出し（`api`）と道（`base`、`runBase`、`branchBase`）。ローカル版・VM版ではserverのHTTPに、ブラウザー版では同じ`fetch`に`native/wasm/js/api_fetch.js`がページの中で答えます。ブラウザー版が答えない道（`browser_unsupported`）は`optional`がnullにします |
+| `demo-v2-pages.js` | お知らせ欄、読み込み中の表示、操作（`action`）、サイドバーのページの切り替え（`show`）、ヘッダーのボタン、操作の有効・無効（`controls`） |
+| `demo-v2-draw.js` | canvasの描画（地図、プレビューの施設と人口、指標の推移のグラフ） |
+| `demo-v2-home.js` | ホーム（保存済みのシナリオ、計算済みの例の取得、AIの機能の合言葉） |
+| `demo-v2-scenario.js` | シナリオ作成（条件と文、プレビュー、承認） |
+| `demo-v2-simulation.js` | 開いたRunのシミュレーション（frameの表示、出来事、指標のカード、再生、計算） |
+| `demo-v2-people.js` | 避難者・スタッフの一覧と、1人の詳しい吹き出し |
+| `demo-v2-comparison.js` | 分岐（介入のプレビューと適用）と分岐比較 |
+| `demo-v2-report.js` | レポート・質問 |
+| `demo-v2-detail.js` | 記録・出典 |
+| `demo-v2.js` | 最後に読み込み、操作（クリックなど）を上のファイルの関数につなぎ、画面を開きます（`init`） |
+
+`demo-v2-state.js`から`demo-v2.js`までは、`window.HinanjoApp`（ファイルの中では`app`）を通して関数と値を受け渡します。
+
+- 各ファイルは、ほかのファイルが使うものを、終わりの`Object.assign(app, { … })`で出します。
+- 先に読み込むファイルのものは、ファイルの始めに`const { … } = app;`で受け取ります。
+- 後に読み込むファイルの関数は`const { … } = app.later;`で受け取ります。呼んだときに`app`から引くので、読み込みの順に関係なく呼べます（すべてのファイルを読み込んでから`init`が動きます）。値（`state`、`metricDefs`など）は`app.later`では受け取れないので、使うファイルより先のファイルに置きます。
+- 別のファイルが読む、書き換わる変数は、そのファイルがgetterで出し、`app.ownId`のように読みます（`ownId`、`fetching`）。
+- `tests/unit/web/test_static_demo_v2.py`が、受け取る名前をどれかのファイルが（`app`なら先のファイル、`app.later`なら後のファイルが）出していること、出す名前をどれかのファイルが受け取っていることを確かめます。`app.later`の名前の誤りは、呼んだときに初めて失敗するためです。
+
+ファイルを足したときは、`demo-v2.html`の`<script>`、`src/sheltersim/web/server.py`の`_STATIC_FILES`（ローカル版・VM版の配信）、`scripts/build_static_site.py`の`SCREEN_FILES`（ブラウザー版のサイト）に足します。`tests/integration/test_demo_v2_routes.py`と`tests/integration/test_static_site.py`が、ページの読み込むファイルがすべて配られることを確かめます。ファイルの関数を確かめる単体は`tests/unit/web/test_static_<ファイル名>.py`です（[testing.md](testing.md)）。
+
 ## 検証
 
 通常のpytestはofflineで実行します。実APIの有効性確認には、ローカルに設定したAPI keyと、既存の上限付きlive integration testを使用します。デモ起動とは別工程です。

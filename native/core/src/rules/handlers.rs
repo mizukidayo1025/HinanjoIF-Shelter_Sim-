@@ -426,8 +426,8 @@ pub fn proximity(world: &World, config: Option<&Proximity>, movement: &Held, eve
     let row = kit::held_row::<MovementRow>(world, MOVEMENT, movement)?;
     for (id, point) in [(&first_id, first_point), (&second_id, second_point)] {
         let position = row.as_ref().and_then(|row| row.positions.get(&**id));
-        let fresh = position
-            .is_some_and(|position| &*position.position_kind == "physical" && eq_text(zone_value, &position.zone_id) && py_eq(&point_value(position), point));
+        let fresh =
+            position.is_some_and(|position| &*position.position_kind == "physical" && eq_text(zone_value, &position.zone_id) && point_matches(position, point));
         if !fresh {
             return Err(Error::suppressed("proximity contact sample is stale"));
         }
@@ -435,16 +435,17 @@ pub fn proximity(world: &World, config: Option<&Proximity>, movement: &Held, eve
     Ok(())
 }
 
-/// A position's `point` as its record holds it.
-fn point_value(position: &Position) -> V {
-    match &position.point {
-        None => V::Null,
-        Some(point) => {
-            let mut entries = IndexMap::with_capacity(2);
-            entries.insert(text("x"), V::Float(point.x));
-            entries.insert(text("y"), V::Float(point.y));
-            V::Map(entries)
+/// `point == position["point"]` of a payload's point and the position's record, whose point is None
+/// or `{"x": float, "y": float}`: the payload's coordinates are compared with Python's `==` (an int
+/// equals the float of its value).
+fn point_matches(position: &Position, point: &V) -> bool {
+    match (&position.point, point) {
+        (None, V::Null) => true,
+        (Some(own), V::Map(fields)) => {
+            fields.len() == 2
+                && [("x", own.x), ("y", own.y)].into_iter().all(|(key, coordinate)| fields.get(key).is_some_and(|value| py_eq(&V::Float(coordinate), value)))
         }
+        _ => false,
     }
 }
 
@@ -528,9 +529,7 @@ pub fn resource_ledger(world: &mut World, inputs: &LedgerIn<'_>, event: &EventRo
         Held::Other(reason) => return Err(Error::unsupported(*reason).into()),
         Held::Held => {}
     }
-    let source_id = optional(&event.source_id);
-    let event_id = V::Str(event.event_id.clone());
-    let operation_event = OperationEvent { payload: &payload, source_id: &source_id, event_id: &event_id };
+    let operation_event = OperationEvent { payload: &payload, source_id: event.source_id.as_deref(), event_id: &event.event_id };
     resources::apply_operation(world, &operation_event, OperationArg::Text(operation))
 }
 

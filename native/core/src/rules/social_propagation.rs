@@ -172,10 +172,35 @@ pub fn settings(stress: &Stress) -> Got<Settings> {
 /// A plain dict the Run read.
 pub type Table = IndexMap<Arc<str>, V>;
 
+/// `parameters.source_expressiveness_by_agent` as the Run read it: each person's coefficient is
+/// read where the channel model needs it, and refused there.
+#[derive(Clone, Copy)]
+pub struct Expressiveness<'a>(&'a Table);
+
+impl<'a> Expressiveness<'a> {
+    /// The coefficients of a plain dict.
+    pub fn new(table: &'a Table) -> Self {
+        Self(table)
+    }
+
+    /// Whether the dict is empty, when every person's coefficient is 1.0.
+    pub fn is_empty(self) -> bool {
+        self.0.is_empty()
+    }
+
+    /// `by_agent.get(id, 1.0)`.
+    fn of_person(self, id: &str) -> Result<f64> {
+        match self.0.get(id) {
+            Some(value) => Ok(number_of(value)?.value()),
+            None => Ok(1.0),
+        }
+    }
+}
+
 /// `parameters.source_expressiveness_by_agent`, a plain dict.
-pub fn expressiveness(stress: &Stress) -> Got<&Table> {
+pub fn expressiveness(stress: &Stress) -> Got<Expressiveness<'_>> {
     match parameter(parameters_of(stress)?, "source_expressiveness_by_agent")? {
-        Held::Value(V::Map(table)) => Ok(table),
+        Held::Value(V::Map(table)) => Ok(Expressiveness(table)),
         _ => Err(Bad::Refused(Error::unsupported("the expressiveness is not a dict"))),
     }
 }
@@ -665,7 +690,7 @@ pub type Neighbors = std::result::Result<HashMap<String, std::result::Result<Vec
 pub struct Inputs<'a> {
     pub settings: &'a Settings,
     /// `source_expressiveness_by_agent`, which the channel model reads.
-    pub expressiveness: &'a Table,
+    pub expressiveness: Expressiveness<'a>,
     pub view: &'a ViewData,
     /// The psychology deltas of the minute, each checked to be of it.
     pub deltas: &'a [Delta],
@@ -739,14 +764,8 @@ pub fn update(world: &World, inputs: &Inputs<'_>) -> Result<Planned> {
         let Some(agent) = view.index_of(&delta.agent_id) else {
             return unsupported("the view and the deltas have different people");
         };
-        let expressiveness = if settings.policy == Model::Channel && !inputs.expressiveness.is_empty() {
-            match inputs.expressiveness.get(&*delta.agent_id) {
-                Some(value) => number_of(value)?.value(),
-                None => 1.0,
-            }
-        } else {
-            1.0
-        };
+        let expressiveness =
+            if settings.policy == Model::Channel && !inputs.expressiveness.is_empty() { inputs.expressiveness.of_person(&delta.agent_id)? } else { 1.0 };
         if !(0.0..=1.0).contains(&delta.stress) {
             return unsupported("a stress is outside 0..1");
         }
@@ -859,8 +878,8 @@ pub fn write(world: &World, planned: &mut Planned) -> Result<()> {
 }
 
 /// The trace's document of a minute (`SocialPropagationResult.trace_document`) to the host's sink,
-/// when the plan keeps a trace. `minute` and `policy_version` are the values the document holds.
-pub fn record_social<H: Host>(host: &mut H, planned: &Planned, minute: &V, policy_version: &V) -> std::result::Result<(), H::Error> {
+/// when the plan keeps a trace. `policy_version` is the value the document holds.
+pub fn record_social<H: Host>(host: &mut H, planned: &Planned, minute: i64, policy_version: &V) -> std::result::Result<(), H::Error> {
     let Some(trace) = &planned.plan.trace else {
         return Ok(());
     };

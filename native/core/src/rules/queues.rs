@@ -660,7 +660,7 @@ fn abandoned_transition(leaver: Leaver<'_>, leave: &LeaveInputs<'_>, next: i64) 
                     // After `finish_service` the request has no place in the queue.
                     let taken = events.is_realized(&fifo::transition_id(next), Some(next))?;
                     let wait = Some(minute - request.requested_minute);
-                    let payload = fifo::transition_payload(
+                    let record = fifo::transition_record(
                         taken,
                         &fifo::Transition {
                             request: &request,
@@ -673,7 +673,7 @@ fn abandoned_transition(leaver: Leaver<'_>, leave: &LeaveInputs<'_>, next: i64) 
                         next,
                         minute,
                     )?;
-                    let row = fifo::transition_event(payload, Some(&person.task_id), next, minute)?;
+                    let row = fifo::transition_event(&record, Some(&person.task_id), next, minute)?;
                     Some((request, row))
                 }
             }

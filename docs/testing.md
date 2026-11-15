@@ -77,6 +77,7 @@ python -m coverage report --sort=cover
 - ブラウザー用の静的ファイル（JavaScript、HTML）を確かめる単体は、Pythonのモジュール名がないので`tests/unit/web/test_static_<ファイル名>.py`にします。例：`demo-v2.js`なら`test_static_demo_v2.py`。nodeで関数を動かすテストは、nodeがない環境ではskipします。
 - 何を確かめるか（結果・契約・画面）は、ディレクトリにも印にもしません。実行の選び分けに使わない印は、付け忘れても気づけず、すぐ実態とずれるためです。確かめる振る舞いは、関数名とファイルのdocstringに書きます。
 - 背景で動くjob（`ProjectAPI`）の終わりは、実時間の短い期限で状態を読み続けて待ちません。CPUが混むと期限を超えて失敗するためです（#143）。workerが1つなので、`api.wait_idle(timeout=120)`で、それまでのjobが終わるのを待ってから状態を確かめます。`timeout`は止まったときにテストを終わらせるためだけのものです。
+- HTTPサーバーをテストのスレッドとは別のスレッドで動かすときは、そのスレッドの終わりに`ProjectAPI.live`を空にします（`tests/e2e/test_project_scenario_to_results.py`の`client`）。答えが持つRun（`PlainRun`）は作ったスレッドでしか捨てられず、ほかのスレッドで捨てると解放されずに`PytestUnraisableExceptionWarning`が出るためです（#507）。製品のサーバーは1つのスレッドで答え、同じスレッドでAPIを閉じます。
 - `tests/unit/repo/test_test_layout.py`は、`tests/`直下のテストファイル、決まった場所以外のテストファイル、`tests/live/`以外での`live_api`の印を見つけると失敗します。`scripts/`のファイルに書かれたテストファイルのパスが存在しないときも失敗します（#146）。
 - 件数が要るときは、`pytest --collect-only -q <ディレクトリ>`で数えます。
 

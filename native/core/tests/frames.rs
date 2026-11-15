@@ -1,14 +1,13 @@
-//! The frame of a minute in the core (#264): `sheltersim_core::frame` on a Run without Python
-//! (`plain::PlainRun`, the browser's host) gives, byte for byte, the frame the native path's
-//! `world_frame` gave on the same world at the same minute, and the world's digest
-//! (`canonical::state_digest`) is that frame's `state_hash` (`world.state_digest()`).
+//! The frame of a minute in the core (#264): `sheltersim_core::frame` on a Run (`plain::PlainRun`,
+//! the browser's host) gives, byte for byte, the recorded frame of the same world at the same
+//! minute, and the world's digest (`canonical::state_digest`) is that frame's `state_hash`. The
+//! frames were recorded before #430 and pin the core's output now.
 //!
-//! The worlds and minutes are those of `tests/support/core_frames.py`, which wrote
-//! `tests/data/frames.json` (by `benchmarks/core_fixtures.py`): the two worlds of `tick_core.json`
-//! (one without a floor plan, whose people are at their zones' display points, and one whose
-//! facilities an EffectProgram moves) and the world `arrivals` (people walking in on an approach
-//! route and waiting at the door, open care requests, a log longer than the frame's scan of
-//! interactions). Each is run from minute 0 in the core, and its frame read at each minute.
+//! The worlds and minutes are those of `data/frames.json`: the two worlds of `tick_core.json` (one
+//! without a floor plan, whose people are at their zones' display points, and one whose facilities
+//! an EffectProgram moves) and the world `arrivals` (people walking in on an approach route and
+//! waiting at the door, open care requests, a log longer than the frame's scan of interactions).
+//! Each is run from minute 0 in the core, and its frame read at each minute.
 
 use std::fs;
 

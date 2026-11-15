@@ -1,9 +1,9 @@
 //! Lane P8 a4: the social model (`rules::social_propagation`) and the information model's contacts
-//! (`rules::information`) in the core, on worlds built here, with no Python.
+//! (`rules::information`) in the core, on worlds built here.
 //!
-//! `data/social_plan.json` holds what the PyO3 kernel before this lane (`main` `6694e74`) gave for
-//! the plain inputs of `social_plan` (its `plan_of_values`, the script in the lane's notes): the
-//! stresses' bits, the contacts in their order, the cooldowns and the observed pairs.
+//! `data/social_plan.json` holds the recorded plan of the social model for the plain inputs of
+//! `a_plan_has_the_recorded_bits`: the stresses' bits, the contacts in their order, the cooldowns
+//! and the observed pairs. The values were recorded before #430 and pin the core's output now.
 
 use crate::support;
 
@@ -193,11 +193,11 @@ fn social_inputs<'a>(
     neighbors: &'a Neighbors,
     traced: bool,
 ) -> social::Inputs<'a> {
-    social::Inputs { settings, expressiveness, view, deltas, minute: 10, seed: "2026", neighbors, traced }
+    social::Inputs { settings, expressiveness: social::Expressiveness::new(expressiveness), view, deltas, minute: 10, seed: "2026", neighbors, traced }
 }
 
 #[test]
-fn a_plan_has_the_bits_of_the_kernel_before() {
+fn a_plan_has_the_recorded_bits() {
     let expected: Value = serde_json::from_str(include_str!("data/social_plan.json")).unwrap();
     let ids = ["a1", "a2", "a3", "a4", "a5", "a6"];
     let rows: [(Option<&str>, &str, f64, f64, f64, f64); 6] = [
@@ -315,7 +315,7 @@ fn the_first_tick_plans_and_writes_once_the_namespace_is_there() {
     let mut planned = social::update(&world, &social_inputs(&settings, &expressiveness, &view, &deltas, &neighbors, false)).unwrap();
     assert!(planned.first_use && !planned.is_written());
     assert!(written(&mut world).is_empty());
-    // Python stores the empty namespace; then the plan is written.
+    // The empty namespace is stored; then the plan is written.
     world.slots.get(SOCIAL).unwrap().try_borrow_mut().unwrap().row = Some(Box::new(social_row(&[], &[])));
     social::write(&world, &mut planned).unwrap();
     assert!(planned.is_written() && !planned.first_use);
@@ -366,14 +366,14 @@ fn the_trace_of_a_minute_goes_to_the_host() {
     let (settings, expressiveness, neighbors) = (settings(Model::Channel), social::Table::new(), neighbors());
     let untraced = social::update(&world, &social_inputs(&settings, &expressiveness, &view, &deltas, &neighbors, false)).unwrap();
     let mut host = TestHost::default();
-    social::record_social(&mut host, &untraced, &V::Int(10), &V::Str(text("expressiveness-channel-openness-v1"))).unwrap();
+    social::record_social(&mut host, &untraced, 10, &V::Str(text("expressiveness-channel-openness-v1"))).unwrap();
     assert!(host.calls.is_empty());
 
     let world = social_world(Some(social_row(&[], &[])), false);
     let traced = social::update(&world, &social_inputs(&settings, &expressiveness, &view, &deltas, &neighbors, true)).unwrap();
     // A trace changes no value of the plan.
     assert_eq!(traced.plan.stresses, untraced.plan.stresses);
-    social::record_social(&mut host, &traced, &V::Int(10), &V::Str(text("expressiveness-channel-openness-v1"))).unwrap();
+    social::record_social(&mut host, &traced, 10, &V::Str(text("expressiveness-channel-openness-v1"))).unwrap();
     let [Call::Trace(Trace::SocialContact(V::Map(document)))] = &host.calls[..] else {
         panic!("one social document: {:?}", host.calls);
     };
@@ -582,7 +582,7 @@ fn a_minute_writes_the_row_and_schedules_each_transfer() {
     assert_eq!(&*pending[0], "information-contact-40");
     assert_eq!(world.id_counter("event").unwrap(), Some(40 + pending.len() as i64));
     // The trace keeps every contact with a full trace, 20 at most with a summary.
-    let document = information::information_document(&plan, InfoModel::Sparse, &V::Int(10), TraceLevel::Full);
+    let document = information::information_document(&plan, InfoModel::Sparse, 10, TraceLevel::Full);
     let V::Map(document) = document else { panic!("a document") };
     let keys: Vec<&str> = document.keys().map(|key| &**key).collect();
     assert_eq!(keys, ["minute_index", "policy_version", "selected_contact_count", "truncated_contact_count", "contacts", "proposed_transfer_count"]);
@@ -608,10 +608,10 @@ fn a_minute_writes_the_row_and_schedules_each_transfer() {
         ]
     );
     let mut host = TestHost { level: TraceLevel::Summary, ..TestHost::default() };
-    information::record_information(&mut host, &plan, InfoModel::Sparse, &V::Int(10)).unwrap();
+    information::record_information(&mut host, &plan, InfoModel::Sparse, 10).unwrap();
     assert!(matches!(&host.calls[..], [Call::Trace(Trace::InformationSpread(_))]));
     let mut off = TestHost::default();
-    information::record_information(&mut off, &plan, InfoModel::Sparse, &V::Int(10)).unwrap();
+    information::record_information(&mut off, &plan, InfoModel::Sparse, 10).unwrap();
     assert!(off.calls.is_empty());
 }
 
@@ -719,7 +719,7 @@ fn the_config_is_read_as_the_kernel_read_it() {
 }
 
 #[test]
-fn a_probability_keeps_the_order_of_the_python_expression() {
+fn a_probability_keeps_the_order_of_its_expression() {
     let settings = InfoSettings { duration_scale: 5.0, base_probability: 0.3, trust_sensitivity: 0.5, family_multiplier: 1.5, ..certain() };
     let plain = information::transmission_probability(&settings, InfoModel::Sparse, 0.75, Basis::Family, 3, true).unwrap();
     let expected = py_min(1.0, 0.3 * py_min(1.0, 3.0 / 5.0) * (1.0 + 0.5 * (2.0 * 0.75 - 1.0)) * 1.5 * 1.25);

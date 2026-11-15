@@ -14,6 +14,8 @@
 
 use std::sync::Arc;
 
+use indexmap::IndexMap;
+
 use crate::cell::ShardRef;
 use crate::config::read::Read;
 use crate::config::staff::StaffFatigue;
@@ -83,34 +85,42 @@ pub fn config_read<T>(value: Read<T>) -> Result<T> {
 // ---- What the rules read from the rest of the world -------------------------------------------------
 
 /// `state["staff_status"]` of `operational_events_v1`, or None without that namespace (or with None
-/// there): the input of `staff_is_available` in `domain/operational.py`, handed to `f`.
-pub fn with_staff_status<R>(world: &World, f: impl FnOnce(Option<&V>) -> Result<R>) -> Result<R> {
+/// there): the input of `staff_is_available` in `domain/operational.py`, handed to `f`. The
+/// namespace and its `staff_status` are checked here; a member's record where it is read.
+pub fn with_staff_status<R>(world: &World, f: impl FnOnce(StaffStatus<'_>) -> Result<R>) -> Result<R> {
     let state = world.slots.try_value(OPERATIONAL)?;
     let status = match state.as_deref() {
         None | Some(V::Null) => None,
         Some(V::Map(state)) => match state.get("staff_status") {
-            Some(status @ V::Map(_)) => Some(status),
+            Some(V::Map(status)) => Some(status),
             Some(_) => return Err(Error::unsupported("a value is not a plain dict")),
             None => return Err(Error::unsupported("operational_events_v1 has no staff_status")),
         },
         Some(_) => return Err(Error::unsupported("a value is not a plain dict")),
     };
-    f(status)
+    f(StaffStatus(status))
 }
 
-/// `staff_is_available` of one member, given `staff_status` (`with_staff_status`).
-pub fn is_available(status: Option<&V>, id: &str) -> Result<bool> {
-    let Some(V::Map(status)) = status else {
-        return Ok(true);
-    };
-    match status.get(id) {
-        None | Some(V::Null) => Ok(true),
-        Some(V::Map(record)) => match record.get("available") {
-            Some(V::Bool(available)) => Ok(*available),
-            Some(_) => Err(Error::unsupported("available is not a bool")),
-            None => Err(Error::unsupported("a staff status has no available")),
-        },
-        Some(_) => Err(Error::unsupported("a value is not a plain dict")),
+/// `staff_status` of `operational_events_v1` (`with_staff_status`): each member's record, or None
+/// without it.
+#[derive(Clone, Copy)]
+pub struct StaffStatus<'a>(Option<&'a IndexMap<Arc<str>, V>>);
+
+impl StaffStatus<'_> {
+    /// `staff_is_available` of one member.
+    pub fn is_available(self, id: &str) -> Result<bool> {
+        let Some(status) = self.0 else {
+            return Ok(true);
+        };
+        match status.get(id) {
+            None | Some(V::Null) => Ok(true),
+            Some(V::Map(record)) => match record.get("available") {
+                Some(V::Bool(available)) => Ok(*available),
+                Some(_) => Err(Error::unsupported("available is not a bool")),
+                None => Err(Error::unsupported("a staff status has no available")),
+            },
+            Some(_) => Err(Error::unsupported("a value is not a plain dict")),
+        }
     }
 }
 
@@ -225,7 +235,7 @@ pub fn update(world: &mut World, minute: i64, formula: &StaffFatigue) -> Result<
         for (id, row) in rows.staff.iter() {
             let working = row.active_task_id.is_some();
             let maximum = config_read(formula.limit(id))?;
-            let available = working || is_available(status, id)?;
+            let available = working || status.is_available(id)?;
             members.push(Member { id: id.clone(), working, available, maximum });
         }
         Ok(members)
@@ -284,7 +294,7 @@ pub fn is_available_now(world: &World, staff_id: &str, minute: i64, operations_a
     if !on_shift_now(world, staff_id, minute)? {
         return Ok(false);
     }
-    Ok(with_staff_status(world, |status| is_available(status, staff_id))? && idle)
+    Ok(with_staff_status(world, |status| status.is_available(staff_id))? && idle)
 }
 
 // ---- add_staff ----------------------------------------------------------------------------------

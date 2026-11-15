@@ -20,7 +20,8 @@ applied, the child's stored Run (which reads the parent's pieces up to its base)
 The Runs at a minute (`LiveRuns`): a branch keeps one Run; a later minute steps it forward when
 that is cheaper than restoring the nearest saved point, any other minute seeks, as the browser's
 `BrowserApi.simulationAt` does. A Run stays on the thread that made it: the server answers on one
-thread.
+thread and closes the API on that thread. A Run dropped on another thread is not freed (PyO3
+reports it as an unraisable exception, #507).
 
 A stored Run of an older format (the Python server's Checkpoints before #427, the browser's v1 to
 v4) is not read: 409 `stored_run_outdated`, compute it again.

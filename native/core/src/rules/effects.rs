@@ -43,6 +43,7 @@ use crate::rules::care_receipts::{self, Made};
 use crate::rules::common_operations::py_eq;
 use crate::rules::kit::{self, Counts, Held, Kept};
 use crate::rules::movement::{self, StaffOps};
+use crate::rules::overlay::SpaceRecord;
 use crate::rules::{agent_dynamics, overlay, staff_dynamics, staff_operation_events, staff_order};
 use crate::state::effect_program::{EffectProgramRow, FacilityModifiers, Modifier, Program, NAME};
 use crate::state::resource_ledger::{resource_index, LedgerRow, NAME as LEDGER};
@@ -293,10 +294,6 @@ fn sorted_unique<'a>(values: impl IntoIterator<Item = &'a str>) -> Vec<&'a str> 
     items
 }
 
-fn str_list_v<'a>(items: impl IntoIterator<Item = &'a str>) -> V {
-    V::List(items.into_iter().map(str_v).collect())
-}
-
 // ---- What the host's errors become -----------------------------------------------------------------
 
 /// The classes of a Python rule's `except ... as exc`.
@@ -412,15 +409,32 @@ impl GuardField {
 /// (`should_apply_effect_guard`, `_evaluate_guard_node`).
 type Judged<T> = std::result::Result<T, String>;
 
-enum Guard<'a> {
-    All(Vec<Guard<'a>>),
-    Any(Vec<Guard<'a>>),
-    Leaf { compare: Compare, field: GuardField, value: &'a V },
+enum Guard {
+    All(Vec<Guard>),
+    Any(Vec<Guard>),
+    Leaf { compare: Compare, field: GuardField, value: GuardValue },
+}
+
+/// A number a guard compares with: an int, one past 64 bits (by its sign), or a finite float.
+#[derive(Clone, Copy)]
+enum Number {
+    Int(i64),
+    Big { negative: bool },
+    Float(f64),
+}
+
+/// The value of a leaf, as `GuardExpression` takes it: a number, a bool, or a str of at most 256
+/// characters, which equals no field's value.
+#[derive(Clone, Copy)]
+enum GuardValue {
+    Number(Number),
+    Bool(bool),
+    Text,
 }
 
 /// The fields of `GuardExpression` of one node, or None when the contract refuses them.
 /// `depth` starts at 1 and `nodes` counts the tree, as `measure` does.
-fn parse_guard<'a>(value: &'a V, depth: usize, nodes: &mut usize) -> Option<Guard<'a>> {
+fn parse_guard(value: &V, depth: usize, nodes: &mut usize) -> Option<Guard> {
     if depth > 4 {
         return None;
     }
@@ -470,16 +484,17 @@ fn parse_guard<'a>(value: &'a V, depth: usize, nodes: &mut usize) -> Option<Guar
     if !operands.is_empty() {
         return None;
     }
-    let value = leaf_value?;
-    let numeric = match value {
+    let value = match leaf_value? {
         // An int past 64 bits is a StrictInt too.
-        V::Int(_) | V::Big(_) => true,
-        V::Float(number) if number.is_finite() => true,
-        V::Bool(_) => false,
-        V::Str(text) if text.chars().count() <= 256 => false,
+        V::Int(number) => GuardValue::Number(Number::Int(*number)),
+        V::Big(text) => GuardValue::Number(Number::Big { negative: text.starts_with('-') }),
+        V::Float(number) if number.is_finite() => GuardValue::Number(Number::Float(*number)),
+        V::Bool(flag) => GuardValue::Bool(*flag),
+        V::Str(text) if text.chars().count() <= 256 => GuardValue::Text,
         // What the contract refuses.
         _ => return None,
     };
+    let numeric = matches!(value, GuardValue::Number(_));
     if !numeric && !matches!(compare, Compare::Eq | Compare::Ne) {
         return None;
     }
@@ -502,41 +517,41 @@ enum Actual {
 }
 
 /// `actual` against `expected` by value, exactly, as Python compares an int with an int or a float.
-fn numeric_order(actual: i64, expected: &V) -> Result<std::cmp::Ordering> {
+fn numeric_order(actual: i64, expected: Number) -> std::cmp::Ordering {
     use std::cmp::Ordering::{Equal, Greater, Less};
     match expected {
-        V::Int(expected) => Ok(actual.cmp(expected)),
+        Number::Int(expected) => actual.cmp(&expected),
         // `int.__repr__` of an int past 64 bits: below i64 when negative, above it otherwise.
-        V::Big(text) => Ok(if text.starts_with('-') { Greater } else { Less }),
-        V::Float(expected) if expected.is_finite() => {
+        Number::Big { negative } => {
+            if negative {
+                Greater
+            } else {
+                Less
+            }
+        }
+        Number::Float(expected) => {
             // The float's integral part is exact; past i64 it is past `actual`. Within, the ints
             // compare, and on a tie the fraction decides.
             let whole = expected.trunc();
             if whole >= 9_223_372_036_854_775_808.0 {
-                return Ok(Less);
+                return Less;
             }
             if whole < -9_223_372_036_854_775_808.0 {
-                return Ok(Greater);
+                return Greater;
             }
-            Ok(match actual.cmp(&(whole as i64)) {
+            match actual.cmp(&(whole as i64)) {
                 Equal => (0.0).partial_cmp(&(expected - whole)).unwrap_or(Equal),
                 order => order,
-            })
+            }
         }
-        V::Float(_) => Err(Error::unsupported("a guard's value is not finite")),
-        _ => Err(Error::unsupported("a guard's value is not a number")),
     }
 }
 
-fn compare_guard(compare: Compare, actual: &Actual, expected: &V) -> Result<bool> {
+fn compare_guard(compare: Compare, actual: &Actual, expected: GuardValue) -> Result<bool> {
     use std::cmp::Ordering::{Equal, Greater, Less};
-    let number = match actual {
-        Actual::Int(number) if matches!(expected, V::Int(_) | V::Big(_) | V::Float(_)) => Some(*number),
-        _ => None,
-    };
-    let equal = match (number, actual, expected) {
-        (Some(number), _, _) => numeric_order(number, expected)? == Equal,
-        (None, Actual::Bool(left), V::Bool(right)) => left == right,
+    let equal = match (actual, expected) {
+        (Actual::Int(number), GuardValue::Number(expected)) => numeric_order(*number, expected) == Equal,
+        (Actual::Bool(left), GuardValue::Bool(right)) => *left == right,
         // Different types: `type(actual) is type(expected)` is false.
         _ => false,
     };
@@ -547,7 +562,10 @@ fn compare_guard(compare: Compare, actual: &Actual, expected: &V) -> Result<bool
             let Actual::Int(actual) = actual else {
                 return Ok(false);
             };
-            let order = numeric_order(*actual, expected)?;
+            let GuardValue::Number(expected) = expected else {
+                return Err(Error::unsupported("a guard's value is not a number"));
+            };
+            let order = numeric_order(*actual, expected);
             match compare {
                 Compare::Gt => order == Greater,
                 Compare::Gte => order != Less,
@@ -567,7 +585,7 @@ pub struct GuardIn<'a> {
 
 /// `_evaluate_guard_node`: `all` and `any` stop at the first answer, so a later operand's failure is
 /// reached only where Python reaches it.
-fn evaluate_guard(world: &World, ins: &GuardIn<'_>, row: &EventRow, guard: &Guard<'_>) -> Result<Judged<bool>> {
+fn evaluate_guard(world: &World, ins: &GuardIn<'_>, row: &EventRow, guard: &Guard) -> Result<Judged<bool>> {
     match guard {
         Guard::All(children) => {
             for child in children {
@@ -588,7 +606,7 @@ fn evaluate_guard(world: &World, ins: &GuardIn<'_>, row: &EventRow, guard: &Guar
             Ok(Ok(false))
         }
         Guard::Leaf { compare, field, value } => match guard_field(world, ins, row, *field)? {
-            Ok(actual) => compare_guard(*compare, &actual, value).map(Ok),
+            Ok(actual) => compare_guard(*compare, &actual, *value).map(Ok),
             Err(text) => Ok(Err(text)),
         },
     }
@@ -701,7 +719,7 @@ fn guard_field(world: &World, ins: &GuardIn<'_>, row: &EventRow, field: GuardFie
             let (Some(staff_id), true) = (staff_id, known) else {
                 return Ok(Err("guard staff.available has no known staff target".to_owned()));
             };
-            let available = staff_dynamics::with_staff_status(world, |status| staff_dynamics::is_available(status, &staff_id))?;
+            let available = staff_dynamics::with_staff_status(world, |status| status.is_available(&staff_id))?;
             Ok(Ok(Actual::Bool(available)))
         }
     }
@@ -949,7 +967,45 @@ pub struct EnvironmentIn<'a> {
 #[derive(Debug, Clone, PartialEq)]
 pub enum EnvironmentPlan {
     Expire { modifier: Arc<str> },
-    Apply { modifier: Arc<str>, record: V },
+    Apply { modifier: Arc<str>, record: ZoneModifierRecord },
+}
+
+/// A new record of `zone_environment_v1.modifiers`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ZoneModifierRecord {
+    pub modifier_id: Arc<str>,
+    pub program_id: Arc<str>,
+    pub effect_id: Arc<str>,
+    pub op: Arc<str>,
+    pub zone_id: Arc<str>,
+    /// The parameters' contract's dump.
+    pub parameters: V,
+    pub start_event_id: Arc<str>,
+    pub end_event_id: Arc<str>,
+    pub start_minute: i64,
+    pub end_minute: i64,
+    pub source_id: Arc<str>,
+    pub assumption_ids: Vec<Arc<str>>,
+}
+
+impl ZoneModifierRecord {
+    /// The record as the namespace holds it, its keys in the Python rule's order.
+    pub fn into_value(self) -> V {
+        let mut record = Doc::with_capacity(12);
+        record.insert(text("modifier_id"), V::Str(self.modifier_id));
+        record.insert(text("program_id"), V::Str(self.program_id));
+        record.insert(text("effect_id"), V::Str(self.effect_id));
+        record.insert(text("op"), V::Str(self.op));
+        record.insert(text("zone_id"), V::Str(self.zone_id));
+        record.insert(text("parameters"), self.parameters);
+        record.insert(text("start_event_id"), V::Str(self.start_event_id));
+        record.insert(text("end_event_id"), V::Str(self.end_event_id));
+        record.insert(text("start_minute"), V::Int(self.start_minute));
+        record.insert(text("end_minute"), V::Int(self.end_minute));
+        record.insert(text("source_id"), V::Str(self.source_id));
+        record.insert(text("assumption_ids"), V::List(self.assumption_ids.into_iter().map(V::Str).collect()));
+        V::Map(record)
+    }
 }
 
 /// The checks of `EffectProgramEnvironmentHandler.apply`, on the world. The parameters' contract
@@ -1047,7 +1103,7 @@ fn environment_checks(world: &World, ins: &EnvironmentIn<'_>, row: &EventRow, ex
 }
 
 /// The checks after the parameters' contract, and the record of a new modifier.
-fn environment_record(world: &World, ins: &EnvironmentIn<'_>, row: &EventRow, modifier: &Arc<str>, op: &str, parsed: V) -> Result<V> {
+fn environment_record(world: &World, ins: &EnvironmentIn<'_>, row: &EventRow, modifier: &Arc<str>, op: &str, parsed: V) -> Result<ZoneModifierRecord> {
     let payload = map_of(&row.payload)?;
     if op == "modify_demand_rate" {
         let action = field_str(&parsed, "action")?;
@@ -1086,20 +1142,20 @@ fn environment_record(world: &World, ins: &EnvironmentIn<'_>, row: &EventRow, mo
         _ => return Err(Error::failed("zone environment assumption provenance is invalid")),
     };
     let assumptions = sorted_unique(assumptions.iter().map(|item| &***item));
-    let mut record = Doc::with_capacity(12);
-    record.insert(text("modifier_id"), V::Str(modifier.clone()));
-    record.insert(text("program_id"), V::Str(required_str(payload, "program_id")?.clone()));
-    record.insert(text("effect_id"), V::Str(required_str(payload, "effect_id")?.clone()));
-    record.insert(text("op"), str_v(op));
-    record.insert(text("zone_id"), V::Str(required_str(payload, "zone_id")?.clone()));
-    record.insert(text("parameters"), parsed);
-    record.insert(text("start_event_id"), V::Str(row.event_id.clone()));
-    record.insert(text("end_event_id"), V::Str(end_event_id));
-    record.insert(text("start_minute"), V::Int(row.due_minute));
-    record.insert(text("end_minute"), V::Int(end_minute));
-    record.insert(text("source_id"), V::Str(config.source_id.clone()));
-    record.insert(text("assumption_ids"), str_list_v(assumptions));
-    Ok(V::Map(record))
+    Ok(ZoneModifierRecord {
+        modifier_id: modifier.clone(),
+        program_id: required_str(payload, "program_id")?.clone(),
+        effect_id: required_str(payload, "effect_id")?.clone(),
+        op: text(op),
+        zone_id: required_str(payload, "zone_id")?.clone(),
+        parameters: parsed,
+        start_event_id: row.event_id.clone(),
+        end_event_id,
+        start_minute: row.due_minute,
+        end_minute,
+        source_id: config.source_id.clone(),
+        assumption_ids: assumptions.into_iter().map(text).collect(),
+    })
 }
 
 /// The writes of an environment modifier's event, on the transaction's world, and the world's check:
@@ -1113,7 +1169,7 @@ pub fn write_environment<C: WorldCell, H: Host>(cell: &C, host: &mut H, plan: &E
                     modifiers.shift_remove(&**modifier).ok_or_else(|| Error::Key(modifier.to_string()))?;
                 }
                 EnvironmentPlan::Apply { modifier, record } => {
-                    modifiers.insert(modifier.clone(), record.clone());
+                    modifiers.insert(modifier.clone(), record.clone().into_value());
                 }
             }
             Ok(())
@@ -1140,7 +1196,7 @@ pub struct SpaceIn<'a> {
 #[derive(Debug, Clone, PartialEq)]
 pub enum SpacePlan {
     Expire { modifier: Arc<str> },
-    Register { record: V },
+    Register { record: SpaceRecord },
 }
 
 /// The checks of `EffectProgramTemporarySpaceHandler.apply`, on the world: the guard and the
@@ -1235,7 +1291,7 @@ fn space_checks(world: &World, ins: &SpaceIn<'_>, row: &EventRow, expire: bool) 
 }
 
 /// The checks after the parameters' contract, and the record `register_temporary_space` takes.
-fn space_record(world: &World, row: &EventRow, modifier: &Arc<str>, parsed: &V) -> Result<V> {
+fn space_record(world: &World, row: &EventRow, modifier: &Arc<str>, parsed: &V) -> Result<SpaceRecord> {
     let payload = map_of(&row.payload)?;
     let duration = world.duration_minutes()?;
     // An int past 64 bits is outside the interval either way; any other type is not an int.
@@ -1250,21 +1306,19 @@ fn space_record(world: &World, row: &EventRow, modifier: &Arc<str>, parsed: &V) 
     let marker = marker_of(row)?.ok_or_else(|| Error::unsupported("no marker"))?;
     let assumptions = str_list(marker, "assumption_ids")?;
     let sources = sorted_unique(std::iter::once(source).chain(assumptions.iter().map(|item| &***item)));
-    let mut record = Doc::with_capacity(13);
-    record.insert(text("space_id"), V::Str(modifier.clone()));
-    record.insert(text("zone_id"), V::Str(required_str(payload, "zone_id")?.clone()));
-    record.insert(text("people_capacity"), field(parsed, "people_capacity")?.clone());
-    record.insert(text("sleeping_capacity"), field(parsed, "sleeping_capacity")?.clone());
-    record.insert(text("start_minute"), V::Int(row.due_minute));
-    record.insert(text("end_minute"), V::Int(end_minute));
-    record.insert(text("active"), V::Bool(true));
-    record.insert(text("start_event_id"), V::Str(row.event_id.clone()));
-    record.insert(text("end_event_id"), V::Null);
-    record.insert(text("program_id"), V::Str(required_str(payload, "program_id")?.clone()));
-    record.insert(text("effect_id"), V::Str(required_str(payload, "effect_id")?.clone()));
-    record.insert(text("source_ids"), str_list_v(sources));
-    record.insert(text("geometry_status"), str_v("zone_only_capacity"));
-    Ok(V::Map(record))
+    Ok(SpaceRecord {
+        space_id: modifier.clone(),
+        zone_id: required_str(payload, "zone_id")?.clone(),
+        // The contract's StrictInt fields.
+        people_capacity: kit::exact_int(field(parsed, "people_capacity")?)?,
+        sleeping_capacity: kit::exact_int(field(parsed, "sleeping_capacity")?)?,
+        start_minute: row.due_minute,
+        end_minute,
+        start_event_id: row.event_id.clone(),
+        program_id: required_str(payload, "program_id")?.clone(),
+        effect_id: required_str(payload, "effect_id")?.clone(),
+        source_ids: sources.into_iter().map(text).collect(),
+    })
 }
 
 /// The writes of a temporary space's event, on the transaction's world (`spaces`: whether it holds
@@ -1725,7 +1779,7 @@ fn handoff_writes(world: &World, ins: &HandoffIn<'_>, plan: &Handoff, taken: &mu
     let Some(old_record) = old_record else {
         return Err(Error::unsupported("no record"));
     };
-    let available = staff_dynamics::with_staff_status(world, |status| staff_dynamics::is_available(status, replacement_id))?
+    let available = staff_dynamics::with_staff_status(world, |status| status.is_available(replacement_id))?
         && staff_operation_events::dynamics_available(world, replacement_id, minute).map_err(|error| Error::refused(AVAILABLE, error))?;
     if !available {
         return Err(Error::failed("staff handoff replacement is unavailable"));

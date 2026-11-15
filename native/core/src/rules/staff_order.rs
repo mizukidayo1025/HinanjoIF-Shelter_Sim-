@@ -27,7 +27,7 @@ use crate::rules::staff_operation_events::{dynamics_available, relief_skills, sn
 use crate::rules::travel::{self, ZONES_TAINTED};
 use crate::state::body_state::{BodyRow, NAME as BODY};
 use crate::state::effect_program::{EffectProgramRow, NAME as PROGRAM};
-use crate::state::staff_operations::{OperationRecord, Phase, StaffOperationsRow, NAME};
+use crate::state::staff_operations::{Number, OperationRecord, Phase, StaffOperationsRow, Table, NAME};
 use crate::value::V;
 use crate::world::{World, MODEL_CONFIGS};
 
@@ -93,11 +93,11 @@ fn validate(world: &World, inputs: &Inputs<'_>, order: &Order<'_>, minute: i64) 
     if matches!(inputs.staff, Held::Absent) || inputs.shared_absent {
         return failed("staff task order requires staff and shared operation state");
     }
-    let (idle, config) = {
+    let idle = {
         let Some(row) = kit::held_row::<StaffOperationsRow>(world, NAME, inputs.staff)? else {
             return failed("staff task order requires staff and shared operation state");
         };
-        (row.staff.get(order.staff_id).map(|record| record.phase == Phase::Idle), row.config.clone())
+        row.staff.get(order.staff_id).map(|record| record.phase == Phase::Idle)
     };
     let staff = world.rows()?.staff.get(order.staff_id).map(|staff| (staff.zone_id.clone(), staff.skills.0.clone(), staff.active_task_id.is_some()));
     let (Some((zone, skills, has_task)), Some(idle)) = (staff, idle) else {
@@ -106,7 +106,7 @@ fn validate(world: &World, inputs: &Inputs<'_>, order: &Order<'_>, minute: i64) 
     // Each test is read only if those before it passed, as `or` reads them.
     let busy = !idle
         || has_task
-        || !crate::rules::staff_dynamics::with_staff_status(world, |status| crate::rules::staff_dynamics::is_available(status, order.staff_id))?
+        || !crate::rules::staff_dynamics::with_staff_status(world, |status| status.is_available(order.staff_id))?
         || !dynamics_available(world, order.staff_id, minute)?;
     if busy {
         return failed("staff task order requires an idle, available, on-shift worker");
@@ -183,14 +183,18 @@ fn validate(world: &World, inputs: &Inputs<'_>, order: &Order<'_>, minute: i64) 
         return failed("staff task order has no reachable route");
     };
     let duration = {
-        let V::Map(config) = &config else {
+        // The row read above, read again.
+        let Some(row) = kit::held_row::<StaffOperationsRow>(world, NAME, inputs.staff)? else {
+            return Err(Error::Runtime("the row left under the plan".to_owned()));
+        };
+        let Some(config) = row.config_entries() else {
             return Err(Error::unsupported("the config is not a map"));
         };
-        let Some(V::Map(durations)) = config.get("task_duration_minutes") else {
+        let Table::Map(durations) = config.table("task_duration_minutes") else {
             return Err(Error::unsupported("the task durations are not a map"));
         };
-        match durations.get(order.task_kind) {
-            Some(V::Int(minutes)) => *minutes,
+        match durations.number(order.task_kind) {
+            Some(Number::Int(minutes)) => minutes,
             _ => return Err(Error::unsupported("a task duration is not an int")),
         }
     };

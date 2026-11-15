@@ -869,49 +869,10 @@ impl Procedure {
     fn phase_step(&mut self, given: Option<Given>) -> Answer<Option<Step>> {
         match std::mem::replace(&mut self.phase, Phase::Done) {
             // ---- go on
-            Phase::GoRecord => {
-                let bytes = Self::text(given)?.ok_or_else(|| refused("saved artifact is missing or corrupt"))?;
-                self.record = BranchRecord::of_json(&bytes)?;
-                if self.record.checkpoint_hash.is_none() {
-                    return Err(refused("branch has no computed minutes"));
-                }
-                self.phase = Phase::GoBranches;
-                Ok(Some(Step::Branches { project: self.at.project.clone(), run: self.at.run.clone() }))
-            }
-            Phase::GoBranches => {
-                let Some(Given::Texts(records)) = given else { return Err(error("the branches are given as their records")) };
-                for bytes in records {
-                    let record: Value = serde_json::from_slice(&bytes).map_err(|_| refused("saved artifact is missing or corrupt"))?;
-                    if record.get("parent_branch_id").and_then(Value::as_str) != Some(self.at.branch.as_str()) {
-                        continue;
-                    }
-                    let child = record.get("branch_id").and_then(Value::as_str).ok_or_else(|| refused("invalid artifact identifier"))?;
-                    self.children.push_back(child.to_owned());
-                }
-                Ok(Some(self.next_child()))
-            }
-            Phase::GoChildren => {
-                // The latest line of the branch's stored Run a branch forked from it reads up to.
-                if let Some(bytes) = Self::text(given)?.filter(|bytes| !bytes.is_empty()) {
-                    if let Some(fork) = Journal::parse(&bytes)?.fork() {
-                        let base = fork.base.line as usize;
-                        self.kept_through = Some(self.kept_through.map_or(base, |kept| kept.max(base)));
-                    }
-                }
-                Ok(Some(self.next_child()))
-            }
-            Phase::GoJournal => {
-                self.journal_bytes = Self::text(given)?.unwrap_or_default();
-                let journal = Journal::parse(&self.journal_bytes)?;
-                let hash = self.record.checkpoint_hash.clone().expect("checked");
-                let cut = journal.cut(&hash, self.kept_through)?;
-                self.writer = RunWriter::after(&journal, cut.head.index)?;
-                self.head = Some(cut.head);
-                self.head_hash = hash;
-                self.journal_bytes.truncate(cut.journal_end as usize);
-                self.phase = Phase::GoCut;
-                Ok(Some(Step::Truncate { at: self.at.clone(), journal: cut.journal_end, data: Some(cut.data_end) }))
-            }
+            Phase::GoRecord => self.on_go_record(given),
+            Phase::GoBranches => self.on_go_branches(given),
+            Phase::GoChildren => self.on_go_children(given),
+            Phase::GoJournal => self.on_go_journal(given),
             Phase::GoCut => {
                 Self::nothing(given)?;
                 self.open(Then::GoOn)
@@ -920,266 +881,61 @@ impl Procedure {
                 self.phase = Phase::GoReady;
                 Ok(Some(Step::Compute))
             }
-            Phase::GoTicked => {
-                let minute = self.run_ref().minute()?;
-                let schedule = Schedule { every: self.save_every };
-                self.acts.push_back(Act::Take { last: false });
-                let then = if minute == self.duration {
-                    self.acts.extend([Act::Save, Act::Finish]);
-                    Phase::GoCommitted(Some("completed"))
-                } else if minute == self.target || schedule.is_point(minute) {
-                    self.acts.push_back(Act::Save);
-                    Phase::GoCommitted((minute == self.target).then_some("paused"))
-                } else {
-                    Phase::GoReady
-                };
-                self.phase = Phase::Acting(Box::new(then));
-                Ok(None)
-            }
-            Phase::GoStop => {
-                let minute = self.run_ref().minute()?;
-                let status = if minute == self.duration { "completed" } else { "paused" };
-                if minute > self.head_minute {
-                    self.acts.push_back(Act::Save);
-                    self.phase = Phase::Acting(Box::new(Phase::GoCommitted(Some(status))));
-                    return Ok(None);
-                }
-                Ok(Some(self.done(Some(status))))
-            }
-            Phase::GoCommitted(status) => {
-                if given.is_some() {
-                    // The record is written: the computation goes on, or is done.
-                    Self::nothing(given)?;
-                    return Ok(Some(match status {
-                        Some(status) => self.done(Some(status)),
-                        None => {
-                            self.phase = Phase::GoReady;
-                            Step::Compute
-                        }
-                    }));
-                }
-                // The lines are written: the branch's record moves to the last.
-                let minute = self.run_ref().minute()?;
-                let head = self.last_head.clone().ok_or_else(|| error("a saved point wrote no line"))?;
-                let record =
-                    BranchRecord { computed_until: Some(minute), checkpoint_hash: Some(head.clone()), status: Some(RUNNING.to_owned()), ..self.record.clone() };
-                self.head_minute = minute;
-                self.head_hash = head;
-                self.phase = Phase::GoCommitted(status);
-                Ok(Some(self.write_branch(record)))
-            }
+            Phase::GoTicked => self.on_go_ticked(),
+            Phase::GoStop => self.on_go_stop(),
+            Phase::GoCommitted(status) => self.on_go_committed(given, status),
             // ---- the chain and the seek
-            Phase::Parents(then) => {
-                let parent = self.chain().parent_needed().expect("a parent asked for").to_owned();
-                let bytes = Self::text(given)?.ok_or_else(|| error(format!("the stored Run of a fork needs its parent's (branch {parent})")))?;
-                self.chain.as_mut().expect("the chain").add_parent(Journal::parse(&bytes)?)?;
-                self.levels.insert(0, parent);
-                self.parents_or_seek(then)
-            }
+            Phase::Parents(then) => self.on_parents(given, then),
             Phase::Seek(then) => {
                 let raw = Self::text(given)?.ok_or_else(|| error("a piece read is given its bytes"))?;
                 self.seeker.as_mut().expect("a seek").give(self.chain.as_ref().expect("the chain"), raw)?;
                 self.seek_next(then)
             }
             // ---- fork
-            Phase::ForkChild => {
-                if Self::text(given)?.is_some() {
-                    return Err(refused("child branch already exists"));
-                }
-                self.phase = Phase::ForkParent;
-                Ok(Some(Step::BranchRecord { at: self.at.of(&self.reading), optional: false }))
-            }
-            Phase::ForkParent => {
-                let bytes = Self::text(given)?.ok_or_else(|| refused("saved artifact is missing or corrupt"))?;
-                let parent = BranchRecord::of_json(&bytes)?;
-                self.parent_head = parent.checkpoint_hash;
-                self.phase = Phase::ForkJournal;
-                Ok(Some(Step::Journal(self.at.of(&self.reading))))
-            }
+            Phase::ForkChild => self.on_fork_child(given),
+            Phase::ForkParent => self.on_fork_parent(given),
             Phase::ForkJournal => {
                 self.journal_bytes = Self::text(given)?.unwrap_or_default();
                 self.open(Then::Fork)
             }
-            Phase::ForkCreated => {
-                Self::nothing(given)?;
-                let request = self.fork.clone().expect("a fork");
-                let fork = Fork {
-                    parent_branch_id: request.parent.clone(),
-                    minute: request.minute,
-                    origin: ForkOrigin {
-                        branch_id: request.parent.clone(),
-                        minute: request.minute,
-                        state_hash: std::mem::take(&mut self.state_hash),
-                        checkpoint_hash: self.parent_head.clone(),
-                    },
-                    program: request.program,
-                    approved_program_hash: request.approved_program_hash,
-                    receipt: self.receipt.clone(),
-                };
-                self.writer = RunWriter::new();
-                let parent = self.chain.as_ref().expect("the chain").leaf();
-                self.writer.fork_start(parent, self.sought_base, fork)?;
-                self.chain = None;
-                self.phase = Phase::ForkStarted;
-                self.flush();
-                Ok(None)
-            }
+            Phase::ForkCreated => self.on_fork_created(given),
             Phase::ForkStarted => {
                 self.acts.push_back(Act::Save);
                 self.phase = Phase::Acting(Box::new(Phase::ForkSaved));
                 Ok(None)
             }
-            Phase::ForkSaved => {
-                let request = self.fork.as_ref().expect("a fork");
-                let head = self.last_head.clone().ok_or_else(|| error("a saved point wrote no line"))?;
-                let record = BranchRecord {
-                    branch_id: request.child.clone(),
-                    parent_branch_id: Some(request.parent.clone()),
-                    fork_minute: request.minute,
-                    computed_until: Some(request.minute),
-                    checkpoint_hash: Some(head),
-                    status: Some("paused".to_owned()),
-                };
-                self.phase = Phase::ForkRecorded;
-                Ok(Some(self.write_branch(record)))
-            }
+            Phase::ForkSaved => self.on_fork_saved(),
             Phase::ForkRecorded => {
                 Self::nothing(given)?;
                 self.state_hash = self.run_ref().state_digest()?;
                 Ok(Some(self.done(None)))
             }
             // ---- a question's turn
-            Phase::TurnJournal => {
-                let bytes = Self::text(given)?.unwrap_or_default();
-                let journal = Journal::parse(&bytes)?;
-                self.writer = RunWriter::after_end(&journal)?;
-                let end = journal.entries().last().map_or(0, |entry| entry.end);
-                self.phase = Phase::TurnCut;
-                if bytes.len() as u64 > end {
-                    // A line a writer left cut short after the last whole one goes first.
-                    return Ok(Some(Step::Truncate { at: self.at.clone(), journal: end, data: None }));
-                }
-                Ok(None)
-            }
-            Phase::TurnCut => {
-                Self::nothing(given)?;
-                let turn = std::mem::take(&mut self.turn);
-                self.writer.turns(&[turn])?;
-                self.phase = Phase::TurnWritten;
-                self.flush();
-                Ok(None)
-            }
+            Phase::TurnJournal => self.on_turn_journal(given),
+            Phase::TurnCut => self.on_turn_cut(given),
             Phase::TurnWritten => Ok(Some(self.done(None))),
             // ---- the start
-            Phase::StartRecord => {
-                let bytes = Self::text(given)?.ok_or_else(|| refused("saved artifact is missing or corrupt"))?;
-                self.versions = Some(Self::versions_of_record(&bytes)?);
-                self.phase = Phase::StartCreated;
-                Ok(Some(Step::Create(self.at.clone())))
-            }
-            Phase::StartCreated => {
-                Self::nothing(given)?;
-                let start = self.start.clone().expect("a start");
-                let run = plain_run(&start.export, start.world.as_deref())?;
-                let storing =
-                    Storing { model_versions: self.versions.clone().expect("read"), compression: COMPRESSION.to_owned(), save_every: start.save_every };
-                self.writer.start(&run, start.export, start.world, &storing)?;
-                self.phase = Phase::StartWritten;
-                self.flush();
-                Ok(None)
-            }
-            Phase::StartWritten => {
-                let head = self.last_head.clone().ok_or_else(|| error("the start wrote no line"))?;
-                self.head_hash = head.clone();
-                let record = BranchRecord { branch_id: self.at.branch.clone(), checkpoint_hash: Some(head), ..BranchRecord::default() };
-                self.phase = Phase::StartRecorded;
-                Ok(Some(self.write_branch(record)))
-            }
+            Phase::StartRecord => self.on_start_record(given),
+            Phase::StartCreated => self.on_start_created(given),
+            Phase::StartWritten => self.on_start_written(),
             Phase::StartRecorded => {
                 Self::nothing(given)?;
                 Ok(Some(self.done(None)))
             }
             // ---- from the start
-            Phase::FromRecord => {
-                if let Some(given) = given {
-                    let bytes = Self::text(Some(given))?.ok_or_else(|| refused("saved artifact is missing or corrupt"))?;
-                    self.versions = Some(Self::versions_of_record(&bytes)?);
-                }
-                if self.versions.is_none() {
-                    self.phase = Phase::FromRecord;
-                    return Ok(Some(Step::RunRecord { project: self.at.project.clone(), run: self.at.run.clone() }));
-                }
-                match self.lineage.clone() {
-                    Some(lineage) => {
-                        self.phase = Phase::FromRunning;
-                        Ok(Some(self.write_branch(BranchRecord {
-                            branch_id: self.at.branch.clone(),
-                            parent_branch_id: lineage.parent_branch_id,
-                            fork_minute: lineage.fork_minute,
-                            status: Some(RUNNING.to_owned()),
-                            ..BranchRecord::default()
-                        })))
-                    }
-                    None => self.from_create(),
-                }
-            }
+            Phase::FromRecord => self.on_from_record(given),
             Phase::FromRunning => {
                 Self::nothing(given)?;
                 self.marked_running = true;
                 self.from_create()
             }
-            Phase::FromCreated => {
-                Self::nothing(given)?;
-                let start = self.start.take().expect("a start");
-                let storing =
-                    Storing { model_versions: self.versions.clone().expect("read"), compression: COMPRESSION.to_owned(), save_every: start.save_every };
-                let run = self.run.as_ref().expect("the Run");
-                self.writer.start(run, start.export, start.world, &storing)?;
-                self.phase = Phase::FromReady;
-                self.flush();
-                Ok(None)
-            }
+            Phase::FromCreated => self.on_from_created(given),
             Phase::FromReady => {
                 self.phase = Phase::FromReady;
                 Ok(Some(Step::Compute))
             }
-            Phase::FromTicked { last } => {
-                let schedule = Schedule { every: self.save_every };
-                let minute = self.run_ref().minute()?;
-                self.acts.push_back(Act::Take { last: false });
-                let then = if last {
-                    self.acts.push_back(Act::Take { last: true });
-                    if schedule.every > 0 {
-                        self.acts.push_back(Act::Save);
-                    }
-                    self.acts.push_back(Act::Finish);
-                    Phase::FromEnded
-                } else {
-                    if schedule.due(minute, self.duration) {
-                        self.acts.push_back(Act::Save);
-                    }
-                    Phase::FromReady
-                };
-                self.phase = Phase::Acting(Box::new(then));
-                Ok(None)
-            }
-            Phase::FromEnded => {
-                let minute = self.run_ref().minute()?;
-                let head = self.last_head.clone().ok_or_else(|| error("the end wrote no line"))?;
-                self.head_minute = minute;
-                self.head_hash = head.clone();
-                let status = if minute >= self.duration { "completed" } else { "paused" };
-                let Some(lineage) = self.lineage.clone() else { return Ok(Some(self.done(Some(status)))) };
-                self.phase = Phase::FromRecorded(status);
-                Ok(Some(self.write_branch(BranchRecord {
-                    branch_id: self.at.branch.clone(),
-                    parent_branch_id: lineage.parent_branch_id,
-                    fork_minute: lineage.fork_minute,
-                    computed_until: Some(minute),
-                    checkpoint_hash: Some(head),
-                    status: Some(status.to_owned()),
-                })))
-            }
+            Phase::FromTicked { last } => self.on_from_ticked(last),
+            Phase::FromEnded => self.on_from_ended(),
             Phase::FromRecorded(status) => {
                 Self::nothing(given)?;
                 Ok(Some(self.done(Some(status))))
@@ -1202,43 +958,9 @@ impl Procedure {
                 }
                 Ok(Some(self.next_run()))
             }
-            Phase::RecoverBranches => {
-                self.branches.clear();
-                match given {
-                    Some(Given::Texts(records)) => {
-                        for bytes in records {
-                            let Ok(record) = serde_json::from_slice::<Value>(&bytes) else { continue };
-                            if record.get("status").and_then(Value::as_str) != Some(RUNNING) {
-                                continue;
-                            }
-                            if let Some(id) = record.get("branch_id").and_then(Value::as_str) {
-                                self.branches.push_back(id.to_owned());
-                            }
-                        }
-                    }
-                    Some(Given::Failed) => {}
-                    _ => return Err(error("the branches are given as their records")),
-                }
-                Ok(Some(self.next_branch()))
-            }
-            Phase::RecoverLock => {
-                let Some(Given::Lock(taken)) = given else { return Err(error("a lock is given as whether it was taken")) };
-                if !taken {
-                    return Ok(Some(self.next_branch()));
-                }
-                self.phase = Phase::RecoverRecord;
-                Ok(Some(Step::BranchRecord { at: self.at.clone(), optional: false }))
-            }
-            Phase::RecoverRecord => {
-                let bytes = Self::text(given)?.ok_or_else(|| refused("saved artifact is missing or corrupt"))?;
-                let record = BranchRecord::of_json(&bytes)?;
-                if record.status.as_deref() != Some(RUNNING) {
-                    self.phase = Phase::RecoverUnlocked;
-                    return Ok(Some(Step::Unlock(self.at.clone())));
-                }
-                self.phase = Phase::RecoverWritten;
-                Ok(Some(self.write_branch(BranchRecord { status: Some(INTERRUPTED.to_owned()), ..record })))
-            }
+            Phase::RecoverBranches => self.on_recover_branches(given),
+            Phase::RecoverLock => self.on_recover_lock(given),
+            Phase::RecoverRecord => self.on_recover_record(given),
             Phase::RecoverWritten => {
                 Self::nothing(given)?;
                 self.phase = Phase::RecoverRunStatus;
@@ -1259,28 +981,379 @@ impl Procedure {
                 Self::nothing(given)?;
                 Ok(Some(self.done(None)))
             }
-            Phase::Acting(then) => {
-                let Some(act) = self.acts.pop_front() else {
-                    self.phase = *then;
-                    return Ok(None);
-                };
-                let mut run = self.run.take().expect("the Run");
-                let acted = match act {
-                    Act::Take { last } => self.writer.take(&mut run, last),
-                    Act::Save => self.writer.save(&mut run),
-                    Act::Finish => self.writer.finish(&mut run),
-                };
-                self.run = Some(run);
-                acted?;
-                self.phase = Phase::Acting(then);
-                self.flush();
-                Ok(None)
-            }
+            Phase::Acting(then) => self.on_acting(then),
             Phase::Done => {
                 self.phase = Phase::Done;
                 Ok(Some(Step::Done))
             }
         }
+    }
+
+    /// `Phase::GoRecord`: the branch's record is read; the branches come next.
+    fn on_go_record(&mut self, given: Option<Given>) -> Answer<Option<Step>> {
+        let bytes = Self::text(given)?.ok_or_else(|| refused("saved artifact is missing or corrupt"))?;
+        self.record = BranchRecord::of_json(&bytes)?;
+        if self.record.checkpoint_hash.is_none() {
+            return Err(refused("branch has no computed minutes"));
+        }
+        self.phase = Phase::GoBranches;
+        Ok(Some(Step::Branches { project: self.at.project.clone(), run: self.at.run.clone() }))
+    }
+
+    /// `Phase::GoBranches`: the branches' records name the branch's children to read.
+    fn on_go_branches(&mut self, given: Option<Given>) -> Answer<Option<Step>> {
+        let Some(Given::Texts(records)) = given else { return Err(error("the branches are given as their records")) };
+        for bytes in records {
+            let record: Value = serde_json::from_slice(&bytes).map_err(|_| refused("saved artifact is missing or corrupt"))?;
+            if record.get("parent_branch_id").and_then(Value::as_str) != Some(self.at.branch.as_str()) {
+                continue;
+            }
+            let child = record.get("branch_id").and_then(Value::as_str).ok_or_else(|| refused("invalid artifact identifier"))?;
+            self.children.push_back(child.to_owned());
+        }
+        Ok(Some(self.next_child()))
+    }
+
+    /// `Phase::GoChildren`: a child's stored Run tells how far the branch's lines must be kept.
+    fn on_go_children(&mut self, given: Option<Given>) -> Answer<Option<Step>> {
+        // The latest line of the branch's stored Run a branch forked from it reads up to.
+        if let Some(bytes) = Self::text(given)?.filter(|bytes| !bytes.is_empty()) {
+            if let Some(fork) = Journal::parse(&bytes)?.fork() {
+                let base = fork.base.line as usize;
+                self.kept_through = Some(self.kept_through.map_or(base, |kept| kept.max(base)));
+            }
+        }
+        Ok(Some(self.next_child()))
+    }
+
+    /// `Phase::GoJournal`: the journal is cut back to the branch's head.
+    fn on_go_journal(&mut self, given: Option<Given>) -> Answer<Option<Step>> {
+        self.journal_bytes = Self::text(given)?.unwrap_or_default();
+        let journal = Journal::parse(&self.journal_bytes)?;
+        let hash = self.record.checkpoint_hash.clone().expect("checked");
+        let cut = journal.cut(&hash, self.kept_through)?;
+        self.writer = RunWriter::after(&journal, cut.head.index)?;
+        self.head = Some(cut.head);
+        self.head_hash = hash;
+        self.journal_bytes.truncate(cut.journal_end as usize);
+        self.phase = Phase::GoCut;
+        Ok(Some(Step::Truncate { at: self.at.clone(), journal: cut.journal_end, data: Some(cut.data_end) }))
+    }
+
+    /// `Phase::GoTicked`: a minute is computed: what is taken and saved, and what comes next.
+    fn on_go_ticked(&mut self) -> Answer<Option<Step>> {
+        let minute = self.run_ref().minute()?;
+        let schedule = Schedule { every: self.save_every };
+        self.acts.push_back(Act::Take { last: false });
+        let then = if minute == self.duration {
+            self.acts.extend([Act::Save, Act::Finish]);
+            Phase::GoCommitted(Some("completed"))
+        } else if minute == self.target || schedule.is_point(minute) {
+            self.acts.push_back(Act::Save);
+            Phase::GoCommitted((minute == self.target).then_some("paused"))
+        } else {
+            Phase::GoReady
+        };
+        self.phase = Phase::Acting(Box::new(then));
+        Ok(None)
+    }
+
+    /// `Phase::GoStop`: the computation stops: what is left is saved, or it is done.
+    fn on_go_stop(&mut self) -> Answer<Option<Step>> {
+        let minute = self.run_ref().minute()?;
+        let status = if minute == self.duration { "completed" } else { "paused" };
+        if minute > self.head_minute {
+            self.acts.push_back(Act::Save);
+            self.phase = Phase::Acting(Box::new(Phase::GoCommitted(Some(status))));
+            return Ok(None);
+        }
+        Ok(Some(self.done(Some(status))))
+    }
+
+    /// `Phase::GoCommitted`: a saved point's lines, then the branch's record, are written.
+    fn on_go_committed(&mut self, given: Option<Given>, status: Option<&'static str>) -> Answer<Option<Step>> {
+        if given.is_some() {
+            // The record is written: the computation goes on, or is done.
+            Self::nothing(given)?;
+            return Ok(Some(match status {
+                Some(status) => self.done(Some(status)),
+                None => {
+                    self.phase = Phase::GoReady;
+                    Step::Compute
+                }
+            }));
+        }
+        // The lines are written: the branch's record moves to the last.
+        let minute = self.run_ref().minute()?;
+        let head = self.last_head.clone().ok_or_else(|| error("a saved point wrote no line"))?;
+        let record =
+            BranchRecord { computed_until: Some(minute), checkpoint_hash: Some(head.clone()), status: Some(RUNNING.to_owned()), ..self.record.clone() };
+        self.head_minute = minute;
+        self.head_hash = head;
+        self.phase = Phase::GoCommitted(status);
+        Ok(Some(self.write_branch(record)))
+    }
+
+    /// `Phase::Parents`: a parent's stored Run is added to the chain.
+    fn on_parents(&mut self, given: Option<Given>, then: Then) -> Answer<Option<Step>> {
+        let parent = self.chain().parent_needed().expect("a parent asked for").to_owned();
+        let bytes = Self::text(given)?.ok_or_else(|| error(format!("the stored Run of a fork needs its parent's (branch {parent})")))?;
+        self.chain.as_mut().expect("the chain").add_parent(Journal::parse(&bytes)?)?;
+        self.levels.insert(0, parent);
+        self.parents_or_seek(then)
+    }
+
+    /// `Phase::ForkChild`: the child branch must not exist yet; the parent's record comes next.
+    fn on_fork_child(&mut self, given: Option<Given>) -> Answer<Option<Step>> {
+        if Self::text(given)?.is_some() {
+            return Err(refused("child branch already exists"));
+        }
+        self.phase = Phase::ForkParent;
+        Ok(Some(Step::BranchRecord { at: self.at.of(&self.reading), optional: false }))
+    }
+
+    /// `Phase::ForkParent`: the parent's record gives its head; its journal comes next.
+    fn on_fork_parent(&mut self, given: Option<Given>) -> Answer<Option<Step>> {
+        let bytes = Self::text(given)?.ok_or_else(|| refused("saved artifact is missing or corrupt"))?;
+        let parent = BranchRecord::of_json(&bytes)?;
+        self.parent_head = parent.checkpoint_hash;
+        self.phase = Phase::ForkJournal;
+        Ok(Some(Step::Journal(self.at.of(&self.reading))))
+    }
+
+    /// `Phase::ForkCreated`: the child's stored Run is created: its fork line is written.
+    fn on_fork_created(&mut self, given: Option<Given>) -> Answer<Option<Step>> {
+        Self::nothing(given)?;
+        let request = self.fork.clone().expect("a fork");
+        let fork = Fork {
+            parent_branch_id: request.parent.clone(),
+            minute: request.minute,
+            origin: ForkOrigin {
+                branch_id: request.parent.clone(),
+                minute: request.minute,
+                state_hash: std::mem::take(&mut self.state_hash),
+                checkpoint_hash: self.parent_head.clone(),
+            },
+            program: request.program,
+            approved_program_hash: request.approved_program_hash,
+            receipt: self.receipt.clone(),
+        };
+        self.writer = RunWriter::new();
+        let parent = self.chain.as_ref().expect("the chain").leaf();
+        self.writer.fork_start(parent, self.sought_base, fork)?;
+        self.chain = None;
+        self.phase = Phase::ForkStarted;
+        self.flush();
+        Ok(None)
+    }
+
+    /// `Phase::ForkSaved`: the fork's first point is saved: the child's record is written.
+    fn on_fork_saved(&mut self) -> Answer<Option<Step>> {
+        let request = self.fork.as_ref().expect("a fork");
+        let head = self.last_head.clone().ok_or_else(|| error("a saved point wrote no line"))?;
+        let record = BranchRecord {
+            branch_id: request.child.clone(),
+            parent_branch_id: Some(request.parent.clone()),
+            fork_minute: request.minute,
+            computed_until: Some(request.minute),
+            checkpoint_hash: Some(head),
+            status: Some("paused".to_owned()),
+        };
+        self.phase = Phase::ForkRecorded;
+        Ok(Some(self.write_branch(record)))
+    }
+
+    /// `Phase::TurnJournal`: the journal is read; a line cut short is truncated first.
+    fn on_turn_journal(&mut self, given: Option<Given>) -> Answer<Option<Step>> {
+        let bytes = Self::text(given)?.unwrap_or_default();
+        let journal = Journal::parse(&bytes)?;
+        self.writer = RunWriter::after_end(&journal)?;
+        let end = journal.entries().last().map_or(0, |entry| entry.end);
+        self.phase = Phase::TurnCut;
+        if bytes.len() as u64 > end {
+            // A line a writer left cut short after the last whole one goes first.
+            return Ok(Some(Step::Truncate { at: self.at.clone(), journal: end, data: None }));
+        }
+        Ok(None)
+    }
+
+    /// `Phase::TurnCut`: the turn's line is written.
+    fn on_turn_cut(&mut self, given: Option<Given>) -> Answer<Option<Step>> {
+        Self::nothing(given)?;
+        let turn = std::mem::take(&mut self.turn);
+        self.writer.turns(&[turn])?;
+        self.phase = Phase::TurnWritten;
+        self.flush();
+        Ok(None)
+    }
+
+    /// `Phase::StartRecord`: the Run's record gives the model versions; the stored Run is created next.
+    fn on_start_record(&mut self, given: Option<Given>) -> Answer<Option<Step>> {
+        let bytes = Self::text(given)?.ok_or_else(|| refused("saved artifact is missing or corrupt"))?;
+        self.versions = Some(Self::versions_of_record(&bytes)?);
+        self.phase = Phase::StartCreated;
+        Ok(Some(Step::Create(self.at.clone())))
+    }
+
+    /// `Phase::StartCreated`: the stored Run is created: its start is written.
+    fn on_start_created(&mut self, given: Option<Given>) -> Answer<Option<Step>> {
+        Self::nothing(given)?;
+        let start = self.start.clone().expect("a start");
+        let run = plain_run(&start.export, start.world.as_deref())?;
+        let storing = Storing { model_versions: self.versions.clone().expect("read"), compression: COMPRESSION.to_owned(), save_every: start.save_every };
+        self.writer.start(&run, start.export, start.world, &storing)?;
+        self.phase = Phase::StartWritten;
+        self.flush();
+        Ok(None)
+    }
+
+    /// `Phase::StartWritten`: the start is written: the branch's record is written.
+    fn on_start_written(&mut self) -> Answer<Option<Step>> {
+        let head = self.last_head.clone().ok_or_else(|| error("the start wrote no line"))?;
+        self.head_hash = head.clone();
+        let record = BranchRecord { branch_id: self.at.branch.clone(), checkpoint_hash: Some(head), ..BranchRecord::default() };
+        self.phase = Phase::StartRecorded;
+        Ok(Some(self.write_branch(record)))
+    }
+
+    /// `Phase::FromRecord`: the Run's record gives the model versions; a lineage's branch is marked running.
+    fn on_from_record(&mut self, given: Option<Given>) -> Answer<Option<Step>> {
+        if let Some(given) = given {
+            let bytes = Self::text(Some(given))?.ok_or_else(|| refused("saved artifact is missing or corrupt"))?;
+            self.versions = Some(Self::versions_of_record(&bytes)?);
+        }
+        if self.versions.is_none() {
+            self.phase = Phase::FromRecord;
+            return Ok(Some(Step::RunRecord { project: self.at.project.clone(), run: self.at.run.clone() }));
+        }
+        match self.lineage.clone() {
+            Some(lineage) => {
+                self.phase = Phase::FromRunning;
+                Ok(Some(self.write_branch(BranchRecord {
+                    branch_id: self.at.branch.clone(),
+                    parent_branch_id: lineage.parent_branch_id,
+                    fork_minute: lineage.fork_minute,
+                    status: Some(RUNNING.to_owned()),
+                    ..BranchRecord::default()
+                })))
+            }
+            None => self.from_create(),
+        }
+    }
+
+    /// `Phase::FromCreated`: the stored Run is created: its start is written.
+    fn on_from_created(&mut self, given: Option<Given>) -> Answer<Option<Step>> {
+        Self::nothing(given)?;
+        let start = self.start.take().expect("a start");
+        let storing = Storing { model_versions: self.versions.clone().expect("read"), compression: COMPRESSION.to_owned(), save_every: start.save_every };
+        let run = self.run.as_ref().expect("the Run");
+        self.writer.start(run, start.export, start.world, &storing)?;
+        self.phase = Phase::FromReady;
+        self.flush();
+        Ok(None)
+    }
+
+    /// `Phase::FromTicked`: a minute is computed: what is taken and saved, and what comes next.
+    fn on_from_ticked(&mut self, last: bool) -> Answer<Option<Step>> {
+        let schedule = Schedule { every: self.save_every };
+        let minute = self.run_ref().minute()?;
+        self.acts.push_back(Act::Take { last: false });
+        let then = if last {
+            self.acts.push_back(Act::Take { last: true });
+            if schedule.every > 0 {
+                self.acts.push_back(Act::Save);
+            }
+            self.acts.push_back(Act::Finish);
+            Phase::FromEnded
+        } else {
+            if schedule.due(minute, self.duration) {
+                self.acts.push_back(Act::Save);
+            }
+            Phase::FromReady
+        };
+        self.phase = Phase::Acting(Box::new(then));
+        Ok(None)
+    }
+
+    /// `Phase::FromEnded`: the computation ended: a lineage's branch record is written, or it is done.
+    fn on_from_ended(&mut self) -> Answer<Option<Step>> {
+        let minute = self.run_ref().minute()?;
+        let head = self.last_head.clone().ok_or_else(|| error("the end wrote no line"))?;
+        self.head_minute = minute;
+        self.head_hash = head.clone();
+        let status = if minute >= self.duration { "completed" } else { "paused" };
+        let Some(lineage) = self.lineage.clone() else { return Ok(Some(self.done(Some(status)))) };
+        self.phase = Phase::FromRecorded(status);
+        Ok(Some(self.write_branch(BranchRecord {
+            branch_id: self.at.branch.clone(),
+            parent_branch_id: lineage.parent_branch_id,
+            fork_minute: lineage.fork_minute,
+            computed_until: Some(minute),
+            checkpoint_hash: Some(head),
+            status: Some(status.to_owned()),
+        })))
+    }
+
+    /// `Phase::RecoverBranches`: the branches still marked running are queued.
+    fn on_recover_branches(&mut self, given: Option<Given>) -> Answer<Option<Step>> {
+        self.branches.clear();
+        match given {
+            Some(Given::Texts(records)) => {
+                for bytes in records {
+                    let Ok(record) = serde_json::from_slice::<Value>(&bytes) else { continue };
+                    if record.get("status").and_then(Value::as_str) != Some(RUNNING) {
+                        continue;
+                    }
+                    if let Some(id) = record.get("branch_id").and_then(Value::as_str) {
+                        self.branches.push_back(id.to_owned());
+                    }
+                }
+            }
+            Some(Given::Failed) => {}
+            _ => return Err(error("the branches are given as their records")),
+        }
+        Ok(Some(self.next_branch()))
+    }
+
+    /// `Phase::RecoverLock`: a branch's lock is taken, or the next branch is tried.
+    fn on_recover_lock(&mut self, given: Option<Given>) -> Answer<Option<Step>> {
+        let Some(Given::Lock(taken)) = given else { return Err(error("a lock is given as whether it was taken")) };
+        if !taken {
+            return Ok(Some(self.next_branch()));
+        }
+        self.phase = Phase::RecoverRecord;
+        Ok(Some(Step::BranchRecord { at: self.at.clone(), optional: false }))
+    }
+
+    /// `Phase::RecoverRecord`: a running branch's record is marked interrupted.
+    fn on_recover_record(&mut self, given: Option<Given>) -> Answer<Option<Step>> {
+        let bytes = Self::text(given)?.ok_or_else(|| refused("saved artifact is missing or corrupt"))?;
+        let record = BranchRecord::of_json(&bytes)?;
+        if record.status.as_deref() != Some(RUNNING) {
+            self.phase = Phase::RecoverUnlocked;
+            return Ok(Some(Step::Unlock(self.at.clone())));
+        }
+        self.phase = Phase::RecoverWritten;
+        Ok(Some(self.write_branch(BranchRecord { status: Some(INTERRUPTED.to_owned()), ..record })))
+    }
+
+    /// `Phase::Acting`: the queued acts are done one at a time, then `then` comes.
+    fn on_acting(&mut self, then: Box<Phase>) -> Answer<Option<Step>> {
+        let Some(act) = self.acts.pop_front() else {
+            self.phase = *then;
+            return Ok(None);
+        };
+        let mut run = self.run.take().expect("the Run");
+        let acted = match act {
+            Act::Take { last } => self.writer.take(&mut run, last),
+            Act::Save => self.writer.save(&mut run),
+            Act::Finish => self.writer.finish(&mut run),
+        };
+        self.run = Some(run);
+        acted?;
+        self.phase = Phase::Acting(then);
+        self.flush();
+        Ok(None)
     }
 
     /// Done, with a computation's status.

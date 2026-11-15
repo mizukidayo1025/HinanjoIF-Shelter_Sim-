@@ -14,6 +14,7 @@ use rustc_hash::FxHashMap;
 use super::effect_program::{unhashable, EventsById, MARKER};
 use super::View;
 use crate::contracts::{self, Checked, Holder};
+use crate::entities::Entities;
 use crate::error::{Error, Result};
 use crate::events::is_stable_id;
 use crate::rules::dispatch::py_eq;
@@ -137,7 +138,6 @@ pub fn validate(view: &View<'_>) -> Result<()> {
         return Ok(());
     }
     let policy_version = canonical_map.get("policy_version");
-    let config_number = |name: &str| canonical_map.get(name).map_or(f64::NAN, float_of);
     let max_per_zone = match canonical_map.get("max_active_modifiers_per_zone") {
         Some(V::Int(limit)) => *limit,
         _ => return Err(Error::unsupported("a config's dump without its limit")),
@@ -145,142 +145,228 @@ pub fn validate(view: &View<'_>) -> Result<()> {
     let duration = view.duration_minutes()?;
     let by_id = EventsById::new(view)?;
     let mut counts: FxHashMap<Arc<str>, i64> = FxHashMap::default();
-    let invalid = || value_error("zone environment modifier record is invalid");
+    let cx = Environment { view, canonical_map, policy_version, rows: &rows, duration };
     for (modifier_id, record) in modifiers {
-        if !is_modifier_id(modifier_id) {
-            return Err(invalid());
-        }
-        let record = match record {
-            V::Map(record) if has_fields(record, &RECORD_FIELDS) => record,
-            _ => return Err(invalid()),
-        };
-        if !matches!(&record["modifier_id"], V::Str(id) if id == modifier_id) {
-            return Err(invalid());
-        }
-        // `record.get("op") not in {...}` and `record.get("zone_id") not in world.zones` hash them.
-        unhashable(&record["op"])?;
-        let op = match &record["op"] {
-            V::Str(op) if OPERATORS.contains(&&**op) => op.clone(),
-            _ => return Err(invalid()),
-        };
-        unhashable(&record["zone_id"])?;
-        let zone_id = match &record["zone_id"] {
-            V::Str(zone) if rows.zones.contains_key(zone) => zone.clone(),
-            _ => return Err(invalid()),
-        };
-        let stable = |name: &str| match &record[name] {
-            V::Str(id) if is_stable_id(id) => Some(id.clone()),
-            _ => None,
-        };
-        let (Some(program_id), Some(effect_id)) = (stable("program_id"), stable("effect_id")) else {
-            return Err(invalid());
-        };
-        let (V::Str(start_event_id), V::Str(end_event_id), V::Str(source_id), V::List(assumption_ids)) =
-            (&record["start_event_id"], &record["end_event_id"], &record["source_id"], &record["assumption_ids"])
-        else {
-            return Err(invalid());
-        };
-        let mut assumptions: Vec<&str> = Vec::with_capacity(assumption_ids.len());
-        for item in assumption_ids {
-            match item {
-                V::Str(id) if !id.is_empty() => assumptions.push(id),
-                _ => return Err(invalid()),
-            }
-        }
-        let mut unique = assumptions.clone();
-        unique.sort_unstable();
-        unique.dedup();
-        if unique.len() != assumptions.len() {
-            return Err(invalid());
-        }
-        let (V::Int(start_minute), V::Int(end_minute)) = (&record["start_minute"], &record["end_minute"]) else {
-            return Err(invalid());
-        };
-        let (start_minute, end_minute) = (*start_minute, *end_minute);
-        if !(0 <= start_minute && start_minute < end_minute && end_minute < duration) {
-            return Err(invalid());
-        }
-        let parameters = contracts::checked(&Checked::Parameters(op.clone()), &record["parameters"], Holder::Tracked)?;
-        if matches!(&*op, "set_ventilation" | "set_lighting" | "set_privacy" | "set_temperature")
-            && !policy_version.is_some_and(|version| py_eq(version, &text("zone-environment-v2")))
-        {
-            return Err(value_error("condition modifiers require zone-environment-v2"));
-        }
-        if &*op == "modify_demand_rate" {
-            let V::Map(dumped) = &parameters else {
-                return Err(Error::unsupported("a parameters' dump is no dict"));
-            };
-            let action = match dumped.get("action") {
-                Some(V::Str(action)) => action.clone(),
-                _ => return Err(Error::unsupported("a demand modifier's dump without its action")),
-            };
-            if matches!(&*action, "fetch_water" | "collect_meal") && !view.contains("resource_service_v1")? {
-                return Err(value_error("zone demand modifier requires the resource-service policy"));
-            }
-            let probability = dumped.get("probability_multiplier").map_or(f64::NAN, float_of);
-            let duration_multiplier = dumped.get("duration_multiplier").map_or(f64::NAN, float_of);
-            if probability < config_number("min_probability_multiplier")
-                || probability > config_number("max_probability_multiplier")
-                || (matches!(&*action, "rest" | "sleep") && !(0.5..=2.0).contains(&duration_multiplier))
-            {
-                return Err(value_error("zone demand modifier exceeds configured limits"));
-            }
-        }
-        if !canonical_map.get("source_id").is_some_and(|source| py_eq(source, &V::Str(source_id.clone()))) {
-            return Err(value_error("zone environment modifier source does not match its assumption config"));
-        }
-        let links = || value_error("zone environment modifier has invalid start/expiry event links");
-        let (Some(start), Some(end)) = (by_id.get(start_event_id)?, by_id.get(end_event_id)?) else {
-            return Err(links());
-        };
-        let mut start_payload = Map::with_capacity(7);
-        start_payload.insert(Arc::from("program_id"), V::Str(program_id.clone()));
-        start_payload.insert(Arc::from("effect_id"), V::Str(effect_id.clone()));
-        start_payload.insert(Arc::from("modifier_id"), V::Str(modifier_id.clone()));
-        start_payload.insert(Arc::from("zone_id"), V::Str(zone_id.clone()));
-        let end_payload = start_payload.clone();
-        start_payload.insert(Arc::from("op"), V::Str(op.clone()));
-        start_payload.insert(Arc::from("parameters"), parameters);
-        start_payload.insert(Arc::from("end_minute"), V::Int(end_minute));
-        let start_marker = match &start.provenance {
-            V::Map(provenance) => match provenance.get(MARKER) {
-                Some(V::Map(marker)) => Some(marker),
-                _ => None,
-            },
-            _ => None,
-        };
-        if &*start.event_type != START
-            || &*end.event_type != EXPIRY
-            || !py_eq(&start.payload, &V::Map(start_payload))
-            || !py_eq(&end.payload, &V::Map(end_payload))
-            || start.due_minute != start_minute
-            || end.due_minute != end_minute
-            || end.causation_id.as_deref() != Some(&*start.event_id)
-            || start_marker.is_none()
-        {
-            return Err(links());
-        }
-        let marker = start_marker.unwrap_or_else(|| unreachable!("checked above"));
-        let get = |name: &str| marker.get(name).unwrap_or(&V::Null);
-        let dependencies_match = matches!(get("policy_dependencies"), V::List(items) if items.len() == 1 && py_eq(&items[0], &text(POLICY)));
-        let assumptions_match = match get("assumption_ids") {
-            V::List(items) => items.len() == assumption_ids.len() && items.iter().zip(assumption_ids).all(|(a, b)| py_eq(a, b)),
-            _ => false,
-        };
-        if !py_eq(get("phase"), &text("start"))
-            || !py_eq(get("program_id"), &V::Str(program_id.clone()))
-            || !py_eq(get("effect_id"), &V::Str(effect_id.clone()))
-            || !py_eq(get("op"), &V::Str(op.clone()))
-            || !dependencies_match
-            || !assumptions_match
-            || assumptions != unique
-        {
-            return Err(value_error("zone environment modifier provenance does not match its start event"));
-        }
+        let modifier = modifier(cx, modifier_id, record)?;
+        let zone_id = check_links(&by_id, modifier)?;
         *counts.entry(zone_id).or_default() += 1;
     }
     if counts.values().any(|count| *count > max_per_zone) {
         return Err(value_error("zone environment runtime exceeds its per-zone modifier limit"));
     }
     Ok(())
+}
+
+/// What the check of each modifier record reads: the view, the canonical config, the rows and
+/// the run's duration.
+#[derive(Clone, Copy)]
+struct Environment<'a> {
+    view: &'a View<'a>,
+    canonical_map: &'a Map,
+    policy_version: Option<&'a V>,
+    rows: &'a Entities,
+    duration: i64,
+}
+
+impl Environment<'_> {
+    /// A number of the canonical config, NaN for none.
+    fn config_number(&self, name: &str) -> f64 {
+        self.canonical_map.get(name).map_or(f64::NAN, float_of)
+    }
+}
+
+/// A modifier record of a checked shape: what its event links and provenance are checked against.
+struct Modifier<'a> {
+    modifier_id: &'a Arc<str>,
+    op: Arc<str>,
+    zone_id: Arc<str>,
+    program_id: Arc<str>,
+    effect_id: Arc<str>,
+    start_event_id: &'a Arc<str>,
+    end_event_id: &'a Arc<str>,
+    assumption_ids: &'a Vec<V>,
+    assumptions: Vec<&'a str>,
+    unique: Vec<&'a str>,
+    start_minute: i64,
+    end_minute: i64,
+    parameters: V,
+}
+
+/// One modifier record: its fields, IDs, assumptions, window, parameters and source.
+fn modifier<'a>(cx: Environment<'a>, modifier_id: &'a Arc<str>, record: &'a V) -> Result<Modifier<'a>> {
+    let Environment { canonical_map, rows, duration, .. } = cx;
+    let invalid = || value_error("zone environment modifier record is invalid");
+    if !is_modifier_id(modifier_id) {
+        return Err(invalid());
+    }
+    let record = match record {
+        V::Map(record) if has_fields(record, &RECORD_FIELDS) => record,
+        _ => return Err(invalid()),
+    };
+    if !matches!(&record["modifier_id"], V::Str(id) if id == modifier_id) {
+        return Err(invalid());
+    }
+    // `record.get("op") not in {...}` and `record.get("zone_id") not in world.zones` hash them.
+    unhashable(&record["op"])?;
+    let op = match &record["op"] {
+        V::Str(op) if OPERATORS.contains(&&**op) => op.clone(),
+        _ => return Err(invalid()),
+    };
+    unhashable(&record["zone_id"])?;
+    let zone_id = match &record["zone_id"] {
+        V::Str(zone) if rows.zones.contains_key(zone) => zone.clone(),
+        _ => return Err(invalid()),
+    };
+    let stable = |name: &str| match &record[name] {
+        V::Str(id) if is_stable_id(id) => Some(id.clone()),
+        _ => None,
+    };
+    let (Some(program_id), Some(effect_id)) = (stable("program_id"), stable("effect_id")) else {
+        return Err(invalid());
+    };
+    let (V::Str(start_event_id), V::Str(end_event_id), V::Str(source_id), V::List(assumption_ids)) =
+        (&record["start_event_id"], &record["end_event_id"], &record["source_id"], &record["assumption_ids"])
+    else {
+        return Err(invalid());
+    };
+    let mut assumptions: Vec<&str> = Vec::with_capacity(assumption_ids.len());
+    for item in assumption_ids {
+        match item {
+            V::Str(id) if !id.is_empty() => assumptions.push(id),
+            _ => return Err(invalid()),
+        }
+    }
+    let mut unique = assumptions.clone();
+    unique.sort_unstable();
+    unique.dedup();
+    if unique.len() != assumptions.len() {
+        return Err(invalid());
+    }
+    let (V::Int(start_minute), V::Int(end_minute)) = (&record["start_minute"], &record["end_minute"]) else {
+        return Err(invalid());
+    };
+    let (start_minute, end_minute) = (*start_minute, *end_minute);
+    if !(0 <= start_minute && start_minute < end_minute && end_minute < duration) {
+        return Err(invalid());
+    }
+    let parameters = check_parameters(cx, &op, record)?;
+    if !canonical_map.get("source_id").is_some_and(|source| py_eq(source, &V::Str(source_id.clone()))) {
+        return Err(value_error("zone environment modifier source does not match its assumption config"));
+    }
+    Ok(Modifier {
+        modifier_id,
+        op,
+        zone_id,
+        program_id,
+        effect_id,
+        start_event_id,
+        end_event_id,
+        assumption_ids,
+        assumptions,
+        unique,
+        start_minute,
+        end_minute,
+        parameters,
+    })
+}
+
+/// A modifier's parameters through their contract, within the policy version and the configured
+/// demand limits.
+fn check_parameters(cx: Environment<'_>, op: &Arc<str>, record: &Map) -> Result<V> {
+    let Environment { view, policy_version, .. } = cx;
+    let parameters = contracts::checked(&Checked::Parameters(op.clone()), &record["parameters"], Holder::Tracked)?;
+    if matches!(&**op, "set_ventilation" | "set_lighting" | "set_privacy" | "set_temperature")
+        && !policy_version.is_some_and(|version| py_eq(version, &text("zone-environment-v2")))
+    {
+        return Err(value_error("condition modifiers require zone-environment-v2"));
+    }
+    if &**op == "modify_demand_rate" {
+        let V::Map(dumped) = &parameters else {
+            return Err(Error::unsupported("a parameters' dump is no dict"));
+        };
+        let action = match dumped.get("action") {
+            Some(V::Str(action)) => action.clone(),
+            _ => return Err(Error::unsupported("a demand modifier's dump without its action")),
+        };
+        if matches!(&*action, "fetch_water" | "collect_meal") && !view.contains("resource_service_v1")? {
+            return Err(value_error("zone demand modifier requires the resource-service policy"));
+        }
+        let probability = dumped.get("probability_multiplier").map_or(f64::NAN, float_of);
+        let duration_multiplier = dumped.get("duration_multiplier").map_or(f64::NAN, float_of);
+        if probability < cx.config_number("min_probability_multiplier")
+            || probability > cx.config_number("max_probability_multiplier")
+            || (matches!(&*action, "rest" | "sleep") && !(0.5..=2.0).contains(&duration_multiplier))
+        {
+            return Err(value_error("zone demand modifier exceeds configured limits"));
+        }
+    }
+    Ok(parameters)
+}
+
+/// A modifier's start and expiry events and the start event's provenance; the modifier's zone.
+fn check_links(by_id: &EventsById<'_>, modifier: Modifier<'_>) -> Result<Arc<str>> {
+    let Modifier {
+        modifier_id,
+        op,
+        zone_id,
+        program_id,
+        effect_id,
+        start_event_id,
+        end_event_id,
+        assumption_ids,
+        assumptions,
+        unique,
+        start_minute,
+        end_minute,
+        parameters,
+    } = modifier;
+    let links = || value_error("zone environment modifier has invalid start/expiry event links");
+    let (Some(start), Some(end)) = (by_id.get(start_event_id)?, by_id.get(end_event_id)?) else {
+        return Err(links());
+    };
+    let mut start_payload = Map::with_capacity(7);
+    start_payload.insert(Arc::from("program_id"), V::Str(program_id.clone()));
+    start_payload.insert(Arc::from("effect_id"), V::Str(effect_id.clone()));
+    start_payload.insert(Arc::from("modifier_id"), V::Str(modifier_id.clone()));
+    start_payload.insert(Arc::from("zone_id"), V::Str(zone_id.clone()));
+    let end_payload = start_payload.clone();
+    start_payload.insert(Arc::from("op"), V::Str(op.clone()));
+    start_payload.insert(Arc::from("parameters"), parameters);
+    start_payload.insert(Arc::from("end_minute"), V::Int(end_minute));
+    let start_marker = match &start.provenance {
+        V::Map(provenance) => match provenance.get(MARKER) {
+            Some(V::Map(marker)) => Some(marker),
+            _ => None,
+        },
+        _ => None,
+    };
+    if &*start.event_type != START
+        || &*end.event_type != EXPIRY
+        || !py_eq(&start.payload, &V::Map(start_payload))
+        || !py_eq(&end.payload, &V::Map(end_payload))
+        || start.due_minute != start_minute
+        || end.due_minute != end_minute
+        || end.causation_id.as_deref() != Some(&*start.event_id)
+        || start_marker.is_none()
+    {
+        return Err(links());
+    }
+    let marker = start_marker.unwrap_or_else(|| unreachable!("checked above"));
+    let get = |name: &str| marker.get(name).unwrap_or(&V::Null);
+    let dependencies_match = matches!(get("policy_dependencies"), V::List(items) if items.len() == 1 && py_eq(&items[0], &text(POLICY)));
+    let assumptions_match = match get("assumption_ids") {
+        V::List(items) => items.len() == assumption_ids.len() && items.iter().zip(assumption_ids).all(|(a, b)| py_eq(a, b)),
+        _ => false,
+    };
+    if !py_eq(get("phase"), &text("start"))
+        || !py_eq(get("program_id"), &V::Str(program_id.clone()))
+        || !py_eq(get("effect_id"), &V::Str(effect_id.clone()))
+        || !py_eq(get("op"), &V::Str(op.clone()))
+        || !dependencies_match
+        || !assumptions_match
+        || assumptions != unique
+    {
+        return Err(value_error("zone environment modifier provenance does not match its start event"));
+    }
+    Ok(zone_id)
 }

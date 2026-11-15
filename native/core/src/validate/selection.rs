@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use indexmap::IndexMap;
 
-use super::catalog::{catalog, Bounds};
+use super::catalog::{catalog, Bounds, Catalog};
 use super::py::{equal, finite, number, unhashable};
 use super::{repr, View};
 use crate::config::Selection;
@@ -132,27 +132,7 @@ pub fn select(configs: &V) -> Result<Selection> {
         return Err(value_error("unsupported policy_registry schema"));
     }
     let policy = behavior.get("policy").cloned().unwrap_or_else(|| V::Str(Arc::from(DEFAULT_BEHAVIOR)));
-    let mut suite_models = None;
-    if let Some(suite_id) = selection.get("suite_id").filter(|suite| !matches!(suite, V::Null)) {
-        if let Some(error) = unhashable(suite_id) {
-            return Err(error);
-        }
-        suite_models = match suite_id {
-            V::Str(suite) => catalog.suites.get(&**suite),
-            _ => None,
-        };
-        let Some(members) = suite_models.filter(|_| matches!(schema, Some(V::Int(3)))) else {
-            return Err(value_error("unsupported or incorrectly versioned model suite"));
-        };
-        let conflicting = members.iter().any(|(domain, model)| selection.get(&**domain).is_some_and(|chosen| !equal(chosen, &V::Str(model.clone()))));
-        if conflicting {
-            return Err(value_error("model suite selectors cannot be mixed with per-domain overrides"));
-        }
-        let suite_behavior = members.iter().find(|(domain, _)| &**domain == "behavior").map(|(_, model)| V::Str(model.clone()));
-        if !suite_behavior.is_some_and(|model| equal(&policy, &model)) {
-            return Err(value_error("behavior policy does not match the selected model suite"));
-        }
-    }
+    let suite_models = select_suite(catalog, selection, schema, &policy)?;
     let mut models: IndexMap<Arc<str>, V> = IndexMap::new();
     for (domain, model) in catalog.default_models.iter().chain(suite_models.into_iter().flatten()) {
         models.insert(domain.clone(), V::Str(model.clone()));
@@ -187,6 +167,41 @@ pub fn select(configs: &V) -> Result<Selection> {
     if !equal(&V::Str(behavior_model.clone()), &policy) {
         return Err(value_error("behavior selector must agree with model_configs.behavior.policy"));
     }
+    check_behavior_parameters(catalog, behavior, &behavior_model, &empty)?;
+    check_requirements(catalog, configs, &maps, &selected, schema)?;
+    Ok(Selection::new(selected.into_iter().collect()))
+}
+
+/// The model suite `policy_registry.suite_id` selects, if any: its members, which agree with the
+/// per-domain selectors and the behavior policy.
+fn select_suite<'c>(catalog: &'c Catalog, selection: &IndexMap<Arc<str>, V>, schema: Option<&V>, policy: &V) -> Result<Option<&'c Vec<(Arc<str>, Arc<str>)>>> {
+    let mut suite_models = None;
+    if let Some(suite_id) = selection.get("suite_id").filter(|suite| !matches!(suite, V::Null)) {
+        if let Some(error) = unhashable(suite_id) {
+            return Err(error);
+        }
+        suite_models = match suite_id {
+            V::Str(suite) => catalog.suites.get(&**suite),
+            _ => None,
+        };
+        let Some(members) = suite_models.filter(|_| matches!(schema, Some(V::Int(3)))) else {
+            return Err(value_error("unsupported or incorrectly versioned model suite"));
+        };
+        let conflicting = members.iter().any(|(domain, model)| selection.get(&**domain).is_some_and(|chosen| !equal(chosen, &V::Str(model.clone()))));
+        if conflicting {
+            return Err(value_error("model suite selectors cannot be mixed with per-domain overrides"));
+        }
+        let suite_behavior = members.iter().find(|(domain, _)| &**domain == "behavior").map(|(_, model)| V::Str(model.clone()));
+        if !suite_behavior.is_some_and(|model| equal(policy, &model)) {
+            return Err(value_error("behavior policy does not match the selected model suite"));
+        }
+    }
+    Ok(suite_models)
+}
+
+/// The behavior coefficients the selected behavior model must support, within its Model Catalog
+/// bounds.
+fn check_behavior_parameters(catalog: &Catalog, behavior: &IndexMap<Arc<str>, V>, behavior_model: &Arc<str>, empty: &IndexMap<Arc<str>, V>) -> Result<()> {
     let parameters = &catalog.models[&*behavior_model].behavior_parameters;
     if let Some(value) = behavior.get("sleep_debt_utility_weight") {
         let Some(bounds) = parameters.get("behavior.sleep_debt_utility_weight") else {
@@ -201,7 +216,7 @@ pub fn select(configs: &V) -> Result<Selection> {
     }
     for (field, minutes) in [("decision_interval_minutes_by_agent", true), ("temperature_by_agent", false)] {
         let values = match behavior.get(field) {
-            None => &empty,
+            None => empty,
             Some(V::Map(values)) if values.len() <= 100 => values,
             Some(_) => return Err(value_error(format!("behavior.{field} must be a bounded Agent ID map"))),
         };
@@ -227,6 +242,18 @@ pub fn select(configs: &V) -> Result<Selection> {
             }
         }
     }
+    Ok(())
+}
+
+/// What the selected models require: the configs and psychology they depend on, the registry
+/// schema, an installed factory, the proximity config and the declared state contracts.
+fn check_requirements(
+    catalog: &Catalog,
+    configs: &IndexMap<Arc<str>, V>,
+    maps: &IndexMap<&str, &IndexMap<Arc<str>, V>>,
+    selected: &IndexMap<Arc<str>, Arc<str>>,
+    schema: Option<&V>,
+) -> Result<()> {
     let life_state = selected.get("psychology").is_some_and(|model| catalog.is_life_state(model));
     let has = |name: &str| maps.contains_key(name);
     if selected.contains_key("affect") && !life_state {
@@ -293,5 +320,5 @@ pub fn select(configs: &V) -> Result<Selection> {
             }
         }
     }
-    Ok(Selection::new(selected.into_iter().collect()))
+    Ok(())
 }

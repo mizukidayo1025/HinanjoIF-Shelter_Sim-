@@ -349,6 +349,169 @@ pub fn assemble(parts: &Parts, service_warnings: impl FnOnce(&V) -> Result<Vec<S
     let design = parts.design;
     let population = parts.population;
     let conditions = parts.conditions;
+    refuse_non_default_request(request)?;
+    let municipality = text(at(request, &["municipality"])?, "municipality")?;
+    let disaster = text(at(request, &["disaster"])?, "disaster")?;
+    let evacuees = int(at(request, &["evacuees"])?, "evacuees")?;
+    let seed = at(request, &["seed"])?.clone();
+    check_research_request(request, research, &municipality, &disaster)?;
+
+    let mut design_warnings: Vec<String> = design.warnings.clone();
+    let mut approval_blockers: Vec<String> = Vec::new();
+    if design.capacity_supported < evacuees {
+        approval_blockers.push(format!(
+            "入力人数{evacuees}人が標準モデルの避難スペース容量{}人を超えています。人数または面積を調整してください。",
+            design.capacity_supported
+        ));
+    }
+    let requirements = list(at(population, &["person_requirements"])?, "person_requirements")?;
+    let unaccompanied = unaccompanied_minors(requirements, &mut design_warnings, &mut approval_blockers)?;
+    let profiles = list(at(population, &["profile_set", "profiles"])?, "profiles")?;
+    push_access_blocker(design, profiles, &mut design_warnings, &mut approval_blockers)?;
+
+    // source_records: research | extra, then the request's and the conditions' records.
+    let mut extra: IndexMap<String, V> = IndexMap::new();
+    for source in list(at(population, &["sources"])?, "population sources")? {
+        extra.insert(record_id(source), source.clone());
+    }
+    let facility_assumptions: Vec<V> = design.assumptions.clone();
+    let mut model_assumptions = default_model_assumptions(request)?;
+    for assumption in facility_assumptions.iter().chain(model_assumptions.iter()) {
+        extra.insert(text(at(assumption, &["source_id"])?, "source_id")?, assumption_record(assumption)?);
+    }
+    let mut source_records: IndexMap<String, V> = IndexMap::new();
+    for source in list(at(research, &["sources"])?, "research sources")? {
+        source_records.insert(record_id(source), source.clone());
+    }
+    for (key, value) in extra {
+        source_records.insert(key, value);
+    }
+    let population_source_ids = add_operator_sources(request, population, conditions, &mut source_records)?;
+    push_missing_source_blockers(&population_source_ids, conditions, &source_records, &mut approval_blockers);
+    let population_assumptions = list(at(population, &["assumptions"])?, "population assumptions")?.to_vec();
+    let duration_days = match at(request, &["duration_days"])? {
+        V::Float(days) => *days,
+        V::Int(days) => *days as f64,
+        _ => return Err(Error::Value("duration_days must be a number".to_owned())),
+    };
+    let duration_minutes = py_round_int(duration_days * 1440.0).ok_or_else(|| Error::Value("duration_days".to_owned()))?.max(1);
+    approval_blockers.extend(conditions.blockers.iter().cloned());
+    add_condition_sources(conditions, &mut source_records, &mut model_assumptions)?;
+    let facility_source_ids: Vec<String> =
+        facility_assumptions.iter().map(|item| at(item, &["source_id"]).and_then(|id| text(id, "source_id"))).collect::<Result<_>>()?;
+    for assumption in &model_assumptions {
+        let source_id = text(at(assumption, &["source_id"])?, "source_id")?;
+        if !facility_source_ids.contains(&source_id) {
+            if !source_records.contains_key(&source_id) {
+                source_records.insert(source_id, assumption_record(assumption)?);
+            }
+        }
+    }
+
+    let (mut provenance, mut assumptions) =
+        provenance_and_assumptions(parts, requirements, unaccompanied, &approval_blockers, population_assumptions, &facility_assumptions, &model_assumptions)?;
+    record_defaults(parts, &mut assumptions, &mut source_records)?;
+    let sorted_sources: BTreeMap<&String, &V> = source_records.iter().collect();
+    let mut sources: Vec<V> = sorted_sources.into_values().cloned().collect();
+
+    let geometry_dump = design.geometry.dump();
+    let zones: Vec<V> = design.zones.iter().map(|zone| zone.dump()).collect();
+    let edges: Vec<V> = design.zone_edges.iter().map(|edge| edge.dump()).collect();
+    let facilities: Vec<V> = design.facilities.iter().map(|facility| facility.dump()).collect();
+    let staff: Vec<V> = design.staff.iter().map(|member| member.dump()).collect();
+    let researched_at = isoformat(&text(at(research, &["researched_at"])?, "researched_at")?);
+    let identity = map(vec![
+        ("request", request.clone()),
+        ("research_time", s(&researched_at)),
+        ("geometry", geometry_dump.clone()),
+        ("zones", V::List(zones.clone())),
+        ("zone_edges", V::List(edges.clone())),
+        ("facilities", V::List(facilities.clone())),
+        ("staff", V::List(staff.clone())),
+        ("population", at(population, &["population"])?.clone()),
+        ("profiles", V::List(profiles.to_vec())),
+        ("selected_shelter_id", V::Null),
+        ("selected_shelter", V::Null),
+    ]);
+    let scenario_id = format!("region-{}", &sha256_hex(spaced_json(&identity)?.as_bytes())[..16]);
+
+    // model_configs: the constants, the geometry and population, the generated context, the
+    // compiled conditions; zone_environment only if the conditions gave none.
+    let model_configs = build_model_configs(parts, geometry_dump)?;
+
+    add_installed_models(&mut sources, &mut assumptions)?;
+    add_selected_policies(request, &model_configs, &mut sources, &mut assumptions)?;
+    add_core_suite(request, &mut sources, &mut assumptions)?;
+    sources.push(map(vec![
+        ("id", s("ASM-AFFECT-TRANSFER-V1")),
+        ("source_kind", s("assumption")),
+        ("title", s("Installed affect transfer")),
+        ("description", s("Synthetic contact transfer equation, not calibrated to measured shelter outcomes.")),
+    ]));
+    insert(&mut provenance, "sources", V::List(sources));
+    insert(&mut provenance, "assumptions", V::List(assumptions));
+
+    let mut scenario = map(vec![
+        ("schema_version", V::Int(3)),
+        ("id", s(&scenario_id)),
+        ("duration_minutes", V::Int(duration_minutes)),
+        ("seed", seed),
+        ("zones", V::List(zones)),
+        ("zone_edges", V::List(edges)),
+        ("facilities", V::List(facilities)),
+        ("staff", V::List(staff)),
+        ("profiles", V::List(profiles.to_vec())),
+        ("scheduled_events", V::List(conditions.scheduled_events.clone())),
+        ("initial_stock", conditions.initial_stock.clone().unwrap_or(V::Null)),
+        ("model_configs", V::Map(model_configs)),
+        ("provenance", provenance),
+    ]);
+    let mut warnings = design_warnings;
+    warnings.extend(texts(at(research, &["unknowns"])?, "unknowns")?);
+    warnings.extend(texts(at(research, &["warnings"])?, "warnings")?);
+    warnings.extend(service_warnings(&scenario)?);
+
+    // ProjectWorkspace.preview: no public building's address in a stored experiment, and the input.
+    apply_preview_changes(&mut scenario, parts);
+    let canonical = canonical_json(&scenario)?;
+    let approved_hash = sha256_hex(&canonical);
+    let can_start = approval_blockers.is_empty();
+    Ok(Built { scenario, canonical, approved_hash, warnings, approval_blockers, can_start })
+}
+
+/// The IDs of the minors without a confirmed guardian, and the blocker (a warning too) if there
+/// are any.
+fn unaccompanied_minors(requirements: &[V], design_warnings: &mut Vec<String>, approval_blockers: &mut Vec<String>) -> Result<Vec<V>> {
+    let mut unaccompanied: Vec<V> = Vec::new();
+    for item in requirements {
+        if opt(item, "guardian_status").is_some_and(|status| matches!(status, V::Str(text) if &**text == "unaccompanied")) {
+            unaccompanied.push(at(item, &["person_id"])?.clone());
+        }
+    }
+    if !unaccompanied.is_empty() {
+        let blocker = format!(
+            "同居世帯内の年齢・支援情報から保護者を確認できない未成年者が{}人います。家族関係を確認するまでシミュレーションを開始できません。",
+            unaccompanied.len()
+        );
+        design_warnings.push(blocker.clone());
+        approval_blockers.push(blocker);
+    }
+    Ok(unaccompanied)
+}
+
+/// Whether `sources` has a record with this ID.
+fn has_source(sources: &[V], id: &str) -> bool {
+    sources.iter().any(|source| record_id(source) == id)
+}
+
+/// The source record of an installed model's assumption.
+fn installed(id: &str, title: &str, description: &str) -> V {
+    map(vec![("id", s(id)), ("title", s(title)), ("source_kind", s("assumption")), ("description", s(description))])
+}
+
+/// Refuses a request whose policies, coefficient overrides or typed zones are not the defaults a
+/// screen request gives.
+fn refuse_non_default_request(request: &V) -> Result<()> {
     let policies = at(constants(), &["policy_ids"])?;
     if let V::Map(defaults) = policies {
         for (field, default) in defaults {
@@ -369,10 +532,12 @@ pub fn assemble(parts: &Parts, service_warnings: impl FnOnce(&V) -> Result<Vec<S
             return Err(Error::Unsupported(key.to_owned().into()));
         }
     }
-    let municipality = text(at(request, &["municipality"])?, "municipality")?;
-    let disaster = text(at(request, &["disaster"])?, "disaster")?;
-    let evacuees = int(at(request, &["evacuees"])?, "evacuees")?;
-    let seed = at(request, &["seed"])?.clone();
+    Ok(())
+}
+
+/// Refuses regional research made for another municipality or disaster, or with population
+/// statistics.
+fn check_research_request(request: &V, research: &V, municipality: &str, disaster: &str) -> Result<()> {
     let research_request = at(research, &["request"])?;
     if casefold(&text(at(research_request, &["municipality_query"])?, "municipality_query")?) != casefold(&municipality) {
         return Err(Error::Value("regional research query does not match the scenario municipality".to_owned()));
@@ -386,31 +551,12 @@ pub fn assemble(parts: &Parts, service_warnings: impl FnOnce(&V) -> Result<Vec<S
     if opt(research_request, "estat_area_code").is_some() || !list(at(research, &["population_observations"])?, "observations")?.is_empty() {
         return Err(Error::Unsupported("population statistics in the research".into()));
     }
+    Ok(())
+}
 
-    let mut design_warnings: Vec<String> = design.warnings.clone();
-    let mut approval_blockers: Vec<String> = Vec::new();
-    if design.capacity_supported < evacuees {
-        approval_blockers.push(format!(
-            "入力人数{evacuees}人が標準モデルの避難スペース容量{}人を超えています。人数または面積を調整してください。",
-            design.capacity_supported
-        ));
-    }
-    let requirements = list(at(population, &["person_requirements"])?, "person_requirements")?;
-    let mut unaccompanied: Vec<V> = Vec::new();
-    for item in requirements {
-        if opt(item, "guardian_status").is_some_and(|status| matches!(status, V::Str(text) if &**text == "unaccompanied")) {
-            unaccompanied.push(at(item, &["person_id"])?.clone());
-        }
-    }
-    if !unaccompanied.is_empty() {
-        let blocker = format!(
-            "同居世帯内の年齢・支援情報から保護者を確認できない未成年者が{}人います。家族関係を確認するまでシミュレーションを開始できません。",
-            unaccompanied.len()
-        );
-        design_warnings.push(blocker.clone());
-        approval_blockers.push(blocker);
-    }
-    let profiles = list(at(population, &["profile_set", "profiles"])?, "profiles")?;
+/// The blocker (a warning too) when a generated evacuee needs mobility support and the design has
+/// no accessible round trip to every service zone or no accessible toilet.
+fn push_access_blocker(design: &FacilityDesign, profiles: &[V], design_warnings: &mut Vec<String>, approval_blockers: &mut Vec<String>) -> Result<()> {
     let mut any_assisted = false;
     for profile in profiles {
         if text(at(profile, &["mobility"])?, "mobility")? != "independent" {
@@ -434,17 +580,15 @@ pub fn assemble(parts: &Parts, service_warnings: impl FnOnce(&V) -> Result<Vec<S
             approval_blockers.push(blocker);
         }
     }
+    Ok(())
+}
 
-    // source_records: research | extra, then the request's and the conditions' records.
-    let mut extra: IndexMap<String, V> = IndexMap::new();
-    for source in list(at(population, &["sources"])?, "population sources")? {
-        extra.insert(record_id(source), source.clone());
-    }
-    let facility_assumptions: Vec<V> = design.assumptions.clone();
+/// The behavior, staff-support and toilet-service assumptions every built Scenario records.
+fn default_model_assumptions(request: &V) -> Result<Vec<V>> {
     let behavior_source = "ASM-SLEEP-AWARE-BEHAVIOR-V2";
     let behavior_policy = text(at(request, &["behavior_policy_id"])?, "behavior_policy_id")?;
     let toilet_source = id_of("TOILET_SERVICE_SOURCE_ID")?;
-    let mut model_assumptions: Vec<V> = vec![
+    let model_assumptions: Vec<V> = vec![
         map(vec![
             ("id", s(behavior_source)),
             ("subject", s("behavior_model_defaults")),
@@ -483,16 +627,12 @@ pub fn assemble(parts: &Parts, service_warnings: impl FnOnce(&V) -> Result<Vec<S
             ("source_id", s(&toilet_source)),
         ]),
     ];
-    for assumption in facility_assumptions.iter().chain(model_assumptions.iter()) {
-        extra.insert(text(at(assumption, &["source_id"])?, "source_id")?, assumption_record(assumption)?);
-    }
-    let mut source_records: IndexMap<String, V> = IndexMap::new();
-    for source in list(at(research, &["sources"])?, "research sources")? {
-        source_records.insert(record_id(source), source.clone());
-    }
-    for (key, value) in extra {
-        source_records.insert(key, value);
-    }
+    Ok(model_assumptions)
+}
+
+/// Adds the operator's population and selection references, the operator-entered population
+/// conditions and the request's condition sources; returns the population's source IDs.
+fn add_operator_sources(request: &V, population: &V, conditions: &Conditions, source_records: &mut IndexMap<String, V>) -> Result<Vec<String>> {
     let mut operator_population_sources = texts(at(request, &["evacuation_selection", "source_ids"])?, "source_ids")?;
     operator_population_sources.extend(texts(at(request, &["population_conditions", "source_ids"])?, "source_ids")?);
     for source_id in operator_population_sources {
@@ -520,6 +660,16 @@ pub fn assemble(parts: &Parts, service_warnings: impl FnOnce(&V) -> Result<Vec<S
     for record in &conditions.request_provenance_sources {
         source_records.insert(record_id(record), record.clone());
     }
+    Ok(population_source_ids)
+}
+
+/// The blockers for population and operational-condition source IDs no source record has.
+fn push_missing_source_blockers(
+    population_source_ids: &[String],
+    conditions: &Conditions,
+    source_records: &IndexMap<String, V>,
+    approval_blockers: &mut Vec<String>,
+) {
     let mut missing: Vec<&String> = population_source_ids.iter().filter(|id| !source_records.contains_key(*id)).collect();
     missing.sort();
     missing.dedup();
@@ -538,14 +688,11 @@ pub fn assemble(parts: &Parts, service_warnings: impl FnOnce(&V) -> Result<Vec<S
             missing.iter().map(|id| id.as_str()).collect::<Vec<_>>().join(", ")
         ));
     }
-    let population_assumptions = list(at(population, &["assumptions"])?, "population assumptions")?.to_vec();
-    let duration_days = match at(request, &["duration_days"])? {
-        V::Float(days) => *days,
-        V::Int(days) => *days as f64,
-        _ => return Err(Error::Value("duration_days must be a number".to_owned())),
-    };
-    let duration_minutes = py_round_int(duration_days * 1440.0).ok_or_else(|| Error::Value("duration_days".to_owned()))?.max(1);
-    approval_blockers.extend(conditions.blockers.iter().cloned());
+}
+
+/// Adds the compiled conditions' source records, the provisioning and resource-service
+/// assumptions; refuses infrastructure conditions.
+fn add_condition_sources(conditions: &Conditions, source_records: &mut IndexMap<String, V>, model_assumptions: &mut Vec<V>) -> Result<()> {
     for record in &conditions.provenance_sources {
         source_records.insert(record_id(record), record.clone());
     }
@@ -591,17 +738,24 @@ pub fn assemble(parts: &Parts, service_warnings: impl FnOnce(&V) -> Result<Vec<S
     if compiled.contains_key("infrastructure") {
         return Err(Error::Unsupported("infrastructure conditions".into()));
     }
-    let facility_source_ids: Vec<String> =
-        facility_assumptions.iter().map(|item| at(item, &["source_id"]).and_then(|id| text(id, "source_id"))).collect::<Result<_>>()?;
-    for assumption in &model_assumptions {
-        let source_id = text(at(assumption, &["source_id"])?, "source_id")?;
-        if !facility_source_ids.contains(&source_id) {
-            if !source_records.contains_key(&source_id) {
-                source_records.insert(source_id, assumption_record(assumption)?);
-            }
-        }
-    }
+    Ok(())
+}
 
+/// The provenance before its sources and assumptions are filled in, and the assumptions so far
+/// (the population's, the facility's, then the models').
+fn provenance_and_assumptions(
+    parts: &Parts,
+    requirements: &[V],
+    unaccompanied: Vec<V>,
+    approval_blockers: &[String],
+    population_assumptions: Vec<V>,
+    facility_assumptions: &[V],
+    model_assumptions: &[V],
+) -> Result<(V, Vec<V>)> {
+    let request = parts.request;
+    let research = parts.research;
+    let design = parts.design;
+    let population = parts.population;
     let initial_status = text(at(request, &["operational_conditions", "initial_resources", "status"])?, "status")?;
     let mut notes = Vec::new();
     if initial_status == "unknown" {
@@ -613,7 +767,7 @@ pub fn assemble(parts: &Parts, service_warnings: impl FnOnce(&V) -> Result<Vec<S
     assumptions.extend(facility_assumptions.iter().cloned());
     assumptions.extend(model_assumptions.iter().cloned());
     let blockers_value = || V::List(approval_blockers.iter().map(|text| s(text)).collect());
-    let mut provenance = map(vec![
+    let provenance = map(vec![
         ("generator", s("region-initial-scenario-v1")),
         ("natural_language_input", request.clone()),
         ("sources", V::Null),
@@ -649,6 +803,13 @@ pub fn assemble(parts: &Parts, service_warnings: impl FnOnce(&V) -> Result<Vec<S
         ("notes", V::List(notes)),
         ("region_research", research.clone()),
     ]);
+    Ok((provenance, assumptions))
+}
+
+/// The assumption and source record of the setup values the text did not give, and the source
+/// record of an operator-entered area.
+fn record_defaults(parts: &Parts, assumptions: &mut Vec<V>, source_records: &mut IndexMap<String, V>) -> Result<()> {
+    let request = parts.request;
     let origins = at(request, &["field_origins"])?;
     let mut defaulted: Vec<(&str, V)> = Vec::new();
     for field in ["duration_days", "seed", "accessible_toilet_count"] {
@@ -694,32 +855,13 @@ pub fn assemble(parts: &Parts, service_warnings: impl FnOnce(&V) -> Result<Vec<S
             ]),
         );
     }
-    let sorted_sources: BTreeMap<&String, &V> = source_records.iter().collect();
-    let mut sources: Vec<V> = sorted_sources.into_values().cloned().collect();
+    Ok(())
+}
 
-    let geometry_dump = design.geometry.dump();
-    let zones: Vec<V> = design.zones.iter().map(|zone| zone.dump()).collect();
-    let edges: Vec<V> = design.zone_edges.iter().map(|edge| edge.dump()).collect();
-    let facilities: Vec<V> = design.facilities.iter().map(|facility| facility.dump()).collect();
-    let staff: Vec<V> = design.staff.iter().map(|member| member.dump()).collect();
-    let researched_at = isoformat(&text(at(research, &["researched_at"])?, "researched_at")?);
-    let identity = map(vec![
-        ("request", request.clone()),
-        ("research_time", s(&researched_at)),
-        ("geometry", geometry_dump.clone()),
-        ("zones", V::List(zones.clone())),
-        ("zone_edges", V::List(edges.clone())),
-        ("facilities", V::List(facilities.clone())),
-        ("staff", V::List(staff.clone())),
-        ("population", at(population, &["population"])?.clone()),
-        ("profiles", V::List(profiles.to_vec())),
-        ("selected_shelter_id", V::Null),
-        ("selected_shelter", V::Null),
-    ]);
-    let scenario_id = format!("region-{}", &sha256_hex(spaced_json(&identity)?.as_bytes())[..16]);
-
-    // model_configs: the constants, the geometry and population, the generated context, the
-    // compiled conditions; zone_environment only if the conditions gave none.
+/// The model configs in their order (see the comment where `assemble` calls this).
+fn build_model_configs(parts: &Parts, geometry_dump: V) -> Result<IndexMap<Arc<str>, V>> {
+    let population = parts.population;
+    let conditions = parts.conditions;
     let constant_configs = at(constants(), &["model_configs"])?;
     let mut model_configs: IndexMap<Arc<str>, V> = IndexMap::new();
     if let V::Map(entries) = constant_configs {
@@ -740,11 +882,12 @@ pub fn assemble(parts: &Parts, service_warnings: impl FnOnce(&V) -> Result<Vec<S
     if !model_configs.contains_key("zone_environment") {
         model_configs.insert(Arc::from("zone_environment"), at(constant_configs, &["zone_environment"])?.clone());
     }
+    Ok(model_configs)
+}
 
-    let has_source = |sources: &[V], id: &str| sources.iter().any(|source| record_id(source) == id);
-    let installed = |id: &str, title: &str, description: &str| {
-        map(vec![("id", s(id)), ("title", s(title)), ("source_kind", s("assumption")), ("description", s(description))])
-    };
+/// The sources and assumptions of the installed experimental models, the facility orientation and
+/// announcement, and the psychology model.
+fn add_installed_models(sources: &mut Vec<V>, assumptions: &mut Vec<V>) -> Result<()> {
     for (name, title) in [
         ("BODY_SOURCE_ID", "Experimental life-state feedback"),
         ("STAFF_OPERATIONS_SOURCE_ID", "Experimental staff operations"),
@@ -808,6 +951,12 @@ pub fn assemble(parts: &Parts, service_warnings: impl FnOnce(&V) -> Result<Vec<S
         ("source_id", s(&psychology)),
         ("reason", s("New generated Scenarios select the research psychology model; legacy models remain only for saved inputs and explicit comparisons.")),
     ]));
+    Ok(())
+}
+
+/// The sources and assumptions of the selected default policies and the zone-environment and
+/// staff-dynamics configs; refuses distance-sampled proximity.
+fn add_selected_policies(request: &V, model_configs: &IndexMap<Arc<str>, V>, sources: &mut Vec<V>, assumptions: &mut Vec<V>) -> Result<()> {
     for (model_id, source_id, title) in selected_policy_sources()? {
         if !has_source(&sources, &source_id) {
             sources.push(installed(&source_id, &title, "Installed experimental operator; coefficients are not empirically calibrated."));
@@ -832,6 +981,12 @@ pub fn assemble(parts: &Parts, service_warnings: impl FnOnce(&V) -> Result<Vec<S
             }
         }
     }
+    Ok(())
+}
+
+/// The core model suite and balanced sleep-debt records when the request selects every core-suite
+/// model.
+fn add_core_suite(request: &V, sources: &mut Vec<V>, assumptions: &mut Vec<V>) -> Result<()> {
     let suite = at(constants(), &["core_suite_models"])?;
     let mut core_suite_selected = true;
     for (domain, field) in [
@@ -866,37 +1021,12 @@ pub fn assemble(parts: &Parts, service_warnings: impl FnOnce(&V) -> Result<Vec<S
             }
         }
     }
-    sources.push(map(vec![
-        ("id", s("ASM-AFFECT-TRANSFER-V1")),
-        ("source_kind", s("assumption")),
-        ("title", s("Installed affect transfer")),
-        ("description", s("Synthetic contact transfer equation, not calibrated to measured shelter outcomes.")),
-    ]));
-    insert(&mut provenance, "sources", V::List(sources));
-    insert(&mut provenance, "assumptions", V::List(assumptions));
+    Ok(())
+}
 
-    let mut scenario = map(vec![
-        ("schema_version", V::Int(3)),
-        ("id", s(&scenario_id)),
-        ("duration_minutes", V::Int(duration_minutes)),
-        ("seed", seed),
-        ("zones", V::List(zones)),
-        ("zone_edges", V::List(edges)),
-        ("facilities", V::List(facilities)),
-        ("staff", V::List(staff)),
-        ("profiles", V::List(profiles.to_vec())),
-        ("scheduled_events", V::List(conditions.scheduled_events.clone())),
-        ("initial_stock", conditions.initial_stock.clone().unwrap_or(V::Null)),
-        ("model_configs", V::Map(model_configs)),
-        ("provenance", provenance),
-    ]);
-    let mut warnings = design_warnings;
-    warnings.extend(texts(at(research, &["unknowns"])?, "unknowns")?);
-    warnings.extend(texts(at(research, &["warnings"])?, "warnings")?);
-    warnings.extend(service_warnings(&scenario)?);
-
-    // ProjectWorkspace.preview: no public building's address in a stored experiment, and the input.
-    if let V::Map(top) = &mut scenario {
+/// `ProjectWorkspace.preview`'s changes: the shelters' addresses removed, `scenario_input` added.
+fn apply_preview_changes(scenario: &mut V, parts: &Parts) {
+    if let V::Map(top) = scenario {
         if let Some(V::Map(provenance)) = top.get_mut("provenance") {
             if let Some(V::Map(region)) = provenance.get_mut("region_research") {
                 if let Some(V::List(shelters)) = region.get_mut("shelters") {
@@ -911,10 +1041,6 @@ pub fn assemble(parts: &Parts, service_warnings: impl FnOnce(&V) -> Result<Vec<S
                 .insert(Arc::from("scenario_input"), map(vec![("sha256", s(&parts.input.sha256)), ("extraction_source", s(&parts.input.extraction_source))]));
         }
     }
-    let canonical = canonical_json(&scenario)?;
-    let approved_hash = sha256_hex(&canonical);
-    let can_start = approval_blockers.is_empty();
-    Ok(Built { scenario, canonical, approved_hash, warnings, approval_blockers, can_start })
 }
 
 /// `ScenarioSpec.canonical_json()` of a Scenario's dump: `initial_stock` left out when None (its

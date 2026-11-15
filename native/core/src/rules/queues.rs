@@ -598,18 +598,19 @@ fn plan_leave(world: &World, call: &LeaveCall<'_>, person: &Leaving, sequence: i
     provenance.insert(Arc::from("source_id"), text(NEED_WEIGHTED_SOURCE));
     provenance.insert(Arc::from("policy_version"), text(NEED_WEIGHTED_ID));
     provenance.insert(Arc::from("transition"), text("abandon_queue_then_retry"));
-    let Some(abandon) = EventRow::new(
-        abandon_id.clone(),
-        EventKind::Endogenous,
-        minute,
-        0,
+    let Some(abandon) = EventRow {
+        event_id: abandon_id.clone(),
+        kind: EventKind::Endogenous,
+        due_minute: minute,
+        priority: 0,
         sequence,
-        Arc::from("facility_queue_abandon"),
-        payload,
-        Some(Arc::from(NEED_WEIGHTED_SOURCE)),
-        Some(person.task_id.clone()),
-        provenance,
-    ) else {
+        event_type: Arc::from("facility_queue_abandon"),
+        payload: V::Map(payload),
+        source_id: Some(Arc::from(NEED_WEIGHTED_SOURCE)),
+        causation_id: Some(person.task_id.clone()),
+        provenance: V::Map(provenance),
+    }
+    .checked() else {
         return Err(Error::unsupported("the event's values are not what an event takes"));
     };
     let mut next = sequence + 1;
@@ -684,18 +685,19 @@ fn plan_leave(world: &World, call: &LeaveCall<'_>, person: &Leaving, sequence: i
             provenance.insert(Arc::from("source_id"), text(NEED_WEIGHTED_SOURCE));
             provenance.insert(Arc::from("policy_version"), text(NEED_WEIGHTED_ID));
             provenance.insert(Arc::from("movement"), text("in_room_return_to_zone_anchor"));
-            let Some(event) = EventRow::new(
-                event_id.clone(),
-                EventKind::Completion,
-                due,
-                0,
-                next,
-                Arc::from("agent_travel_complete"),
-                payload,
-                Some(task_id.clone()),
-                Some(abandon_id.clone()),
-                provenance,
-            ) else {
+            let Some(event) = EventRow {
+                event_id: event_id.clone(),
+                kind: EventKind::Completion,
+                due_minute: due,
+                priority: 0,
+                sequence: next,
+                event_type: Arc::from("agent_travel_complete"),
+                payload: V::Map(payload),
+                source_id: Some(task_id.clone()),
+                causation_id: Some(abandon_id.clone()),
+                provenance: V::Map(provenance),
+            }
+            .checked() else {
                 return Err(Error::unsupported("the event's values are not what an event takes"));
             };
             let journey = Journey {
@@ -956,18 +958,19 @@ pub fn plan_trip(
     provenance.insert(Arc::from("queue_phase"), text(phase));
     provenance.insert(Arc::from("queue_requested_at"), V::Int(task.start_minute));
     provenance.insert(Arc::from("fifo_position"), V::Int(fifo_position as i64));
-    let Some(event) = EventRow::new(
-        event_id.clone(),
-        EventKind::Completion,
-        due,
-        0,
+    let Some(event) = EventRow {
+        event_id: event_id.clone(),
+        kind: EventKind::Completion,
+        due_minute: due,
+        priority: 0,
         sequence,
-        Arc::from("agent_travel_complete"),
-        payload,
-        Some(task.id.clone()),
-        Some(task.id.clone()),
-        provenance,
-    ) else {
+        event_type: Arc::from("agent_travel_complete"),
+        payload: V::Map(payload),
+        source_id: Some(task.id.clone()),
+        causation_id: Some(task.id.clone()),
+        provenance: V::Map(provenance),
+    }
+    .checked() else {
         return Err(Error::unsupported("the event's values are not what an event takes"));
     };
     if taken {

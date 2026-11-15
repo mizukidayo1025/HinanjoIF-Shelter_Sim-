@@ -4,15 +4,13 @@
 
 use std::sync::Arc;
 
-use indexmap::IndexMap;
-
 use super::{is_stable_id, EventKind, EventStatus};
 use crate::error::Result;
 use crate::json::{write_json_string, Encoder};
 use crate::value::V;
 
 /// `ScheduledEvent` as a row. Everything `ScheduledEvent._check` asks has been checked, by
-/// `EventRow::new` or by the constructor of the object the row was read from.
+/// `EventRow::checked` or by the constructor of the object the row was read from.
 #[derive(Clone, Debug, PartialEq)]
 pub struct EventRow {
     pub event_id: Arc<str>,
@@ -42,33 +40,19 @@ fn all_finite(value: &V) -> bool {
 }
 
 impl EventRow {
-    /// A new event; None for what `ScheduledEvent` refuses. Then call the Python rule, which
-    /// raises its own error. Keys keep the order given, as a dict literal does; handlers and the
-    /// saved bytes do not depend on it, because a restored event has its keys sorted.
-    #[allow(clippy::too_many_arguments)]
-    pub fn new(
-        event_id: Arc<str>,
-        kind: EventKind,
-        due_minute: i64,
-        priority: i64,
-        sequence: i64,
-        event_type: Arc<str>,
-        payload: IndexMap<Arc<str>, V>,
-        source_id: Option<Arc<str>>,
-        causation_id: Option<Arc<str>>,
-        provenance: IndexMap<Arc<str>, V>,
-    ) -> Option<Self> {
-        let payload = V::Map(payload);
-        let provenance = V::Map(provenance);
-        let good = is_stable_id(&event_id)
-            && is_stable_id(&event_type)
-            && source_id.as_deref().is_none_or(is_stable_id)
-            && causation_id.as_deref().is_none_or(is_stable_id)
-            && due_minute >= 0
-            && sequence >= 0
-            && all_finite(&payload)
-            && all_finite(&provenance);
-        good.then_some(Self { event_id, kind, due_minute, priority, sequence, event_type, payload, source_id, causation_id, provenance })
+    /// The row, or None for what `ScheduledEvent` refuses. Then call the Python rule, which raises
+    /// its own error. Keys keep the order given, as a dict literal does; handlers and the saved
+    /// bytes do not depend on it, because a restored event has its keys sorted.
+    pub fn checked(self) -> Option<Self> {
+        let good = is_stable_id(&self.event_id)
+            && is_stable_id(&self.event_type)
+            && self.source_id.as_deref().is_none_or(is_stable_id)
+            && self.causation_id.as_deref().is_none_or(is_stable_id)
+            && self.due_minute >= 0
+            && self.sequence >= 0
+            && all_finite(&self.payload)
+            && all_finite(&self.provenance);
+        good.then_some(self)
     }
 
     /// The canonical JSON of `event.to_dict()`.

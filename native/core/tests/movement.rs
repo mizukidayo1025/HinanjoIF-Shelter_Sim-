@@ -153,7 +153,20 @@ fn journey(purpose: &str) -> Journey {
 }
 
 fn event(event_id: &str, sequence: i64) -> EventRow {
-    EventRow::new(text(event_id), EventKind::Completion, 4, 0, sequence, text("agent_travel_complete"), IndexMap::new(), None, None, IndexMap::new()).unwrap()
+    EventRow {
+        event_id: text(event_id),
+        kind: EventKind::Completion,
+        due_minute: 4,
+        priority: 0,
+        sequence,
+        event_type: text("agent_travel_complete"),
+        payload: V::Map(IndexMap::new()),
+        source_id: None,
+        causation_id: None,
+        provenance: V::Map(IndexMap::new()),
+    }
+    .checked()
+    .unwrap()
 }
 
 /// A world of 100 minutes at minute 1 holding its queue (ev1 pending), log, `id_counters`,

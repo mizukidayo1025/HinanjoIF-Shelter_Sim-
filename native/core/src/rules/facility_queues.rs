@@ -472,18 +472,19 @@ pub fn transition_event(payload: IndexMap<Arc<str>, V>, causation_id: Option<&st
     provenance.insert(Arc::from("source_type"), text("assumption"));
     provenance.insert(Arc::from("source_id"), text(SOURCE_ID));
     provenance.insert(Arc::from("policy_version"), text(POLICY_VERSION));
-    EventRow::new(
-        transition_id(sequence),
-        EventKind::Endogenous,
-        minute,
-        0,
+    EventRow {
+        event_id: transition_id(sequence),
+        kind: EventKind::Endogenous,
+        due_minute: minute,
+        priority: 0,
         sequence,
-        Arc::from("facility_queue_transition"),
-        payload,
-        Some(Arc::from(POLICY_VERSION)),
-        causation_id.map(Arc::from),
-        provenance,
-    )
+        event_type: Arc::from("facility_queue_transition"),
+        payload: V::Map(payload),
+        source_id: Some(Arc::from(POLICY_VERSION)),
+        causation_id: causation_id.map(Arc::from),
+        provenance: V::Map(provenance),
+    }
+    .checked()
     .ok_or_else(|| Error::unsupported("the record's values are not what an event takes"))
 }
 

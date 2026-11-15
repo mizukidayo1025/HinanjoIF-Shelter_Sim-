@@ -333,18 +333,19 @@ fn receipt(events: &Events<'_>, action: &ActiveAction, change: Transition<'_>, s
     if events.is_realized(&event_id, Some(sequence))? {
         return Err(Error::unsupported("the log already has this receipt's identity"));
     }
-    let row = EventRow::new(
+    let row = EventRow {
         event_id,
-        EventKind::Endogenous,
-        minute,
-        0,
+        kind: EventKind::Endogenous,
+        due_minute: minute,
+        priority: 0,
         sequence,
-        words.event_type.clone(),
-        payload,
-        Some(words.model.clone()),
-        causation_id.map(Arc::from),
-        provenance,
-    );
+        event_type: words.event_type.clone(),
+        payload: V::Map(payload),
+        source_id: Some(words.model.clone()),
+        causation_id: causation_id.map(Arc::from),
+        provenance: V::Map(provenance),
+    }
+    .checked();
     let Some(row) = row else {
         return Err(Error::unsupported("an event the Python class refuses"));
     };

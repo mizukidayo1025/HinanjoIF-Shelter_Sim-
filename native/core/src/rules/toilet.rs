@@ -556,18 +556,19 @@ fn pass(world: &World, start: &Start<'_>, drawn: Option<f64>) -> WriteResult<Pas
     if let Some(head) = &head {
         provenance.insert(Arc::from("queue_id"), V::Str(head.queue_id.clone()));
     }
-    let Some(event) = EventRow::new(
-        event_id.clone(),
-        EventKind::Completion,
-        due,
-        0,
+    let Some(event) = EventRow {
+        event_id: event_id.clone(),
+        kind: EventKind::Completion,
+        due_minute: due,
+        priority: 0,
         sequence,
-        Arc::from("toilet_service_complete"),
-        payload,
-        Some(task_id.clone()),
-        Some(queue_task_id.clone()),
-        provenance,
-    ) else {
+        event_type: Arc::from("toilet_service_complete"),
+        payload: V::Map(payload),
+        source_id: Some(task_id.clone()),
+        causation_id: Some(queue_task_id.clone()),
+        provenance: V::Map(provenance),
+    }
+    .checked() else {
         return Err(Error::unsupported("the event's values are not what an event takes").into());
     };
     check_metric_state(world, start.metric_state_held)?;

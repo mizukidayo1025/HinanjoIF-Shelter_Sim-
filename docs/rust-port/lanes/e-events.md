@@ -23,8 +23,8 @@ let writer = EventWriter::of(&world)?;
 
 // 書き込みの段階で。
 let sequence = writer.next_sequence()?;               // 変えずに読む
-let Some(row) = EventRow::new(id, kind, due, priority, sequence, event_type,
-                              payload, source, causation, provenance) else {
+let Some(row) = EventRow { event_id, kind, due_minute, priority, sequence, event_type,
+                           payload, source_id, causation_id, provenance }.checked() else {
     // ScheduledEvent が断る値。Python の手順を呼び、その文で失敗させます。
 };
 writer.allocate_sequence()?;      // WorldState.allocate_event_sequence
@@ -35,7 +35,7 @@ writer.settle(&row, minute, status, detail)?;              // 列にあれば外
 
 - **Python のオブジェクトは作りません。** ハンドラーや Python の読み手が読むときに、列なら `row.to_py`、ログなら `record_from_bytes` が作ります。作った列のオブジェクトは持ち続けるので、同じオブジェクトが返ります。
 - **読み：** `queue.row(py, id)`、`queue.pending_ids(minute)`、`log.positions_of_type(type)`、`log.saved_document(py, position)`。Python が予定したイベントの行は、最初に読むときに作ります。行にならない値なら `None` で、規則は `Unsupported` にします。
-- **キーの順序：** `EventRow::new` は渡した順を保ちます。ログの記録は byte 列から作るのでキーがソート順です。復元した Run と同じ形で、順序に頼るハンドラーがあれば復元でも壊れます。
+- **キーの順序：** `EventRow::checked` は渡した順を保ちます。ログの記録は byte 列から作るのでキーがソート順です。復元した Run と同じ形で、順序に頼るハンドラーがあれば復元でも壊れます。
 - **Python のコールバックのあと**は `EventWriter::of` を呼び直します。
 - `id_counters` は Python の dict のままです（素の dict のときだけ）。追跡の session では `Unsupported` です。
 

@@ -45,7 +45,20 @@ fn map(entries: &[(&str, V)]) -> V {
 fn event(id: &str, sequence: i64, event_type: &str, payload: &[(&str, V)]) -> EventRow {
     let V::Map(payload) = map(payload) else { unreachable!() };
     let provenance = IndexMap::from([(text("source_type"), V::Str(text("assumption")))]);
-    EventRow::new(text(id), EventKind::Endogenous, MINUTE, 0, sequence, text(event_type), payload, Some(text("probe-1")), None, provenance).unwrap()
+    EventRow {
+        event_id: text(id),
+        kind: EventKind::Endogenous,
+        due_minute: MINUTE,
+        priority: 0,
+        sequence,
+        event_type: text(event_type),
+        payload: V::Map(payload),
+        source_id: Some(text("probe-1")),
+        causation_id: None,
+        provenance: V::Map(provenance),
+    }
+    .checked()
+    .unwrap()
 }
 
 fn needs() -> NeedRow {

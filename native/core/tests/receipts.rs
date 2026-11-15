@@ -532,18 +532,19 @@ fn shared() -> SharedOperationsRow {
 
 fn logged(document: &V, event_id: &str, minute: i64) -> Logged {
     let V::Map(payload) = document.clone() else { unreachable!() };
-    let event = EventRow::new(
-        text(event_id),
-        EventKind::Endogenous,
-        minute,
-        0,
-        1,
-        text("facility_recovery_transition"),
-        payload,
-        Some(text("ASM-FACILITY-RECOVERY-PRODUCER-V1")),
-        Some(text("cause-1")),
-        IndexMap::new(),
-    )
+    let event = EventRow {
+        event_id: text(event_id),
+        kind: EventKind::Endogenous,
+        due_minute: minute,
+        priority: 0,
+        sequence: 1,
+        event_type: text("facility_recovery_transition"),
+        payload: V::Map(payload),
+        source_id: Some(text("ASM-FACILITY-RECOVERY-PRODUCER-V1")),
+        causation_id: Some(text("cause-1")),
+        provenance: V::Map(IndexMap::new()),
+    }
+    .checked()
     .unwrap();
     Logged { status: EventStatus::Applied, realized_minute: minute, event }
 }

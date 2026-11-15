@@ -318,18 +318,19 @@ fn audit_row(
         sequence = sequence.checked_add(1).ok_or_else(|| Error::unsupported("a sequence past 64 bits"))?;
     };
     let provenance = source.provenance(V::Str(Arc::from(operation)));
-    EventRow::new(
+    EventRow {
         event_id,
-        EventKind::Endogenous,
-        minute,
-        0,
+        kind: EventKind::Endogenous,
+        due_minute: minute,
+        priority: 0,
         sequence,
-        Arc::from(format!("resource_{operation}")),
-        payload,
-        Some(source.source_id.clone()),
-        Some(causation_id),
-        provenance,
-    )
+        event_type: Arc::from(format!("resource_{operation}")),
+        payload: V::Map(payload),
+        source_id: Some(source.source_id.clone()),
+        causation_id: Some(causation_id),
+        provenance: V::Map(provenance),
+    }
+    .checked()
     .ok_or_else(|| Error::unsupported("the event's values are not what an event takes"))
 }
 
@@ -818,18 +819,19 @@ fn plan_serve(world: &World, manager: &Manager<'_>, serve: &Serve<'_>, pending: 
     if let Some(queue_name) = serve.queue_id {
         provenance.insert(Arc::from("queue_id"), V::Str(Arc::from(queue_name)));
     }
-    let Some(completion) = EventRow::new(
-        completion_id.clone(),
-        EventKind::Completion,
-        due,
-        0,
-        completion_sequence,
-        names.completion_type.clone(),
-        payload,
-        Some(task_id.clone()),
-        Some(task_id.clone()),
-        provenance,
-    ) else {
+    let Some(completion) = EventRow {
+        event_id: completion_id.clone(),
+        kind: EventKind::Completion,
+        due_minute: due,
+        priority: 0,
+        sequence: completion_sequence,
+        event_type: names.completion_type.clone(),
+        payload: V::Map(payload),
+        source_id: Some(task_id.clone()),
+        causation_id: Some(task_id.clone()),
+        provenance: V::Map(provenance),
+    }
+    .checked() else {
         return Err(Error::unsupported("the event's values are not what an event takes"));
     };
     let audit = audit_row(
@@ -1910,18 +1912,19 @@ pub fn interrupt(world: &mut World, manager: &Manager<'_>, pending: &[Pending], 
     let Some(cause) = cause.cloned() else {
         return Err(Error::unsupported("a value is not a str").into());
     };
-    let Some(cancellation) = EventRow::new(
-        cancel_id.clone(),
-        EventKind::Endogenous,
-        minute,
-        0,
+    let Some(cancellation) = EventRow {
+        event_id: cancel_id.clone(),
+        kind: EventKind::Endogenous,
+        due_minute: minute,
+        priority: 0,
         sequence,
-        Arc::from("resource_service_cancel"),
-        payload,
-        Some(source.source_id.clone()),
-        Some(cause.clone()),
-        provenance,
-    ) else {
+        event_type: Arc::from("resource_service_cancel"),
+        payload: V::Map(payload),
+        source_id: Some(source.source_id.clone()),
+        causation_id: Some(cause.clone()),
+        provenance: V::Map(provenance),
+    }
+    .checked() else {
         return Err(Error::unsupported("the event's values are not what an event takes").into());
     };
     let plan = plan_cancel(world, manager, &cancel_id, &task_id, true, sequence + 1)?;

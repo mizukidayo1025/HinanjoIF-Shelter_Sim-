@@ -17,6 +17,7 @@ Scenarios share most of their text.
 
 from __future__ import annotations
 
+import gc
 import hashlib
 import json
 import lzma
@@ -43,12 +44,18 @@ def entry_bytes(scenario: Any) -> bytes:
     from sheltersim.inspection.traces import RunArtifactWriter
 
     world = WorldState.from_scenario(scenario)
-    with tempfile.TemporaryDirectory(prefix="initial-corpus-") as directory:
+    # The artifacts' trace spool (SQLite) stays open while the controller lives, which Windows does
+    # not let the cleanup remove.
+    with tempfile.TemporaryDirectory(
+        prefix="initial-corpus-", ignore_cleanup_errors=True
+    ) as directory:
         artifacts = RunArtifactWriter(scenario, directory, trace_level=TraceLevel.OFF)
         artifacts.write_initial(world, execution_mode="offline")
         controller = OfflineSimulationController(world, artifacts)
         TickEngine(world, phase_handler=controller)
         entry = export_world(world, controller)
+        del controller, artifacts
+        gc.collect()
     return json.dumps(entry, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode()
 
 

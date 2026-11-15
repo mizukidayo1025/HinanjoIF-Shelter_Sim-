@@ -21,17 +21,15 @@
 //! hands it over as `&mut World` (`WorldCell::with`), lane 5-4.
 //!
 //! The rows of the slots are the truth (lane P8-0c, as 6-1 made the entity rows): a kernel of the
-//! core writes a row alone (`row_mut`, `Slots::row_mut`, `Slots::try_row_mut`), which marks its
-//! slot (`Slot::written`) and gives it a new stamp. The marks were for the trees the Python world
-//! kept of the rows (`Slots::take_written`); since #430 removed that world, a slot has no tree, and
-//! its row is all there is.
+//! core writes a row alone (`row_mut`, `Slots::row_mut`, `Slots::try_row_mut`), which gives its
+//! slot a new stamp. Since #430 removed the Python world, a slot has no tree, and its row is all
+//! there is.
 //!
 //! The parts of the state (the scalars, the entities, each slot) are `CowShard`s (lane 6-2): a
 //! `Snapshot` keeps their `Arc`s, a write copies a part a snapshot shares, and `restore` gives the
 //! snapshot back. A transaction (`txn.rs`) takes one, then puts the world in the order a copy
 //! through canonical JSON gives it (`canonicalize`).
 
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use indexmap::IndexMap;
@@ -279,15 +277,13 @@ impl World {
 
     /// Give a snapshot back: every part as it was then. A slot registered since has no state
     /// again (a key of `model_state` first stored after the snapshot), as a deleted key has. The
-    /// rows of the entities are all marked changed, since the bytes kept of a row may be of rows
-    /// written since. The queue comes back with its serials; the log loses
-    /// the records appended since (`EventLog::rollback`).
+    /// queue comes back with its serials; the log loses the records appended since
+    /// (`EventLog::rollback`).
     pub fn restore(&mut self, snapshot: Snapshot) {
         self.queue.put(snapshot.queue);
         self.log.get_mut().rollback(snapshot.log);
         self.scalars.put(snapshot.scalars);
         self.entities.put(snapshot.entities);
-        self.entities.get_mut().mark_all_changed();
         let count = snapshot.slots.len();
         for (slot, old) in self.slots.by_name.values_mut().zip(snapshot.slots) {
             slot.put(old);
@@ -331,7 +327,7 @@ impl World {
         Ok(World {
             scalars: CowShard::from_shared(self.scalars.share()?),
             entities: CowShard::from_shared(self.entities.share()?),
-            slots: Slots { by_name, any_written: AtomicBool::new(false) },
+            slots: Slots { by_name },
             derived: Shard::default(),
             queue: CowShard::from_shared(self.queue.share()?),
             log: CowShard::from_shared(self.log.share()?),
@@ -448,8 +444,8 @@ impl World {
     }
 
     /// `world.resources[resource] = remaining`, written by the core where an operation of the
-    /// ledger took a stock (Issue #244, decision 2). The slot gets a new stamp but no mark
-    /// (`written`); the host is told (`Host::resources_changed`).
+    /// ledger took a stock (Issue #244, decision 2). The slot gets a new stamp; the host is told
+    /// (`Host::resources_changed`).
     #[track_caller]
     pub fn set_resource(&self, resource: &str, remaining: i64) -> Result<()> {
         let slot = self.slots.get(RESOURCES).ok_or_else(|| Error::unsupported("the namespace is not owned"))?;
@@ -557,60 +553,26 @@ pub struct Slot {
     /// Changes with every write to the row: while it stands, the state is what it was. A
     /// process-unique stamp, never `+= 1`.
     pub generation: Stamp,
-    /// A kernel of the core wrote the row since the marks were last taken (`Slots::take_written`).
-    /// Not state.
-    pub written: bool,
-    /// The keys of a map row the kernels wrote since the marks were taken, when they wrote only
-    /// those (`row_keys_written`): the tree follows those keys alone. None for a write of the whole
-    /// row (or no write). Not state.
-    pub keys: Option<Vec<Arc<str>>>,
 }
 
 /// A copy of the row too (`Row::clone_row`), for a snapshot's copy on write.
 impl Clone for Slot {
     fn clone(&self) -> Self {
-        Self {
-            place: self.place,
-            row: self.row.as_ref().map(|row| row.clone_row()),
-            taint: self.taint.clone(),
-            generation: self.generation,
-            written: self.written,
-            keys: self.keys.clone(),
-        }
+        Self { place: self.place, row: self.row.as_ref().map(|row| row.clone_row()), taint: self.taint.clone(), generation: self.generation }
     }
 }
 
 impl Slot {
     pub fn new(place: Place) -> Self {
-        Self { place, row: None, taint: None, generation: Stamp::next(), written: false, keys: None }
+        Self { place, row: None, taint: None, generation: Stamp::next() }
     }
 
-    /// The row as its type, to write from a kernel of the core: the slot gets a new stamp and its
-    /// mark (`written`), so its tree follows the row when the world is given back. Unsupported as
-    /// `row_mut`, with nothing marked.
+    /// The row as its type, to write from a kernel of the core: the slot gets a new stamp.
+    /// Unsupported as `row_mut`, with no new stamp.
     #[track_caller]
     pub fn row_written<T: Row>(&mut self) -> Result<&mut T> {
         self.row::<T>()?;
         self.touch();
-        self.written = true;
-        self.keys = None;
-        self.row_mut::<T>()
-    }
-
-    /// `row_written` of a map row of which the kernel writes these keys alone (each set to the
-    /// row's value, or gone): the tree follows those keys when the world is given back, unless a
-    /// write of the whole row comes too.
-    #[track_caller]
-    pub fn row_keys_written<T: Row>(&mut self, keys: &[&str]) -> Result<&mut T> {
-        self.row::<T>()?;
-        self.touch();
-        if !self.written {
-            self.written = true;
-            self.keys = Some(Vec::with_capacity(keys.len()));
-        }
-        if let Some(known) = &mut self.keys {
-            known.extend(keys.iter().map(|key| Arc::from(*key)));
-        }
         self.row_mut::<T>()
     }
 
@@ -639,9 +601,6 @@ impl Slot {
 #[derive(Default)]
 pub struct Slots {
     by_name: IndexMap<Arc<str>, CowShard<Slot>, FxBuildHasher>,
-    /// Some slot may be marked (`Slot::written`): `take_written` looks at the slots only then. An
-    /// atomic, so that kernels writing different slots at once mark them without a shared borrow.
-    any_written: AtomicBool,
 }
 
 impl Slots {
@@ -686,73 +645,20 @@ impl Slots {
         self.by_name.get(name).ok_or_else(|| Error::unsupported("the namespace is not owned"))
     }
 
-    /// The row of a slot as its type, for a kernel that holds the whole world. The slot is marked
-    /// written (`Slot::row_written`), so its tree follows the row when the world is given back.
+    /// The row of a slot as its type, for a kernel that holds the whole world. The slot gets a new
+    /// stamp (`Slot::row_written`).
     #[track_caller]
     pub fn row_mut<T: Row>(&mut self, name: &str) -> Result<&mut T> {
         let slot = self.by_name.get_mut(name).ok_or_else(|| Error::unsupported("the namespace is not owned"))?;
-        let row = slot.get_mut().row_written::<T>()?;
-        *self.any_written.get_mut() = true;
-        Ok(row)
+        slot.get_mut().row_written::<T>()
     }
 
     /// The row of a slot as its type, borrowed on its own, for a kernel or a shim that holds the
-    /// world shared. The slot is marked written, as by `row_mut`.
+    /// world shared. The slot gets a new stamp, as by `row_mut`.
     #[track_caller]
     pub fn try_row_mut<T: Row>(&self, name: &str) -> Result<ShardMut<'_, T>> {
         let slot = self.owned(name)?.try_borrow_mut()?;
-        let row = ShardMut::try_map(slot, |slot| slot.row_written::<T>())?;
-        self.any_written.store(true, Ordering::Relaxed);
-        Ok(row)
-    }
-
-    /// `try_row_mut` of a map row of which the kernel writes these keys alone
-    /// (`Slot::row_keys_written`).
-    #[track_caller]
-    pub fn try_row_keys_mut<T: Row>(&self, name: &str, keys: &[&str]) -> Result<ShardMut<'_, T>> {
-        let slot = self.owned(name)?.try_borrow_mut()?;
-        let row = ShardMut::try_map(slot, |slot| slot.row_keys_written::<T>(keys))?;
-        self.any_written.store(true, Ordering::Relaxed);
-        Ok(row)
-    }
-
-    /// `take_written`, with the keys each slot's tree is to follow (`Slot::keys`): None for the
-    /// whole row.
-    pub fn take_written_keys(&mut self) -> Vec<(usize, Option<Vec<Arc<str>>>)> {
-        let written = self.take_written();
-        written
-            .into_iter()
-            .map(|index| {
-                let keys = self.by_name.get_index_mut(index).and_then(|(_, slot)| slot.get_mut().keys.take());
-                (index, keys)
-            })
-            .collect()
-    }
-
-    /// The indexes of the slots a kernel of the core wrote since the last call, in index order,
-    /// and their marks cleared (lane P8-0c). A slot no kernel wrote is not copied (`CowShard`) to
-    /// read its mark.
-    pub fn take_written(&mut self) -> Vec<usize> {
-        if !std::mem::replace(self.any_written.get_mut(), false) {
-            return Vec::new();
-        }
-        let mut written = Vec::new();
-        for (index, slot) in self.by_name.values_mut().enumerate() {
-            if slot.try_borrow().is_ok_and(|slot| slot.written) {
-                slot.get_mut().written = false;
-                written.push(index);
-            }
-        }
-        written
-    }
-
-    /// The names of the slots marked written now, the marks kept: for a check that every borrow
-    /// was followed by its patch (`--verify-rows`).
-    pub fn written_names(&self) -> Vec<Arc<str>> {
-        if !self.any_written.load(Ordering::Relaxed) {
-            return Vec::new();
-        }
-        self.by_name.iter().filter(|(_, slot)| slot.try_borrow().is_ok_and(|slot| slot.written)).map(|(name, _)| name.clone()).collect()
+        ShardMut::try_map(slot, |slot| slot.row_written::<T>())
     }
 
     /// `try_row_mut`, shared.

@@ -11,7 +11,7 @@ use sheltersim_core::cell::Shard;
 use sheltersim_core::config::geometry::FacilityPlan;
 use sheltersim_core::config::service::ResourceService;
 use sheltersim_core::config::SpatialConstraints;
-use sheltersim_core::entities::{Activity, AgentRow, AnyTable, EdgeRow, Entities, FacilityRow, Mobility, NeedRow, ProfileRow, Table, ZoneRow};
+use sheltersim_core::entities::{Activity, AgentRow, EdgeRow, Entities, FacilityRow, Mobility, NeedRow, ProfileRow, Table, ZoneRow};
 use sheltersim_core::error::Error;
 use sheltersim_core::events::{EventKind, EventRow};
 use sheltersim_core::geometry::{zone_center, Geo, Pt, Route, Zone};
@@ -49,9 +49,7 @@ fn unsupported(reason: &str) -> Error {
 }
 
 fn put<R: Clone>(table: &mut Table<R>, id: &str, row: R) {
-    let slot = table.reserve_slot();
-    table.fill_slot(slot, row);
-    assert_eq!(table.bind(text(id), slot), None);
+    table.insert(text(id), row);
 }
 
 fn needs() -> NeedRow {
@@ -276,13 +274,13 @@ fn a_release_writes_the_row_only_when_the_person_held_something() {
     let mut overlay_value = overlay_state();
     let V::Map(fields) = &mut overlay_value else { panic!() };
     fields.insert(text("bed_reservations"), map(vec![("a1", map(vec![("room_id", s("r1"))]))]));
-    let mut world = world_with(overlay_value);
-    world.slots.take_written();
+    let world = world_with(overlay_value);
+    crate::support::written(&world);
     assert_eq!(overlay::release(&world, &Held::Held, "bed_reservations", Some("a2")), Ok(false));
-    assert!(world.slots.written_names().is_empty());
+    assert!(crate::support::written(&world).is_empty());
     assert_eq!(overlay::release(&world, &Held::Held, "bed_reservations", None), Err(unsupported("a value is not a str")));
     assert_eq!(overlay::release(&world, &Held::Held, "bed_reservations", Some("a1")), Ok(true));
-    assert_eq!(world.slots.written_names(), [text(OVERLAY_KEY)]);
+    assert_eq!(crate::support::written(&world), [OVERLAY_KEY]);
     assert_eq!(get(&state(&world, OVERLAY_KEY), &["bed_reservations"]), &empty());
     assert_eq!(overlay::release(&world, &Held::Absent, "bed_reservations", Some("a1")), Ok(false));
 }

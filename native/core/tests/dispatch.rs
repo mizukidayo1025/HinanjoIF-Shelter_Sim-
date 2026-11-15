@@ -14,7 +14,7 @@ use std::sync::Arc;
 
 use indexmap::IndexMap;
 use sheltersim_core::cell::Shard;
-use sheltersim_core::entities::{Activity, AgentRow, AnyTable, Entities, Mobility, NeedRow, ProfileRow, Table};
+use sheltersim_core::entities::{Activity, AgentRow, Entities, Mobility, NeedRow, ProfileRow, Table};
 use sheltersim_core::error::Error;
 use sheltersim_core::events::log::EventLog;
 use sheltersim_core::events::queue::Queue;
@@ -91,9 +91,7 @@ fn agent(id: &str, group: Option<&str>, stress: f64) -> AgentRow {
 }
 
 fn put<R: Clone>(table: &mut Table<R>, id: &str, row: R) {
-    let slot = table.reserve_slot();
-    table.fill_slot(slot, row);
-    assert_eq!(table.bind(text(id), slot), None);
+    table.insert(text(id), row);
 }
 
 /// a1 and a2 of household g1; the world's queue holds `events` and its log is empty.

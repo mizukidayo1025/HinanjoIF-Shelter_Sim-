@@ -11,7 +11,7 @@ use indexmap::IndexMap;
 use sheltersim_core::cell::Shard;
 use sheltersim_core::config::geometry::FacilityGeometry;
 use sheltersim_core::config::{Fault, FaultClass, Section, SectionId};
-use sheltersim_core::entities::{AnyTable, Entities, ZoneRow};
+use sheltersim_core::entities::{Entities, ZoneRow};
 use sheltersim_core::error::Error;
 use sheltersim_core::events::log::EventLog;
 use sheltersim_core::events::queue::Queue;
@@ -58,9 +58,7 @@ fn world() -> World {
         scalars.schema_version = Fit::Ok(6);
     }
     let mut entities = Entities::default();
-    let slot = entities.zones.reserve_slot();
-    entities.zones.fill_slot(slot, ZoneRow { id: text("z0"), name: text("z0"), capacity: Some(2), display_x: None, display_y: None });
-    assert_eq!(entities.zones.bind(text("z0"), slot), None);
+    entities.zones.insert(text("z0"), ZoneRow { id: text("z0"), name: text("z0"), capacity: Some(2), display_x: None, display_y: None });
     *world.entities.get_mut() = entities;
     add_value(&mut world, ID_COUNTERS, Place::Field, map(vec![("event", V::Int(10))]));
     world.hold_queue(Arc::new(Queue::new()));

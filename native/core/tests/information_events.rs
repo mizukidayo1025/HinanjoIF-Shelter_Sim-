@@ -10,7 +10,7 @@ use indexmap::IndexMap;
 use sheltersim_core::cell::Shard;
 use sheltersim_core::config::information::InformationSpread;
 use sheltersim_core::config::{Fault, FaultClass, Selection};
-use sheltersim_core::entities::{Activity, AgentRow, AnyTable, EdgeRow, Entities, Mobility, NeedRow, ProfileRow, RequestRow, RequestStatus, Table, ZoneRow};
+use sheltersim_core::entities::{Activity, AgentRow, EdgeRow, Entities, Mobility, NeedRow, ProfileRow, RequestRow, RequestStatus, Table, ZoneRow};
 use sheltersim_core::error::{Error, Outcome};
 use sheltersim_core::events::{EventKind, EventRow, EventStatus};
 use sheltersim_core::host::{Contract, Decision, DecisionSink, Host, Llm, Phase, Stage, Trace, TraceLevel, TxnKind};
@@ -72,9 +72,7 @@ fn agent(id: &str, zone: &str, group: Option<&str>) -> AgentRow {
 }
 
 fn put<R: Clone>(table: &mut Table<R>, id: &str, row: R) {
-    let slot = table.reserve_slot();
-    table.fill_slot(slot, row);
-    assert_eq!(table.bind(text(id), slot), None);
+    table.insert(text(id), row);
 }
 
 fn empty_state(people: &[&str]) -> InformationRow {
@@ -132,6 +130,7 @@ fn world() -> World {
     scalars.minute_index = Fit::Ok(10);
     scalars.seed = Fit::Ok(Seed::from_text("7").expect("a seed"));
     add_row(&mut world, NAME, Place::Namespace, empty_state(&["a1", "a2", "a3", "a4"]));
+    crate::support::written(&world);
     world
 }
 
@@ -145,9 +144,7 @@ fn state(world: &World) -> InformationRow {
 }
 
 fn written(world: &mut World) -> Vec<String> {
-    let names: Vec<String> = world.slots.written_names().iter().map(|name| name.to_string()).collect();
-    world.slots.take_written();
-    names
+    crate::support::written(world)
 }
 
 fn config(enabled: bool) -> InformationSpread {

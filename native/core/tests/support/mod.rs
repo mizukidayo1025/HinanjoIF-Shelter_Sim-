@@ -26,6 +26,7 @@ pub mod ticks;
 pub mod validate;
 pub mod views;
 
+use std::cell::Cell;
 use std::sync::Arc;
 
 use indexmap::IndexMap;
@@ -49,8 +50,25 @@ use sheltersim_core::rules::common_operations::Logged;
 use sheltersim_core::rules::decisions::Observed;
 use sheltersim_core::rules::metrics::MetricSample;
 use sheltersim_core::rules::world_view::ViewData;
+use sheltersim_core::stamp::Stamp;
 use sheltersim_core::value::V;
-use sheltersim_core::world::Snapshot;
+use sheltersim_core::world::{Snapshot, World};
+
+thread_local! {
+    /// The stamp drawn at this thread's last `written`: every stamp drawn later is greater.
+    static SEEN: Cell<u64> = const { Cell::new(0) };
+}
+
+/// The names of the world's slots written since this thread's last call, in slot order: a write
+/// gives its slot a new stamp (`Slot::touch`), and the stamps only grow. A test runs on one thread,
+/// so a test calls it once to start (a slot made since the last call counts as written).
+pub fn written(world: &World) -> Vec<String> {
+    let since = SEEN.get();
+    let names =
+        world.slots.names().filter(|name| world.stamp_of(name).unwrap().is_some_and(|stamp| stamp.get() > since)).map(|name| name.to_string()).collect();
+    SEEN.set(Stamp::next().get());
+    names
+}
 
 /// One call a `TestHost` was asked.
 #[derive(Clone, Debug, PartialEq)]

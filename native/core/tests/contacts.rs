@@ -14,7 +14,7 @@ use indexmap::IndexMap;
 use serde_json::Value;
 use sheltersim_core::config::{Fault, FaultClass, Selection};
 use sheltersim_core::contacts::Basis;
-use sheltersim_core::entities::{Activity, AgentRow, AnyTable, Entities, Mobility, NeedRow, ProfileRow, Table, ZoneRow};
+use sheltersim_core::entities::{Activity, AgentRow, Entities, Mobility, NeedRow, ProfileRow, Table, ZoneRow};
 use sheltersim_core::error::Error;
 use sheltersim_core::events::log::EventLog;
 use sheltersim_core::events::queue::Queue;
@@ -74,9 +74,7 @@ fn agent(id: &str, zone: &str, group: Option<&str>, stress: f64, sensitivity: f6
 }
 
 fn put<R: Clone>(table: &mut Table<R>, id: &str, row: R) {
-    let slot = table.reserve_slot();
-    table.fill_slot(slot, row);
-    assert_eq!(table.bind(text(id), slot), None);
+    table.insert(text(id), row);
 }
 
 fn add_row<T: Row>(world: &mut World, name: &str, place: Place, row: Option<T>) {
@@ -85,9 +83,7 @@ fn add_row<T: Row>(world: &mut World, name: &str, place: Place, row: Option<T>) 
 }
 
 fn written(world: &mut World) -> Vec<String> {
-    let names: Vec<String> = world.slots.written_names().iter().map(|name| name.to_string()).collect();
-    world.slots.take_written();
-    names
+    crate::support::written(world)
 }
 
 /// a1 and a2 (household g1) and a3 in z0, a4 in z1, z2 empty; minute 10 of 100, seed 7. The queue,

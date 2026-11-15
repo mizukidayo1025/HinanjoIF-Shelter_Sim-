@@ -13,7 +13,7 @@ use sheltersim_core::cell::Shard;
 use sheltersim_core::config::movement::Movement;
 use sheltersim_core::config::staff::StaffOperations;
 use sheltersim_core::entities::{
-    Activity, AgentRow, AnyTable, EdgeRow, Entities, Mobility, NeedRow, ProfileRow, RequestRow, RequestStatus, Skills, StaffRow, Table, TaskRow, ZoneRow,
+    Activity, AgentRow, EdgeRow, Entities, Mobility, NeedRow, ProfileRow, RequestRow, RequestStatus, Skills, StaffRow, Table, TaskRow, ZoneRow,
 };
 use sheltersim_core::error::Error;
 use sheltersim_core::events::log::EventLog;
@@ -53,9 +53,7 @@ fn unsupported(reason: &str) -> Error {
 }
 
 fn put<R: Clone>(table: &mut Table<R>, id: &str, row: R) {
-    let slot = table.reserve_slot();
-    table.fill_slot(slot, row);
-    assert_eq!(table.bind(text(id), slot), None);
+    table.insert(text(id), row);
 }
 
 fn needs() -> NeedRow {
@@ -189,6 +187,7 @@ fn world() -> World {
     add(&mut world, NAME, Place::Namespace, Box::new(ops_row()));
     world.hold_queue(Arc::new(Queue::new()));
     world.hold_log(Arc::new(EventLog::new()));
+    crate::support::written(&world);
     world
 }
 
@@ -451,20 +450,19 @@ fn a_wait_reads_its_routes_only_where_free_staff_could_take_it() {
 
 #[test]
 fn the_sanitation_falls_with_who_is_in_a_zone_and_an_unchanged_zone_is_not_written() {
-    let mut world = world();
+    let world = world();
     let (held, none) = (Held::Held, absent());
     staff::update_operations(&world, &inputs(&held, &none, None), 10).unwrap();
     let row = world.row::<StaffOperationsRow>(NAME).unwrap().clone();
     let z0 = row.zones.get("z0").unwrap();
     assert_eq!((z0.sanitation.to_bits(), z0.updated_minute), ((0.9 - 2.0 * 0.01 * 10.0_f64).to_bits(), 10));
     assert_eq!(row.zones.get("z1").unwrap().sanitation, 0.95);
-    assert_eq!(world.slots.written_names(), [text(NAME)]);
-    world.slots.take_written();
+    assert_eq!(crate::support::written(&world), [NAME]);
     staff::update_operations(&world, &inputs(&held, &none, None), 10).unwrap();
-    assert!(world.slots.take_written().is_empty());
+    assert!(crate::support::written(&world).is_empty());
     // Without the namespace, nothing.
     staff::update_operations(&world, &inputs(&none, &none, None), 11).unwrap();
-    assert!(world.slots.take_written().is_empty());
+    assert!(crate::support::written(&world).is_empty());
 }
 
 // ---- staff::assign_operations -------------------------------------------------------------------

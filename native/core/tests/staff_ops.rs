@@ -7,7 +7,7 @@ use std::sync::Arc;
 use indexmap::IndexMap;
 use serde_json::Value;
 use sheltersim_core::config::staff::StaffOperations;
-use sheltersim_core::entities::{AnyTable, EdgeRow, Entities, Skills, StaffRow, Table, TaskRow, ZoneRow};
+use sheltersim_core::entities::{EdgeRow, Entities, Skills, StaffRow, Table, TaskRow, ZoneRow};
 use sheltersim_core::error::Error;
 use sheltersim_core::events::log::EventLog;
 use sheltersim_core::events::queue::Queue;
@@ -33,9 +33,7 @@ fn map(entries: Vec<(&str, V)>) -> V {
 }
 
 fn put<R: Clone>(table: &mut Table<R>, id: &str, row: R) {
-    let slot = table.reserve_slot();
-    table.fill_slot(slot, row);
-    assert_eq!(table.bind(text(id), slot), None);
+    table.insert(text(id), row);
 }
 
 fn staff(id: &str, zone: &str, skills: &[&str], task: Option<&str>) -> StaffRow {

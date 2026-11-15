@@ -14,7 +14,7 @@ use indexmap::IndexMap;
 use serde_json::{json, Value};
 use sheltersim_core::cell::Shard;
 use sheltersim_core::config::{Fault, FaultClass, Selection};
-use sheltersim_core::entities::{Activity, AgentRow, AnyTable, FacilityRow, Mobility, NeedRow, ProfileRow, RequestRow, RequestStatus, Table, TaskRow, ZoneRow};
+use sheltersim_core::entities::{Activity, AgentRow, FacilityRow, Mobility, NeedRow, ProfileRow, RequestRow, RequestStatus, Table, TaskRow, ZoneRow};
 use sheltersim_core::error::Error;
 use sheltersim_core::events::log::EventLog;
 use sheltersim_core::events::queue::Queue;
@@ -79,9 +79,7 @@ fn hex(value: f64) -> String {
 // ---- The world -----------------------------------------------------------------------------------
 
 fn put<R: Clone>(table: &mut Table<R>, id: &str, row: R) {
-    let slot = table.reserve_slot();
-    table.fill_slot(slot, row);
-    assert_eq!(table.bind(text(id), slot), None);
+    table.insert(text(id), row);
 }
 
 fn add_row<T: Row>(world: &mut World, name: &str, place: Place, row: T) {

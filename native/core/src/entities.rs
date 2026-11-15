@@ -927,18 +927,6 @@ impl Entities {
             _ => &self.active_tasks,
         }
     }
-
-    pub fn table_mut(&mut self, kind: u8) -> &mut dyn AnyTable {
-        match kind {
-            AGENT => &mut self.agents,
-            FACILITY => &mut self.facilities,
-            STAFF => &mut self.staff,
-            REQUEST => &mut self.support_requests,
-            ZONE => &mut self.zones,
-            EDGE => &mut self.zone_edges,
-            _ => &mut self.active_tasks,
-        }
-    }
 }
 
 #[allow(dead_code)]

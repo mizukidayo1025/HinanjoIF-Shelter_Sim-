@@ -647,21 +647,6 @@ macro_rules! state_row {
             const JSON_ABSENT: &'static [fn(&Self) -> bool] =
                 &[$(|row| $crate::row::Field::is_absent(&row.$field)),*];
 
-            /// Every field with a setter takes next's value, through its setter: how a rule writes a
-            /// record it planned.
-            #[allow(dead_code)]
-            pub fn set_all<S: $crate::row::TreeSink + ?Sized>(
-                &mut self,
-                tree: &S,
-                next: &Self,
-            ) -> ::core::result::Result<(), S::Error> {
-                let _ = (&tree, &next);
-                $($(
-                    self.$setter(tree, next.$field.clone())?;
-                )?)*
-                Ok(())
-            }
-
             $($(
                 /// The row and the tree, or neither when the value has the same bits.
                 pub fn $setter<S: $crate::row::TreeSink + ?Sized>(
@@ -762,7 +747,6 @@ macro_rules! str_enum {
         $vis enum $name { $($member),+ }
 
         impl $name {
-            #[allow(dead_code)]
             pub const fn text(self) -> &'static str {
                 match self { $(Self::$member => $text),+ }
             }

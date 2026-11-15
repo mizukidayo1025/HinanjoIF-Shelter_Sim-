@@ -113,6 +113,18 @@ struct Scenario<'a> {
     population: i64,
 }
 
+/// What a row of the table is of: the service and its facilities' kind, the uses per person a day
+/// and their basis, the minutes of a service, the staff's skill it needs, and the standard number
+/// of units where there is one.
+struct RowSpec<'a> {
+    service: &'a str,
+    facility_kind: &'a str,
+    uses: Num,
+    demand_basis: &'a str,
+    service_minutes: Num,
+    staff_skill: Option<&'a str>,
+    standard_units: Option<i64>,
+}
 impl Scenario<'_> {
     /// `_working_units`.
     fn working_units(&self, facility: &V) -> Result<i64, String> {
@@ -128,16 +140,8 @@ impl Scenario<'_> {
     }
 
     /// `_row`.
-    fn row(
-        &self,
-        service: &str,
-        facility_kind: &str,
-        uses: Num,
-        demand_basis: &str,
-        service_minutes: Num,
-        staff_skill: Option<&str>,
-        standard_units: Option<i64>,
-    ) -> Result<V, String> {
+    fn row(&self, spec: RowSpec<'_>) -> Result<V, String> {
+        let RowSpec { service, facility_kind, uses, demand_basis, service_minutes, staff_skill, standard_units } = spec;
         let mut facilities = Vec::new();
         for facility in items(self.document, "facilities")? {
             if string(need(facility, "kind")?)? == facility_kind {
@@ -253,15 +257,15 @@ pub fn service_capacity_diagnostic(scenario: &V) -> Result<V, String> {
     let minimum = get(toilet, "minimum_minutes").map_or(Ok(DEFAULT_TOILET_MINUTES.0), int)?;
     let maximum = get(toilet, "maximum_minutes").map_or(Ok(DEFAULT_TOILET_MINUTES.1), int)?;
     let population = context.population;
-    let mut rows = vec![context.row(
-        "toilet",
-        "toilet",
-        Num::Int(PLANNING_TOILET_USES_PER_PERSON_DAY),
-        "Cabinet Office planning figure: 5 uses per person per day",
-        Num::Float((minimum + maximum) as f64 / 2.0),
-        None,
-        Some(if population > 0 { (population + PEOPLE_PER_TOILET_INITIAL - 1) / PEOPLE_PER_TOILET_INITIAL } else { 0 }),
-    )?];
+    let mut rows = vec![context.row(RowSpec {
+        service: "toilet",
+        facility_kind: "toilet",
+        uses: Num::Int(PLANNING_TOILET_USES_PER_PERSON_DAY),
+        demand_basis: "Cabinet Office planning figure: 5 uses per person per day",
+        service_minutes: Num::Float((minimum + maximum) as f64 / 2.0),
+        staff_skill: None,
+        standard_units: Some(if population > 0 { (population + PEOPLE_PER_TOILET_INITIAL - 1) / PEOPLE_PER_TOILET_INITIAL } else { 0 }),
+    })?];
     match get(configs, "resource_service") {
         None | Some(V::Null) => {
             rows.push(not_modeled("water", "water_station"));
@@ -284,28 +288,28 @@ pub fn service_capacity_diagnostic(scenario: &V) -> Result<V, String> {
             let service_minutes = Num::Int(int(need(resource, "service_minutes")?)?);
             let water_skill = string(need(resource, "water_staff_skill")?)?;
             let meal_skill = string(need(resource, "meal_staff_skill")?)?;
-            rows.push(context.row(
-                "water",
-                "water_station",
-                Num::Float(uses_per_person_day(
+            rows.push(context.row(RowSpec {
+                service: "water",
+                facility_kind: "water_station",
+                uses: Num::Float(uses_per_person_day(
                     coefficient("hydration_growth_per_minute")?,
                     coefficient("hydration_relief")?,
                     coefficient("hydration_action_threshold")?,
                 )),
-                "hydration_growth_per_minute x 1440 / min(hydration_relief, hydration_action_threshold)",
+                demand_basis: "hydration_growth_per_minute x 1440 / min(hydration_relief, hydration_action_threshold)",
                 service_minutes,
-                Some(water_skill),
-                None,
-            )?);
-            rows.push(context.row(
-                "meal",
-                "meal_distribution",
-                Num::Float(uses_per_person_day(mean, coefficient("hunger_relief")?, coefficient("hunger_action_threshold")?)),
-                "mean hunger_growth x 1440 / min(hunger_relief, hunger_action_threshold)",
+                staff_skill: Some(water_skill),
+                standard_units: None,
+            })?);
+            rows.push(context.row(RowSpec {
+                service: "meal",
+                facility_kind: "meal_distribution",
+                uses: Num::Float(uses_per_person_day(mean, coefficient("hunger_relief")?, coefficient("hunger_action_threshold")?)),
+                demand_basis: "mean hunger_growth x 1440 / min(hunger_relief, hunger_action_threshold)",
                 service_minutes,
-                Some(meal_skill),
-                None,
-            )?);
+                staff_skill: Some(meal_skill),
+                standard_units: None,
+            })?);
         }
     }
     let warnings: Vec<V> = rows

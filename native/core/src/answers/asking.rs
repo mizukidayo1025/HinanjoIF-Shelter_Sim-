@@ -69,17 +69,20 @@ pub fn schema(value: &Value) -> Answer<V> {
     V::from_json(value).ok_or_else(|| Failure::Error(Error::Value("a schema the core cannot hold".to_owned())))
 }
 
+/// What a kind of analysis task fixes: its name, its prompt's and schema's versions, its fallback
+/// text, and the most tokens of its output.
+#[derive(Clone, Copy)]
+pub struct Review<'a> {
+    pub task: &'static str,
+    pub prompt_version: &'a str,
+    pub schema_version: i64,
+    pub fallback_text: &'a str,
+    pub max_output_tokens: i64,
+}
+
 /// A task of the analysis stage.
-pub fn review_task(
-    task: &'static str,
-    prompt_version: &str,
-    schema_version: i64,
-    input: &Value,
-    state_hash: String,
-    output_schema: &Value,
-    fallback_text: &str,
-    max_output_tokens: i64,
-) -> Answer<Task> {
+pub fn review_task(review: Review<'_>, input: &Value, state_hash: String, output_schema: &Value) -> Answer<Task> {
+    let Review { task, prompt_version, schema_version, fallback_text, max_output_tokens } = review;
     Ok(Task {
         task,
         stage: STAGE_REVIEW,

@@ -41,6 +41,8 @@ impl Procedure {
     /// Makes the branch `child` of `parent` at `minute` with the EffectProgram `program` (its JSON
     /// text, approved with `approved_program_hash`), refused where the parent's state there is not
     /// `state_hash`.
+    // Kept (#493): a function of the JavaScript API, which passes plain values one by one; the core
+    // takes them as structs.
     #[allow(clippy::too_many_arguments)]
     pub fn fork(
         project: &str,
@@ -72,6 +74,8 @@ impl Procedure {
     /// Computes a Run from minute 0 to its end into a branch's files, recording `model_versions`
     /// (JSON; the Run's record's where undefined), with the branch's record where `record` (its
     /// parent and fork minute as given).
+    // Kept (#493): a function of the JavaScript API, which passes plain values one by one; the core
+    // takes them as structs.
     #[allow(clippy::too_many_arguments)]
     #[wasm_bindgen(js_name = fromStart)]
     pub fn from_start(

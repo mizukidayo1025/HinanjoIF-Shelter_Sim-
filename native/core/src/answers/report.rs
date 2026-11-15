@@ -356,7 +356,18 @@ pub fn review(run: &PlainRun, scenario: &[u8], branch_id: &str) -> Answer<Review
         parsed["assumptions"].as_array().map(|items| items.iter().filter_map(|item| item.as_str().map(str::to_owned)).collect()).unwrap_or_default();
     let schema = review_schema(&metric_ids, &event_refs, &assumptions);
     let state_hash = sha256_hex(&evidence.evidence);
-    let mut task = asking::review_task(RUN_REVIEW, "evidence-review-v1", 1, &prompt, state_hash, &schema, &String::from_utf8_lossy(&empty_review()), 2048)?;
+    let mut task = asking::review_task(
+        asking::Review {
+            task: RUN_REVIEW,
+            prompt_version: "evidence-review-v1",
+            schema_version: 1,
+            fallback_text: &String::from_utf8_lossy(&empty_review()),
+            max_output_tokens: 2048,
+        },
+        &prompt,
+        state_hash,
+        &schema,
+    )?;
     // The prompt as the offline report records its hash.
     task.input_text = String::from_utf8_lossy(&evidence.prompt).into_owned();
     Ok(Reviewing { branch_id: branch_id.to_owned(), evidence, parsed, task })

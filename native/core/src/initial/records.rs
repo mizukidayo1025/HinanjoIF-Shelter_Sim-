@@ -2,9 +2,8 @@
 //! (`model_signatures(scenario.model_configs)` of `contracts/policies.py`) and the evidence route's
 //! answer (`evidence_context(scenario)` of `experiments/validation.py` with the catalogs
 //! `web/project_services.py` adds, in a Project without datasets), made in the core for any
-//! Scenario. What they read of the installed code (the operator and model catalog, the evidence's
-//! catalogs and texts) is `records.json`, which `tests/support/core_initial.py` writes
-//! (`initial_records`); `tests/integration/test_core_fixtures.py` keeps it current.
+//! Scenario. What they read of the installed code is the Model Catalog (`validate/catalog.rs`) and
+//! `records.json`: the other operators of the evidence, its catalogs and texts.
 //!
 //! `safe_document` redacts what looks like a secret, an e-mail address or a phone number in a
 //! string and refuses a key that names private data. The core does not redact: a string where
@@ -130,15 +129,32 @@ fn read_installed() -> std::result::Result<Installed, String> {
     if json["schema_version"].as_i64() != Some(RECORDS_SCHEMA_VERSION) {
         return Err("records.json has another schema_version".into());
     }
-    let Some(V::Map(evidence)) = V::from_json(&json["evidence"]) else {
+    let Some(V::Map(mut evidence)) = V::from_json(&json["evidence"]) else {
         return Err("records.json has no evidence".into());
     };
+    // The models of `operator_evidence` are the Model Catalog's (`validate/model-catalog.json`).
+    let definitions = crate::validate::catalog::definitions().map_err(|error| error.to_string())?;
+    let Some(V::Map(operators)) = evidence.get_mut("operator_evidence") else {
+        return Err("records.json has no operator_evidence".into());
+    };
+    for (model_id, definition) in definitions {
+        let definition = V::from_json(definition).ok_or("the Model Catalog does not read")?;
+        if operators.insert(text(model_id), definition).is_some() {
+            return Err(format!("records.json holds the model {model_id} of the Model Catalog"));
+        }
+    }
     Ok(Installed { evidence })
 }
 
 fn installed() -> Result<&'static Installed> {
     static INSTALLED: OnceLock<std::result::Result<Installed, String>> = OnceLock::new();
     INSTALLED.get_or_init(read_installed).as_ref().map_err(|why| Error::Value(format!("the core's records catalog: {why}")))
+}
+
+/// The installed state contracts (the evidence's `state_contracts`), which the Model Catalog's
+/// models may require.
+pub(crate) fn state_contracts() -> Result<&'static V> {
+    installed()?.evidence.get("state_contracts").ok_or_else(|| Error::Value("the core's records catalog has no state_contracts".into()))
 }
 
 // ---- model_signatures ---------------------------------------------------------------------------

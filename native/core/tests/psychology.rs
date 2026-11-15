@@ -467,8 +467,7 @@ fn run_model(name: &str, expected: &Value) {
     let finals: Vec<(&str, f64)> = result.deltas.iter().map(|delta| (&*delta.agent_id, if &*delta.agent_id == "A2" { delta.stress } else { 0.75 })).collect();
     let mut host = TestHost { level: TraceLevel::Full, ..TestHost::default() };
     let source_id = V::Str(text(entry["source_id"].as_str().unwrap()));
-    let version = V::Str(result.policy_version.clone());
-    let inputs = TraceInputs { source_id: &source_id, policy_version: &version, minute: &V::Int(MINUTE) };
+    let inputs = TraceInputs { source_id: &source_id, policy_version: &result.policy_version, minute: MINUTE };
     trace::record_psychology(&mut host, &data, result.traces.as_deref().unwrap(), &finals, &inputs).unwrap();
     let [Call::Trace(Trace::Psychology { document, contributions })] = &host.calls[..] else { panic!("{name}: not one psychology trace: {:?}", host.calls) };
     let (canonical, keys) = digests(document);
@@ -567,7 +566,7 @@ fn without_a_trace_nothing_is_kept_and_the_version_is_the_default() {
     assert_eq!(psychology::update(&world, &data, &traced, MINUTE, true).unwrap().deltas, result.deltas);
     // A trace that is off records nothing.
     let mut host = TestHost::default();
-    let inputs = TraceInputs { source_id: &V::Null, policy_version: &V::Null, minute: &V::Int(MINUTE) };
+    let inputs = TraceInputs { source_id: &V::Null, policy_version: "", minute: MINUTE };
     let traces = psychology::update(&world, &data, &traced, MINUTE, true).unwrap().traces.unwrap();
     trace::record_psychology(&mut host, &data, &traces, &[], &inputs).unwrap();
     assert!(host.calls.is_empty());
@@ -675,7 +674,7 @@ fn a_social_document_keeps_its_sample_and_its_numbers_types() {
         aggregate_scale: 1.0,
     };
     let contacts: Vec<_> = (0..25).map(|place| contact(place % 2, if place % 3 == 0 { Num::Int(0) } else { Num::Float(0.5) })).collect();
-    let document = trace::social_document(&V::Int(7), &V::Str(text("expressiveness-channel-openness-v1")), &["A1", "A2"], &contacts, 16, 8.0);
+    let document = trace::social_document(7, &V::Str(text("expressiveness-channel-openness-v1")), &["A1", "A2"], &contacts, 16, 8.0);
     let V::Map(map) = &document else { panic!("not a map") };
     let keys: Vec<&str> = map.keys().map(|key| &**key).collect();
     assert_eq!(
@@ -698,7 +697,7 @@ fn a_social_document_keeps_its_sample_and_its_numbers_types() {
     assert_eq!((sample.len(), contributions.len()), (20, 16));
     let V::Map(first) = &sample[0] else { panic!("not a map") };
     assert_eq!((&first["stress_contribution"], &first["pair_cap_contribution"]), (&V::Int(0), &V::Int(0)));
-    let legacy = trace::social_document(&V::Int(7), &V::Str(text("x")), &["A1", "A2"], &[], 0, 0.0);
+    let legacy = trace::social_document(7, &V::Str(text("x")), &["A1", "A2"], &[], 0, 0.0);
     let V::Map(legacy) = legacy else { panic!("not a map") };
     assert_eq!(legacy["aggregation"], V::Str(text("legacy directed positive stress propagation")));
 }

@@ -21,9 +21,11 @@ from pydantic import (
 
 from sheltersim.contracts.extensions import validate_scenario_extensions
 from sheltersim.contracts.policies import selected_models
-from sheltersim.domain.environment import ScenarioZoneEnvironmentConfig
-from sheltersim.domain.facility_awareness import canonical_facility_awareness_config
-from sheltersim.domain.infrastructure import (
+from sheltersim.scenario_authoring.configs.environment import ScenarioZoneEnvironmentConfig
+from sheltersim.scenario_authoring.configs.facility_awareness import (
+    canonical_facility_awareness_config,
+)
+from sheltersim.scenario_authoring.configs.infrastructure import (
     INFRASTRUCTURE_COMPLETION_EVENT_TYPES,
     INFRASTRUCTURE_MAX_ROUTE_SHIPMENTS,
     INFRASTRUCTURE_MAX_START_EVENTS,
@@ -31,8 +33,8 @@ from sheltersim.domain.infrastructure import (
     ScenarioInfrastructureSpec,
     dependent_facilities,
 )
-from sheltersim.domain.models import InformationSpreadConfig, Mobility
-from sheltersim.events.models import EventKind
+from sheltersim.scenario_authoring.configs.models import InformationSpreadConfig, Mobility
+from sheltersim.scenario_authoring.event_kinds import EventKind
 
 StableId = Annotated[
     str,
@@ -384,7 +386,7 @@ class ScenarioSpec(ContractModel):
             and behavior_source_id != _BEHAVIOR_POLICY_SOURCE_IDS[behavior_variant]
         ):
             raise ValueError("behavior policy source_id must match its registered variant")
-        from sheltersim.domain.operational import operational_events_enabled
+        from sheltersim.scenario_authoring.configs.operational import operational_events_enabled
 
         operational_events_enabled(self.model_configs, ())
         zone_environment_config: ScenarioZoneEnvironmentConfig | None = None
@@ -968,7 +970,7 @@ class ScenarioSpec(ContractModel):
                 {**self.model_configs, "psychology": config.to_model_config()},
             )
         if "movement_model" in self.model_configs:
-            from sheltersim.domain.movement import canonical_movement_config
+            from sheltersim.scenario_authoring.configs.movement import canonical_movement_config
 
             try:
                 movement_config = canonical_movement_config(self.model_configs["movement_model"])

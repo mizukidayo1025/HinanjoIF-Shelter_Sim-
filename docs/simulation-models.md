@@ -48,7 +48,7 @@ WebのScenario previewが使う初期Scenario生成器は、利用者が入力�
 - `sheltersim prepare`と`sheltersim run`は、旧来モデルを選んだScenarioでstderrに1行の警告を出します。終了codeは0のままです。
 - `sheltersim run`の出力JSONに`psychology_model`を含めます。
 
-旧来モデルの印はmodel-catalog.jsonではなく`src/sheltersim/contracts/policies.py`の`LEGACY_PSYCHOLOGY_MODELS`に置きます。catalogの項目はPolicy署名に含まれるため、変更すると保存済みCheckpointの照合が変わるからです。
+旧来モデルの印はModel Catalog（`native/core/src/validate/model-catalog.json`）ではなく`src/sheltersim/contracts/policies.py`の`LEGACY_PSYCHOLOGY_MODELS`に置きます。catalogの項目はPolicy署名に含まれるため、変更すると新しいRunの`model_versions`が変わるからです。
 
 ## 再現性と評価
 

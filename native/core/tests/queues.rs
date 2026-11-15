@@ -302,8 +302,8 @@ fn request(transition_wait: i64) -> QueueRequest {
 }
 
 #[test]
-fn a_transition_payload_is_the_receipt_s_and_what_its_contract_refuses_is_refused() {
-    let payload = fifo::transition_payload(
+fn a_transition_record_is_the_receipt_s_and_what_its_contract_refuses_is_refused() {
+    let record = fifo::transition_record(
         false,
         &fifo::Transition { request: &request(3), transition: "queued", task_id: "t1", wait_minutes: None, causation_id: None },
         fifo::Place { queue_position: Some(1), capacity: Some(1) },
@@ -311,6 +311,7 @@ fn a_transition_payload_is_the_receipt_s_and_what_its_contract_refuses_is_refuse
         5,
     )
     .unwrap();
+    let payload = record.payload();
     let keys: Vec<&str> = payload.keys().map(|key| &**key).collect();
     assert_eq!(
         keys,
@@ -336,7 +337,7 @@ fn a_transition_payload_is_the_receipt_s_and_what_its_contract_refuses_is_refuse
         ]
     );
     assert_eq!(payload["event_id"], V::Str(text("facility-queue-transition-12")));
-    let event = fifo::transition_event(payload, Some("cause-1"), 12, 5).unwrap();
+    let event = fifo::transition_event(&record, Some("cause-1"), 12, 5).unwrap();
     assert_eq!((&*event.event_id, event.sequence, event.due_minute), ("facility-queue-transition-12", 12, 5));
     assert_eq!(event.causation_id.as_deref(), Some("cause-1"));
 
@@ -344,7 +345,7 @@ fn a_transition_payload_is_the_receipt_s_and_what_its_contract_refuses_is_refuse
     // Queued without a place, a request from the future, a wait longer than the time since it,
     // an ID that is not an Identifier, a transition the contract doesn't name.
     assert_eq!(
-        fifo::transition_payload(
+        fifo::transition_record(
             false,
             &fifo::Transition { request: &request(3), transition: "requeued", task_id: "t1", wait_minutes: None, causation_id: None },
             fifo::Place { queue_position: None, capacity: None },
@@ -355,7 +356,7 @@ fn a_transition_payload_is_the_receipt_s_and_what_its_contract_refuses_is_refuse
         refused
     );
     assert_eq!(
-        fifo::transition_payload(
+        fifo::transition_record(
             false,
             &fifo::Transition { request: &request(6), transition: "completed", task_id: "t1", wait_minutes: None, causation_id: None },
             fifo::Place { queue_position: None, capacity: None },
@@ -366,7 +367,7 @@ fn a_transition_payload_is_the_receipt_s_and_what_its_contract_refuses_is_refuse
         refused
     );
     assert_eq!(
-        fifo::transition_payload(
+        fifo::transition_record(
             false,
             &fifo::Transition { request: &request(3), transition: "completed", task_id: "t1", wait_minutes: Some(3), causation_id: None },
             fifo::Place { queue_position: None, capacity: None },
@@ -377,7 +378,7 @@ fn a_transition_payload_is_the_receipt_s_and_what_its_contract_refuses_is_refuse
         refused
     );
     assert_eq!(
-        fifo::transition_payload(
+        fifo::transition_record(
             false,
             &fifo::Transition { request: &request(3), transition: "completed", task_id: "t 1", wait_minutes: None, causation_id: None },
             fifo::Place { queue_position: None, capacity: None },
@@ -388,7 +389,7 @@ fn a_transition_payload_is_the_receipt_s_and_what_its_contract_refuses_is_refuse
         refused
     );
     assert_eq!(
-        fifo::transition_payload(
+        fifo::transition_record(
             false,
             &fifo::Transition { request: &request(3), transition: "lost", task_id: "t1", wait_minutes: None, causation_id: None },
             fifo::Place { queue_position: None, capacity: None },
@@ -399,7 +400,7 @@ fn a_transition_payload_is_the_receipt_s_and_what_its_contract_refuses_is_refuse
         refused
     );
     assert_eq!(
-        fifo::transition_payload(
+        fifo::transition_record(
             false,
             &fifo::Transition { request: &request(3), transition: "queued", task_id: "t1", wait_minutes: None, causation_id: None },
             fifo::Place { queue_position: Some(0), capacity: None },
@@ -410,7 +411,7 @@ fn a_transition_payload_is_the_receipt_s_and_what_its_contract_refuses_is_refuse
         refused
     );
     // A wait of all the time since the request, and a cause, are taken.
-    assert!(fifo::transition_payload(
+    assert!(fifo::transition_record(
         false,
         &fifo::Transition { request: &request(3), transition: "completed", task_id: "t1", wait_minutes: Some(2), causation_id: Some("e-1") },
         fifo::Place { queue_position: None, capacity: Some(0) },
@@ -419,7 +420,7 @@ fn a_transition_payload_is_the_receipt_s_and_what_its_contract_refuses_is_refuse
     )
     .is_ok());
     assert_eq!(
-        fifo::transition_payload(
+        fifo::transition_record(
             true,
             &fifo::Transition { request: &request(3), transition: "completed", task_id: "t1", wait_minutes: None, causation_id: None },
             fifo::Place { queue_position: None, capacity: None },
@@ -447,8 +448,8 @@ fn a_recorded_transition_takes_the_next_sequence() {
     )
     .unwrap();
     assert_eq!((recording.sequence, recording.minute), (10, 5));
-    assert_eq!(recording.payload["queue_position"], V::Int(1));
-    assert_eq!(recording.payload["service_capacity_concurrent"], V::Int(1));
+    assert_eq!(recording.record.place.queue_position, Some(1));
+    assert_eq!(recording.record.place.capacity, Some(1));
     fifo::write_record(&world, recording, None).unwrap();
     assert_eq!(counter(&world), 11);
     assert!(world.log().unwrap().has_event_id("facility-queue-transition-10"));

@@ -42,7 +42,7 @@ ANCHOR = "ANCHOR"
 MAX_PAGES = 20
 
 # Each case: (route, branch, query, paged). The screen asks for kpis with start, end, step,
-# limit=100 and the cursor (`loadHistory` of demo-v2.js); the rest are the server's checks.
+# limit=100 and the cursor (`loadHistory` of demo-v2-report.js); the rest are the server's checks.
 CASES: list[tuple[str, str, str, bool]] = [
     ("history", BRANCH_ID, f"kind=kpis&end={MINUTES}", True),
     ("history", BRANCH_ID, "kind=kpis&start=13&end=140&step=7&limit=5", True),

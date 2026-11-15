@@ -11,10 +11,7 @@ TESTS = Path(__file__).parents[2]
 # docs/testing.md "テストの置き場所と名前": tests/unit/<owner>/ uses these owners.
 UNIT_OWNERS = frozenset(
     {
-        "core",
-        "domain",
-        "events",
-        "policies",
+        "scenario_authoring",
         "experiments",
         "region",
         "llm",

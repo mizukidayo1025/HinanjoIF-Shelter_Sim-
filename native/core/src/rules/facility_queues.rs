@@ -1,16 +1,13 @@
-//! `domain/facility_queues.py`: the independent FIFO of each service point, on the row of
-//! `facility_queues_v1` (lane c1 of Issue #152).
+//! The independent FIFO of each service point, on the row of `facility_queues_v1`.
 //!
-//! The kernels read the row and write the row alone (`World::row_mut`): an attached namespace's
-//! tree follows the row when the PyO3 crate gives the world back (lane P8-0c), and a detached one
-//! has no tree. Where the Python rule raised its own ValueError, the kernel raises it with the
-//! same text, before any write; what else it doesn't take says Unsupported before any write. The
-//! pydantic contract of a transition's receipt (`FacilityQueueTransitionReceipt`), which only ever
-//! saw the payload the kernel made, is a Rust check of the same fields (`receipt_takes`), whose
+//! The kernels read the row and write the row alone (`World::row_mut`). A request the rule turns
+//! down is a ValueError (`Error::value_error`) with its text, before any write; what else it
+//! doesn't take says Unsupported before any write. The contract of a transition's receipt
+//! (`FacilityQueueTransitionReceipt`) is a check of the same fields (`receipt_takes`), whose
 //! refusal keeps its text.
 //!
-//! What the PyO3 crate hands in: whether the Python world holds the namespace (`Held`), the floor
-//! plan (`Geo`), what the configs say (a person's accessibility needs).
+//! What the caller hands in: whether `model_state` holds the namespace (`Held`), the floor plan
+//! (`Geo`), what the configs say (a person's accessibility needs).
 
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -335,8 +332,8 @@ pub fn write_stall(world: &World, queue_id: &str, request_id: &str, reason: &str
     stall_row(&mut *row_mut(world)?, queue_id, stall)
 }
 
-/// `enqueue`: Python's one ValueError for no namespace, no signed point of the queue, or the ID
-/// taken; then the request at the end of the queue.
+/// `enqueue`: one ValueError for no namespace, no signed point of the queue, or the ID taken; then
+/// the request at the end of the queue.
 pub fn enqueue(world: &World, held: &Held, geo: &Geo, queue_id: &str, request: NewRequest<'_>) -> Result<()> {
     let found = queues(world, held)?.map(|row| (row.requests.contains_key(request.request_id), row.queues.contains_key(queue_id)));
     let (Some((false, has_queue)), Some(point)) = (found, point_of(geo, queue_id)) else {
@@ -576,7 +573,7 @@ struct Listing<'a> {
     minute: i64,
 }
 
-/// The checks of one listed request, false where the Python rule raises.
+/// The checks of one listed request, false where the state check fails.
 fn request_passes(
     listing: Listing<'_>,
     point: &ServicePoint,
@@ -654,8 +651,8 @@ fn request_passes(
 }
 
 /// `validate_facility_queue_state` of a world that holds the namespace and requires independent
-/// queues, without the legacy marker: true only for what the Python rule passes. `movement` is
-/// whether the world holds `movement_v1`.
+/// queues, without the legacy marker: true only for a state that passes. `movement` is whether the
+/// world holds `movement_v1`.
 pub fn validate(world: &World, held: &Held, geo: &Geo, movement: &Held) -> Result<bool> {
     let Some(layout) = &geo.layout else {
         return Ok(false);

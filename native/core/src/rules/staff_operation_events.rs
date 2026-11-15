@@ -1,27 +1,24 @@
-//! The events of an autonomous staff operation (`domain/staff_operations.py`): arrival, relief,
-//! completion and interruption, with `StaffOperationCompletionHandler`'s receipts, on the rows of a
-//! `World` (moved to the core in P8 b2). The PyO3 crate's file of the same name reads what Python
-//! holds (whether `model_state` holds each namespace, the floor plan, the staff operations formula
-//! of the configs), makes the event's row and calls these.
+//! The events of an autonomous staff operation: arrival, relief, completion and interruption, with
+//! `StaffOperationCompletionHandler`'s receipts, on the rows of a `World`. The caller (the dispatch
+//! and the arbitrate phase) reads what these take besides the world (`Inputs`: whether
+//! `model_state` holds each namespace, the floor plan, the staff operations formula of the configs)
+//! and calls them with the event's row.
 //!
-//! Each plans with nothing changed and then writes: `staff_operations_v1` is written as its row
-//! (its tree, where it has one, follows the row when the world is given back, lane P8-0c), and so
-//! are the entities, `body_state_v1`, `infrastructure_v1`, `movement_v1`, the event counter, the
-//! queue and the log. A namespace whose row a write that did not fit dropped (tainted) is refused,
-//! as is another document than the row's under its key. Unsupported comes only before the first
-//! write. The outcomes are the rules' texts: each before any change, except a worker who became
-//! unavailable on arrival or completion, whose operation stops first (`interrupt`), as the Python
-//! rule stops it.
+//! Each plans with nothing changed and then writes: `staff_operations_v1` is written as its row,
+//! and so are the entities, `body_state_v1`, `infrastructure_v1`, `movement_v1`, the event counter,
+//! the queue and the log. A namespace whose row a write that did not fit dropped (tainted) is
+//! refused, as is another document than the row's under its key. Unsupported comes only before the
+//! first write. The outcomes are the rules' texts: each before any change, except a worker who
+//! became unavailable on arrival or completion, whose operation stops first (`interrupt`).
 //!
-//! The staff positions after a change are `movement::staff_position_snapshots`, called directly
-//! (it was `staff_position_snapshots` of `domain/movement.py`, through Python): its refusal is the
-//! `KernelRefusal` that call raised (`SNAPSHOTS`). So are `staff_dynamics_is_available` and
+//! The staff positions after a change are `movement::staff_position_snapshots`, called directly:
+//! its refusal is labelled with that call (`SNAPSHOTS`). So are `staff_dynamics_is_available` and
 //! `staff_dynamics_on_shift` (`staff_dynamics::is_available_now`, `on_shift_now`).
 //!
 //! The admission of an intake is the population rules' (`population::check_waiting`,
-//! `population::admit_arrivals`, lane P9-3a): `plan_complete` says `Work::Intake`, the caller checks
-//! the waiting and admits, and then calls `write_complete`, in the order the Python rule did them. The queue's slots a rule takes out are added to `taken`, as
-//! it goes, for the PyO3 crate to let their objects go.
+//! `population::admit_arrivals`, lane P9-3a): `plan_complete` says `Work::Intake`, the caller
+//! checks the waiting and admits, and then calls `write_complete`, in that order. The queue's slots
+//! a rule takes out are added to `taken`, as it goes, for the host (`Host::slots_changed`).
 
 use std::sync::Arc;
 
@@ -60,14 +57,14 @@ const RELIEF_SOURCE: &str = "ASM-STAFF-RELIEF-V1";
 
 /// The label of the `KernelRefusal` of `staff_position_snapshots`.
 pub const SNAPSHOTS: &str = "movement.staff_position_snapshots";
-/// The refusal of a rule that reads the staff operations formula the PyO3 crate could not read:
-/// the glue raises what the read raised, where the rule read it.
+/// The refusal of a rule that reads the staff operations formula the host could not read: the
+/// caller gives what the read gave, where the rule read it (`Host::read_again`).
 pub const FORMULA_UNREAD: &str = "the staff operations formula could not be read";
-/// The refusal of `staff_position_snapshots` when the PyO3 crate could not read the floor plan: the
-/// glue raises what the read raised, as the snapshot's `KernelRefusal` where it is a refusal.
+/// The refusal of `staff_position_snapshots` when the host could not read the floor plan: the
+/// caller gives what the read gave, labelled with the snapshot (`SNAPSHOTS`) where it is a refusal.
 pub const SNAPSHOT_PLAN_UNREAD: &str = "the floor plan of the staff positions could not be read";
 
-/// What the rules read of the Python world, read by the PyO3 crate before it borrows the world.
+/// What the rules read besides the rows, read before the world is borrowed.
 pub struct Inputs<'a> {
     /// `staff_operations_v1`. A value that is not a dict is no state (`Absent`), as the rules read
     /// it with `isinstance(state, dict)`.
@@ -164,7 +161,7 @@ fn available(world: &World, id: &str) -> Result<bool> {
     staff_dynamics::with_staff_status(world, |status| status.is_available(id))
 }
 
-/// `staff_dynamics_is_available`, as its Python entry answers: true without the namespace.
+/// `staff_dynamics_is_available`: true without the namespace.
 pub fn dynamics_available(world: &World, id: &str, minute: i64) -> Result<bool> {
     if kit::namespace_absent(world, STAFF_DYNAMICS)? {
         return Ok(true);
@@ -172,7 +169,7 @@ pub fn dynamics_available(world: &World, id: &str, minute: i64) -> Result<bool> 
     staff_dynamics::is_available_now(world, id, minute, false)
 }
 
-/// `staff_dynamics_on_shift`, as its Python entry answers: true without the namespace.
+/// `staff_dynamics_on_shift`: true without the namespace.
 fn dynamics_on_shift(world: &World, id: &str, minute: i64) -> Result<bool> {
     if kit::namespace_absent(world, STAFF_DYNAMICS)? {
         return Ok(true);
@@ -180,7 +177,7 @@ fn dynamics_on_shift(world: &World, id: &str, minute: i64) -> Result<bool> {
     staff_dynamics::on_shift_now(world, id, minute)
 }
 
-/// An optional text of a row as Python's value.
+/// An optional text of a row as a value: a str or None.
 fn opt_text(text: &Option<Arc<str>>) -> V {
     text.clone().map_or(V::Null, V::Str)
 }
@@ -208,7 +205,7 @@ impl PayloadText {
         Self::of_value(kit::payload(event, name).unwrap_or(&V::Null))
     }
 
-    /// An optional text of a row, as Python's value.
+    /// An optional text of a row, as a value: a str or None.
     fn of_row(text: &Option<Arc<str>>) -> Self {
         text.clone().map_or(Self::Null, Self::Text)
     }
@@ -308,8 +305,8 @@ fn set_record(world: &World, staff_id: &Arc<str>, record: OperationRecord) -> Re
     Ok(())
 }
 
-/// The pending events in queue order, as rows: the PyO3 crate reads the rows of the events Python
-/// scheduled before it calls.
+/// The pending events in queue order, as rows: the caller reads the queue's rows through the host
+/// (`Host::read_queue_rows`) first.
 fn pending_rows(world: &World) -> Result<Vec<Arc<EventRow>>> {
     let queue = world.queue()?;
     let mut rows = Vec::with_capacity(queue.ordered().len());
@@ -565,8 +562,7 @@ pub fn plan_arrive(world: &World, inputs: &Inputs<'_>, event: &EventRow) -> Resu
 
 /// The writes of `arrive_staff_operation`: the member is at the task, which it works from now.
 /// `arrive_staff_operation`: the plan (`plan_arrive`), then its writes; the staff member who became
-/// unavailable before reaching the task, if any (lane P10-1c: one function for the PyO3 entry and the
-/// dispatch).
+/// unavailable before reaching the task, if any.
 pub fn arrive(world: &World, inputs: &Inputs<'_>, event: &EventRow) -> Result<Option<Arc<str>>> {
     match plan_arrive(world, inputs, event)? {
         Planned::Go(plan) => write_arrive(world, plan).map(|()| None),
@@ -691,7 +687,7 @@ pub fn plan_relief(world: &World, inputs: &Inputs<'_>, event: &EventRow) -> Resu
         (task, previous, replacement)
     };
     let replacement_zone = replacement.as_ref().map(|(zone, _, _)| zone.clone());
-    // `or` in the Python rule's order: each test is reached only if those before it passed.
+    // An `or` in a fixed order: each test is reached only if those before it passed.
     let is_stale = (|| -> Result<bool> {
         if operation.phase == Phase::Idle || !task.is(&operation.task_id) || operation.target_zone_id != replacement_zone {
             return Ok(true);
@@ -872,7 +868,7 @@ pub fn write_relief(world: &World, inputs: &Inputs<'_>, plan: ReliefPlan, taken:
 
 // ---- Completion --------------------------------------------------------------------------------------
 
-/// A number of a measured field, as Python holds it.
+/// A number of a measured field: an int or a float.
 #[derive(Clone, Copy, Debug)]
 enum Number {
     Int(i64),
@@ -1011,7 +1007,7 @@ pub enum Work {
     People {
         people: Vec<(Arc<str>, Arc<str>, Option<[f64; 3]>, f64)>,
     },
-    /// `admit_pending_arrivals`, which the PyO3 crate checks and runs before `write_complete`.
+    /// `admit_pending_arrivals`, which the caller checks and runs before `write_complete`.
     Intake,
 }
 

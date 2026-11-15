@@ -1,23 +1,22 @@
 //! The decisions of the propose phase with `UtilityBehaviorPolicy` and `PriorityRuleBehaviorPolicy`
-//! (`policies/behavior.py`, which keeps only their settings), reading the core's view
-//! (`rules/world_view.rs`), and the observed state of a decision (moved to the core in lane P8 a5).
+//! (their settings are the Run's policies, `run::behavior`), reading the core's view
+//! (`rules/world_view.rs`), and the observed state of a decision.
 //!
-//! The policy is what the Run read of `controller.decisions` (`run::behavior`, once per controller):
-//! `scoring_of` asks for the runner, policy and scorer of the classes the rule knows, and `due`
-//! reads the scorer's coefficients in the order the kernel read them before, with its refusals. A
-//! read that raised in Python is a `PolicyFault` with its path, which the PyO3 crate raises again
-//! by reading that path (policy E14).
+//! The policy is what the Run read of `controller.decisions` (`run::behavior`, once per
+//! controller): `scoring_of` asks for the runner, policy and scorer of the classes the rule knows,
+//! and `due` reads the scorer's coefficients in a fixed order, with its refusals. A read that
+//! failed is a `PolicyFault` with its path, which `Tick::policy_error` turns into the error (policy
+//! E14).
 //!
 //! These steps change nothing and the draws keep no state, so refusing at any point is safe; the
-//! step then raises KernelRefusal. That covers a policy or runner of another class (subclasses
-//! too), and any value on which the deleted Python rule raised, which `check_candidate` and
-//! `check_proposal` repeat from `ActionCandidate` and `ActionProposal`. A `Proposal` is what an
-//! `ActionProposal` holds, as values: the PyO3 crate makes the Python object only when something
-//! reads it.
+//! step then returns Unsupported. That covers a policy or runner of another class (subclasses too),
+//! and any value the checks of `ActionCandidate` and `ActionProposal` turn down, which
+//! `check_candidate` and `check_proposal` make. A `Proposal` is what an `ActionProposal` holds, as
+//! values.
 //!
-//! The coefficients are the ones the deleted `UtilityBehaviorPolicy.propose` had: `score` and
-//! `candidates_of` have them with the same order of operations. The trigger texts format the
-//! policy's numbers as `format(x, "g")` does (`g`).
+//! `score` and `candidates_of` hold the coefficients of `UtilityBehaviorPolicy`, in a fixed order
+//! of operations (the floats' rounding depends on it). The trigger texts format the policy's
+//! numbers as `format(x, "g")` does (`g`).
 
 use std::borrow::Cow;
 use std::sync::Arc;
@@ -124,8 +123,8 @@ fn exact_i64(value: &V) -> Result<i64> {
     }
 }
 
-/// A float, or an int that converts exactly. Only operations with a float read these, in which
-/// Python converts the int the same way, and so does `format(x, "g")`.
+/// A float, or an int that converts exactly. Only operations with a float read these, in which an
+/// int converts to a float the same way, as it does in `format(x, "g")`.
 fn number(value: &V) -> Result<f64> {
     if let V::Float(number) = value {
         return Ok(*number);
@@ -200,7 +199,7 @@ struct Frozen<'a> {
 }
 
 impl<'a> Frozen<'a> {
-    /// A NaN would make `max` over tuples depend on identity, so it is left to Python.
+    /// A NaN would make `max` over tuples depend on identity, so it is refused.
     fn new(data: &'a ViewData, settings: &'a Settings<'a>, draws: &'a KeyedDraws) -> std::result::Result<Self, &'static str> {
         let mut by_zone: Vec<Vec<usize>> = vec![Vec::new(); data.zones.len()];
         let mut pressure = Vec::with_capacity(data.agents.len());

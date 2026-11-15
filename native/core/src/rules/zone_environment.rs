@@ -1,16 +1,15 @@
-//! `zone_environment_view` (`domain/environment.py`) and the formulas it selects
-//! (`ZoneEnvironmentFormula` in `policies/registry.py`): a zone's conditions, read from
-//! `model_configs` and the modifiers of `zone_environment_v1`, as `V` (lane P8 a1).
+//! `zone_environment_view` and the formulas it selects (`ZoneEnvironmentFormula`): a zone's
+//! conditions, read from `model_configs` and the modifiers of `zone_environment_v1`, as `V`.
 //!
-//! `rules/world_view.rs` keeps what this makes while its inputs stay the same. Values and formula
-//! meaning are the Python rule's; the coefficients here are the listed defaults of its contracts and
-//! the constants of its formulas (docs/rust-port/lanes/l5-read-rules.md).
+//! `rules/world_view.rs` keeps what this makes while its inputs stay the same. The coefficients
+//! here are the listed defaults of the config's contract
+//! (`scenario_authoring/configs/environment.py`) and the constants of the formulas
+//! (docs/rust-port/lanes/l5-read-rules.md).
 //!
 //! `read_config` is `ScenarioZoneEnvironmentConfig.model_validate` of a document that validation
-//! accepts: anything it does not accept says `Unsupported`, and the Python rule raises its own text.
-//! The same goes for a record the Python rule would raise on. The strictness of an exact float over
-//! Python's arithmetic is what `rules/world_view.rs` has always asked of a view: an int coordinate
-//! could not stay an int in a typed field, and `1` and `1.0` would hash differently.
+//! accepts: anything it does not accept says `Unsupported`. The same goes for a record the rules
+//! cannot read. A view asks for exact floats (`rules/world_view.rs`): an int coordinate could not
+//! stay an int in a typed field, and `1` and `1.0` would hash differently.
 
 use std::sync::Arc;
 
@@ -643,7 +642,7 @@ impl ZoneInputs {
                 condition_sources.push(record.source_id()?);
             }
         }
-        // Not a set in the Python rule: an event that started two records shows twice.
+        // Not a set: an event that started two records shows twice.
         condition_event_ids.sort_unstable();
         condition_sources.extend(formulas.sources.iter().cloned());
 

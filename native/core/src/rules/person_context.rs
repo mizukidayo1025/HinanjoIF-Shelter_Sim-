@@ -1,9 +1,9 @@
-//! `PersonContext.model_validate` (`contracts/population.py`) and `_fields_of_person`
-//! (`policies/world_view.py`): what a view reads of a person's context (lane P8 a1).
+//! `PersonContext.model_validate` (`contracts/population.py`): what a view reads of a person's
+//! context.
 //!
-//! A context is checked as the contract checks it, so a document it refuses says `Unsupported` and
-//! the Python rule raises its own text. Documents hold JSON values (`V`); pydantic's lax forms of
-//! other Python types (a set for a tuple, bytes for a str) are not JSON, and no Run makes them.
+//! A context is checked as the contract checks it, so a document it refuses says `Unsupported`.
+//! Documents hold JSON values (`V`); pydantic's lax forms of other Python types (a set for a tuple,
+//! bytes for a str) are not JSON, and no Run makes them.
 
 use std::collections::HashSet;
 use std::sync::Arc;

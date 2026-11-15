@@ -1,5 +1,4 @@
-//! `AgentTravelCompletionHandler` of `events/handlers.py`: a walk that ended (lane c7 of Issue
-//! #152; the contracts are the handler's docstrings). The rules are functions on the `World`: they
+//! `AgentTravelCompletionHandler`: a walk that ended. The rules are functions on the `World`: they
 //! read the event's row and the rows, decide, and write the task, the person's row, the bed's place
 //! in `movement_v1` and a relocation's completion (`population_lifecycle`). Nothing is drawn here.
 //!
@@ -7,9 +6,9 @@
 //! the rule's order of checks (`decide`); every check comes before the first write. Where a value
 //! is not what a valid state holds, the rule says Unsupported, still before any change.
 //!
-//! What a walk to a toilet or a resource leads to (`_after_arrival`) is the PyO3 crate's glue over
-//! the functions here (`arrival_approach`, `reject_room`, `rejected_request`) and the toilet's and
-//! the resource service's own requests, which a manager may override (a test's hook).
+//! What a walk to a toilet or a resource leads to (`_after_arrival`, `arrive`) is the functions
+//! here (`arrival_approach`, `reject_room`, `rejected_request`) and the toilet's and the resource
+//! service's own requests (`Managers`, which `rules::dispatch` implements).
 
 use std::sync::Arc;
 
@@ -266,7 +265,7 @@ fn queue_walk_fits(world: &World, inputs: &Inputs<'_>, row: &EventRow, walk: &Wa
         && journey_fits)
 }
 
-/// `value == number` in Python, of a value of a document.
+/// `value == number` as Python compares them, of a value of a document.
 fn equals_number(value: &V, number: f64) -> bool {
     match value {
         V::Float(found) => *found == number,
@@ -724,7 +723,7 @@ impl Gathered {
         let (geo, section) = if is_queue_walk(&purpose) {
             let geo = host.floor_plan()?;
             let section = if geo.layout.is_some() {
-                // A refusal of the section is said here, as the PyO3 crate's `kept_value` said it.
+                // A refusal of the section is said here, before the walk is read.
                 let section = kit::kept_section_value(cell, host, &holding, SectionId::Movement, |configs| &configs.movement, Movement::parse)?;
                 kit::kept(&section)?;
                 section.ok()
@@ -761,7 +760,7 @@ impl Gathered {
 const QUEUES: &str = crate::state::facility_queues::NAME;
 
 /// `"facility_geometry" in world.model_configs`, of the slot's row while the world holds the field,
-/// else of the configs Python holds, which must be a plain dict (lanes P9-1c, P9-3a).
+/// else of the configs the host holds, which must be a plain dict (lanes P9-1c, P9-3a).
 pub fn has_geometry<C: WorldCell, H: Host>(cell: &C, host: &mut H) -> std::result::Result<bool, H::Error> {
     let holding = kit::holding(cell, host)?;
     kit::read_configs(cell, host, &holding, |configs| configs.contains_key("facility_geometry"))?
@@ -785,7 +784,7 @@ pub struct Arrival<'a> {
 }
 
 /// The requests a walk leads to, which the managers make: the toilet's queue and the resource
-/// service's (the PyO3 crate's, which reads each manager's inputs).
+/// service's (`CoreManagers` of `rules::dispatch`, which reads each manager's inputs).
 pub trait Managers<H: Host> {
     /// Whether the toilet's manager (`toilet`) or the resource service has its own `request` (a
     /// test's), which validates the world itself as it is told.

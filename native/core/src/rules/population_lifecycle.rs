@@ -1,24 +1,20 @@
-//! `domain/population_lifecycle.py`: the same person leaving and coming back (lane c7 of Issue #152;
-//! the contracts are the docstrings of `domain/population_lifecycle.py`).
+//! The same person leaving and coming back.
 //!
 //! The rules are functions on the `World`. `population_lifecycle_v1`, `population_presence_v1` and
 //! `geometry_overlay_v1` are `ValueRow` namespaces, the others typed rows: a rule reads and writes
-//! their rows alone, and an attached tree follows the row when the PyO3 crate gives the world back
-//! (lane P8-0c). A person who leaves is archived as values: the agent's record, the records the
+//! their rows alone. A person who leaves is archived as values: the agent's record, the records the
 //! typed namespaces held of them (`Tree::to_v`, the fields in the order of the tree) and the ties
 //! they had. A person who comes back is a new row of `agents` (`Table::insert`, at the end of the
-//! table, as the Python rule's `world.agents[id] = AgentState(...)` put them), and their records go
-//! back into the typed rows (`Tree::from_v`).
+//! table), and their records go back into the typed rows (`Tree::from_v`).
 //!
-//! Each rule plans, refusing with `Unsupported` before its first write what no valid input holds
-//! (a `KernelRefusal` in Python), and then writes. The texts (`EventSuppressed`,
-//! `EventApplicationError`, the validation's `ValueError`s) are saved data and are the Python
-//! rules', in their order of checks.
+//! Each rule plans, refusing with `Unsupported` before its first write what no valid input holds,
+//! and then writes. The texts (`EventSuppressed`, `EventApplicationError`, the validation's
+//! `ValueError`s) are saved data, in a fixed order of checks.
 //!
-//! What only Python has comes as an input, read through the host before the world is borrowed
-//! (`Read`, lane P9-3a): whether `model_state` holds each namespace (`kit::Held`), the sections of
-//! the configs, the floor plan, the movement model of a relocation, and the records of the EventLog
-//! a command's program scheduled (`Host::find_record`). A command's contract
+//! What the rules take besides the rows comes as an input, read through the host before the world
+//! is borrowed (`Read`, lane P9-3a): whether `model_state` holds each namespace (`kit::Held`), the
+//! sections of the configs, the floor plan, the movement model of a relocation, and the records of
+//! the EventLog a command's program scheduled (`Host::find_record`). A command's contract
 //! (`PopulationPresenceCommand`) goes through `Host::contract` (policy E15) and its `selected_ids`
 //! are read here from the contract's dump; the command runs in the core's rule transaction
 //! (`txn::rule`), and the validation of the whole world goes through the host
@@ -68,8 +64,8 @@ const OVERLAY: &str = population::OVERLAY;
 
 // ---- The records of the typed rows as their trees hold them ---------------------------------------
 
-/// A value of a field of a record, as the tree holds it and as the PyO3 crate's `PyField` takes it
-/// back: of the exact type, nothing else.
+/// A value of a field of a record, as the tree holds it and as `Tree::from_v` takes it back: of the
+/// exact type, nothing else.
 trait Leaf: Sized {
     fn leaf(&self) -> V;
     fn from_leaf(value: &V) -> Option<Self>;
@@ -227,7 +223,7 @@ fn records_from<T: Tree>(value: &V) -> Result<IdMap<T>> {
     Ok(records)
 }
 
-// ---- What the PyO3 crate reads for the rules -------------------------------------------------------
+// ---- What is read for the rules before the world is borrowed ------------------------------------
 
 /// What a relocation reads of the configs: whether passages have capacities
 /// (`max_agents_in_transit_by_edge`), and the movement model that times a route (None where the
@@ -301,8 +297,8 @@ fn optional_text(value: &V) -> Result<Option<Arc<str>>> {
     Ok(kit::optional_text(value)?.cloned())
 }
 
-/// What a plan read raised, as the plan says it: a refusal or a text of the rules stays itself,
-/// any other error is `the plan read: ...` (the PyO3 crate's `planning`).
+/// What a plan read raised, as the plan says it: a refusal or a text of the rules stays itself, any
+/// other error is `the plan read: ...`.
 pub fn plan_read(error: Error) -> Error {
     match error {
         Error::Unsupported(_) | Error::Refused { .. } | Error::Outcome(..) | Error::MarkedValue(_) => error,
@@ -411,7 +407,7 @@ fn set_presence(world: &World, inputs: &Inputs<'_>, event: &EventIds, agent_id: 
         "awaiting_admission" => "waiting",
         _ => "admitted",
     });
-    // A NUL between the parts, as the Python rule wrote it.
+    // A NUL between the parts.
     let digest = sha_hex(&format!("{}\0{agent_id}\0{action}", event.event_id));
     let mut sources = change.source_ids.clone();
     sources.push(event.source_id.clone());
@@ -1130,7 +1126,7 @@ fn restore_person(
         Built::Row(agent) => agent,
         Built::Raises(error) => return Err(error),
     };
-    // At the end of the table, as the Python dict put the person back.
+    // At the end of the table.
     world.rows_mut()?.agents.insert(agent_id.clone(), *agent);
     if is_held(&namespaces.agent_dynamics) {
         // `_initial_dynamics`, of the person just added, for one saved without their record.
@@ -1450,13 +1446,13 @@ fn busy_reason(world: &World, agent_id: &str) -> Result<Option<String>> {
     Ok(None)
 }
 
-/// The records of the EventLog a command's program scheduled, by event ID, as the PyO3 crate read
+/// The records of the EventLog a command's program scheduled, by event ID, as `logged_through` read
 /// them (`event_log.find(...).event`): the row of an `effect_program_population` event, or the
 /// refusal reading it gave. Another event is not here.
 pub type Logged = HashMap<Arc<str>, Result<EventRow>>;
 
-/// The event IDs the program of an event's `effect_program_v1` provenance scheduled, for the PyO3
-/// crate to look up in the EventLog.
+/// The event IDs the program of an event's `effect_program_v1` provenance scheduled, to look up in
+/// the EventLog (`logged_through`).
 pub fn program_event_ids(world: &World, effects: &Held, row: &EventRow) -> Result<Vec<Arc<str>>> {
     let Some(V::Map(marker)) = kit::provenance(row, "effect_program_v1") else {
         return Ok(Vec::new());
@@ -2422,8 +2418,8 @@ pub struct TaskFacts {
     pub due_minute: i64,
 }
 
-/// What `validate_population_lifecycle_state` reads of a world: the rows of a world the core holds
-/// (`validate`), or the PyO3 crate's reads of a world it doesn't (a save's world before its core).
+/// What `validate_population_lifecycle_state` reads of a world: the rows of the world (`validate`
+/// here, and `validate::population_lifecycle` of the whole validation).
 pub struct Facts<'a> {
     /// `model_state.get(KEY)`.
     pub state: Option<&'a V>,
@@ -2480,9 +2476,8 @@ pub fn validate(world: &World, lifecycle: &Held, presence: &Held, leaving: Optio
     )
 }
 
-/// `validate_population_lifecycle_state`: its ValueErrors in its order of checks. Unsupported, a
-/// `KernelRefusal` in Python, for what `PresenceState` decided (its plain form is read here) and for
-/// a key that is not hashable.
+/// `validate_population_lifecycle_state`: its ValueErrors in its order of checks. Unsupported for
+/// what `PresenceState` decided (its plain form is read here) and for a key that is not hashable.
 pub fn validate_facts(facts: &Facts<'_>, leaving: Option<&str>) -> Result<()> {
     let Some(state) = facts.state.filter(|state| !matches!(state, V::Null)) else {
         return Ok(());
@@ -2912,7 +2907,7 @@ pub fn presence_command<C: WorldCell, H: Host>(cell: &C, host: &mut H, row: &Eve
 
 /// `apply_population_presence_command` of a command the contract validated (its dump): the
 /// `selected_ids`, the installed lifecycle, then the command's rule in a transaction that stands
-/// for the Python rule's copy (`from_dict(deepcopy(to_dict()))`, the EventLog included). A dropped
+/// for a copy of the world (`from_dict(deepcopy(to_dict()))`, the EventLog included). A dropped
 /// exit, a deferral and a world that fails its checks roll it back, and their outcome is raised
 /// after: a deferral schedules its retry on the world as it was. The receipt.
 pub fn presence_command_typed<C: WorldCell, H: Host>(cell: &C, host: &mut H, row: &EventRow, dumped: &V) -> std::result::Result<V, H::Error> {

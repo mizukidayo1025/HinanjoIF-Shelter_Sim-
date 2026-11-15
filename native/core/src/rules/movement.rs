@@ -1,26 +1,23 @@
-//! `domain/movement.py`: the rules of a tick, on the world borrowed whole (lane c2 of Issue #152).
-//! The Python rules are gone (`kernel_only`): the kernels say Unsupported for anything they do not
-//! decide, and the PyO3 crate raises it as `KernelRefusal` (docs/rust-port/lanes/m4-movement.md).
+//! The movement rules of a tick, on the world borrowed whole: the kernels say Unsupported for
+//! anything they do not decide (docs/rust-port/lanes/m4-movement.md).
 //!
 //! Every kernel plans first: it reads the rows and the plan of the floor and works out each record,
 //! with nothing changed, and says Unsupported for anything it does not decide. Then it writes the
-//! row of `movement_v1` alone; an attached tree follows the row when the PyO3 crate gives the world
-//! back (lane P8-0c). Planning reads only what the tick started with, so one person's result
-//! depends on nobody else's, except in two branches of `advance_movement`: a queue trip that must
-//! replan, and a person placed in a queue slot. They read the positions the walk has written so far
-//! and take event numbers in its order (docs/rust-port/lanes/i-movement.md). The first walk stops
-//! at either branch, and a second one reads a copy of the positions it keeps up to date, as the
-//! Python rule's walk does.
+//! row of `movement_v1` alone. Planning reads only what the tick started with, so one person's
+//! result depends on nobody else's, except in two branches of `advance_movement`: a queue trip that
+//! must replan, and a person placed in a queue slot. They read the positions the walk has written
+//! so far and take event numbers in its order (docs/rust-port/lanes/i-movement.md). The first walk
+//! stops at either branch, and a second one reads a copy of the positions it keeps up to date, so
+//! that each person sees the positions written before them in the walk's order.
 //!
 //! The scene of a walk is the rows of the zones and the edges (`world.zones`, `world.zone_edges`),
-//! the floor plan (`Geo`, which the PyO3 crate reads from the configs and the overlay) and the
-//! overlay's value (`geometry_overlay_v1`). The staff's routed operations come from the row of
-//! `staff_operations_v1`, or from its tree as the PyO3 crate reads it where the row does not answer
-//! (`StaffOps`).
+//! the floor plan (`Geo`, which the host builds from the configs and the overlay) and the overlay's
+//! value (`geometry_overlay_v1`). The staff's routed operations come from the row of
+//! `staff_operations_v1` where the world holds it (`StaffOps`, `kit::staff_ops`).
 //!
-//! What stays with the PyO3 crate: the Python values (`ZoneRoute`, `Point2D`, the dicts a kernel
-//! returns), the floor plan, the movement section of the configs, and settling the pending event of
-//! a queue trip that replans, whose object may be Python's (`EventWriter::settle`).
+//! What the caller reads first (`advance_through`): the floor plan, the movement section of the
+//! configs, and the rows of the pending events of queue trips that replan, which the world's writer
+//! then settles (`EventWriter::settle`).
 
 use std::sync::Arc;
 
@@ -635,7 +632,7 @@ enum QueueReplanEnd {
     Trip(Plan),
 }
 
-/// A queue trip that replans: its pending event, which the PyO3 crate settles as suppressed
+/// A queue trip that replans: its pending event, which `write_walk` settles as suppressed
 /// (`QUEUE_REPLAN_DETAIL`), and what `write_queue_replan` then writes.
 pub struct QueueReplan {
     pub event_id: Arc<str>,
@@ -657,8 +654,8 @@ impl WalkPlan {
     }
 }
 
-/// What the walk in order takes besides the world: the movement model of the configs, whether the
-/// Python world holds `facility_queues_v1`, and whether `world.metric_state` is its slot's tree.
+/// What the walk in order takes besides the world: the movement model of the configs, whether
+/// `model_state` holds `facility_queues_v1`, and whether `world.metric_state` is its slot's tree.
 pub struct InOrder<'a> {
     pub model: &'a Read<MovementModel>,
     pub queues: Held,
@@ -674,7 +671,7 @@ struct Replanning<'a> {
     events: &'a Events<'a>,
 }
 
-/// `facility_queue_slot_route` or `facility_approach_route`, then what the Python rule makes of it.
+/// `facility_queue_slot_route` or `facility_approach_route`, then what the replan makes of it.
 fn plan_queue_replan(
     replanning: Replanning<'_>,
     view: &MovementRow,
@@ -861,8 +858,9 @@ pub enum Advanced {
     NeedsInOrder,
     /// Written: the people whose route to replan.
     Done(Vec<Arc<str>>),
-    /// Nothing written yet: queue trips replan, whose pending events the PyO3 crate reads as rows
-    /// before `write_walk`, so that nothing is refused after the writes begin.
+    /// Nothing written yet: queue trips replan, whose pending events the caller reads as rows
+    /// (`Host::read_queue_rows`) before `write_walk`, so that nothing is refused after the writes
+    /// begin.
     Planned(WalkPlan),
 }
 
@@ -898,10 +896,9 @@ pub fn advance(world: &World, tick: &Tick<'_>, minute: i64, in_order: Option<&In
 
 /// A walk with queue replans, written: the row's part, then each queue trip in the walk's order,
 /// its old event settled as suppressed (`QUEUE_REPLAN_DETAIL`) through the world's writer and its
-/// new trip written. The old events must be rows (the PyO3 crate reads the rows of the events
-/// Python scheduled first): one that is not refuses before anything is written. Returns the people
-/// to replan, and the serials of the queue's slots taken out, whose Python objects the PyO3 crate
-/// lets go.
+/// new trip written. The old events must be rows (the caller reads the queue's rows through the
+/// host first): one that is not refuses before anything is written. Returns the people to replan,
+/// and the serials of the queue's slots taken out, for the host (`Host::slots_changed`).
 pub fn write_walk(world: &World, plan: WalkPlan, minute: i64) -> WriteResult<(Vec<Arc<str>>, Vec<u64>)> {
     let WalkPlan { changes, replans, queue_replans } = plan;
     let events = Events::of(world)?;
@@ -1051,8 +1048,8 @@ fn fifo_of(world: &World, queues: &Held, geo: &Geo, queue_id: Option<&str>) -> R
     }
 }
 
-/// What the readers of a person's place take besides the world: the floor plan, and whether the
-/// Python world holds `movement_v1` and `facility_queues_v1`.
+/// What the readers of a person's place take besides the world: the floor plan, and whether
+/// `model_state` holds `movement_v1` and `facility_queues_v1`.
 pub struct Where<'a> {
     pub geo: &'a Geo,
     pub movement: Held,
@@ -1241,7 +1238,7 @@ fn journey_is_valid(world: &World, queues: &Held, rows: &Entities, agent: &Agent
         if queue_id.is_empty() || !is_queue_trip(&journey.purpose) {
             return Ok(false);
         }
-        // The Python rule reads the queue's facility: anything with a queue ID goes to it.
+        // The queue's facility is read: anything with a queue ID goes to it.
         let Some(row) = fifo::queues(world, queues)? else {
             return Ok(false);
         };
@@ -1288,7 +1285,7 @@ pub enum Validated {
 }
 
 /// `validate_movement_runtime_state` of the row, while the world holds `movement_v1`: true accepts,
-/// false leaves it to the Python rule and its error text.
+/// false leaves it to the whole validation and its error text.
 pub fn validate(world: &World, queues: &Held, geo: Option<&Geo>) -> Result<Validated> {
     let row = world.row::<MovementRow>(KEY)?;
     if geo.is_none() && row.journeys.values().any(|journey| !journey.route_points.is_empty()) {
@@ -1369,9 +1366,9 @@ pub const MINUTE_TOO_LARGE: &str = "a minute is too large";
 /// the order its glue read it: the namespace held (`check_held`), the floor plan, where the staff's
 /// operations are read (`kit::staff_ops`); for a walk that reads the others, the movement section
 /// (raised at once), whether `facility_queues_v1` is held and whether `metric_state` is its slot's
-/// tree; for queue trips that replan, the rows of the events Python scheduled (`read_queue_rows`)
-/// before anything is written, and the slots the writes took out (`slots_changed`). Returns the
-/// people whose route to replan.
+/// tree; for queue trips that replan, the rows of the pending events (`read_queue_rows`) before
+/// anything is written, and the slots the writes took out (`slots_changed`). Returns the people
+/// whose route to replan.
 pub fn advance_through<C: WorldCell, H: Host>(cell: &C, host: &mut H, minute: i64) -> std::result::Result<Vec<Arc<str>>, H::Error> {
     use crate::rules::kit;
     if minute.abs() >= EXACT_INT {

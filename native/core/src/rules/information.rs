@@ -1,18 +1,15 @@
-//! The information model's sample step (`_sample_information_contacts` of the sample phase, with
-//! the rules of `InformationSpreadPolicy.update` and its two subclasses, whose Python bodies lane
-//! L10 deleted): the bounded local contacts of a minute, and the claims they may pass on. Moved to
-//! the core in lane P8 a4.
+//! The information model's sample step (the rules of `InformationSpreadPolicy.update` and its two
+//! subclasses): the bounded local contacts of a minute, and the claims they may pass on.
 //!
 //! As in `rules/psychology.rs`, `plan` computes everything from the rows and changes nothing; any
-//! value the deleted rules turned down, or that this step does not handle, is Unsupported. Then
-//! `sample` writes the plan to the row of `information_spread_v1` (its attached tree follows the
-//! row when the world is given back, lane P8-0c) and schedules the transfers through the world's
-//! queue (`kit::Events`), as `_schedule_information_contact` did. Every float operation keeps the
-//! order of the Python expression. The trace's document goes to the host (`Host::trace`).
+//! value the model turns down, or that this step does not handle, is Unsupported. Then `sample`
+//! writes the plan to the row of `information_spread_v1` and schedules the transfers through the
+//! world's queue (`kit::Events`). Every float operation keeps a fixed order (the rounding depends
+//! on it). The trace's document goes to the host (`Host::trace`).
 //!
 //! The model and its config are what the Run read of `controller.information_policy`
-//! (`run::information`); a read that raised in Python is a `PolicyFault`, which the PyO3 crate
-//! raises again (policy E14).
+//! (`run::information`); a read that failed is a `PolicyFault`, which `Tick::policy_error` turns
+//! into the error (policy E14).
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -93,7 +90,7 @@ fn int_of(held: &Held) -> Result<i64> {
 }
 
 /// An exact float, or an exact int the config allows (0..=4 at most): both are the same f64 in the
-/// Python expressions, where each meets a float.
+/// expressions, where each meets a float.
 fn number_of(held: &Held) -> Result<f64> {
     if let Held::Value(V::Float(number)) = held {
         return Ok(*number);
@@ -463,7 +460,7 @@ fn plan_contact<'a>(reading: Reading<'a>, out: &mut Planned<'a>, me: usize, pers
         causation,
     };
 
-    // The transferable claim first by rank, then age, then ID, as in the Python min().
+    // The transferable claim first by rank, then age, then ID (the least of the tuple).
     let sender_records = &row.beliefs[sender.beliefs];
     let sender_current = &current[sender.beliefs];
     let recipient_records = &row.beliefs[person.beliefs];

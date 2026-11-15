@@ -1,5 +1,4 @@
-//! The kernels moved to the core: pure functions over `&World`, whose PyO3 crate's file of the same
-//! name gathers what Python holds and makes the Python values (lane 5-4, step5-plan.md).
+//! The rules of a tick: pure functions over `&World`, and the phases that call them (`tick`).
 //!
 //! One line per file, in the block of the lane that moves it (design-p8.md, section 3.3), so that
 //! lanes running at the same time each add a line in their own block.

@@ -1,11 +1,9 @@
-//! The arbitrate phase (`ArbitratePhase` of `experiments/phases/arbitrate.py` gives its steps): the staff's
-//! fatigue and operations, the toilets' and the resource service's queues (`toilet::arbitrate`,
-//! `service::arbitrate`, which were the driver's loops), the assignment of support with its
-//! receipts, the staff's operations, the complaints and the relief.
+//! The arbitrate phase: the staff's fatigue and operations, the toilets' and the resource service's
+//! queues (`toilet::arbitrate`, `service::arbitrate`, which were the driver's loops), the
+//! assignment of support with its receipts, the staff's operations, the complaints and the relief.
 //!
 //! The queue steps each loop takes (`prepare_facility_queue`, the walks of a placed world, the
-//! independent queues' checks) are here, read as their PyO3 entries read them
-//! (`native/src/rules/queues.rs`, `facility_queues.rs`).
+//! independent queues' checks) read their inputs here (`rules::queues`, `rules::facility_queues`).
 
 use std::sync::Arc;
 
@@ -49,7 +47,7 @@ pub fn arbitrate<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R>
     // `_assign_staff_support`.
     let assigned = assign_pending(tick).at("staff.assign_pending")?;
     if !assigned.is_empty() {
-        // The kernel's receipts, as the step's kernel (`segments.py`) writes them.
+        // The receipts of the assignments.
         record_assigned(tick, &assigned).at("support.assign_staff_support")?;
     }
     assign_operations(tick).at("staff.assign_operations")?;

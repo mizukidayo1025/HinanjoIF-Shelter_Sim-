@@ -1,25 +1,18 @@
 //! A tick of a Run in the core (Issue #152, lanes P9-2a and P9-2b; design-p9.md section 5): the
-//! dispatch, complete, update, propose, arbitrate, sample and metrics phases, in `TICK_PHASE_ORDER`,
-//! over the Run's `Scratch`, with the observer of the phases through the host (`Host::phase`) and the
-//! engine's clock checked after each phase. `experiments/phases/*.py` states the contract of each
-//! step that has a Python entry.
+//! dispatch, complete, update, propose, arbitrate, sample and metrics phases, in
+//! `TICK_PHASE_ORDER`, over the Run's `Scratch`, with the observer of the phases through the host
+//! (`Host::phase`) and the engine's clock checked after each phase.
 //!
-//! `run_tick` is the whole tick, and `run_phases` some of its phases. The PyO3 crate's driver
-//! (`native/src/rules/tick.rs`) checks, before anything has changed, that no hook changes the tick
-//! and that the dispatch can begin (`accept`, policy E10), reads the tick's random source (H7), and
-//! then calls `run_phases` once with one native host. Nothing else runs a tick: a refusal of those
-//! checks is an error of the tick (#221). Each step is the core's kernel, called directly; what a
-//! kernel reads besides the world comes from the host (what the world holds, H1; the configs'
-//! sections, H2; the floor plan; the queue's rows, H6) and from the Run's `Policies`, read when the
-//! controller starts. Only the update phase's movement and replanning are still the PyO3 crate's:
-//! the caller gives them as `movement`.
+//! `run_tick` is the whole tick, and `run_phases` some of its phases. `engine::step` runs a tick
+//! with `run_tick`; a refusal is an error of the tick (#221). Each step is the core's kernel,
+//! called directly; what a kernel reads besides the world comes from the host (what the world
+//! holds, H1; the configs' sections, H2; the floor plan; the queue's rows, H6) and from the Run's
+//! `Policies`, read when the controller starts.
 //!
-//! Each step's error carries the label of the kernel's Python entry (`module.name`), which the PyO3
-//! crate raises as that entry's `KernelRefusal` where it is a refusal (`Failed`), as the steps did
-//! when the driver called their entries. The dispatch phase's refusal is `KernelRefusal` of
-//! `dispatch.run_phase` already (`Error::Refused`), as the phase's entry raises it. No borrow of the
-//! world, and no lock of the Run, is held while the host runs (rule R6), and a step reads again what
-//! a host call may have changed.
+//! Each step's error carries the label of its kernel (`module.name`, `Failed`), which the Run
+//! reports with the error (`plain::Stopped`). The dispatch phase's refusal is `Error::Refused` of
+//! `dispatch.run_phase` already. No borrow of the world, and no lock of the Run, is held while the
+//! host runs (rule R6), and a step reads again what a host call may have changed.
 
 pub mod arbitrate;
 pub mod metrics;
@@ -37,12 +30,10 @@ use crate::rules::world_view::ViewData;
 use crate::run::{Policies, Run};
 use crate::world::WorldCell;
 
-/// The label of an error no step names: the driver's own (`errors::kernel_refusal(py,
-/// "tick.run_tick", error)` of the PyO3 crate), which is not counted as a kernel's refusal.
+/// The label of an error no step names: the tick's own, which is not counted as a kernel's refusal.
 pub const RUN_TICK: &str = "tick.run_tick";
 
-/// The Run of a tick, locked only while `f` runs: `f` reaches neither the host nor the world's
-/// Python views.
+/// The Run of a tick, locked only while `f` runs: `f` reaches neither the host nor the world.
 pub trait RunCell {
     fn with<R>(&self, f: impl FnOnce(&mut Run) -> R) -> Result<R>;
 }
@@ -100,18 +91,19 @@ pub enum Seed {
 }
 
 /// The view the update phase hands on to the propose phase (`_view_before_proposals`, decision D4
-/// of design-p9.md): the update phase's snapshot, or what Python set there.
+/// of design-p9.md): the update phase's snapshot, or a view the core did not make (a test sets it).
 #[derive(Clone)]
 pub enum Prior {
     View(Arc<ViewData>),
-    /// A view Python made, with its `minute_index` where it is an int.
+    /// A view the core did not make, with its `minute_index` where it is an int; the propose phase
+    /// refuses it at that minute.
     Python {
         minute: Option<i64>,
     },
 }
 
-/// `controller.zone_neighbors`, as the social model and the information model read it: the PyO3
-/// crate reads it when its identity changes (it is the controller's, not a policy the Run reads).
+/// `controller.zone_neighbors`, as the social model and the information model read it (it is the
+/// controller's, not a policy the Run reads).
 #[derive(Clone, Debug)]
 pub struct ZoneNeighbors {
     pub social: crate::rules::social_propagation::Neighbors,
@@ -159,9 +151,8 @@ impl<C: WorldCell, H: Host, R: RunCell> Tick<'_, C, H, R> {
         self.run.with(f).map_err(H::Error::from)
     }
 
-    /// The error of a policy whose read raised when the Run read it, at `path` of the controller
-    /// (`policy_error` of the PyO3 crate's psychology glue, policy E14): its refusal, or what reading
-    /// it again raises.
+    /// The error of a policy whose read failed when the Run read it, at `path` of the controller
+    /// (policy E14): its refusal, or what reading it again gives (`Host::read_again`).
     pub fn policy_error(&mut self, path: &[&str], fault: &crate::config::Fault) -> H::Error {
         let fault = crate::rules::psychology::PolicyFault { path: Vec::new(), fault: fault.clone() };
         if let Some(text) = fault.refusal() {

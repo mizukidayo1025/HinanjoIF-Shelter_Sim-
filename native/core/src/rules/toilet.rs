@@ -1,15 +1,14 @@
-//! `ToiletServiceManager` of `domain/facilities.py` and `ToiletServiceCompletionHandler` of
-//! `events/handlers.py` (lane c3 of Issue #152): a person queues (`queue_up`, `request`), the head
-//! starts a service of a drawn length (`start`), and a completion lets the person go (`complete`).
-//! Each kernel plans with nothing changed and then writes, on the world's rows alone; an attached
-//! tree follows its row when the borrow ends (lane P8-0c).
+//! `ToiletServiceManager` and `ToiletServiceCompletionHandler`: a person queues (`queue_up`,
+//! `request`), the head starts a service of a drawn length (`start`), and a completion lets the
+//! person go (`complete`). Each kernel plans with nothing changed and then writes, on the world's
+//! rows alone.
 //!
-//! The PyO3 crate's file of the same name reads first what only Python holds (the manager's
-//! durations and policy, the random source's seed, whether the world holds each namespace, the
-//! floor plan, an answer of a tainted `staff_operations_v1`), and makes the Python values of what a
-//! kernel returns. The world's whole validation (`validate_state`) and the draw of a random source
-//! that is not a `CounterRNG` (a test's) go through the `Host`. A completion's walk home
-//! (`after_complete`) stays the PyO3 crate's until lane c6: `complete` says the walk is due.
+//! The caller reads first what the kernels take besides the rows (the manager's durations and
+//! policy, the random source's seed, whether the world holds each namespace, the floor plan, an
+//! answer of a tainted `staff_operations_v1`). The world's whole validation (`validate_state`) and
+//! the draw of a random source that is not a `CounterRNG` (a test's) go through the `Host`. A
+//! completion's walk home (`after_complete`): `complete` says the walk is due, and the dispatch
+//! runs it (`toilet_completion` of `rules::dispatch`).
 
 use std::sync::Arc;
 
@@ -74,7 +73,7 @@ pub struct Request<'a> {
     pub queues: &'a Held,
     /// The floor plan (`Geo::of`).
     pub geo: &'a Geo,
-    /// The population's accessibility needs (`choose_queue_id`'s), as the PyO3 crate read them.
+    /// The population's accessibility needs (`choose_queue_id`'s), as the caller read them.
     pub needs: &'a Kept<AccessibilityNeeds>,
 }
 
@@ -89,8 +88,8 @@ pub struct Receipt {
 }
 
 /// `request` without the world's validation: the receipt. A refused request at the end of a walk is
-/// saved as the event's detail (`_after_arrival`), so the checks are the Python rule's, in its order
-/// and with its texts.
+/// saved as the event's detail (`_after_arrival`), so the checks keep a fixed order and their
+/// texts.
 pub fn queue_up(world: &World, request: &Request<'_>) -> WriteResult<Receipt> {
     let (agent_name, facility_name) = (request.agent_id, request.facility_id);
     let minute = world.minute_index()?;
@@ -700,18 +699,15 @@ fn rng_key(start: &Start<'_>, facility_arc: &Arc<str>, agent_id: &Arc<str>, head
 // ---- complete ------------------------------------------------------------------------------------
 
 /// What a completion asks once it is written: the walk home of the handler's `after_complete`,
-/// which the PyO3 crate runs as the core's `travel::schedule_return` on the same borrow when it is
-/// the controller's own step (lane c6).
+/// which the dispatch runs as `travel::schedule_return` when it is the controller's own step.
 #[must_use]
 #[derive(Debug, PartialEq, Eq)]
 pub struct ScheduleReturn;
 
 /// `ToiletServiceCompletionHandler.apply` up to `after_complete`, with `complete_toilet_service`.
-/// `body` says whether the world holds `body_state_v1`.
-/// `complete`, then, where `home` is given and the completion asks for it, the walk home on the same
-/// borrow (`travel::schedule_return`, lane P10-1c: the PyO3 crate's `ToiletServiceCompletionHandler`
-/// entry with the controller's own `after_complete`). The walk home's result is None where it did
-/// not run.
+/// `body` says whether the world holds `body_state_v1`. `complete`, then, where `home` is given and
+/// the completion asks for it, the walk home on the same borrow (`travel::schedule_return`, for the
+/// controller's own `after_complete`). The walk home's result is None where it did not run.
 pub fn complete_then_home(
     world: &World,
     event: &EventRow,
@@ -764,7 +760,7 @@ pub fn complete(world: &World, event: &EventRow, queues: &Held, geo: &Geo, body:
         if facility_row.active_agent_ids.iter().filter(|id| ***id == *agent_id).count() != 1 {
             return Err(failed(format!("Agent {agent} must occupy exactly one toilet service slot")));
         }
-        // The check of a reserved person, which the Python rule makes after it has written.
+        // The check of a reserved person, made before anything is written.
         if let Some(staff_id) = &task.staff_id {
             let consistent = rows.staff.get(staff_id).is_some_and(|staff| {
                 staff.active_task_id.as_deref() == Some(&*task.id)
@@ -845,14 +841,12 @@ pub fn complete(world: &World, event: &EventRow, queues: &Held, geo: &Geo, body:
     Ok(ScheduleReturn)
 }
 
-// ---- arbitrate (lane P9-2a: the tick driver's loop, moved from the PyO3 crate) ---------------------
+// ---- arbitrate (the arbitrate phase's loop) -----------------------------------------------------
 
 /// `ToiletServiceManager.arbitrate`: each facility with anyone queued, in ID order; a facility with
 /// independent queues serves each of them (`_arbitrate_independent_facility`), any other its shared
 /// queue while it has room. Returns the IDs of the started events, in order. The manager is the one
-/// `tick.policies` read: the controller's, of the class the driver was installed with (the driver
-/// refused another before the tick began), or one a caller holds alone (lane P9-3b, its body-less
-/// Python entry).
+/// `tick.policies` read: the controller's.
 pub fn arbitrate<C: WorldCell, H: Host, R: crate::rules::tick::RunCell>(
     tick: &mut crate::rules::tick::Tick<'_, C, H, R>,
 ) -> crate::rules::tick::Step<Vec<Arc<str>>, H::Error> {

@@ -26,7 +26,7 @@ const EVENT_PREFIX: &str = "effect_program_environment";
 const START: &str = "effect_program_environment";
 const EXPIRY: &str = "effect_program_environment_expire";
 /// `LEGACY_ZONE_ENVIRONMENT_FIELDS`: fields an older canonical config lacks.
-const LEGACY_FIELDS: [&str; 7] = [
+pub(crate) const LEGACY_FIELDS: [&str; 7] = [
     "lighting_sleep_efficiency_loss",
     "ventilation_hygiene_growth_per_minute",
     "privacy_discontent_per_minute",

@@ -1,7 +1,10 @@
-//! The namespaces of `model_state` at minute 0, in the order Python stores them: those of the
-//! Scenario's data made whole here (the stock's ledger, the operational events' state), the others
-//! from the table's template with each person's, staff member's and zone's record filled in
-//! (`ENTITY_MEMBERS` of `world_export.py`).
+//! The namespaces of `model_state` at minute 0, made as Python makes them, in its order:
+//! `WorldState.from_scenario` (the stock's ledger, the resource service, the operational events,
+//! infrastructure, the zone environment, information and the psychological state), then
+//! `initialize_simulator_extensions` (its factories, then `validate_simulator_extensions`), then
+//! `initialize_declared_states` (#429). Each is put into the world as it is made, so a later
+//! factory reads the earlier ones as Python's does; an error is the first one Python raises, with
+//! its class and text.
 
 use std::collections::BTreeSet;
 use std::sync::Arc;
@@ -9,47 +12,31 @@ use std::sync::Arc;
 use indexmap::IndexMap;
 use serde_json::Value;
 
-use super::{bad, text, vmap, vstr, Scenario, TableEntry};
+use super::{bad, text, vmap, vstr, Scenario};
+use crate::config::agent_dynamics::{awareness, canonical_policy};
+use crate::config::Selection;
+use crate::contracts::{self, Checked, Holder};
 use crate::entities::AgentRow;
 use crate::error::{Error, Result};
 use crate::geometry::{zone_center, Pt};
-use crate::state::agent_dynamics::POLICY_V1;
+use crate::host::Contract;
+use crate::load;
+use crate::row::Row;
+use crate::rules::agent_dynamics as agent_rules;
+use crate::validate::catalog::catalog;
+use crate::validate::extension_head::py::Held;
+use crate::validate::{self, selection, signatures, View};
 use crate::value::V;
+use crate::world::World;
 
 /// `RESOURCE_IDS`, in their order.
 pub(crate) const RESOURCE_IDS: [&str; 2] = ["water_ml", "food_meal_units"];
 
-/// `ORIENTATION_FACILITY_KINDS`.
-const ORIENTATION_KINDS: [&str; 6] = ["intake", "meal_distribution", "medical_support", "quiet_space", "toilet", "water_station"];
-
 /// `H03_EVENT_TYPES`.
-const H03_EVENT_TYPES: [&str; 6] = ["resource_delivery", "delivery_delayed", "water_outage", "water_restored", "staff_unavailable", "staff_shift_change"];
+pub(crate) const H03_EVENT_TYPES: [&str; 6] =
+    ["resource_delivery", "delivery_delayed", "water_outage", "water_restored", "staff_unavailable", "staff_shift_change"];
 
-/// The namespaces Python stores, in its order: `WorldState.from_scenario`'s, then
-/// `initialize_simulator_extensions`'s factories, then the declared states. A name in this list
-/// that the table has is made from its template; `resource_ledger_v1`, `operational_events_v1`
-/// and `facility_queues_v1` follow the Scenario's data.
-const ORDER: [&str; 19] = [
-    "resource_ledger_v1",
-    "resource_service_v1",
-    "operational_events_v1",
-    "zone_environment_v1",
-    "information_spread_v1",
-    "psychological_distress_v1",
-    "agent_dynamics_v1",
-    "population_dynamics_v1",
-    "social_network_v1",
-    "staff_dynamics_v1",
-    "shared_operations_v1",
-    "population_lifecycle_v1",
-    "temporary_spaces_v1",
-    "staff_operations_v1",
-    "body_state_v1",
-    "movement_v1",
-    "facility_queues_v1",
-    "geometry_overlay_v1",
-    "population_presence_v1",
-];
+const SHARED_OPERATIONS_POLICY: &str = "shared-operations-v1";
 
 fn sorted_ids<'a>(ids: impl Iterator<Item = &'a Arc<str>>) -> Vec<Arc<str>> {
     let mut ids: Vec<Arc<str>> = ids.cloned().collect();
@@ -62,8 +49,7 @@ fn agent_ids(scenario: &Scenario) -> Vec<Arc<str>> {
     sorted_ids(scenario.agents.iter().map(|agent| &agent.profile.id))
 }
 
-/// The agents by ID, in ID order (`sorted(world.agents.items())`); the last of a repeated ID, as a
-/// dict keeps it.
+/// The agents by ID, in ID order (`sorted(world.agents.items())`).
 fn agents_by_id(scenario: &Scenario) -> Vec<(Arc<str>, &AgentRow)> {
     let mut by_id: IndexMap<Arc<str>, &AgentRow> = IndexMap::new();
     for agent in &scenario.agents {
@@ -85,28 +71,12 @@ fn records(ids: &[Arc<str>], record: impl Fn(&Arc<str>) -> Result<V>) -> Result<
     Ok(V::Map(map))
 }
 
-/// The template's members with these values; each member must be in the template, empty.
-fn filled(name: &str, template: &V, members: Vec<(&str, V)>) -> Result<V> {
-    let V::Map(map) = template else {
-        return Err(Error::Value(format!("the table's {name} is not a dict")));
-    };
-    let mut map = map.clone();
-    for (member, value) in members {
-        let empty = match map.get(member) {
-            Some(V::Map(items)) => items.is_empty(),
-            Some(V::List(items)) => items.is_empty(),
-            _ => false,
-        };
-        if !empty {
-            return Err(Error::Value(format!("the table's {name} has no empty {member}")));
-        }
-        map.insert(text(member), value);
-    }
-    Ok(V::Map(map))
+fn empty_map() -> V {
+    V::Map(IndexMap::new())
 }
 
-fn config<'a>(scenario: &'a Scenario, key: &str) -> Option<&'a V> {
-    scenario.configs.get(key)
+fn empty_list() -> V {
+    V::List(Vec::new())
 }
 
 fn member<'a>(value: &'a V, key: &str) -> Option<&'a V> {
@@ -116,7 +86,11 @@ fn member<'a>(value: &'a V, key: &str) -> Option<&'a V> {
     }
 }
 
-// ---- Made from the Scenario's data -----------------------------------------------------------------
+fn value_error(text: impl Into<String>) -> Error {
+    Error::Value(text.into())
+}
+
+// ---- Made by `WorldState.from_scenario` --------------------------------------------------------------
 
 /// `create_resource_ledger(initial_stock)`.
 fn resource_ledger(stock: &Value) -> Result<V> {
@@ -143,7 +117,7 @@ fn resource_ledger(stock: &Value) -> Result<V> {
                 ("remaining", initial.clone()),
                 ("reserved", V::Int(0)),
                 ("source_ids", sources.clone()),
-                ("reservations", V::Map(IndexMap::new())),
+                ("reservations", empty_map()),
             ]),
         );
         audit.push(vmap([
@@ -171,50 +145,67 @@ fn resource_ledger(stock: &Value) -> Result<V> {
         ("warehouse_id", warehouse),
         ("zone_id", zone),
         ("accounts", V::Map(accounts)),
-        ("used_reservation_ids", V::List(Vec::new())),
+        ("used_reservation_ids", empty_list()),
         ("audit", V::List(audit)),
     ]))
 }
 
+fn resource_service() -> V {
+    vmap([
+        ("schema_version", V::Int(1)),
+        ("cancelled_task_ids", empty_list()),
+        ("active_reservation_ids", empty_list()),
+        ("request_history", empty_list()),
+        ("queue_stall_history", empty_list()),
+        ("stall_state", empty_map()),
+    ])
+}
+
 /// `operational_events_enabled(configs, events)`.
-fn operational_enabled(scenario: &Scenario) -> Result<bool> {
-    let configured = match config(scenario, "operational_events") {
-        None => false,
+pub(crate) fn operational_enabled(configs: &IndexMap<Arc<str>, V>, events: &[crate::events::EventRow]) -> Result<bool> {
+    let configured = match configs.get("operational_events") {
+        None | Some(V::Null) => false,
         Some(V::Map(map)) if map.len() == 1 => match map.get("enabled") {
             Some(V::Bool(enabled)) => *enabled,
-            _ => return Err(bad("operational_events config must be {'enabled': bool}")),
+            _ => return Err(value_error("operational_events config must be {'enabled': bool}")),
         },
-        Some(_) => return Err(bad("operational_events config must be {'enabled': bool}")),
+        Some(_) => return Err(value_error("operational_events config must be {'enabled': bool}")),
     };
     Ok(configured
-        || scenario.events.iter().any(|event| {
+        || events.iter().any(|event| {
             H03_EVENT_TYPES.contains(&&*event.event_type) || (&*event.event_type == "resource_delivery" && member(&event.payload, "shipment_id").is_some())
         }))
 }
 
-/// `create_operational_events_state(events, staff_ids)`.
-fn operational_events(scenario: &Scenario) -> Result<V> {
-    let payload = |event: &crate::events::EventRow, key: &str| member(&event.payload, key).cloned().ok_or_else(|| bad(format_args!("a payload has no {key}")));
-    let key = |value: V| match value {
+fn payload(event: &crate::events::EventRow, key: &str) -> Result<V> {
+    member(&event.payload, key).cloned().ok_or_else(|| Error::Key(format!("'{key}'")))
+}
+
+fn id_of(value: V) -> Result<Arc<str>> {
+    match value {
         V::Str(found) => Ok(found),
         _ => Err(Error::unsupported("a payload's ID is not a str")),
-    };
+    }
+}
+
+/// `create_operational_events_state(events, staff_ids)`.
+fn operational_events(scenario: &Scenario) -> Result<V> {
     let mut shipments = IndexMap::new();
     let mut restores = IndexMap::new();
     for event in &scenario.events {
         if &*event.event_type == "resource_delivery" && member(&event.payload, "shipment_id").is_some() {
             shipments.insert(
-                key(payload(event, "shipment_id")?)?,
+                id_of(payload(event, "shipment_id")?)?,
                 vmap([("event_id", V::Str(event.event_id.clone())), ("resource_id", payload(event, "resource_id")?), ("due_minute", V::Int(event.due_minute))]),
             );
         }
         if &*event.event_type == "water_restored" {
-            restores.insert(key(payload(event, "outage_id")?)?, event.event_id.clone());
+            restores.insert(id_of(payload(event, "outage_id")?)?, event.event_id.clone());
         }
     }
     let mut outages = IndexMap::new();
     for event in scenario.events.iter().filter(|event| &*event.event_type == "water_outage") {
-        let outage = key(payload(event, "outage_id")?)?;
+        let outage = id_of(payload(event, "outage_id")?)?;
         let zone = member(&event.payload, "zone_id");
         let target = match zone {
             Some(found) => found.clone(),
@@ -240,43 +231,155 @@ fn operational_events(scenario: &Scenario) -> Result<V> {
         ("shipments", V::Map(shipments)),
         ("water_outages", V::Map(outages)),
         ("staff_status", status),
-        ("cancelled_staff_task_ids", V::List(Vec::new())),
+        ("cancelled_staff_task_ids", empty_list()),
     ]))
 }
 
-/// `independent_queues_required` of the floor plan: a service point whose queue is not its
-/// facility's ID, or a facility with two points.
-pub(crate) fn independent_queues(geometry: &IndexMap<Arc<str>, V>) -> Result<bool> {
-    let Some(V::List(points)) = geometry.get("service_points") else {
-        return Err(bad("facility_geometry has no service_points"));
-    };
-    let mut facilities = BTreeSet::new();
-    for point in points {
-        let (Some(V::Str(facility)), Some(V::Str(queue))) = (member(point, "facility_id"), member(point, "queue_id")) else {
-            return Err(bad("a service point has no facility or queue ID"));
+/// `dependent_facilities(config, component_id, facility_ids)`: the facilities downstream of a
+/// component, sorted.
+fn dependent_facilities(edges: &[(Arc<str>, Arc<str>)], component: &Arc<str>, facilities: &BTreeSet<Arc<str>>) -> V {
+    let mut dependents: IndexMap<&Arc<str>, BTreeSet<&Arc<str>>> = IndexMap::new();
+    for (dependent, dependency) in edges {
+        dependents.entry(dependency).or_default().insert(dependent);
+    }
+    let mut reached: BTreeSet<Arc<str>> = BTreeSet::new();
+    let mut pending = std::collections::VecDeque::from([component.clone()]);
+    let mut visited: BTreeSet<Arc<str>> = BTreeSet::from([component.clone()]);
+    while let Some(current) = pending.pop_front() {
+        if facilities.contains(&current) {
+            reached.insert(current.clone());
+        }
+        let Some(next) = dependents.get(&current) else {
+            continue;
         };
-        if queue != facility || !facilities.insert(facility.clone()) {
-            return Ok(true);
+        for dependent in next {
+            if facilities.contains(*dependent) {
+                reached.insert((*dependent).clone());
+            }
+            if visited.insert((*dependent).clone()) {
+                pending.push_back((*dependent).clone());
+            }
         }
     }
-    Ok(false)
+    let mut reached: Vec<Arc<str>> = reached.into_iter().collect();
+    reached.sort_by(|first, second| first.as_bytes().cmp(second.as_bytes()));
+    V::List(reached.into_iter().map(V::Str).collect())
 }
 
-// ---- Each person's, staff member's and zone's records ----------------------------------------------
+/// `create_infrastructure_runtime_state(world.facilities, events, configs["infrastructure"])`.
+fn infrastructure(scenario: &Scenario, raw: &V) -> Result<V> {
+    let config = contracts::validate(&Contract::Infrastructure, raw)?;
+    let mut edges = Vec::new();
+    if let Some(V::List(items)) = member(&config, "dependency_edges") {
+        for item in items {
+            let (Some(V::Str(dependent)), Some(V::Str(dependency))) = (member(item, "dependent_id"), member(item, "dependency_id")) else {
+                return Err(Error::unsupported("a dependency edge has no IDs"));
+            };
+            edges.push((dependent.clone(), dependency.clone()));
+        }
+    }
+    let facility_ids: BTreeSet<Arc<str>> = scenario.facilities.iter().map(|facility| facility.id.clone()).collect();
+    let mut outages = IndexMap::new();
+    let mut stressors = IndexMap::new();
+    let mut interruptions = IndexMap::new();
+    for event in &scenario.events {
+        match &*event.event_type {
+            "power_outage" | "equipment_failure" => {
+                let outage = id_of(payload(event, "outage_id")?)?;
+                let power = &*event.event_type == "power_outage";
+                let target = id_of(payload(event, if power { "component_id" } else { "facility_id" })?)?;
+                let units_out = if power { V::Null } else { payload(event, "units_out")? };
+                let record = vmap([
+                    ("event_type", V::Str(event.event_type.clone())),
+                    ("target_id", V::Str(target.clone())),
+                    ("start_event_id", V::Str(event.event_id.clone())),
+                    ("restore_event_id", V::Null),
+                    ("affected_facility_ids", dependent_facilities(&edges, &target, &facility_ids)),
+                    ("units_out", units_out),
+                    ("until_minute", payload(event, "until_minute")?),
+                    ("active", V::Bool(false)),
+                ]);
+                outages.insert(outage, record);
+            }
+            "extreme_heat" | "extreme_cold" => {
+                let stressor = id_of(payload(event, "stressor_id")?)?;
+                let rate = if &*event.event_type == "extreme_heat" { "heat_stress_per_minute" } else { "cold_stress_per_minute" };
+                let record = vmap([
+                    ("event_type", V::Str(event.event_type.clone())),
+                    ("zone_id", payload(event, "zone_id")?),
+                    ("start_event_id", V::Str(event.event_id.clone())),
+                    ("end_event_id", V::Null),
+                    ("until_minute", payload(event, "until_minute")?),
+                    ("stress_per_minute", member(&config, rate).cloned().unwrap_or(V::Null)),
+                    ("source_id", member(&config, "source_id").cloned().unwrap_or(V::Null)),
+                    ("active", V::Bool(false)),
+                ]);
+                stressors.insert(stressor, record);
+            }
+            "supply_route_interruption" => {
+                let outage = id_of(payload(event, "outage_id")?)?;
+                let shipments = match payload(event, "shipment_ids")? {
+                    V::List(items) => V::List(items),
+                    _ => return Err(Error::unsupported("shipment_ids is not a list")),
+                };
+                let record = vmap([
+                    ("route_id", payload(event, "route_id")?),
+                    ("start_event_id", V::Str(event.event_id.clone())),
+                    ("restore_event_id", V::Null),
+                    ("until_minute", payload(event, "until_minute")?),
+                    ("shipment_ids", shipments),
+                    ("active", V::Bool(false)),
+                ]);
+                interruptions.insert(outage, record);
+            }
+            _ => {}
+        }
+    }
+    let mut facilities: Vec<&crate::entities::FacilityRow> = scenario.facilities.iter().collect();
+    facilities.sort_by(|first, second| first.id.as_bytes().cmp(second.id.as_bytes()));
+    let base = facilities.into_iter().map(|facility| (facility.id.clone(), V::Int(facility.working_units))).collect();
+    Ok(vmap([
+        ("schema_version", V::Int(1)),
+        ("base_working_units", V::Map(base)),
+        ("outages", V::Map(outages)),
+        ("environmental_stressors", V::Map(stressors)),
+        ("route_interruptions", V::Map(interruptions)),
+    ]))
+}
+
+/// `create_information_runtime_state(set(world.agents))`.
+fn information(scenario: &Scenario) -> Result<V> {
+    let ids = agent_ids(scenario);
+    Ok(vmap([
+        ("schema_version", V::Int(2)),
+        ("messages", empty_map()),
+        ("beliefs", records(&ids, |_| Ok(empty_map()))?),
+        ("contacts", empty_map()),
+        ("query_pressure", records(&ids, |_| Ok(V::Float(0.0)))?),
+        ("support_requests", empty_list()),
+        (
+            "counters",
+            vmap([("contact_attempts", V::Int(0)), ("contact_deliveries", V::Int(0)), ("correction_deliveries", V::Int(0)), ("support_requests", V::Int(0))]),
+        ),
+    ]))
+}
 
 /// `create_psychological_state` of each person's baseline in `psychology.baseline_distress_by_agent`.
-fn psychological(scenario: &Scenario) -> Result<Vec<(&'static str, V)>> {
-    let baselines = config(scenario, "psychology").and_then(|psychology| member(psychology, "baseline_distress_by_agent"));
+fn psychological(scenario: &Scenario) -> Result<V> {
+    let baselines = scenario.configs.get("psychology").and_then(|psychology| member(psychology, "baseline_distress_by_agent"));
     let agents = records(&agent_ids(scenario), |id| {
-        let baseline = match baselines.and_then(|map| member(map, id)) {
-            None => 0.0,
-            Some(V::Int(value)) => *value as f64,
-            Some(V::Float(value)) => *value,
-            Some(_) => return Err(Error::unsupported("a baseline distress is not a number")),
+        let baseline = match baselines {
+            None => V::Float(0.0),
+            Some(V::Map(map)) => map.get(id).cloned().unwrap_or(V::Float(0.0)),
+            Some(_) => return Err(Error::unsupported("the baselines are not a dict")),
         };
-        if !(0.0..=1.0).contains(&baseline) {
-            return Err(Error::Value(format!("baseline distress for {id} must be within 0..1")));
+        let baseline = match baseline {
+            V::Int(value) => Some(value as f64),
+            V::Float(value) if value.is_finite() => Some(value),
+            _ => None,
         }
+        .filter(|value| (0.0..=1.0).contains(value))
+        .ok_or_else(|| value_error(format!("baseline distress for {id} must be finite and between 0 and 1")))?;
         Ok(vmap([
             ("baseline_distress", V::Float(baseline)),
             ("long_term_distress", V::Float(baseline)),
@@ -286,63 +389,52 @@ fn psychological(scenario: &Scenario) -> Result<Vec<(&'static str, V)>> {
             ("completed_days", V::Int(0)),
         ]))
     })?;
-    Ok(vec![("agents", agents)])
+    Ok(vmap([("schema_version", V::Int(1)), ("last_updated_minute", V::Int(-1)), ("agents", agents)]))
 }
 
-/// `create_information_runtime_state(set(world.agents))`.
-fn information(scenario: &Scenario) -> Result<Vec<(&'static str, V)>> {
-    let ids = agent_ids(scenario);
-    Ok(vec![("beliefs", records(&ids, |_| Ok(V::Map(IndexMap::new())))?), ("query_pressure", records(&ids, |_| Ok(V::Float(0.0)))?)])
-}
+// ---- The simulator extensions ----------------------------------------------------------------------
 
-/// `create_agent_dynamics_state`: what each person knows (the facilities of their zone and, past
-/// v1, those of `ORIENTATION_FACILITY_KINDS`).
-fn agent_dynamics(scenario: &Scenario, template: &V) -> Result<Vec<(&'static str, V)>> {
-    let oriented = match member(template, "policy_version") {
-        Some(V::Str(policy)) => &**policy != POLICY_V1,
-        _ => return Err(Error::Value("the table's agent_dynamics_v1 has no policy_version".into())),
-    };
-    let mut agents = IndexMap::new();
-    for (id, agent) in agents_by_id(scenario) {
-        let known: BTreeSet<&Arc<str>> = scenario
-            .facilities
-            .iter()
-            .filter(|facility| facility.zone_id == agent.zone_id || (oriented && ORIENTATION_KINDS.contains(&&*facility.kind)))
-            .map(|facility| &facility.id)
-            .collect();
-        agents.insert(
-            id,
-            vmap([
-                ("known_facility_ids", V::List(known.into_iter().cloned().map(V::Str).collect())),
-                ("last_action", V::Null),
-                ("last_target_id", V::Null),
-                ("last_decision_minute", V::Null),
-                ("decision_due_minute", V::Int(agent.next_decision_at)),
-                ("decision_reason", V::Null),
-            ]),
-        );
-    }
-    Ok(vec![("agents", V::Map(agents))])
-}
-
-/// `create_population_dynamics_state`: the people's traits as `PopulationSpec` dumps them (the
-/// builder's configs are that dump already).
-fn population_dynamics(scenario: &Scenario) -> Result<Vec<(&'static str, V)>> {
+/// `create_population_dynamics_state`: the people's traits as `PopulationSpec` dumps them.
+fn population_dynamics(scenario: &Scenario) -> Result<V> {
     let mut traits = IndexMap::new();
-    if let Some(population) = config(scenario, "population") {
-        let Some(V::Map(people)) = member(population, "people") else {
-            return Err(bad("population has no people"));
+    if let Some(raw) = scenario.configs.get("population") {
+        let dump = contracts::validate(&Contract::PopulationSpec, raw)?;
+        let Some(V::Map(people)) = member(&dump, "people") else {
+            return Err(Error::unsupported("the population has no people"));
         };
-        for (id, person) in people {
-            traits.insert(id.clone(), person.clone());
-        }
+        traits = people.clone();
         traits.sort_by(|first, _, second, _| first.as_bytes().cmp(second.as_bytes()));
     }
-    Ok(vec![("initial_agent_ids", V::List(agent_ids(scenario).into_iter().map(V::Str).collect())), ("profile_traits", V::Map(traits))])
+    Ok(vmap([
+        ("schema_version", V::Int(1)),
+        ("policy_version", vstr("capacity-aware-arrivals-departures-v1")),
+        ("source_id", vstr("ASM-POPULATION-DYNAMICS-V1")),
+        ("initial_agent_ids", V::List(agent_ids(scenario).into_iter().map(V::Str).collect())),
+        ("profile_traits", V::Map(traits)),
+        ("profile_context", empty_map()),
+        ("pending_arrivals", empty_list()),
+        ("arrivals", empty_list()),
+        ("departures", empty_list()),
+    ]))
 }
 
-/// `create_staff_dynamics_state`'s record of each staff member.
-fn staff_dynamics(scenario: &Scenario) -> Result<Vec<(&'static str, V)>> {
+fn social_network() -> V {
+    vmap([
+        ("schema_version", V::Int(1)),
+        ("policy_version", vstr("directed-contact-relationships-v1")),
+        ("relationships", empty_map()),
+        ("interaction_count", V::Int(0)),
+        ("information_transfer_count", V::Int(0)),
+    ])
+}
+
+/// `create_staff_dynamics_state`.
+fn staff_dynamics(scenario: &Scenario) -> Result<V> {
+    let raw = scenario.configs.get("staff_dynamics").cloned().unwrap_or(V::Null);
+    let mut config = validate::staff_dynamics::canonical_staff_dynamics_config(&raw, Held::Tracked)?;
+    if matches!(config.get("max_continuous_work_minutes_by_staff"), Some(V::Map(limits)) if limits.is_empty()) {
+        config.shift_remove("max_continuous_work_minutes_by_staff");
+    }
     let staff = records(&staff_ids(scenario), |_| {
         Ok(vmap([
             ("consecutive_work_minutes", V::Int(0)),
@@ -353,11 +445,48 @@ fn staff_dynamics(scenario: &Scenario) -> Result<Vec<(&'static str, V)>> {
             ("last_activity", vstr("off_duty")),
         ]))
     })?;
-    Ok(vec![("staff", staff)])
+    Ok(vmap([
+        ("schema_version", V::Int(1)),
+        ("policy_version", config.get("policy_version").cloned().unwrap_or(V::Null)),
+        ("source_id", config.get("source_id").cloned().unwrap_or(V::Null)),
+        ("config", V::Map(config)),
+        ("staff", staff),
+    ]))
+}
+
+fn shared_operations() -> V {
+    vmap([
+        ("schema_version", V::Int(1)),
+        ("policy_version", vstr(SHARED_OPERATIONS_POLICY)),
+        ("support_requests", empty_map()),
+        ("history", empty_list()),
+        ("history_truncated", V::Bool(false)),
+    ])
+}
+
+fn population_lifecycle() -> V {
+    vmap([
+        ("schema_version", V::Int(1)),
+        ("policy_version", vstr("same-id-population-lifecycle-v1")),
+        ("source_id", vstr("ASM-POPULATION-LIFECYCLE-V1")),
+        ("people", empty_map()),
+        ("relationship_archive", empty_list()),
+        ("messages", empty_map()),
+        ("deferred_beliefs", empty_map()),
+        ("pending_returns", empty_list()),
+        ("pending_relocations", empty_map()),
+        ("history", empty_list()),
+    ])
+}
+
+fn temporary_spaces() -> V {
+    vmap([("schema_version", V::Int(1)), ("policy_version", vstr("typed-temporary-capacity-v1")), ("spaces", empty_map()), ("history", empty_list())])
 }
 
 /// `create_staff_operations_state`: each zone's sanitation and each staff member idle.
-fn staff_operations(scenario: &Scenario) -> Result<Vec<(&'static str, V)>> {
+fn staff_operations(scenario: &Scenario) -> Result<V> {
+    let raw = scenario.configs.get("staff_operations").cloned().unwrap_or(V::Null);
+    let config = validate::staff_operations::canonical_staff_operations_config(&raw)?;
     let zones = records(&sorted_ids(scenario.zones.iter().map(|zone| &zone.id)), |_| Ok(vmap([("sanitation", V::Float(1.0)), ("updated_minute", V::Int(0))])))?;
     let staff = records(&staff_ids(scenario), |_| {
         Ok(vmap([
@@ -366,22 +495,36 @@ fn staff_operations(scenario: &Scenario) -> Result<Vec<(&'static str, V)>> {
             ("task_kind", V::Null),
             ("target_id", V::Null),
             ("target_zone_id", V::Null),
-            ("route_zone_ids", V::List(Vec::new())),
-            ("route_edge_ids", V::List(Vec::new())),
+            ("route_zone_ids", empty_list()),
+            ("route_edge_ids", empty_list()),
             ("travel_minutes", V::Int(0)),
             ("started_minute", V::Null),
             ("arrival_minute", V::Null),
             ("travel_due_minute", V::Null),
             ("due_minute", V::Null),
             ("reason", V::Null),
-            ("causation_event_ids", V::List(Vec::new())),
+            ("causation_event_ids", empty_list()),
         ]))
     })?;
-    Ok(vec![("staff", staff), ("zones", zones)])
+    Ok(vmap([
+        ("schema_version", V::Int(1)),
+        ("policy_version", vstr("autonomous-routed-staff-v1")),
+        ("source_id", vstr("ASM-STAFF-OPERATIONS-V1")),
+        ("config", V::Map(config)),
+        ("zones", zones),
+        ("staff", staff),
+        ("history", empty_list()),
+    ]))
 }
 
-/// `create_body_state`'s record of each person, from their fatigue and stress (0.0 at minute 0).
-fn body_state(scenario: &Scenario) -> Result<Vec<(&'static str, V)>> {
+/// `create_body_state`'s record of each person, from their fatigue and stress (0.0 at minute 0),
+/// with the config `_body_config_for_world` gives.
+fn body_state(scenario: &Scenario, selection: &Selection) -> Result<V> {
+    let raw = scenario.configs.get("body_dynamics").cloned().unwrap_or(V::Null);
+    let mut config = validate::body_state::canonical_body_config(&raw)?;
+    if let Some(affect) = selection.get("affect") {
+        config.insert(text("affect_policy"), V::Str(affect.clone()));
+    }
     let mut agents = IndexMap::new();
     for (id, agent) in agents_by_id(scenario) {
         let sleep_debt = agent.needs.fatigue * 360.0;
@@ -399,7 +542,15 @@ fn body_state(scenario: &Scenario) -> Result<Vec<(&'static str, V)>> {
             ]),
         );
     }
-    Ok(vec![("agents", V::Map(agents))])
+    Ok(vmap([
+        ("schema_version", V::Int(1)),
+        ("policy_version", vstr("life-state-feedback-v1")),
+        ("source_id", vstr("ASM-LIFE-STATE-FEEDBACK-V1")),
+        ("config", V::Map(config)),
+        ("agents", V::Map(agents)),
+        ("relationships", empty_map()),
+        ("history", empty_list()),
+    ]))
 }
 
 fn number(value: Option<&V>) -> Result<f64> {
@@ -412,9 +563,9 @@ fn number(value: Option<&V>) -> Result<f64> {
 
 /// The center of each zone of the floor plan (`_zone_center`), by zone ID; the first of a
 /// repeated ID.
-fn zone_centers(scenario: &Scenario) -> Result<IndexMap<Arc<str>, Option<Pt>>> {
+fn zone_centers(geometry: Option<&V>) -> Result<IndexMap<Arc<str>, Option<Pt>>> {
     let mut centers = IndexMap::new();
-    let Some(geometry) = config(scenario, "facility_geometry") else {
+    let Some(geometry) = geometry else {
         return Ok(centers);
     };
     let Some(V::List(zones)) = member(geometry, "zones") else {
@@ -441,8 +592,8 @@ fn zone_centers(scenario: &Scenario) -> Result<IndexMap<Arc<str>, Option<Pt>>> {
 }
 
 /// `create_movement_runtime_state`: each person and staff member at their zone's center.
-fn movement(scenario: &Scenario) -> Result<Vec<(&'static str, V)>> {
-    let centers = zone_centers(scenario)?;
+fn movement(scenario: &Scenario, geometry: Option<&V>) -> Result<V> {
+    let centers = zone_centers(geometry)?;
     let position = |zone: &Arc<str>| {
         let point = centers.get(zone).copied().flatten();
         vmap([
@@ -456,11 +607,33 @@ fn movement(scenario: &Scenario) -> Result<Vec<(&'static str, V)>> {
     let positions = V::Map(agents_by_id(scenario).into_iter().map(|(id, agent)| (id, position(&agent.zone_id))).collect());
     let mut staff: IndexMap<Arc<str>, V> = scenario.staff.iter().map(|person| (person.id.clone(), position(&person.zone_id))).collect();
     staff.sort_by(|first, _, second, _| first.as_bytes().cmp(second.as_bytes()));
-    Ok(vec![("positions", positions), ("staff_positions", V::Map(staff))])
+    Ok(vmap([
+        ("schema_version", V::Int(2)),
+        ("policy_version", vstr("spatial-route-and-room-waypoint-v2")),
+        ("positions", positions),
+        ("staff_positions", V::Map(staff)),
+        ("journeys", empty_map()),
+        ("edge_usage_minutes", empty_map()),
+        ("last_updated_minute", V::Int(-1)),
+    ]))
+}
+
+fn geometry_overlay() -> V {
+    vmap([
+        ("schema_version", V::Int(1)),
+        ("policy_version", vstr("bounded-runtime-geometry-v1")),
+        ("facility_points", empty_map()),
+        ("partitions", empty_map()),
+        ("route_modifiers", empty_map()),
+        ("history", empty_list()),
+        ("temporary_rooms", empty_map()),
+        ("bed_reservations", empty_map()),
+        ("room_admissions", empty_map()),
+    ])
 }
 
 /// The declared presence state's initializer: each person admitted in their zone.
-fn presence(scenario: &Scenario) -> Result<Vec<(&'static str, V)>> {
+fn presence(scenario: &Scenario) -> V {
     let people = agents_by_id(scenario)
         .into_iter()
         .map(|(id, agent)| {
@@ -473,55 +646,183 @@ fn presence(scenario: &Scenario) -> Result<Vec<(&'static str, V)>> {
                 ("return_zone_id", V::Null),
                 ("expected_return_minute", V::Null),
                 ("archive_path", V::Null),
-                ("source_event_ids", V::List(Vec::new())),
+                ("source_event_ids", empty_list()),
             ]);
             (id, record)
         })
         .collect();
-    Ok(vec![("people", V::Map(people))])
+    vmap([("schema_version", V::Int(1)), ("people", V::Map(people)), ("history", empty_list())])
 }
 
-// ---- The namespaces --------------------------------------------------------------------------------
+// ---- In Python's order ---------------------------------------------------------------------------
 
-/// Every namespace of the world at minute 0, in the order Python stores them.
-pub(crate) fn namespaces(scenario: &Scenario, table: &TableEntry) -> Result<Vec<(String, V)>> {
-    for refused in ["infrastructure", "facility_awareness"] {
-        if scenario.configs.contains_key(refused) {
-            return Err(Error::unsupported(format!("a Scenario with {refused} is not built in the core")));
+fn put(world: &mut World, name: &str, state: V) -> Result<()> {
+    load::put_namespace(world, name, state)
+}
+
+fn put_row<T: Row>(world: &mut World, name: &str, row: T) -> Result<()> {
+    let slot = world.slots.get(name).ok_or_else(|| Error::unsupported("a namespace has no slot"))?;
+    slot.try_borrow_mut()?.row = Some(Box::new(row));
+    Ok(())
+}
+
+fn has(scenario: &Scenario, key: &str) -> bool {
+    scenario.configs.contains_key(key)
+}
+
+fn configs_value(scenario: &Scenario) -> V {
+    V::Map(scenario.configs.clone())
+}
+
+/// `WorldState.from_scenario`'s namespaces, to the psychological state.
+pub(crate) fn from_scenario(world: &mut World, scenario: &Scenario) -> Result<()> {
+    if let Some(stock) = &scenario.initial_stock {
+        put(world, "resource_ledger_v1", resource_ledger(stock)?)?;
+    }
+    if has(scenario, "resource_service") {
+        put(world, "resource_service_v1", resource_service())?;
+    }
+    if operational_enabled(&scenario.configs, &scenario.events)? {
+        put(world, "operational_events_v1", operational_events(scenario)?)?;
+    }
+    if let Some(raw) = scenario.configs.get("infrastructure") {
+        put(world, "infrastructure_v1", infrastructure(scenario, raw)?)?;
+    }
+    if has(scenario, "zone_environment") {
+        put(world, "zone_environment_v1", vmap([("schema_version", V::Int(1)), ("modifiers", empty_map())]))?;
+    }
+    if validate::information::from_mapping(scenario.configs.get("information_spread"))? {
+        put(world, "information_spread_v1", information(scenario)?)?;
+    }
+    let selection = selection::select(&configs_value(scenario))?;
+    let psychology = selection.get("psychology").ok_or_else(|| Error::unsupported("the selection has no psychology"))?;
+    if catalog()?.is_mean_reverting(psychology) {
+        put(world, "psychological_distress_v1", psychological(scenario)?)?;
+    }
+    Ok(())
+}
+
+/// `validate_shared_operations_config(raw)`.
+fn shared_operations_config(raw: &V) -> Result<()> {
+    let accepted = match raw {
+        V::Map(raw) => raw.iter().all(|(key, value)| match &**key {
+            "schema_version" => matches!(value, V::Int(1) | V::Bool(true)) || matches!(value, V::Float(number) if *number == 1.0),
+            "policy_version" => matches!(value, V::Str(policy) if &**policy == SHARED_OPERATIONS_POLICY),
+            _ => false,
+        }),
+        _ => false,
+    };
+    if accepted {
+        Ok(())
+    } else {
+        Err(value_error("invalid shared_operations config"))
+    }
+}
+
+/// The extensions' namespaces, as `initialize_simulator_extensions` makes them, then its
+/// `validate_simulator_extensions`.
+pub(crate) fn extensions(world: &mut World, scenario: &Scenario) -> Result<()> {
+    let configs = &scenario.configs;
+    let selection = selection::select(&configs_value(scenario))?;
+    let catalog = catalog()?;
+    let body = selection.get("psychology").is_some_and(|model| catalog.is_life_state(model));
+    let enabled = match configs.get("simulator_extensions") {
+        None => false,
+        Some(V::Map(extensions)) => extensions.get("enabled").is_some_and(V::is_truthy),
+        Some(_) => return Err(Error::unsupported("simulator_extensions is not a dict")),
+    };
+    let any = ["facility_geometry", "population", "staff_operations", "staff_dynamics", "shared_operations", "facility_awareness"]
+        .iter()
+        .any(|key| has(scenario, key));
+    if !enabled && !any && !body {
+        return Ok(());
+    }
+    if has(scenario, "body_dynamics") && !body {
+        return Err(value_error("body_dynamics config requires a life-state psychology policy"));
+    }
+    // The factories in the dict's order; its conditions are read as Python builds it.
+    let mut factories: Vec<&str> = vec!["agent_dynamics_v1", "population_dynamics_v1", "social_network_v1", "staff_dynamics_v1"];
+    if let Some(raw) = configs.get("shared_operations") {
+        shared_operations_config(raw)?;
+        factories.push("shared_operations_v1");
+    }
+    if enabled || has(scenario, "population") {
+        factories.push("population_lifecycle_v1");
+        if enabled {
+            factories.push("temporary_spaces_v1");
         }
     }
-    if let Some(unknown) = table.namespaces.keys().find(|name| !ORDER.contains(&&***name)) {
-        return Err(Error::Value(format!("the table has a namespace the core does not build: {unknown}")));
+    if enabled || has(scenario, "staff_operations") || body {
+        factories.push("staff_operations_v1");
     }
-    let mut made = Vec::new();
-    for name in ORDER {
-        let state = match name {
-            "resource_ledger_v1" => scenario.initial_stock.as_ref().map(resource_ledger).transpose()?,
-            "operational_events_v1" => operational_enabled(scenario)?.then(|| operational_events(scenario)).transpose()?,
-            // `independent_queues` refused a floor plan that has them (`super::sections`).
-            "facility_queues_v1" => None,
-            _ => match table.namespaces.get(name) {
-                None => None,
-                Some(template) => {
-                    let members = match name {
-                        "psychological_distress_v1" => psychological(scenario)?,
-                        "information_spread_v1" => information(scenario)?,
-                        "agent_dynamics_v1" => agent_dynamics(scenario, template)?,
-                        "population_dynamics_v1" => population_dynamics(scenario)?,
-                        "staff_dynamics_v1" => staff_dynamics(scenario)?,
-                        "staff_operations_v1" => staff_operations(scenario)?,
-                        "body_state_v1" => body_state(scenario)?,
-                        "movement_v1" => movement(scenario)?,
-                        "population_presence_v1" => presence(scenario)?,
-                        _ => Vec::new(),
-                    };
-                    Some(filled(name, template, members)?)
+    if body {
+        factories.push("body_state_v1");
+    }
+    if has(scenario, "facility_geometry") {
+        factories.push("movement_v1");
+    }
+    if signatures::independent_queues_required(configs)? {
+        factories.push("facility_queues_v1");
+    }
+    if has(scenario, "geometry_overlay") {
+        factories.push("geometry_overlay_v1");
+    }
+    for name in factories {
+        match name {
+            "agent_dynamics_v1" => {
+                // The kernel `create_agent_dynamics_state` reads the policy as a rule does
+                // (`config::agent_dynamics::policy`): a config Python's check refuses is its refusal.
+                let refused = |reason: String| Error::Refused { label: "agent_dynamics.create_state".to_owned(), reason: reason.into() };
+                let policy = match canonical_policy(configs.get("agent_dynamics")) {
+                    Ok(Ok(policy)) => policy,
+                    Ok(Err(_)) | Err(_) => return Err(refused("a config the Python rule refuses".to_owned())),
+                };
+                let known = awareness(&configs_value(scenario)).map_err(|fault| refused(fault.text.to_string()))?;
+                let row = agent_rules::create_state(world, policy, known.as_ref())?;
+                put_row(world, name, row)?;
+            }
+            "population_dynamics_v1" => put(world, name, population_dynamics(scenario)?)?,
+            "social_network_v1" => put(world, name, social_network())?,
+            "staff_dynamics_v1" => put(world, name, staff_dynamics(scenario)?)?,
+            "shared_operations_v1" => put(world, name, shared_operations())?,
+            "population_lifecycle_v1" => put(world, name, population_lifecycle())?,
+            "temporary_spaces_v1" => put(world, name, temporary_spaces())?,
+            "staff_operations_v1" => put(world, name, staff_operations(scenario)?)?,
+            "body_state_v1" => put(world, name, body_state(scenario, &selection)?)?,
+            "movement_v1" => {
+                // `_geometry(world)`: the parsed floor plan (`effective_geometry`, no overlay yet).
+                let geometry = match &configs["facility_geometry"] {
+                    V::Null => None,
+                    raw => Some(contracts::checked(&Checked::FacilityGeometry, raw, Holder::Tracked)?),
+                };
+                put(world, name, movement(scenario, geometry.as_ref())?)?;
+            }
+            "facility_queues_v1" => {
+                let geo = super::sections::floor_plan(configs)?;
+                put_row(world, name, crate::rules::facility_queues::create_state(&geo)?)?;
+            }
+            "geometry_overlay_v1" => {
+                if !has(scenario, "facility_geometry") {
+                    return Err(value_error("geometry_overlay requires facility_geometry"));
                 }
-            },
-        };
-        if let Some(state) = state {
-            made.push((name.to_owned(), state));
+                put(world, name, geometry_overlay())?;
+            }
+            _ => return Err(Error::unsupported("an extension the core does not make")),
         }
     }
-    Ok(made)
+    validate::extensions(world, true)
+}
+
+/// `initialize_declared_states(world)`: each declared namespace the world lacks, made.
+pub(crate) fn declared(world: &mut World, scenario: &Scenario) -> Result<()> {
+    for contract in validate::declared::declared_states(&configs_value(scenario))? {
+        if View::new(world, true, None).contains(&contract.namespace)? {
+            continue;
+        }
+        match &*contract.namespace {
+            "population_presence_v1" => put(world, "population_presence_v1", presence(scenario))?,
+            _ => return Err(Error::unsupported("a declared state the core does not make")),
+        }
+    }
+    Ok(())
 }

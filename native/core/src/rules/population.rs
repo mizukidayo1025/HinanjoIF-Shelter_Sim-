@@ -3,15 +3,15 @@
 //! The rules are functions on the `World`. `population_dynamics_v1`, `population_presence_v1` and
 //! `geometry_overlay_v1` are `ValueRow` namespaces, the others typed rows: a rule reads and writes
 //! their rows alone, and an attached tree follows the row (lane P8-0c). An admitted person is a new
-//! row of `agents` (`Table::insert`, lane 6-1): `build_agent` is what the constructors
-//! `AgentProfile`, `InitialNeedProfile`, `NeedState`, `AgentState` and `Mobility` make of a saved
-//! profile, with their `ValueError`s.
+//! row of `agents` (`Table::insert`, lane 6-1): `build_agent` makes it of a saved profile (its
+//! profile, initial needs, need levels, state and mobility), with the `ValueError`s of their
+//! checks.
 //!
 //! Each rule plans, refusing with `Unsupported` before its first write what no valid input holds
-//! (an `Error::Refused`), and then writes. A rule that raises its text after some writes (`_state`
-//! making its state, a text of an arrival's item, a completion without its presence) makes the same
-//! writes first. The texts (`EventSuppressed`, `EventApplicationError`, the validation's
-//! `ValueError`s) are saved data, in their order of checks.
+//! (an `Error::Refused`), and then writes. A rule that raises its text after some writes
+//! (`dynamics_or_new` making its state, a text of an arrival's item, a completion without its
+//! presence) makes the same writes first. The texts (`EventSuppressed`, `EventApplicationError`,
+//! the validation's `ValueError`s) are saved data, in their order of checks.
 //!
 //! What the world's outside holds comes as an input, read through the host before the world is
 //! borrowed (`Read`, lane P9-3a): whether `model_state` holds each namespace (`kit::Held`), the
@@ -227,7 +227,7 @@ pub(crate) fn equals_text(value: &V, text: &str) -> bool {
     matches!(value, V::Str(value) if &**value == text)
 }
 
-/// `json.loads(key)` of a key of a pair of people, as `_pair_from_key` accepts it.
+/// `json.loads(key)` of a key of a pair of people, as a pair's key is read.
 pub fn pair_of(key: &str) -> Result<[String; 2]> {
     let Ok(parts) = serde_json::from_str::<Vec<String>>(key) else {
         return refuse("a pair key is not a list of strs");
@@ -616,7 +616,7 @@ pub fn presence_is_plain(raw: &V) -> Result<()> {
     Ok(())
 }
 
-/// `_presence_state`: whether the world holds the ledger as a dict, checked.
+/// Whether the world holds the presence ledger as a dict, checked.
 pub(crate) fn presence_state(world: &World, held: &Held) -> Result<bool> {
     match value_of(world, PRESENCE, held)? {
         Some(row) if matches!(row.0, V::Map(_)) => {
@@ -700,7 +700,7 @@ impl<'a> DynamicsState<'a> {
         Ok(summaries)
     }
 
-    /// `_arrival_minute`.
+    /// The minute of the person's arrival.
     fn arrival_minute(self, agent_id: &str) -> Result<i64> {
         for record in list_of(field(self.0, "arrivals")?)? {
             if equals_text(kit::get(record, "agent_id")?, agent_id) {
@@ -830,7 +830,7 @@ impl<'a> PendingItem<'a> {
     }
 }
 
-/// `raw["people"][agent_id] = record` and the append of `_append_presence_history`.
+/// `raw["people"][agent_id] = record` and the append to the presence history.
 pub fn write_presence(world: &World, person: &Person, transition: &Transition) -> Result<()> {
     let mut row = world.row_mut::<ValueRow>(PRESENCE)?;
     let state = map_mut(&mut row.0)?;
@@ -844,7 +844,7 @@ pub fn write_presence(world: &World, person: &Person, transition: &Transition) -
     Ok(())
 }
 
-/// What `_record_presence_transition` asks of an ID it will write, checked in a plan.
+/// What `record_presence_transition` asks of an ID it will write, checked in a plan.
 fn check_presence_ids(event_id: &str, agent_id: &str, zone: Option<&str>, household: Option<&str>, source_id: &str) -> Result<()> {
     identifier(event_id)?;
     identifier(agent_id)?;
@@ -865,7 +865,7 @@ struct PresenceChange<'a> {
     source_id: &'a str,
 }
 
-/// `_record_presence_transition`. The plan checked the ledger and the IDs.
+/// Records a transition of a person's presence. The plan checked the ledger and the IDs.
 fn record_presence_transition(world: &World, inputs: &Inputs, change: PresenceChange<'_>) -> Result<()> {
     let PresenceChange { agent_id, event_id, minute, action, zone_id, household_id, source_id } = change;
     let previous = {
@@ -989,7 +989,7 @@ impl Places {
         self.occupancy.get(zone_id).copied().unwrap_or(0)
     }
 
-    /// `_zone_has_room`: whether the zone has room for one more.
+    /// Whether the zone has room for one more.
     pub fn has_room(&mut self, world: &World, inputs: &Inputs, zone_id: &str) -> Result<bool> {
         let Some(capacity) = self.capacity(world, inputs, zone_id)? else {
             return Ok(true);
@@ -1003,7 +1003,8 @@ impl Places {
         *self.occupancy.entry(zone_id.clone()).or_default() += 1;
     }
 
-    /// `available_temporary_room`, and the point `admit_to_temporary_room` then gives.
+    /// The temporary room open in the zone (`overlay::available_room_after`), and the point
+    /// `overlay::admit` then gives.
     pub fn available_room(&self, world: &World, inputs: &Inputs, zone_id: &str) -> Result<Option<(Arc<str>, Pt)>> {
         overlay::available_room_after(world, &inputs.intake(), zone_id, &self.planned_rooms)
     }
@@ -1017,7 +1018,7 @@ impl Places {
 /// A target of an admission: the zone, and a room of the overlay with its point.
 type Target = (Arc<str>, Option<(Arc<str>, Pt)>);
 
-/// `_choose_admission_target`: the first zone with room, or with a room of the overlay.
+/// The target of an admission: the first zone with room, or with a room of the overlay.
 fn choose_target(world: &World, inputs: &Inputs, places: &mut Places, item: PendingItem<'_>) -> Result<Option<Target>> {
     for zone in item.zones()? {
         if places.has_room(world, inputs, &zone)? {
@@ -1030,7 +1031,7 @@ fn choose_target(world: &World, inputs: &Inputs, places: &mut Places, item: Pend
     Ok(None)
 }
 
-/// `_zone_has_room`.
+/// Whether the zone has room for one more (`Places::has_room`).
 pub fn zone_has_room(world: &World, inputs: &Inputs, zone_id: &str) -> Result<bool> {
     Places::of(world)?.has_room(world, inputs, zone_id)
 }
@@ -1038,8 +1039,8 @@ pub fn zone_has_room(world: &World, inputs: &Inputs, zone_id: &str) -> Result<bo
 // ---- The agent the constructors make -------------------------------------------------------------
 
 /// What the constructors make of a saved profile: the agent's row, or the `ValueError` they raise
-/// (`Mobility(...)`, `InitialNeedProfile.__post_init__`, `AgentState.__post_init__`), which the
-/// rule raises where it makes the agent.
+/// (the checks of the mobility, of the initial needs and of the state), which the rule raises where
+/// it makes the agent.
 #[derive(Clone)]
 pub enum Built {
     Row(Box<AgentRow>),
@@ -1048,12 +1049,12 @@ pub enum Built {
 
 const NEED_NAMES: [&str; 4] = ["toilet_urgency", "hunger", "fatigue", "hydration_need"];
 
-/// `AgentState(profile=AgentProfile(...), zone_id=zone_id, needs=NeedState(**initial),
-/// next_decision_at=minute)` of a saved profile, as `_admit_profile` makes it (`schema_version` is
-/// the world's: v5 has no hydration, which is then 0.0). Unsupported where the constructors raise
-/// another error (a field missing, a key `InitialNeedProfile` does not take), or make an object
-/// whose fields no row holds (an int need level, an ID that is not a str), which would taint the
-/// store. A `ValueError` comes first where the constructors raise it first.
+/// The agent of a saved profile in `zone_id`, its needs the initial ones and its next decision at
+/// `minute`, as an admission makes it (`write_admission`; `schema_version` is the world's: v5 has
+/// no hydration, which is then 0.0). Unsupported where the constructors raise another error (a
+/// field missing, a key the initial needs do not take), or make an object whose fields no row holds
+/// (an int need level, an ID that is not a str), which would taint the store. A `ValueError` comes
+/// first where the constructors raise it first.
 pub fn build_agent(profile: &V, zone_id: &Arc<str>, minute: i64, schema_version: i64) -> Result<Built> {
     let raw = map_of(profile)?;
     let missing = || Error::unsupported("a saved profile lacks a field");
@@ -1082,7 +1083,7 @@ pub fn build_agent(profile: &V, zone_id: &Arc<str>, minute: i64, schema_version:
     let support_need = raw.get("support_need").ok_or_else(missing)?;
     let stress_sensitivity = raw.get("stress_sensitivity").ok_or_else(missing)?;
     let rng_key = raw.get("rng_key").ok_or_else(missing)?;
-    // `InitialNeedProfile(**initial)`: its keys, then each level in the order it checks them.
+    // The initial needs: their keys, then each level in the order they are checked.
     if initial.keys().any(|key| !NEED_NAMES.contains(&&**key)) {
         return refuse("saved initial needs have another key");
     }
@@ -1138,9 +1139,9 @@ pub fn build_agent(profile: &V, zone_id: &Arc<str>, minute: i64, schema_version:
     })))
 }
 
-// ---- `_admit_profile` ----------------------------------------------------------------------------
+// ---- An admission's writes --------------------------------------------------------------------
 
-/// `admit_to_temporary_room`, whose checks the plan made.
+/// A person admitted to a temporary room (`overlay::admit`), whose checks the plan made.
 pub fn write_room_admission(world: &World, held: &Held, agent_id: &str, room_id: &str, minute: i64, event_id: &str) -> Result<()> {
     if value_of(world, OVERLAY, held)?.is_none() {
         return Err(Error::Runtime("the overlay left during an admission".to_owned()));
@@ -1167,7 +1168,7 @@ pub fn reset_position(world: &World, geo: &Geo, agent_id: &Arc<str>, zone_id: &A
     movement::finish(world, geo, agent_id)
 }
 
-/// `add_body_agent` for a person with no stress yet.
+/// The body record of a new person with no stress yet.
 fn add_body_record(world: &World, agent_id: &Arc<str>, fatigue: f64) -> Result<()> {
     let record = BodyRecord {
         sleep_debt_minutes: py_min(1440.0, fatigue * 360.0),
@@ -1206,7 +1207,7 @@ struct Admission {
     agent: Built,
 }
 
-/// `_admit_profile`.
+/// The writes of an admission of a saved profile.
 fn write_admission(world: &World, inputs: &Inputs, admission: &Admission, minute: i64) -> Result<Arc<str>> {
     let agent = match &admission.agent {
         Built::Row(agent) => agent,
@@ -1279,10 +1280,10 @@ fn check_admissions(world: &World, inputs: &Inputs, admissions: &[Admission]) ->
     Ok(())
 }
 
-// ---- `admit_pending_arrivals` --------------------------------------------------------------------
+// ---- The admission of the waiting (`admit_pending`) ------------------------------------------
 
-/// Whether `population_dynamics_v1` surely has no one waiting (`nothing_in`): absent, None, or a
-/// dict whose `pending_arrivals` is empty.
+/// Whether `population_dynamics_v1` surely has no one waiting: absent, None, or a dict whose
+/// `pending_arrivals` is empty.
 pub fn nothing_waiting(world: &World, held: &Held) -> Result<bool> {
     let Some(state) = value_of(world, DYNAMICS, held)? else {
         return Ok(true);
@@ -1462,9 +1463,9 @@ impl kit::Admission for Checks<'_> {
     }
 }
 
-// ---- `_state` -------------------------------------------------------------------------------------
+// ---- The population dynamics' state ------------------------------------------------------------
 
-/// `create_population_dynamics_state`. The contract of the Scenario's population is the host's
+/// A new `population_dynamics_v1` state. The contract of the Scenario's population is the host's
 /// (`Host::contract`); `config` is `model_configs.get("population")`, None for None.
 fn new_dynamics_state<C: WorldCell, H: Host>(cell: &C, host: &mut H, config: Option<&V>) -> std::result::Result<V, H::Error> {
     let mut traits = Doc::new();
@@ -1494,14 +1495,14 @@ fn new_dynamics_state<C: WorldCell, H: Host>(cell: &C, host: &mut H, config: Opt
     ])))
 }
 
-/// What `_state` gives: Some(a new state) where the world has none, which the first write puts
-/// into `model_state`; None for the world's.
+/// The state of the population dynamics: Some(a new state) where the world has none, which the
+/// first write puts into `model_state`; None for the world's.
 fn dynamics_or_new<C: WorldCell, H: Host>(cell: &C, host: &mut H, inputs: &Inputs, config: Option<&V>) -> std::result::Result<Option<V>, H::Error> {
     let present = cell.with(|world| -> Result<bool> {
         match &inputs.namespaces.dynamics {
             Held::Absent => Ok(false),
             Held::Other(reason) => Err(Error::unsupported(*reason)),
-            // `_state` returns the None it finds, and the rule raises on it.
+            // A None state is returned as it is, and the rule raises on it.
             Held::Held => match value_of(world, DYNAMICS, &inputs.namespaces.dynamics)? {
                 Some(_) => Ok(true),
                 None => refuse("the population state is None"),
@@ -1523,7 +1524,7 @@ fn state_in<'a>(new_state: &'a Option<V>, held: &'a Option<ShardRef<'_, ValueRow
     }
 }
 
-// ---- `queue_arrivals` ----------------------------------------------------------------------------
+// ---- Arrivals queued (`queue_arrivals`) ---------------------------------------------------------
 
 /// `admission_zone_ids` as given: a list or tuple of strs, or something the rule says is invalid.
 #[derive(Clone, Debug)]
@@ -1587,19 +1588,21 @@ struct Prepared {
 /// Where a rule that writes first stops with its text, in the item's writes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Stop {
-    /// `_schedule_arrival_approach_completion`, before it takes a sequence.
+    /// The schedule of an arrival's approach completion (`plan_completion`), before it takes a
+    /// sequence.
     BeforeSequence,
     /// The same, after it took one.
     AfterSequence,
-    /// `_record_waiting_presence`, after the item joined the waiting.
+    /// The waiting's presence record, after the item joined the waiting.
     WaitingPresence,
 }
 
 /// The plan of `queue_arrivals`.
 pub struct ArrivalsPlan {
-    /// A state `_state` made, which the host puts into `model_state` before the writes.
+    /// A state `dynamics_or_new` made, which the host puts into `model_state` before the writes.
     pub new_state: Option<V>,
-    /// The rule's text once `_state` ran, raised after that state is in place, before any write.
+    /// The rule's text once `dynamics_or_new` ran, raised after that state is in place, before any
+    /// write.
     pub fails: Option<String>,
     zone: Arc<str>,
     prepared: Vec<Prepared>,
@@ -1614,7 +1617,7 @@ pub struct ArrivalsPlan {
     failure: Option<(usize, Stop, &'static str)>,
 }
 
-/// The plan's end once `_state` has made its state: the state goes in, then the text.
+/// The plan's end once `dynamics_or_new` has made its state: the state goes in, then the text.
 fn fails_after_state(new_state: Option<V>, text: impl Into<String>) -> ArrivalsPlan {
     ArrivalsPlan {
         new_state,
@@ -1633,7 +1636,7 @@ fn fails_after_state(new_state: Option<V>, text: impl Into<String>) -> ArrivalsP
     }
 }
 
-/// A context `_generated_arrival_context` makes of an arrival.
+/// The context `generated_context` makes of an arrival.
 #[derive(Clone)]
 struct GeneratedContext {
     household_id: Arc<str>,
@@ -1675,7 +1678,8 @@ impl GeneratedContext {
     }
 }
 
-/// `_generated_arrival_context`: the same fields as `model_dump(exclude_defaults, exclude_none)`.
+/// The contexts of generated arrivals, by household: the same fields as
+/// `model_dump(exclude_defaults, exclude_none)`.
 fn generated_context(items: &[Prepared]) -> Result<Vec<(Arc<str>, GeneratedContext)>> {
     let mut households: Vec<(&str, Vec<&Prepared>)> = Vec::new();
     for item in items {
@@ -1957,7 +1961,8 @@ fn plan_arrivals_in(world: &World, inputs: &Inputs, row: &EventRow, new_state: O
     let route_sources = route.as_ref().map_or(Vec::new(), |route| route.source_ids.clone());
     let zone_list: Vec<Arc<str>> = std::iter::once(zone.clone()).chain(alternates.iter().cloned()).collect();
     let mut failure = None;
-    // `agent_id in raw["people"]` of `_record_waiting_presence`, whose text stops the writes there.
+    // `agent_id in raw["people"]` of the waiting's presence record, whose text stops the writes
+    // there.
     let waiting_has_record = |item: &Prepared| -> Result<bool> {
         if !presence {
             return Ok(false);
@@ -1965,7 +1970,7 @@ fn plan_arrivals_in(world: &World, inputs: &Inputs, row: &EventRow, new_state: O
         let ledger = value_of(world, PRESENCE, &inputs.namespaces.presence)?.ok_or_else(|| Error::unsupported("no presence"))?;
         PresenceState::of(&ledger.0).has_person(&item.agent_id)
     };
-    // What `_record_waiting_presence` validates of the IDs it will write.
+    // What the waiting's presence record validates of the IDs it will write.
     let check_waiting_ids = |item: &Prepared| -> Result<()> {
         if !presence {
             return Ok(());
@@ -2337,7 +2342,8 @@ fn optional_payload_text(arrival: &EventRow, key: &str) -> Option<Option<Arc<str
     }
 }
 
-/// `_schedule_arrival_approach_completion`, as a row, or the text it stops with and where.
+/// The completion of an arrival's approach, scheduled as a row, or the text it stops with and
+/// where.
 fn plan_completion(world: &World, inputs: &Inputs, arrival: &EventRow, item: &Prepared, route: &Approach, due: i64, sequence: i64) -> Result<Completion> {
     let (Some(program_id), Some(effect_id)) = (optional_payload_text(arrival, "program_id"), optional_payload_text(arrival, "effect_id")) else {
         return refuse("a program's IDs are something else");
@@ -2356,7 +2362,7 @@ fn plan_completion(world: &World, inputs: &Inputs, arrival: &EventRow, item: &Pr
     let Some(V::Map(marker)) = kit::provenance(arrival, "effect_program_v1") else {
         return Ok(Err((Stop::AfterSequence, "arrival event lacks its approved EffectProgram provenance")));
     };
-    // `derived_effect_marker`: the arrival's guard is not the approach's (#89).
+    // The derived EffectProgram marker: the arrival's guard is not the approach's (#89).
     let mut derived = marker.clone();
     derived.shift_remove("guard");
     derived.insert(Arc::from("phase"), v_str("derived"));
@@ -2508,7 +2514,7 @@ pub fn write_arrivals(world: &World, inputs: &Inputs, plan: &ArrivalsPlan) -> Re
     Ok(plan.admitted)
 }
 
-// ---- `apply_arrival_approach_completion` ---------------------------------------------------------
+// ---- An arrival's approach completed ------------------------------------------------------------
 
 /// `apply_arrival_approach_completion`.
 pub fn apply_approach_completion(world: &World, inputs: &Inputs, row: &EventRow) -> Result<()> {
@@ -2579,7 +2585,7 @@ pub fn apply_approach_completion(world: &World, inputs: &Inputs, row: &EventRow)
         return failed(PROVENANCE);
     }
     let route = read_route(route)?;
-    // `_record_approach_completed`, which raises after the two writes to the pending arrival.
+    // The approach's completion recorded, which raises after the two writes to the pending arrival.
     let mut record = None;
     let mut no_presence = false;
     if let Some(raw) = value_of(world, PRESENCE, &inputs.namespaces.presence)?.filter(|row| matches!(row.0, V::Map(_))) {
@@ -2640,7 +2646,7 @@ pub fn apply_approach_completion(world: &World, inputs: &Inputs, row: &EventRow)
     })())
 }
 
-// ---- `schedule_population_retry` -----------------------------------------------------------------
+// ---- A population event's retry ----------------------------------------------------------------
 
 /// The plan of a retry: the row needs the sequence, which is the next one when it is written.
 pub struct Retry {
@@ -2648,7 +2654,7 @@ pub struct Retry {
     program: Option<Arc<str>>,
 }
 
-/// The plan of `schedule_population_retry`: Err(text) is the rule's `EventSuppressed`.
+/// The plan of a retry: Err(text) is the rule's `EventSuppressed`.
 pub fn plan_retry(world: &World, held: &Held, row: &EventRow, id_prefix: &str, subject: &str) -> Result<std::result::Result<Retry, String>> {
     let events = Events::of(world)?;
     let due = world.minute_index()? + 1;
@@ -2716,7 +2722,7 @@ fn write_retry(world: &World, plan: Retry) -> Result<()> {
     events.schedule(plan.row).map_err(plain)
 }
 
-/// `schedule_population_retry`: Err(EventSuppressed) where it can't.
+/// Schedules a retry of a population event: Err(EventSuppressed) where it can't.
 pub fn schedule_retry(world: &World, held: &Held, row: &EventRow, id_prefix: &str, subject: &str) -> Result<()> {
     match plan_retry(world, held, row, id_prefix, subject)? {
         Ok(plan) => kit::writing(write_retry(world, plan)),
@@ -2724,7 +2730,7 @@ pub fn schedule_retry(world: &World, held: &Held, row: &EventRow, id_prefix: &st
     }
 }
 
-// ---- `queue_departures` --------------------------------------------------------------------------
+// ---- Departures queued (`queue_departures`) -----------------------------------------------------
 
 /// The arguments of `queue_departures`, as the caller read them.
 pub struct DepartureArgs {
@@ -2735,8 +2741,8 @@ pub struct DepartureArgs {
     pub population: Option<V>,
 }
 
-/// What the plan of `queue_departures` found. Each carries the state `_state` made, if it made
-/// one, which goes into `model_state` first.
+/// What the plan of `queue_departures` found. Each carries the state `dynamics_or_new` made, if it
+/// made one, which goes into `model_state` first.
 pub enum Departures {
     /// The rule's text: the state goes in, then the text.
     Fails { new_state: Option<V>, text: String },
@@ -2746,7 +2752,7 @@ pub enum Departures {
     Leave { new_state: Option<V>, selected: Vec<Arc<str>> },
 }
 
-/// What `_remove_information_state` and `_archive_person` ask of the information state.
+/// What `remove_information_state` and the departure's archive ask of the information state.
 pub(crate) fn check_information(world: &World, inputs: &Inputs) -> Result<()> {
     if let Some(info) = typed_of::<InformationRow>(world, INFORMATION, &inputs.namespaces.information)? {
         for key in info.contacts.keys() {
@@ -2875,7 +2881,7 @@ pub(crate) fn event_names_agent(row: &EventRow, agent_id: &str) -> bool {
         .any(|key| matches!(kit::payload(row, key), Some(V::Str(value)) if &**value == agent_id))
 }
 
-/// `_cancel_agent_events`, planned on the queue as it is: the events each person's departure
+/// The person's events cancelled, planned on the queue as it is: the events each person's departure
 /// suppresses, which no one before took.
 pub(crate) fn cancels_of(pending: &[Arc<EventRow>], taken: &mut HashSet<Arc<str>>, agent_id: &str, withdrawn: &HashSet<Arc<str>>, cancels: &mut Vec<Cancel>) {
     let detail = format!("Agent {agent_id} departed before the event was due");
@@ -2937,7 +2943,8 @@ impl DepartedTie {
     }
 }
 
-/// `remove_agent` of social_network: the ties, popped in key order, as the departure keeps them.
+/// The person's ties removed from the social network: the ties, popped in key order, as the
+/// departure keeps them.
 fn remove_social_relationships(world: &World, inputs: &Inputs, agent_id: &str) -> Result<Vec<DepartedTie>> {
     let keys = match typed_of::<SocialNetworkRow>(world, SOCIAL_NETWORK, &inputs.namespaces.social_network)? {
         None => return Ok(Vec::new()),
@@ -2956,7 +2963,7 @@ fn remove_social_relationships(world: &World, inputs: &Inputs, agent_id: &str) -
     Ok(archived)
 }
 
-/// `_remove_information_state`: the messages the person started.
+/// The person removed from the information state: the messages the person started.
 fn remove_information_state(world: &World, inputs: &Inputs, agent_id: &str) -> Result<HashSet<Arc<str>>> {
     let mut withdrawn = HashSet::new();
     if typed_of::<InformationRow>(world, INFORMATION, &inputs.namespaces.information)?.is_none() {
@@ -2989,7 +2996,7 @@ fn remove_information_state(world: &World, inputs: &Inputs, agent_id: &str) -> R
     Ok(withdrawn)
 }
 
-/// The departure record's profile: `_profile_record`.
+/// The departure record's profile.
 pub(crate) fn profile_record(agent: &AgentRow) -> V {
     let profile = &agent.profile;
     let initial = &profile.initial_needs;
@@ -3023,8 +3030,8 @@ struct Cancels<'a> {
     serials: Vec<u64>,
 }
 
-/// `_depart_agent`, with `_cancel_agent_events` settling the person's events on the world's queue
-/// and log (SUPPRESSED, with its detail).
+/// A person's departure, with `cancels_of`'s cancels settling the person's events on the world's
+/// queue and log (SUPPRESSED, with its detail).
 fn write_departure(world: &World, inputs: &Inputs, agent_id: &Arc<str>, row: &EventRow, cancels: &mut Cancels<'_>) -> Result<()> {
     let agent = world.rows()?.agents.get(agent_id).cloned().ok_or_else(|| Error::Key(agent_id.to_string()))?;
     overlay::release(world, &inputs.namespaces.overlay, "bed_reservations", Some(agent_id))?;
@@ -3131,7 +3138,7 @@ pub fn write_departures(world: &World, inputs: &Inputs, row: &EventRow, selected
     Ok(cancels.serials)
 }
 
-// ---- `validate_population_dynamics_state` --------------------------------------------------------
+// ---- The check of `population_dynamics_v1` (`validate::population_dynamics`) --------------------
 
 /// `PersonTraits.model_validate`, of a document it certainly accepts.
 fn traits_are_plain(value: &V) -> Result<()> {
@@ -3721,9 +3728,9 @@ impl Read {
     }
 }
 
-/// `parsed_facility_geometry(model_configs.get("facility_geometry", {})).arrival_approach_routes`.
-/// A route the reader refused is the refusal; a missing config or a fault is what the parse raises
-/// again (policy E14): `caught` for its `TypeError` or `ValueError`.
+/// The arrival approach routes of the facility geometry (`model_configs.get("facility_geometry",
+/// {})`). A route the reader refused is the refusal; a missing config or a fault is what the parse
+/// raises again (policy E14): `caught` for its `TypeError` or `ValueError`.
 pub fn approach_routes<C: WorldCell, H: Host>(cell: &C, host: &mut H, holding: &crate::host::Holding) -> std::result::Result<Routes, H::Error> {
     let section = kit::section(cell, host, holding, SectionId::FacilityGeometry, |configs| &configs.facility_geometry)?;
     if let Section::Ok(geometry) = &section {
@@ -3969,7 +3976,7 @@ pub fn approach_completion<C: WorldCell, H: Host>(cell: &C, host: &mut H, row: &
     read.run(cell, |world, inputs| apply_approach_completion(world, inputs, row))
 }
 
-/// `schedule_population_retry(world, event, id_prefix=, subject=)`.
+/// Schedules a retry of a population event (`schedule_retry`) through the host.
 pub fn schedule_retry_through<C: WorldCell, H: Host>(
     cell: &C,
     host: &mut H,

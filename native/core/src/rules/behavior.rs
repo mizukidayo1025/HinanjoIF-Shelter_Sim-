@@ -194,7 +194,7 @@ struct Frozen<'a> {
     by_zone: Vec<Vec<usize>>,
     /// `view.group_members`, sorted by group.
     groups: Vec<(&'a Arc<str>, Vec<usize>)>,
-    /// `view.immediate_needs()`, by person.
+    /// The pressure of each person's immediate needs, by person.
     pressure: Vec<f64>,
 }
 
@@ -314,7 +314,7 @@ fn check_proposal(
     Ok(())
 }
 
-/// `_decision_interval_minutes`.
+/// The minutes until a person's next decision.
 fn decision_interval(
     base_minutes: i64,
     action: Action,
@@ -334,7 +334,7 @@ fn decision_interval(
     Ok(scaled.max(minimum).min(maximum))
 }
 
-/// `_sleep_debt_utility`.
+/// The utility of sleeping for a person's sleep debt.
 fn sleep_debt_utility(agent: &ViewAgent, settings: &Settings<'_>) -> f64 {
     if !settings.sleep_aware {
         return agent.body.sleep_debt_minutes / 1440.0 * 0.45;
@@ -346,7 +346,7 @@ fn sleep_debt_utility(agent: &ViewAgent, settings: &Settings<'_>) -> f64 {
     settings.sleep_debt_weight * agent.body.sleep_debt_minutes / required as f64
 }
 
-/// `_target_for_action`.
+/// The target of an action for a person, if it has one.
 fn target_for_action(frozen: &Frozen<'_>, index: usize, action: Action) -> Option<usize> {
     let data = frozen.data;
     let agent = &data.agents[index];
@@ -702,7 +702,7 @@ impl Triggers {
         Self { texts }
     }
 
-    /// `_demand_trigger`.
+    /// The trigger text of an action's demand.
     pub fn of(&self, action: Action, modifier: Option<&DemandModifier>) -> Result<Cow<'_, str>> {
         let Some(trigger) = &self.texts[action as usize] else {
             return Err(Error::unsupported("an action has no trigger"));
@@ -778,9 +778,9 @@ fn is_due(data: &ViewData, agent: &ViewAgent) -> bool {
     data.minute_index >= agent.next_decision_at && matches!(agent.activity, Activity::Idle | Activity::Resting | Activity::Sleeping)
 }
 
-/// `self.decisions.propose_due(view, rng)` of the propose phase, after `scoring_of`: the proposals
-/// of everyone due, in ID order, None when nobody is. Everyone is computed first, so a refusal
-/// changes nothing. `seed` is `str(rng.seed)` and `state_hash` the view's.
+/// The decisions of the propose phase (`tick::propose`), after `scoring_of`: the proposals of
+/// everyone due, in ID order, None when nobody is. Everyone is computed first, so a refusal changes
+/// nothing. `seed` is the Run's seed as text and `state_hash` the view's.
 pub fn due(data: &ViewData, scoring: &Scoring<'_>, seed: &str, state_hash: Arc<str>) -> Got<Option<Vec<Proposal>>> {
     if !data.agents.iter().any(|agent| is_due(data, agent)) {
         return Ok(None);
@@ -872,9 +872,8 @@ pub fn status_text(status: RequestStatus) -> &'static str {
     }
 }
 
-/// `_agent_view_snapshot(view.agents[agent_id])`: what a decision records it observed of the
-/// person, with its keys in that function's order. `rules/decisions.rs` writes the same document
-/// as JSON bytes.
+/// What a decision records it observed of the person, with its keys in a fixed order.
+/// `rules/decisions.rs` writes the same document as JSON bytes.
 pub fn observed_value(data: &ViewData, index: usize) -> V {
     let agent = &data.agents[index];
     let zone = data.zone_of(agent);

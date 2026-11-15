@@ -12,7 +12,7 @@ use crate::error::{Error, Result};
 use crate::events::is_stable_id;
 use crate::value::V;
 
-/// What is read of a person's context: `_fields_of_person`.
+/// What is read of a person's context.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct PersonFields {
     pub caregiver_ids: Vec<Arc<str>>,
@@ -127,7 +127,7 @@ fn optional_int(value: &V, high: i64) -> Result<Option<i64>> {
     }
 }
 
-/// `_fields_of_person(PersonContext.model_validate(raw))`.
+/// The fields read of `PersonContext.model_validate(raw)`.
 pub fn parse(raw: &V) -> Result<PersonFields> {
     let V::Map(record) = raw else {
         return refused();

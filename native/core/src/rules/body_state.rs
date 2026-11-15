@@ -262,7 +262,7 @@ impl Item {
         }
     }
 
-    /// The `duration` that `_record_relationship` computes.
+    /// The `duration` that `record_relationship` records.
     fn relationship_duration(&self) -> f64 {
         match self {
             Self::Int(value) if *value >= 0 => *value as f64,
@@ -382,7 +382,8 @@ fn sorted_pair(first: &Arc<str>, second: &Arc<str>) -> Vec<Arc<str>> {
 }
 
 fn pair_key(first: &str, second: &str) -> Option<Arc<str>> {
-    // `ordered_pair_key`, for IDs that JSON writes as they are; the rest are refused.
+    // The pair's key, the JSON list of the two IDs, for IDs that JSON writes as they are; the rest
+    // are refused.
     let plain = |id: &str| id.bytes().all(|byte| byte.is_ascii_graphic() && byte != b'"' && byte != b'\\');
     (plain(first) && plain(second)).then(|| Arc::from(format!("[\"{first}\",\"{second}\"]")))
 }
@@ -397,7 +398,7 @@ fn config_float(config: &V, name: &str) -> Result<f64> {
     Err(Error::unsupported("a body config value is not a float"))
 }
 
-/// `_recorded_contact_distance`.
+/// The distance a contact records between two people, if both have a position.
 fn contact_distance(positions: Option<&IdMap<Position>>, first: &str, second: &str) -> Option<f64> {
     let positions = positions?;
     let first = positions.get(first)?.point.as_ref()?;
@@ -433,7 +434,7 @@ impl Planner<'_> {
         }
     }
 
-    /// `_relationship_trust`.
+    /// The trust of the relationship of `recipient` with `sender`.
     fn relationship_trust(&self, recipient: &str, sender: &str) -> Result<f64> {
         let Some(key) = pair_key(recipient, sender) else {
             return Err(Error::unsupported("an ID is not plain"));
@@ -443,7 +444,7 @@ impl Planner<'_> {
         Ok(record.and_then(|record| record.trust).unwrap_or(0.5))
     }
 
-    /// `_record_relationship`, with an event ID, which every event has.
+    /// Records a contact in the relationship, with an event ID, which every event has.
     fn record_relationship(&mut self, recipient: &Arc<str>, sender: &Arc<str>, contact: Contact<'_>) -> Result<()> {
         let Contact { minute, kind, topic, duration, distance_m } = contact;
         let Some(key) = pair_key(recipient, sender) else {
@@ -541,8 +542,8 @@ impl Planner<'_> {
         Ok(())
     }
 
-    /// One item of `transfers`, from `_body_deltas` and the loop at the end of the rule. The two
-    /// lists keep their order: an item here is added after the relationships'.
+    /// One item of `transfers`, from the changes of the body record and the loop at the end of the
+    /// rule. The two lists keep their order: an item here is added after the relationships'.
     fn transfer_deltas(before: &BodyRecord, after: &BodyRecord) -> Deltas {
         let mut deltas: Deltas = Vec::new();
         // The fields in sorted order, as `sorted(set(before) & set(after))` has them.

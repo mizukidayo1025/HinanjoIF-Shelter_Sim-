@@ -48,7 +48,7 @@ pub fn arbitrate<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R>
     let assigned = assign_pending(tick).at("staff.assign_pending")?;
     if !assigned.is_empty() {
         // The receipts of the assignments.
-        record_assigned(tick, &assigned).at("support.assign_staff_support")?;
+        record_assigned(tick, &assigned).at("support.record_assigned")?;
     }
     assign_operations(tick).at("staff.assign_operations")?;
     // Its decision is the policy's, called through `consider_complaint_response`.
@@ -411,7 +411,7 @@ impl<C: WorldCell, H: Host, R: RunCell> Tick<'_, C, H, R> {
 
     /// The order of a facility's queue (`queues::prepare`).
     pub fn prepare_queue(&mut self, facility: &str, resource: bool) -> Step<(), H::Error> {
-        self.prepare_shared(facility, resource).at("queues.prepare_facility_queue")
+        self.prepare_shared(facility, resource).at("queues.prepare")
     }
 
     fn prepare_shared(&mut self, facility: &str, resource: bool) -> std::result::Result<(), H::Error> {
@@ -438,7 +438,7 @@ impl<C: WorldCell, H: Host, R: RunCell> Tick<'_, C, H, R> {
 
     /// The order of an independent queue (`queues::prepare_independent`).
     pub fn prepare_independent(&mut self, queue: &str, resource: bool) -> Step<(), H::Error> {
-        self.prepare_one(queue, resource).at("queues.prepare_independent_facility_queue")
+        self.prepare_one(queue, resource).at("queues.prepare_independent")
     }
 
     fn prepare_one(&mut self, queue: &str, resource: bool) -> std::result::Result<(), H::Error> {
@@ -507,7 +507,7 @@ impl<C: WorldCell, H: Host, R: RunCell> Tick<'_, C, H, R> {
     /// The walks to the places of the queue (`queues::positions`, `head` false) or the head's walk
     /// to the service (`queues::head_to_service`).
     pub fn progress(&mut self, facility: &str, resource: bool, head: bool, queue: Option<&str>) -> Step<bool, H::Error> {
-        let label = if head { "queues.progress_physical_queue_head_to_service" } else { "queues.progress_physical_queue_positions" };
+        let label = if head { "queues.head_to_service" } else { "queues.positions" };
         self.walk_queue(facility, resource, head, queue).at(label)
     }
 

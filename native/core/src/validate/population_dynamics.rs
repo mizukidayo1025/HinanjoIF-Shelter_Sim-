@@ -3,7 +3,7 @@
 //!
 //! The rule is the tick's (`rules::population::validate_facts`), so this reads the same facts of
 //! the world and gives its refusal (`Error::Refused`, labelled
-//! `population.validate_population_dynamics_state`).
+//! `population.validate_facts`).
 
 use std::sync::Arc;
 
@@ -18,7 +18,7 @@ use crate::rules::kit::{DYNAMICS, PRESENCE};
 use crate::rules::population::{plan_read_of, validate_facts, Facts, Routes, RoutesFault, NO_ROW};
 use crate::value::V;
 
-const LABEL: &str = "population.validate_population_dynamics_state";
+const LABEL: &str = "population.validate_facts";
 
 /// Whether an arrival on its approach route is waiting: the rule then reads the approach routes.
 fn reads_routes(state: &V) -> bool {

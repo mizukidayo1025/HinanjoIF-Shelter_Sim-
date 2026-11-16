@@ -33,15 +33,15 @@ use super::read::{is_refusal, Plan};
 use super::update::Gathered;
 use super::{Labelled, Prior, RunCell, Seed, Step, Tick};
 
-pub const VIEW: &str = "world_view.view_for_proposals";
-pub const PROPOSE: &str = "decisions.propose_rows";
+pub const VIEW: &str = "propose.view_for_proposals";
+pub const PROPOSE: &str = "propose.due";
 pub const EFFECT: &str = "proposals.apply_effect";
-pub const RECORD: &str = "decisions.record_outcome";
+pub const RECORD: &str = "propose.record_outcome";
 
 const OVERLAY_KEY: &str = "geometry_overlay_v1";
 const SHARED: &str = "shared_operations_v1";
 /// The label of the staff router's refusal (`router_of` of the travel glue).
-const ROUTE_IS_CLEAR: &str = "movement.route_is_physically_clear";
+const ROUTE_IS_CLEAR: &str = "propose.router";
 
 /// The propose phase.
 pub fn propose<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R>) -> Step<(), H::Error> {

@@ -581,7 +581,7 @@ fn resource_service(configs: &Map, world: &World) -> Result<V> {
     if !view.contains("resource_service_v1")? || !view.contains("resource_ledger_v1")? {
         return Err(value_error("WorldState v6 requires resource service and ledger state"));
     }
-    let config = configs.get("resource_service").cloned().ok_or_else(|| value_error("ResourceServiceManager requires an opted-in WorldState v6"))?;
+    let config = configs.get("resource_service").cloned().ok_or_else(|| value_error("a WorldState v6 requires the resource_service config"))?;
     Ok(object(
         "sheltersim.domain.resource_service",
         "ResourceServiceManager",

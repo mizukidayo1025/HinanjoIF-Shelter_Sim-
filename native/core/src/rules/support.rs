@@ -45,7 +45,7 @@ const OPERATIONAL: &str = "operational_events_v1";
 const AGENT: &str = "agent";
 const MODEL_STATE: &str = "model_state";
 /// The label of the care receipts' refusal past a step's first change.
-const APPEND_LABEL: &str = "care_receipts.append_transition";
+const APPEND_LABEL: &str = "care_receipts.append";
 /// What the handler says of a request that has left `pending`.
 pub const NO_LONGER_PENDING: &str = "support request is no longer pending";
 /// `Held::Other` of `shared_operations_v1` whose key holds None.
@@ -298,7 +298,7 @@ pub fn record_started(world: &mut World, inputs: &Inputs, event: &SupportEvent) 
 
 /// The receipts of the requests just assigned, in the order given. What it writes is not undone, so
 /// a refusal past the first change is the care receipts' `Error::Refused`
-/// (`care_receipts.append_transition`), and one of the person's sources is the caller's.
+/// (`care_receipts.append`), and one of the person's sources is the caller's.
 pub fn record_assigned(world: &mut World, inputs: &Inputs, assigned: &[Arc<str>]) -> WriteResult<()> {
     for id in assigned {
         let prior = match &inputs.shared {

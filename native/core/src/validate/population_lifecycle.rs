@@ -3,7 +3,7 @@
 //!
 //! The rule is the tick's (`rules::population_lifecycle::validate_facts`), so this reads the same
 //! facts of the world and gives its refusal (`Error::Refused`, labelled
-//! `population_lifecycle.validate_population_lifecycle_state`).
+//! `population_lifecycle.validate_facts`).
 
 use std::sync::Arc;
 
@@ -14,7 +14,7 @@ use crate::rules::kit::PRESENCE;
 use crate::rules::population::NO_ROW;
 use crate::rules::population_lifecycle::{validate_facts, Facts, TaskFacts, KEY};
 
-const LABEL: &str = "population_lifecycle.validate_population_lifecycle_state";
+const LABEL: &str = "population_lifecycle.validate_facts";
 
 /// The check, as `validate` (`validate/mod.rs`) calls it in its order.
 pub fn validate(view: &View<'_>) -> Result<()> {

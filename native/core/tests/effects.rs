@@ -491,7 +491,7 @@ fn a_temporary_space_registers_its_record_and_wraps_the_registration_s_error() {
     // Without the namespace the registration refuses: its `KernelRefusal`'s text.
     let empty = Shard::new(world("add_temporary_space", vec![("temporary_spaces_v1", map(vec![("spaces", V::Int(1)), ("history", V::List(Vec::new()))]))]));
     let text = failed(effects::write_temporary_space(&empty, &mut host, &held, &start, &plan));
-    assert!(text.starts_with("overlay.register_temporary_space refused: "), "{text}");
+    assert!(text.starts_with("overlay.register_space refused: "), "{text}");
 }
 
 // ---- Structures -------------------------------------------------------------------------------------
@@ -558,7 +558,7 @@ fn added_staff_get_their_records_where_the_world_has_the_namespace() {
         staff_ops: None,
     };
     let mut host = TestHost::default();
-    assert_eq!(effects::write_add(&cell, &mut host, &ins, &plan), Ok("structure.add_staff"));
+    assert_eq!(effects::write_add(&cell, &mut host, &ins, &plan), Ok(()));
     cell.with(|world| {
         let rows = world.rows().unwrap();
         let ids: Vec<&str> = rows.staff.iter().map(|(id, _)| &**id).collect();

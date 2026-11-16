@@ -846,7 +846,7 @@ pub fn arbitrate<C: WorldCell, H: Host, R: crate::rules::tick::RunCell>(
             if !room || tick.progress(&id, false, false, None)? || tick.progress(&id, false, true, None)? {
                 break;
             }
-            match start_of(tick, &id, None).at("toilet.start_head")? {
+            match start_of(tick, &id, None).at("toilet.start")? {
                 Started::Event(event_id) => started.push(event_id),
                 Started::Stopped => break,
             }
@@ -871,7 +871,7 @@ pub fn arbitrate_independent<C: WorldCell, H: Host, R: crate::rules::tick::RunCe
             if tick.progress(id, false, false, Some(queue))? {
                 break;
             }
-            match start_of(tick, id, Some(queue)).at("toilet.serve_independent_head")? {
+            match start_of(tick, id, Some(queue)).at("toilet.start")? {
                 Started::Event(event_id) => started.push(event_id),
                 Started::Stopped => break,
             }

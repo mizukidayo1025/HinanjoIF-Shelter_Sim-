@@ -76,6 +76,7 @@ mod psychology_steps;
 mod queue_rules;
 mod queues;
 mod receipts;
+mod refusal_labels;
 mod replan_journeys;
 mod requests_at_once;
 mod resource_ledger_ops;

@@ -1344,12 +1344,12 @@ impl Infra {
     /// The kind of this event type and its label, or the handler's failure for any other type.
     pub fn of(event_type: &str) -> Result<(Infra, &'static str)> {
         Ok(match event_type {
-            "power_outage" | "equipment_failure" => (Infra::StartOutage, "infrastructure.start_outage"),
-            "power_restored" | "equipment_repaired" => (Infra::RestoreOutage, "infrastructure.restore_outage"),
-            "extreme_heat" | "extreme_cold" => (Infra::StartStressor, "infrastructure.start_stressor"),
-            "environmental_stressor_end" => (Infra::EndStressor, "infrastructure.end_stressor"),
-            "supply_route_interruption" => (Infra::InterruptRoute, "infrastructure.interrupt_route"),
-            "supply_route_restored" => (Infra::RestoreRoute, "infrastructure.restore_route"),
+            "power_outage" | "equipment_failure" => (Infra::StartOutage, "handlers.start_outage"),
+            "power_restored" | "equipment_repaired" => (Infra::RestoreOutage, "handlers.restore_outage"),
+            "extreme_heat" | "extreme_cold" => (Infra::StartStressor, "handlers.start_stressor"),
+            "environmental_stressor_end" => (Infra::EndStressor, "handlers.end_stressor"),
+            "supply_route_interruption" => (Infra::InterruptRoute, "handlers.interrupt_route"),
+            "supply_route_restored" => (Infra::RestoreRoute, "handlers.restore_route"),
             _ => return Err(Error::failed(format!("unsupported infrastructure event type {}", py_repr(event_type)))),
         })
     }
@@ -2245,7 +2245,7 @@ fn wrapped<E: HostFailure + From<Error>>(error: E) -> E {
 pub fn population_event<C: WorldCell, H: Host>(cell: &C, host: &mut H, row: &EventRow) -> std::result::Result<(), H::Error> {
     use crate::rules::{population, population_lifecycle};
     if &*row.event_type == "population_approach_complete" {
-        return population::approach_completion(cell, host, row).map_err(|error| rule_refusal("population.apply_arrival_approach_completion", error));
+        return population::approach_completion(cell, host, row).map_err(|error| rule_refusal("population.approach_completion", error));
     }
     let op = kit::holding(cell, host).and_then(|holding| {
         let program = holding.held(PROGRAM, "the world holds another effect_program_v1");
@@ -2256,7 +2256,7 @@ pub fn population_event<C: WorldCell, H: Host>(cell: &C, host: &mut H, row: &Eve
         let command = kit::payload(row, "command").cloned().unwrap_or(V::Null);
         return population_lifecycle::presence_command(cell, host, row, &command)
             .map(drop)
-            .map_err(|error| rule_refusal("population_lifecycle.apply_presence_command", error));
+            .map_err(|error| rule_refusal("population_lifecycle.presence_command", error));
     }
     // Past the checks a call's exception goes on as the event's own.
     match crate::txn::rule_kept(cell, host, TxnKind::Full, |cell, host| population_writes(cell, host, row, op))? {
@@ -2279,7 +2279,7 @@ fn population_writes<C: WorldCell, H: Host>(cell: &C, host: &mut H, row: &EventR
         population::queue_departures(cell, host, row, given).map_err(|error| rule_refusal("population.queue_departures", error)).and_then(|_| {
             population_lifecycle::admit_returns_through(cell, host, row.due_minute)
                 .map(drop)
-                .map_err(|error| rule_refusal("population_lifecycle.admit_pending_returns", error))
+                .map_err(|error| rule_refusal("population_lifecycle.admit_returns_through", error))
         })
     };
     // The rule's `try`: a deferral keeps what was written and is the outcome; its own failures go

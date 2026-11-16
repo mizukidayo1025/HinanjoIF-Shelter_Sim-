@@ -63,11 +63,11 @@ pub const RECORD_DISAGREES: &str = "transactional event record disagrees with it
 /// The `ValueError` of `follow_ups` for a follow-up record that disagrees.
 pub const FOLLOW_UP_DISAGREES: &str = "transactional follow-up record disagrees with dispatch result";
 /// The label of the phase's own refusals.
-pub const RUN_PHASE: &str = "dispatch.run_phase";
+pub const RUN_PHASE: &str = "dispatch.run";
 /// `sync_movement`, a labelled step with no body of its own.
 pub const SYNC: &str = "dispatch.sync_movement";
 /// The label of the guard's refusal (`guard`).
-pub const GUARD: &str = "effects.should_apply_guard";
+pub const GUARD: &str = "effects.guard_or_suppress";
 /// The contact gate, a labelled step with no body of its own (`consider_contact`).
 pub const CONTACT: &str = "dispatch.consider_contact";
 
@@ -89,11 +89,11 @@ fn label_of(kind: HandlerKind) -> &'static str {
         HandlerKind::InformationCorrection => "information_events.correction",
         HandlerKind::InformationContact => "information_events.contact",
         HandlerKind::ResourceLedger => "handlers.resource_ledger",
-        HandlerKind::FacilityOutage => "handlers.facility_outage",
-        HandlerKind::FacilityRecovery => "handlers.facility_recovery",
+        HandlerKind::FacilityOutage => "handlers.facility_units",
+        HandlerKind::FacilityRecovery => "handlers.facility_units",
         HandlerKind::InfrastructureEvent => "handlers.infrastructure",
         HandlerKind::ResourceServiceCancellation => "handlers.service_cancellation",
-        HandlerKind::EffectProgramPopulation => "handlers.population",
+        HandlerKind::EffectProgramPopulation => "handlers.population_event",
         HandlerKind::DeliveryDelay => "handlers.delivery_delay",
         HandlerKind::WaterOutage => "handlers.water_outage",
         HandlerKind::WaterRestoration => "handlers.water_restoration",
@@ -101,12 +101,12 @@ fn label_of(kind: HandlerKind) -> &'static str {
         HandlerKind::StaffRestoration => "handlers.staff_restoration",
         HandlerKind::StaffOperationArrival => "staff_operation_events.arrive",
         HandlerKind::StaffOperationRelief => "staff_operation_events.relief",
-        HandlerKind::StaffOperationCompletion => "staff_operation_events.complete",
-        HandlerKind::EffectProgramFacility => "effects.facility",
-        HandlerKind::EffectProgramEnvironment => "effects.environment",
-        HandlerKind::EffectProgramTemporarySpace => "effects.temporary_space",
-        HandlerKind::EffectProgramGeometry => "effects.geometry",
-        HandlerKind::EffectProgramStructure => "effects.structure",
+        HandlerKind::StaffOperationCompletion => "staff_operation_events.complete_or_intake",
+        HandlerKind::EffectProgramFacility => "effects.facility_event",
+        HandlerKind::EffectProgramEnvironment => "effects.environment_event",
+        HandlerKind::EffectProgramTemporarySpace => "effects.temporary_space_event",
+        HandlerKind::EffectProgramGeometry => "effects.geometry_event",
+        HandlerKind::EffectProgramStructure => "dispatch.effect_program_structure",
     }
 }
 
@@ -1145,9 +1145,9 @@ fn after_events<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R>,
             interrupt_trips(tick, &outcome.row).map_err(|error| labelled("staff_operation_events.interrupt_trips", error))?;
         }
     }
-    admit(tick, true).map_err(|error| labelled("population_lifecycle.admit_pending_returns", error))?;
+    admit(tick, true).map_err(|error| labelled("population_lifecycle.admit_returns_through", error))?;
     sync_movement(tick)?;
-    admit(tick, false).map_err(|error| labelled("population.admit_pending_arrivals", error))?;
+    admit(tick, false).map_err(|error| labelled("population.admit_arrivals", error))?;
     for outcome in applied() {
         if &*outcome.row.event_type == "information_contact_update" {
             consider_contact(tick, &outcome.row).map_err(|error| labelled(CONTACT, error))?;
@@ -1169,13 +1169,13 @@ fn record_applied<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R
             }
             tick.cell.with(|world| action_lifecycle::complete_for_event(world, &mut run.actions, &ending, minute)).and_then(|done| done)
         });
-        done.and_then(|done| done).map_err(|error| labelled("action_lifecycle.record_applied_action_completion", core_err::<H::Error>(error)))?;
+        done.and_then(|done| done).map_err(|error| labelled("action_lifecycle.complete_for_event", core_err::<H::Error>(error)))?;
     }
     if event_type == "effect_program_population" {
         let done = tick
             .run
             .with(|run| tick.cell.with(|world| action_lifecycle::population_exit(world, &mut run.actions, &row.event_id, minute)).and_then(|done| done));
-        done.and_then(|done| done).map_err(|error| labelled("action_lifecycle.record_applied_population_exit", core_err::<H::Error>(error)))?;
+        done.and_then(|done| done).map_err(|error| labelled("action_lifecycle.population_exit", core_err::<H::Error>(error)))?;
     }
     if event_type == "agent_travel_complete" {
         if let (Some(agent_id), Some(facility_id)) = (text_of(row, "agent_id"), text_of(row, "facility_id")) {
@@ -1306,7 +1306,7 @@ fn finish_journey<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R
     } else {
         None
     };
-    movement::finish_through(tick.cell, tick.host, id).map_err(|error| labelled("movement.finish_movement", error))?;
+    movement::finish_through(tick.cell, tick.host, id).map_err(|error| labelled("movement.finish_through", error))?;
     let Some(bed) = bed else {
         return Ok(());
     };

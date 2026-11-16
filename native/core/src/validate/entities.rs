@@ -42,7 +42,7 @@ const SERVICE: &str = "resource_service_v1";
 const SPACES: &str = "temporary_spaces_v1";
 const OVERLAY: &str = "geometry_overlay_v1";
 /// The label of the refusal of a zone's capacity (`overlay::zone_capacity`, `rules/overlay.rs`).
-const CAPACITY_KERNEL: &str = "overlay.effective_total_zone_capacity";
+const CAPACITY_KERNEL: &str = "overlay.zone_capacity";
 
 /// The check, as `validate` (`validate/mod.rs`) calls it in its order, with the resource
 /// service's config where the configs have one (`resource_config`). The event rules read the queue

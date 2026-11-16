@@ -130,6 +130,6 @@ def test_a_plain_run_s_errors_are_the_browser_s_texts() -> None:
     run = PLAIN.PlainRun(_canonical(entry))
     with pytest.raises(RuntimeError) as failed:
         run.advance(3)
-    assert str(failed.value) == "minute 0: decisions.propose_rows: the seed is negative"
+    assert str(failed.value) == "minute 0: propose.due: the seed is negative"
     assert isinstance(failed.value.__cause__, native.Unsupported)
     assert str(failed.value.__cause__) == "the seed is negative"

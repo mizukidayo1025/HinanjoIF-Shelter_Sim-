@@ -12,7 +12,7 @@ use crate::world::WorldCell;
 use super::read::is_refusal;
 use super::{Labelled, RunCell, Seed, Step, Tick};
 
-pub const INFORMATION: &str = "information.sample_contacts";
+pub const INFORMATION: &str = "information.sample";
 pub const PROXIMITY: &str = "proximity.sample_contacts";
 
 /// The sample phase.

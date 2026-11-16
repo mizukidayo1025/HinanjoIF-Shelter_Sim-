@@ -2167,7 +2167,7 @@ pub fn arbitrate<C: WorldCell, H: Host, R: crate::rules::tick::RunCell>(
             if tick.progress(&id, true, false, None)? {
                 break;
             }
-            match serve_of(tick, &id, resource, None).at("service.serve_head")?.0 {
+            match serve_of(tick, &id, resource, None).at("service.serve")?.0 {
                 Some(event_id) => started.push(event_id),
                 None => break,
             }
@@ -2212,7 +2212,7 @@ pub fn arbitrate_independent<C: WorldCell, H: Host, R: crate::rules::tick::RunCe
             if tick.progress(id, true, false, Some(queue))? {
                 break;
             }
-            let (event_id, stall) = serve_of(tick, id, resource, Some(queue)).at("service.serve_independent_head")?;
+            let (event_id, stall) = serve_of(tick, id, resource, Some(queue)).at("service.serve")?;
             if let Some((agent, reason)) = stall {
                 stalls.push((agent, Arc::from(reason)));
             }

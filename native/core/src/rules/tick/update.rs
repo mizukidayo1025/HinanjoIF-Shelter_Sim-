@@ -34,17 +34,17 @@ use super::propose::refused;
 use super::read::is_refusal;
 use super::{Labelled, Prior, RunCell, Seed, Step, Tick};
 
-pub const ADVANCE: &str = "movement.advance_movement";
-pub const REPLAN: &str = "replan.replan_journeys";
-const INGEST: &str = "care_receipts.ingest";
-const FINISH: &str = "movement.finish_movement";
+pub const ADVANCE: &str = "movement.advance_through";
+pub const REPLAN: &str = "update.replan_journeys";
+const INGEST: &str = "care_receipts.ingest_applied";
+const FINISH: &str = "movement.finish_through";
 
-pub const VIEW: &str = "world_view.view_after_movement";
-pub const PSYCHOLOGY: &str = "psychology.update_psychology";
-pub const SOCIAL: &str = "social_propagation.update_social_propagation";
-pub const TRACE: &str = "trace.record_psychology_trace";
+pub const VIEW: &str = "update.view_after_movement";
+pub const PSYCHOLOGY: &str = "update.update_psychology";
+pub const SOCIAL: &str = "update.update_social";
+pub const TRACE: &str = "update.record_trace";
 pub const LONG_TERM: &str = "psychology.update_long_term";
-pub const APPLY: &str = "psychology.apply_deltas";
+pub const APPLY: &str = "update.apply_deltas";
 
 /// The refusal of configs that are not a plain dict (`configs_of` of the view's glue).
 pub const CONFIGS_NOT_PLAIN: &str = "the configs are not a plain dict";

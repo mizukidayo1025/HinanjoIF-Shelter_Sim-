@@ -1404,7 +1404,7 @@
     ],
     "extensions": [
      "KernelRefusal",
-     "population_lifecycle.validate_population_lifecycle_state refused: the presence state has another schema"
+     "population_lifecycle.validate_facts refused: the presence state has another schema"
     ],
     "validate": [
      "StateInvariantError",
@@ -1426,7 +1426,7 @@
     ],
     "extensions": [
      "KernelRefusal",
-     "population_lifecycle.validate_population_lifecycle_state refused: the presence state has another field"
+     "population_lifecycle.validate_facts refused: the presence state has another field"
     ],
     "validate": [
      "StateInvariantError",
@@ -1448,7 +1448,7 @@
     ],
     "extensions": [
      "KernelRefusal",
-     "population_lifecycle.validate_population_lifecycle_state refused: a presence status is another value"
+     "population_lifecycle.validate_facts refused: a presence status is another value"
     ],
     "validate": [
      "StateInvariantError",
@@ -1489,7 +1489,7 @@
     ],
     "extensions": [
      "KernelRefusal",
-     "population_lifecycle.validate_population_lifecycle_state refused: admitted presence requires a zone"
+     "population_lifecycle.validate_facts refused: admitted presence requires a zone"
     ],
     "validate": [
      "StateInvariantError",
@@ -1568,7 +1568,7 @@
     ],
     "extensions": [
      "KernelRefusal",
-     "population_lifecycle.validate_population_lifecycle_state refused: a presence transition has another hash"
+     "population_lifecycle.validate_facts refused: a presence transition has another hash"
     ],
     "validate": [
      "StateInvariantError",

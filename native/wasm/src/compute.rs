@@ -206,7 +206,7 @@ impl Procedure {
 
     /// The frame of the Run now (`Simulation.frame`).
     pub fn frame(&mut self, run_id: &str, branch_id: &str, computed_until: f64) -> Result<Vec<u8>, JsError> {
-        let request = frame::Request { run_id, branch_id, computed_until: minute_of(computed_until)?, state_hash: None };
+        let request = frame::Request { run_id, branch_id, computed_until: minute_of(computed_until)?, state_hash: frame::StateHash::Digest };
         let run = self.inner.run_mut().ok_or_else(|| JsError::new("the procedure has no Run"))?;
         run.frame(&request).map_err(js_error)
     }

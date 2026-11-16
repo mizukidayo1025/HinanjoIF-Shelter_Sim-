@@ -31,7 +31,8 @@
 //                                            "code": "browser_unsupported"}
 //
 // A frame is the core's (`Simulation.frame`, #264) with the world's digest as its `state_hash`, as
-// the server's is. The Run at a minute: a branch keeps one live Simulation; a later minute steps it
+// the server's is; a frame of `replay-frames` has none (`Simulation.replayFrame`, #500), as the
+// digest of the whole world would cost most of each frame of a replay. The Run at a minute: a branch keeps one live Simulation; a later minute steps it
 // forward when that is cheaper than restoring the nearest saved point, any other minute seeks
 // (`RunReader.seek`, #251) and frees the Simulation it replaces. Replay therefore steps the kept
 // Simulation and never restores. At most `keep` Simulations are kept (the least recently used one
@@ -330,7 +331,7 @@ export class BrowserApi {
       const [record] = JSON.parse(plan.recordsJson());
       const samples = new this.wasm.Files();
       try {
-        for (let minute = plan.start(); minute <= plan.end(); minute += 1) samples.addText("", await this.frameText(projectId, runId, record, minute));
+        for (let minute = plan.start(); minute <= plan.end(); minute += 1) samples.addText("", await this.frameText(projectId, runId, record, minute, { replay: true }));
         return core(() => plan.answer(samples));
       } finally {
         samples.free();
@@ -340,27 +341,30 @@ export class BrowserApi {
     }
   }
 
-  /// The frame of a branch at a minute, as JSON text. A Run computed with other model versions
-  /// is not computed again with the core's (D2 of the model versions): the frame is the
+  /// The frame of a branch at a minute, as JSON text; with `replay`, as `replay-frames` gives it,
+  /// without the world's digest (`Simulation.replayFrame`, #500). A Run computed with other model
+  /// versions is not computed again with the core's (D2 of the model versions): the frame is the
   /// saved point's at or before the minute, with `model_view` and, where the minute is not a saved
   /// point's, `saved_point_rounding` (the core's `ModelStatus::describe_json`).
-  async frameText(projectId, runId, record, minute) {
+  async frameText(projectId, runId, record, minute, { replay = false } = {}) {
+    const frameOf = (simulation) =>
+      replay ? simulation.replayFrame(runId, record.branch_id, record.computed_until) : simulation.frame(runId, record.branch_id, record.computed_until, undefined);
     const view = await this.viewOf(projectId, runId, record);
     if (view !== null) {
       const saved = await this.savedMinuteAt(projectId, runId, record, minute);
       const simulation = await this.simulationAt(projectId, runId, record, saved, { exact: true });
-      const frame = simulation.frame(runId, record.branch_id, record.computed_until, undefined);
       const fields = this.wasm.viewFields(view.recorded, view.installed, saved, minute);
-      return this.wasm.mergeJson(frame, encoder.encode(fields));
+      return this.wasm.mergeJson(frameOf(simulation), encoder.encode(fields));
     }
-    const kept = this.computing.frameAt(projectId, runId, record, minute);
+    // The head's frame kept while it computes has the digest; a replay's has none.
+    const kept = replay ? null : this.computing.frameAt(projectId, runId, record, minute);
     if (kept !== null) {
       this.stats.headFrames += 1;
       return kept;
     }
     const simulation = await this.simulationAt(projectId, runId, record, minute);
     const started = performance.now();
-    const bytes = simulation.frame(runId, record.branch_id, record.computed_until, undefined);
+    const bytes = frameOf(simulation);
     this.stats.frameMs += performance.now() - started;
     return decoder.decode(bytes);
   }

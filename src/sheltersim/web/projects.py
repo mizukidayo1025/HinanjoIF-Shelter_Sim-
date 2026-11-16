@@ -388,10 +388,19 @@ class ProjectAPI:
                     table.read_sample_block(raw)
         return table
 
-    def frame(self, project_id: str, run_id: str, record: dict[str, Any], minute: int) -> bytes:
-        """The frame of a branch at a minute (the browser's `frameText`). A Run computed with
-        other model versions is not computed again (Python's D2): the frame is the saved point's
-        at or before the minute, with the fields that say so."""
+    def frame(
+        self,
+        project_id: str,
+        run_id: str,
+        record: dict[str, Any],
+        minute: int,
+        *,
+        replay: bool = False,
+    ) -> bytes:
+        """The frame of a branch at a minute (the browser's `frameText`); with `replay`, as
+        `replay-frames` gives it, without the world's digest (`replay_frame`, #500). A Run
+        computed with other model versions is not computed again (Python's D2): the frame is the
+        saved point's at or before the minute, with the fields that say so."""
         core = answers()
         files = self.files
         branch_id = record["branch_id"]
@@ -405,10 +414,10 @@ class ProjectAPI:
                 if head["kind"] != "end" and head["minute"] <= minute
             )
             run = self.live.at(project_id, run_id, record, saved, exact=True)
-            frame = run.frame(run_id, branch_id, record["computed_until"])
+            frame = _frame_of(run, run_id, record, replay)
             return core.view_frame(frame, journal, scenario, saved, minute)
         run = self.live.at(project_id, run_id, record, minute)
-        return run.frame(run_id, branch_id, record["computed_until"])
+        return _frame_of(run, run_id, record, replay)
 
     def journals(self, project_id: str, run_id: str, branch_ids: list[str]) -> list[bytes]:
         """The branches' journals (empty where there is none), for their fork receipts."""
@@ -439,12 +448,18 @@ class ProjectAPI:
                 plan.compare(
                     run_id,
                     minute,
-                    [self.frame(project_id, run_id, record, minute) for record in records],
+                    [
+                        self.frame(project_id, run_id, record, minute, replay=True)
+                        for record in records
+                    ],
                 )
                 for minute in minutes
             ]
         else:
-            samples = [self.frame(project_id, run_id, records[0], minute) for minute in minutes]
+            samples = [
+                self.frame(project_id, run_id, records[0], minute, replay=True)
+                for minute in minutes
+            ]
         return plan.answer(samples)
 
     # ---- POST ----------------------------------------------------------------------------------
@@ -781,6 +796,13 @@ class ProjectAPI:
         """Whether a computation of the branch is running."""
         with self._lock:
             return (project_id, run_id, branch_id) in self._jobs
+
+
+def _frame_of(run: Any, run_id: str, record: dict[str, Any], replay: bool) -> bytes:
+    """The frame of a branch's Run now; for `replay-frames`, without the world's digest (#500)."""
+    if replay:
+        return run.replay_frame(run_id, record["branch_id"], record["computed_until"])
+    return run.frame(run_id, record["branch_id"], record["computed_until"])
 
 
 def _document(body: bytes) -> dict[str, Any]:

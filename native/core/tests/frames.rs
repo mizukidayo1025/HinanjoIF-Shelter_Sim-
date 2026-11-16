@@ -1,7 +1,8 @@
 //! The frame of a minute in the core (#264): `sheltersim_core::frame` on a Run (`plain::PlainRun`,
 //! the browser's host) gives, byte for byte, the recorded frame of the same world at the same
 //! minute, and the world's digest (`canonical::state_digest`) is that frame's `state_hash`. The
-//! frames were recorded before #430 and pin the core's output now.
+//! digests were recorded before #430; the frames, without the sections #500 removed, since then.
+//! They pin the core's output now.
 //!
 //! The worlds and minutes are those of `data/frames.json`: the two worlds of `tick_core.json` (one
 //! without a floor plan, whose people are at their zones' display points, and one whose facilities
@@ -13,7 +14,7 @@ use std::fs;
 
 use serde_json::Value;
 use sheltersim_core::checkpoint::sha256_hex;
-use sheltersim_core::frame::Request;
+use sheltersim_core::frame::{Request, StateHash};
 use sheltersim_core::plain::PlainRun;
 
 fn read(name: &str) -> Vec<u8> {
@@ -38,7 +39,7 @@ fn expected() -> Vec<(String, String, Vec<(i64, String, String)>)> {
     worlds
 }
 
-fn request(minute: i64, state_hash: Option<&str>) -> Request<'_> {
+fn request(minute: i64, state_hash: StateHash<'_>) -> Request<'_> {
     Request { run_id: "run", branch_id: "main", computed_until: minute, state_hash }
 }
 
@@ -55,7 +56,7 @@ fn the_core_s_frame_is_the_recorded_one_at_each_minute() {
         let mut run = PlainRun::of_worlds_json(&read(&file), &name).unwrap();
         for (minute, frame, state_hash) in frames {
             run_to(&mut run, minute);
-            let made = run.frame(&request(minute, None)).unwrap();
+            let made = run.frame(&request(minute, StateHash::Digest)).unwrap();
             assert_eq!(sha256_hex(&made), frame, "{name} at {minute}");
             assert_eq!(run.state_digest().unwrap(), state_hash, "{name} at {minute}");
         }
@@ -69,19 +70,23 @@ fn a_frame_names_the_digest_its_caller_holds_and_changes_nothing() {
     let before = run.digests().unwrap();
     let digest = run.state_digest().unwrap();
     let given = "0".repeat(64);
-    let made: Value = serde_json::from_slice(&run.frame(&request(40, Some(&given))).unwrap()).unwrap();
+    let made: Value = serde_json::from_slice(&run.frame(&request(40, StateHash::Given(&given))).unwrap()).unwrap();
     assert_eq!(made["state_hash"], given.as_str());
     assert_eq!(
         (&made["run_id"], &made["branch_id"], &made["minute"], &made["computed_until"]),
         (&Value::from("run"), &Value::from("main"), &Value::from(40), &Value::from(40))
     );
-    let again: Value = serde_json::from_slice(&run.frame(&request(40, None)).unwrap()).unwrap();
+    let again: Value = serde_json::from_slice(&run.frame(&request(40, StateHash::Digest)).unwrap()).unwrap();
     assert_eq!(again["state_hash"], digest.as_str());
-    // Apart from the digest, the two frames are the same.
+    // A frame of `replay-frames` (#500) has none.
+    let omitted: Value = serde_json::from_slice(&run.frame(&request(40, StateHash::Omitted)).unwrap()).unwrap();
+    assert_eq!(omitted["state_hash"], Value::Null);
+    // Apart from the digest, the three frames are the same.
     let (mut first, mut second) = (made, again);
     first["state_hash"] = Value::Null;
     second["state_hash"] = Value::Null;
     assert_eq!(first, second);
+    assert_eq!(second, omitted);
     // A frame is a read: the world is as it was, and its ticks go on as before.
     assert_eq!(run.digests().unwrap(), before);
     run_to(&mut run, 41);

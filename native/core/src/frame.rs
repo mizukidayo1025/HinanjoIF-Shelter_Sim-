@@ -12,7 +12,9 @@
 //! rather than guess.
 //!
 //! The frame's `state_hash` is the world's `state_digest` (`canonical::state_digest`) unless the
-//! caller gives the one it holds (a Checkpoint's).
+//! caller gives the one it holds (a Checkpoint's), or `null` where the caller asks for none: the
+//! frames of `replay-frames` (#500), where the digest of the whole world would cost most of each
+//! frame.
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::sync::Arc;
@@ -31,7 +33,7 @@ use crate::host::{Again, Holding, Host};
 use crate::json::Encoder;
 use crate::mathx::{hypot, py_min};
 use crate::row::{Field, IdMap, ValueRow};
-use crate::rules::common_operations::{json_value, Receipt};
+use crate::rules::common_operations::json_value;
 use crate::rules::kit::{self, Kept};
 use crate::rules::metrics::{self, MetricSample, Requests};
 use crate::rules::overlay::{self, Places, PLAN_UNREAD};
@@ -45,7 +47,6 @@ use crate::state::facility_queues::QueuesRow;
 use crate::state::information::InformationRow;
 use crate::state::movement::{MovementRow, Position};
 use crate::state::shared_operations::SharedOperationsRow;
-use crate::state::social_network::SocialNetworkRow;
 use crate::state::staff_dynamics::StaffDynamicsRow;
 use crate::state::staff_operations::StaffOperationsRow;
 use crate::value::V;
@@ -57,7 +58,6 @@ const STAFF_DYNAMICS: &str = "staff_dynamics_v1";
 const INFORMATION: &str = "information_spread_v1";
 const SHARED: &str = "shared_operations_v1";
 const BODY: &str = "body_state_v1";
-const SOCIAL: &str = "social_network_v1";
 const STAFF_OPERATIONS: &str = "staff_operations_v1";
 const QUEUES: &str = "facility_queues_v1";
 const DYNAMICS: &str = "population_dynamics_v1";
@@ -67,8 +67,6 @@ const OVERLAY: &str = "geometry_overlay_v1";
 const SPACES: &str = "temporary_spaces_v1";
 const LEDGER: &str = "resource_ledger_v1";
 
-/// The event types of the care records (`care_history`).
-const CARE_EVENT_TYPES: [&str; 2] = ["care_support_transition", "staff_support_continuity"];
 /// The event types of a frame's interactions (`social_events`).
 const SOCIAL_EVENT_TYPES: [&str; 3] = ["information_contact_update", "social_interaction", "information_correction"];
 /// The payload keys whose people are an interaction's actors.
@@ -81,12 +79,6 @@ const SOCIAL_SCAN_LIMIT: usize = 5000;
 const SOCIAL_LIMIT: usize = 200;
 /// The newest records a frame lists (`EventLog.recent(100)`).
 const RECENT_EVENTS: usize = 100;
-/// How many care records each person keeps (`care_history`'s limit).
-const CARE_HISTORY_LIMIT: usize = 20;
-/// How many relationships a frame lists, of the sorted keys.
-const EDGE_LIMIT: usize = 2000;
-/// How many of the newest history items a frame lists.
-const RECENT_HISTORY: usize = 200;
 /// How many interactions and beliefs a person shows.
 const DIALOGUE_LIMIT: usize = 20;
 const BELIEF_LIMIT: usize = 16;
@@ -100,14 +92,25 @@ const POSITION_LIMITATIONS: [&str; 3] = [
 ];
 const OCCUPANCY_BASIS: &str = "occupied beds are coordinate observations within 0.75 m; reserved beds are exclusive sleep-action assignments persisted in the runtime overlay; room admissions are explicit capacity assignments";
 
-/// What names a frame: the Run, the branch, how far the branch is computed, and the digest of the
-/// world where the caller holds it (a Checkpoint's `state_hash`).
+/// What names a frame: the Run, the branch, how far the branch is computed, and what its
+/// `state_hash` is.
 #[derive(Clone, Copy, Debug)]
 pub struct Request<'a> {
     pub run_id: &'a str,
     pub branch_id: &'a str,
     pub computed_until: i64,
-    pub state_hash: Option<&'a str>,
+    pub state_hash: StateHash<'a>,
+}
+
+/// What a frame's `state_hash` is.
+#[derive(Clone, Copy, Debug)]
+pub enum StateHash<'a> {
+    /// The world's digest (`canonical::state_digest`).
+    Digest,
+    /// The digest the caller holds for the world (a Checkpoint's `state_hash`).
+    Given(&'a str),
+    /// None (`null`): a frame of `replay-frames`, one of many shown one after another (#500).
+    Omitted,
 }
 
 /// What the frame reads through the host before it reads the world.
@@ -167,8 +170,9 @@ pub fn frame<C: WorldCell, H: Host>(cell: &C, host: &mut H, request: &Request<'_
     let wanted = cell.with(wanted_records)??;
     let records = records(cell, host, &wanted.all())?;
     let state_hash = match request.state_hash {
-        Some(state_hash) => Arc::from(state_hash),
-        None => Arc::from(digest(cell, host, rng_state)?),
+        StateHash::Given(state_hash) => Some(Arc::from(state_hash)),
+        StateHash::Digest => Some(Arc::from(digest(cell, host, rng_state)?)),
+        StateHash::Omitted => None,
     };
     let made = cell.with(|world| -> Result<Vec<u8>> {
         let frame = build(world, &reads, &waits, &Records { by_position: records, wanted }, request, state_hash)?;
@@ -183,19 +187,13 @@ pub fn frame<C: WorldCell, H: Host>(cell: &C, host: &mut H, request: &Request<'_
 struct Wanted {
     /// The newest records (`EventLog.recent(100)`).
     recent: std::ops::Range<usize>,
-    /// The newest applied interactions (`social_events`), and whether records were left
-    /// unscanned.
+    /// The newest applied interactions (`social_events`).
     social: Vec<usize>,
-    social_truncated: bool,
-    /// The records of the care types since those the world's memo read, in append order
-    /// (`care_history`), and whether the memo holds the ones before.
-    care: Vec<usize>,
-    care_memo: bool,
 }
 
 impl Wanted {
     fn all(&self) -> Vec<usize> {
-        let mut all: Vec<usize> = self.recent.clone().chain(self.social.iter().copied()).chain(self.care.iter().copied()).collect();
+        let mut all: Vec<usize> = self.recent.clone().chain(self.social.iter().copied()).collect();
         all.sort_unstable();
         all.dedup();
         all
@@ -206,41 +204,8 @@ fn wanted_records(world: &mut World) -> Result<Wanted> {
     let log = world.log()?;
     let count = log.len();
     let social_types: HashSet<u32> = SOCIAL_EVENT_TYPES.iter().filter_map(|name| log.type_id(name)).collect();
-    let (social, social_truncated) = log.recent_matching(&social_types, SOCIAL_LIMIT, SOCIAL_SCAN_LIMIT);
-    let care_types: Vec<u32> = CARE_EVENT_TYPES.iter().filter_map(|name| log.type_id(name)).collect();
-    let start = match &world.derived.try_borrow()?.care_history {
-        Some(memo) if memo.holds(&log) => Some(memo.position),
-        _ => None,
-    };
-    Ok(Wanted {
-        recent: count.saturating_sub(RECENT_EVENTS)..count,
-        social,
-        social_truncated,
-        care: log.of_type_ids_from(&care_types, start.unwrap_or(0)),
-        care_memo: start.is_some(),
-    })
-}
-
-/// The care rows of each person that the world's frames read so far (`care_history` keeps them on
-/// the EventLog, `log.derived`): the log only grows, so the next frame reads only the
-/// records added since. Not state: it is kept in the world's `derived`, which a fork starts
-/// without, and a log that is not the one it read (rolled back, or another) is read again whole.
-#[derive(Clone, Default)]
-pub struct CareMemo {
-    /// How many records of the log were read, and the event ID of the last of them.
-    position: usize,
-    last: Option<Arc<str>>,
-    rows: BTreeMap<Arc<str>, std::collections::VecDeque<V>>,
-}
-
-impl CareMemo {
-    fn holds(&self, log: &crate::events::log::EventLog) -> bool {
-        self.position <= log.len()
-            && match &self.last {
-                None => self.position == 0,
-                Some(last) => log.index_of(last) == Some(self.position - 1),
-            }
-    }
+    let (social, _) = log.recent_matching(&social_types, SOCIAL_LIMIT, SOCIAL_SCAN_LIMIT);
+    Ok(Wanted { recent: count.saturating_sub(RECENT_EVENTS)..count, social })
 }
 
 /// The records at these positions: from the core's log, and from the host those the log does not
@@ -540,59 +505,6 @@ fn social_events(records: &Records) -> Result<Vec<V>> {
     Ok(events)
 }
 
-/// Each person's applied care receipts (at most `CARE_HISTORY_LIMIT`), newest last, added to the
-/// world's memo from the records since it. The memo then holds them.
-fn care_history(world: &World, records: &Records) -> Result<()> {
-    let mut derived = world.derived.try_borrow_mut()?;
-    let mut memo = match derived.care_history.take() {
-        Some(memo) if records.wanted.care_memo => memo,
-        _ => CareMemo::default(),
-    };
-    for &index in &records.wanted.care {
-        let record = records.at(index)?;
-        if record.status != EventStatus::Applied {
-            continue;
-        }
-        let event = &record.event;
-        let continuity = &*event.event_type == "staff_support_continuity";
-        let receipt = Receipt::check(&event.payload).map_err(|_| Error::unsupported("a care receipt its contract does not take as it is"))?;
-        let (agent_id, related, semantics) = match (&receipt, continuity) {
-            (Receipt::Continuity(found), true) => (found.agent_id.clone(), Vec::new(), "applied_staff_support_continuity_after_interruption"),
-            (Receipt::Care(found), false) => {
-                (found.agent_id.clone(), found.state_changes.iter().map(|change| change.entity_id.clone()).collect(), "applied_typed_care_transition")
-            }
-            _ => return Err(Error::unsupported("a care receipt of another event type")),
-        };
-        if *receipt.event_id() != event.event_id || receipt.minute() != record.realized_minute || receipt.causation_id() != event.causation_id.as_ref() {
-            continue;
-        }
-        let V::Map(mut row) = receipt.document() else {
-            return Err(Error::Runtime("a receipt's document is not a dict".to_owned()));
-        };
-        row.insert(text("realized_minute"), V::Int(record.realized_minute));
-        row.insert(text("source_id"), optional(&event.source_id));
-        row.insert(text("time_semantics"), string("recorded_event_minute"));
-        row.insert(text("evidence_semantics"), string(semantics));
-        let mut affected: BTreeSet<Arc<str>> = related.into_iter().collect();
-        affected.insert(agent_id.clone());
-        for identity in affected {
-            let mut person_row = row.clone();
-            let role = if identity == agent_id { "request_person" } else { "explicit_related_state_change" };
-            person_row.insert(text("person_role_in_record"), string(role));
-            let history = memo.rows.entry(identity).or_default();
-            history.push_back(V::Map(person_row));
-            if history.len() > CARE_HISTORY_LIMIT {
-                history.pop_front();
-            }
-        }
-    }
-    let log = world.log()?;
-    memo.position = log.len();
-    memo.last = log.len().checked_sub(1).and_then(|index| log.event_id_at(index)).map(Arc::from);
-    derived.care_history = Some(memo);
-    Ok(())
-}
-
 // ---- The floor plan ------------------------------------------------------------------------------
 
 /// `effective_geometry(world).model_dump(mode="json")`: the floor plan's document with the overlay's
@@ -831,8 +743,8 @@ fn occupancy_zones(world: &World, reads: &Reads, configs: &Map) -> Result<Vec<V>
     Ok(found)
 }
 
-/// The frame's fields, before `state_hash` where the request gives none.
-fn build(world: &World, reads: &Reads, waits: &Waits, records: &Records, request: &Request<'_>, state_hash: Arc<str>) -> Result<Map> {
+/// The frame's fields; `state_hash` is `null` where it is None.
+fn build(world: &World, reads: &Reads, waits: &Waits, records: &Records, request: &Request<'_>, state_hash: Option<Arc<str>>) -> Result<Map> {
     let minute = world.minute_index()?;
     let duration = world.duration_minutes()?;
     let configs_row = world.slots.try_row::<ValueRow>(MODEL_CONFIGS)?;
@@ -852,12 +764,8 @@ fn build(world: &World, reads: &Reads, waits: &Waits, records: &Records, request
     let staff_dynamics = typed::<StaffDynamicsRow>(world, STAFF_DYNAMICS)?;
     let information = typed::<InformationRow>(world, INFORMATION)?;
     let shared = typed::<SharedOperationsRow>(world, SHARED)?;
-    care_history(world, records)?;
-    let derived = world.derived.try_borrow()?;
-    let care_histories = &derived.care_history.as_ref().ok_or_else(|| Error::Runtime("the care memo is gone".to_owned()))?.rows;
     let context_people = population_context(world, configs, dynamics.as_ref())?;
     let social_events = social_events(records)?;
-    let social_truncated = records.wanted.social_truncated;
     let presence = state(world, PRESENCE)?;
 
     let rows = world.rows()?;
@@ -872,7 +780,6 @@ fn build(world: &World, reads: &Reads, waits: &Waits, records: &Records, request
         agent_dynamics: &agent_dynamics,
         information: &information,
         shared: &shared,
-        care_histories,
         context_people: &context_people,
         social_events: &social_events,
         household_of: &household_of,
@@ -893,19 +800,15 @@ fn build(world: &World, reads: &Reads, waits: &Waits, records: &Records, request
 
     let facilities = facilities_view(world, &rows, &geometry)?;
 
-    let social_network = typed::<SocialNetworkRow>(world, SOCIAL)?;
     let staff_operations = typed::<StaffOperationsRow>(world, STAFF_OPERATIONS)?;
     let staff = staff_view(&rows, &movement, &staff_dynamics, &staff_operations)?;
-
-    let (edges, total_edges) = social_edges(&social_network)?;
 
     let movement_view = movement_section(&movement)?;
 
     // The zones in the order of the world's dict, with their conditions.
     let zones = zones_view(world, &rows, configs)?;
 
-    // What the namespaces of the body and of the staff's operations keep.
-    let body = add_body(world, &mut people)?;
+    add_body(world, &mut people)?;
     let presence_view: Map = match &presence {
         Some(V::Map(presence)) => presence.iter().filter(|(key, _)| &***key != "history").map(|(key, value)| (key.clone(), value.clone())).collect(),
         Some(_) => return Err(Error::unsupported("the presence state is not a dict")),
@@ -915,7 +818,6 @@ fn build(world: &World, reads: &Reads, waits: &Waits, records: &Records, request
         Some(row) => field(&row.zones)?,
         None => V::Map(Map::new()),
     };
-    let retained = retained_history(&body, &staff_operations, &shared)?;
 
     let occupancy_zones = occupancy_zones(world, reads, configs)?;
     let occupancy = occupancy_view(minute, population, &pending, &occupancy_zones);
@@ -942,7 +844,7 @@ fn build(world: &World, reads: &Reads, waits: &Waits, records: &Records, request
     put("branch_id", string(request.branch_id));
     put("minute", V::Int(minute));
     put("computed_until", V::Int(request.computed_until));
-    put("state_hash", V::Str(state_hash));
+    put("state_hash", state_hash.map_or(V::Null, V::Str));
     put("exact", V::Bool(true));
     put("agents", V::List(agents));
     if !incoming.is_empty() {
@@ -955,8 +857,6 @@ fn build(world: &World, reads: &Reads, waits: &Waits, records: &Records, request
     put("facilities", V::List(facilities));
     put("staff", V::List(staff.into_iter().map(V::Map).collect()));
     put("zones", V::List(zones));
-    let social = social_section(edges, total_edges, social_events);
-    put("social", V::Map(social));
     put("movement", V::Map(movement_view));
     put("occupancy", V::Map(occupancy));
     put("operational_demand", demand);
@@ -964,8 +864,6 @@ fn build(world: &World, reads: &Reads, waits: &Waits, records: &Records, request
     put("presence", V::Map(presence_view));
     put("geometry_overlay", geometry_overlay);
     put("sanitation", sanitation);
-    let recorded = recorded_history(reads, social_truncated, retained);
-    put("recorded_history", V::Map(recorded));
     put("pending_arrivals", int(pending.len()));
     put("kpi_time_semantics", string("state at boundary before this tick"));
     put("position_limitations", V::List(POSITION_LIMITATIONS.iter().map(|line| string(line)).collect()));
@@ -1004,7 +902,6 @@ struct PersonInputs<'a, 'w> {
     agent_dynamics: &'a Option<crate::cell::ShardRef<'w, AgentDynamicsRow>>,
     information: &'a Option<crate::cell::ShardRef<'w, InformationRow>>,
     shared: &'a Option<crate::cell::ShardRef<'w, SharedOperationsRow>>,
-    care_histories: &'a BTreeMap<Arc<str>, std::collections::VecDeque<V>>,
     context_people: &'a Map,
     social_events: &'a [V],
     household_of: &'a BTreeMap<Arc<str>, Option<Arc<str>>>,
@@ -1081,9 +978,7 @@ fn agent_position(inputs: PersonInputs<'_, '_>, id: &&Arc<str>, agent: &AgentRow
 
 /// A person's entry of `people` (before the body and the presence projections are added).
 fn person_entry(inputs: PersonInputs<'_, '_>, id: &&Arc<str>, agent: &AgentRow) -> Result<Map> {
-    let PersonInputs {
-        rows, waits, traits, agent_dynamics, information, shared, care_histories, context_people, social_events, household_of, group_zones, ..
-    } = inputs;
+    let PersonInputs { rows, waits, traits, agent_dynamics, information, shared, context_people, social_events, household_of, group_zones, .. } = inputs;
     let mut dialogue: Vec<V> = social_events
         .iter()
         .filter(|event| {
@@ -1158,7 +1053,6 @@ fn person_entry(inputs: PersonInputs<'_, '_>, id: &&Arc<str>, agent: &AgentRow) 
     );
     put("context", context_people.get(*id).cloned().unwrap_or(V::Null));
     put("care_requests", V::List(care_requests));
-    put("care_history", V::List(care_histories.get(*id).map_or_else(Vec::new, |history| history.iter().cloned().collect())));
     put(
         "decision",
         match agent_dynamics.as_ref().and_then(|row| row.agents.get(*id)) {
@@ -1335,24 +1229,6 @@ fn staff_view(
     Ok(staff)
 }
 
-/// The first relationships by sorted key, and how many there are.
-fn social_edges(social_network: &Option<crate::cell::ShardRef<'_, SocialNetworkRow>>) -> Result<(Vec<V>, usize)> {
-    let mut edges = Vec::new();
-    let mut total_edges = 0;
-    if let Some(network) = &social_network {
-        let relationships = &network.relationships.map;
-        total_edges = relationships.len();
-        let mut keys: Vec<&Arc<str>> = relationships.keys().collect();
-        keys.sort_by(|first, second| first.as_bytes().cmp(second.as_bytes()));
-        for key in keys.into_iter().take(EDGE_LIMIT) {
-            let mut edge = relationship(&relationships[key]);
-            edge.insert(text("pair"), json_value(key.as_bytes())?);
-            edges.push(V::Map(edge));
-        }
-    }
-    Ok((edges, total_edges))
-}
-
 /// The frame's `movement`: the edge usage and the active journeys.
 fn movement_section(movement: &Option<crate::cell::ShardRef<'_, MovementRow>>) -> Result<Map> {
     let mut movement_view = Map::new();
@@ -1408,8 +1284,8 @@ fn zones_view(world: &World, rows: &Entities, configs: &Map) -> Result<Vec<V>> {
     Ok(zones)
 }
 
-/// Adds each person's body record; returns the body namespace's row.
-fn add_body<'w>(world: &'w World, people: &mut [Map]) -> Result<Option<crate::cell::ShardRef<'w, BodyRow>>> {
+/// Adds each person's body record.
+fn add_body(world: &World, people: &mut [Map]) -> Result<()> {
     let body = typed::<BodyRow>(world, BODY)?;
     for person in people.iter_mut() {
         let Some(V::Str(id)) = person.get("id").cloned() else { continue };
@@ -1419,39 +1295,7 @@ fn add_body<'w>(world: &'w World, people: &mut [Map]) -> Result<Option<crate::ce
         };
         person.insert(text("body"), found);
     }
-    Ok(body)
-}
-
-/// What the frame's `recorded_history` says the histories keep.
-struct Retained {
-    body_count: usize,
-    body_recent: Vec<V>,
-    operations_count: usize,
-    operations_recent: Vec<V>,
-    shared_count: usize,
-}
-
-/// How many records the body, staff-operations and shared-operations histories keep, and the
-/// newest of the first two.
-fn retained_history(
-    body: &Option<crate::cell::ShardRef<'_, BodyRow>>,
-    staff_operations: &Option<crate::cell::ShardRef<'_, StaffOperationsRow>>,
-    shared: &Option<crate::cell::ShardRef<'_, SharedOperationsRow>>,
-) -> Result<Retained> {
-    let (body_count, body_recent) = recent_items(body.as_ref().map(|body| &body.history as &dyn crate::row::Items))?;
-    let (operations_count, operations_recent) = match &staff_operations {
-        Some(row) => {
-            let count = row.history.len();
-            let mut recent = Vec::with_capacity(count.min(RECENT_HISTORY));
-            for finished in &row.history[count.saturating_sub(RECENT_HISTORY)..] {
-                recent.push(field(finished)?);
-            }
-            (count, recent)
-        }
-        None => (0, Vec::new()),
-    };
-    let shared_count = shared.as_ref().map_or(0, |shared| shared.history.items.len());
-    Ok(Retained { body_count, body_recent, operations_count, operations_recent, shared_count })
+    Ok(())
 }
 
 /// The frame's `occupancy`.
@@ -1500,86 +1344,6 @@ fn project_presence(configs: &Map, presence: &Option<V>, context_people: &Map, p
         }
     }
     Ok(())
-}
-
-/// The frame's `social`.
-fn social_section(edges: Vec<V>, total_edges: usize, social_events: Vec<V>) -> Map {
-    let mut social = Map::new();
-    social.insert(text("edges"), V::List(edges));
-    social.insert(text("total_edges"), int(total_edges));
-    social.insert(text("truncated"), V::Bool(total_edges > EDGE_LIMIT));
-    social.insert(text("interactions"), V::List(social_events));
-    social
-}
-
-/// The frame's `recorded_history`.
-fn recorded_history(reads: &Reads, social_truncated: bool, retained: Retained) -> Map {
-    let Retained { body_count, body_recent, operations_count, operations_recent, shared_count } = retained;
-    let mut recorded = Map::new();
-    recorded.insert(
-        text("decisions"),
-        V::Map(Map::from([(text("source"), string("people[].decision")), (text("retention"), string("latest selected action per active agent"))])),
-    );
-    recorded.insert(
-        text("social"),
-        V::Map(Map::from([
-            (text("retained_records"), int(body_count)),
-            (text("event_window_truncated"), V::Bool(social_truncated)),
-            (text("frame_event_scan_limit"), int(SOCIAL_SCAN_LIMIT)),
-            (text("retention_limit"), V::Int(20000)),
-            (text("recent_effects"), V::List(body_recent)),
-        ])),
-    );
-    recorded.insert(
-        text("staff"),
-        V::Map(Map::from([
-            (text("retained_records"), int(operations_count)),
-            (text("retention_limit"), V::Int(20000)),
-            (text("recent_operations"), V::List(operations_recent)),
-        ])),
-    );
-    recorded.insert(text("status"), string("bounded retained evidence; absence does not prove no earlier event"));
-    recorded.insert(
-        text("shared_operations"),
-        V::Map(Map::from([
-            (text("contract_enabled"), V::Bool(reads.holding.contains(SHARED))),
-            (text("retained_records"), int(shared_count)),
-            (text("retention_limit"), V::Int(20000)),
-            (text("read_route"), string("recorded in the saved Run's event log; GET branch/history answers kpis and conversations only")),
-            (text("claim_boundary"), string("only event-linked applied transitions are indexed; this does not imply an unrecorded outcome")),
-        ])),
-    );
-    recorded
-}
-
-/// A relationship of `social_network_v1`, as its canonical JSON reads back (`field`, without the
-/// JSON: a frame shows up to 2000 of them).
-fn relationship(found: &crate::state::social_network::Relationship) -> Map {
-    let ids = |ids: &[Arc<str>]| V::List(ids.iter().cloned().map(V::Str).collect());
-    let mut edge = Map::with_capacity(8);
-    edge.insert(text("contact_count"), V::Int(found.contact_count));
-    edge.insert(text("conversation_count"), V::Int(found.conversation_count));
-    edge.insert(text("cooperation_count"), V::Int(found.cooperation_count));
-    edge.insert(text("trust"), found.trust.map_or(V::Null, V::Float));
-    edge.insert(text("shared_message_ids"), ids(&found.shared_message_ids));
-    edge.insert(text("last_contact_minute"), found.last_contact_minute.map_or(V::Null, V::Int));
-    edge.insert(text("last_interaction"), optional(&found.last_interaction));
-    edge
-}
-
-/// The count of a history list and its newest items.
-fn recent_items(items: Option<&dyn crate::row::Items>) -> Result<(usize, Vec<V>)> {
-    let Some(items) = items else {
-        return Ok((0, Vec::new()));
-    };
-    let count = items.count();
-    let mut recent = Vec::with_capacity(count.min(RECENT_HISTORY));
-    let mut scratch = Encoder::with_capacity(512);
-    for index in count.saturating_sub(RECENT_HISTORY)..count {
-        scratch.out.clear();
-        recent.push(json_value(items.item_json(index, &mut scratch)?)?);
-    }
-    Ok((count, recent))
 }
 
 /// The context of each person: the Scenario's, then what was saved for the people who arrived

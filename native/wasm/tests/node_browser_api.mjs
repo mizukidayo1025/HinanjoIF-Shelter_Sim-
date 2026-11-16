@@ -7,8 +7,9 @@
 // `small_replay` of native/core/tests/data/tick_core.json (one day, saved points every 6 hours).
 // Its routes answer the records' texts; `timeline` and `replay-frames` answer, at each minute
 // asked (saved points, minutes between, before the first, the end, going back), the frame a Run
-// computed without stopping gives there, byte for byte, with the world's digest as its state_hash;
-// consecutive minutes and replay windows step the kept Simulation and never restore. Bad queries
+// computed without stopping gives there, byte for byte: the timeline's with the world's digest as
+// its state_hash, the replay's without one (`replayFrame`, #500); consecutive minutes and replay
+// windows step the kept Simulation and never restore. Bad queries
 // get the Python server's errors, and the routes stage A leaves out get "未対応" (409). The sample
 // of a site, split into parts, is installed once, and parts that are not the manifest's are refused
 // and leave nothing.
@@ -103,9 +104,10 @@ for (let start = 1000; start <= 1030; start += 8) {
   for (const [index, sample] of document.samples.entries()) {
     const simulation = wasm.Simulation.fromWorlds(raw, WORLD);
     simulation.advance(start + index);
-    const frame = decoder.decode(simulation.frame("r1", "main", end, undefined));
+    const frame = decoder.decode(simulation.replayFrame("r1", "main", end));
     simulation.free();
     check(JSON.stringify(sample) === JSON.stringify(JSON.parse(frame)), `replay at ${start + index}: not the uninterrupted Run's frame`);
+    check(sample.state_hash === null, `replay at ${start + index}: a state_hash ${sample.state_hash}`);
   }
 }
 check(browser.stats.seeks === seeks + 1, `replay: ${browser.stats.seeks - seeks} seeks, not 1`);

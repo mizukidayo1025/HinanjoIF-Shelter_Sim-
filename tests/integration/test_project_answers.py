@@ -376,10 +376,13 @@ def _fork_files() -> tuple[bytes, list[tuple[str, bytes]]]:
 
 
 @pytest.fixture(scope="module")
-def fork_frames() -> tuple[dict[str, dict[int, bytes]], tuple[str, int, str, str]]:
+def fork_frames() -> tuple[
+    dict[str, dict[int, bytes]], dict[str, dict[int, bytes]], tuple[str, int, str, str]
+]:
     """The frames of `main` and of the child at the minutes the cases ask for, made from Runs
     without Python: the child is `main` at the fork's minute with the approved program applied,
-    as the browser's and the server's fork make it. Also the child's fork receipt."""
+    as the browser's and the server's fork make it; the same frames as `replay-frames` gives them,
+    without the world's digest (#500); and the child's fork receipt."""
     run = INTERVENTIONS["run"]
     applied = next(
         case
@@ -426,6 +429,7 @@ def fork_frames() -> tuple[dict[str, dict[int, bytes]], tuple[str, int, str, str
         *range(476, run["minutes"] + 1),
     }
     frames: dict[str, dict[int, bytes]] = {name: {} for name in runs}
+    replays: dict[str, dict[int, bytes]] = {name: {} for name in runs}
     frames["main"][fork - 1] = before
     for minute in range(fork, run["minutes"] + 1):
         for name, each in runs.items():
@@ -433,7 +437,8 @@ def fork_frames() -> tuple[dict[str, dict[int, bytes]], tuple[str, int, str, str
                 assert each.advance(1) == 1
             if minute in wanted:
                 frames[name][minute] = each.frame(run["run_id"], name, run["minutes"])
-    return frames, ("main", fork, origin, "c" * 64)
+                replays[name][minute] = each.replay_frame(run["run_id"], name, run["minutes"])
+    return frames, replays, ("main", fork, origin, "c" * 64)
 
 
 def _masked(body: bytes) -> str:
@@ -441,7 +446,7 @@ def _masked(body: bytes) -> str:
 
 
 def test_compare_replay_and_timeline_are_the_server_s(fork_frames: Any) -> None:
-    frames, receipt = fork_frames
+    frames, replays, receipt = fork_frames
     run, branches = _fork_files()
     info = INTERVENTIONS["run"]
     ids = (info["project_id"], info["run_id"])
@@ -481,7 +486,9 @@ def test_compare_replay_and_timeline_are_the_server_s(fork_frames: Any) -> None:
                 continue
             plan.receipts_of(*ids, run, branches, [receipts[id] for id in plan.branch_ids])
             samples = [
-                plan.compare(info["run_id"], minute, [frames[id][minute] for id in plan.branch_ids])
+                plan.compare(
+                    info["run_id"], minute, [replays[id][minute] for id in plan.branch_ids]
+                )
                 for minute in range(plan.start, plan.end + 1)
             ]
             body = _masked(plan.answer(samples))
@@ -573,7 +580,7 @@ def test_previews_and_applies_are_the_server_s() -> None:
 
 
 def test_questions_are_the_server_s(fork_frames: Any) -> None:
-    frames, _ = fork_frames
+    frames, _, _ = fork_frames
     run, branches = _fork_files()
     info = INTERVENTIONS["run"]
     ids = (info["project_id"], info["run_id"])

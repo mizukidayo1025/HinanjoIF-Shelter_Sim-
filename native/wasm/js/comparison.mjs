@@ -65,7 +65,8 @@ export async function compareResponse(api, projectId, runId, search) {
 }
 
 /// `replay-frames` of two branches: the comparison of each minute from the plan's start to its
-/// end, after the checks of `BrowserApi.replay` (the core's `ReplayPlan`).
+/// end, after the checks of `BrowserApi.replay` (the core's `ReplayPlan`). Its frames have no
+/// `state_hash` (`frameText`'s `replay`, #500).
 export async function replayPair(api, projectId, runId, plan) {
   const branchIds = plan.branchIds();
   await using([await store.runFiles(api.wasm, api.tree, projectId, runId), await journals(api, projectId, runId, branchIds)], (files, read) =>
@@ -75,7 +76,7 @@ export async function replayPair(api, projectId, runId, plan) {
   return using([new api.wasm.Files()], async (samples) => {
     for (let minute = plan.start(); minute <= plan.end(); minute += 1) {
       const text = await using([new api.wasm.Files()], async (frames) => {
-        for (const record of records) frames.addText(record.branch_id, await api.frameText(projectId, runId, record, minute));
+        for (const record of records) frames.addText(record.branch_id, await api.frameText(projectId, runId, record, minute, { replay: true }));
         return core(() => plan.compare(runId, minute, frames));
       });
       samples.addText("", text);

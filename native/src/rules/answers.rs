@@ -132,6 +132,13 @@ fn conversations_answer<'py>(py: Python<'py>, pieces: Vec<Vec<u8>>) -> PyResult<
     bytes(py, routes::conversations_answer(&raws))
 }
 
+/// `GET /api/v1/projects/{project}/contracts`, once the caller found the Project: the operators
+/// the core schedules (#584).
+#[pyfunction]
+fn contracts_answer(py: Python<'_>) -> PyResult<Bound<'_, PyBytes>> {
+    bytes(py, routes::contracts_answer())
+}
+
 /// `POST runs/{run}/pdf-report`: always raises (`Refused`, or the core's error).
 #[pyfunction]
 #[pyo3(signature = (project_id, run_id, body, run, branches))]
@@ -424,8 +431,7 @@ fn comparison_range(branch_ids: Vec<String>, minute: Option<i64>, project_id: &s
 }
 
 /// `POST …/intervention-preview` (`interventions::PreviewPlan`): its checks; then, after the
-/// model versions are checked (`check_typed`), the answer of the branch's Run at `minute` and
-/// the draft to keep.
+/// model versions are checked, the answer of the branch's Run at `minute` and the draft to keep.
 #[pyclass(name = "PreviewPlan", module = "sheltersim_native.rules.answers")]
 pub struct PyPreviewPlan {
     plan: interventions::PreviewPlan,
@@ -448,10 +454,6 @@ impl PyPreviewPlan {
     /// The branch's record, as its JSON.
     fn record_json<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
         PyBytes::new(py, &records::record_json(self.plan.record()))
-    }
-
-    fn check_typed(&self) -> PyResult<()> {
-        self.plan.check_typed().map_err(failed)
     }
 
     /// The answer and the draft to keep (None where the compiler gave no plan), of the branch's
@@ -816,6 +818,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(branch_of, m)?)?;
     m.add_function(wrap_pyfunction!(llm_status_answer, m)?)?;
     m.add_function(wrap_pyfunction!(conversations_answer, m)?)?;
+    m.add_function(wrap_pyfunction!(contracts_answer, m)?)?;
     m.add_function(wrap_pyfunction!(pdf_report_answer, m)?)?;
     m.add_function(wrap_pyfunction!(delete_answer, m)?)?;
     Ok(())

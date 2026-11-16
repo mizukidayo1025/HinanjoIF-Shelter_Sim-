@@ -1,5 +1,5 @@
 //! The answers of a branch's routes that read only records and kept documents: `llm-status`,
-//! `conversations`, `pdf-report` and `delete` (#376, #309).
+//! `conversations`, `pdf-report` and `delete` (#376, #309); and a Project's `contracts` (#584).
 
 use serde_json::Value;
 
@@ -8,6 +8,15 @@ use super::records::RunFiles;
 use super::{check_fields, js_integer, post_document, write_value, Answer, Failure, Obj, Refusal};
 use crate::error::Error;
 use crate::json::write_json_string;
+
+/// `GET /api/v1/projects/{project}/contracts`, once the caller found the Project: the operators the
+/// core schedules (`program::catalog`), from which the screen builds an intervention (#584).
+pub fn contracts_answer() -> Answer {
+    let mut answer = indexmap::IndexMap::new();
+    answer.insert(std::sync::Arc::from("executable_effect_primitives"), crate::program::catalog()?);
+    answer.insert(std::sync::Arc::from("schema_version"), crate::value::V::Int(3));
+    Ok(crate::value::V::Map(answer).to_json()?)
+}
 
 /// `GET …/branches/{branch}/llm-status`: an offline Run's answer (its router holds no records),
 /// from the branch's record (`branch.json`, None where missing).

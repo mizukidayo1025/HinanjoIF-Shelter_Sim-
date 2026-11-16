@@ -2244,7 +2244,7 @@ fn compiler_provenance_passes(value: &V) -> bool {
     };
     optional_id
         && optional_hash
-        && str_of(map, "compiler_kind").is_some_and(|kind| matches!(&**kind, "offline_rule" | "llm"))
+        && str_of(map, "compiler_kind").is_some_and(|kind| matches!(&**kind, "offline_rule" | "llm" | "manual"))
         && str_of(map, "compiler_version").is_some_and(|version| is_stable_id(version))
 }
 

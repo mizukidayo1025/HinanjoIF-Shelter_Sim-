@@ -235,6 +235,12 @@ fn primitives() -> Result<&'static [Primitive]> {
     TABLE.get_or_init(|| read_primitives().map_err(|error| error.to_string())).as_deref().map_err(|error| Error::unsupported(error.clone()))
 }
 
+/// The registry's description of an operator (`primitives.json`), whose parameters' schema the
+/// catalog of the screen's builder reads (`program::catalog`); None for an operator it lacks.
+pub(crate) fn registry_entry(op: &str) -> Result<Option<&'static V>> {
+    Ok(primitives()?.iter().find(|item| item.op == op).map(|item| &item.description))
+}
+
 fn read_primitives() -> Result<Vec<Primitive>> {
     let json: serde_json::Value = serde_json::from_str(include_str!("primitives.json")).map_err(|_| bad("primitives.json"))?;
     let value = V::from_json(&json).ok_or_else(|| bad("primitives.json"))?;

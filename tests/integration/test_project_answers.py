@@ -534,7 +534,6 @@ def test_previews_and_applies_are_the_server_s() -> None:
             body = case["request"].encode() if isinstance(case["request"], str) else case["request"]
             try:
                 plan = ANSWERS.preview_plan(body, *ids, run, branches, "main")
-                plan.check_typed()
                 if plan.minute not in worlds:
                     worlds[plan.minute] = plain.from_worlds(raw, "interventions")
                     worlds[plan.minute].advance(plan.minute)

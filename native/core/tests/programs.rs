@@ -13,7 +13,7 @@
 use std::collections::BTreeMap;
 use std::fs;
 
-use serde_json::Value;
+use serde_json::{json, Value};
 use sheltersim_core::checkpoint::sha256_hex;
 use sheltersim_core::error::Error;
 use sheltersim_core::plain::PlainRun;
@@ -114,4 +114,95 @@ fn the_core_schedules_each_program_as_recorded() {
         scheduled += 1;
     }
     assert!(scheduled >= 10 && refused >= 20, "{scheduled} {refused}");
+}
+
+/// A program the screen builds from the catalog (#584): its operator, a target of the world, the
+/// parameters given, its start, its end where the operator has one; built as the screen builds it
+/// (`compiler_kind` `manual`).
+fn built(entry: &Value, target: &Value, parameters: Value, minute: i64) -> EffectProgram {
+    let op = entry["op"].as_str().unwrap();
+    let end = if entry["timed"].as_bool().unwrap() { json!(minute + 30) } else { Value::Null };
+    let program = json!({
+        "schema_version": 1,
+        "program_id": format!("manual-{op}"),
+        "narrative": entry["label"],
+        "source_text": entry["label"],
+        "simulation_start_minute": minute,
+        "effects": [{
+            "effect_id": "effect-1",
+            "op": op,
+            "target_selector": target,
+            "start_minute": minute,
+            "end_minute": end,
+            "parameters": parameters,
+            "units": entry["units"][0],
+            "source_id": "screen-builder-v1",
+            "policy_dependencies": entry["required_policies"],
+            "reversible": true,
+        }],
+        "support_mode": "native",
+        "compiler_provenance": {"compiler_kind": "manual", "compiler_version": "screen-builder-v1"},
+    });
+    EffectProgram::of_json(&serde_json::to_vec(&program).unwrap()).unwrap()
+}
+
+/// The catalog the screen builds an intervention from (`program::catalog`, #584) lists each
+/// operator the core schedules once, with the registry's ranges of the parameters it asks for:
+/// a program built from it at the bounds is checked on a world, and one past them is refused as a
+/// parameter its model refuses.
+#[test]
+fn the_catalog_lists_what_the_core_schedules_with_the_ranges_it_checks() {
+    use sheltersim_core::program::{catalog, supports};
+    let catalog: Value = serde_json::from_slice(&catalog().unwrap().to_json().unwrap()).unwrap();
+    let entries = catalog.as_array().unwrap();
+    let ops: Vec<&str> = entries.iter().map(|entry| entry["op"].as_str().unwrap()).collect();
+    assert_eq!(ops.len(), 6, "{ops:?}");
+    assert!(ops.iter().all(|op| supports(op)) && ops.iter().collect::<std::collections::BTreeSet<_>>().len() == ops.len(), "{ops:?}");
+    let fixture: Value = serde_json::from_slice(&read("programs")).unwrap();
+    let mut run = PlainRun::of_worlds_json(&read(fixture["files"]["operations"].as_str().unwrap()), "operations").unwrap();
+    run_to(&mut run, 10);
+    let mut bounds = 0;
+    for entry in entries {
+        let op = entry["op"].as_str().unwrap();
+        assert!(!entry["label"].as_str().unwrap().is_empty() && entry["units"].as_array().unwrap().len() == 1, "{op}");
+        // A target of a recorded case of the operator on the world.
+        let target = fixture["cases"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|case| case["world"] == "operations" && case["program"]["effects"][0]["op"] == op)
+            .map(|case| case["program"]["effects"][0]["target_selector"].clone())
+            .unwrap_or_else(|| panic!("{op}: no recorded case"));
+        let least: serde_json::Map<String, Value> = entry["parameters"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|parameter| parameter["required"] == true)
+            .map(|parameter| (parameter["name"].as_str().unwrap().to_owned(), parameter["minimum"].clone()))
+            .collect();
+        let mut checked = |parameters: Value| run.validate_effect_program(&built(entry, &target, parameters, 10));
+        assert!(checked(Value::Object(least.clone())).is_ok(), "{op}: the least values");
+        for parameter in entry["parameters"].as_array().unwrap() {
+            let name = parameter["name"].as_str().unwrap();
+            match parameter["type"].as_str().unwrap() {
+                "integer" => {
+                    let (low, high) = (parameter["minimum"].as_i64().unwrap(), parameter["maximum"].as_i64().unwrap());
+                    for (value, accepted) in [(low, true), (high, true), (low - 1, false), (high + 1, false)] {
+                        let mut parameters = least.clone();
+                        parameters.insert(name.to_owned(), json!(value));
+                        let issues = checked(Value::Object(parameters));
+                        assert_eq!(!matches!(issues, Err(Error::Unsupported(_))), accepted, "{op}.{name}={value}: {issues:?}");
+                        bounds += 1;
+                    }
+                }
+                "boolean" => {
+                    let mut parameters = least.clone();
+                    parameters.insert(name.to_owned(), json!(true));
+                    assert!(checked(Value::Object(parameters)).is_ok(), "{op}.{name}");
+                }
+                other => panic!("{op}.{name}: a parameter of type {other} the builder cannot show"),
+            }
+        }
+    }
+    assert_eq!(bounds, 4 * 5);
 }

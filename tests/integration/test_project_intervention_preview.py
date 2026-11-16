@@ -1,5 +1,6 @@
 """A Project's intervention preview reads the text with the offline rules on the Branch at a
-minute, and an approved preview forks the Branch without changing it (format v6, #427).
+minute, or takes the typed program the screen built from the core's catalog (#584), and an
+approved preview forks the Branch without changing it (format v6, #427).
 
 The preview-and-apply tests took over from the older demo's natural-language tests (#137;
 the demo went with the older screens in #376), as in
@@ -155,3 +156,136 @@ def test_project_apply_is_refused_when_the_source_changed_after_the_preview(
     assert outcome["error"] == "source state changed; preview the intervention again"
     assert _branches(project_api) == ["main"]
     assert _saved_state(project_api) == before
+
+
+def _built(entry: dict, target: dict, parameters: dict, end_minute: int | None = None) -> dict:
+    """The program the screen's builder makes of a catalog entry (demo-v2-comparison.js
+    `builtProgram`, #584)."""
+    return {
+        "schema_version": 1,
+        "program_id": f"manual-{entry['op']}",
+        "narrative": entry["label"],
+        "source_text": entry["label"],
+        "simulation_start_minute": PREVIEW_MINUTE,
+        "effects": [
+            {
+                "effect_id": "effect-1",
+                "op": entry["op"],
+                "target_selector": {**target, "candidate_ids": []},
+                "start_minute": PREVIEW_MINUTE,
+                "end_minute": end_minute,
+                "guard": None,
+                "parameters": parameters,
+                "units": entry["units"][0],
+                "source_id": "screen-builder-v1",
+                "assumption_ids": [],
+                "policy_dependencies": entry["required_policies"],
+                "causation_id": None,
+                "reversible": True,
+            }
+        ],
+        "assumptions": [],
+        "support_mode": "native",
+        "compiler_provenance": {
+            "compiler_kind": "manual",
+            "compiler_version": "screen-builder-v1",
+            "model_id": None,
+            "prompt_hash": None,
+        },
+    }
+
+
+def test_the_catalog_lists_the_operators_the_core_schedules(project_api) -> None:
+    """`GET …/contracts` is the core's catalog (#584): each operator the builder offers, with its
+    name, targets, units, policies and the parameters it asks for with their ranges."""
+    catalog = project_api.get(["p", "contracts"])
+
+    assert catalog["schema_version"] == 3
+    entries = {entry["op"]: entry for entry in catalog["executable_effect_primitives"]}
+    assert set(entries) == {
+        "add_toilet",
+        "add_staff",
+        "facility_outage",
+        "water_outage",
+        "add_evacuees",
+        "depart_evacuees",
+    }
+    toilets = entries["add_toilet"]
+    assert (toilets["label"], toilets["target_kinds"], toilets["units"]) == (
+        "トイレを増やす",
+        ["zone"],
+        ["toilet_stall"],
+    )
+    [count] = toilets["parameters"]
+    assert (count["name"], count["type"], count["minimum"], count["maximum"], count["unit"]) == (
+        "count",
+        "integer",
+        1,
+        20,
+        "基",
+    )
+    water = entries["water_outage"]
+    assert (water["timed"], water["end_required"], water["target_facility_kinds"]) == (
+        True,
+        True,
+        ["water_station"],
+    )
+
+
+def test_a_built_program_is_checked_applied_and_its_child_computed(project_api) -> None:
+    """The screen's builder sends a typed program (#584): the core checks it on the world without
+    reading any text, the approval forks as for a text, and the child keeps the program (its
+    `manual` provenance) through its saved Run and computes on."""
+    before = _saved_state(project_api)
+    entries = {
+        entry["op"]: entry
+        for entry in project_api.get(["p", "contracts"])["executable_effect_primitives"]
+    }
+    program = _built(entries["add_toilet"], {"kind": "zone", "target_id": "toilet"}, {"count": 2})
+
+    preview = _preview(project_api, {"program": program})
+
+    assert (preview["status"], preview["can_apply"], preview["fallback_used"]) == (
+        "compiled",
+        True,
+        False,
+    )
+    assert preview["validation_issues"] == []
+    assert preview["program"]["compiler_provenance"]["compiler_kind"] == "manual"
+    assert preview["mechanism_summary"] == "トイレを増やす"
+    assert "usage" not in preview
+    assert _saved_state(project_api) == before
+
+    _apply(project_api, preview, "toilets")
+    assert project_api.get(["p", "runs", "r"])["last_fork"]["status"] == "created"
+    lines = json.loads(project_api.files.reader("p", "r", "toilets").lines_json())
+    fork = next(line for line in lines if line["kind"] == "fork")
+    assert json.loads(fork["program"])["compiler_provenance"]["compiler_kind"] == "manual"
+    project_api.submit("p", "r", "toilets", COMPUTED_UNTIL)
+    project_api.wait_idle(timeout=120)
+    child = json.loads(project_api.files.branch_record("p", "r", "toilets"))
+    assert child["computed_until"] == COMPUTED_UNTIL
+    assert _saved_state(project_api) == before
+
+
+def test_a_built_program_s_checks_on_the_world_are_its_preview_s(project_api) -> None:
+    """A program the world refuses can be previewed but not applied; one its contract refuses is
+    a 400 with the contract's reason (#584)."""
+    entries = {
+        entry["op"]: entry
+        for entry in project_api.get(["p", "contracts"])["executable_effect_primitives"]
+    }
+    water = entries["water_outage"]
+    no_end = _built(water, {"kind": "facility", "target_id": "water_station_main"}, {})
+
+    preview = _preview(project_api, {"program": no_end})
+
+    assert preview["can_apply"] is False
+    assert any("requires end_minute" in issue for issue in preview["validation_issues"])
+    broken = {**no_end, "support_mode": "certain"}
+    with pytest.raises(answers().Refused) as refused:
+        _preview(project_api, {"program": broken})
+    assert refused.value.args[0] == 400
+    assert b"support_mode is not a support mode" in refused.value.args[3]
+    assert b"invalid_effect_program" in refused.value.args[3]
+    assert _branches(project_api) == ["main"]

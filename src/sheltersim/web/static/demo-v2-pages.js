@@ -192,6 +192,7 @@
       running = state.data?.status === "running",
       working = state.busy || running;
     $("intervention-preview").disabled = !has || working;
+    $("intervention-preview-text").disabled = !has || working;
     $("branch-here").disabled = !has || working;
     $("intervention-panel").classList.toggle(
       "has-intervention",

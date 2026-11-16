@@ -944,12 +944,12 @@
    "expected": {
     "candidate": [
      "StateInvariantError",
-     "invalid EffectProgram state: 1 validation error for CompilerProvenance\ncompiler_kind\n  Input should be 'offline_rule' or 'llm' [type=literal_error, input_value='human', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.11/v/literal_error"
+     "invalid EffectProgram state: 1 validation error for CompilerProvenance\ncompiler_kind\n  Input should be 'offline_rule', 'llm' or 'manual' [type=literal_error, input_value='human', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.11/v/literal_error"
     ],
     "extensions": null,
     "validate": [
      "StateInvariantError",
-     "invalid EffectProgram state: 1 validation error for CompilerProvenance\ncompiler_kind\n  Input should be 'offline_rule' or 'llm' [type=literal_error, input_value='human', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.11/v/literal_error"
+     "invalid EffectProgram state: 1 validation error for CompilerProvenance\ncompiler_kind\n  Input should be 'offline_rule', 'llm' or 'manual' [type=literal_error, input_value='human', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.11/v/literal_error"
     ],
     "validate_tick": null
    },
@@ -1248,12 +1248,12 @@
    "expected": {
     "candidate": [
      "StateInvariantError",
-     "invalid EffectProgram state: 1 validation error for CompilerProvenance\ncompiler_kind\n  Input should be 'offline_rule' or 'llm' [type=literal_error, input_value='human', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.11/v/literal_error"
+     "invalid EffectProgram state: 1 validation error for CompilerProvenance\ncompiler_kind\n  Input should be 'offline_rule', 'llm' or 'manual' [type=literal_error, input_value='human', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.11/v/literal_error"
     ],
     "extensions": null,
     "validate": [
      "StateInvariantError",
-     "invalid EffectProgram state: 1 validation error for CompilerProvenance\ncompiler_kind\n  Input should be 'offline_rule' or 'llm' [type=literal_error, input_value='human', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.11/v/literal_error"
+     "invalid EffectProgram state: 1 validation error for CompilerProvenance\ncompiler_kind\n  Input should be 'offline_rule', 'llm' or 'manual' [type=literal_error, input_value='human', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.11/v/literal_error"
     ],
     "validate_tick": null
    },

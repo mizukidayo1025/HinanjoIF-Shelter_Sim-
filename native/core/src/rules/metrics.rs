@@ -77,6 +77,26 @@ pub struct Inputs<'a> {
     pub routes: Option<&'a WaitRoutes<'a>>,
 }
 
+/// The KPI of the recent toilet wait (#448), which the frames and the KPI history add to a
+/// sample's columns.
+pub const RECENT_TOILET_WAIT: &str = "toilet_wait_mean_24h_minutes";
+/// The window of the recent toilet wait: the last 1440 ticks (24 hours).
+pub const RECENT_WAIT_MINUTES: i64 = 1440;
+
+/// The mean wait of those who began to use a toilet in the window (#448): the waits recorded
+/// after `before` (the sample at the window's start, None where the window starts before the
+/// first sample) over their count, 0 where none was. It reads the cumulative columns of two
+/// samples, so it falls as well as rises, and it needs no state of its own.
+pub fn recent_toilet_wait_mean(now: &MetricSample, before: Option<&MetricSample>) -> f64 {
+    let (count, total) = before.map_or((0.0, 0.0), |before| (before.toilet_wait_count, before.toilet_wait_total_minutes));
+    let count = now.toilet_wait_count - count;
+    if count > 0.0 {
+        (now.toilet_wait_total_minutes - total) / count
+    } else {
+        0.0
+    }
+}
+
 /// What `capture` did.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Captured {

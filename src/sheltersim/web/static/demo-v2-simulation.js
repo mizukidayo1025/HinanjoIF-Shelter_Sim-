@@ -83,7 +83,7 @@
         uiIcon(
           {
             stress_mean: "people",
-            toilet_wait_max_minutes: "clock",
+            toilet_wait_mean_24h_minutes: "clock",
             staff_load_ratio: "staff",
             unresolved_support_request_count: "alert",
             population: "people",
@@ -280,7 +280,7 @@
     if (frame.kpis.toilet_queue_length > 0)
       issues.push([
         "トイレの待機列",
-        `${frame.kpis.toilet_queue_length}人が待機。累積最大待機時間 ${num(frame.kpis.toilet_wait_max_minutes)}分。`,
+        `${frame.kpis.toilet_queue_length}人が待機。直近24時間の平均待ち時間 ${num(frame.kpis.toilet_wait_mean_24h_minutes)}分。`,
       ]);
     if (frame.kpis.unresolved_support_request_count > 0)
       issues.push([

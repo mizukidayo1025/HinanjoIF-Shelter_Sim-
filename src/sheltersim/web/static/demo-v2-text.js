@@ -23,12 +23,12 @@
       note: "避難者全員のストレスの平均（0〜100、高いほどつらい）",
     },
     {
-      key: "toilet_wait_max_minutes",
-      label: "最大トイレ待機時間",
+      key: "toilet_wait_mean_24h_minutes",
+      label: "平均トイレ待ち時間（24時間）",
       unit: "分",
       factor: 1,
       icon: "◷",
-      note: "ここまでで一番長く待った人の待ち時間",
+      note: "直近24時間にトイレを使い始めた人の、待った時間の平均",
     },
     {
       key: "staff_load_ratio",

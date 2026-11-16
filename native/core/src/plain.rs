@@ -219,6 +219,24 @@ impl MetricSamples {
         Ok(Some((unpacked.sample, unpacked.minute, unpacked.balances)))
     }
 
+    /// The last sample whose minute is at most `minute`, or None where there is none: where the
+    /// window of the recent toilet wait starts (`metrics::recent_toilet_wait_mean`, #448).
+    pub fn last_at_or_before(&self, minute: i64) -> Result<Option<MetricSample>> {
+        let (mut low, mut high) = (0, self.starts.len());
+        while low < high {
+            let middle = low + (high - low) / 2;
+            if unpack_sample(&self.packer, self.blocks.at(self.starts[middle]))?.minute <= minute {
+                low = middle + 1;
+            } else {
+                high = middle;
+            }
+        }
+        match low.checked_sub(1) {
+            Some(index) => Ok(self.sample(index)?.map(|(sample, _, _)| sample)),
+            None => Ok(None),
+        }
+    }
+
     /// Seals the samples' blocks (`Blocks::seal`).
     pub fn seal(&mut self) {
         self.blocks.seal();
@@ -614,7 +632,9 @@ impl PlainRun {
             None => request.state_hash,
         };
         let request = crate::frame::Request { state_hash, ..*request };
-        crate::frame::frame(&self.loaded.cell, &mut self.host, &request, &self.rng_state)
+        // The window of the recent toilet wait ends with the last tick, the minute before this one.
+        let before = self.host.samples.last_at_or_before(self.minute()? - 1 - crate::rules::metrics::RECENT_WAIT_MINUTES)?;
+        crate::frame::frame(&self.loaded.cell, &mut self.host, &request, &self.rng_state, before.as_ref())
     }
 
     /// The summary of the world now that the reading of an intervention's text is given

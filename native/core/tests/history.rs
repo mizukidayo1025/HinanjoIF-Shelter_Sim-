@@ -82,7 +82,7 @@ fn a_page_is_the_index_s() {
 
 #[test]
 fn a_row_is_canonical_json_with_the_ledger_columns() {
-    let row = kpi_row(&sample(0.25), 7, Some(&[[1, 2, 3, 4, 5, 6], [7, 8, 9, 10, 11, 12]]), "r", "main").unwrap();
+    let row = kpi_row(&sample(0.25), 7, None, Some(&[[1, 2, 3, 4, 5, 6], [7, 8, 9, 10, 11, 12]]), "r", "main").unwrap();
     let text = String::from_utf8(row).unwrap();
     assert!(text.starts_with(r#"{"branch_id":"main","food_meal_units_delivered":8,"food_meal_units_initial":7,"#), "{text}");
     assert!(
@@ -92,7 +92,7 @@ fn a_row_is_canonical_json_with_the_ledger_columns() {
     assert!(text.contains(r#""time_semantics":"end_of_tick","toilet_active_users":1,"#), "{text}");
     assert!(text.ends_with(r#""water_ml_reserved":6,"water_ml_served":3}"#), "{text}");
     assert!(!text.contains("source_ids_json"));
-    let without = String::from_utf8(kpi_row(&sample(0.25), 7, None, "r", "main").unwrap()).unwrap();
+    let without = String::from_utf8(kpi_row(&sample(0.25), 7, None, None, "r", "main").unwrap()).unwrap();
     assert!(!without.contains("water_ml"));
     let metrics = String::from_utf8(review_metrics(&sample(0.25)).unwrap()).unwrap();
     assert!(metrics.contains(r#""toilet_working_units":3.0,"#) && !metrics.contains("minute_index"), "{metrics}");
@@ -107,4 +107,76 @@ fn stored_samples_that_do_not_read_back_are_errors() {
     Packer::new().write_tables(0, 0, &mut tables);
     table.read_tables(&tables).unwrap();
     assert!(table.read_block(&[0xff; 4]).is_err());
+}
+
+/// A sample whose cumulative toilet waits are these.
+fn waited(count: f64, total: f64) -> MetricSample {
+    MetricSample { toilet_wait_count: count, toilet_wait_total_minutes: total, ..sample(0.0) }
+}
+
+fn recent(items: &[u8]) -> Vec<f64> {
+    let rows: Vec<serde_json::Value> = serde_json::from_slice(items).unwrap();
+    rows.iter().map(|row| row["toilet_wait_mean_24h_minutes"].as_f64().unwrap()).collect()
+}
+
+/// A table of these samples, read back as a stored Run's.
+fn table_of(samples: &[(i64, MetricSample)]) -> KpiTable {
+    let mut packed = MetricSamples::default();
+    for (minute, sample) in samples {
+        packed.push(sample, *minute, None).unwrap();
+    }
+    let (packer, blocks) = packed.store();
+    let mut tables = Vec::new();
+    packer.write_tables(0, 0, &mut tables);
+    let mut table = KpiTable::new();
+    table.read_tables(&tables).unwrap();
+    for block in blocks.blocks() {
+        table.read_block(block).unwrap();
+    }
+    table
+}
+
+#[test]
+fn a_row_s_recent_toilet_wait_is_of_those_who_began_in_the_last_24_hours() {
+    // A wait of 100 minutes ends at minute 10, then one of 2 minutes every 100 minutes from 100 on.
+    let samples: Vec<(i64, MetricSample)> = (0..3100)
+        .map(|minute| {
+            let short = if minute >= 100 { (minute / 100) as f64 } else { 0.0 };
+            let long = if minute >= 10 { 1.0 } else { 0.0 };
+            (minute, waited(long + short, 100.0 * long + 2.0 * short))
+        })
+        .collect();
+    let table = table_of(&samples);
+    let at = |minute: i64| recent(&table.page(&query(minute, minute, 1, 1, None)).unwrap().items)[0];
+    // Before 24 hours, the window starts with the Run: none waited before minute 10.
+    assert_eq!(at(5), 0.0);
+    assert_eq!(at(10), 100.0);
+    assert_eq!(at(1000), 120.0 / 11.0);
+    // The window is the last 1440 minutes: the long wait leaves it when its minute does.
+    assert_eq!(at(1449), 128.0 / 15.0);
+    assert_eq!(at(1450), 2.0);
+    assert_eq!(at(3000), 2.0);
+    // It falls as well as rises, where the cumulative mean only drifts.
+    let mean = samples[3000].1.toilet_wait_total_minutes / samples[3000].1.toilet_wait_count;
+    assert!(mean > 2.0, "{mean}");
+    // None began in the window: 0.
+    let quiet = table_of(&[(0, waited(0.0, 0.0)), (100, waited(3.0, 30.0)), (2000, waited(3.0, 30.0))]);
+    assert_eq!(recent(&quiet.page(&query(0, 2000, 1, 5, None)).unwrap().items), [0.0, 10.0, 0.0]);
+    // A minute without a sample: the window starts at the last sample before it.
+    let sparse = table_of(&[(0, waited(1.0, 50.0)), (1000, waited(2.0, 60.0)), (2500, waited(4.0, 70.0))]);
+    assert_eq!(recent(&sparse.page(&query(2500, 2500, 1, 1, None)).unwrap().items), [5.0]);
+}
+
+#[test]
+fn the_samples_find_where_the_window_starts() {
+    let mut samples = MetricSamples::default();
+    for minute in [3, 5, 9] {
+        samples.push(&waited(minute as f64, 0.0), minute, None).unwrap();
+    }
+    let count = |minute: i64| samples.last_at_or_before(minute).unwrap().map(|sample| sample.toilet_wait_count);
+    assert_eq!(
+        [count(2), count(3), count(4), count(5), count(8), count(9), count(100)],
+        [None, Some(3.0), Some(3.0), Some(5.0), Some(5.0), Some(9.0), Some(9.0)]
+    );
+    assert_eq!(MetricSamples::default().last_at_or_before(0).unwrap(), None);
 }

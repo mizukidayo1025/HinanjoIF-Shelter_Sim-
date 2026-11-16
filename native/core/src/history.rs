@@ -18,17 +18,25 @@ use crate::events::packed::Packer;
 use crate::frame::{kpis, RESOURCE_COLUMNS};
 use crate::json::Encoder;
 use crate::plain::{unpack_sample, Balances, UnpackedSample};
-use crate::rules::metrics::MetricSample;
+use crate::rules::metrics::{recent_toilet_wait_mean, MetricSample, RECENT_WAIT_MINUTES};
 use crate::value::V;
 
 fn corrupt(what: &str) -> Error {
     Error::Value(format!("not stored samples: {what}"))
 }
 
-/// The history index's row of a sample (its KPIs, then the answer's `record_kind`, `run_id` and
-/// `branch_id`), as canonical JSON.
-pub fn kpi_row(sample: &MetricSample, minute: i64, balances: Option<&Balances>, run_id: &str, branch_id: &str) -> Result<Vec<u8>> {
-    let mut row = kpis(sample, minute);
+/// The history index's row of a sample (its KPIs with the recent toilet wait since `before`, the
+/// sample at the window's start (`metrics::recent_toilet_wait_mean`, #448), then the answer's
+/// `record_kind`, `run_id` and `branch_id`), as canonical JSON.
+pub fn kpi_row(
+    sample: &MetricSample,
+    minute: i64,
+    before: Option<&MetricSample>,
+    balances: Option<&Balances>,
+    run_id: &str,
+    branch_id: &str,
+) -> Result<Vec<u8>> {
+    let mut row = kpis(sample, minute, Some(recent_toilet_wait_mean(sample, before)));
     let mut put = |name: &str, value: V| {
         row.insert(Arc::from(name), value);
     };
@@ -50,7 +58,7 @@ pub fn kpi_row(sample: &MetricSample, minute: i64, balances: Option<&Balances>, 
 /// sample's `MetricSnapshot` but `minute_index` and `source_ids_json`, as a float, as canonical
 /// JSON.
 pub fn review_metrics(sample: &MetricSample) -> Result<Vec<u8>> {
-    let mut row = kpis(sample, 0);
+    let mut row = kpis(sample, 0, None);
     row.shift_remove("minute_index");
     for value in row.values_mut() {
         if let V::Int(number) = value {
@@ -149,6 +157,16 @@ impl KpiTable {
         unpack_sample(&self.packer, &self.blocks[block][offset..]).map(Some)
     }
 
+    /// The last sample whose minute is at most `minute`, or None where there is none: where the
+    /// window of the recent toilet wait starts. A fork's table holds its parent's samples up to its
+    /// base, so the window reaches back past the fork.
+    fn last_at_or_before(&self, minute: i64) -> Result<Option<MetricSample>> {
+        match self.minutes.partition_point(|at| *at <= minute).checked_sub(1) {
+            Some(index) => Ok(self.sample(index)?.map(|unpacked| unpacked.sample)),
+            None => Ok(None),
+        }
+    }
+
     /// The first index whose minute is at least `minute`.
     fn first_at(&self, minute: i64) -> usize {
         self.minutes.partition_point(|at| *at < minute)
@@ -195,7 +213,8 @@ impl KpiTable {
             if taken > 0 {
                 page.items.push(b',');
             }
-            page.items.extend(kpi_row(&unpacked.sample, minute, unpacked.balances.as_ref(), query.run_id, query.branch_id)?);
+            let before = self.last_at_or_before(minute - RECENT_WAIT_MINUTES)?;
+            page.items.extend(kpi_row(&unpacked.sample, minute, before.as_ref(), unpacked.balances.as_ref(), query.run_id, query.branch_id)?);
             page.last = Some(minute);
             taken += 1;
         }

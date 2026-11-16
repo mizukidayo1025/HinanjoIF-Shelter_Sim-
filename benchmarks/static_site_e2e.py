@@ -24,7 +24,7 @@ as a person would, in five stages:
    several minutes and
    two-branch replay windows.
 5. report: the report page (report, evidence, llm-status, the KPI history), a question (the
-   offline fixed answer) and the PDF (409 pdf_analysis_offline, as the offline VM).
+   offline fixed answer) and the report without Opus's analysis (#582), on its print page.
 
 At each step the JSON the browser answered (the screen's own requests, caught by a wrapper of
 `fetch`, and the checks' requests) is compared with what the Python server answers to the same
@@ -1536,7 +1536,7 @@ class Walk:
         else:
             self.problem(stage, "the screen asked no question")
         self.screen_error(stage, "question")
-        # The PDF: 409 pdf_analysis_offline, as the offline VM.
+        # The report without Opus's analysis (#582): the API is OFF, so the screen asks none.
         since = self.mark()
         self.page.click("#save-report")
         pdf = self.wait_caught(since, "POST", r"/pdf-report$", timeout_s=120)
@@ -1548,11 +1548,13 @@ class Walk:
                 route,
                 pdf,
                 ask=("POST", route, json.loads(pdf["body"])),
-                expect=_code(409, "pdf_analysis_offline"),
+                expect=_status(200),
             )
         else:
             self.problem(stage, "the screen asked for no PDF")
-        self.screen_error(stage, "pdf", allowed="pdf_analysis_offline")
+        self.screen_error(stage, "pdf")
+        # The print page is shown over the screen; closed as a person closes it.
+        self.page.keyboard.press("Escape")
         self.probes(stage, report_routes(s, child=self.child_ready))
         return True
 
@@ -1716,8 +1718,8 @@ def check(
 
 
 def _expected_console(error: str) -> bool:
-    """Console errors a step expects: a refused request the screen reports (409 for the PDF, a
-    route not available yet)."""
+    """Console errors a step expects: a refused request the screen reports (a 409, a route not
+    available yet)."""
     return "409" in error or "Failed to load resource" in error
 
 

@@ -20,12 +20,12 @@
     "data_sha256": "78d6a37a6f54061d0c03fb141c566b52c26c0d9f3ac41e1bb90ee2cd5b105f7c"
   },
   "fork_parent": {
-    "journal_sha256": "e89cc7360ba4cdd24c6a446d196a2e4f0e0d1e7e61b426d4faef945d2ee57c75",
-    "data_bytes": 1890886,
-    "data_sha256": "1aa64f0756cf27c3b5091a35b3c95c7117ad4f5aebf5010436a003bac0d259f1"
+    "journal_sha256": "def937f246e4738c1c7f3abb097b54f1d66f57dabefa2d0d7cf77a7ad163750a",
+    "data_bytes": 1891212,
+    "data_sha256": "3bd687ed3ac879b41f88671441440ba4d998732df91c75b8a9fae92d1f4a3bfc"
   },
   "fork": {
-    "journal_sha256": "95a1d04c811242646d35eb5e475d0dac0b32c62d1018e4aecaab5e6cf99b0391",
+    "journal_sha256": "82fbe7d098c8ea9899c62b49935e1cf8e07f527cd64999fb4aeb0d2caec5a39d",
     "data_bytes": 1351547,
     "data_sha256": "86975d70128105619eb17924756a325c6f444b0ebb2cacc4b257bd21e1473484"
   }

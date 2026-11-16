@@ -77,12 +77,17 @@ def _refused(call: Any, *arguments: Any) -> tuple[int, str]:
     "case", FIXTURE["pdf_cases"], ids=lambda case: f"{case['run_id']} {case['body']}"
 )
 def test_pdf_report_is_refused_as_the_server_refuses_it(case: dict[str, Any]) -> None:
+    """The route's checks, then an analysis asked without a link to an LLM (#582)."""
     run, branches = _fixture_run()
     project = FIXTURE["run"]["project_id"]
     files = (run, branches) if case["run_id"] == FIXTURE["run"]["run_id"] else (None, [])
     body = case["body"].encode()
-    status, answer = _refused(ANSWERS.pdf_report_answer, project, case["run_id"], body, *files)
-    assert (status, answer) == (case["status"], case["answer"])
+
+    def answer() -> None:
+        ANSWERS.pdf_plan(project, case["run_id"], body, *files).check_link(False)
+
+    status, refused = _refused(answer)
+    assert (status, refused) == (case["status"], case["answer"])
 
 
 def test_llm_status_is_the_server_s() -> None:

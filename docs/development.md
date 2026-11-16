@@ -145,7 +145,7 @@ python benchmarks/wasm_trial_measure.py --bundle sample.shelterproj --pkg wasm-w
 | `POST …/branches/{branch}/questions` | APIキーのないVMと同じ決まった答え（#308）。確かめ、答え、残すturnは中核（#449）。`native/wasm/js/questions.mjs`は記録・frameを読み、turnを残します |
 | `POST runs/{run}/delete` | 中核の答え（#449）。serverと同じ確かめ（`confirmation`がRunのID、そのRunを計算していないこと、状態が`running`でないこと）の後、OPFSのRunのフォルダーを消し、持っているSimulationと時系列の表を手放します（#376） |
 | `GET …/branches/{branch}/conversations` | 中核の答え（#449）。分岐の保存したRunの`conversations`の部分（`questions.mjs`が終わりの行の後に書く、#368）の最後の100件を古い順に。serverと同じく各turnに`schema_version`を付けます（#376） |
-| `POST runs/{run}/pdf-report` | 中核の答え（#449）。serverの確かめの後、APIキーのないVMと同じ409 `pdf_analysis_offline`（#309、[project-persistence.md](project-persistence.md#ブラウザーのpdfレポート309)） |
+| `POST runs/{run}/pdf-report` | 中核の答え（#449）。serverの確かめの後、考察なしのレポート（#582）。考察を求めて合言葉がなければ、APIキーのないVMと同じ409 `pdf_analysis_offline`（#309、[project-persistence.md](project-persistence.md#ブラウザーのpdfレポート309)） |
 | `scenario-*`、`/api/v1/projects`以外の道 | 409 `{"error": "ブラウザー版では未対応です（…）", "code": "browser_unsupported"}` |
 
 分ごとのframeは、分岐ごとに1つ手元に置いたSimulationから作ります。後の分は、手元のSimulationを進めるほうが途中の点から戻すより安いとき（手元の分がその分以前の一番近い点以後か、差が360分以内）は進め、それ以外は`RunReader.seek`で途中の点に戻してから計算します（#251）。再生（`replay-frames`）は手元のSimulationを進めるだけで、戻しません。手元に置くSimulationは2つまでで、置き換えるものは先に解放します（WASMのメモリーは縮まないため）。digestは、Runが持つログのhashの途中の状態に増えた記録だけを足して求めます（上の段落）。
@@ -238,7 +238,7 @@ python benchmarks/static_site_check.py --site ../hinanjo-if-site --compute piece
 2. 計算（compute）：1つ目のRunを画面で最後まで計算します。1つ目のbrowserは一度に、2つ目は1日で止め、続けて最後までです（`--modes`）。
 3. 介入（intervention）：4日目14:00（5160分）で、offlineの読み取りが作る作用（職員の追加と、画面のZoneの選択肢での選び直し、トイレの追加、断水、施設の停止）と読めない文をプレビューし、「Day 4 14:00 toilet_01 outage」を適用して、子の分岐を最後まで計算します。
 4. 比較（compare）：画面の比較と、いくつかの分の`compare`、2つの分岐の再生の窓です。
-5. 振り返り（report）：レポートの頁（report、evidence、llm-status、指標の時系列）、質問（合言葉がなければAPIキーなしの決まった答え、あれば中継でAIの回答。#470）、分析レポート（合言葉がなければofflineのVMと同じ409 `pdf_analysis_offline`、あれば中継でOpusの考察つき。#470）です。
+5. 振り返り（report）：レポートの頁（report、evidence、llm-status、指標の時系列）、質問（合言葉がなければAPIキーなしの決まった答え、あれば中継でAIの回答。#470）、分析レポート（APIがOFFなので考察なしの印刷用ページ。#582）です。
 
 各段で、ブラウザーの答え（画面の要求は`fetch`を包んで捕まえ、確かめの要求はページから送ります）を、同じ操作へのPythonのserverの答え（同じプロセスの`ProjectAPI`、`--work`の下の自分のProjectStore、`server.py`と同じ直列化）と、値の型まで比べます。Python側は同じ操作を同じ順に一度だけ行い、その答えを2つのbrowserで使います。比べられるように固定するもの：画面の`crypto.randomUUID`（RunとBranchのID）、地域の調べの時刻（Pythonの`datetime.now`と、ブラウザーのAPIのWorkerの`Date`）、国土地理院の住所検索（両方ともシナリオのコーパス`tests/support/scenario_corpus.py`の記録した答え）。避難所のCSVは、Pythonの調べとサイトの索引・行（`/browser/gsi-shelter-index.json`、`/browser/gsi-shelters/`）に同じファイルを使います。既定はコーパスの合成のもので、`--write-corpus-csv PATH`で書き出し、`scripts/build_static_site.py --shelter-csv PATH`でサイトを作ります（別のファイルなら道具にも`--shelter-csv`で渡します）。索引の取得の時刻とHTTPの情報（`retrieved_at`、`etag`、`last_modified`）はサイトを作ったときのものなので、道具はPythonの調べの値に差し替えて配ります。違って当然の項目（previewとdraftのID、`checkpoint_hash`、質問の`context_id`の乱数の部分、`static_site_check.py`の除く項目）と理由は、結果に書きます。
 

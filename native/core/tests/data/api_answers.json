@@ -436,20 +436,38 @@
  ],
  "pdf_cases": [
   {
-   "answer": "{\"code\":\"pdf_analysis_offline\",\"error\":\"pdf_analysis_offline: Opusの記録応答またはAPI接続が必要です。\"}",
-   "body": "{\"branch_ids\":[\"main\"],\"minute\":100}",
+   "answer": "{\"code\":\"pdf_analysis_offline\",\"error\":\"pdf_analysis_offline: Opusの考察にはAPIの接続が必要です。APIの設定を確かめるか、考察なしで作ってください。\"}",
+   "body": "{\"branch_ids\":[\"main\"],\"minute\":100,\"analysis\":true}",
    "run_id": "r",
    "status": 409
   },
   {
-   "answer": "{\"code\":\"pdf_analysis_offline\",\"error\":\"pdf_analysis_offline: Opusの記録応答またはAPI接続が必要です。\"}",
-   "body": "{\"branch_ids\":[\"main\"],\"minute\":150}",
+   "answer": "{\"code\":\"pdf_analysis_offline\",\"error\":\"pdf_analysis_offline: Opusの考察にはAPIの接続が必要です。APIの設定を確かめるか、考察なしで作ってください。\"}",
+   "body": "{\"branch_ids\":[\"main\"],\"minute\":150,\"analysis\":true}",
    "run_id": "r",
    "status": 409
   },
   {
-   "answer": "{\"code\":\"pdf_analysis_offline\",\"error\":\"pdf_analysis_offline: Opusの記録応答またはAPI接続が必要です。\"}",
-   "body": "{\"branch_ids\":[\"main\"],\"minute\":0}",
+   "answer": "{\"code\":\"pdf_analysis_offline\",\"error\":\"pdf_analysis_offline: Opusの考察にはAPIの接続が必要です。APIの設定を確かめるか、考察なしで作ってください。\"}",
+   "body": "{\"analysis\":true,\"branch_ids\":[\"main\"],\"minute\":0}",
+   "run_id": "r",
+   "status": 409
+  },
+  {
+   "answer": "{\"code\":\"pdf_invalid_analysis\",\"error\":\"pdf_invalid_analysis: Opusの考察の有無（analysis）は true か false で指定してください。\"}",
+   "body": "{\"branch_ids\":[\"main\"],\"minute\":1,\"analysis\":\"true\"}",
+   "run_id": "r",
+   "status": 409
+  },
+  {
+   "answer": "{\"code\":\"pdf_invalid_analysis\",\"error\":\"pdf_invalid_analysis: Opusの考察の有無（analysis）は true か false で指定してください。\"}",
+   "body": "{\"branch_ids\":[\"main\"],\"minute\":1,\"analysis\":null}",
+   "run_id": "r",
+   "status": 409
+  },
+  {
+   "answer": "{\"code\":\"pdf_invalid_analysis\",\"error\":\"pdf_invalid_analysis: Opusの考察の有無（analysis）は true か false で指定してください。\"}",
+   "body": "{\"branch_ids\":[\"main\",\"main\"],\"minute\":1,\"analysis\":1}",
    "run_id": "r",
    "status": 409
   },
@@ -522,6 +540,12 @@
   {
    "answer": "{\"code\":\"storage_conflict\",\"error\":\"request fields do not match this operation\"}",
    "body": "{\"branch_ids\":[\"main\"],\"minute\":1,\"extra\":1}",
+   "run_id": "r",
+   "status": 409
+  },
+  {
+   "answer": "{\"code\":\"pdf_invalid_scope\",\"error\":\"pdf_invalid_scope: 単一BranchまたはA/Bの2分岐と整数分を指定してください。\"}",
+   "body": "{\"branch_ids\":[\"main\"],\"minute\":-1,\"analysis\":false}",
    "run_id": "r",
    "status": 409
   },

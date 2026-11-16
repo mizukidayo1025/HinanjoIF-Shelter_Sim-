@@ -287,13 +287,21 @@
     const branchIds = state.comparison ? pairIds() : [state.branch],
       minute = state.comparison ? state.comparison.minute : state.minute,
       button = $("save-report");
+    // Opus's analysis only where it is chosen and the API is ON (#582): else no LLM is asked.
+    const analysis = state.llm?.on === true && $("report-analysis").checked;
     button.disabled = true;
     button.setAttribute("aria-busy", "true");
-    note("Opusによる分析を作っています。保存済みのレポートがあれば再利用します…", "loading");
+    note(
+      analysis
+        ? "レポートとOpusの考察を作っています。保存済みのレポートがあれば再利用します…"
+        : "レポートを作っています（Opusの考察なし）…",
+      "loading",
+    );
     let report;
     try {
-      // The report's data, facts and checked analysis (#470), laid out on the print page.
-      report = await api(`${runBase()}/pdf-report`, { branch_ids: branchIds, minute });
+      // The report's data, facts and, where asked, the checked analysis (#470), laid out on the
+      // print page.
+      report = await api(`${runBase()}/pdf-report`, { branch_ids: branchIds, minute, analysis });
     } finally {
       button.removeAttribute("aria-busy");
     }

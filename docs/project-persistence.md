@@ -7,7 +7,7 @@ Web server（`sheltersim web`、ローカル版・VM版）はRUNS_DIR/.projects�
 - **Runの状態**：Branchごとの状態は`branch.json`の`status`、Runの状態は`run.json`の`status`です。どれかのBranchが計算中ならRunも`running`、そうでなければ最後に止まったBranchの状態です。サーバーの起動時の回復は、計算中のまま書込権を持つプロセスがいないBranchとそのRunを`interrupted`にします。プロセスが状態を書かずに終わった（強制終了など）ときも、サーバーがBranchを`interrupted`にします。
 - **分岐**（`intervention-apply`）：ブラウザーと同じく、その場で子Branchを作ってから答えます。親をその分に戻して（保存した点から計算し直して）、プレビューのときの世界のhashと比べ、EffectProgramを当て、子の保存したRunを書きます。子は親の部品を写さずに参照します（#368の決定6）。結果はRunの参照（`GET …/runs/{run}`）の`last_fork`に、そのサーバーのプロセスが持ちます。
 - **読む**（timeline、replay-frames、比較、指標の時系列、レポート、質問）：その分のRunを、保存した点に戻して計算し直して作ります（Runごとに2つまで持ち、後の分は持っているRunを進めます。ブラウザーの`BrowserApi.simulationAt`と同じ）。過去の読み出しはProviderを呼ばず、状態も乱数も変えません。
-- **質問・PDF・レポート**：APIキーがないときの答えはブラウザーと同じです。質問はLLMなしの決まった答えと、質問の記録（保存したRunの`conversations`の部品）です。PDFは「Opusの記録応答またはAPI接続が必要です」（409 `pdf_analysis_offline`）で断ります。レポートは、初めて求められたときに、Runの終わりの世界から規則で作って`report.json`に残します。APIキーがあるサーバーでは、質問の回答、計算の終わりのレビュー、介入の文章の読み取り、PDFの考察を、中核のLLMの口で頼みます（#463、[llm-integration.md](llm-integration.md#結果の分析を中核で行う463)）。
+- **質問・PDF・レポート**：APIキーがないときの答えはブラウザーと同じです。質問はLLMなしの決まった答えと、質問の記録（保存したRunの`conversations`の部品）です。分析レポートは考察なしで作り（#582）、Opusの考察を求められたときは409 `pdf_analysis_offline`で断ります。レポートは、初めて求められたときに、Runの終わりの世界から規則で作って`report.json`に残します。APIキーがあるサーバーでは、質問の回答、計算の終わりのレビュー、介入の文章の読み取り、PDFの考察を、中核のLLMの口で頼みます（#463、[llm-integration.md](llm-integration.md#結果の分析を中核で行う463)）。
 - **LLMの記録**：APIキーがあるサーバーで作ったRunは、そのLLMの設定（mode、offlineの実験か）を`runs/{run}/llm.json`に持ちます。利用の記録（`usage/`、`runs/{run}/usage.json`）と合わせて、Pythonのサーバーだけのファイルで、1つのファイル（`.shelterproj`）には入りません。
 - **古い形のRun**：#427より前にPythonが保存したRun（Checkpointと`history.sqlite`）は読みません。開くと409 `stored_run_outdated`（「古い保存の形（Python の Checkpoint）…計算し直してください」）になります。offlineのRunは、Scenarioから作り直せます（#368の決定2）。
 
@@ -155,12 +155,12 @@ approved hashは確認した正準ScenarioSpecそのものに結び付きます�
 
 ## ブラウザーのPDFレポート（#309）
 
-`POST …/runs/{run}/pdf-report`には、APIキーのないVMと同じ答えを返します（中核の`sheltersim_core::answers::routes::pdf_report_answer`。ブラウザーは`native/wasm/js/browser_api.mjs`の`pdfReport`から呼びます。#449）。serverと同じ順に、欄（`branch_ids`と`minute`だけ）、範囲（1つか2つの異なるBranchと0以上の整数分。違えば409の`pdf_invalid_scope`）、Run、各Branch、計算済みの範囲（外なら409の`pdf_uncomputed_range`）を確かめ、通れば409の`pdf_analysis_offline`（「Opusの記録応答またはAPI接続が必要です。」）を返します。APIキーのないVMも分析にOpusが要るのでPDFを作りません。ブラウザーはPDFを作りません。
+`POST …/runs/{run}/pdf-report`には、serverと同じ答えを返します（中核の`sheltersim_core::answers::pdf::PdfPlan`。ブラウザーは`native/wasm/js/browser_api.mjs`の`pdfReport`から呼びます。#449）。serverと同じ順に、欄（`branch_ids`と`minute`、省ける`analysis`）、`analysis`の形（真偽値でなければ409の`pdf_invalid_analysis`）、範囲（1つか2つの異なるBranchと0以上の整数分。違えば409の`pdf_invalid_scope`）、Run、各Branch、計算済みの範囲（外なら409の`pdf_uncomputed_range`）を確かめます。考察を求めない要求（#582）には、各Branchの保存したRunから、考察なしのレポート（`"analysis": null`）を返します。考察を求めて合言葉がなければ、APIキーのないVMと同じく409の`pdf_analysis_offline`です。ブラウザーはPDFを組版しません（画面が印刷用ページに並べます）。
 
 serverと違うのは、`minute`を`5.0`のように小数の形で書いたときだけです。serverは整数でないとして`pdf_invalid_scope`にしますが、JSのJSONは`5.0`と`5`を区別しないので、ブラウザーは5分として扱います。
 
 読めないJSONの本文には、serverと同じく400の`{"error":"invalid project request"}`を返します（`code`の欄はありません）。
 
-合言葉を添えた要求（#470）には、APIキーのあるserverと同じ答え（レポートのデータ・根拠と、中継のOpusの考察を中核が確かめたもの）を返します（[pdf-report-export.md](pdf-report-export.md)）。
+考察を求めて合言葉を添えた要求（#470）には、APIキーのあるserverと同じ答え（レポートのデータ・根拠と、中継のOpusの考察を中核が確かめたもの）を返します（[pdf-report-export.md](pdf-report-export.md)）。
 
 `native/wasm/tests/node_api_answers.mjs`が1つの分岐の確かめを、`node_interventions.mjs`が子と2つの分岐（共通の範囲の外を含む）の確かめを、serverの答えと比べます。

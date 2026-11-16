@@ -21,8 +21,9 @@
 //                                            (#306); GET runs/{run} then holds the fork's `last_fork`;
 //                                            a preview's text is read with the LLM through the site's
 //                                            relay when the request carries the passphrase (#470)
-//   POST runs/{run}/branches/{branch}/questions   js/questions.mjs (#308): the answer without an API key,
-//                                            or with the passphrase, the LLM's through the relay (#470)
+//   POST runs/{run}/branches/{branch}/questions   js/questions.mjs (#308): with the passphrase, the LLM's
+//                                            answer through the relay (#470); without it, 409
+//                                            question_offline as the server without an API key (#585)
 //   POST runs/{run}/delete                   the Run removed (#376), as the server's
 //   GET  runs/{run}/branches/{branch}/conversations   the questions and answers kept (#376)
 //   POST runs/{run}/pdf-report               the server's checks, then its answer without an API key:

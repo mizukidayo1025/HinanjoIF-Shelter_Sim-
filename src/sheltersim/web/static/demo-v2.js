@@ -5,13 +5,13 @@
   "use strict";
   const app = window.HinanjoApp;
   const {
-    state, $, num, el, uiIcon, branchBase, api, note, computeTargets, loading, action, on, show,
+    state, $, num, el, uiIcon, api, note, computeTargets, loading, action, on, show,
     controls, hits, drawAll, keepPassphrase, showApi, refreshApi, applyLlm, enableApi, openExamples,
     newScenario, invalidateScenario, previewScenario, approveScenario, stopPlayback, renderKpis,
     renderKpiStrip, refreshRuns, refreshRun, seek, renderFrame, togglePlayback, computeToEnd,
     cancelCompute, personSummary, renderPeople, selectPerson, invalidateIntervention, comparing,
     pickForkTime, previewIntervention, applyIntervention, loadComparison, loadMultiCompare,
-    resetChat, showMode, loadReport, askQuestion, saveReport, copyScenario,
+    resetChat, loadReport, askQuestion, saveReport, copyScenario,
   } = app;
   document
     .querySelectorAll("[data-page]")
@@ -422,7 +422,6 @@
       await refreshRuns();
       if (state.run) {
         await refreshRun();
-        showMode(await api(`${branchBase()}/llm-status`));
       }
     } else if (state.run) {
       state.run = null;

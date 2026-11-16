@@ -68,13 +68,13 @@ SHELTERSIM_LLM_MODE=record SHELTERSIM_LLM_ERROR_POLICY=stop \
 | 同期比較 | GET R/compare?branch_ids=A,B&minute=M | 実装済み / parentとchildを共通時刻・レイヤー・ズームで比較 |
 | 記録・出典（記録・モデル・係数・出典・作用・LLMの利用） | GET R、GET R/evidence、GET B/llm-status、GET P/contracts、GET R/usage | 「記録・出典」の画面。シナリオの記録（開いているシナリオの条件、条件の版とhash、seed、モデルの版の署名）、分岐の系譜、evidenceのモデルと係数（根拠の等級・値・単位・範囲・出典）、出典と仮定、介入で使える作用の型、LLMの利用を出す。AGENTS.mdの「provenanceを対応する参照画面に残す」に当たる。ブラウザー版は`contracts`・`usage`に答えないので、作用の型と呼び出しの数の代わりにその旨を出す（#376） |
 | シナリオの削除、同じ条件で新しいシナリオ | POST R/delete（`confirmation`はRunのID）、POST P/runs（同じScenarioとseed） | 削除はホームの一覧の「削除」（#440）。記録・出典の「シナリオの記録」に「同じ条件で新しいシナリオを作る」を置く（自分のProjectのシナリオだけ、#376・#502） |
-| 過去の質問と回答 | GET B/conversations | レポートを開くと、その分岐でこれまでにした質問と回答（最後の100件）を、質問の欄の上に出す（#376） |
+| 過去の質問と回答 | GET B/conversations | レポートを開くと、その分岐でこれまでにした質問と回答（最後の100件）を、質問の欄の上に出す（#376）。API が OFF でも読める |
 | 2〜8分岐の同時比較 | GET R/compare?branch_ids=A,B,…&minute=M | 分岐比較の画面の「ほかの分岐とも並べる」。選んだ分岐（元のシナリオを左端）を、共通の計算済みの時刻（表示中の時刻が入ればその時刻）の指標の表で並べ、左端との差を出す（#376） |
 | 両分岐を先へ計算 | POST R/resumeを順番に実行 | 実装済み / 共通の目標まで計算後compareを取得 |
 | KPI差分 | compare.differences | 実装済み / ストレス、トイレ待ち時間の直近24時間平均、稼働比率、未解決支援要請の符号付き差分 |
 | 折れ線グラフ | GET B/history?kind=kpis | 実装済み / tick終了時記録を標本化・ページ取得。マップのtick直前境界と区別 |
 | Branch report・出典・モデル | GET B/report、GET R/evidence、GET B/llm-status | 実装済み / 途中・未生成・fallback・利用不可を区別 |
-| 結果Q&A | POST B/questions | 実装済み / factsとexplanations・出典・制限を区別。offlineは回答生成不可を表示 |
+| 結果Q&A | POST B/questions | 実装済み / factsとexplanations・出典・制限を区別。API が ON のときだけ使える（#585）：質問の欄と候補のボタンは`<fieldset data-needs-api>`の中で、OFF のときは操作できず「API を ON にすると使えます」を出す。ON なのに中継・APIが答えないときは理由を出して失敗にする（決まった答えに切り替えない） |
 | レポート保存 | 上記データからJSON書出し | ブラウザー実装 / 記録とモデル根拠を保存 |
 | 感染症リスク、情報到達率 | 共通の正式KPIなし | 未提供 / 数値や「高・中・低」を捏造しない |
 | PDF出力・チーム共有 | 専用APIなし | 本UIでは提供しない。操作不能な飾りボタンを配置しない |

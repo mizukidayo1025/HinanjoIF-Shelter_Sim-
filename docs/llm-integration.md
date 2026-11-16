@@ -17,6 +17,8 @@ Anthropicへ接続するのはsrc/sheltersim/llm/anthropic_adapter.pyだけで�
 
 AIを使う機能は、画面では`<fieldset class="needs-api" data-needs-api>`で操作を囲みます。OFFのとき（確かめる前も）はfieldsetごと操作できなくし、上に「API を ON にすると使えます」と示します（`demo-v2-home.js`の`applyLlm`）。どの機能をこう囲むかは、#580の各Issueで機能ごとに決めます。
 
+- 結果への質問（#585）：レポートの頁の質問の欄と候補のボタンを囲みます。これまでの質問と回答（`…/conversations`）は囲まず、OFFでも読めます。経路も、APIキー（ブラウザー版は合言葉）がなければ409 `question_offline`で断ります。ブラウザー版でONなのに中継が答えない（合言葉が通らない、中継にAPIキーがない、その日の上限、APIの誤り）ときは、409 `question_llm_failed`で理由を示して失敗にし、決まった答えに切り替えません。ローカル版・VM版は`SHELTERSIM_LLM_ERROR_POLICY`に従います。
+
 ## 対応する段階
 
 - 準備段階では合成Scenarioやprofile案を作れます。結果はpreviewであり、利用者が確認して同じhashを明示承認します。
@@ -126,7 +128,7 @@ tickの中でLLMに問い合わせる規則（支援要請の優先度`_prioriti
 - 計算の終わりのレビュー（`answers::report`）：LLMで計算したRunのBranchが終わったとき、計算のworkerが、終わりの分のRunから証拠（最後のKPI、重要なイベント、Scenarioの仮定のID）と作業（`run_review`、`evidence-review-v1`）を作り、Runのrouterに問い合わせ、答えの符号を証拠と照らしてreportを保存してから、Branchを`completed`にします（`web/worker_process.py`の`review`）。合えば`validated`、合わなければ`rejected`（理由つき）、代替なら`rule_fallback`です。markdownは証拠の値と決まった語だけで作り、モデルの文は入りません。比べるBranchのない証拠なので、増減（`increase`など）を答えた符号は`rejected`になります。問い合わせに失敗してもBranchは`completed`のままで、reportは最初に読まれたときにLLMなしで作ります。LLMなしのRun（画面のofflineのRun、offlineの実験）は、今までどおり最初に読まれたときに作ります。
 - 介入の文章の読み取り（`interpret::Compiling`、`answers::interventions::PreviewPlan::compiling`）：APIキーのあるサーバーでは、#463より前のPythonの`compile_natural_language`と同じ作業（`intervention_compiler`、介入のstage、`geometry-population-effect-compiler-v2`、入力の上限64 KiB）で読みます。LLMに示す作用は、中核が確かめて予定できる6つ（`facility_outage`、`add_staff`、`add_toilet`、`water_outage`、`add_evacuees`、`depart_evacuees`、`program::supports`）のうち、その分岐の方策と対象で使えるものだけです。ほかの作用の案は、プレビューも適用もできないためです。答えは、状態ごとの決まり、作用の対象・時刻・上限、中核のEffectProgramの契約で確かめ、断られた案は誤りを添えて1回だけ直してもらいます（`intervention_repair`、`h07-opus-effect-compiler-v1-repair1`）。受け付けた案がないときは規則で読み、その理由を`limitations`に書きます。routerが止める設定（`SHELTERSIM_LLM_ERROR_POLICY=stop`）では、規則に替えず409 `intervention_compiler_unavailable`で断ります。Opusが区域を聞き返し、規則がシナリオのデータから区域を決められるときは、規則の案を使います（#35）。採用した応答はRunの`compiler-tape.json`に保存します。
 - PDFレポートの考察（`answers::pdf`、`PdfPlan`・`PdfAnalysis`）：レポートのデータ（条件、各BranchのKPI・時系列・問題の継続・記録したイベントと介入、B−Aの差）と、LLMが引用できる根拠（facts。利用者の名前・場所・ID・自由な文は送らない別名だけ）を中核が作り、作業（`pdf_analysis`、`pdf-analysis-ja-v1`、Opus）を問い合わせます。答えはOpusであること、schema、各段落の根拠ID、数値・引用・因果断定の表現、仮説と提案の文末で確かめ、通らなければ409で断ってレポートを作りません。道の答えはデータ・根拠・確かめた分析のJSONで、画面が印刷用ページに並べます（#470、[pdf-report-export.md](pdf-report-export.md)）。保存はPythonです。
-- ローカル版・VM版の口は、Runの利用枠で数える`RouterLink`です（`sheltersim.llm.link.analysis_link`）。採用した応答はRunの`analysis-tape.json`に保存するので、replay modeでは、同じ証拠への同じ問い合わせにProviderを呼ばずに同じ答えを返します。APIキーがない（effective modeがofflineの）サーバーは口を作らず、今までと同じbytesの答え（ブラウザー版と同じ）を返します。
+- ローカル版・VM版の口は、Runの利用枠で数える`RouterLink`です（`sheltersim.llm.link.analysis_link`）。採用した応答はRunの`analysis-tape.json`に保存するので、replay modeでは、同じ証拠への同じ問い合わせにProviderを呼ばずに同じ答えを返します。APIキーがない（effective modeがofflineの）サーバーは口を作らず、今までと同じbytesの答え（ブラウザー版と同じ）を返します。ただし結果への質問は、確かめの後に409 `question_offline`で断り、会話の記録も残しません（#585）。
 - ブラウザー版は、中核の作業のJSONをそのまま中継に送ります（#470、下の「ブラウザー版の中継」の「中核の作業」）。中継は作業を中核の作業目録と照らし、プロンプトはPythonのrouterと同じに作ります。ブラウザーは、結果への質問と介入の文章の読み取りを中継に頼みます（[project-persistence.md](project-persistence.md#ブラウザーの比較と質問307308)）。分析レポート（PDF）の考察も中継に頼みます（[pdf-report-export.md](pdf-report-export.md)）。
 
 ## ブラウザー版の中継（#419）

@@ -11,17 +11,6 @@
   function resetChat() {
     $("chat").replaceChildren(chatWelcome.cloneNode(true));
   }
-  // How the open Run answers questions (its LLM mode), on the report's chat.
-  function showMode(llm) {
-    state.mode = llm?.mode ?? null;
-    $("chat-mode").textContent = !llm
-      ? "回答の作り方は、シナリオを開くと表示します"
-      : llm.mode === "record"
-        ? "Claude APIに接続して回答を生成します"
-        : llm.mode === "replay"
-          ? "記録したAPIの応答を再生して回答します"
-          : "APIキーのない環境のため、質問にはAIの回答を作れません。レポートと記録は確かめられます";
-  }
   async function loadHistory() {
     const lo = lower(),
       hi = upper(),
@@ -59,7 +48,6 @@
     if (scope !== state.scope) return;
     state.report = report;
     state.evidence = evidence;
-    showMode(llm);
     $("report-status").textContent =
       report.status === "rule_fallback"
           ? "規則による代替レポート"
@@ -300,5 +288,5 @@
     note("レポートを開きました。印刷画面で「PDFに保存」を選ぶと、PDFとして保存できます。", "success");
     printReport(report);
   }
-  Object.assign(app, { resetChat, showMode, loadReport, askQuestion, saveReport });
+  Object.assign(app, { resetChat, loadReport, askQuestion, saveReport });
 })();

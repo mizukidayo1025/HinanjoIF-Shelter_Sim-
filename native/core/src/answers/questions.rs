@@ -1,14 +1,15 @@
-//! `POST runs/{run}/branches/{branch}/questions` (#308): the answer to a question about a branch's
-//! results without an API key: the request's checks, the evidence's checks (a completed branch, the
-//! minute, the selected person, the branches compared), the fixed answer that no question can be
-//! answered without the Claude API, the context of the question and its id, and the turn the caller
-//! keeps in the branch's stored Run.
+//! `POST runs/{run}/branches/{branch}/questions` (#308): a question about a branch's results:
+//! the request's checks, the evidence's checks (a completed branch, the minute, the selected person,
+//! the branches compared), then the question asked of an LLM (`ask`, #463) with the context of the
+//! question and its id, and the turn the caller keeps in the branch's stored Run. Without an LLM
+//! the question is refused once it passes its checks (`offline`, #585): no answer is made and no
+//! turn is kept.
 //!
 //! `QuestionPlan::new` checks the request and the branch; the caller makes the branch's frame at
 //! `QuestionPlan::minute`; `check_frame` checks the person; where `comparison_branch_ids` names
-//! branches, the caller checks their comparison (`frames::comparison_range`, the receipts);
-//! `answer` gives the answer and the turn. The context's id is "c", the first 32 hex digits of the
-//! sha256 of the context's JSON, "-" and 24 random hex digits (the caller's), or the id the
+//! branches, the caller checks their comparison (`frames::comparison_range`, the receipts); then
+//! `ask` builds the task, or `offline` refuses. The context's id is "c", the first 32 hex digits
+//! of the sha256 of the context's JSON, "-" and 24 random hex digits (the caller's), or the id the
 //! request gave when it is of the same context.
 
 use serde_json::{json, Map, Value};
@@ -22,8 +23,7 @@ use crate::llm::{Task, RESULT_QUESTION};
 
 const MAX_QUESTION: usize = 2000;
 const ALLOWED: [&str; 9] = ["run_id", "project_id", "comparison_branch_ids", "demo_branch_id", "branch_id", "minute", "agent_id", "question", "context_id"];
-const ANSWER: &str = "Claude APIが利用できないため、結果に関する質問へ回答できません。レポートと記録済み根拠は引き続き確認できます。";
-const LIMITATION: &str = "LLM is unavailable; no answer was generated.";
+const OFFLINE: &str = "question_offline: 結果への質問にはAPIの接続が必要です。APIをONにすると使えます。";
 
 /// Python's `str.isspace` of a character.
 fn is_space(c: char) -> bool {
@@ -202,21 +202,10 @@ impl QuestionPlan {
         }
     }
 
-    /// The answer and the turn to keep (its JSON): `random` 24 hex digits for a new context's id,
-    /// `turn_id` the turn's id (`t-` and the time in nanoseconds, `-` and 8 random hex digits).
-    pub fn answer(&self, random: &str, turn_id: &str) -> (Vec<u8>, Vec<u8>) {
-        let context = self.context();
-        let (context_id, _) = self.context_id(&context, random);
-        let usage = b"{\"api_request_count\":0,\"estimated_cost_usd\":0}".to_vec();
-        let limitations = list([string(LIMITATION)]);
-        let mut result = Obj::new();
-        result.str("answer", ANSWER).raw("sources", b"[]".to_vec()).raw("limitations", limitations.clone()).str("mode", "offline");
-        result.null("model").raw("usage", usage.clone()).str("context_id", &context_id).raw("context", context.clone()).str("availability", "unavailable");
-        let mut turn = Obj::new();
-        turn.str("turn_id", turn_id).str("question", &self.stored).str("answer", ANSWER).raw("evidence", b"[]".to_vec());
-        turn.raw("limitations", limitations).raw("usage", usage).null("model_version").int("minute", self.minute());
-        turn.str("conversation_id", &context_id).raw("claims", b"[]".to_vec()).raw("context", context).raw("sources", b"[]".to_vec());
-        (result.finish(), turn.finish())
+    /// The refusal of a question without an LLM (#585), after the checks: no answer is made and
+    /// no turn is kept.
+    pub fn offline(&self) -> Failure {
+        Refusal::storage(OFFLINE).into()
     }
 
     /// The question asked of an LLM (#463), after the checks (`check_frame` and the comparison's):
@@ -224,8 +213,8 @@ impl QuestionPlan {
     /// its recent events), the comparison's answer at that minute where branches are compared
     /// (`Comparison::answer`, None otherwise), the Run's `evidence.json` (the models and their
     /// interpretation; None where it has none) and Scenario, and the branch's kept turns (its
-    /// "conversations" pieces, decompressed) for the context's recent questions. `random` is as
-    /// `answer`'s.
+    /// "conversations" pieces, decompressed) for the context's recent questions. `random` is 24
+    /// hex digits for a new context's id.
     pub fn ask(&self, frame: &[u8], comparison: Option<&[u8]>, evidence: Option<&[u8]>, scenario: &[u8], turns: &[&[u8]], random: &str) -> Answer<Asking> {
         let minute = self.minute();
         let frame = json_of(frame)?;

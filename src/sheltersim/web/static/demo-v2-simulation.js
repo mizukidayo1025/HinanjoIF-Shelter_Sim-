@@ -9,7 +9,7 @@
     setPlayLabels, loading, action, show, controls, drawAll, runNames,
   } = app;
   const {
-    renderPeople, invalidateIntervention, pairIds, loadComparison, resetChat, showMode,
+    renderPeople, invalidateIntervention, pairIds, loadComparison, resetChat,
   } = app.later;
   function stopPlayback(preserve = false) {
     state.playing = false;
@@ -72,7 +72,6 @@
     $("person-detail").replaceChildren();
     showOpenName("");
     state.scenario = null;
-    showMode(null);
   }
   function renderKpis(container, kpis, defs = metricDefs) {
     container.replaceChildren();

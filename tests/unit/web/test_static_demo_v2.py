@@ -107,3 +107,17 @@ def test_the_screen_s_files_receive_only_what_another_file_gives():
     if node is not None:
         for name in order:
             subprocess.run([node, "--check", str(static / name)], check=True)
+
+
+def test_the_result_questions_need_the_api_but_their_history_does_not():
+    """The question input and its suggestions are in a `[data-needs-api]` fieldset, disabled while
+    the API is OFF (#585); the questions asked before (`#chat`) stay outside it, readable."""
+    import re
+
+    html = Path("src/sheltersim/web/static/demo-v2.html").read_text(encoding="utf-8")
+    box = re.split(r'<fieldset class="needs-api" data-needs-api>\s*<form id="question-form">', html)
+    assert len(box) == 2, "the question form opens its own needs-api fieldset"
+    inside = box[1].split("</fieldset>")[0]
+    assert 'id="question"' in inside and 'id="ask"' in inside
+    assert inside.count("data-question=") == html.count("data-question=") == 2
+    assert 'id="chat"' in box[0] and 'id="chat"' not in inside

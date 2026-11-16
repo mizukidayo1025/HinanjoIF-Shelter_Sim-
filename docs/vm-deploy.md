@@ -58,7 +58,7 @@ sudo systemctl restart 'sheltersim@*'
 
 審査員が計算を待たずに新しい画面を試せるよう、計算済みのProject `sample`を各slotに入れます。中身は`scripts/build_project_sample.py`が作ります。
 
-- Scenarioは、新しい画面の「例文を使う」が入れる文章（墨田区、地震、避難者100人、7日間）から、画面と同じ`scenario-preview`（offline parser）で作った合成のScenarioです。標準の合成施設（トイレ`toilet_01`〜`toilet_03`と`accessible_toilet_01`など）と人の座標を持つため、地図に人が表示されます。seedは2026です。地域の公開データの調べは、結果が日によって変わるため行いません（Scenarioの記録にその旨が残ります）。
+- Scenarioは、新しい画面の「例文を使う」が入れる文章（墨田区、地震、避難者100人、7日間）から、`scenario-preview`（offline parser）で作った合成のScenarioです（画面は#583から、文をAIでだけ読みます）。標準の合成施設（トイレ`toilet_01`〜`toilet_03`と`accessible_toilet_01`など）と人の座標を持つため、地図に人が表示されます。seedは2026です。地域の公開データの調べは、結果が日によって変わるため行いません（Scenarioの記録にその旨が残ります）。
 - そのRunを最後まで計算した`main`と、4日目14:00（5160分）に「Day 4 14:00 toilet_01 outage」を承認して分岐し、最後まで計算した分岐です。以前の画面の事前計算replay（#376でなくしました）と同じ種類の比較を、画面が読めるProjectの形で保存したものです。実際の避難所の記録や予測ではありません。
 - 新しい画面と同じProjectAPIの操作（Scenarioのプレビューと承認、終わりまでの計算、offline parserでの介入プレビュー、明示承認での適用、分岐の計算）で作ります。LLMはofflineに固定し、APIキーを渡さず、共有の利用台帳（`XDG_STATE_HOME`）にも触れません。同じアプリのcommitなら、何度作っても結果のhashは同じです。
 - `setup.sh`は、`sheltersim`利用者として`/var/lib/sheltersim/sample`に作ります（`sample-build.json`にRun ID・分岐・先頭のhash・中核のdigest・大きさを残します）。作り直すのは、今作ると結果が変わるときだけです。`build_project_sample.py --check`が計算せずに、作り方（文章・ID・分岐の時刻・介入）、文章から作るシナリオのhash、中核が今そのScenarioについて記録するモデルの版と、保存したRunに記録した版を比べます（違えば閲覧のみのRunなので作り直します）。#427より前に作った例（PythonのCheckpointと履歴の索引）は読めないので、作り直します。介入の文章をオフラインで読む規則を変えたときは比べないので、`SAMPLE=rebuild`を付けて作り直します。その後、`sample`のないslotにだけコピーします。すでにあるslotの`sample`は、審査員が足した分岐を消さないよう置き換えません。作り直した例に替えるときは、そのslotを`reset-slot.sh`で戻します。作らないときは`sudo SAMPLE=0 bash sheltersim-kit/deploy/vm/setup.sh`のように実行します（元も消します。slotのコピーは残ります）。

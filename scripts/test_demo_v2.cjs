@@ -85,7 +85,10 @@ async function main() {
     await page.waitForLoadState("networkidle");
     await idle();
     assert(await page.locator("#approve").isDisabled());
-    await page.locator("#example").click();
+    // The form's conditions; the text is the AI's option, off on an offline server (#583).
+    await page.locator("#municipality").fill("墨田区");
+    await page.locator("#disaster").selectOption("地震");
+    await page.locator("#evacuees").fill("100");
     await page.locator("#duration").fill("0.025");
     await page
       .locator("summary")
@@ -98,7 +101,8 @@ async function main() {
     assert(
       (await page.locator("#preview-summary").innerText()).includes("100人"),
     );
-    await page.locator("#example").click();
+    await page.locator("#food").fill("");
+    await page.locator("#water").fill("");
     await page.locator("#municipality").fill("墨田区");
     await page.locator("#disaster").selectOption("地震");
     await page.locator("#evacuees").fill(process.env.UI_POPULATION || "100");

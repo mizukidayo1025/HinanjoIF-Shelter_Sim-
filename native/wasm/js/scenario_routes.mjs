@@ -16,9 +16,11 @@
 //   task `scenario_text` and the core reads the answer (`parseScenarioTextAnswer`: the answer
 //   checked against the task's schema, read back and merged with the rules' values; source
 //   `prepare_llm`, or the rules' fallback). When the relay cannot answer (no passphrase it lets in,
-//   the day's cap reached, the API unreachable) or the answer holds a condition the browser does
-//   not compute, the text is read without it, as offline, and the answer's `warnings` say why
-//   first. `llm_usage` is the record mode's (the call and its cost); the call's record (model,
+//   the day's cap reached, the API unreachable), the preview fails with the relay's reason (#583:
+//   with the API on, the text is not read by the rules instead; the screen's form makes the same
+//   Scenario without the text). When the answer holds a condition the browser does not compute,
+//   the text is read without it, as offline, and the answer's `warnings` say why first.
+//   `llm_usage` is the record mode's (the call and its cost); the call's record (model,
 //   prompt version, tokens, cost, outcome) is kept in the preparation account (`llm_calls`), which
 //   the Run is bound to on approval. The passphrase is never stored.
 // - approve: the draft read back and checked as Python checks it; the Scenario saved
@@ -66,6 +68,9 @@ const RELAY_TASK = "/llm/v1/tasks/scenario_text";
 /// `fetch` of a path of the site the Worker is served from.
 const unsupported = (what) => new ApiError(409, `${UNSUPPORTED}（${what}）`, "browser_unsupported");
 const invalid = () => new ApiError(400, "invalid project request");
+/// The preview's failure when the relay does not answer: its reason, and how to go on.
+const relayFailure = (status, why, code) =>
+  new ApiError(status, `AIで文章を読み取れませんでした：${why} 文章を消すと、項目だけでプレビューできます。`, code);
 
 /// JSON text put into Python's JSON as it is.
 export class RawJson {
@@ -149,9 +154,10 @@ export class ScenarioRoutes {
 
   // ---- The text read with the LLM (#421) ----
 
-  /// The text read with the relay's answer: `{ parsedText, usage, note, call }`. A relay that does
-  /// not answer, or an answer with a condition the browser does not compute, leaves the offline
-  /// read (`parseScenarioText`) with a note of why.
+  /// The text read with the relay's answer: `{ parsedText, usage, note, call }`, or
+  /// `{ failure, call }` (an `ApiError` with the reason) when the relay does not answer. An answer
+  /// with a condition the browser does not compute leaves the offline read (`parseScenarioText`)
+  /// with a note of why.
   async readWithLlm(text, passphrase) {
     const offline = () => this.wasm.parseScenarioText(text);
     const usage = (count, spent) => ({ mode: "record", api_request_count: count, spent_usd: new PyFloat(spent) });
@@ -165,14 +171,12 @@ export class ScenarioRoutes {
       });
       body = await response.json().catch(() => null);
     } catch {
-      return { parsedText: offline(), usage: usage(0, 0), note: "AIの中継に接続できなかったため、AIを使わずに読み取りました。", call: { outcome: "relay_unreachable" } };
+      return { failure: relayFailure(502, "AIの中継に接続できませんでした。", "llm_relay_unreachable"), call: { outcome: "relay_unreachable" } };
     }
     if (!response.ok || typeof body?.output_text !== "string") {
       const code = typeof body?.code === "string" ? body.code : `http_${response.status}`;
-      // The relay counts a call that reached the API (its answer refused or unreadable).
-      const called = code === "llm_provider_error" || code === "llm_provider_unreachable" ? 1 : 0;
       const why = typeof body?.error === "string" ? body.error : `中継が答えませんでした（HTTP ${response.status}）。`;
-      return { parsedText: offline(), usage: usage(called, 0), note: `AIを使わずに読み取りました：${why}`, call: { outcome: code } };
+      return { failure: relayFailure(response.ok ? 502 : response.status, why, code), call: { outcome: code } };
     }
     const cost = Number(body.usage?.cost_usd) || 0;
     const call = {
@@ -302,6 +306,10 @@ export class ScenarioRoutes {
       try {
         if (llm) {
           const read = await this.readWithLlm(text, llm);
+          if (read.failure) {
+            await this.recordCall(projectId, draftId, read.call);
+            throw read.failure;
+          }
           parsedText = read.parsedText;
           llmUsage = read.usage;
           if (read.note) relayNotes = [read.note];

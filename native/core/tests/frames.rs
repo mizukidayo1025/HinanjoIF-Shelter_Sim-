@@ -91,3 +91,41 @@ fn a_frame_names_the_digest_its_caller_holds_and_changes_nothing() {
     assert_eq!(run.digests().unwrap(), before);
     run_to(&mut run, 41);
 }
+
+/// The KPI history's rows of the Run's samples so far (`history::KpiTable`), as a stored Run's.
+fn history_row(run: &PlainRun, minute: i64) -> Value {
+    use sheltersim_core::history::{KpiQuery, KpiTable};
+    let (packer, blocks) = run.host.samples.store();
+    let mut tables = Vec::new();
+    packer.write_tables(0, 0, &mut tables);
+    let mut table = KpiTable::new();
+    table.read_tables(&tables).unwrap();
+    for block in blocks.blocks() {
+        table.read_block(block).unwrap();
+    }
+    let query = KpiQuery { start: minute, end: minute, step: 1, limit: 1, after: None, filtered: false, run_id: "run", branch_id: "main" };
+    let rows: Vec<Value> = serde_json::from_slice(&table.page(&query).unwrap().items).unwrap();
+    rows.into_iter().next().unwrap()
+}
+
+#[test]
+fn a_frame_s_recent_toilet_wait_is_the_history_s_of_the_tick_before() {
+    // #448: the frame at a minute is of the world before that minute's tick, so its window of the
+    // last 24 hours ends with the tick before, as the history's row of that minute does.
+    // The world `arrivals`, run a little past its day.
+    let mut entry = PlainRun::entry_of_worlds_json(&read("frames"), "arrivals").unwrap();
+    entry["world"]["duration_minutes"] = Value::from(1800);
+    let mut run = PlainRun::of_entry(&entry).unwrap();
+    let mut differed = false;
+    for minute in [30, 1440, 1441, 1500, 1700] {
+        run_to(&mut run, minute);
+        let frame: Value = serde_json::from_slice(&run.frame(&request(minute, StateHash::Omitted)).unwrap()).unwrap();
+        let row = history_row(&run, minute - 1);
+        let key = "toilet_wait_mean_24h_minutes";
+        assert_eq!(frame["kpis"][key], row[key], "at {minute}");
+        assert_eq!(frame["kpis"]["toilet_wait_count"], row["toilet_wait_count"], "at {minute}");
+        differed |= frame["kpis"][key] != frame["kpis"]["toilet_wait_mean_minutes"];
+    }
+    // Past 24 hours the window leaves out the first day's waits.
+    assert!(differed);
+}

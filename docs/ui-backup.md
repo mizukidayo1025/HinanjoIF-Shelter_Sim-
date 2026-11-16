@@ -70,7 +70,7 @@ SHELTERSIM_LLM_MODE=record SHELTERSIM_LLM_ERROR_POLICY=stop \
 | 過去の質問と回答 | GET B/conversations | レポートを開くと、その分岐でこれまでにした質問と回答（最後の100件）を、質問の欄の上に出す（#376） |
 | 2〜8分岐の同時比較 | GET R/compare?branch_ids=A,B,…&minute=M | 分岐比較の画面の「ほかの分岐とも並べる」。選んだ分岐（元のシナリオを左端）を、共通の計算済みの時刻（表示中の時刻が入ればその時刻）の指標の表で並べ、左端との差を出す（#376） |
 | 両分岐を先へ計算 | POST R/resumeを順番に実行 | 実装済み / 共通の目標まで計算後compareを取得 |
-| KPI差分 | compare.differences | 実装済み / ストレス、累積最大待機時間、稼働比率、未解決支援要請の符号付き差分 |
+| KPI差分 | compare.differences | 実装済み / ストレス、トイレ待ち時間の直近24時間平均、稼働比率、未解決支援要請の符号付き差分 |
 | 折れ線グラフ | GET B/history?kind=kpis | 実装済み / tick終了時記録を標本化・ページ取得。マップのtick直前境界と区別 |
 | Branch report・出典・モデル | GET B/report、GET R/evidence、GET B/llm-status | 実装済み / 途中・未生成・fallback・利用不可を区別 |
 | 結果Q&A | POST B/questions | 実装済み / factsとexplanations・出典・制限を区別。offlineは回答生成不可を表示 |

@@ -124,7 +124,13 @@ struct Reads {
 
 /// The frame of the world now, as canonical JSON. `rng_state` is the world document's, which the
 /// digest reads where `request` gives none. It changes nothing.
-pub fn frame<C: WorldCell, H: Host>(cell: &C, host: &mut H, request: &Request<'_>, rng_state: &V) -> std::result::Result<Vec<u8>, H::Error> {
+pub fn frame<C: WorldCell, H: Host>(
+    cell: &C,
+    host: &mut H,
+    request: &Request<'_>,
+    rng_state: &V,
+    before: Option<&MetricSample>,
+) -> std::result::Result<Vec<u8>, H::Error> {
     let holding = kit::holding(cell, host)?;
     let staff = Staff::of(&holding)?;
     let staff_inputs = staff.inputs(None);
@@ -175,7 +181,8 @@ pub fn frame<C: WorldCell, H: Host>(cell: &C, host: &mut H, request: &Request<'_
         StateHash::Omitted => None,
     };
     let made = cell.with(|world| -> Result<Vec<u8>> {
-        let frame = build(world, &reads, &waits, &Records { by_position: records, wanted }, request, state_hash)?;
+        let recent = metrics::recent_toilet_wait_mean(&waits.sample, before);
+        let frame = build(world, &reads, &waits, recent, &Records { by_position: records, wanted }, request, state_hash)?;
         V::Map(frame).to_json()
     })?;
     Ok(made?)
@@ -624,8 +631,8 @@ fn legacy_service_point(facility_id: &str, capacity: i64, at: &V) -> Result<V> {
 // ---- The frame ----------------------------------------------------------------------------------
 
 /// The KPIs of a metric sample by name (the sample's columns), the minute first, without
-/// `source_ids_json`.
-pub(crate) fn kpis(sample: &MetricSample, minute: i64) -> Map {
+/// `source_ids_json`, with the recent toilet wait where it is given (#448).
+pub(crate) fn kpis(sample: &MetricSample, minute: i64, recent: Option<f64>) -> Map {
     let mut kpis = Map::new();
     let mut put = |name: &str, value: V| {
         kpis.insert(text(name), value);
@@ -638,6 +645,9 @@ pub(crate) fn kpis(sample: &MetricSample, minute: i64) -> Map {
     put("toilet_wait_total_minutes", V::Float(sample.toilet_wait_total_minutes));
     put("toilet_wait_mean_minutes", V::Float(sample.toilet_wait_mean_minutes));
     put("toilet_wait_max_minutes", V::Float(sample.toilet_wait_max_minutes));
+    if let Some(recent) = recent {
+        put(metrics::RECENT_TOILET_WAIT, V::Float(recent));
+    }
     put("stress_mean", V::Float(sample.stress_mean));
     put("stress_high_count", int(sample.stress_high_count));
     put("staff_assigned_task_count", int(sample.staff_assigned_task_count));
@@ -744,7 +754,7 @@ fn occupancy_zones(world: &World, reads: &Reads, configs: &Map) -> Result<Vec<V>
 }
 
 /// The frame's fields; `state_hash` is `null` where it is None.
-fn build(world: &World, reads: &Reads, waits: &Waits, records: &Records, request: &Request<'_>, state_hash: Option<Arc<str>>) -> Result<Map> {
+fn build(world: &World, reads: &Reads, waits: &Waits, recent: f64, records: &Records, request: &Request<'_>, state_hash: Option<Arc<str>>) -> Result<Map> {
     let minute = world.minute_index()?;
     let duration = world.duration_minutes()?;
     let configs_row = world.slots.try_row::<ValueRow>(MODEL_CONFIGS)?;
@@ -787,7 +797,7 @@ fn build(world: &World, reads: &Reads, waits: &Waits, records: &Records, request
     };
     let (agents, mut people) = agents_and_people(inputs)?;
 
-    let mut kpis = resource_kpis(world, reads, waits, minute)?;
+    let mut kpis = resource_kpis(world, reads, waits, recent, minute)?;
     let pending: Vec<V> = match part(dynamics.as_ref(), "pending_arrivals") {
         Some(V::List(pending)) => pending,
         Some(_) => return Err(Error::unsupported("the pending arrivals are not a list")),
@@ -1067,8 +1077,8 @@ fn person_entry(inputs: PersonInputs<'_, '_>, id: &&Arc<str>, agent: &AgentRow) 
 }
 
 /// The minute's KPIs, with the resource balances where the ledger is held.
-fn resource_kpis(world: &World, reads: &Reads, waits: &Waits, minute: i64) -> Result<Map> {
-    let mut kpis = kpis(&waits.sample, minute);
+fn resource_kpis(world: &World, reads: &Reads, waits: &Waits, recent: f64, minute: i64) -> Result<Map> {
+    let mut kpis = kpis(&waits.sample, minute, Some(recent));
     if !reads.holding.is_absent(LEDGER).map_err(Error::unsupported)? {
         let balances = crate::rules::resources::metric_values(world)?;
         for (names, values) in RESOURCE_COLUMNS.iter().zip(&balances) {

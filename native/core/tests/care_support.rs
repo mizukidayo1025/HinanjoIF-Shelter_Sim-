@@ -339,7 +339,7 @@ fn an_assignment_records_its_receipts_and_a_start_where_the_person_waits() {
     // Past the first change, a refusal is the care receipts' KernelRefusal.
     let refused = support::record_assigned(&mut world, &inputs(Held::Other(OTHER_DOCUMENT), false), &assigned);
     assert!(matches!(refused, Err(sheltersim_core::events::writer::WriteError::Error(Error::Refused { ref label, ref reason }))
-        if label == "care_receipts.append_transition" && reason == OTHER_DOCUMENT));
+        if label == "care_receipts.append" && reason == OTHER_DOCUMENT));
 }
 
 // ---- A staff member's support ends ------------------------------------------------------------------

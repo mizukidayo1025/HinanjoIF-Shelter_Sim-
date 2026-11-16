@@ -2504,7 +2504,7 @@
     ],
     "extensions": [
      "KernelRefusal",
-     "facility_queues.request_for_agent refused: the namespace has no row"
+     "facility_queues.queue_journeys refused: the namespace has no row"
     ],
     "validate": [
      "StateInvariantError",

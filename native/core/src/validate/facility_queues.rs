@@ -363,12 +363,12 @@ fn queue_journeys(view: &View<'_>, requests: &Map) -> Result<()> {
         let queue_id = match journey.get("queue_id") {
             None | Some(V::Null) => continue,
             Some(V::Str(queue_id)) => queue_id,
-            Some(_) => return Err(Error::unsupported("request_for_agent refused: a queue ID is not a str")),
+            Some(_) => return Err(Error::Refused { label: "facility_queues.queue_journeys".to_owned(), reason: "a queue ID is not a str".into() }),
         };
         // The kernel reads the namespace's row: a state no row holds (one the typed row refuses)
         // is a refusal, though the lenient loader (`Namespaces::Lenient`) holds it as a value.
         if view.row::<QueuesRow>(KEY)?.is_none() {
-            return Err(Error::Refused { label: "facility_queues.request_for_agent".to_owned(), reason: "the namespace has no row".into() });
+            return Err(Error::Refused { label: "facility_queues.queue_journeys".to_owned(), reason: "the namespace has no row".into() });
         }
         let request = requests.values().find_map(|request| match request {
             V::Map(request)

@@ -74,7 +74,7 @@ const TASK_KINDS: [&str; 5] = ["cleaning", "maintenance", "information_outreach"
 /// The label of the refusal of the route (`travel::route`).
 pub const ROUTE: &str = "travel.route";
 /// The label of the refusal of the support's trip (`travel::schedule_travel`).
-pub const SCHEDULE: &str = "travel.schedule_support_travel";
+pub const SCHEDULE: &str = "travel.schedule_travel";
 /// The label of the refusal of `staff_operation_events::interrupt`.
 pub const INTERRUPT: &str = "staff_operation_events.interrupt";
 /// The refusal of a route resolver that is not the controller's own (`travel::route`).

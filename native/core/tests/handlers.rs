@@ -461,7 +461,7 @@ fn a_stressor_reads_the_spec_through_the_host_and_schedules_its_end() {
     let (held, absent) = (Held::Held, Held::Absent);
     let inputs = InfraIn { infrastructure: &held, operational: &absent, program: &absent };
     let (kind, label) = Infra::of("extreme_heat").unwrap();
-    assert_eq!(label, "infrastructure.start_stressor");
+    assert_eq!(label, "handlers.start_stressor");
     assert_eq!(failed(Infra::of("meteor").map(drop)), "unsupported infrastructure event type 'meteor'");
     let heat = event("heat-on", 1, 10, "extreme_heat", vec![("stressor_id", s("heat")), ("zone_id", s("z1")), ("until_minute", V::Int(30))]);
     let mut host = Writing::default();

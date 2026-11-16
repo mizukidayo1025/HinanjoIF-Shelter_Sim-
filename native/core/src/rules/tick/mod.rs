@@ -11,7 +11,7 @@
 //!
 //! Each step's error carries the label of its kernel (`module.name`, `Failed`), which the Run
 //! reports with the error (`plain::Stopped`). The dispatch phase's refusal is `Error::Refused` of
-//! `dispatch.run_phase` already. No borrow of the world, and no lock of the Run, is held while the
+//! `dispatch.run` already. No borrow of the world, and no lock of the Run, is held while the
 //! host runs (rule R6), and a step reads again what a host call may have changed.
 
 pub mod arbitrate;

@@ -956,7 +956,7 @@ fn append_interrupted(world: &mut World, shared: &Held, transition: Transition) 
         Held::Other(reason) => Err(Error::unsupported(*reason)),
         Held::Held => care_receipts::append(world, transition).map_err(plain),
     };
-    appended.map_err(|error| Error::refused("care_receipts.append_transition", error))
+    appended.map_err(|error| Error::refused("care_receipts.append", error))
 }
 
 /// The care receipt of a request: `transition(status)` of the step.

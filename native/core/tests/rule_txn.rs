@@ -605,7 +605,7 @@ fn added_staff_roll_back_on_the_world_s_check() {
     assert_eq!(text, FAILS);
     let operational = map(vec![("staff_status", map(Vec::new()))]);
     let cell = Shard::new(world(Some("add_staff"), vec![("operational_events_v1", operational)]));
-    assert_eq!(effects::add_event(&cell, &mut Recording::default(), &added), Ok("structure.add_staff"));
+    assert_eq!(effects::add_event(&cell, &mut Recording::default(), &added), Ok(()));
     assert_eq!(cell.with(|world| world.rows().unwrap().staff.len()).unwrap(), 3);
 }
 

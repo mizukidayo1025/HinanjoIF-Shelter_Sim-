@@ -68,9 +68,9 @@ pub const SNAPSHOT_UNREAD: &str = "the floor plan or the staff operations of the
 pub const PENDING_UNREAD: &str = "a pending event has no row";
 
 /// The labels of the rules of other files a handler calls, which name their refusals (`by_name`).
-const REGISTER: &str = "overlay.register_temporary_space";
-const APPLY_GEOMETRY: &str = "overlay.apply_geometry_change";
-const PLACE: &str = "overlay.place_installed_facility";
+const REGISTER: &str = "overlay.register_space";
+const APPLY_GEOMETRY: &str = "overlay.apply_change";
+const PLACE: &str = "overlay.place_facility";
 const ANNOUNCE: &str = "agent_dynamics.announce_installed_facility";
 const SNAPSHOTS: &str = "movement.staff_position_snapshots";
 const AVAILABLE: &str = "staff_dynamics.is_available";
@@ -2111,8 +2111,8 @@ fn place_toilet<C: WorldCell, H: Host>(cell: &C, host: &mut H, ins: &AddIn<'_>, 
     }
 }
 
-/// The additions on the transaction's world, and the world's check: the label of the branch.
-pub fn write_add<C: WorldCell, H: Host>(cell: &C, host: &mut H, ins: &AddIn<'_>, plan: &Add) -> std::result::Result<&'static str, H::Error> {
+/// The additions on the transaction's world, and the world's check.
+pub fn write_add<C: WorldCell, H: Host>(cell: &C, host: &mut H, ins: &AddIn<'_>, plan: &Add) -> std::result::Result<(), H::Error> {
     cell.with(|world| -> Result<()> {
         if plan.staff {
             let room = 100 - world.rows()?.staff.len() as i64;
@@ -2156,7 +2156,7 @@ pub fn write_add<C: WorldCell, H: Host>(cell: &C, host: &mut H, ins: &AddIn<'_>,
         }
     }
     validate(host)?;
-    Ok(if plan.staff { "structure.add_staff" } else { "structure.add_toilet" })
+    Ok(())
 }
 
 // ---- validate_effect_program_state -------------------------------------------------------------
@@ -2721,10 +2721,10 @@ pub fn role_event<C: WorldCell, H: Host>(cell: &C, host: &mut H, row: &EventRow)
     })
 }
 
-/// The `add_staff` and `add_toilet` branches of `EffectProgramStructureHandler.apply`: the label of
-/// the branch. The staff positions read the plan, then the staff's operations, in their own call:
+/// The `add_staff` and `add_toilet` branches of `EffectProgramStructureHandler.apply`. The staff
+/// positions read the plan, then the staff's operations, in their own call:
 /// what either read gave is that call's refusal where the additions need the positions.
-pub fn add_event<C: WorldCell, H: Host>(cell: &C, host: &mut H, row: &EventRow) -> std::result::Result<&'static str, H::Error> {
+pub fn add_event<C: WorldCell, H: Host>(cell: &C, host: &mut H, row: &EventRow) -> std::result::Result<(), H::Error> {
     let program = kit::holding(cell, host)?.held(MARKER, PROGRAM_OTHER);
     let plan = cell.with(|world| plan_add(world, &program, row))??;
     crate::txn::rule_kept(cell, host, crate::txn::TxnKind::Effect, |cell, host| {

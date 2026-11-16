@@ -16,7 +16,7 @@ use super::arbitrate::Staff;
 use super::read::is_refusal;
 use super::{Labelled, RunCell, Step, Tick};
 
-pub const FINALIZE: &str = "action_lifecycle.finalize_active_actions";
+pub const FINALIZE: &str = "action_lifecycle.finalize";
 
 /// The metrics phase.
 pub fn metrics<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R>) -> Step<(), H::Error> {

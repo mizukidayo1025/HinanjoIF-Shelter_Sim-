@@ -12,12 +12,12 @@ const SCHEMA: &str = "agent_dynamics_v1 has an invalid exact schema";
 const RECORD_FIELDS: [&str; 6] = ["known_facility_ids", "last_action", "last_target_id", "last_decision_minute", "decision_due_minute", "decision_reason"];
 
 /// `canonical_agent_dynamics_config(raw)["policy_version"]` (`config::agent_dynamics`): its
-/// ValueError, or its refusal (`Error::Refused`, labelled `agent_dynamics.canonical_config`).
+/// ValueError, or its refusal (`Error::Refused`, labelled `agent_dynamics.canonical_policy`).
 pub fn canonical_agent_dynamics_policy(raw: Option<&V>) -> Result<&'static str> {
     match canonical_policy(raw) {
         Ok(Ok(policy)) => Ok(policy),
         Ok(Err(text)) => Err(Error::Value(text.to_owned())),
-        Err(fault) => Err(Error::Refused { label: "agent_dynamics.canonical_config".to_owned(), reason: fault.text.to_string().into() }),
+        Err(fault) => Err(Error::Refused { label: "agent_dynamics.canonical_policy".to_owned(), reason: fault.text.to_string().into() }),
     }
 }
 

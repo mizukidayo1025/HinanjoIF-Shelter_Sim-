@@ -368,7 +368,7 @@
     ],
     "extensions": [
      "KernelRefusal",
-     "agent_dynamics.canonical_config refused: an unhashable policy"
+     "agent_dynamics.canonical_policy refused: an unhashable policy"
     ],
     "validate": [
      "StateInvariantError",
@@ -1673,7 +1673,7 @@
   {
    "expected": [
     "KernelRefusal",
-    "agent_dynamics.canonical_config refused: an unhashable policy"
+    "agent_dynamics.canonical_policy refused: an unhashable policy"
    ],
    "name": "sig_agent_dynamics_unhashable",
    "world": "sig_agent_dynamics_unhashable"

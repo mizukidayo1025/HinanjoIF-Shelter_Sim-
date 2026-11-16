@@ -28,7 +28,7 @@ pub enum Error {
     Unsupported(Cow<'static, str>),
     /// A labelled refusal: `{label} refused: {reason}` (`refused_text`), made of an
     /// `Unsupported(reason)` by `Error::refused` (lane L10). `label` is `module.name` of the
-    /// kernel.
+    /// core's function that refused (`tests/refusal_labels.rs` checks that it has one).
     Refused { label: String, reason: Cow<'static, str> },
     /// `EventSuppressed(text)` or `EventApplicationError(text)`, marked as made here.
     Outcome(Outcome, String),

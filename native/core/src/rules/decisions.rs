@@ -17,9 +17,9 @@ use crate::world::World;
 /// `ActionProposal.trigger` of a scheduled decision.
 pub const TRIGGER: &str = "scheduled_decision";
 /// The label of the refusal of the lifecycle's rule.
-pub const LIFECYCLE: &str = "action_lifecycle.record_action_proposal";
+pub const LIFECYCLE: &str = "decisions.commit";
 /// The label of the refusal of the memory's rule.
-pub const MEMORY: &str = "agent_dynamics.record_proposal";
+pub const MEMORY: &str = "decisions.remember";
 /// The refusal of a decision whose next decision is due no later than its own minute.
 pub const NOT_AFTER: &str = "a decision's next decision is not after its minute";
 

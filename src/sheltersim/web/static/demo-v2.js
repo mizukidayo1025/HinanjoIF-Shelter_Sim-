@@ -60,19 +60,6 @@
   $("example").addEventListener("click", () => {
     $("scenario-text").value =
       "墨田区で地震が発生。避難者100人、7日間。高齢者や子ども連れの支援ニーズも見たい。";
-    for (const id of [
-      "municipality",
-      "disaster",
-      "evacuees",
-      "duration",
-      "staff-count",
-      "area",
-      "toilets",
-      "food",
-      "water",
-      "facility-type",
-    ])
-      $(id).value = "";
     invalidateScenario();
   });
   $("scenario-check").addEventListener("change", controls);

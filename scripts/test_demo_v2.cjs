@@ -20,10 +20,9 @@ async function main() {
       viewport: { width: 1440, height: 900 },
     });
     const errors = [];
-    let expectingPdfError = false;
     page.on("pageerror", (e) => errors.push(e.message));
     page.on("console", (m) => {
-      if (m.type() === "error" && !expectingPdfError) errors.push(m.text());
+      if (m.type() === "error") errors.push(m.text());
     });
     const project = `e2e-backup-${Date.now()}`;
     async function idle() {
@@ -85,7 +84,10 @@ async function main() {
     await page.waitForLoadState("networkidle");
     await idle();
     assert(await page.locator("#approve").isDisabled());
-    await page.locator("#example").click();
+    // The form's conditions; the text is the AI's option, off on an offline server (#583).
+    await page.locator("#municipality").fill("墨田区");
+    await page.locator("#disaster").selectOption("地震");
+    await page.locator("#evacuees").fill("100");
     await page.locator("#duration").fill("0.025");
     await page
       .locator("summary")
@@ -98,7 +100,8 @@ async function main() {
     assert(
       (await page.locator("#preview-summary").innerText()).includes("100人"),
     );
-    await page.locator("#example").click();
+    await page.locator("#food").fill("");
+    await page.locator("#water").fill("");
     await page.locator("#municipality").fill("墨田区");
     await page.locator("#disaster").selectOption("地震");
     await page.locator("#evacuees").fill(process.env.UI_POPULATION || "100");
@@ -243,17 +246,19 @@ async function main() {
       ),
     );
     await shot("report");
-    // A fresh offline run must show a retryable error, rather than exporting JSON
-    // or presenting deterministic text as an Opus-authored PDF.
+    // Offline, the report opens without Opus's analysis (#582): the option cannot be chosen,
+    // and the print page says there is no analysis rather than presenting text as Opus's.
+    assert.equal(await page.locator("fieldset.report-analysis").isDisabled(), true);
     const pdfResponse = page.waitForResponse((r) => r.url().endsWith("/pdf-report"));
     let downloads = 0;
     page.on("download", () => downloads++);
-    expectingPdfError = true;
     await page.locator("#save-report").click();
-    assert.equal((await pdfResponse).status(), 409);
+    const pdf = await pdfResponse;
+    assert.equal(pdf.status(), 200);
+    assert.equal(JSON.parse(pdf.request().postData()).analysis, false);
     await page.waitForFunction(() => !document.body.classList.contains("is-busy"));
-    expectingPdfError = false;
-    assert((await page.locator("#notice").innerText()).includes("pdf_analysis_offline"));
+    assert((await page.locator(".pr-note").innerText()).includes("AIの考察：なし"));
+    await page.keyboard.press("Escape");
     assert.equal(await page.locator("#save-report").isEnabled(), true);
     assert.equal((await page.locator("#save-report").innerText()).trim(), "↓ レポート保存");
     assert.equal(downloads, 0);

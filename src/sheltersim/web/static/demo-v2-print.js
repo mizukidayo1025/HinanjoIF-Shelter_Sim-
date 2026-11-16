@@ -1,8 +1,9 @@
 /* The report's print page (#470): the answer of `POST runs/{run}/pdf-report` (the core's data,
-   facts and the checked Opus analysis, `PdfAnalysis.report`) laid out as the shared document the
-   PDF used to be (src/sheltersim/web/pdf_render.py before #470), shown over the page and printed
-   with the browser's print (「PDFに保存」 there). Every string of the answer is set as text, never as
-   markup. */
+   facts and the checked Opus analysis, `PdfAnalysis.report`, or no analysis, `null`, #582) laid out
+   as the shared document the PDF used to be (src/sheltersim/web/pdf_render.py before #470), shown
+   over the page and printed with the browser's print (「PDFに保存」 there). Without the analysis
+   the document says so at its top and has none of its sections. Every string of the answer is set
+   as text, never as markup. */
 (() => {
   "use strict";
   const app = window.HinanjoApp;
@@ -84,8 +85,9 @@
     "数値係数の実測校正状況はこのレポートでは未取得です。背景資料の存在は係数の校正根拠を意味しません。仮定IDと出典台帳を照合してください。",
     "単一seedの観測と比較です。複数seed、異なる需要・設備故障・スタッフ条件で追加検証し、適用可能な集計実測データで校正を検討してください。",
     "未計算期間、未取得指標、欠測区間、未選択の比較は評価対象外です。実建物の形状を推測しないため施設マップは掲載していません。",
-    "AI文の根拠参照・数値混入・断定表現を機械検証していますが、自由記述の意味の正確性を完全に証明するものではありません。共有前に担当者が記録と照合してください。",
   ];
+  const AI_LIMIT =
+    "AI文の根拠参照・数値混入・断定表現を機械検証していますが、自由記述の意味の正確性を完全に証明するものではありません。共有前に担当者が記録と照合してください。";
   const label = (table, key) => table[key] ?? key;
   const isNumber = (value) => typeof value === "number" && Number.isFinite(value);
 
@@ -212,9 +214,12 @@
     const add = (node) => (section ?? article).append(node);
     const p = (text, cls) => add(el("p", text, cls));
     const sub = (text) => add(el("h3", text));
+    // The chapters are numbered as they come: without the analysis, its chapter is left out.
+    let chapter = 0;
     const heading = (text) => {
+      chapter += 1;
       section = el("section", null, "pr-section");
-      section.append(el("h2", text));
+      section.append(el("h2", `${String(chapter).padStart(2, "0")}  ${text}`));
       article.append(section);
     };
     // `widths`: each column's share of the line (%), as the former PDF's (equal shares without).
@@ -243,6 +248,7 @@
       add(node);
     };
     const prose = (key, title) => {
+      if (!analysis) return;
       sub(title);
       (analysis.sections[key] ?? []).forEach((paragraph, index) => {
         const prefix = key === "proposals" ? (index === 0 ? "優先案：" : index === 1 ? "代替案：" : "追加案：") : "";
@@ -253,9 +259,14 @@
     };
 
     article.append(el("p", "避難所IF！", "pr-title"));
-    heading("01  エグゼクティブサマリー");
+    heading("エグゼクティブサマリー");
     sub("避難所運営シミュレーション 分析レポート");
     p("目的：シミュレーションの条件・観測結果と検討課題を共有し、設備や人員配置、運営方針の比較検討に活用するための資料です。");
+    if (!analysis)
+      p(
+        "AIの考察：なし。このレポートは、記録した値と条件だけで作りました。AI（Opus）の解釈・仮説・提案は含みません。",
+        "pr-note",
+      );
     p(
       `対象：${branches.length > 1 ? "A/B比較" : "単一シナリオ"} | 評価時刻：${clock(data.range[1])} | ${
         data.partial ? "途中結果（以降は未計算・評価対象外）" : "計算期間の終了時点"
@@ -268,9 +279,13 @@
     for (const b of branches) p(`${alias[b.branch_id]} = ${b.branch_id} / 評価時点の避難者数 ${b.population}人`, "pr-small");
     prose("executive", "AIの要旨・着眼点（仮説）");
     sub("重要な読み方");
-    p("表とグラフは記録に基づく観測値です。AIの解釈・原因候補は仮説、施策は今後の検討提案として掲載します。指標の低下だけで実運用の有効性を判断することはできません。");
+    p(
+      analysis
+        ? "表とグラフは記録に基づく観測値です。AIの解釈・原因候補は仮説、施策は今後の検討提案として掲載します。指標の低下だけで実運用の有効性を判断することはできません。"
+        : "表とグラフは記録に基づく観測値です。指標の低下だけで実運用の有効性を判断することはできません。",
+    );
 
-    heading("02  シミュレーション条件");
+    heading("シミュレーション条件");
     const stock = c.initial_stock;
     table([
       ["設定項目", "記録値"],
@@ -295,7 +310,7 @@
     p(`仮定ID：${c.assumption_ids.join(", ")}`, "pr-small");
     p(`出典ID：${c.source_ids.join(", ") || "未取得"}`, "pr-small");
 
-    heading("03  結果分析：時系列と問題の継続");
+    heading("結果分析：時系列と問題の継続");
     p("凡例：青=A / 緑=B（比較時）。ストレスは0〜100に換算。稼働率は割合を百分率に換算。線は連続した分記録だけを結び、欠測区間は補間しません。", "pr-small");
     const charts = el("div", null, "pr-charts");
     for (const metric of METRICS.slice(0, 4)) charts.append(chart(data, metric));
@@ -317,7 +332,7 @@
       "pr-small",
     );
 
-    heading("04  介入と比較・重要イベント");
+    heading("介入と比較・重要イベント");
     if (data.differences.length > 0) {
       p(
         `Aを基準にB−Aを計算。同じRun・seed・モデル・評価時刻を使用。共通の起点：${data.paired ? "確認済み" : "未確認"}。系譜の一致だけで現実の因果や効果は確定しません。`,
@@ -351,48 +366,61 @@
     } else p("対象範囲の重要イベント記録はありません。");
     prose("interpretation", "AIによる結果の解釈（仮説）");
 
-    heading("05  AI分析と優先的に検討すべき施策");
-    p(`執筆モデル：${analysis.model_id} / 根拠付き構造化出力を検証して掲載。`, "pr-small");
-    prose("hypotheses", "原因候補・運営上の課題（AIの仮説）");
-    prose("proposals", "優先案・代替案（今後の検討提案）");
-    sub("参照した観測根拠");
-    const used = [...new Set(Object.values(analysis.sections).flatMap((paragraphs) => paragraphs.flatMap((paragraph) => paragraph.refs)))];
-    table(
-      [
-        ["根拠ID", "検証済みの記録値・条件"],
-        ...used.map((ref) => {
-          let local = "";
-          if (ref.includes(".E") || ref.includes(".I")) {
-            const [branchPart, recordPart] = ref.split(".");
-            const branch = branches[Number(branchPart.slice(1))];
-            const records = recordPart.startsWith("E") ? branch.events : branch.interventions;
-            local = `\nevent_id: ${records[Number(recordPart.slice(1))].event_id}`;
-          }
-          return [ref, factText(facts[ref]) + local];
-        }),
-      ],
-      { compact: true, widths: [31, 69] },
-    );
+    if (analysis) {
+      heading("AI分析と優先的に検討すべき施策");
+      p(`執筆モデル：${analysis.model_id} / 根拠付き構造化出力を検証して掲載。`, "pr-small");
+      prose("hypotheses", "原因候補・運営上の課題（AIの仮説）");
+      prose("proposals", "優先案・代替案（今後の検討提案）");
+      sub("参照した観測根拠");
+      const used = [...new Set(Object.values(analysis.sections).flatMap((paragraphs) => paragraphs.flatMap((paragraph) => paragraph.refs)))];
+      table(
+        [
+          ["根拠ID", "検証済みの記録値・条件"],
+          ...used.map((ref) => {
+            let local = "";
+            if (ref.includes(".E") || ref.includes(".I")) {
+              const [branchPart, recordPart] = ref.split(".");
+              const branch = branches[Number(branchPart.slice(1))];
+              const records = recordPart.startsWith("E") ? branch.events : branch.interventions;
+              local = `\nevent_id: ${records[Number(recordPart.slice(1))].event_id}`;
+            }
+            return [ref, factText(facts[ref]) + local];
+          }),
+        ],
+        { compact: true, widths: [31, 69] },
+      );
+    }
 
-    heading("06  限界と今後の検討・再現情報");
-    p("根拠IDの読み方：B0=A、B1=B、D1=B−A。KPIは評価時点、peakは記録内の最大値と時刻、windowは観測継続時間です。EとIは各Branchのイベント・介入の記録順の先頭12件に対応します。", "pr-small");
-    prose("limitations", "追加検証が必要な事項（AIの整理）");
+    heading("限界と今後の検討・再現情報");
+    if (analysis) {
+      p("根拠IDの読み方：B0=A、B1=B、D1=B−A。KPIは評価時点、peakは記録内の最大値と時刻、windowは観測継続時間です。EとIは各Branchのイベント・介入の記録順の先頭12件に対応します。", "pr-small");
+      prose("limitations", "追加検証が必要な事項（AIの整理）");
+    }
     sub("解釈上の限界");
-    for (const text of LIMITS) p(text);
+    for (const text of analysis ? [...LIMITS, AI_LIMIT] : LIMITS) p(text);
     sub("再現用ID・版");
     table([
       ["項目", "記録値"],
       ["Project / Run", `${data.project_id} / ${data.run_id}`],
       ["Scenario hash", data.scenario_hash],
       ["seed / 対象分", `${data.seed} / [${data.range.join(", ")}]`],
-      ["レポート / プロンプト版", `${data.report_version} / ${analysis.prompt_version}`],
-      ["AI入力hash", analysis.input_hash],
+      ...(analysis
+        ? [
+            ["レポート / プロンプト版", `${data.report_version} / ${analysis.prompt_version}`],
+            ["AI入力hash", analysis.input_hash],
+          ]
+        : [["レポートの版 / AIの考察", `${data.report_version} / なし`]]),
       ...branches.flatMap((b, index) => [
         [`${alias[b.branch_id]} Branch / state`, `${b.branch_id} / ${b.state_hash}`],
         ["Checkpoint hash", data.heads[index].checkpoint_hash],
       ]),
     ], { widths: [28, 72] });
-    p("再現には保存済みScenario、Checkpoint、乱数状態、モデル版、記録済みProvider応答を保持してください。元データ・比較・AI分析のJSONは内部保存を継続します。", "pr-small");
+    p(
+      analysis
+        ? "再現には保存済みScenario、Checkpoint、乱数状態、モデル版、記録済みProvider応答を保持してください。元データ・比較・AI分析のJSONは内部保存を継続します。"
+        : "再現には保存済みScenario、Checkpoint、乱数状態、モデル版を保持してください。",
+      "pr-small",
+    );
     return article;
   }
 

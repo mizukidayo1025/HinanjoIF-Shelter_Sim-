@@ -132,13 +132,6 @@ fn conversations_answer<'py>(py: Python<'py>, pieces: Vec<Vec<u8>>) -> PyResult<
     bytes(py, routes::conversations_answer(&raws))
 }
 
-/// `POST runs/{run}/pdf-report`: always raises (`Refused`, or the core's error).
-#[pyfunction]
-#[pyo3(signature = (project_id, run_id, body, run, branches))]
-fn pdf_report_answer(project_id: &str, run_id: &str, body: Option<Vec<u8>>, run: Option<Vec<u8>>, branches: Branches) -> PyResult<()> {
-    Err(failed(routes::pdf_report_answer(project_id, run_id, body.as_deref(), &run_files(run, branches))))
-}
-
 /// `POST runs/{run}/delete`: the answer, once the caller removes the Run's folder; `active`
 /// whether a computation of the Run is running.
 #[pyfunction]
@@ -674,9 +667,9 @@ fn review(run: &crate::rules::plain::PlainRun, scenario: &[u8], branch_id: &str)
     Ok(PyReviewing { reviewing: report::review(run.core(), scenario, branch_id).map_err(failed)? })
 }
 
-/// `POST runs/{run}/pdf-report` with an API key (#463, `pdf::PdfPlan`): the route's checks; then
-/// each branch's Run at the minute (`add_branch`), then the report's data, facts and analysis
-/// task (`analysis`).
+/// `POST runs/{run}/pdf-report` (#463, `pdf::PdfPlan`): the route's checks (`check_link` for an
+/// analysis asked); then each branch's Run at the minute (`add_branch`), then the answer without
+/// the analysis (`report`) or the report's data, facts and analysis task (`analysis`).
 #[pyclass(name = "PdfPlan", module = "sheltersim_native.rules.answers")]
 pub struct PyPdfPlan {
     plan: pdf::PdfPlan,
@@ -700,6 +693,17 @@ impl PyPdfPlan {
         self.plan.minute()
     }
 
+    /// Whether the request asks for Opus's analysis.
+    #[getter]
+    fn analysis_asked(&self) -> bool {
+        self.plan.analysis_asked()
+    }
+
+    /// The refusal of an analysis asked without a link to an LLM (`linked` false).
+    fn check_link(&self, linked: bool) -> PyResult<()> {
+        self.plan.check_link(linked).map_err(failed)
+    }
+
     /// The branches' records (the report's heads), as a JSON list in `branch_ids`' order.
     fn records_json<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
         PyBytes::new(py, &records_json(self.plan.records()))
@@ -714,6 +718,11 @@ impl PyPdfPlan {
     /// The next branch: its Run at the minute, its frame there, its KPI table and its journal.
     fn add_branch(&mut self, run: &crate::rules::plain::PlainRun, frame: &[u8], table: &PyKpiTable, journal: &[u8]) -> PyResult<()> {
         self.plan.add_branch(run.core(), frame, &table.table, journal).map_err(failed)
+    }
+
+    /// The route's answer without the analysis, of the Run's Scenario: no LLM is asked.
+    fn report<'py>(&self, py: Python<'py>, scenario: &[u8]) -> PyResult<Bound<'py, PyBytes>> {
+        bytes(py, self.plan.report(scenario))
     }
 
     /// The report's data, facts and the analysis's task, of the Run's Scenario; `attempt` the
@@ -817,7 +826,6 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(branch_of, m)?)?;
     m.add_function(wrap_pyfunction!(llm_status_answer, m)?)?;
     m.add_function(wrap_pyfunction!(conversations_answer, m)?)?;
-    m.add_function(wrap_pyfunction!(pdf_report_answer, m)?)?;
     m.add_function(wrap_pyfunction!(delete_answer, m)?)?;
     Ok(())
 }

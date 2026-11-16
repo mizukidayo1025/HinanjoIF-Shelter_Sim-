@@ -1,14 +1,17 @@
-"""The PDF report of a saved Project Run (#463): the core builds its data, its facts and the
-analysis asked of Opus, and checks the analysis; this module gives the core each branch's Run,
-asks the configured router through the core's port and keeps the answer.
+"""The report of a saved Project Run (#463): the core builds its data and its facts and, where the
+request asks for it (`"analysis": true`, #582), the analysis asked of Opus, and checks the analysis;
+this module gives the core each branch's Run, asks the configured router through the core's port
+and keeps the answer with the analysis.
 
-The answer is the core's JSON of the data, the facts and the checked analysis
-(`PdfAnalysis.report`); the screen lays it out on its print page, which the user prints or saves as
-a PDF (#470: no PDF is typeset here, as the browser has no typesetter). The data and the facts are
-the core's (`sheltersim_core::answers::pdf`); no evidence is built here. Without an API key the
-route answers the core's refusal (409 `pdf_analysis_offline`), as the browser does. A report kept
-for the same identity (the branches' heads, the Scenario, the minute, the versions and the Opus
-model) is answered again without asking anyone.
+The answer is the core's JSON of the data, the facts and the checked analysis, or `null` where
+none is asked (`PdfPlan.report`, `PdfAnalysis.report`); the screen lays it out on its print page,
+which the user prints or saves as a PDF (#470: no PDF is typeset here, as the browser has no
+typesetter). The data and the facts are the core's (`sheltersim_core::answers::pdf`); no evidence
+is built here. A report without the analysis asks no LLM and is not kept: it is made again from the
+stored Runs each time, and a kept report is never answered for it. An analysis asked without an API
+key is the core's refusal (409 `pdf_analysis_offline`), as the browser's. A report with the analysis
+kept for the same identity (the branches' heads, the Scenario, the minute, the versions and the
+Opus model) is answered again without asking anyone.
 """
 
 from __future__ import annotations
@@ -36,16 +39,21 @@ class PdfReports:
         self._lock = threading.Lock()
 
     def export(self, project_id: str, run_id: str, body: bytes) -> bytes:
-        """The report's JSON (the core's `PdfAnalysis.report`), or the refusal (the core's
-        `Refused`, or a StorageError)."""
+        """The report's JSON (the core's `PdfPlan.report` without the analysis, `PdfAnalysis.report`
+        with it), or the refusal (the core's `Refused`, or a StorageError)."""
         from sheltersim.llm.config import LLMSettings
         from sheltersim.llm.link import analysis_link
         from sheltersim.web.projects import answers
 
         core, files, store = answers(), self.api.files, self.api.store
         listing = files.run_listing(project_id, run_id)
-        settings = replace(LLMSettings.from_env(), review_model_family="opus")
         plan = core.pdf_plan(project_id, run_id, body, *listing)
+        if not plan.analysis_asked:
+            # The core's data and facts alone: no LLM is asked, and nothing is kept.
+            heads = json.loads(plan.records_json())
+            with self._lock:
+                return plan.report(self._add_branches(project_id, run_id, plan, heads))
+        settings = replace(LLMSettings.from_env(), review_model_family="opus")
         link = analysis_link(
             store,
             project_id,
@@ -54,9 +62,8 @@ class PdfReports:
             branch_id=plan.branch_ids[-1],
             settings=settings,
         )
-        if link is None:
-            # Without an API key: the core's answer, the browser's.
-            core.pdf_report_answer(project_id, run_id, body, *listing)
+        # Without an API key: the core's refusal, the browser's.
+        plan.check_link(link is not None)
         if not settings.model_for("review").startswith("claude-opus-"):
             raise StorageError("pdf_opus_required: PDF分析にはOpusを設定してください。")
         with self._lock:
@@ -66,7 +73,7 @@ class PdfReports:
         from sheltersim.llm.link import ask
         from sheltersim.web.projects import answers
 
-        core, files, store, api = answers(), self.api.files, self.api.store, self.api
+        core, files, store = answers(), self.api.files, self.api.store
         run = json.loads(files.run_file(project_id, run_id, "run.json"))
         heads = json.loads(plan.records_json())
         identity = {
@@ -93,30 +100,7 @@ class PdfReports:
                 except ValueError:
                     pass
             # Another form, or a damaged answer: asked again (the Run's tape answers it).
-        scenario = files.run_scenario_bytes(project_id, run_id)
-        for record in heads:
-            branch_id = record["branch_id"]
-            journal = files.branch_file(project_id, run_id, branch_id, "journal.jsonl") or b""
-            exact = False
-            if journal and core.view_only(journal, scenario):
-                # A Run of other model versions is read at its saved points only (D2).
-                points = json.loads(files.reader(project_id, run_id, branch_id).heads_json())
-                saved = sorted(
-                    head["minute"]
-                    for head in points
-                    if head["kind"] != "end" and head["minute"] <= plan.minute
-                )
-                plan.check_saved_point(saved[-1] if saved else 0)
-                exact = True
-            branch_run = api.live.at(project_id, run_id, record, plan.minute, exact=exact)
-            frame = branch_run.frame(run_id, branch_id, record["computed_until"])
-            table = core.KpiTable()
-            for kind, raw in files.reader(project_id, run_id, branch_id).sample_pieces():
-                if kind == "sample_tables":
-                    table.read_sample_tables(raw)
-                else:
-                    table.read_sample_block(raw)
-            plan.add_branch(branch_run, frame, table, journal)
+        scenario = self._add_branches(project_id, run_id, plan, heads)
         attempt_path = store._path(project_id, "runs", run_id, "pdf-attempts", f"{key}.json")
         attempt = store._read(attempt_path)["next_attempt"] if attempt_path.exists() else 0
         analysis = plan.analysis(scenario, attempt)
@@ -154,3 +138,35 @@ class PdfReports:
         with store.transaction():
             store._write(path, safe_document(artifact))
         return answer
+
+    def _add_branches(self, project_id: str, run_id: str, plan: Any, heads: list[Any]) -> bytes:
+        """Give the core each branch's Run at the minute, its frame, its KPI table and its
+        journal; the Run's Scenario."""
+        from sheltersim.web.projects import answers
+
+        core, files, api = answers(), self.api.files, self.api
+        scenario = files.run_scenario_bytes(project_id, run_id)
+        for record in heads:
+            branch_id = record["branch_id"]
+            journal = files.branch_file(project_id, run_id, branch_id, "journal.jsonl") or b""
+            exact = False
+            if journal and core.view_only(journal, scenario):
+                # A Run of other model versions is read at its saved points only (D2).
+                points = json.loads(files.reader(project_id, run_id, branch_id).heads_json())
+                saved = sorted(
+                    head["minute"]
+                    for head in points
+                    if head["kind"] != "end" and head["minute"] <= plan.minute
+                )
+                plan.check_saved_point(saved[-1] if saved else 0)
+                exact = True
+            branch_run = api.live.at(project_id, run_id, record, plan.minute, exact=exact)
+            frame = branch_run.frame(run_id, branch_id, record["computed_until"])
+            table = core.KpiTable()
+            for kind, raw in files.reader(project_id, run_id, branch_id).sample_pieces():
+                if kind == "sample_tables":
+                    table.read_sample_tables(raw)
+                else:
+                    table.read_sample_block(raw)
+            plan.add_branch(branch_run, frame, table, journal)
+        return scenario

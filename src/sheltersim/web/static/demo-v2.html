@@ -159,7 +159,7 @@
         aria-labelledby="scenario-heading"
       >
         <h1 id="scenario-heading" class="sr-only">
-          シナリオ作成・AIプレビュー
+          シナリオ作成・プレビュー
         </h1>
         <div class="steps">
           <div class="step current">
@@ -173,7 +173,7 @@
           <div class="step" id="preview-step">
             <b>2</b>
             <div>
-              <strong>AIプレビュー確認</strong
+              <strong>プレビュー確認</strong
               ><small>補完された条件・出典を確認</small>
             </div>
           </div>
@@ -189,32 +189,20 @@
           <article class="panel input-panel">
             <div class="panel-title">
               <h2><span class="number">1</span>シナリオを入力しましょう</h2>
-              <button id="example" class="compact">例文を使う</button>
             </div>
             <p class="muted">
-              自然な文章でも、項目からでも。必要な条件を一緒に整理します。
+              自治体・災害種別・避難者数を入力してください。ほかの条件は任意です。
             </p>
             <form id="scenario-form">
-              <label for="scenario-text">自然言語で条件を入力</label
-              ><textarea
-                id="scenario-text"
-                rows="4"
-                maxlength="4000"
-                placeholder="例：墨田区で地震が発生。避難者100人、7日間。高齢者や子ども連れの支援ニーズも見たい。"
-              ></textarea>
-              <h3>または、項目を入力する</h3>
-              <p class="fine">
-                入力欄を優先します。未入力の基本条件は文章から読み取ります。
-              </p>
               <div class="form-grid">
                 <label
                   >📍 自治体<input
                     id="municipality"
                     placeholder="例：墨田区"
-                    maxlength="160" /></label
+                    maxlength="160"
+                    required /></label
                 ><label
                   >⚑ 災害種別<select id="disaster">
-                    <option value="">文章から読み取る</option>
                     <option>地震</option>
                     <option>洪水</option>
                     <option>台風</option>
@@ -227,7 +215,8 @@
                     min="1"
                     max="10000"
                     step="1"
-                    placeholder="例：100人" /></label
+                    placeholder="例：100人"
+                    required /></label
                 ><label
                   >◷ 期間（日）<input
                     id="duration"
@@ -287,6 +276,22 @@
                   食料・水は初期在庫です。1日あたりの供給量や施設数からは推定しません。一般トイレ数は生成仮定としてプレビューに表示します。
                 </p>
               </details>
+              <h3>文章から条件を読み取る（AI）</h3>
+              <fieldset class="needs-api" data-needs-api>
+                <p class="fine">
+                  文章に書いた条件をAIが読み取り、項目にない条件を足します。項目に入力した値を優先します。
+                </p>
+                <textarea
+                  id="scenario-text"
+                  aria-label="AIに読み取らせる文章"
+                  rows="3"
+                  maxlength="4000"
+                  placeholder="例：高齢者や子ども連れの支援ニーズも見たい。"
+                ></textarea>
+                <button id="example" class="compact" type="button">
+                  例文を使う
+                </button>
+              </fieldset>
               <button id="preview" class="primary full" type="submit">
                 次へ · 条件をプレビュー →
               </button>
@@ -294,7 +299,7 @@
           </article>
           <article class="panel preview-panel">
             <h2>
-              <span class="number">2</span>AIによるプレビューを確認しましょう
+              <span class="number">2</span>プレビューを確認しましょう
             </h2>
             <div id="preview-empty" class="empty">
               <div class="empty-icon">✧</div>
@@ -670,6 +675,11 @@
           <div class="button-row">
             <span id="report-status" class="badge">未生成</span
             ><button id="report-refresh" disabled>↻ 結果を更新</button
+            ><fieldset class="needs-api report-analysis" data-needs-api>
+              <label class="checkbox"
+                ><input id="report-analysis" type="checkbox" />Opusの考察を付ける</label
+              >
+            </fieldset
             ><button id="save-report" disabled>↓ レポート保存</button>
           </div>
         </div>

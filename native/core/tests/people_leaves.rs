@@ -594,7 +594,7 @@ fn an_id_json_escapes_is_refused_and_a_body_s_trust_is_copied() {
     drop(row);
     assert_eq!(
         network::observed_contacts(&world, &[("a1", "a1")], 9).and_then(|contacts| contacts.apply(&world)),
-        Err(unsupported("a pair the kernel leaves to Python"))
+        Err(unsupported("a pair of one person or with an ID that is not plain"))
     );
 }
 

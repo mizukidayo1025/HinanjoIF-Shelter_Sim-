@@ -445,7 +445,7 @@ fn what_the_view_cannot_read_it_refuses_before_making_anything() {
     // A household that is no str.
     let mut world = self::world(false);
     add_value(&mut world, "population_presence_v1", Place::Namespace, json!({"people": {"A1": {"household_id": 7}}}));
-    assert_eq!(refused(&world, &mut cache), Some(unsupported("a view value is not a str")));
+    assert_eq!(refused(&world, &mut cache), Some(unsupported("a presence record's household is not a str")));
 
     // An outage whose facilities are no container: the TypeError of Python's `in`.
     let world = self::world(false);

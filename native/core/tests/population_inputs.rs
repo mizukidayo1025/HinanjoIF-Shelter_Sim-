@@ -173,7 +173,7 @@ fn the_approach_routes_are_the_section_s_its_refusal_or_what_the_parse_raises_ag
 
     let raised = routes(&mut with_geometry(geometry(Err(Fault::new(FaultClass::Value, "bad route"))))).unwrap_err();
     assert!(!raised.caught);
-    assert_eq!(raised.refusal, Error::Unsupported("the Python rule's parse raises".into()));
+    assert_eq!(raised.refusal, Error::Unsupported("the facility geometry does not parse".into()));
 
     // No config: the parse of `{}` raises again; the test host raises nothing, which is the
     // corrupt state's error, a ValueError the arrivals' `try` catches.

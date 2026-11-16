@@ -354,7 +354,7 @@ let stoppedAt;
     const branch = await store.writeBranch(tree, PROJECT, old, { ...(await store.branchRecord(tree, PROJECT, old, "main")), status: "paused" });
     const at = `/api/v1/projects/${PROJECT}/runs/${old}`;
     const answer = await browser.answer({ method: "POST", path: `${at}/resume`, body: JSON.stringify({ branch_id: "main", target_minute: branch.computed_until + 1 }) });
-    const wanted = "run_model_view_only: このシナリオは旧モデル（版 1）で計算されました。今のモデルは版 4 です。閲覧のみです。保存した時点だけを表示し、続きの計算、分岐、介入の適用はできません。";
+    const wanted = "run_model_view_only: このシナリオは旧モデル（版 1）で計算されました。今のモデルは版 5 です。閲覧のみです。保存した時点だけを表示し、続きの計算、分岐、介入の適用はできません。";
     check(answer.status === 409 && answer.body === JSON.stringify({ code: "run_model_view_only", error: wanted }), `a Run of another model version: ${answer.status} ${answer.body}`);
     // It is viewed as D2 of the model versions says: a minute between saved points shows the saved
     // point at or before it, not computed again, and says so; a saved point's minute is shown as it
@@ -367,7 +367,7 @@ let stoppedAt;
     const between = await frameOf(1000);
     const view = between.model_view;
     check(
-      view?.view_only === true && view.current === false && view.recorded_version === "1" && view.installed_version === "4" && JSON.stringify(view.differences) === '["engine:model"]' && view.message === wanted.slice("run_model_view_only: ".length),
+      view?.view_only === true && view.current === false && view.recorded_version === "1" && view.installed_version === "5" && JSON.stringify(view.differences) === '["engine:model"]' && view.message === wanted.slice("run_model_view_only: ".length),
       `model_view: ${JSON.stringify(view)}`,
     );
     check(

@@ -33,7 +33,7 @@ const MAX_MESSAGES: usize = 1024;
 /// The failure of an event while the model is off or the world holds no state of it.
 pub const NOT_ENABLED: &str = "information spread is not enabled for this run";
 /// The refusal of a state of another schema that the host did not upgrade.
-pub const OLDER_STATE: &str = "an older state is upgraded in Python";
+pub const OLDER_STATE: &str = "the information state has an older schema";
 /// The check of the corrupt `model_configs` that a selection which raised gives: the dispatch reads
 /// the selection again in its place (`Host::read_again`).
 pub const SELECTION_RAISED: &str = "the model selection raised";
@@ -181,7 +181,7 @@ fn is_valid(record: &BeliefRow) -> bool {
 /// A belief that was there, which the rule reads as `AgentInformationState.from_dict` does.
 fn prior_of(record: &BeliefRow) -> Result<BeliefRow> {
     if !record.parses() {
-        return Err(Error::unsupported("a belief is for the Python rule to read"));
+        return Err(Error::unsupported("a belief does not parse"));
     }
     Ok(record.clone())
 }
@@ -397,7 +397,7 @@ fn rumor_in(world: &World, inputs: &Inputs<'_>, event: &EventRow) -> Result<()> 
     };
     let due = event.due_minute;
     if due < 0 || ![&**message_id, &*source, &*zone, &*event.event_id, &**origin].iter().all(|id| is_stable_id(id)) {
-        return Err(Error::unsupported("an ID for the Python rule to judge"));
+        return Err(Error::unsupported("an ID is not a stable ID or the minute is negative"));
     }
     let message = MessageRow {
         id: message_id.clone(),
@@ -473,7 +473,7 @@ fn correction_in(world: &World, inputs: &Inputs<'_>, event: &EventRow) -> Result
         let row = world.row::<InformationRow>(NAME)?;
         match row.messages.get(&**message_id) {
             None => None,
-            Some(message) if !message.parses() => return Err(Error::unsupported("a message is for the Python rule to read")),
+            Some(message) if !message.parses() => return Err(Error::unsupported("a message does not parse")),
             Some(message) => Some((message.truth_status.clone(), message.origin_event_id.clone())),
         }
     };
@@ -554,7 +554,7 @@ fn correction_in(world: &World, inputs: &Inputs<'_>, event: &EventRow) -> Result
                 flags,
             );
             if !is_valid(&record) {
-                return Err(Error::unsupported("a belief for the Python rule to judge"));
+                return Err(Error::unsupported("the belief the event writes is invalid"));
             }
             let pressure = if accepted {
                 let Some(pressure) = pressure else {
@@ -661,7 +661,7 @@ fn contact_in(world: &World, inputs: &Inputs<'_>, event: &EventRow) -> Result<Ap
     let (previous, pressure, contacts, corrections) = recipient_state(world, message_id, recipient_id)?;
     if let Some(prior) = &previous {
         let Some(rank) = belief_rank(&prior.belief) else {
-            return Err(Error::unsupported("a belief is for the Python rule to read"));
+            return Err(Error::unsupported("a belief has an unknown value"));
         };
         if rank >= wanted_rank && !(aware && correcting) {
             return Ok(Applied::Suppressed("recipient already has an equally strong belief"));
@@ -707,7 +707,7 @@ fn contact_in(world: &World, inputs: &Inputs<'_>, event: &EventRow) -> Result<Ap
         flags,
     );
     if !is_valid(&record) {
-        return Err(Error::unsupported("a belief for the Python rule to judge"));
+        return Err(Error::unsupported("the belief the event writes is invalid"));
     }
     let Some(pressure) = pressure else {
         return Err(Error::unsupported("the person has no record"));
@@ -796,14 +796,14 @@ fn sender_state(world: &World, message_id: &Arc<str>, sender_id: &Arc<str>) -> R
         return Err(Error::unsupported("an unknown message"));
     };
     if !message.parses() {
-        return Err(Error::unsupported("a message is for the Python rule to read"));
+        return Err(Error::unsupported("a message does not parse"));
     }
     let Some(sender) = row.beliefs.get(&**sender_id) else {
         return Err(Error::unsupported("a person has no beliefs"));
     };
     Ok(match sender.get(&**message_id) {
         None => None,
-        Some(known) if !known.parses() => return Err(Error::unsupported("a belief is for the Python rule to read")),
+        Some(known) if !known.parses() => return Err(Error::unsupported("a belief does not parse")),
         Some(known) => Some((message.truth_status.clone(), message.source_id.clone(), known.belief.clone(), known.source.clone(), known.last_event_id.clone())),
     })
 }

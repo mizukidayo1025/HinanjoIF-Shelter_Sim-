@@ -451,9 +451,9 @@ fn the_household_is_the_ledger_s_and_without_the_ledger_the_profile_s_group() {
     assert_eq!(lifecycle::household_of(&world, &Held::Absent, "a1"), Ok(Some(text("household-1"))));
     assert_eq!(lifecycle::household_of(&world, &Held::Absent, "a9"), Ok(None));
     world.row_mut::<ValueRow>(PRESENCE).unwrap().0 = map(vec![("people", s("no"))]);
-    assert_eq!(lifecycle::household_of(&world, &Held::Held, "a1"), Err(Error::unsupported("the presence's people are not a dict")));
+    assert_eq!(lifecycle::household_of(&world, &Held::Held, "a1"), Err(Error::unsupported("the presence state's people are not a dict")));
     world.row_mut::<ValueRow>(PRESENCE).unwrap().0 = map(vec![("people", map(vec![("a1", map(vec![("household_id", V::Int(3))]))]))]);
-    assert_eq!(lifecycle::household_of(&world, &Held::Held, "a1"), Err(Error::unsupported("a household is not a str")));
+    assert_eq!(lifecycle::household_of(&world, &Held::Held, "a1"), Err(Error::unsupported("a presence record's household is not a str")));
 }
 
 #[test]

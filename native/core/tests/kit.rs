@@ -297,9 +297,12 @@ fn a_household_is_the_ledgers_or_else_the_profiles_group() {
     assert_eq!(of(None, "nobody"), Ok(None));
     assert_eq!(of(Some(&map(&[])), "a1"), Ok(None));
     assert_eq!(kit::presence_household(None, "a1"), Ok(None));
-    assert_eq!(of(Some(&map(&[("people", list(&[]))])), "a1"), Err(unsupported("the presence state's people are for the Python rule")));
-    assert_eq!(of(Some(&map(&[("people", map(&[("a1", list(&[]))]))])), "a1"), Err(unsupported("a presence record is for the Python rule")));
-    assert_eq!(of(Some(&map(&[("people", map(&[("a1", map(&[("household_id", V::Int(1))]))]))])), "a1"), Err(unsupported("a value is not a str")));
+    assert_eq!(of(Some(&map(&[("people", list(&[]))])), "a1"), Err(unsupported("the presence state's people are not a dict")));
+    assert_eq!(of(Some(&map(&[("people", map(&[("a1", list(&[]))]))])), "a1"), Err(unsupported("a presence record is not a dict")));
+    assert_eq!(
+        of(Some(&map(&[("people", map(&[("a1", map(&[("household_id", V::Int(1))]))]))])), "a1"),
+        Err(unsupported("a presence record's household is not a str"))
+    );
 
     // Over a world's rows.
     let mut world = World::default();

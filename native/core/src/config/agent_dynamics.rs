@@ -72,7 +72,7 @@ pub fn canonical_policy(raw: Option<&V>) -> Read<Result<&'static str, &'static s
 pub fn policy(configs: &V) -> Read<&'static str> {
     match canonical_policy(map(configs)?.get("agent_dynamics"))? {
         Ok(policy) => Ok(policy),
-        Err(_) => Err(Fault::refused("a config the Python rule refuses")),
+        Err(_) => Err(Fault::refused("the agent dynamics config is not canonical")),
     }
 }
 

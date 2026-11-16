@@ -1363,7 +1363,7 @@ pub struct PsychologyResult {
 /// the rows. `minute` is the view's, which the caller checked. Nothing changes.
 pub fn update(world: &World, view: &ViewData, params: &Params<'_>, minute: i64, traced: bool) -> Result<PsychologyResult> {
     if traced && view.partial {
-        return unsupported("a trace reads what a view Python made doesn't fill here");
+        return unsupported("a trace of a partial view");
     }
     let model = params.model;
     let life_model = matches!(model, Model::LifeState | Model::Integrated);

@@ -352,7 +352,7 @@ fn put<T>(lazy: &Lazy<T>, exported: &Exported<T>, which: SectionId) -> Result<()
             let _ = lazy.get_or_parse(|| section.clone());
             Ok(())
         }
-        Err(raised) => Err(Error::Runtime(format!("the PyO3 crate raises out of fill_section({}): {raised}", which.name()))),
+        Err(raised) => Err(Error::Runtime(format!("the entry's section {} holds a fault: {raised}", which.name()))),
     }
 }
 
@@ -448,10 +448,10 @@ impl Sections {
             if fault.is_refusal() {
                 Error::unsupported(fault.text.to_string())
             } else {
-                Error::unsupported("the Python rule's parse raises")
+                Error::unsupported("a section of the floor plan does not parse")
             }
         };
-        let raised = |which: SectionId, raised: &str| Error::Runtime(format!("the PyO3 crate raises out of fill_section({}): {raised}", which.name()));
+        let raised = |which: SectionId, raised: &str| Error::Runtime(format!("the entry's section {} holds a fault: {raised}", which.name()));
         let facility = match &self.facility_geometry {
             Ok(Section::Absent) => None,
             Ok(Section::Ok(geometry)) => Some(geometry.plan.clone().map_err(|fault| refusal(&fault))?),
@@ -519,7 +519,7 @@ pub fn floor_plan_of(facility: &Value, spatial: Option<&Value>) -> Result<Arc<Ge
         if fault.is_refusal() {
             Error::unsupported(fault.text.to_string())
         } else {
-            Error::unsupported("the Python rule's parse raises")
+            Error::unsupported("a section of the floor plan does not parse")
         }
     };
     fn section(json: &Value) -> Result<std::result::Result<Option<&Value>, Fault>> {

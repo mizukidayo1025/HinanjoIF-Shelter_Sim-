@@ -64,7 +64,7 @@ pub(crate) fn text(value: &str) -> Arc<str> {
 /// A JSON value as the core's `V` (`V::from_json`): a number with a point or an exponent is a
 /// float, as Python's `json` reads it.
 pub fn value(json: &Value) -> Result<V> {
-    V::from_json(json).ok_or_else(|| bad("a number Python does not read"))
+    V::from_json(json).ok_or_else(|| bad("a number the core cannot read"))
 }
 
 pub(crate) fn map(json: &Value) -> Result<IndexMap<Arc<str>, V>> {

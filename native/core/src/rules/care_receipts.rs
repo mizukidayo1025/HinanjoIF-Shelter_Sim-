@@ -142,11 +142,11 @@ pub fn plan_transition(world: &World, transition: Transition, sequence: i64) -> 
         || !optional_ok(&causation_id)
         || !is_support_kind(&support_kind)
     {
-        return Err(Error::unsupported("a value the receipt's contract is for the Python rule to judge"));
+        return Err(Error::unsupported("a receipt's ID or support kind is invalid"));
     }
     let mut sources = source_ids;
     if !sources.iter().all(|source| is_identifier(source)) {
-        return Err(Error::unsupported("a source the receipt's contract is for the Python rule to judge"));
+        return Err(Error::unsupported("a receipt's source is not an identifier"));
     }
     sources.push(Arc::from(SOURCE));
     let sources = sorted_unique(sources);
@@ -279,7 +279,7 @@ pub fn source_ids_of(world: &World, agent_id: &str) -> Result<Vec<Arc<str>>> {
         return Ok(sources);
     };
     let V::List(items) = listed else {
-        return Err(Error::unsupported("the person's sources are for the Python rule to read"));
+        return Err(Error::unsupported("the person's sources are not a list"));
     };
     for item in items {
         if let V::Str(source) = item {

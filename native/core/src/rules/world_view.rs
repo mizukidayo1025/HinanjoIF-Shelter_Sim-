@@ -405,7 +405,7 @@ pub fn group_of(people: Option<&FxHashMap<Arc<str>, Household>>, id: &str, profi
     match people.and_then(|people| people.get(id)) {
         None | Some(Household::Profile) => Ok(profile_group.clone()),
         Some(Household::Is(household)) => Ok(household.clone()),
-        Some(Household::Other) => unsupported("a view value is not a str"),
+        Some(Household::Other) => unsupported("a presence record's household is not a str"),
     }
 }
 
@@ -872,7 +872,7 @@ pub fn misinformation_applies(selection: &std::result::Result<Arc<Selection>, Fa
         Ok(selection) => selection,
         Err(fault) if fault.is_refusal() => return unsupported("a model ID is not a str"),
         // Any other fault of the selection is refused.
-        Err(_) => return unsupported("the Python rule raises"),
+        Err(_) => return unsupported("the model selection does not parse"),
     };
     let Some(selected) = selection.get("psychology") else {
         return Err(Error::Key("psychology".to_owned()));

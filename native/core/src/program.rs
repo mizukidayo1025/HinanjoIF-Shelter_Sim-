@@ -446,7 +446,7 @@ impl EffectProgram {
     /// `read` of a program's JSON bytes.
     pub fn of_json(raw: &[u8]) -> Result<Self> {
         let value: serde_json::Value = serde_json::from_slice(raw).map_err(|error| Error::Value(format!("invalid EffectProgram: not JSON: {error}")))?;
-        let value = V::from_json(&value).ok_or_else(|| Error::Value("invalid EffectProgram: a number that is not Python's".to_owned()))?;
+        let value = V::from_json(&value).ok_or_else(|| Error::Value("invalid EffectProgram: a number the core cannot read".to_owned()))?;
         Self::read(&value)
     }
 

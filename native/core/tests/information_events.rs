@@ -301,7 +301,7 @@ fn a_rumor_s_texts_come_in_the_recorded_order() {
     let mut odd = clone_world(&world);
     let refused =
         on(&mut odd, |cell| info::rumor(cell, &mut TestHost::default(), &inputs(&config, &Held::Held, &selection), &rumor_event("ev r1", "m1", "true", "a1")));
-    assert_eq!(refused, Err(unsupported("an ID for the Python rule to judge")));
+    assert_eq!(refused, Err(unsupported("an ID is not a stable ID or the minute is negative")));
     assert!(written(&mut odd).is_empty());
 }
 
@@ -698,7 +698,7 @@ fn a_social_action_s_texts_come_in_the_recorded_order() {
     assert_eq!(run(&with("interaction_duration_minutes", V::Int(1441))), failed("social action duration must be within 1..1440 minutes"));
     assert_eq!(run(&with("conversation_state_context", map(&[]))), failed("social dialogue state context is invalid"));
     assert_eq!(run(&with("interaction_type", string("dancing"))), failed("typed social interaction type is not allowed"));
-    assert_eq!(run(&with("interaction_type", V::List(vec![]))), Err(unsupported("another type of interaction is for the Python rule to judge")));
+    assert_eq!(run(&with("interaction_type", V::List(vec![]))), Err(unsupported("an interaction type that is null, a list or a mapping")));
 }
 
 #[test]
@@ -792,7 +792,7 @@ fn an_information_reaction_raises_the_query_pressure() {
     // The config's pressure: a configs without the key is refused.
     let mut absent = config.clone();
     absent.present = false;
-    assert_eq!(social::pressure_gain(&Ok(Arc::new(absent))), Err(unsupported("the config is for the Python rule to read")));
+    assert_eq!(social::pressure_gain(&Ok(Arc::new(absent))), Err(unsupported("the information spread config is absent or does not parse")));
     assert_eq!(social::pressure_gain(&kept), Ok(0.2));
 }
 

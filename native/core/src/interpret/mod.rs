@@ -498,7 +498,7 @@ struct Request {
 
 fn read_request(bytes: &[u8]) -> Result<Request> {
     let json: serde_json::Value = serde_json::from_slice(bytes).map_err(|_| refused("not JSON"))?;
-    let value = V::from_json(&json).ok_or_else(|| refused("a number Python does not read"))?;
+    let value = V::from_json(&json).ok_or_else(|| refused("a number the core cannot read"))?;
     let V::Map(map) = value else { return Err(refused("not an object")) };
     if map.keys().any(|key| !["text", "branch_id", "selected_minute", "scenario_summary"].contains(&&**key)) {
         return Err(refused("extra field"));
@@ -972,7 +972,7 @@ pub fn document_redacts(document: &[u8]) -> Result<bool> {
         })
     }
     let json: serde_json::Value = serde_json::from_slice(document).map_err(|_| bad("not JSON"))?;
-    walk(&V::from_json(&json).ok_or_else(|| bad("a number Python does not read"))?)
+    walk(&V::from_json(&json).ok_or_else(|| bad("a number the core cannot read"))?)
 }
 
 static REDACT_ENTITY: text::Pattern = text::Pattern::new(

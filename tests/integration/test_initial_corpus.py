@@ -99,12 +99,12 @@ REFUSED_CONFIGS: dict[str, tuple[Callable[[dict[str, Any]], Any], str, str]] = {
     "agent_dynamics_version": (
         lambda configs: configs["agent_dynamics"].update(policy_version="unknown"),
         "ValueError",
-        "agent_dynamics.create_state refused: a config the Python rule refuses",
+        "agent_dynamics.create_state refused: the agent dynamics config is not canonical",
     ),
     "agent_dynamics_source": (
         lambda configs: configs["agent_dynamics"].update(source_id="X"),
         "ValueError",
-        "agent_dynamics.create_state refused: a config the Python rule refuses",
+        "agent_dynamics.create_state refused: the agent dynamics config is not canonical",
     ),
     "overlay_without_geometry": (
         lambda configs: (configs.pop("facility_geometry"), configs.pop("spatial_constraints")),

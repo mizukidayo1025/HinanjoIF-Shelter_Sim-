@@ -213,7 +213,7 @@ fn differ(a: Option<&V>, b: Option<&V>) -> Result<bool> {
         (Some(V::Str(_)), _) | (_, Some(V::Str(_))) => Ok(true),
         _ if null(a) && null(b) => Ok(false),
         _ if null(a) || null(b) => Ok(true),
-        _ => Err(Error::unsupported("two values Python compares by its own rules")),
+        _ => Err(Error::unsupported("two values that are neither str nor null")),
     }
 }
 
@@ -238,7 +238,7 @@ fn holds(value: Option<&V>, needle: &str) -> Result<bool> {
         Some(V::List(items)) => Ok(items.iter().any(|item| matches!(item, V::Str(item) if **item == *needle))),
         Some(V::Str(text)) => Ok(text.contains(needle)),
         Some(V::Map(map)) => Ok(map.contains_key(needle)),
-        Some(_) => Err(Error::unsupported("`in` of a value Python can't search")),
+        Some(_) => Err(Error::unsupported("`in` of a value that is not a list, str or mapping")),
     }
 }
 
@@ -247,7 +247,7 @@ fn holds(value: Option<&V>, needle: &str) -> Result<bool> {
 fn key_in(contains: impl FnOnce(&str) -> Result<bool>, key: Option<&V>) -> Result<bool> {
     match key {
         Some(V::Str(text)) => contains(text),
-        Some(value) if !hashable(value) => Err(Error::unsupported("a key Python can't hash")),
+        Some(value) if !hashable(value) => Err(Error::unsupported("a key that is not hashable")),
         _ => Ok(false),
     }
 }
@@ -257,7 +257,7 @@ fn key_in(contains: impl FnOnce(&str) -> Result<bool>, key: Option<&V>) -> Resul
 fn lookup<'a>(map: &'a Doc, key: &V) -> Result<Option<&'a V>> {
     match key {
         V::Str(key) => Ok(map.get(&**key)),
-        value if !hashable(value) => Err(Error::unsupported("a key Python can't hash")),
+        value if !hashable(value) => Err(Error::unsupported("a key that is not hashable")),
         _ => Ok(None),
     }
 }
@@ -1054,7 +1054,7 @@ fn environment_checks(world: &World, ins: &EnvironmentIn<'_>, row: &EventRow, ex
     }
     let op = match payload.get("op") {
         Some(V::Str(op)) if ENVIRONMENT_OPERATORS.contains(&&**op) => op,
-        Some(value) if !hashable(value) => return Err(Error::unsupported("an operator Python can't hash")),
+        Some(value) if !hashable(value) => return Err(Error::unsupported("an operator that is not hashable")),
         _ => return Err(Error::failed("zone environment operator is unsupported")),
     };
     if approved_op.as_deref() != Some(&**op) {
@@ -1346,14 +1346,14 @@ fn geometry_checks(world: &World, ins: &GeometryIn<'_>, row: &EventRow) -> Resul
     }
     let op = match payload.get("op") {
         Some(V::Str(op)) if GEOMETRY_OPERATORS.contains(&&**op) => op,
-        Some(value) if !hashable(value) => return Err(Error::unsupported("an operator Python can't hash")),
+        Some(value) if !hashable(value) => return Err(Error::unsupported("an operator that is not hashable")),
         _ => return Err(Error::failed("geometry effect has invalid fields or operator")),
     };
     let (program_id, effect_id) = (payload.get("program_id"), payload.get("effect_id"));
     // `.get(payload["program_id"], {})` and `.get(payload["effect_id"])` raise on a key Python
     // can't hash, whatever the dicts hold.
     if program_id.is_some_and(|id| !hashable(id)) || effect_id.is_some_and(|id| !hashable(id)) {
-        return Err(Error::unsupported("an ID Python can't hash"));
+        return Err(Error::unsupported("an ID that is not hashable"));
     }
     let approved = match (program_id, effect_id) {
         (Some(V::Str(program_id)), Some(V::Str(effect_id))) => {
@@ -1489,7 +1489,7 @@ fn references_program(world: &World, program: &Held, row: &EventRow, op: &str, t
                 ),
                 _ => (false, false, false),
             })),
-            Some(value) if !hashable(value) => Err(Error::unsupported("a program ID Python can't hash")),
+            Some(value) if !hashable(value) => Err(Error::unsupported("a program ID that is not hashable")),
             _ => Ok(None),
         }
     })?;
@@ -1525,7 +1525,7 @@ fn program_lists_effect(world: &World, program: &Held, payload: &Doc) -> Result<
                 Some(V::Str(effect_id)) => effect_is_scheduled(program, effect_id),
                 _ => false,
             })),
-            Some(value) if !hashable(value) => Err(Error::unsupported("a program ID Python can't hash")),
+            Some(value) if !hashable(value) => Err(Error::unsupported("a program ID that is not hashable")),
             _ => Ok(None),
         }
     })
@@ -1998,7 +1998,7 @@ pub fn plan_add(world: &World, program: &Held, row: &EventRow) -> Result<Add> {
         }
         match payload.get("op") {
             Some(V::Str(op)) if matches!(&**op, "add_staff" | "add_toilet") => {}
-            Some(value) if !hashable(value) => return Err(Error::unsupported("an operator Python can't hash")),
+            Some(value) if !hashable(value) => return Err(Error::unsupported("an operator that is not hashable")),
             _ => return Ok(None),
         }
         let count = match payload.get("count") {
@@ -2373,9 +2373,9 @@ fn check_history(world: &World, program: &Held, events: &[EventRow], found: &Ind
         let marker = match map_of(&event.provenance)?.get(MARKER) {
             None | Some(V::Null) => return Err(Error::unsupported("a scheduled event has no marker")),
             Some(V::Map(marker)) => marker,
-            Some(_) => return Err(Error::unsupported("a marker the Python rule decides")),
+            Some(_) => return Err(Error::unsupported("a scheduled event's marker is not a mapping")),
         };
-        let program = marker.get("program_id").ok_or_else(|| Error::unsupported("a marker the Python rule decides"))?;
+        let program = marker.get("program_id").ok_or_else(|| Error::unsupported("a scheduled event's marker has no program ID"))?;
         if !is_text(Some(program), program_id) {
             return Err(Error::unsupported("a marker of another program"));
         }
@@ -2397,7 +2397,7 @@ fn program_records(state: &EffectProgramRow) -> Result<(IndexMap<&str, &str>, Ha
             || !matches!(&*program.support_mode, "native" | "composed" | "approximate" | "clarification_required" | "not_simulatable")
             || !compiler_provenance_passes(&program.compiler_provenance)
         {
-            return Err(Error::unsupported("a program record the Python rule decides"));
+            return Err(Error::unsupported("a program record has an invalid field"));
         }
         let unique: HashSet<&str> = program.effect_ids.iter().map(|id| &**id).collect();
         if unique.len() != program.effect_ids.len()
@@ -2405,27 +2405,27 @@ fn program_records(state: &EffectProgramRow) -> Result<(IndexMap<&str, &str>, Ha
             || program.operators.keys().any(|effect| !unique.contains(&**effect))
             || program.operators.values().any(|op| !OPERATORS.contains(&&**op))
         {
-            return Err(Error::unsupported("a program's operators the Python rule decides"));
+            return Err(Error::unsupported("a program's operators do not match its effects"));
         }
         let V::List(assumptions) = &program.assumptions else {
-            return Err(Error::unsupported("a program's assumptions the Python rule decides"));
+            return Err(Error::unsupported("a program's assumptions are not a list"));
         };
         let mut assumption_ids: HashSet<&str> = HashSet::new();
         for assumption in assumptions {
             match assumption_id(assumption) {
                 Some(id) if assumption_ids.insert(id) => {}
-                _ => return Err(Error::unsupported("a program's assumptions the Python rule decides")),
+                _ => return Err(Error::unsupported("a program's assumption has no ID or repeats one")),
             }
         }
         for effect_id in &program.effect_ids {
             if !is_stable_id(effect_id) {
-                return Err(Error::unsupported("an effect ID the Python rule decides"));
+                return Err(Error::unsupported("an effect ID is not a stable ID"));
             }
             known.insert((program_id, effect_id));
         }
         for event_id in &program.scheduled_event_ids {
             if !is_stable_id(event_id) || scheduled.insert(event_id, program_id).is_some() {
-                return Err(Error::unsupported("a scheduled event ID the Python rule decides"));
+                return Err(Error::unsupported("a scheduled event ID is not a stable ID or is scheduled twice"));
             }
         }
     }
@@ -2447,7 +2447,7 @@ fn markers_pass(
         };
         let has_guard = marker.contains_key("guard");
         if marker.len() != MARKER_FIELDS.len() + usize::from(has_guard) || !MARKER_FIELDS.iter().all(|name| marker.contains_key(*name)) {
-            return Err(Error::unsupported("a marker's fields the Python rule decides"));
+            return Err(Error::unsupported("a marker has other fields"));
         }
         let program_id = required_str(marker, "program_id")?;
         let effect_id = required_str(marker, "effect_id")?;
@@ -2461,7 +2461,7 @@ fn markers_pass(
         }
         let phase = required_str(marker, "phase")?;
         if !matches!(&**phase, "start" | "expiry" | "derived") {
-            return Err(Error::unsupported("a marker's phase the Python rule decides"));
+            return Err(Error::unsupported("a marker's phase is unknown"));
         }
         let lists_of_str = [marker.get("assumption_ids"), marker.get("policy_dependencies")]
             .iter()
@@ -2470,7 +2470,7 @@ fn markers_pass(
             || !lists_of_str
             || !str_of(marker, "units").is_some_and(|units| is_stable_id(units))
         {
-            return Err(Error::unsupported("a marker's values the Python rule decides"));
+            return Err(Error::unsupported("a marker's provenance, lists or units are invalid"));
         }
         if has_guard {
             if &**phase != "start" {
@@ -2478,7 +2478,7 @@ fn markers_pass(
             }
             let mut nodes = 0;
             if parse_guard(&marker["guard"], 1, &mut nodes).is_none() {
-                return Err(Error::unsupported("a marker's guard the Python rule decides"));
+                return Err(Error::unsupported("a marker's guard does not parse"));
             }
         }
         if !scheduled.contains_key(&*event.event_id) && &**phase != "derived" {
@@ -2507,7 +2507,7 @@ fn facility_modifiers_pass(world: &World, state: &EffectProgramRow, known: &Hash
         };
         let baseline = record.baseline_working_units;
         if baseline < 0 || baseline > facility.capacity || record.modifiers.is_empty() {
-            return Err(Error::unsupported("a stack's baseline the Python rule decides"));
+            return Err(Error::unsupported("a stack's baseline is out of range or it has no entries"));
         }
         let mut ids: HashSet<&str> = HashSet::new();
         let mut lowest = baseline;
@@ -2520,7 +2520,7 @@ fn facility_modifiers_pass(world: &World, state: &EffectProgramRow, known: &Hash
                 || item.sequence < 0
                 || item.working_units > baseline
             {
-                return Err(Error::unsupported("a stack's entry the Python rule decides"));
+                return Err(Error::unsupported("a stack's entry is invalid"));
             }
             lowest = lowest.min(item.working_units);
         }

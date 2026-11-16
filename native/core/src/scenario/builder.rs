@@ -1128,7 +1128,7 @@ pub fn build(request_json: &[u8], research_json: &[u8], input: &ScenarioInput) -
 
     let request = InitialScenarioRequest::of_json(request_json)?;
     let research: serde_json::Value = serde_json::from_slice(research_json).map_err(|error| Refusal::Invalid(format!("research is not JSON: {error}")))?;
-    let research = V::from_json(&research).ok_or_else(|| Refusal::Invalid("research holds a number Python cannot read".to_owned()))?;
+    let research = V::from_json(&research).ok_or_else(|| Refusal::Invalid("research holds a number the core cannot read".to_owned()))?;
     let design = generate(&FacilityRequest {
         population: request.evacuees,
         gross_area_m2: request.gross_area_m2,

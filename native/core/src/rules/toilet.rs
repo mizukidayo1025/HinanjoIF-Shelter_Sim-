@@ -363,7 +363,7 @@ fn pass(world: &World, start: &Start<'_>, drawn: Option<f64>) -> WriteResult<Pas
     let (agent_id, queue_task_id, queue_start) = queue_task(world, facility_name, &head)?;
     let wait = minute.checked_sub(queue_start).ok_or_else(|| Error::unsupported("a start out of range"))?;
     if !(0..1 << 53).contains(&wait) {
-        return Err(Error::unsupported("a wait for the Python rule to judge").into());
+        return Err(Error::unsupported("a wait out of range").into());
     }
     // The draw and its key, as `rng_key` holds them.
     let draw = match draw_of(start, drawn, &agent_id, &head)? {

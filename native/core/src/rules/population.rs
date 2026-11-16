@@ -3549,7 +3549,7 @@ fn check_pending_approach(
     }
     if let Some(people) = people {
         let V::Map(people) = people else {
-            return refuse("the presence's people are not a dict");
+            return refuse("the presence state's people are not a dict");
         };
         let expected = if finished.is_none() { "approaching" } else { "awaiting_admission" };
         match people.get(&**agent_id).filter(|person| person.is_truthy()) {
@@ -3695,7 +3695,7 @@ pub fn approach_routes<C: WorldCell, H: Host>(cell: &C, host: &mut H, holding: &
     let section = kit::section(cell, host, holding, SectionId::FacilityGeometry, |configs| &configs.facility_geometry)?;
     if let Section::Ok(geometry) = &section {
         return Ok(geometry.approach_routes.clone().map_err(|fault| {
-            let reason = if fault.is_refusal() { fault.text.to_string() } else { "the Python rule's parse raises".to_owned() };
+            let reason = if fault.is_refusal() { fault.text.to_string() } else { "the facility geometry does not parse".to_owned() };
             RoutesFault { caught: false, refusal: Error::unsupported(reason) }
         }));
     }

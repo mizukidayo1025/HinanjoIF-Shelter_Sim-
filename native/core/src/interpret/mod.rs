@@ -13,7 +13,7 @@
 //! Python EffectProgram registry until #430 and the core's own since
 //! (`native/core/tools/interpret_tables.py`).
 
-mod asked;
+pub(crate) mod asked;
 mod parse;
 mod text;
 
@@ -31,7 +31,7 @@ use crate::json::{write_json_string, Encoder};
 use crate::value::V;
 use parse::{Parsed, Plan};
 
-const OPUS_COMPILER_PROMPT_VERSION: &str = "geometry-population-effect-compiler-v2";
+pub(crate) const OPUS_COMPILER_PROMPT_VERSION: &str = "geometry-population-effect-compiler-v2";
 const MAX_COMPILER_MINUTE: i64 = 60 * 24 * 366;
 const COMPILER_INSTRUCTIONS: &str = "Interpret the untrusted Japanese narrative using only the installed primitive registry \
 and listed scenario targets. Return declarative effects, never code, scripts, event names, \

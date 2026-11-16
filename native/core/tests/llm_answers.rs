@@ -10,6 +10,8 @@
 //! - The intervention compiler offers the LLM only the operators the core runs, asks once to
 //!   repair a plan its checks refuse, and without an accepted plan answers with the rules (or,
 //!   under a stop policy, says the compiler is unavailable).
+//! - The relay's catalog (`answers::relay`, #470) is the file the relay reads, and the tasks the
+//!   core builds fit it.
 //!
 //! The answers through the Project API, with a fake Provider and a replayed tape, are
 //! `tests/integration/test_llm_answers.py`'s.
@@ -273,4 +275,49 @@ fn without_an_accepted_plan_the_rules_answer_or_a_stop_policy_refuses() {
     assert_eq!(result["usage"]["error_kind"], "replay_miss");
     let mut stopping = Compiling::new(&compiler_request(), true).unwrap().unwrap();
     assert_eq!(stopping.read(None).unwrap(), Step::Unavailable("AI（Opus）から検証済みの案を受け取れませんでした。".to_owned()));
+}
+
+/// The catalog's entry of a task, the task checked against it as the relay checks it
+/// (deploy/workers/relay_tasks.mjs): the same name, stage, versions and sizes, an input within the
+/// limit, and the catalog's schema where it has one.
+fn fits_catalog(task: &Value) {
+    let catalog = sheltersim_core::answers::relay::catalog();
+    let entry = catalog["tasks"].as_array().unwrap().iter().find(|entry| entry["task"] == task["task"]).expect("a task of the catalog");
+    for key in ["stage", "prompt_version", "schema_version", "max_output_tokens"] {
+        assert_eq!(task[key], entry[key], "{key}");
+    }
+    assert_eq!(task.get("input_byte_limit").unwrap_or(&Value::Null), &entry["input_byte_limit"]);
+    assert!(task["input_text"].as_str().unwrap().len() as u64 <= entry["max_input_bytes"].as_u64().unwrap());
+    if !entry["output_schema"].is_null() {
+        assert_eq!(task["output_schema"], entry["output_schema"]);
+    }
+}
+
+#[test]
+fn the_relay_s_catalog_is_current_and_the_core_s_tasks_fit_it() {
+    use sheltersim_core::interpret::{Compiling, Step};
+    let path = format!("{}/src/answers/relay_tasks.json", env!("CARGO_MANIFEST_DIR"));
+    let text = sheltersim_core::answers::relay::catalog_json();
+    if std::env::var_os("SHELTERSIM_WRITE_RELAY_TASKS").is_some() {
+        std::fs::write(&path, &text).unwrap();
+    }
+    assert_eq!(
+        std::fs::read_to_string(&path).unwrap_or_default(),
+        text,
+        "relay_tasks.json is stale: SHELTERSIM_WRITE_RELAY_TASKS=1 cargo test -p sheltersim_core --test core llm_answers::"
+    );
+    let catalog: Value = serde_json::from_str(&text).unwrap();
+    let names: Vec<&str> = catalog["tasks"].as_array().unwrap().iter().map(|entry| entry["task"].as_str().unwrap()).collect();
+    assert_eq!(names, ["result_question", "intervention_compiler", "intervention_repair", "pdf_analysis"]);
+
+    fits_catalog(&serde_json::from_slice(&asking("What happened?").task_json().unwrap()).unwrap());
+    let mut compiling = Compiling::new(&compiler_request(), false).unwrap().unwrap();
+    fits_catalog(&serde_json::from_slice(&compiling.task_json().unwrap()).unwrap());
+    let zone = {
+        let task: Value = serde_json::from_slice(&compiling.task_json().unwrap()).unwrap();
+        let payload: Value = serde_json::from_str(task["input_text"].as_str().unwrap()).unwrap();
+        payload["target_ids_by_kind"]["zone"][0].as_str().unwrap().to_owned()
+    };
+    let Step::Ask(repair) = compiling.read(Some(&compiler_reply(&toilets(&zone, json!({"end_minute": 20})), false))).unwrap() else { panic!("no repair") };
+    fits_catalog(&serde_json::from_slice(&repair).unwrap());
 }

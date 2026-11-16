@@ -100,7 +100,7 @@ python -m coverage report --sort=cover
 | `support/reports.py` | PDFレポートの根拠つきの文章と、それを答える偽のOpus | `prose_document`、`report_provider` |
 | `support/public_data.py` | 地域の調べが呼ぶ公開サービス（国土地理院の住所検索・指定緊急避難場所、e-Stat、気象庁の予報、設定した地域の公開データ）の偽物。存在しない自治体（合成県合成市）の合成の記録を返し、`fail()`で接続の失敗を起こせる。ネットワークには出ない | `public_data`、`researching_project_api`、`research_request` |
 
-`support/paths.py`（`fixtures/`のファイルのパス）、`support/isolation.py`（隔離の処理）、`support/core_fixtures.py`（中核のテストのfixtureのうち、今も書き直せるものの一覧。下の「中核のテストのfixture」）、`support/initial_corpus.py`（中核の0分の世界の作り方を確かめるScenarioのコーパス`fixtures/initial_corpus.json.xz`を読む部品）、`support/scenario_corpus.py`（画面のシナリオ作りの答えのコーパス）は、fixtureを持たない部品です。テストで使う`fixtures/`のファイルが増えたら、`support/paths.py`に定数を足します。
+`support/paths.py`（`fixtures/`のファイルのパス）、`support/isolation.py`（隔離の処理）、`support/core_fixtures.py`（中核のテストのfixtureのうち、今も書き直せるものの一覧。下の「中核のテストのfixture」）、`support/initial_corpus.py`（中核の0分の世界の作り方を確かめるScenarioのコーパス`fixtures/initial_corpus.json.xz`を読む部品）、`support/scenario_corpus.py`（画面のシナリオ作りの答えのコーパス）、`support/llm_relay.py`（ブラウザー版のLLMの中継をnodeで動かす部品。Anthropicへの接続は決めた答えに差し替える）は、fixtureを持たない部品です。テストで使う`fixtures/`のファイルが増えたら、`support/paths.py`に定数を足します。
 
 関数を返すfixtureは、呼ぶたびに新しいものを作るだけで状態を持ちません。そのうち`saved_project`、`add_toilets_program`、`recording_router`はsession単位にして、module単位のfixtureからも使えるようにしています。テストファイルの中のhelperがこれらを使うときは、テストが受け取ったfixtureを引数で渡します。
 

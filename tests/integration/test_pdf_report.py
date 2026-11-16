@@ -7,6 +7,9 @@ browser's, which the core's answer fixtures fix.
 
 The report's data and the analysis task's cache key (its facts, versions and schema) are pinned:
 a change that keeps the answers keeps them (#489).
+
+The browser asks the same analysis through the site's relay (#470): the relay sends Anthropic what
+the router's provider sends for it.
 """
 
 from __future__ import annotations
@@ -18,6 +21,7 @@ from typing import Any
 
 import pytest
 from support.isolation import _isolate
+from support.llm_relay import relay_requests, router_request
 
 from sheltersim.experiments.scenario import ScenarioSpec
 from sheltersim.storage.projects import digest
@@ -115,3 +119,38 @@ def test_an_analysis_the_checks_refuse_makes_no_pdf(
     assert provider.calls == 1
     attempts = report_api.store.root / "p" / "runs" / "r" / "pdf-attempts"
     assert [json.loads(path.read_text())["next_attempt"] for path in attempts.glob("*.json")] == [1]
+
+
+def test_the_browser_s_relay_sends_the_analysis_task_as_the_router_does(
+    report_api, monkeypatch, report_provider
+):
+    """#470: the analysis task the core asks, sent to the relay as the browser sends it, is the
+    request the router's provider makes: Opus, the answer's size, the system prompt, the facts."""
+    from sheltersim.llm.link import RouterLink
+
+    tasks: list[bytes] = []
+    complete = RouterLink.complete
+
+    def keep(self: RouterLink, task: bytes) -> bytes:
+        tasks.append(task)
+        return complete(self, task)
+
+    requests: list[dict[str, Any]] = []
+    answering = report_provider()
+
+    class Recording:
+        def complete(self, *, model_id, task, max_output_tokens, timeout_seconds):
+            requests.append(
+                router_request(model_id=model_id, task=task, max_output_tokens=max_output_tokens)
+            )
+            return answering.complete(model_id=model_id, task=task)
+
+    monkeypatch.setattr(RouterLink, "complete", keep)
+    install(monkeypatch, Recording())
+    # A scope the other tests do not export: no kept report answers it.
+    assert export(report_api, ["capacity"], minute=25).startswith(b"%PDF-")
+    assert [json.loads(task)["task"] for task in tasks] == ["pdf_analysis"]
+    [sent] = relay_requests(tasks)
+    [request] = requests
+    assert {key: sent[key] for key in request} == request
+    assert request["model"].startswith("claude-opus-")

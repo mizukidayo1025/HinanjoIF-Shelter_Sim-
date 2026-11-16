@@ -1,0 +1,344 @@
+{
+  "schema_version": 1,
+  "tasks": [
+    {
+      "input_byte_limit": null,
+      "max_input_bytes": 16384,
+      "max_output_tokens": 900,
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "claims": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "evidence": {
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "alias": {
+                        "enum": [
+                          "S1",
+                          "S2",
+                          "S3",
+                          "S4",
+                          "S5",
+                          "S6",
+                          "S7",
+                          "S8",
+                          "S9",
+                          "S10",
+                          "S11",
+                          "S12",
+                          "S13",
+                          "S14",
+                          "S15",
+                          "S16",
+                          "S17",
+                          "S18",
+                          "S19",
+                          "S20"
+                        ],
+                        "type": "string"
+                      },
+                      "field": {
+                        "maxLength": 120,
+                        "type": "string"
+                      },
+                      "value": {
+                        "maxLength": 200,
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "alias",
+                      "field",
+                      "value"
+                    ],
+                    "type": "object"
+                  },
+                  "maxItems": 4,
+                  "minItems": 1,
+                  "type": "array"
+                }
+              },
+              "required": [
+                "evidence"
+              ],
+              "type": "object"
+            },
+            "maxItems": 6,
+            "type": "array"
+          },
+          "explanations": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "evidence": {
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "alias": {
+                        "enum": [
+                          "S1",
+                          "S2",
+                          "S3",
+                          "S4",
+                          "S5",
+                          "S6",
+                          "S7",
+                          "S8",
+                          "S9",
+                          "S10",
+                          "S11",
+                          "S12",
+                          "S13",
+                          "S14",
+                          "S15",
+                          "S16",
+                          "S17",
+                          "S18",
+                          "S19",
+                          "S20"
+                        ],
+                        "type": "string"
+                      },
+                      "field": {
+                        "maxLength": 120,
+                        "type": "string"
+                      },
+                      "value": {
+                        "maxLength": 200,
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "alias",
+                      "field",
+                      "value"
+                    ],
+                    "type": "object"
+                  },
+                  "maxItems": 4,
+                  "minItems": 1,
+                  "type": "array"
+                },
+                "kind": {
+                  "enum": [
+                    "hypothesis",
+                    "suggestion",
+                    "synthetic_dialogue"
+                  ],
+                  "type": "string"
+                },
+                "text": {
+                  "maxLength": 1200,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "text",
+                "evidence"
+              ],
+              "type": "object"
+            },
+            "maxItems": 4,
+            "type": "array"
+          }
+        },
+        "required": [
+          "claims",
+          "explanations"
+        ],
+        "type": "object"
+      },
+      "prompt_version": "read-only-results-chat-v2-grounded-explanations",
+      "schema_version": 2,
+      "stage": "review",
+      "task": "result_question"
+    },
+    {
+      "input_byte_limit": 65536,
+      "max_input_bytes": 65536,
+      "max_output_tokens": 4096,
+      "output_schema": null,
+      "prompt_version": "geometry-population-effect-compiler-v2",
+      "schema_version": 1,
+      "stage": "intervention",
+      "task": "intervention_compiler"
+    },
+    {
+      "input_byte_limit": 65536,
+      "max_input_bytes": 65536,
+      "max_output_tokens": 4096,
+      "output_schema": null,
+      "prompt_version": "h07-opus-effect-compiler-v1-repair1",
+      "schema_version": 1,
+      "stage": "intervention",
+      "task": "intervention_repair"
+    },
+    {
+      "input_byte_limit": 48000,
+      "max_input_bytes": 48000,
+      "max_output_tokens": 4000,
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "executive": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "refs": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "maxItems": 3,
+                  "minItems": 1,
+                  "type": "array"
+                },
+                "text": {
+                  "maxLength": 240,
+                  "minLength": 12,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "text",
+                "refs"
+              ],
+              "type": "object"
+            },
+            "maxItems": 2,
+            "minItems": 1,
+            "type": "array"
+          },
+          "hypotheses": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "refs": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "maxItems": 3,
+                  "minItems": 1,
+                  "type": "array"
+                },
+                "text": {
+                  "maxLength": 240,
+                  "minLength": 12,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "text",
+                "refs"
+              ],
+              "type": "object"
+            },
+            "maxItems": 2,
+            "minItems": 1,
+            "type": "array"
+          },
+          "interpretation": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "refs": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "maxItems": 3,
+                  "minItems": 1,
+                  "type": "array"
+                },
+                "text": {
+                  "maxLength": 240,
+                  "minLength": 12,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "text",
+                "refs"
+              ],
+              "type": "object"
+            },
+            "maxItems": 2,
+            "minItems": 1,
+            "type": "array"
+          },
+          "limitations": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "refs": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "maxItems": 3,
+                  "minItems": 1,
+                  "type": "array"
+                },
+                "text": {
+                  "maxLength": 240,
+                  "minLength": 12,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "text",
+                "refs"
+              ],
+              "type": "object"
+            },
+            "maxItems": 2,
+            "minItems": 1,
+            "type": "array"
+          },
+          "proposals": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "refs": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "maxItems": 3,
+                  "minItems": 1,
+                  "type": "array"
+                },
+                "text": {
+                  "maxLength": 240,
+                  "minLength": 12,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "text",
+                "refs"
+              ],
+              "type": "object"
+            },
+            "maxItems": 2,
+            "minItems": 2,
+            "type": "array"
+          }
+        },
+        "required": [
+          "executive",
+          "interpretation",
+          "hypotheses",
+          "proposals",
+          "limitations"
+        ],
+        "type": "object"
+      },
+      "prompt_version": "pdf-analysis-ja-v1",
+      "schema_version": 1,
+      "stage": "review",
+      "task": "pdf_analysis"
+    }
+  ]
+}

@@ -27,12 +27,14 @@ use crate::program::EffectProgram;
 use crate::text::py_repr;
 use crate::value::V;
 
-const STAGE_INTERVENTION: &str = "intervention";
-const REPAIR_PROMPT_VERSION: &str = "h07-opus-effect-compiler-v1-repair1";
+pub(crate) const STAGE_INTERVENTION: &str = "intervention";
+pub(crate) const REPAIR_PROMPT_VERSION: &str = "h07-opus-effect-compiler-v1-repair1";
 const COMPILER_VERSION: &str = "h07-opus-effect-compiler-v1";
 const SOURCE_ID: &str = "opus-effect-compiler-v1";
-const INPUT_BYTE_LIMIT: i64 = 65_536;
-const MAX_OUTPUT_TOKENS: i64 = 4096;
+pub(crate) const INPUT_BYTE_LIMIT: i64 = 65_536;
+pub(crate) const MAX_OUTPUT_TOKENS: i64 = 4096;
+/// The schema version of both tasks.
+pub(crate) const SCHEMA_VERSION: i64 = 1;
 const FALLBACK_SUMMARY: &str = "オフライン時の固定応答です。適用可能な案は確定していません。";
 const FALLBACK_LIMITATION: &str = "Opus compiler unavailable; use offline parser only for its recognized forms.";
 const REPAIR_INSTRUCTION: &str = "Return one corrected complete JSON object. Do not add unsupported mechanics.";
@@ -87,7 +89,7 @@ fn task(name: &'static str, prompt_version: &str, payload: &V, state_hash: &str,
         task: name,
         stage: STAGE_INTERVENTION,
         prompt_version: prompt_version.to_owned(),
-        schema_version: 1,
+        schema_version: SCHEMA_VERSION,
         input_text: String::from_utf8(canonical(payload)?).map_err(|_| Error::Value("a payload that is not UTF-8".to_owned()))?,
         state_hash: state_hash.to_owned(),
         output_schema: schema.clone(),

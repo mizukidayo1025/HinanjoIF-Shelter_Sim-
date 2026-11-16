@@ -9,6 +9,9 @@ The answers without an API key are the browser's, fixed by the core's answer fix
 Each kind of task the core asks has its cache key pinned (`LLMTask.cache_key`: the input, the
 state hash, the versions and the schema). A recorded call answers only a task of the same key, so
 a change that keeps the answers keeps these keys (#489).
+
+The browser asks the same tasks through the site's relay (#470): the relay sends Anthropic what
+the router's provider sends for them.
 """
 
 from __future__ import annotations
@@ -19,6 +22,7 @@ from typing import Any
 
 import pytest
 from support.isolation import _isolate
+from support.llm_relay import relay_requests, router_request
 
 from sheltersim.experiments.scenario import ScenarioSpec
 from sheltersim.web.projects import ProjectAPI
@@ -420,3 +424,55 @@ def test_the_live_feature_check_takes_routes_that_exist(live_feature_route, tmp_
     assert provider.calls.count(REVIEW_VERSION) == 1
     assert provider.calls.count(COMPILER_VERSION) == 1
     assert provider.calls.count(QUESTION_VERSION) == 1
+
+
+def test_the_browser_s_relay_sends_the_core_s_tasks_as_the_router_does(completed_api, monkeypatch):
+    """#470: the tasks the core asks (a question, an intervention's text and its repair), sent
+    to the relay as the browser sends them, are the requests the router's provider makes: the
+    model, the answer's size, the system prompt and the input."""
+    from sheltersim.llm.link import RouterLink
+
+    tasks: list[bytes] = []
+    complete = RouterLink.complete
+
+    def keep(self: RouterLink, task: bytes) -> bytes:
+        tasks.append(task)
+        return complete(self, task)
+
+    requests: list[dict[str, Any]] = []
+
+    class Recording(FakeProvider):
+        def complete(self, *, model_id, task, max_output_tokens, timeout_seconds):
+            requests.append(
+                router_request(model_id=model_id, task=task, max_output_tokens=max_output_tokens)
+            )
+            return super().complete(
+                model_id=model_id,
+                task=task,
+                max_output_tokens=max_output_tokens,
+                timeout_seconds=timeout_seconds,
+            )
+
+    monkeypatch.setattr(RouterLink, "complete", keep)
+    install(
+        monkeypatch,
+        Recording(
+            {
+                QUESTION_VERSION: cite,
+                COMPILER_VERSION: lambda task: toilets(task, end_minute=20),
+                REPAIR_VERSION: toilets,
+            }
+        ),
+    )
+    # Questions and texts the other tests do not ask: the Run's tapes answer those.
+    ask(completed_api, "Which values did the run record?")
+    preview(completed_api, "仮設トイレを2基置いてほしい")
+    assert [json.loads(task)["task"] for task in tasks] == [
+        "result_question",
+        "intervention_compiler",
+        "intervention_repair",
+    ]
+    sent = relay_requests(tasks)
+    assert len(sent) == len(requests) == 3
+    for body, request in zip(sent, requests, strict=True):
+        assert {key: body[key] for key in request} == request

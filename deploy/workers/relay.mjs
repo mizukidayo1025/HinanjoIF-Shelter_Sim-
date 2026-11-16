@@ -59,7 +59,9 @@ export const PRICES = Object.freeze({
 /// Room for thinking on top of a task's answer, on models whose thinking cannot be turned off
 /// (Python's THINKING_HEADROOM_TOKENS).
 export const THINKING_HEADROOM_TOKENS = 4096;
-export const BODY_LIMIT = 64 * 1024;
+/// A request's body: a core task's JSON (an intervention's input of 64 KiB written as a JSON string,
+/// and its schema) fits.
+export const BODY_LIMIT = 256 * 1024;
 export const FAILURE_LIMIT = 10;
 export const FAILURE_WINDOW_MS = 15 * 60 * 1000;
 /// Labels of recipients: at most this many characters (the secret's entries and issued ones).
@@ -271,7 +273,7 @@ export function createWorker({ now = () => Date.now(), fetchProvider = (url, ini
     const task = tasks[taskName];
     let prompt;
     try {
-      prompt = task.build(body.input);
+      prompt = task.build(body.input, text);
     } catch (error) {
       if (error instanceof TaskInputError) return refuse(400, "llm_task_input_invalid", error.message);
       throw error;

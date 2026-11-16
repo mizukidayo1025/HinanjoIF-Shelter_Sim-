@@ -85,7 +85,11 @@
   $("fork-day").addEventListener("change", pickForkTime);
   $("fork-clock").addEventListener("change", pickForkTime);
   $("intervention-text").addEventListener("input", invalidateIntervention);
-  on("intervention-preview", previewIntervention);
+  $("intervention-builder").addEventListener("input", invalidateIntervention);
+  // Another operator asks for other targets and amounts.
+  $("intervention-op").addEventListener("change", controls);
+  on("intervention-preview", () => previewIntervention("builder"));
+  on("intervention-preview-text", () => previewIntervention("text"));
   $("intervention-check").addEventListener("change", controls);
   on("intervention-apply", applyIntervention);
   $("person-dialog-close").addEventListener("click", () =>
@@ -119,7 +123,7 @@
     invalidateIntervention();
     show("comparison");
     scrollTo(0, 0);
-    $("intervention-text").focus({ preventScroll: true });
+    $("intervention-op").focus({ preventScroll: true });
   });
   on("multi-compare-run", loadMultiCompare);
   $("compare-branch").addEventListener("change", () => {

@@ -10,8 +10,8 @@
 //! What the browser does not repeat, and says so:
 //! - A program the contract refuses is a `Value` error whose text is the core's, not pydantic's.
 //!   The reader takes the JSON types a dump has (an int where an int is, a bool where a bool is),
-//!   and refuses a value pydantic would coerce. The screen sends no typed program; the reading of
-//!   a text makes its dump.
+//!   and refuses a value pydantic would coerce. The screen's builder (#584) sends a typed program
+//!   built from `catalog`, the reading of a text makes its dump.
 //! - The world's own check (`validate::world`, E6 of #250) is not run: a valid world gives no
 //!   issue there.
 //! - An effect of another operator of the registry, or parameters its model refuses (whose issue
@@ -372,8 +372,8 @@ fn assumption(value: &V) -> Result<Assumption> {
 fn provenance(value: &V) -> Result<Provenance> {
     let fields = Fields::of(value, "compiler_provenance", &["compiler_kind", "compiler_version", "model_id", "prompt_hash"])?;
     let compiler_kind = match fields.required("compiler_kind")? {
-        V::Str(kind) if matches!(&**kind, "offline_rule" | "llm") => kind.clone(),
-        _ => return refuse("compiler_kind is not offline_rule or llm"),
+        V::Str(kind) if matches!(&**kind, "offline_rule" | "llm" | "manual") => kind.clone(),
+        _ => return refuse("compiler_kind is not offline_rule, llm or manual"),
     };
     let prompt_hash = match fields.get("prompt_hash") {
         None | Some(V::Null) => None,
@@ -583,6 +583,116 @@ fn primitive(op: &str) -> Option<Primitive> {
 /// text makes. The intervention compiler offers an LLM only these (#463).
 pub fn supports(op: &str) -> bool {
     primitive(op).is_some()
+}
+
+// ---- The catalog ------------------------------------------------------------------------------------
+
+/// What the screen's builder of an intervention (#584) shows of an operator the core schedules:
+/// its name, the facility kinds a facility target must be (none: any), whether its effect needs
+/// an end, and the parameters it asks for (name, label, unit); the others keep their defaults.
+/// The parameters' types and ranges are the registry's (`interpret/primitives.json`, the schema an
+/// LLM is given too).
+struct Form {
+    op: &'static str,
+    label: &'static str,
+    facility_kinds: &'static [&'static str],
+    end_required: bool,
+    parameters: &'static [(&'static str, &'static str, &'static str)],
+}
+
+/// The operators the core schedules, in the order the builder offers them.
+const FORMS: [Form; 6] = [
+    Form { op: "add_toilet", label: "トイレを増やす", facility_kinds: &[], end_required: false, parameters: &[("count", "増やす数", "基")] },
+    Form { op: "add_staff", label: "スタッフを増やす", facility_kinds: &[], end_required: false, parameters: &[("count", "増やす人数", "人")] },
+    Form {
+        op: "facility_outage",
+        label: "設備を止める（故障・使用停止）",
+        facility_kinds: &[],
+        end_required: false,
+        parameters: &[("units", "止める数", "基")],
+    },
+    Form { op: "water_outage", label: "断水する", facility_kinds: &["water_station"], end_required: true, parameters: &[] },
+    Form {
+        op: "add_evacuees", label: "避難者が到着する", facility_kinds: &[], end_required: false, parameters: &[("count", "到着する人数", "人")]
+    },
+    Form {
+        op: "depart_evacuees",
+        label: "避難者が退所する",
+        facility_kinds: &[],
+        end_required: false,
+        parameters: &[("count", "退所する人数", "人"), ("include_initial", "最初からいた避難者も含める", "")],
+    },
+];
+
+/// The catalog of the operators the core schedules (`GET …/contracts`'s
+/// `executable_effect_primitives`), from which the screen builds an EffectProgram: each one's
+/// `op`, `label`, the registry's `description`, `target_kinds`, `target_facility_kinds`, `units`,
+/// `required_policies`, `timed`, `end_required` and the `parameters` the builder asks for, each
+/// with its `name`, `label`, `unit`, the registry's `type` and, where it has them, `minimum`,
+/// `maximum`, `default` and `enum`, and `required`.
+pub fn catalog() -> Result<V> {
+    let texts = |items: &[&str]| V::List(items.iter().map(|item| V::Str(Arc::from(*item))).collect());
+    let mut entries = Vec::new();
+    for form in &FORMS {
+        let primitive = primitive(form.op).ok_or_else(|| Error::Runtime(format!("the catalog names {}, which the core does not schedule", form.op)))?;
+        let entry = crate::interpret::registry_entry(form.op)?.ok_or_else(|| Error::Runtime(format!("the registry lacks {}", form.op)))?;
+        let V::Map(entry) = entry else { return Err(Error::Runtime("a registry entry is not a dict".to_owned())) };
+        let schema = match entry.get("parameters_schema") {
+            Some(V::Map(schema)) => schema,
+            _ => return Err(Error::Runtime(format!("{} has no parameters' schema", form.op))),
+        };
+        let required: Vec<&str> = match schema.get("required") {
+            Some(V::List(names)) => names.iter().filter_map(|name| if let V::Str(name) = name { Some(&**name) } else { None }).collect(),
+            _ => Vec::new(),
+        };
+        let mut parameters = Vec::new();
+        for (name, label, unit) in form.parameters {
+            let property = match schema.get("properties") {
+                Some(V::Map(properties)) => properties.get(*name),
+                _ => None,
+            };
+            let Some(V::Map(property)) = property else { return Err(Error::Runtime(format!("{} has no parameter {name}", form.op))) };
+            let kind = match property.get("type") {
+                Some(V::Str(kind)) => kind.clone(),
+                _ => return Err(Error::Runtime(format!("{}.{name} has no type", form.op))),
+            };
+            let mut item: Map = IndexMap::new();
+            let mut put = |key: &str, value: V| {
+                item.insert(Arc::from(key), value);
+            };
+            put("name", V::Str(Arc::from(*name)));
+            put("label", V::Str(Arc::from(*label)));
+            put("unit", V::Str(Arc::from(*unit)));
+            put("type", V::Str(kind.clone()));
+            // An integer above an exclusive minimum is at least the next one.
+            match (property.get("minimum"), property.get("exclusiveMinimum")) {
+                (Some(minimum), _) => put("minimum", minimum.clone()),
+                (None, Some(V::Int(bound))) if &*kind == "integer" => put("minimum", V::Int(bound + 1)),
+                (None, Some(_)) => return Err(Error::Runtime(format!("{}.{name} has an exclusive minimum the builder cannot show", form.op))),
+                (None, None) => {}
+            }
+            for key in ["maximum", "default", "enum"] {
+                if let Some(value) = property.get(key) {
+                    put(key, value.clone());
+                }
+            }
+            put("required", V::Bool(required.contains(name)));
+            parameters.push(V::Map(item));
+        }
+        entries.push(object([
+            ("op", V::Str(Arc::from(form.op))),
+            ("label", V::Str(Arc::from(form.label))),
+            ("description", entry.get("description").cloned().unwrap_or(V::Null)),
+            ("target_kinds", texts(primitive.target_kinds)),
+            ("target_facility_kinds", texts(form.facility_kinds)),
+            ("units", texts(primitive.units)),
+            ("required_policies", texts(primitive.policies)),
+            ("timed", V::Bool(primitive.timed)),
+            ("end_required", V::Bool(form.end_required)),
+            ("parameters", V::List(parameters)),
+        ]));
+    }
+    Ok(V::List(entries))
 }
 
 /// The parameters of an effect, as its model reads them; `Unsupported` where the model refuses

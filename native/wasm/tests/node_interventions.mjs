@@ -10,18 +10,20 @@
 // `intervention-apply`, the Run's record with `last_fork`, and the child's frames and KPI history
 // once computed. The Run is computed here in WASM and stored as the browser stores it, and the same
 // requests go through BrowserApi: each body, masked as the builder masks it (`preview_id` and the
-// branches' heads), has the server's sha256, and a refusal the server's body. Then what only the
-// browser does: a typed `program` is refused as unsupported, the questions' turns are kept in the
-// branch's stored Run, the child's stored Run is of format v6, starts at the fork and reads its
-// parent's pieces up to its base (no copy of them), and it reads back to its digests.
+// branches' heads), has the server's sha256, and a refusal the server's body. Then: the core's
+// catalog of operators (`GET {project}/contracts`) and a typed `program` built from it, as the
+// screen's builder builds it (#584), are answered; the questions' turns are kept in the branch's
+// stored Run, the child's stored Run is of format v6, starts at the fork and reads its parent's
+// pieces up to its base (no copy of them), and it reads back to its digests.
 //
 // Then the questions, previews and analysis reports the server answered with an API key (#470,
 // native/core/tests/data/interventions_llm.json) are asked with the relay's passphrase, the relay
 // answered here with what the server's Provider wrote: the browser must send the relay the core's
-// tasks the server's link got (their sha256) and answer as the server did.
-// Then what only the browser does: a relay that does not let the passphrase in leaves the answer
-// without an API key, and one that refuses the call (the day's cap) the fallback with its reason;
-// a question fails with the reason in both cases (#585).
+// tasks the server's link got (their sha256) and answer as the server did, except that a preview
+// without an accepted plan fails with the reason where the server (its error policy `fallback`)
+// read the text with the rules: the browser stops (#580, #584).
+// Then what only the browser does: a relay that does not let the passphrase in, or one that refuses
+// the call (the day's cap), fails a question (#585) and a preview (#584) with the reason.
 
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -208,7 +210,11 @@ for (const item of [...fixture.cases, ...withLlm.cases]) {
   } else {
     throw new Error(`no route ${item.route}`);
   }
-  await compare(`${item.route} ${item.name}`, got, item);
+  if (item.llm && item.route === "preview" && item.text?.includes('"fallback_used":true')) {
+    // The browser stops where the server fell back to the rules.
+    const refused = JSON.parse(got.body);
+    check(got.status === 409 && refused.code === "intervention_compiler_unavailable", `${item.name}: ${got.status} ${got.body}`);
+  } else await compare(`${item.route} ${item.name}`, got, item);
   check(relayCalls.length === 0 && relaySent === (item.llm?.length ?? 0), `${item.name}: the relay got ${relaySent} calls, not ${item.llm?.length ?? 0}`);
 }
 console.log(`${fixture.cases.length + withLlm.cases.length} answers compared with the server's in ${((performance.now() - started) / 1000).toFixed(2)} s`);
@@ -227,9 +233,9 @@ console.log(`${fixture.cases.length + withLlm.cases.length} answers compared wit
   check(JSON.stringify(questions) === JSON.stringify(withLlm.stored_questions), `the questions kept: ${JSON.stringify(questions)}, not ${JSON.stringify(withLlm.stored_questions)}`);
 }
 
-// A relay that does not let the passphrase in is no link: the answer without an API key. One that
-// refuses the call (the day's cap) gives the task's fallback, with its reason. A question fails
-// with the reason in both cases, and keeps no turn (#585).
+// A relay that does not let the passphrase in is no link, and one that refuses the call (the day's
+// cap) gives the task's fallback: a question fails with the reason in both cases and keeps no turn
+// (#585), and a preview fails with it (#584).
 {
   const question = JSON.stringify({ question: "合言葉が違うと?" });
   const turns = async () => JSON.parse((await get("/branches/main/conversations")).body).turns.length;
@@ -238,23 +244,65 @@ console.log(`${fixture.cases.length + withLlm.cases.length} answers compared wit
   const refused = await post("/branches/main/questions", question, PASSPHRASE);
   check(refused.status === 409 && JSON.parse(refused.body).code === "question_llm_failed" && JSON.parse(refused.body).error.includes("合言葉"), `a passphrase not let in: ${refused.body}`);
   const text = JSON.stringify({ minute: fixture.run.fork_minute, text: "仮設トイレを3基置いてほしい" });
-  const previewed = JSON.parse((await post("/branches/main/intervention-preview", text, PASSPHRASE)).body);
-  const rules = JSON.parse((await post("/branches/main/intervention-preview", text)).body);
-  check(JSON.stringify({ ...previewed, preview_id: "" }) === JSON.stringify({ ...rules, preview_id: "" }), "a passphrase not let in reads the text without the LLM");
+  const previewed = await post("/branches/main/intervention-preview", text, PASSPHRASE);
+  const notLetIn = JSON.parse(previewed.body);
+  check(previewed.status === 409 && notLetIn.code === "intervention_compiler_unavailable" && notLetIn.error.includes("合言葉"), `a passphrase not let in: ${previewed.body}`);
   relayRefusal = { status: 429, body: { error: "今日のAPIの上限（$5）に達しました。", code: "llm_budget_exceeded", remaining_usd: 0.1 } };
-  const capped = JSON.parse((await post("/branches/main/intervention-preview", text, PASSPHRASE)).body);
-  check(capped.fallback_used === true && capped.usage?.api_request_count === 0, `the day's cap: ${JSON.stringify(capped.usage)}`);
-  check(capped.limitations.some((line) => line.includes("予算の上限を超えるため")), `the day's cap is said: ${JSON.stringify(capped.limitations)}`);
+  const capped = await post("/branches/main/intervention-preview", text, PASSPHRASE);
+  const cap = JSON.parse(capped.body);
+  check(capped.status === 409 && cap.code === "intervention_compiler_unavailable" && cap.error.includes("予算の上限を超えるため"), `the day's cap: ${capped.body}`);
   const cappedQuestion = await post("/branches/main/questions", question, PASSPHRASE);
   check(cappedQuestion.status === 409 && JSON.parse(cappedQuestion.body).error.includes("今日のAPIの上限"), `the day's cap for a question: ${cappedQuestion.body}`);
   relayRefusal = null;
   check((await turns()) === before, "a question that failed keeps no turn");
 }
 
-// A typed program is refused as unsupported, after the checks of the minute.
+// The core's catalog of the operators it schedules (#584), and a typed program the screen's builder
+// makes of it (demo-v2-comparison.js `builtProgram`): checked on the world, no text read, no relay
+// asked even with the passphrase.
 {
-  const got = await post("/branches/main/intervention-preview", JSON.stringify({ minute: fixture.run.fork_minute, program: {} }));
-  check(got.status === 409 && JSON.parse(got.body).code === "browser_unsupported", `a typed program: ${got.body}`);
+  const contracts = await browser.answer({ method: "GET", path: `/api/v1/projects/${projectId}/contracts`, search: "" });
+  check(contracts.status === 200, `contracts: ${contracts.status} ${contracts.body}`);
+  const catalog = JSON.parse(contracts.body);
+  check(contracts.body === wasm.contractsAnswer() && catalog.executable_effect_primitives.length === 6, `the catalog: ${contracts.body.slice(0, 200)}`);
+  const missing = await browser.answer({ method: "GET", path: "/api/v1/projects/nowhere/contracts", search: "" });
+  check(missing.status === 409, `the catalog of no Project: ${missing.status} ${missing.body}`);
+  const entry = catalog.executable_effect_primitives.find((item) => item.op === "add_toilet");
+  const minute = fixture.run.fork_minute;
+  const program = {
+    schema_version: 1,
+    program_id: "manual-toilets",
+    narrative: entry.label,
+    source_text: entry.label,
+    simulation_start_minute: minute,
+    effects: [
+      {
+        effect_id: "effect-1",
+        op: entry.op,
+        target_selector: { kind: "zone", target_id: "toilet", candidate_ids: [] },
+        start_minute: minute,
+        end_minute: null,
+        guard: null,
+        parameters: { count: 1 },
+        units: entry.units[0],
+        source_id: "screen-builder-v1",
+        assumption_ids: [],
+        policy_dependencies: entry.required_policies,
+        causation_id: null,
+        reversible: true,
+      },
+    ],
+    assumptions: [],
+    support_mode: "native",
+    compiler_provenance: { compiler_kind: "manual", compiler_version: "screen-builder-v1", model_id: null, prompt_hash: null },
+  };
+  relaySent = 0;
+  const got = await post("/branches/main/intervention-preview", JSON.stringify({ minute, program }), PASSPHRASE);
+  const answer = JSON.parse(got.body);
+  check(got.status === 200 && answer.status === "compiled" && answer.fallback_used === false && answer.program?.compiler_provenance?.compiler_kind === "manual", `a typed program: ${got.body.slice(0, 400)}`);
+  check(relaySent === 0, `a typed program asked the relay ${relaySent} times`);
+  const broken = await post("/branches/main/intervention-preview", JSON.stringify({ minute, program: { ...program, support_mode: "certain" } }));
+  check(broken.status === 400 && JSON.parse(broken.body).code === "invalid_effect_program", `a program the contract refuses: ${broken.status} ${broken.body}`);
 }
 
 // The child's stored Run: format v6, its "run" line holds the fork, it starts at the fork's minute,

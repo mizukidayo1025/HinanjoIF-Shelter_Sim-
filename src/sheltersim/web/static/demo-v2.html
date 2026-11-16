@@ -542,7 +542,7 @@
               <h2><span data-icon="comparison" class="inline-icon"></span>この時刻から分岐を作る</h2>
             </div>
             <p class="fine">
-              計算済みの時刻から、作用・対象・時刻を確かめて分岐を作ります。計算中は作れません。
+              計算済みの時刻から、作用・対象・量を選び、検証結果を確かめて分岐を作ります。計算中は作れません。
             </p>
             <div class="fork-time">
               <span id="intervention-base" class="fine"></span>
@@ -551,16 +551,36 @@
                 ><input id="fork-clock" type="time" step="60" aria-label="分岐する時刻" /></label
               ><span id="fork-range" class="fine"></span>
             </div>
-            <label for="intervention-text">介入の指示</label
-            ><textarea
-              id="intervention-text"
-              rows="3"
-              maxlength="4000"
-              placeholder="例：トイレを2基追加する"
-            ></textarea
-            ><button id="intervention-preview" class="primary full" disabled>
+            <div id="intervention-builder" class="intervention-builder">
+              <label
+                >作用<select id="intervention-op" aria-label="介入の作用"></select></label
+              ><label
+                >対象<select id="intervention-target" aria-label="介入の対象"></select></label
+              ><div id="intervention-amounts"></div>
+              <label id="intervention-duration-row" hidden
+                ><span id="intervention-duration-label">続ける時間（分）</span
+                ><input id="intervention-duration" type="number" min="1" step="1"
+              /></label>
+              <p id="intervention-op-note" class="fine"></p>
+            </div>
+            <button id="intervention-preview" class="primary full" disabled>
               介入の作用をプレビュー →
             </button>
+            <details class="intervention-text-option">
+              <summary>文章で指示する（AIが作用に変換）</summary>
+              <fieldset class="needs-api" data-needs-api>
+                <label for="intervention-text">介入の指示</label
+                ><textarea
+                  id="intervention-text"
+                  rows="3"
+                  maxlength="4000"
+                  placeholder="例：トイレを2基追加する"
+                ></textarea
+                ><button id="intervention-preview-text" class="full" disabled>
+                  文章から作用をプレビュー →
+                </button>
+              </fieldset>
+            </details>
             <div id="intervention-result"></div>
             <label class="checkbox"
               ><input

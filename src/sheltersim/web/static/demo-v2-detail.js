@@ -49,8 +49,8 @@
   }
   // The detail page (#376, AGENTS.md's provenance on the screen): the Run's record and branches,
   // the models and coefficients and the sources and assumptions its evidence recorded, the
-  // effects an intervention can use and the LLM's use. The routes the browser version does not
-  // answer (contracts, usage) are said to be the server's.
+  // effects an intervention can use (the core's catalog, #584) and the LLM's use. The route the
+  // browser version does not answer (usage) is said to be the server's.
   function facts(box, pairs) {
     box.replaceChildren();
     for (const [key, value] of pairs)
@@ -74,7 +74,7 @@
         api(runBase()),
         api(`${runBase()}/evidence`),
         api(`${branchBase()}/llm-status`),
-        optional(`${base()}/contracts`),
+        api(`${base()}/contracts`),
         optional(`${runBase()}/usage`),
       ]);
     if (scope !== state.scope) return;
@@ -142,22 +142,14 @@
       ...(evidence.scenario_assumptions || []),
     ]);
     $("detail-effects").replaceChildren(
-      ...(contracts
-        ? (contracts.executable_effect_primitives || []).map((e) => {
-            const row = el("div", undefined, "source-row");
-            row.append(
-              el("strong", e.op),
-              el("span", `${e.description || ""}${e.timed ? "（期間あり）" : ""}`),
-            );
-            return row;
-          })
-        : [
-            el(
-              "p",
-              "ブラウザー版は、作用の型の一覧を持っていません。介入のプレビューで、文から読み取った作用と検証の結果を確かめられます。",
-              "fine",
-            ),
-          ]),
+      ...(contracts.executable_effect_primitives || []).map((e) => {
+        const row = el("div", undefined, "source-row");
+        row.append(
+          el("strong", `${e.label}（${e.op}）`),
+          el("span", `${e.description || ""}${e.timed ? "（期間あり）" : ""}`),
+        );
+        return row;
+      }),
     );
     facts($("detail-llm"), [
       ["回答の作り方", llmModeLabel(llm.mode)],

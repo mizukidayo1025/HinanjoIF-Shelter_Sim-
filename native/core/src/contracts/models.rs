@@ -657,7 +657,7 @@ fn operator_shape_and_complexity_are_valid(fields: &mut Fields) -> Result<(), St
 pub static COMPILER_PROVENANCE: Model = model(
     "CompilerProvenance",
     &[
-        required("compiler_kind", S::Lit(&[Lit::Str("offline_rule"), Lit::Str("llm")])),
+        required("compiler_kind", S::Lit(&[Lit::Str("offline_rule"), Lit::Str("llm"), Lit::Str("manual")])),
         required("compiler_version", STABLE),
         with("model_id", S::Opt(&STABLE), null),
         with("prompt_hash", S::Opt(&S::Str(StrS { strip: false, min: None, max: Some(128), pattern: None })), null),

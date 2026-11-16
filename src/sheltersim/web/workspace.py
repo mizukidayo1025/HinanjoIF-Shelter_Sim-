@@ -264,10 +264,11 @@ class ProjectWorkspace:
     def intervention_preview(
         self, project_id: str, run_id: str, branch_id: str, body: bytes
     ) -> bytes:
-        """`POST …/intervention-preview` (`{minute, text}`): the branch's Run at the minute, the
-        text read (by the offline compiler, or with an API key by the configured router through
-        the core, #463), the program's checks on the world, and the draft kept for the approval
-        (the browser's `interventionPreview`)."""
+        """`POST …/intervention-preview` (`{minute, program}` or `{minute, text}`): the branch's
+        Run at the minute, the typed program the screen built from the core's catalog (#584) or
+        the text read (by the offline compiler, or with an API key by the configured router
+        through the core, #463), the program's checks on the world, and the draft kept for the
+        approval (the browser's `interventionPreview`)."""
         from sheltersim.web.projects import answers
 
         core, files = answers(), self.api.files
@@ -275,7 +276,6 @@ class ProjectWorkspace:
             body, project_id, run_id, *files.run_listing(project_id, run_id), branch_id
         )
         self._require_current_model(project_id, run_id, branch_id)
-        plan.check_typed()
         record = json.loads(plan.record_json())
         run = self.api.live.at(project_id, run_id, record, plan.minute)
         preview_id = uuid.uuid4().hex

@@ -181,6 +181,13 @@ pub fn conversations_answer(pieces: &Files) -> Result<String, JsError> {
     answer(routes::conversations_answer(&pieces.raws()))
 }
 
+/// `GET {project}/contracts`, once the caller found the Project: the operators the core schedules,
+/// from which the screen builds an intervention (#584).
+#[wasm_bindgen(js_name = contractsAnswer)]
+pub fn contracts_answer() -> Result<String, JsError> {
+    answer(routes::contracts_answer())
+}
+
 /// `POST runs/{run}/pdf-report` (#470, `answers::pdf::PdfPlan`): the route's checks (`checkLink`
 /// for an analysis asked); then each branch's Run at the minute (`addBranch`, after
 /// `checkSavedPoint` for a view-only one), then the answer without the analysis (`report`, #582)
@@ -476,7 +483,7 @@ pub fn fork_receipts(journals: &Files) -> Result<(), JsError> {
 }
 
 /// `POST …/intervention-preview` (`answers::interventions::PreviewPlan`): its checks; then, after
-/// the model versions are checked (`checkTyped`), the answer of the branch's Run at `minute`.
+/// the model versions are checked, the answer of the branch's Run at `minute`.
 #[wasm_bindgen]
 pub struct PreviewPlan {
     plan: answers::interventions::PreviewPlan,
@@ -501,12 +508,6 @@ impl PreviewPlan {
         text(records::record_json(self.plan.record()))
     }
 
-    /// A typed program is refused (after the model versions are checked).
-    #[wasm_bindgen(js_name = checkTyped)]
-    pub fn check_typed(&self) -> Result<(), JsError> {
-        self.plan.check_typed().map_err(failed)
-    }
-
     /// The answer, of the branch's Run at the minute; `previewId` the draft's id. The draft to keep
     /// is then `draft()`.
     pub fn answer(&mut self, simulation: &mut Simulation, preview_id: &str) -> Result<String, JsError> {
@@ -523,10 +524,11 @@ impl PreviewPlan {
 
     /// The text read by an LLM through the site's relay (#470, `interpret::Compiling`), of the
     /// branch's Run at the minute: the compiler's steps, or undefined where no operator the core
-    /// runs is eligible (`answer` then). The browser has no stop policy: without an accepted plan
-    /// the rules read the text.
+    /// runs is eligible or the request holds a typed program (`answer` then). The browser stops
+    /// (#584, #580): without an accepted plan the preview fails with the reason
+    /// (`intervention_compiler_unavailable`) and the rules do not read the text.
     pub fn compiling(&self, simulation: &mut Simulation) -> Result<Option<Compiling>, JsError> {
-        Ok(self.plan.compiling(&mut simulation.run, false).map_err(failed)?.map(|compiling| Compiling { compiling, done: None }))
+        Ok(self.plan.compiling(&mut simulation.run, true).map_err(failed)?.map(|compiling| Compiling { compiling, done: None }))
     }
 
     /// The answer of the compiler's result (once `Compiling.read` said it is done), of the

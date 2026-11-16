@@ -1,10 +1,11 @@
 // The browser's answers to an intervention (Issue #306, under #292): the routes the screen's
 // 「ここから別の『もしも』を試す」 calls, as the Python server answers them without an API key.
 //
-//   POST runs/{run}/branches/{branch}/intervention-preview   {minute, text}
-//       src/sheltersim/web/workspace.py `intervention_preview`: the branch at the minute, the summary of its
-//       world (Simulation.scenarioSummary, #302), the offline compiler's result
-//       (compileInterventionOffline, #303), and for a compiled plan its EffectProgram
+//   POST runs/{run}/branches/{branch}/intervention-preview   {minute, program} or {minute, text}
+//       src/sheltersim/web/workspace.py `intervention_preview`: the branch at the minute; the
+//       typed program the screen built from the core's catalog (`GET {project}/contracts`, #584),
+//       or the text read (the summary of its world, Simulation.scenarioSummary, #302; the offline
+//       compiler's result, compileInterventionOffline, #303); for a compiled plan its EffectProgram
 //       (effectProgramDump, #304), the program's checks on the world (validateEffectProgram),
 //       the approval's hash and a draft (`preview_id`).
 //   POST runs/{run}/branches/{branch}/intervention-apply     {preview_id, approved_program_hash,
@@ -25,9 +26,7 @@
 // A Run computed with other model versions is view-only: both routes refuse it as the server does
 // (409 `run_model_view_only`, compute.mjs `requireCurrentModel`).
 //
-// The rest is as the server does it too (#427, #449; docs/project-persistence.md): a typed
-// `program` (the screen never sends one) is refused, 409 `browser_unsupported`, after the checks of
-// the branch, the minute and the model versions (the core's `check_typed`); `preview_id` is random
+// The rest is as the server does it too (#427, #449; docs/project-persistence.md): `preview_id` is random
 // (a uuid4's hex); the draft is kept in the Project's folder (`drafts/<preview_id>.json`) and is not
 // part of a Project's bundle; the fork is not a computing job, so it never makes the Run `running`
 // and does not count against the parallel computations. `last_fork` is kept in memory, by the
@@ -39,15 +38,19 @@
 // the LLM as the Python server reads it with an API key (#470): the core builds the compiler's task
 // (`PreviewPlan.compiling`: only the operators the core runs, eligible on the branch), the site's
 // relay answers it (relay_link.mjs), the core checks the plan and asks once to repair a plan its
-// checks refuse, and without an accepted plan the rules read the text, saying why
-// (`Compiling.read`, `PreviewPlan.answerCompiled`). The browser has no stop policy. A relay that
-// does not let the passphrase in leaves the answer without an API key. The approval and the fork
-// are the same either way: nothing changes until the user approves the draft.
+// checks refuse (`Compiling.read`, `PreviewPlan.answerCompiled`). The browser stops as the
+// server's stop policy does (#580, #584): without an accepted plan (the call refused, the day's
+// cap, a plan the checks refuse again) or with a relay that does not let the passphrase in, the
+// preview fails with the reason (409 `intervention_compiler_unavailable`); the rules never read
+// the text instead. The approval and the fork are the same either way: nothing changes until the
+// user approves the draft.
 
-import { core } from "./api_answers.mjs";
+import { ApiError, core } from "./api_answers.mjs";
 import { requireCurrentModel } from "./compute.mjs";
 import * as store from "./project_store.mjs";
 import { askRelay } from "./relay_link.mjs";
+
+const NO_LINK = "AIの中継を使えません（合言葉が通らないか、中継にAPIキーがありません）。ホームの「AIの機能（API）」を確かめてください。";
 
 const draftPath = (projectId, previewId) => [projectId, "drafts", `${previewId}.json`];
 
@@ -70,7 +73,6 @@ export async function interventionPreview(api, projectId, runId, branchId, body,
   }
   try {
     await requireCurrentModel(wasm, tree, projectId, runId, branchId);
-    core(() => plan.checkTyped());
     const simulation = await api.simulationAt(projectId, runId, JSON.parse(plan.recordJson()), plan.minute());
     const id = previewId();
     const compiled = llm ? await compileWithLlm(api, plan, simulation, id, llm) : null;
@@ -84,7 +86,8 @@ export async function interventionPreview(api, projectId, runId, branchId, body,
 }
 
 /// The preview's answer of the text read through the relay, or null where no operator the core
-/// runs is eligible or the relay is no link (the answer without an API key then).
+/// runs is eligible or the request holds a typed program (the answer without an LLM then). A relay
+/// that is no link fails the preview.
 async function compileWithLlm(api, plan, simulation, id, passphrase) {
   const compiling = core(() => plan.compiling(simulation));
   if (compiling === undefined) return null;
@@ -92,9 +95,9 @@ async function compileWithLlm(api, plan, simulation, id, passphrase) {
     let task = core(() => compiling.task());
     for (let first = true; task !== undefined; first = false) {
       const reply = await askRelay(api.relay, passphrase, task);
-      // No link at the first task: the answer without an API key; at the repair (the relay
-      // answered the first), a failed call.
-      if (reply === null && first) return null;
+      // No link at the first task: the preview fails; at the repair (the relay answered the
+      // first), a failed call, which the core refuses with its reason.
+      if (reply === null && first) throw new ApiError(409, NO_LINK, "intervention_compiler_unavailable");
       task = core(() => compiling.read(reply ?? undefined));
     }
     return core(() => plan.answerCompiled(simulation, id, compiling));

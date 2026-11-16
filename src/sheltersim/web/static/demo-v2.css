@@ -3719,6 +3719,24 @@ body.is-uncomputed main > .page.active {
 .intervention-panel #intervention-result:empty {
   display: none;
 }
+/* 介入の組み立て：作用・対象・量・続ける時間（#584） */
+.intervention-builder > label,
+.intervention-builder #intervention-amounts > label {
+  margin-top: 8px;
+}
+.intervention-builder .amount {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 5px;
+}
+.intervention-builder .amount input {
+  max-width: 9em;
+  margin-top: 0;
+}
+.intervention-builder #intervention-op-note:empty {
+  display: none;
+}
 /* 分岐を作る時刻（#441） */
 .fork-time {
   display: flex;

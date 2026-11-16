@@ -3,9 +3,10 @@
 //!
 //! Preview: `PreviewPlan::new` checks the request, the branch and the minute; the caller checks
 //! the branch's model versions (`frames::require_current_model`) and restores the branch's Run at
-//! the minute; `PreviewPlan::answer` reads the text with the offline compiler, checks the program
-//! on the world, and gives the answer and the draft the caller keeps (`<project>/drafts/<id>.json`,
-//! its id the caller's random `preview_id`).
+//! the minute; `PreviewPlan::answer` reads the text with the offline compiler (or takes the typed
+//! `program` the screen built from the catalog of operators, #584), checks the program on the
+//! world, and gives the answer and the draft the caller keeps (`<project>/drafts/<id>.json`, its id
+//! the caller's random `preview_id`).
 //!
 //! Apply: `apply_draft_id` reads the request's draft id; the caller reads the draft;
 //! `ApplyPlan::new` checks it and the approval; the caller checks the model versions;
@@ -33,8 +34,8 @@ fn outside(minute: Option<f64>, record: &Record) -> bool {
     !matches!((minute, at("fork_minute"), at("computed_until")), (Some(minute), Some(fork), Some(until)) if fork <= minute && minute <= until)
 }
 
-/// `POST …/branches/{branch}/intervention-preview` (`{minute, text}`), its checks in the server's
-/// order: the fields, one of `text` and `program`, the branch, the minute.
+/// `POST …/branches/{branch}/intervention-preview` (`{minute, text}` or `{minute, program}`), its
+/// checks in the server's order: the fields, one of `text` and `program`, the branch, the minute.
 #[derive(Clone, Debug)]
 pub struct PreviewPlan {
     project_id: String,
@@ -43,6 +44,7 @@ pub struct PreviewPlan {
     record: Record,
     minute: i64,
     text: Option<Value>,
+    program: Option<Value>,
 }
 
 impl PreviewPlan {
@@ -64,6 +66,7 @@ impl PreviewPlan {
             record,
             minute: minute.unwrap_or_default() as i64,
             text: document.get("text").cloned(),
+            program: document.get("program").cloned(),
         })
     }
 
@@ -77,18 +80,8 @@ impl PreviewPlan {
         &self.record
     }
 
-    /// After the model versions are checked: a typed `program` (the screen never sends one) is not
-    /// read here; pydantic's texts of the programs it refuses are not made.
-    pub fn check_typed(&self) -> Answer<()> {
-        if self.text.is_none() {
-            return Err(Refusal::new(409, "ブラウザー版では未対応です（型つきのEffectProgram）", Some("browser_unsupported")).into());
-        }
-        Ok(())
-    }
-
     /// The compiler's request of the branch's Run at the minute (a `ParseRequest`'s JSON).
     fn request(&self, run: &mut PlainRun) -> Answer<Vec<u8>> {
-        self.check_typed()?;
         let summary = run.scenario_summary()?;
         let mut request = b"{\"branch_id\":".to_vec();
         request.extend_from_slice(&string(&self.branch_id));
@@ -103,6 +96,9 @@ impl PreviewPlan {
     /// The answer, of the branch's Run at the minute, and the draft to keep (its bytes, None where
     /// the compiler gave no plan): `preview_id` the draft's id (a uuid4's hex, random).
     pub fn answer(&self, run: &mut PlainRun, preview_id: &str) -> Answer<(Vec<u8>, Option<Vec<u8>>)> {
+        if let Some(program) = &self.program {
+            return self.answer_program(run, preview_id, program);
+        }
         let request = self.request(run)?;
         let compiled = match compile_offline(&request) {
             Ok(compiled) => compiled,
@@ -116,8 +112,11 @@ impl PreviewPlan {
     /// `stop` whether the router's error policy stops instead of falling back. The caller hands
     /// its tasks to the link (`Compiling::task_json`, then each `Step::Ask`) until it is done, then
     /// answers with `answer_compiled`; None where no operator the core runs is eligible
-    /// (`answer`'s, without an LLM).
+    /// (`answer`'s, without an LLM), and for a typed program (nothing to read).
     pub fn compiling(&self, run: &mut PlainRun, stop: bool) -> Answer<Option<Compiling>> {
+        if self.program.is_some() {
+            return Ok(None);
+        }
         let request = self.request(run)?;
         match Compiling::new(&request, stop) {
             Ok(compiling) => Ok(compiling),
@@ -150,6 +149,33 @@ impl PreviewPlan {
         let mut program_json = Vec::new();
         super::write_object(&mut program_json, &program);
         let dump = EffectProgram::of_json(&program_json).and_then(|program| program.dump_json())?;
+        self.answer_dump(run, preview_id, &compiled, dump)
+    }
+
+    /// The answer and the draft of a typed program (#584): the program read and dumped by the
+    /// core's contract (400 `invalid_effect_program` with the contract's reason where it refuses
+    /// it) and checked on the branch's Run. No text is read and no LLM is asked: the answer is
+    /// `compiled`, with the program's support mode and its narrative as the mechanism, no
+    /// fallback and no usage.
+    fn answer_program(&self, run: &mut PlainRun, preview_id: &str, program: &Value) -> Answer<(Vec<u8>, Option<Vec<u8>>)> {
+        let mut raw = Vec::new();
+        write_value(&mut raw, program);
+        let program = match EffectProgram::of_json(&raw) {
+            Ok(program) => program,
+            Err(Error::Value(reason)) => return Err(Refusal::new(400, reason, Some("invalid_effect_program")).into()),
+            Err(error) => return Err(error.into()),
+        };
+        let mut base = Obj::new();
+        base.raw("choices", b"[]".to_vec()).bool("fallback_used", false).raw("limitations", b"[]".to_vec());
+        base.str("mechanism_summary", &program.narrative).raw("questions", b"[]".to_vec()).str("status", "compiled");
+        base.str("support_mode", &program.support_mode);
+        self.answer_dump(run, preview_id, &base.finish(), program.dump_json()?)
+    }
+
+    /// The answer and the draft of a program's dump (`dump`), checked on the branch's Run: `base`
+    /// (the compiler's result, or a typed program's) with the approval's hash, whether it can be
+    /// applied, the preview's id, the program and the checks' issues.
+    fn answer_dump(&self, run: &mut PlainRun, preview_id: &str, base: &[u8], dump: Vec<u8>) -> Answer<(Vec<u8>, Option<Vec<u8>>)> {
         let issues = run.validate_effect_program_json(&dump)?;
         let dump_text = String::from_utf8_lossy(&dump).into_owned();
         let hash = sha256_hex(&dump);
@@ -169,7 +195,7 @@ impl PreviewPlan {
         let mut extra = Obj::new();
         extra.str("approved_program_hash", &hash).bool("can_apply", can_apply).str("preview_id", preview_id);
         extra.raw("program", dump_text.into_bytes()).raw("validation_issues", issues.into_bytes());
-        Ok((merge_objects(&compiled, &extra.finish())?, Some(draft)))
+        Ok((merge_objects(base, &extra.finish())?, Some(draft)))
     }
 }
 

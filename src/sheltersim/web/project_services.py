@@ -1,6 +1,6 @@
-"""The Project routes of the local and VM versions that the browser has not: the EffectProgram
-operations the core schedules, and the LLM usage of a Project and of a Run (the Python server's LLM
-Provider)."""
+"""The Project routes of the local and VM versions outside the Run's: the EffectProgram operations
+the core schedules (its catalog, which the browser answers too), and the LLM usage of a Project
+and of a Run (the Python server's LLM Provider)."""
 
 from __future__ import annotations
 
@@ -10,61 +10,6 @@ from urllib.parse import parse_qs
 from sheltersim.storage.projects import StorageError, digest
 from sheltersim.storage.usage import UsageLedger
 from sheltersim.web.project_queries import page
-
-# The EffectProgram operations the core schedules (`native/core/src/program.rs`, `primitive`): the
-# ones the reading of an intervention's text gives.
-EFFECT_PRIMITIVES = [
-    {
-        "op": "add_evacuees",
-        "target_kinds": ["zone"],
-        "units": ["evacuee"],
-        "required_policies": ["population_dynamics_v1"],
-        "timed": False,
-        "description": "Generate synthetic household arrivals and admit them within zone capacity.",
-    },
-    {
-        "op": "add_staff",
-        "target_kinds": ["zone"],
-        "units": ["staff_member"],
-        "required_policies": ["staff_operations"],
-        "timed": False,
-        "description": "Add a bounded number of ordinary support staff to an existing zone.",
-    },
-    {
-        "op": "add_toilet",
-        "target_kinds": ["zone"],
-        "units": ["toilet_stall"],
-        "required_policies": ["facility_capacity"],
-        "timed": False,
-        "description": "Add bounded single-unit toilet facilities to an existing zone.",
-    },
-    {
-        "op": "depart_evacuees",
-        "target_kinds": ["zone"],
-        "units": ["evacuee"],
-        "required_policies": ["population_dynamics_v1"],
-        "timed": False,
-        "description": (
-            "Remove admitted dynamic residents and defer departure while tasks are active."
-        ),
-    },
-    {
-        "op": "facility_outage",
-        "target_kinds": ["facility"],
-        "units": ["facility_unit"],
-        "required_policies": ["facility_capacity"],
-        "timed": True,
-        "description": "Compatibility primitive that removes a bounded number of working units.",
-    },
-    {
-        "op": "water_outage",
-        "target_kinds": ["facility", "zone"],
-        "units": ["water_supply"],
-        "required_policies": ["operational_events_v1", "resource_service_v1"],
-        "timed": True,
-        "description": "Block new water-service starts at an existing water station or its zone.",
-    },
-]
 
 
 def one_query(query: str, allowed: set[str]) -> dict[str, str]:
@@ -79,16 +24,16 @@ class ProjectServices:
         self.api, self.store = api, api.store
 
     def get(self, parts: list[str], query: str) -> bytes | None:
-        from sheltersim.web.projects import json_bytes
+        from sheltersim.web.projects import answers, json_bytes
 
+        if len(parts) == 2 and parts[1] == "contracts" and not query:
+            self.api.files.project(parts[0])
+            return answers().contracts_answer()
         result = self._get(parts, query)
         return None if result is None else json_bytes(result)
 
     def _get(self, parts: list[str], query: str) -> dict[str, Any] | None:
         project_id = parts[0]
-        if len(parts) == 2 and parts[1] == "contracts" and not query:
-            self.api.files.project(project_id)
-            return {"schema_version": 2, "executable_effect_primitives": EFFECT_PRIMITIVES}
         if len(parts) == 2 and parts[1] == "usage":
             values = one_query(query, {"limit", "cursor"})
             limit = int(values.get("limit", "25"))

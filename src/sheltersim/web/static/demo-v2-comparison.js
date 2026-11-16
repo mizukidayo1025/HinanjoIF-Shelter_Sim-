@@ -4,7 +4,7 @@
   const app = window.HinanjoApp;
   const {
     state, reference, $, enc, json, metricDefs, zoneNames, supportModeName, time, shortBranch, num,
-    el, runBase, branchBase, api, note, loading, action, show, controls, drawAll, renderKpis,
+    el, base, runBase, branchBase, api, note, loading, action, show, controls, drawAll, renderKpis,
     refreshRun, seek, computeToEnd,
   } = app;
   const { resetChat } = app.later;
@@ -42,6 +42,7 @@
   }
   let forkDays = "";
   function renderForkPicker(working) {
+    renderBuilder();
     const from = interventionBase(),
       range = from && forkRange(from.branch),
       day = $("fork-day"),
@@ -91,11 +92,213 @@
       if (state.forkFrom) {
         state.forkFrom = { ...state.forkFrom, minute };
         $("comparison-instruction").textContent =
-          `${time(minute)}から分岐を作ります。左の欄に介入の指示を書いてください。`;
+          `${time(minute)}から分岐を作ります。左の欄で作用・対象・量を選んでください。`;
       }
       // Not an action: a later pick replaces an earlier one still loading (seek keeps the last).
       loading(() => seek(minute)).catch((e) => note(e.message, "error"));
     }
+  }
+  // The intervention built from the core's catalog of the operators it schedules (#584,
+  // GET {project}/contracts): the operator, a target in the world the branch is made from (the
+  // zones or facilities of that frame, of the kinds the operator takes), the amounts it asks for
+  // within the catalog's ranges, and how long a timed one lasts. The screen holds no rule of its
+  // own: what can be built and its ranges are the catalog's, and the core checks the program on
+  // the world at the preview. A target kind the screen cannot list yet gives no choice.
+  // A catalog that could not be read is not asked for again until the page is opened again.
+  let catalog = null,
+    catalogLoading = null,
+    catalogFailed = false,
+    builderKey = "";
+  function loadCatalog() {
+    if (catalogLoading || catalogFailed || !state.run) return;
+    catalogLoading = api(`${base()}/contracts`)
+      .then((answer) => {
+        catalog = answer.executable_effect_primitives || [];
+        builderKey = "";
+        renderBuilder();
+      })
+      .catch((error) => {
+        catalogFailed = true;
+        $("intervention-op-note").textContent = `作用の一覧を読み込めませんでした：${error.message}`;
+      })
+      .finally(() => (catalogLoading = null));
+  }
+  const entryOf = (op) => catalog?.find((e) => e.op === op);
+  // The frame of the world the branch is made from: the shown pair's A, or the open branch's.
+  const forkFrame = () => (comparing() ? state.comparison.frames[0] : state.frame);
+  function targetsOf(entry, frame) {
+    const targets = [],
+      zones = new Map(
+        (frame?.zones || []).map((z) => [z.id, z.name || zoneNames[z.id] || z.id]),
+      );
+    for (const kind of entry.target_kinds) {
+      if (kind === "zone")
+        for (const [id, name] of zones) targets.push([`zone:${id}`, `区域：${name}`]);
+      if (kind === "facility")
+        for (const f of frame?.facilities || [])
+          if (!entry.target_facility_kinds.length || entry.target_facility_kinds.includes(f.kind))
+            targets.push([
+              `facility:${f.id}`,
+              `設備：${f.id}（${zones.get(f.zone_id) || f.zone_id}）`,
+            ]);
+    }
+    return targets;
+  }
+  function option(value, label) {
+    const item = el("option", label);
+    item.value = value;
+    return item;
+  }
+  function amountInput(parameter) {
+    if (parameter.type === "boolean") {
+      const label = el("label", undefined, "checkbox"),
+        input = el("input");
+      input.type = "checkbox";
+      input.dataset.name = parameter.name;
+      input.checked = parameter.default === true;
+      label.append(input, el("span", parameter.label));
+      return label;
+    }
+    const label = el("label", parameter.label),
+      row = el("span", undefined, "amount"),
+      input = parameter.enum ? el("select") : el("input");
+    input.dataset.name = parameter.name;
+    if (parameter.enum) input.append(...parameter.enum.map((value) => option(value, value)));
+    else {
+      input.type = "number";
+      if (typeof parameter.minimum === "number") input.min = parameter.minimum;
+      if (typeof parameter.maximum === "number") input.max = parameter.maximum;
+      input.step = parameter.type === "integer" ? "1" : "any";
+    }
+    input.value = String(parameter.default ?? parameter.minimum ?? "");
+    row.append(input, el("span", parameter.unit));
+    label.append(row);
+    return label;
+  }
+  function renderBuilder() {
+    const ops = $("intervention-op"),
+      targets = $("intervention-target");
+    if (!catalog) {
+      ops.disabled = targets.disabled = true;
+      loadCatalog();
+      return;
+    }
+    if (ops.options.length !== catalog.length)
+      ops.replaceChildren(...catalog.map((e) => option(e.op, e.label)));
+    ops.disabled = false;
+    const entry = entryOf(ops.value) || catalog[0],
+      choices = targetsOf(entry, forkFrame()),
+      key = `${entry.op}|${choices.map(([value]) => value).join(",")}`;
+    if (key === builderKey) return;
+    const amounts = $("intervention-amounts");
+    if (amounts.dataset.op !== entry.op) {
+      amounts.dataset.op = entry.op;
+      amounts.replaceChildren(...entry.parameters.map(amountInput));
+      $("intervention-duration-row").hidden = !entry.timed;
+      $("intervention-duration-label").textContent = entry.end_required
+        ? "続ける時間（分）"
+        : "続ける時間（分）。空欄ならシナリオの終わりまで";
+      $("intervention-duration").value = entry.end_required ? "60" : "";
+    }
+    builderKey = key;
+    const chosen = targets.value;
+    targets.replaceChildren(...choices.map(([value, label]) => option(value, label)));
+    if (choices.some(([value]) => value === chosen)) targets.value = chosen;
+    targets.disabled = !choices.length;
+    $("intervention-op-note").textContent = choices.length
+      ? ""
+      : "この時刻の世界には、この作用の対象がありません。";
+  }
+  // The program of the builder's choices, from `from` (its branch and minute), and the words that
+  // say it: the catalog's units and policies, the screen as its compiler (`manual`).
+  function builtProgram(from) {
+    const entry = entryOf($("intervention-op").value),
+      target = $("intervention-target");
+    if (!entry) throw new Error("作用の一覧を読み込んでから選んでください。");
+    if (!target.value) throw new Error("この時刻の世界には、この作用の対象がありません。");
+    const [kind, ...id] = target.value.split(":"),
+      parameters = {},
+      said = [];
+    for (const p of entry.parameters) {
+      const input = $("intervention-amounts").querySelector(`[data-name="${p.name}"]`);
+      if (p.type === "boolean") {
+        parameters[p.name] = input.checked;
+        if (input.checked) said.push(p.label);
+        continue;
+      }
+      const raw = input.value.trim();
+      if (!raw) {
+        if (p.required) throw new Error(`${p.label}を入れてください。`);
+        continue;
+      }
+      const value = p.enum ? raw : Number(raw);
+      if (
+        !p.enum &&
+        ((p.type === "integer" && !Number.isInteger(value)) ||
+          !Number.isFinite(value) ||
+          value < (p.minimum ?? -Infinity) ||
+          value > (p.maximum ?? Infinity))
+      )
+        throw new Error(
+          `${p.label}は${p.minimum ?? ""}〜${p.maximum ?? ""}${p.unit}の${p.type === "integer" ? "整数" : "数"}で入れてください。`,
+        );
+      parameters[p.name] = value;
+      said.push(`${p.label}${value}${p.unit}`);
+    }
+    let end = null;
+    if (entry.timed) {
+      const raw = $("intervention-duration").value.trim(),
+        minutes = Number(raw);
+      if (raw && (!Number.isInteger(minutes) || minutes < 1))
+        throw new Error("続ける時間は、1分以上の整数で入れてください。");
+      if (!raw && entry.end_required)
+        throw new Error("この作用は、続ける時間を入れてください。");
+      if (raw) end = from.minute + minutes;
+    }
+    const when = `${time(from.minute)}から${end !== null ? `${time(end)}まで` : entry.timed ? "シナリオの終わりまで" : ""}`,
+      label = [`${entry.label}`, target.selectedOptions[0].textContent, ...said, when].join(" · ");
+    return {
+      label,
+      program: {
+        schema_version: 1,
+        program_id: `manual-${crypto.randomUUID()}`,
+        narrative: label,
+        source_text: label,
+        simulation_start_minute: from.minute,
+        effects: [
+          {
+            effect_id: "effect-1",
+            op: entry.op,
+            target_selector: { kind, target_id: id.join(":"), candidate_ids: [] },
+            start_minute: from.minute,
+            end_minute: end,
+            guard: null,
+            parameters,
+            units: entry.units[0],
+            source_id: "screen-builder-v1",
+            assumption_ids: [],
+            policy_dependencies: entry.required_policies,
+            causation_id: null,
+            reversible: true,
+          },
+        ],
+        assumptions: [],
+        support_mode: "native",
+        compiler_provenance: {
+          compiler_kind: "manual",
+          compiler_version: "screen-builder-v1",
+          model_id: null,
+          prompt_hash: null,
+        },
+      },
+    };
+  }
+  // What a preview was made of (the builder's choices or the text), to tell whether it is still
+  // the one on show.
+  function requestKey(source) {
+    if (source === "text") return `text|${$("intervention-text").value.trim()}`;
+    const inputs = [...$("intervention-builder").querySelectorAll("select, input")];
+    return inputs.map((i) => (i.type === "checkbox" ? i.checked : i.value)).join("|");
   }
   async function waitForked(child) {
     // Other branches may compute meanwhile, so the fork has ended when its child is
@@ -121,26 +324,39 @@
       await new Promise((resolve) => setTimeout(resolve, 900));
     }
   }
-  async function previewIntervention() {
+  // The preview of the built program (`source` "builder", the screen's own way) or, with the API
+  // ON, of a text the AI reads ("text", #580): a text is never sent while the API is OFF, and a
+  // failed reading fails with its reason. The core checks the program on the world at the minute;
+  // nothing changes until the person approves it.
+  async function previewIntervention(source = "builder") {
     if (state.data.status === "running")
       throw new Error("計算を停止してから介入してください。");
-    const text = $("intervention-text").value.trim();
-    if (!text) throw new Error("介入内容を入力してください。");
     const from = interventionBase();
     if (!from) throw new Error("シナリオを開いてから介入してください。");
+    let label, body;
+    if (source === "text") {
+      if (state.llm?.on !== true)
+        throw new Error("文章での指示は、API を ON にすると使えます。");
+      label = $("intervention-text").value.trim();
+      if (!label) throw new Error("介入内容を入力してください。");
+      body = { text: label, minute: from.minute };
+    } else {
+      const built = builtProgram(from);
+      label = built.label;
+      body = { program: built.program, minute: from.minute };
+    }
     const captured = {
-      text,
+      source,
+      label,
+      key: requestKey(source),
       minute: from.minute,
       branch: from.branch,
       scope: state.scope,
     };
-    const result = await api(`${branchBase(from.branch)}/intervention-preview`, {
-      text,
-      minute: from.minute,
-    });
+    const result = await api(`${branchBase(from.branch)}/intervention-preview`, body);
     const now = interventionBase();
     if (
-      text !== $("intervention-text").value.trim() ||
+      captured.key !== requestKey(source) ||
       captured.minute !== now?.minute ||
       captured.branch !== now?.branch ||
       captured.scope !== state.scope
@@ -182,9 +398,9 @@
         button.addEventListener("click", () =>
           action("選択した対象で作用を再プレビューしています…", async () => {
             $("intervention-text").value =
-              `${text.replace(/\nzone_id: [^\n]+/g, "")}\nzone_id: ${choice}`;
+              `${label.replace(/\nzone_id: [^\n]+/g, "")}\nzone_id: ${choice}`;
             invalidateIntervention();
-            await previewIntervention();
+            await previewIntervention("text");
           }),
         );
         choices.append(button);
@@ -215,7 +431,7 @@
     if (
       !i?.can_apply ||
       !$("intervention-check").checked ||
-      i.captured.text !== $("intervention-text").value.trim() ||
+      i.captured.key !== requestKey(i.captured.source) ||
       i.captured.minute !== from?.minute ||
       i.captured.branch !== from?.branch
     )
@@ -241,7 +457,7 @@
     state.context = null;
     resetChat();
     $("comparison-instruction").textContent =
-      `${time(i.captured.minute)}に分岐：${i.captured.text}`;
+      `${time(i.captured.minute)}に分岐：${i.captured.label}`;
     $("comparison-effect").replaceChildren(
       el("span", "作用検証を通過・明示承認済み", "badge teal-badge"),
       effectSummary(i.program),
@@ -250,7 +466,7 @@
       `hinanjo-if-intervention-${child}`,
       json({
         parent,
-        text: i.captured.text,
+        text: i.captured.label,
         minute: i.captured.minute,
         program: i.program,
       }),
@@ -266,21 +482,14 @@
     setTimeout(() => void computeToEnd([child]), 0);
   }
   function effectSummary(program) {
-    const box = el("div"),
-      names = {
-        add_toilet: "トイレを追加",
-        add_staff: "スタッフを追加",
-        facility_outage: "設備の稼働を停止",
-        staff_task_order: "スタッフへ対応を指示",
-        resource_delivery: "物資を搬入",
-      };
+    const box = el("div");
     for (const e of program?.effects || []) {
       const target = e.target_selector?.target_id,
         amount = e.parameters?.count ?? e.parameters?.units;
       box.append(
         el(
           "p",
-          `${names[e.op] || e.op}${typeof amount === "number" ? `（${amount}）` : ""} · 対象 ${zoneNames[target] || target || "作用詳細を参照"} · ${time(e.start_minute)}`,
+          `${entryOf(e.op)?.label || e.op}${typeof amount === "number" ? `（${amount}）` : ""} · 対象 ${zoneNames[target] || target || "作用詳細を参照"} · ${time(e.start_minute)}`,
           "effect-row",
         ),
       );
@@ -443,7 +652,7 @@
     $("compare-conditions-a").textContent = "";
     $("compare-conditions-b").textContent = "";
     $("comparison-instruction").textContent = state.forkFrom
-      ? `${time(state.forkFrom.minute)}から分岐を作ります。左の欄に介入の指示を書いてください。`
+      ? `${time(state.forkFrom.minute)}から分岐を作ります。左の欄で作用・対象・量を選んでください。`
       : pair
         ? "比べる分岐を読み込んでいます…"
         : "まだ分岐がありません。左の欄で、この時刻から分岐を作れます。";

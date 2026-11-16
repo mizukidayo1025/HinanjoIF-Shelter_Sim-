@@ -2,10 +2,9 @@
 
 Each request is one the demo-v2 screen sends (demo-v2*.js), to a real HTTP
 server on a loopback port: preview a generated Scenario, approve and run it,
-preview and approve an intervention typed as text, run both Branches, and
-read the comparison. Only the regional research is replaced, as in the shared
-fixtures (tests/support/generated.py ui_project_api); the intervention text is read by
-the offline rules.
+build an intervention from the core's catalog of operators (#584), preview and approve
+it, run both Branches, and read the comparison. Only the regional research is replaced,
+as in the shared fixtures (tests/support/generated.py ui_project_api).
 """
 
 from __future__ import annotations
@@ -88,7 +87,7 @@ def _computed_until(run_state: dict[str, Any], branch_id: str) -> int:
 # A Run the core keeps (`PlainRun`) is dropped on the thread that made it: one dropped on another
 # thread is not freed, and PyO3 reports it as an unraisable exception (#507).
 @pytest.mark.filterwarnings("error::pytest.PytestUnraisableExceptionWarning")
-def test_arrivals_typed_on_the_project_screen_show_in_the_comparison(
+def test_arrivals_built_on_the_project_screen_show_in_the_comparison(
     client, generated_request
 ) -> None:
     client.post("/api/v1/projects", {"project_id": "shelter"})
@@ -110,9 +109,42 @@ def test_arrivals_typed_on_the_project_screen_show_in_the_comparison(
     )
     assert _computed_until(client.run_until(run, "main", FORK_MINUTE), "main") == FORK_MINUTE
 
+    # The builder's program (demo-v2-comparison.js `builtProgram`): the catalog's operator, a
+    # zone of the world, the amount it asks for.
+    [arrive] = [
+        entry
+        for entry in client.get(f"{project}/contracts")["executable_effect_primitives"]
+        if entry["op"] == "add_evacuees"
+    ]
+    program = {
+        "schema_version": 1,
+        "program_id": "manual-arrivals",
+        "narrative": arrive["label"],
+        "source_text": arrive["label"],
+        "simulation_start_minute": FORK_MINUTE,
+        "effects": [
+            {
+                "effect_id": "effect-1",
+                "op": arrive["op"],
+                "target_selector": {"kind": "zone", "target_id": "sleeping", "candidate_ids": []},
+                "start_minute": FORK_MINUTE,
+                "end_minute": None,
+                "guard": None,
+                "parameters": {"count": 10},
+                "units": arrive["units"][0],
+                "source_id": "screen-builder-v1",
+                "assumption_ids": [],
+                "policy_dependencies": arrive["required_policies"],
+                "causation_id": None,
+                "reversible": True,
+            }
+        ],
+        "assumptions": [],
+        "support_mode": "native",
+        "compiler_provenance": {"compiler_kind": "manual", "compiler_version": "screen-builder-v1"},
+    }
     intervention = client.post(
-        f"{run}/branches/main/intervention-preview",
-        {"text": "避難スペースに避難者を10人追加", "minute": FORK_MINUTE},
+        f"{run}/branches/main/intervention-preview", {"program": program, "minute": FORK_MINUTE}
     )
     assert intervention["status"] == "compiled"
     assert intervention["can_apply"] is True

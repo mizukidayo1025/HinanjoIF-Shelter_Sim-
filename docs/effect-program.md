@@ -4,6 +4,18 @@
 
 EffectProgramの版付き契約（`program::EffectProgram`。読むときは`of_json`、正準JSONは`dump_json`）と、確かめと予定は中核の`native/core/src/program.rs`にあります。中核はProvider、HTTP client、UI、生成コードを使いません。opはprimitiveの名前です。未知のoperatorや未宣言parameter fieldは拒否します。
 
+`compiler_provenance.compiler_kind`は、programを作ったものです。`offline_rule`（文章の規則による読み取り）、`llm`（AIによる読み取り）、`manual`（画面の組み立て、#584）のどれかです。
+
+## 作用の目録（#584）
+
+中核が予定できる操作の目録は`program::catalog`で、`GET …/contracts`の`executable_effect_primitives`として両版が同じものを返します（[APIリファレンス](api-reference.md#projectと介入の流れ)）。画面の「この時刻から分岐を作る」は、この目録から介入を組み立てます。画面は作用の規則を持たず、組み立てたprogramは中核がプレビューで確かめます。
+
+各項目は、`op`、画面に出す名前`label`、登録表の説明`description`、`target_kinds`、設備を対象にするときの設備の種類`target_facility_kinds`（空ならどれでも）、`units`、`required_policies`、`timed`（期間のある操作）、`end_required`（終わりの時刻が要る操作。今は`water_outage`だけ）、画面が尋ねる`parameters`を持ちます。`parameters`の各項目は`name`、`label`、`unit`（画面に出す単位）、登録表（`native/core/src/interpret/primitives.json`、AIに渡すschemaと同じもの）の`type`と、あれば`minimum`・`maximum`・`default`・`enum`、`required`です。尋ねないparameterは既定の値になります（`add_evacuees`の世帯人数・移動の手段・言語・受け入れ先、`water_outage`の`outage`）。目録の範囲は、中核の確かめが受け付ける範囲と同じであることを、中核のテスト（`native/core/tests/programs.rs`）が確かめます。
+
+画面が組み立てるprogramは、目録の`op`、対象（`target_selector`の`kind`と`target_id`）、`parameters`、開始は分岐する時刻（`simulation_start_minute`も同じ）、期間のある操作は続ける時間から決めた`end_minute`、`units`は目録の`units`の最初、`policy_dependencies`は目録の`required_policies`、`source_id`と`compiler_version`は`screen-builder-v1`、`support_mode`は`native`、`compiler_kind`は`manual`です。`program_id`は乱数（`manual-`とuuid）、`narrative`と`source_text`は組み立てた内容の日本語の説明です。
+
+目録に操作を足すときは、中核で予定できるようにし（`program::supports`、#474）、`program.rs`の`FORMS`に名前と尋ねるparameterを足します。画面が今選べる対象は区域（`zone`）と設備（`facility`）です。ほかの種類（職員、人、経路など）を取る操作を足すときは、画面の`targetsOf`にその種類の選び方を足します。
+
 ## 導入済みprimitive
 
 | Operator | 対象と単位 | 前提と動作 |
@@ -32,7 +44,7 @@ zone_environment_v1は任意設定で、既存Zoneに限定されます。編集
 
 ## 保存した点からのBranch
 
-Projectの介入は、Branchの`intervention-preview`と`intervention-apply`で作ります（[APIリファレンス](api-reference.md#projectと介入の流れ)）。previewは指定minuteの世界を戻してprogramを確かめ、元Branchを変えません。applyはpreview ID、program hash、明示承認、child IDを要求します。serverはpreviewとの対応を検証しますが、誰がクリックしたかは認証しません。
+Projectの介入は、Branchの`intervention-preview`と`intervention-apply`で作ります（[APIリファレンス](api-reference.md#projectと介入の流れ)）。previewは指定minuteの世界を戻し、画面が組み立てた`program`（上の「作用の目録」）か、文章を読み取ったprogramを確かめ、元Branchを変えません。applyはpreview ID、program hash、明示承認、child IDを要求します。serverはpreviewとの対応を検証しますが、誰がクリックしたかは認証しません。
 
 applyは、指定minuteの世界を保存したRunから戻し（その分以前で一番近い保存した点に戻して計算し直します）、previewが見たstate hashと一致することを確かめてから、子Branchを作ってprogramを予定します（中核の`compute::Procedure::fork`、#476）。却下時に元Branchや兄弟Branchは変わりません。以前の画面の`POST /api/v1/demo/branch-plan`（idempotency keyつきのApprovedPlan）は#376でなくしました。
 

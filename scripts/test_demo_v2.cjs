@@ -161,15 +161,16 @@ async function main() {
     await shot("simulation");
     await page.locator("#branch-here").click();
     await idle();
-    await page.locator("#intervention-text").fill("トイレを2基追加する");
+    // The intervention is built from the core's catalog (#584): operator, target, amount.
+    await page.waitForFunction(
+      () => document.querySelector("#intervention-op").options.length > 0,
+    );
+    await page.locator("#intervention-op").selectOption("add_toilet");
+    await page.locator("#intervention-target").selectOption("zone:toilet");
+    await page.locator('#intervention-amounts [data-name="count"]').fill("2");
     await page.locator("#intervention-preview").click();
     await idle();
     assert(await page.locator("#intervention-apply").isDisabled());
-    await page
-      .locator("#intervention-result button")
-      .filter({ hasText: "トイレ (toilet)" })
-      .click();
-    await idle();
     assert(
       await page.locator("#intervention-check").isEnabled(),
       await page.locator("#intervention-result").innerText(),
@@ -180,9 +181,7 @@ async function main() {
       "preview cannot change parent",
     );
     await page.locator("#intervention-check").check();
-    await page
-      .locator("#intervention-text")
-      .fill("トイレを3基追加する zone_id: toilet");
+    await page.locator('#intervention-amounts [data-name="count"]').fill("3");
     assert(await page.locator("#intervention-apply").isDisabled());
     await page.locator("#intervention-preview").click();
     await idle();
@@ -286,7 +285,7 @@ async function main() {
         screenshots: out,
         report_status: report.status,
         checks:
-          "scenario approval, invalidation, computation, playback, seek, layers, selection, intervention clarification and approval, parent isolation, synchronized compare, report, history, offline Q&A, retryable offline PDF error without JSON download, restore, responsive widths",
+          "scenario approval, invalidation, computation, playback, seek, layers, selection, intervention builder and approval, parent isolation, synchronized compare, report, history, offline Q&A, retryable offline PDF error without JSON download, restore, responsive widths",
       }),
     );
   } finally {

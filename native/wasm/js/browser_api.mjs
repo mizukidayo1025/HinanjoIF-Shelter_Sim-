@@ -10,6 +10,7 @@
 // Routes (under /api/v1/projects):
 //   GET  (list), POST (create), GET {project}, GET {project}/runs, GET runs/{run},
 //   GET runs/{run}/evidence                  the records (project_store.mjs's response functions)
+//   GET {project}/contracts                  the operators the core schedules (its catalog, #584)
 //   GET runs/{run}/branches/{branch}/timeline?minute=   the frame of the minute
 //   GET runs/{run}/replay-frames?branch_ids=&start=&end=   the frames of 1 to 8 minutes of one branch,
 //                                            or of two branches, each minute's comparison (#307)
@@ -239,6 +240,11 @@ export class BrowserApi {
     const [projectId, section, runId, action, branchId, branchAction] = parts;
     if (parts.length === 1 && noQuery) return store.projectResponse(this.wasm, tree, projectId);
     if (parts.length === 2 && section === "runs" && noQuery) return store.runsResponse(this.wasm, tree, projectId);
+    if (parts.length === 2 && section === "contracts" && noQuery) {
+      // The Project must exist, as on the server; the answer is the core's catalog (#584).
+      await store.runsResponse(this.wasm, tree, projectId);
+      return core(() => this.wasm.contractsAnswer());
+    }
     if (parts.length === 3 && section === "runs" && noQuery) return store.runResponse(this.wasm, tree, projectId, runId, this.forkOutcomes.get(`${projectId}/${runId}`) ?? null);
     if (parts.length === 4 && section === "runs" && action === "evidence" && noQuery) return store.evidenceResponse(this.wasm, tree, projectId, runId);
     if (parts.length === 4 && section === "runs" && action === "replay-frames") return this.replay(projectId, runId, search);

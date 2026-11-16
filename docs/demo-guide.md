@@ -21,7 +21,7 @@ Projectは`--runs-dir`の下の`.projects`に保存されます。計算と分�
 
 ## デモデータ
 
-同梱Scenarioと画面で作るScenarioは合成データです。Providerを設定していない場合、free-text previewはoffline parserを使います。previewだけでBranchは変更されません。介入は確認と明示承認の後に子Branchを作ります。
+同梱Scenarioと画面で作るScenarioは合成データです。Providerを設定していない場合、free-text previewはoffline parserを使います。previewだけでBranchは変更されません。介入は、分岐比較の画面で作用・対象・量（期間のある作用は続ける時間）を選んで組み立て、確認と明示承認の後に子Branchを作ります（#584）。介入を文章で指示するのは、API が ON のときだけ使える選択肢です。
 
 ## 計算済みの例
 

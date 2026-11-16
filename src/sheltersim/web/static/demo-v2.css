@@ -308,6 +308,28 @@ hr {
 .header-api[hidden] {
   display: none;
 }
+/* A feature that needs the AI (#580): a fieldset that only groups its controls, and the note
+   it shows while the API is OFF. */
+fieldset.needs-api {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+fieldset.needs-api:disabled > :not(.needs-api-note) {
+  opacity: 0.55;
+}
+.needs-api-note {
+  margin: 4px 0 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #f4f6fa;
+  color: var(--muted);
+  font-size: 11px;
+}
+.needs-api-note[hidden] {
+  display: none;
+}
 .speed-label {
   font-size: 9px;
   color: var(--muted);

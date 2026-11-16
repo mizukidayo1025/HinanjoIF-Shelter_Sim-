@@ -18,7 +18,7 @@
 //
 // Messages in:  { type: "start", examplesUrl } once, then { type: "request", id, method, path,
 //               search, body, llm? } (llm: the relay's passphrase, sent with a Scenario preview (#421), a
-//               question or an intervention's preview (#470)), { type: "examples", id },
+//               question, an intervention's preview or the analysis report (#470)), { type: "examples", id },
 //               { type: "install", id, projectId } or
 //               { type: "stats", id }
 // Messages out: { type: "ready", ms } or { type: "failed", code, message } once

@@ -11,7 +11,7 @@
   - Opusへの作業（`pdf_analysis`、`pdf-analysis-ja-v1`）と、答えの確かめ。確かめるのは、Opusであること、schema、各段落の根拠ID、数値・引用・因果断定の表現、仮説と提案の文末です。
   - 道の答え（`PdfAnalysis.report`）：`{"analysis", "data", "facts"}`の正準JSONです。
 - **ローカル版・VM版**（`web/pdf_report.py`）：各Branchのその分のRun・frame・KPIの表・journalを中核に渡します。作業をRunのrouterに問い合わせ、答えを保存します。
-- **ブラウザー版**：同じ作業をサイトの中継に頼む形は、#470の続きのPull Requestでつなぎます。それまでは、APIキーのないサーバーと同じく断ります。
+- **ブラウザー版**：ホームで「API を有効にする」を済ませた画面は、要求に合言葉を添えます。ブラウザーは、各Branchのその分のRun・frame・保存した標本・journalを中核に渡し、同じ作業をサイトの中継に頼みます（[llm-integration.md](llm-integration.md#ブラウザー版の中継419)、`native/wasm/js/browser_api.mjs`の`pdfReport`）。答えはサーバーと同じbytesです。中継が合言葉を通さないときは、APIキーのないサーバーと同じく断ります。
 - **画面**（`demo-v2-print.js`）：答えを、表紙・6章の文書に並べます（エグゼクティブサマリー、条件、時系列と問題の継続、介入と比較・重要イベント、AI分析と施策、限界と再現情報）。4つの指標の時系列はSVGで描き、欠測は補間しません。答えの文字列は、すべて文字として入れます（markupにしません）。施設表は先頭12件、介入表は先頭6件、重要イベント表は先頭10件を載せ、省略を明記します。実建物の形状を推測しないため、施設マップは載せません。
 - **印刷**：`@media print`で、印刷用ページだけをA4で印刷します。章ごとに改ページし、表の見出しはページごとに繰り返します。ページの下に注意書きとページ番号を付けます（`@page`の余白の箱。対応しないブラウザーでは出ません）。
 
@@ -41,6 +41,7 @@ POST /api/v1/projects/{project}/runs/{run}/pdf-report
 - **identity**：Branchの順序・head（Branchの`checkpoint_hash`）、評価時刻、Scenario hash、Opusモデル、プロンプト版、レポートの版を含みます。同じidentityは、再起動の後も保存した答えをそのまま返します。
 - **#470より前の成果物**：schema_version=1（PDFのbase64を持つもの）は保存がないものとして作り直します。Runの応答テープが同じ分析を答えるので、Opusは呼びません。
 - **確かめに通らなかったとき**：再試行には別の試行番号を付けます（`runs/{run}/pdf-attempts/{hash}.json`）。失敗した利用記録は消しません。
+- **ブラウザー版**：答えを保存しません。求めるたびに中継に頼みます（応答テープがないため、試行番号も要りません）。
 
 書式・根拠の計算・確かめの契約を変えるときは、`pdf-report-ja-v1`と`pdf-analysis-ja-v1`の版を上げます。
 
@@ -56,5 +57,7 @@ SHELTERSIM_LLM_MODE=offline pytest tests/integration/test_pdf_report.py tests/in
 - schema_version=1の保存を作り直すこと。
 - 確かめに通らない分析ではレポートを作らず、次の試行が別の依頼になること。
 - ブラウザーの中継が、routerと同じ作業を送ること。
+
+`native/wasm/tests/node_interventions.mjs`は、サーバーが偽のOpusで答えた2つの分岐のレポート（`native/core/tests/data/interventions_llm.json`）を、そのOpusの文を返す偽の中継で求めます。中継に送った作業がサーバーと同じであること、答えがサーバーと同じbytesであることを確かめます。
 
 有料APIは使いません。

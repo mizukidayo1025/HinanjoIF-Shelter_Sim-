@@ -122,9 +122,9 @@ export function historyCache(size = 2) {
   };
 }
 
-/// The stored samples of a branch read back (`KpiHistory`), checked against its "end" line: a
-/// fork's from its parent's up to its base, then its own.
-async function readSamples(wasm, tree, projectId, runId, branchId) {
+/// The stored samples of a branch read back (`KpiHistory`, which the caller frees), checked
+/// against its "end" line: a fork's from its parent's up to its base, then its own.
+export async function readSamples(wasm, tree, projectId, runId, branchId) {
   const reader = await branchReader(wasm, tree, projectId, runId, branchId);
   try {
     const table = new wasm.KpiHistory();

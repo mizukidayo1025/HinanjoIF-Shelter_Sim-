@@ -15,7 +15,7 @@
 // branch's stored Run, the child's stored Run is of format v6, starts at the fork and reads its
 // parent's pieces up to its base (no copy of them), and it reads back to its digests.
 //
-// Then the questions and previews the server answered with an API key (#470,
+// Then the questions, previews and analysis reports the server answered with an API key (#470,
 // native/core/tests/data/interventions_llm.json) are asked with the relay's passphrase, the relay
 // answered here with what the server's Provider wrote: the browser must send the relay the core's
 // tasks the server's link got (their sha256) and answer as the server did.
@@ -203,7 +203,7 @@ for (const item of [...fixture.cases, ...withLlm.cases]) {
     if (firstContext === null && got.status === 200) firstContext = JSON.parse(got.body).context_id;
     if (llm && llmContext === null && got.status === 200) llmContext = JSON.parse(got.body).context_id;
   } else if (item.route === "pdf-report") {
-    got = await post("/pdf-report", JSON.stringify(item.document));
+    got = await post("/pdf-report", JSON.stringify(item.document), llm);
   } else if (item.route === "compare" || item.route === "replay-frames") {
     got = await get(`/${item.route}`, item.query);
   } else {

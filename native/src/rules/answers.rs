@@ -704,6 +704,12 @@ impl PyPdfPlan {
         PyBytes::new(py, &records_json(self.plan.records()))
     }
 
+    /// A view-only branch's last saved point at or before the minute (0 where it has none): the
+    /// refusal where it is not the minute.
+    fn check_saved_point(&self, saved: i64) -> PyResult<()> {
+        self.plan.check_saved_point(saved).map_err(failed)
+    }
+
     /// The next branch: its Run at the minute, its frame there, its KPI table and its journal.
     fn add_branch(&mut self, run: &crate::rules::plain::PlainRun, frame: &[u8], table: &PyKpiTable, journal: &[u8]) -> PyResult<()> {
         self.plan.add_branch(run.core(), frame, &table.table, journal).map_err(failed)

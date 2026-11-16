@@ -181,7 +181,77 @@ pub fn conversations_answer(pieces: &Files) -> Result<String, JsError> {
     answer(routes::conversations_answer(&pieces.raws()))
 }
 
-/// `POST runs/{run}/pdf-report`: always a refusal (`routes::pdf_report_answer`).
+/// `POST runs/{run}/pdf-report` with the relay's passphrase (#470, `answers::pdf::PdfPlan`): the
+/// route's checks; then each branch's Run at the minute (`addBranch`, after `checkSavedPoint` for a
+/// view-only one), then the report's data, facts and analysis task (`analysis`).
+#[wasm_bindgen]
+pub struct PdfPlan {
+    plan: answers::pdf::PdfPlan,
+}
+
+#[wasm_bindgen(js_name = pdfPlan)]
+pub fn pdf_plan(project_id: &str, run_id: &str, body: Option<String>, files: &RunFiles) -> Result<PdfPlan, JsError> {
+    Ok(PdfPlan { plan: answers::pdf::PdfPlan::new(project_id, run_id, body.as_deref().map(str::as_bytes), &files.inner).map_err(failed)? })
+}
+
+#[wasm_bindgen]
+impl PdfPlan {
+    pub fn minute(&self) -> f64 {
+        self.plan.minute() as f64
+    }
+
+    /// The branches' records (the report's heads), as a JSON list in the request's order.
+    #[wasm_bindgen(js_name = recordsJson)]
+    pub fn records_json(&self) -> Result<String, JsError> {
+        Ok(records_json(self.plan.records()))
+    }
+
+    /// A view-only branch's last saved point at or before the minute (0 where it has none): the
+    /// refusal where it is not the minute.
+    #[wasm_bindgen(js_name = checkSavedPoint)]
+    pub fn check_saved_point(&self, saved: f64) -> Result<(), JsError> {
+        self.plan.check_saved_point(saved as i64).map_err(failed)
+    }
+
+    /// The next branch: its Run at the minute, its frame there (JSON text), its stored samples and
+    /// its journal.
+    #[wasm_bindgen(js_name = addBranch)]
+    pub fn add_branch(&mut self, simulation: &Simulation, frame: &str, table: &KpiHistory, journal: &[u8]) -> Result<(), JsError> {
+        self.plan.add_branch(&simulation.run, frame.as_bytes(), &table.table, journal).map_err(failed)
+    }
+
+    /// The report's data, facts and the analysis's task, of the Run's Scenario (a first try: the
+    /// browser keeps no report, so a retry is the same request).
+    pub fn analysis(&self, scenario: &[u8]) -> Result<PdfAnalysis, JsError> {
+        Ok(PdfAnalysis { analysis: self.plan.analysis(scenario, 0).map_err(failed)? })
+    }
+}
+
+/// The report's analysis asked of an LLM: `task()`, the task's JSON for the relay, then
+/// `read(reply)` of its reply (`llm::Reply`'s JSON; undefined where the call failed), the checked
+/// analysis or the refusal, then `report(analysis)`, the route's answer.
+#[wasm_bindgen]
+pub struct PdfAnalysis {
+    analysis: answers::pdf::PdfAnalysis,
+}
+
+#[wasm_bindgen]
+impl PdfAnalysis {
+    pub fn task(&self) -> Result<String, JsError> {
+        answer(self.analysis.task_json())
+    }
+
+    pub fn read(&self, reply: Option<String>) -> Result<String, JsError> {
+        answer(self.analysis.read(reply.as_deref().map(str::as_bytes)))
+    }
+
+    pub fn report(&self, analysis: &str) -> Result<String, JsError> {
+        answer(self.analysis.report(analysis.as_bytes()))
+    }
+}
+
+/// `POST runs/{run}/pdf-report` without the relay's passphrase: always a refusal
+/// (`routes::pdf_report_answer`).
 #[wasm_bindgen(js_name = pdfReport)]
 pub fn pdf_report(project_id: &str, run_id: &str, body: Option<String>, files: &RunFiles) -> Result<(), JsError> {
     Err(failed(routes::pdf_report_answer(project_id, run_id, body.as_deref().map(str::as_bytes), &files.inner)))

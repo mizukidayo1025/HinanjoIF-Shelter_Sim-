@@ -224,7 +224,7 @@ fn read(value: &std::result::Result<i64, crate::config::Fault>) -> Result<i64> {
 fn route_capacities_pass(routing: &RouteCapacities, rows: &Entities) -> Result<()> {
     for (edge, capacity) in &routing.capacities {
         if !rows.zone_edges.contains_key(edge) || !(1..=100).contains(&read(capacity)?) {
-            return refuse("a route capacity is the Python rule's");
+            return refuse("a route capacity names an unknown edge or is out of range");
         }
     }
     Ok(())
@@ -325,7 +325,7 @@ pub fn entity_rules(world: &World, inputs: &EntityInputs<'_>, watch: &mut dyn Fn
     // A seed of any size, past 64 bits too: `self.seed < 0`.
     let negative_seed = world.seed_text()?.starts_with('-');
     if duration <= 0 || !(0..=duration).contains(&minute) || negative_seed {
-        return refuse("the clock or seed is the Python rule's");
+        return refuse("the clock or seed is out of range");
     }
     let rows = tables(world)?;
 
@@ -399,7 +399,7 @@ fn zones_pass<'a>(rows: &'a Entities, inputs: &EntityInputs<'_>) -> Result<FxHas
         }
         let (from, to) = (&*edge.from_zone_id, &*edge.to_zone_id);
         if !occupancy.contains_key(from) || !occupancy.contains_key(to) || from == to || edge.travel_minutes <= 0 {
-            return refuse("an edge is the Python rule's");
+            return refuse("an edge's zones or travel time are invalid");
         }
     }
     if let Some(routing) = &*kit::kept(inputs.route_capacities)? {
@@ -419,14 +419,14 @@ fn read_people<'a>(rows: &'a Entities, v6: bool, occupancy: &mut FxHashMap<&'a s
         }
         let needs = &agent.needs;
         if ![needs.toilet_urgency, needs.hunger, needs.fatigue, needs.hydration_need].into_iter().all(is_unit) {
-            return refuse("a need is the Python rule's");
+            return refuse("a need is outside 0 to 1");
         }
         // "WorldState v5 requires hydration_need to be zero".
         if !v6 && (needs.hydration_need != 0.0 || agent.profile.initial_needs.hydration_need != 0.0) {
             return refuse("a WorldState v5 person has a hydration need");
         }
         if !is_unit(agent.stress) || !is_unit(agent.trust) || agent.next_decision_at < 0 || agent.support_cooldown_until < 0 {
-            return refuse("an agent's value is the Python rule's");
+            return refuse("an agent's stress, trust or times are out of range");
         }
         let zone = &*agent.zone_id;
         let Some(count) = occupancy.get_mut(zone) else {
@@ -459,7 +459,7 @@ fn read_places<'a>(rows: &'a Entities, v6: bool, occupancy: &FxHashMap<&str, i64
         let zone = &*facility.zone_id;
         let capacity = facility.capacity;
         if !occupancy.contains_key(zone) || capacity < 0 || !(0..=capacity).contains(&facility.working_units) {
-            return refuse("a facility's zone or units are the Python rule's");
+            return refuse("a facility's zone or units are invalid");
         }
         let place = Place {
             id: key,
@@ -504,12 +504,12 @@ fn occupants_pass(census: &Census<'_>, sites: &Sites<'_>) -> Result<()> {
     for place in places {
         for id in place.queue {
             if person(id).is_none_or(|who| who.activity != Activity::Queued) || served.contains(&**id) || !waiting.insert(id) {
-                return refuse("a facility queue is the Python rule's");
+                return refuse("someone in a facility queue is not queued there");
             }
         }
         for id in place.active {
             if person(id).is_none_or(|who| who.activity != Activity::InService) || waiting.contains(&**id) || !served.insert(id) {
-                return refuse("a facility service is the Python rule's");
+                return refuse("someone in a facility service is not served there");
             }
         }
     }
@@ -517,12 +517,12 @@ fn occupants_pass(census: &Census<'_>, sites: &Sites<'_>) -> Result<()> {
         let holds_here = |who: &Person<'_>| who.target == Some(place.id) && who.zone == place.zone;
         for id in place.resource_queue {
             if person(id).is_none_or(|who| who.activity != Activity::Queued || !holds_here(who)) || served.contains(&**id) || !waiting.insert(id) {
-                return refuse("a resource queue is the Python rule's");
+                return refuse("someone in a resource queue is not queued there");
             }
         }
         for id in place.resource_active {
             if person(id).is_none_or(|who| who.activity != Activity::InService || !holds_here(who)) || waiting.contains(&**id) || !served.insert(id) {
-                return refuse("a resource service is the Python rule's");
+                return refuse("someone in a resource service is not served there");
             }
         }
     }
@@ -608,10 +608,10 @@ fn read_tasks<'a>(rows: &'a Entities, minute: i64, v6: bool, sites: &Sites<'a>) 
         match work.kind {
             "travel_to_toilet" | "travel_to_resource" | "travel_return" | "staff_support_travel" => {
                 let (Some(agent), None) = (work.agent, work.resource) else {
-                    return refuse("a travel task's references are the Python rule's");
+                    return refuse("a travel task lacks its agent or names a resource");
                 };
                 if work.start > minute || work.due <= work.start || travel_by_agent.insert(agent, index).is_some() {
-                    return refuse("a travel task is the Python rule's");
+                    return refuse("a travel task's times are invalid or its agent travels twice");
                 }
             }
             "resource_service_queue" | "resource_service_water" | "resource_service_food" => {
@@ -619,32 +619,32 @@ fn read_tasks<'a>(rows: &'a Entities, minute: i64, v6: bool, sites: &Sites<'a>) 
                     return refuse("a resource task in a WorldState v5");
                 }
                 let (Some(agent), Some(resource)) = (work.agent, work.resource) else {
-                    return refuse("a resource task's references are the Python rule's");
+                    return refuse("a resource task lacks its agent or resource");
                 };
                 if !place_at.get(resource).is_some_and(|at| places[*at].is_resource) || work.start > minute {
-                    return refuse("a resource task is the Python rule's");
+                    return refuse("a resource task's facility or start is invalid");
                 }
                 if work.kind == "resource_service_queue" {
                     if work.due != work.start || work.staff.is_some() || !resource_queue.insert((resource, agent)) {
-                        return refuse("a resource queue task is the Python rule's");
+                        return refuse("a resource queue task's times or staff are invalid or it repeats");
                     }
                 } else if work.due <= work.start || work.staff.is_none() || resource_service.insert((resource, agent), index).is_some() {
-                    return refuse("a resource service task is the Python rule's");
+                    return refuse("a resource service task's times or staff are invalid or it repeats");
                 }
             }
             "toilet_queue" | "toilet_service" => {
                 let (Some(agent), Some(resource)) = (work.agent, work.resource) else {
-                    return refuse("a toilet task's references are the Python rule's");
+                    return refuse("a toilet task lacks its agent or toilet");
                 };
                 if !place_at.get(resource).is_some_and(|at| places[*at].is_toilet) || work.start > minute {
-                    return refuse("a toilet task is the Python rule's");
+                    return refuse("a toilet task's toilet or start is invalid");
                 }
                 if work.kind == "toilet_queue" {
                     if work.due != work.start || !toilet_queue.insert((resource, agent)) {
-                        return refuse("a toilet queue task is the Python rule's");
+                        return refuse("a toilet queue task's times are invalid or it repeats");
                     }
                 } else if work.due <= work.start || toilet_service.insert((resource, agent), index).is_some() {
-                    return refuse("a toilet service task is the Python rule's");
+                    return refuse("a toilet service task's times are invalid or it repeats");
                 }
             }
             _ => {}
@@ -669,11 +669,11 @@ fn read_staff<'a>(rows: &'a Entities, occupancy: &FxHashMap<&str, i64>, tasks: &
         let busy_until = member.busy_until;
         let active_task = member.active_task_id.as_deref();
         if !occupancy.contains_key(zone) || !no_repeats(work_queue) || busy_until < 0 {
-            return refuse("a staff member is the Python rule's");
+            return refuse("a staff member's zone, queue or busy time is invalid");
         }
         for task_id in work_queue {
             if !work_at.contains_key(&**task_id) || !assigned.insert(task_id) {
-                return refuse("a staff queue is the Python rule's");
+                return refuse("a staff queue names an unknown or assigned task");
             }
         }
         match active_task {
@@ -681,7 +681,7 @@ fn read_staff<'a>(rows: &'a Entities, occupancy: &FxHashMap<&str, i64>, tasks: &
                 return refuse("an idle staff member keeps work");
             }
             Some(task) if !only(work_queue, task) => {
-                return refuse("a staff member's work is the Python rule's");
+                return refuse("a staff member's queue is not just their active task");
             }
             _ => {}
         }
@@ -747,7 +747,7 @@ fn facility_tasks_pass(found: Found<'_>) -> Result<()> {
             || !field(event, "agent_id")?.is(agent)
             || !staff_matches
         {
-            return refuse("a toilet service task's completion is the Python rule's");
+            return refuse("a toilet service task's completion differs");
         }
     }
     #[allow(clippy::iter_over_hash_type, reason = "read-only checks; a refusal here hands the world to the whole validation, which says its own text")]
@@ -799,7 +799,7 @@ fn resource_services_pass<'a>(found: Found<'a>, inputs: &EntityInputs<'_>, ledge
                 || event.kind != EventKind::Completion
                 || !matches!(field(event, "quantity")?, Field::Int(value) if value == quantity)
             {
-                return refuse("a resource service task's completion is the Python rule's");
+                return refuse("a resource service task's completion differs");
             }
             let Some(ledger) = &ledger else {
                 return refuse("a resource service task without a ledger");
@@ -823,7 +823,7 @@ fn resource_services_pass<'a>(found: Found<'a>, inputs: &EntityInputs<'_>, ledge
                 || worker.zone != place.zone
                 || !has_skill
             {
-                return refuse("a resource service task's staff is the Python rule's");
+                return refuse("a resource service task's staff differs");
             }
         }
     }
@@ -893,7 +893,7 @@ fn travel_pass(found: Found<'_>) -> Result<()> {
             let request_known = field(event, "request_id")?.text().map(|id| rows.support_requests.contains_key(id));
             let staff_known = field(event, "staff_id")?.text().is_some_and(|id| workers.contains_key(id));
             if purpose != Some("staff_support_travel") || request_known != Some(true) || !staff_known {
-                return refuse("a staff support trip is the Python rule's");
+                return refuse("a staff support trip's purpose, request or staff is invalid");
             }
         }
     }
@@ -922,16 +922,16 @@ fn requests_pass(found: Found<'_>, inputs: &EntityInputs<'_>, minute: i64, durat
         };
         let id = &*request.id;
         if id.is_empty() || !rows.support_requests.contains_key(id) {
-            return refuse("a request's ID is the Python rule's");
+            return refuse("a request's ID is empty or unknown");
         }
         let agent = &*request.agent_id;
         let (requested, timeout) = (request.requested_minute, request.timeout_minute);
         if !person_at.contains_key(agent) || !(0..=minute).contains(&requested) || timeout < requested || request.cooldown_until < 0 {
-            return refuse("a request's agent or timing is the Python rule's");
+            return refuse("a request's agent or timing is invalid");
         }
         let attempt = request.last_assignment_attempt_minute;
         if attempt.is_some_and(|attempt| !(requested..=minute).contains(&attempt)) {
-            return refuse("a request's attempt is the Python rule's");
+            return refuse("a request's attempt is out of range");
         }
         if let Some(reason) = &request.last_assignment_wait_reason_code {
             let known = matches!(
@@ -939,7 +939,7 @@ fn requests_pass(found: Found<'_>, inputs: &EntityInputs<'_>, minute: i64, durat
                 "no_available_qualified_staff" | "route_unavailable_at_assignment" | "insufficient_run_time" | "resident_travel_schedule_rejected"
             );
             if attempt.is_none() || !known {
-                return refuse("a request's wait reason is the Python rule's");
+                return refuse("a request's wait reason is unknown or has no attempt");
             }
         }
         let staff_id = request.assigned_staff_id.as_deref();
@@ -966,7 +966,7 @@ fn requests_pass(found: Found<'_>, inputs: &EntityInputs<'_>, minute: i64, durat
             Some((count, _)) if *count > 1 => return refuse("someone has duplicate open requests"),
             Some((_, request)) => {
                 if who.request != Some(*request) || !matches!(who.activity, Activity::SeekingHelp | Activity::Moving) {
-                    return refuse("someone's open request is the Python rule's");
+                    return refuse("someone's open request differs from their state");
                 }
             }
             None => {
@@ -1017,7 +1017,7 @@ fn assigned_request_pass(found: Found<'_>, id: &str, agent: &str, staff_id: Opti
             _ => false,
         };
         if !right {
-            return refuse("an assigned request's travel is the Python rule's");
+            return refuse("an assigned request's travel differs");
         }
     } else if who.activity != Activity::SeekingHelp || travel.is_some_and(|trip| trip.kind == "staff_support_travel") {
         return refuse("an assigned request must seek help or travel to staff");
@@ -1026,7 +1026,7 @@ fn assigned_request_pass(found: Found<'_>, id: &str, agent: &str, staff_id: Opti
         return refuse("an assigned request needs one completion");
     };
     if event.due_minute != work.due || !field(event, "request_id")?.is(id) || !field(event, "agent_id")?.is(agent) || !field(event, "staff_id")?.is(worker_id) {
-        return refuse("an assigned request's completion is the Python rule's");
+        return refuse("an assigned request's completion differs");
     }
     Ok(())
 }
@@ -1057,7 +1057,7 @@ fn tasks_pass(found: Found<'_>) -> Result<()> {
             }
         }
         if work.start < 0 || work.due < work.start {
-            return refuse("a task's timing is the Python rule's");
+            return refuse("a task's timing is out of range");
         }
     }
     Ok(())
@@ -1066,7 +1066,7 @@ fn tasks_pass(found: Found<'_>) -> Result<()> {
 /// The inventory, the ID counters and the identities of the pending events.
 fn identities_pass(world: &World, events: &[&EventRow], duration: i64) -> Result<()> {
     if world.resources()?.values().any(|value| *value < 0) {
-        return refuse("the inventory is the Python rule's");
+        return refuse("the inventory is negative");
     }
     let counters = world.slots.try_row::<ValueRow>(ID_COUNTERS)?;
     let V::Map(counters) = &counters.0 else {
@@ -1081,7 +1081,7 @@ fn identities_pass(world: &World, events: &[&EventRow], duration: i64) -> Result
     let mut newest = log.max_sequence();
     for event in events {
         if log.has_event_id(&event.event_id) || log.has_sequence(event.sequence) || event.due_minute >= duration {
-            return refuse("a pending event is the Python rule's");
+            return refuse("a pending event repeats a logged ID or sequence, or is past the end");
         }
         newest = newest.max(event.sequence);
     }
@@ -1130,7 +1130,7 @@ const POPULATION_SOURCE_ID: &str = "ASM-POPULATION-DYNAMICS-V1";
 fn required_list<'a>(state: &'a IndexMap<Arc<str>, V>, name: &str) -> Result<&'a [V]> {
     match state.get(name) {
         Some(V::List(items)) => Ok(items),
-        _ => refuse("a list of the population state is the Python rule's"),
+        _ => refuse("a list of the population state is missing or not a list"),
     }
 }
 
@@ -1176,7 +1176,7 @@ pub fn population_dynamics(world: &World, dynamics: &Held) -> Result<Dynamics> {
     };
     let fields = if context.is_some() { 8 + 1 } else { 8 };
     if state.len() != fields || !version_is_one || !text_is("policy_version", POPULATION_POLICY_VERSION) || !text_is("source_id", POPULATION_SOURCE_ID) {
-        return refuse("the population state is the Python rule's");
+        return refuse("the population state has another shape");
     }
     if !no_context || !pending.is_empty() {
         return Ok(Dynamics::Validate);

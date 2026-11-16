@@ -293,10 +293,10 @@ pub fn check<C: WorldCell, K: Checks>(cell: &C, memo: &mut Memo, inputs: &Inputs
         }
     }
     if found.body_rows && !checks.body_rows()? {
-        return refuse("the rows of the body state are the Python rule's");
+        return refuse("the rows of the body state did not pass their check");
     }
     if found.shared_operations && !checks.shared_operations()? {
-        return refuse("the shared operations are the Python rule's");
+        return refuse("the shared operations did not pass their check");
     }
     checks.effects()?;
     let named = match &found.body_config {
@@ -460,7 +460,7 @@ fn body_history(world: &World, held: &HeldNamespaces, body: &BodyRow, minute: i6
     for index in start.saturating_sub(1)..items.len() {
         let item = parse(index)?;
         let Some(item) = item.as_object() else {
-            return refuse("a body history item is the Python rule's");
+            return refuse("a body history item is not a dict");
         };
         let read = |name: &str| item.get(name).ok_or_else(|| Error::unsupported("a body history item lacks a field"));
         if !read("event_id")?.is_string() || !read("kind")?.is_string() {
@@ -472,10 +472,10 @@ fn body_history(world: &World, held: &HeldNamespaces, body: &BodyRow, minute: i6
         let deltas = read("deltas")?;
         let minute_is_count = read("minute")?.as_i64().is_some_and(|recorded| recorded >= 0);
         if item.len() != 7 || !minute_is_count || !deltas.is_object() {
-            return refuse("a body history item is the Python rule's");
+            return refuse("a body history item has another shape");
         }
         let Some(actors) = actors.as_array() else {
-            return refuse("a body history item's actors are the Python rule's");
+            return refuse("a body history item's actors are not a list");
         };
         for actor in actors {
             let Some(actor_id) = actor.as_str() else {
@@ -498,10 +498,10 @@ fn body_history(world: &World, held: &HeldNamespaces, body: &BodyRow, minute: i6
 /// The exact shape of the zone environment (`validate::zone_environment`).
 fn environment_schema(state: Option<&V>) -> Result<()> {
     let Some(V::Map(state)) = state else {
-        return refuse("the zone environment is the Python rule's");
+        return refuse("the zone environment is not a dict");
     };
     if state.len() != 2 || !matches!(state.get("schema_version"), Some(V::Int(1))) || !matches!(state.get("modifiers"), Some(V::Map(_))) {
-        return refuse("the zone environment is the Python rule's");
+        return refuse("the zone environment has another shape");
     }
     Ok(())
 }
@@ -510,7 +510,7 @@ fn environment_schema(state: Option<&V>) -> Result<()> {
 /// is all of it at a tick. The events are read by the entity rules' `watch`.
 fn operational_schema(state: &V) -> Result<()> {
     let V::Map(state) = state else {
-        return refuse("the operational events are the Python rule's");
+        return refuse("the operational events are not a dict");
     };
     let is_map = |name: &str| matches!(state.get(name), Some(V::Map(_)));
     if state.len() != 5
@@ -520,7 +520,7 @@ fn operational_schema(state: &V) -> Result<()> {
         || !is_map("staff_status")
         || !matches!(state.get("cancelled_staff_task_ids"), Some(V::List(_)))
     {
-        return refuse("the operational events are the Python rule's");
+        return refuse("the operational events have another shape");
     }
     Ok(())
 }
@@ -529,7 +529,7 @@ fn operational_schema(state: &V) -> Result<()> {
 /// the config's own check (`tick_plan`): the state's shape and the base capacity of each facility.
 fn infrastructure(world: &World, state: Option<&V>) -> Result<()> {
     let Some(V::Map(state)) = state else {
-        return refuse("the infrastructure state is the Python rule's");
+        return refuse("the infrastructure state is not a dict");
     };
     let is_map = |name: &str| matches!(state.get(name), Some(V::Map(_)));
     let base = match state.get("base_working_units") {
@@ -542,10 +542,10 @@ fn infrastructure(world: &World, state: Option<&V>) -> Result<()> {
         || !is_map("environmental_stressors")
         || !is_map("route_interruptions")
     {
-        return refuse("the infrastructure state is the Python rule's");
+        return refuse("the infrastructure state has another shape");
     }
     let Some(base) = base else {
-        return refuse("the infrastructure state is the Python rule's");
+        return refuse("the base working units are not a dict");
     };
     let rows = world.rows()?;
     for (facility_id, units) in base {
@@ -716,9 +716,9 @@ fn declared_states(world: &World, inputs: &Inputs<'_>, presence_unchanged: bool)
                     Some(_) => return refuse("a value is not an int"),
                     None => return refuse("no schema version"),
                 },
-                _ => return refuse("a declared namespace is the Python rule's"),
+                _ => return refuse("a declared namespace is not a dict"),
             },
-            None => return refuse("a declared namespace is the Python rule's"),
+            None => return refuse("a declared namespace has no value"),
         };
         if found != *version {
             return refuse("a declared namespace has another version");
@@ -829,7 +829,7 @@ fn rest_of_validate(world: &World, inputs: &Inputs<'_>, v6: bool, validators: &m
     if operational {
         match value_of(world, held, OPERATIONAL)? {
             Some(state) => operational_schema(&state)?,
-            None => return refuse("the operational events are the Python rule's"),
+            None => return refuse("the operational events have no value"),
         }
     } else if plan.operational_enabled != Some(false) {
         return refuse("operational events without their state");

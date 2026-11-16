@@ -1,4 +1,4 @@
-/* The scenario page: the conditions or text, their preview and approval. */
+/* The scenario page: the conditions (and, with the API on, a text), their preview and approval. */
 (() => {
   "use strict";
   const app = window.HinanjoApp;
@@ -89,28 +89,21 @@
     req.field_origins = origins;
     return req;
   }
+  // The conditions are the form's: 自治体・災害種別・避難者数 are required there (#583). A text
+  // is read only with the API on, by the AI (its fieldset is disabled while off, and its value
+  // is then not sent at all): the text with the form's basic conditions is read first, and its
+  // request completed by the form's fields, which win.
   async function previewScenario() {
     if (!$("scenario-form").reportValidity()) return;
     const version = state.inputVersion;
     let req = scenarioRequest();
-    const text = $("scenario-text").value.trim();
-    const hasFields = Object.keys(req).some((k) => k !== "field_origins");
-    if (
-      hasFields &&
-      (!req.municipality || !req.disaster || !req.evacuees) &&
-      !text
-    )
-      throw new Error(
-        "自治体・災害種別・避難者数を項目か文章で指定してください。",
-      );
-    if (!hasFields && !text)
-      throw new Error("自然言語または基本設定を入力してください。");
+    const text = state.llm?.on === true ? $("scenario-text").value.trim() : "";
     await ensureProject(ownProject());
-    if (hasFields && (!req.municipality || !req.disaster || !req.evacuees)) {
+    if (text) {
       const hints = [
-        req.municipality ? `${req.municipality}で` : null,
+        `${req.municipality}で`,
         req.disaster,
-        req.evacuees ? `${req.evacuees}人` : null,
+        `${req.evacuees}人`,
         req.duration_days ? `${req.duration_days}日間` : null,
       ]
         .filter(Boolean)
@@ -122,7 +115,7 @@
         throw new Error("入力が変更されました。再プレビューしてください。");
       if (!extracted.request)
         throw new Error(
-          `不足項目：${(extracted.missing_fields || []).join("、")}。基本設定を確認してください。`,
+          `文章を読み取れませんでした（不足項目：${(extracted.missing_fields || []).join("、")}）。`,
         );
       req = {
         ...extracted.request,
@@ -133,26 +126,11 @@
         },
       };
     }
-    const result = await api(`${ownBase()}/scenario-preview`, {
-      text,
-      ...(hasFields ? { request: req } : {}),
-    });
+    const result = await api(`${ownBase()}/scenario-preview`, { text, request: req });
     if (version !== state.inputVersion)
       throw new Error(
         "入力が変更されました。最新の条件で再プレビューしてください。",
       );
-    if (!result.scenario) {
-      $("blockers").replaceChildren(
-        el(
-          "p",
-          `不足項目：${(result.missing_fields || []).join("、")}。基本設定を揃えて再プレビューしてください。`,
-          "warning-item",
-        ),
-      );
-      throw new Error(
-        "必要な条件を読み取れませんでした。自治体・災害種別・避難者数を入力してください。",
-      );
-    }
     state.preview = result;
     renderPreview();
   }
@@ -194,18 +172,19 @@
     $("preview-result").hidden = false;
     $("preview-empty").hidden = true;
     $("preview-step").classList.add("current");
-    // With the API on (#421), whether the AI read the text or the text was read without it.
+    // Made from the form alone, or with a text the AI read (#421, #583): whether it read it.
     const usage = p.llm_usage,
       source = s?.provenance?.scenario_input?.extraction_source,
       read =
-        usage?.mode !== "record"
-          ? null
-          : source === "prepare_llm"
-            ? `AIが文を読み取りました（約$${Number(usage.spent_usd).toFixed(3)}）`
-            : "AIを使えず、文に明示された値だけで読み取りました";
-    $("preview-mode").textContent = [llmModeLabel(usage?.mode), read, "補完値を要確認"]
-      .filter(Boolean)
-      .join(" · ");
+        source === "structured_form"
+          ? ["項目から作成"]
+          : [
+              llmModeLabel(usage?.mode),
+              source === "prepare_llm"
+                ? `AIが文を読み取りました（約$${Number(usage.spent_usd).toFixed(3)}）`
+                : "AIを使えず、文に明示された値だけで読み取りました",
+            ];
+    $("preview-mode").textContent = [...read, "補完値を要確認"].join(" · ");
     $("preview-summary").textContent =
       `${r.municipality}での${disasterName(r.disaster)}を想定し、${r.evacuees}人・${num(r.duration_days)}日間の避難所運営を試算します。施設・人口は合成モデルです。`;
     $("condition-chips").replaceChildren(

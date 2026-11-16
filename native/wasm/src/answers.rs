@@ -188,9 +188,10 @@ pub fn contracts_answer() -> Result<String, JsError> {
     answer(routes::contracts_answer())
 }
 
-/// `POST runs/{run}/pdf-report` with the relay's passphrase (#470, `answers::pdf::PdfPlan`): the
-/// route's checks; then each branch's Run at the minute (`addBranch`, after `checkSavedPoint` for a
-/// view-only one), then the report's data, facts and analysis task (`analysis`).
+/// `POST runs/{run}/pdf-report` (#470, `answers::pdf::PdfPlan`): the route's checks (`checkLink`
+/// for an analysis asked); then each branch's Run at the minute (`addBranch`, after
+/// `checkSavedPoint` for a view-only one), then the answer without the analysis (`report`, #582)
+/// or the report's data, facts and analysis task (`analysis`).
 #[wasm_bindgen]
 pub struct PdfPlan {
     plan: answers::pdf::PdfPlan,
@@ -205,6 +206,19 @@ pub fn pdf_plan(project_id: &str, run_id: &str, body: Option<String>, files: &Ru
 impl PdfPlan {
     pub fn minute(&self) -> f64 {
         self.plan.minute() as f64
+    }
+
+    /// Whether the request asks for Opus's analysis.
+    #[wasm_bindgen(js_name = analysisAsked)]
+    pub fn analysis_asked(&self) -> bool {
+        self.plan.analysis_asked()
+    }
+
+    /// The refusal of an analysis asked without a link to an LLM (`linked` false: no passphrase,
+    /// or a relay that does not let it in).
+    #[wasm_bindgen(js_name = checkLink)]
+    pub fn check_link(&self, linked: bool) -> Result<(), JsError> {
+        self.plan.check_link(linked).map_err(failed)
     }
 
     /// The branches' records (the report's heads), as a JSON list in the request's order.
@@ -225,6 +239,11 @@ impl PdfPlan {
     #[wasm_bindgen(js_name = addBranch)]
     pub fn add_branch(&mut self, simulation: &Simulation, frame: &str, table: &KpiHistory, journal: &[u8]) -> Result<(), JsError> {
         self.plan.add_branch(&simulation.run, frame.as_bytes(), &table.table, journal).map_err(failed)
+    }
+
+    /// The route's answer without the analysis, of the Run's Scenario: no LLM is asked.
+    pub fn report(&self, scenario: &[u8]) -> Result<String, JsError> {
+        answer(self.plan.report(scenario))
     }
 
     /// The report's data, facts and the analysis's task, of the Run's Scenario (a first try: the
@@ -255,13 +274,6 @@ impl PdfAnalysis {
     pub fn report(&self, analysis: &str) -> Result<String, JsError> {
         answer(self.analysis.report(analysis.as_bytes()))
     }
-}
-
-/// `POST runs/{run}/pdf-report` without the relay's passphrase: always a refusal
-/// (`routes::pdf_report_answer`).
-#[wasm_bindgen(js_name = pdfReport)]
-pub fn pdf_report(project_id: &str, run_id: &str, body: Option<String>, files: &RunFiles) -> Result<(), JsError> {
-    Err(failed(routes::pdf_report_answer(project_id, run_id, body.as_deref().map(str::as_bytes), &files.inner)))
 }
 
 /// `POST runs/{run}/delete`: the answer once the caller removes the Run's folder; `active` whether
@@ -633,17 +645,17 @@ pub fn failed_outcome(error: &str, refusal_status: Option<u16>, refusal_code: Op
 }
 
 /// `POST …/questions` (`answers::questions::QuestionPlan`): the request's and the evidence's
-/// checks; then the frame's (`checkFrame`); then the answer and the turn.
+/// checks; then the frame's (`checkFrame`); then the question asked through the relay (`ask`), or
+/// the refusal without the relay's passphrase (`offline`, #585).
 #[wasm_bindgen]
 pub struct QuestionPlan {
     plan: answers::questions::QuestionPlan,
-    turn: Vec<u8>,
 }
 
 #[wasm_bindgen(js_name = questionPlan)]
 pub fn question_plan(body: Option<String>, project_id: &str, run_id: &str, branch_id: &str) -> Result<QuestionPlan, JsError> {
     let plan = answers::questions::QuestionPlan::new(body.as_deref().map(str::as_bytes), project_id, run_id, branch_id).map_err(failed)?;
-    Ok(QuestionPlan { plan, turn: Vec::new() })
+    Ok(QuestionPlan { plan })
 }
 
 #[wasm_bindgen]
@@ -669,21 +681,15 @@ impl QuestionPlan {
         self.plan.check_frame(frame.as_bytes()).map_err(failed)
     }
 
-    /// The answer; the turn to keep is then `turn()`.
-    pub fn answer(&mut self, random: &str, turn_id: &str) -> Result<String, JsError> {
-        let (answer, turn) = self.plan.answer(random, turn_id);
-        self.turn = turn;
-        text(answer)
-    }
-
-    pub fn turn(&self) -> Vec<u8> {
-        self.turn.clone()
+    /// The refusal of a question without the relay (#585): always throws.
+    pub fn offline(&self) -> Result<(), JsError> {
+        Err(failed(self.plan.offline()))
     }
 
     /// The question asked of an LLM through the site's relay (#470, `QuestionPlan::ask`): the
     /// branch's frame at the minute, the comparison's answer (or undefined), the Run's
     /// `evidence.json` (or undefined), its Scenario, the branch's "conversations" pieces
-    /// (decompressed) and `random` as `answer`'s.
+    /// (decompressed) and `random`, 24 hex digits for a new context's id.
     pub fn ask(
         &self,
         frame: &str,

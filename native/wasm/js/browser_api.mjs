@@ -22,13 +22,15 @@
 //                                            (#306); GET runs/{run} then holds the fork's `last_fork`;
 //                                            a preview's text is read with the LLM through the site's
 //                                            relay when the request carries the passphrase (#470)
-//   POST runs/{run}/branches/{branch}/questions   js/questions.mjs (#308): the answer without an API key,
-//                                            or with the passphrase, the LLM's through the relay (#470)
+//   POST runs/{run}/branches/{branch}/questions   js/questions.mjs (#308): with the passphrase, the LLM's
+//                                            answer through the relay (#470); without it, 409
+//                                            question_offline as the server without an API key (#585)
 //   POST runs/{run}/delete                   the Run removed (#376), as the server's
 //   GET  runs/{run}/branches/{branch}/conversations   the questions and answers kept (#376)
-//   POST runs/{run}/pdf-report               the server's checks, then its answer without an API key:
-//                                            409 pdf_analysis_offline (#309); with the passphrase, the
-//                                            report with the LLM's analysis through the relay (#470)
+//   POST runs/{run}/pdf-report               the server's checks, then the report without the analysis
+//                                            (#582); an analysis asked (`"analysis": true`) is the LLM's
+//                                            through the relay with the passphrase (#470), and without
+//                                            it 409 pdf_analysis_offline, as the server without a key
 //   POST {project}/scenario-preview, scenario-approve, runs   js/scenario_routes.mjs (#301); a preview's
 //                                            text is read with the LLM through the site's relay when the
 //                                            request carries the passphrase (`llm`, #421)
@@ -284,25 +286,26 @@ export class BrowserApi {
   }
 
   /// `POST runs/{run}/pdf-report` (src/sheltersim/web/pdf_report.py `export`): the core's checks
-  /// in the server's order; without the relay's passphrase, what the server answers without an API
-  /// key: the analysis needs Opus, so no report is made
-  /// (`sheltersim_core::answers::routes::pdf_report_answer`). With it (#470), the report as the
-  /// server makes it with an API key: each branch's Run at the minute (a view-only one at a saved
-  /// point only), its frame, stored samples and journal give the core the report's data and facts,
-  /// the site's relay answers the analysis (Opus), and the core checks it and writes the answer
-  /// (`{"analysis", "data", "facts"}`, which the screen lays out on its print page). A relay that
-  /// does not let the passphrase in leaves the answer without an API key. The browser keeps no
-  /// report: each request asks the relay again.
+  /// in the server's order, then each branch's Run at the minute (a view-only one at a saved point
+  /// only), its frame, stored samples and journal give the core the report's data and facts. Without
+  /// an analysis asked (#582), the answer is the core's with `"analysis": null`, and no LLM is asked.
+  /// An analysis asked (`"analysis": true`, #470) is the site's relay's (Opus), which the core
+  /// checks and writes into the answer (`{"analysis", "data", "facts"}`, which the screen lays out on
+  /// its print page). Without the passphrase, or with a relay that does not let it in, the analysis
+  /// asked is refused as the server without an API key refuses it (409 `pdf_analysis_offline`); a
+  /// relay that fails (the day's cap, the API's error) is the core's refusal of its reply: an
+  /// analysis asked never falls back to the report without it. The browser keeps no report: each
+  /// request asks the relay again.
   async pdfReport(projectId, runId, body, llm = null) {
     const files = await store.runFiles(this.wasm, this.tree, projectId, runId);
     let plan;
     try {
-      if (!llm) return core(() => this.wasm.pdfReport(projectId, runId, body ?? undefined, files));
       plan = core(() => this.wasm.pdfPlan(projectId, runId, body ?? undefined, files));
     } finally {
       files.free();
     }
     try {
+      core(() => plan.checkLink(llm !== null));
       const minute = plan.minute();
       for (const record of JSON.parse(plan.recordsJson())) {
         const journal = (await this.tree.read([projectId, "runs", runId, "branches", record.branch_id, "journal.jsonl"])) ?? new Uint8Array(0);
@@ -322,17 +325,11 @@ export class BrowserApi {
         }
       }
       const scenario = await store.runScenarioBytes(this.tree, projectId, runId);
+      if (!plan.analysisAsked()) return core(() => plan.report(scenario));
       const analysis = core(() => plan.analysis(scenario));
       try {
         const reply = await askRelay(this.relay, llm, core(() => analysis.task()));
-        if (reply === null) {
-          const again = await store.runFiles(this.wasm, this.tree, projectId, runId);
-          try {
-            return core(() => this.wasm.pdfReport(projectId, runId, body ?? undefined, again));
-          } finally {
-            again.free();
-          }
-        }
+        if (reply === null) core(() => plan.checkLink(false));
         return core(() => analysis.report(core(() => analysis.read(reply))));
       } finally {
         analysis.free();

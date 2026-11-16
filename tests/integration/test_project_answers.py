@@ -77,12 +77,17 @@ def _refused(call: Any, *arguments: Any) -> tuple[int, str]:
     "case", FIXTURE["pdf_cases"], ids=lambda case: f"{case['run_id']} {case['body']}"
 )
 def test_pdf_report_is_refused_as_the_server_refuses_it(case: dict[str, Any]) -> None:
+    """The route's checks, then an analysis asked without a link to an LLM (#582)."""
     run, branches = _fixture_run()
     project = FIXTURE["run"]["project_id"]
     files = (run, branches) if case["run_id"] == FIXTURE["run"]["run_id"] else (None, [])
     body = case["body"].encode()
-    status, answer = _refused(ANSWERS.pdf_report_answer, project, case["run_id"], body, *files)
-    assert (status, answer) == (case["status"], case["answer"])
+
+    def answer() -> None:
+        ANSWERS.pdf_plan(project, case["run_id"], body, *files).check_link(False)
+
+    status, refused = _refused(answer)
+    assert (status, refused) == (case["status"], case["answer"])
 
 
 def test_llm_status_is_the_server_s() -> None:
@@ -579,37 +584,27 @@ def test_previews_and_applies_are_the_server_s() -> None:
 
 
 def test_questions_are_the_server_s(fork_frames: Any) -> None:
+    """Without an API key each question is refused: by its checks, or once it passes them as the
+    question that needs the API (#585)."""
     frames, _, _ = fork_frames
     run, branches = _fork_files()
     info = INTERVENTIONS["run"]
     ids = (info["project_id"], info["run_id"])
     scenario = INTERVENTIONS["scenario_json"].encode()
     agent = json.loads(frames["main"][info["minutes"]])["people"][0]["id"]
-    first_context = None
-    kept = []
     for case in [case for case in INTERVENTIONS["cases"] if case["route"] == "questions"]:
-        replaced = {"$AGENT": agent, "$CONTEXT": first_context}
         document = {
-            key: replaced.get(value, value) if isinstance(value, str) else value
-            for key, value in case["document"].items()
+            key: agent if value == "$AGENT" else value for key, value in case["document"].items()
         }
-        try:
+        with pytest.raises(ANSWERS.Refused) as refused:
             plan = ANSWERS.question_plan(json.dumps(document).encode(), *ids, case["branch"])
             plan.check_branch(run, branches)
             plan.evidence(scenario)
             compared = plan.check_frame(frames[case["branch"]][plan.minute])
             if compared:
                 ANSWERS.comparison_range(compared, plan.minute, *ids, run, branches)
-            answer, turn = plan.answer("0" * 24, "t-1-00000000")
-        except ANSWERS.Refused as refused:
-            assert (refused.args[0], refused.args[3].decode()) == (case["status"], case["body"]), (
-                case["name"]
-            )
-            continue
-        text = _masked(answer)
-        assert hashlib.sha256(text.encode()).hexdigest() == case["sha256"], case["name"]
-        if first_context is None:
-            first_context = json.loads(answer)["context_id"]
-        if case["branch"] == "main":
-            kept.append(json.loads(turn)["question"])
-    assert kept == INTERVENTIONS["stored_questions"]
+            plan.offline()
+        assert (refused.value.args[0], refused.value.args[3].decode()) == (
+            case["status"],
+            case["body"],
+        ), case["name"]

@@ -1,9 +1,10 @@
-"""The PDF report with an API key (#463), through the Project API, with a fake Opus: the core
-builds the report's data and facts from the branches' stored Runs and checks the analysis; the
-server answers them as JSON (the screen's print page lays them out, #470) and keeps the answer.
-No test calls a paid API.
+"""The report (#463), through the Project API: the core builds the report's data and facts from
+the branches' stored Runs; the server answers them as JSON (the screen's print page lays them out,
+#470). Without the analysis (#582) no LLM is asked and nothing is kept. With it, a fake Opus
+writes the analysis, which the core checks, and the server keeps the answer. No test calls a paid
+API.
 
-Without an API key the route answers the core's refusal (409 `pdf_analysis_offline`), the
+An analysis asked without an API key is the core's refusal (409 `pdf_analysis_offline`), the
 browser's, which the core's answer fixtures fix.
 
 The report's data and the analysis task's cache key (its facts, versions and schema) are pinned:
@@ -65,8 +66,10 @@ def install(monkeypatch: pytest.MonkeyPatch, provider: Any) -> None:
     monkeypatch.setattr("sheltersim.llm.provider.AnthropicProvider", lambda _key: provider)
 
 
-def export(api: ProjectAPI, branch_ids: list[str], minute: int = END) -> bytes:
-    body = json.dumps({"branch_ids": branch_ids, "minute": minute}).encode()
+def export(
+    api: ProjectAPI, branch_ids: list[str], minute: int = END, *, analysis: bool = True
+) -> bytes:
+    body = json.dumps({"branch_ids": branch_ids, "minute": minute, "analysis": analysis}).encode()
     return api.answer_post(["p", "runs", "r", "pdf-report"], body)
 
 
@@ -117,6 +120,29 @@ def test_a_report_of_two_branches_is_answered_from_the_core_s_facts_and_kept(
     assert report["analysis"]["sections"] == provider.document()
     assert export(report_api, ["main", "capacity"]) == answer
     assert provider.calls == 1
+
+
+def test_a_report_without_the_analysis_asks_no_llm_and_is_not_kept(
+    report_api, monkeypatch, report_provider
+):
+    """#582: without the analysis, the answer is the core's data and facts with `analysis: null`,
+    with an API key or without one; no LLM is asked, nothing is kept, and a kept report with the
+    analysis is not answered for it."""
+    provider = report_provider()
+    install(monkeypatch, provider)
+    with_analysis = report_of(export(report_api, ["main", "capacity"]))
+    calls, before = provider.calls, kept(report_api)
+    answer = export(report_api, ["main", "capacity"], analysis=False)
+    report = report_of(answer)
+    assert provider.calls == calls and kept(report_api) == before
+    assert report["analysis"] is None
+    assert (report["data"], report["facts"]) == (with_analysis["data"], with_analysis["facts"])
+    monkeypatch.setenv("SHELTERSIM_LLM_MODE", "offline")
+    assert export(report_api, ["main", "capacity"], analysis=False) == answer
+    with pytest.raises(answers().Refused) as refused:
+        export(report_api, ["main", "capacity"])
+    assert (refused.value.args[0], refused.value.args[2]) == (409, "pdf_analysis_offline")
+    assert provider.calls == calls
 
 
 def test_a_report_kept_in_another_form_is_asked_again(report_api, monkeypatch, report_provider):

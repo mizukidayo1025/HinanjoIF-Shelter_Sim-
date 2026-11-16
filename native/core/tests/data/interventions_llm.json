@@ -122,6 +122,36 @@
    "text": "{\"answer\":\"提示された記録だけでは回答を裏付けられません。\",\"availability\":\"unavailable\",\"claims\":[],\"context\":{\"agent_id\":null,\"branch_id\":\"main\",\"captured_minute\":480,\"comparison_branch_ids\":[],\"history_scope\":null,\"project_id\":\"sample\",\"requested_minute\":480,\"run_id\":\"r\"},\"context_id\":\"c4699e571f07a7a3632f65a78afd26643-RANDOM\",\"explanations\":[],\"facts\":[],\"limitations\":[\"回答は引用したRun・Branch・KPI・Event・モデル根拠に限られます。\",\"質問は読み取り専用で、WorldStateは変更されません。\",\"AIの仮説・提案は保存記録ではなく、引用した数値・イベント以外の因果関係を確認したものではありません。\"],\"mode\":\"record\",\"model\":\"claude-opus-5-5\",\"sources\":[],\"usage\":{\"accepted_explanation_count\":0,\"accepted_fact_count\":0,\"answer_fallback_kind\":null,\"api_request_count\":1,\"estimated_cost_usd\":0.00014,\"fallback_used\":true,\"input_tokens\":10,\"outcome\":\"invalid_output\",\"output_tokens\":5,\"rejected_explanation_batch\":false,\"rejected_fact_batch\":false,\"stage\":\"review\"}}"
   },
   {
+   "branch": "main",
+   "document": {
+    "question": "連絡先 a@b.cc agent A001 は?",
+    "run_id": "other"
+   },
+   "length": 3543,
+   "llm": [
+    {
+     "output_text": "{\"claims\": [{\"evidence\": [{\"alias\": \"S2\", \"field\": \"interpretation\", \"value\": \"計算結果は仮定に依存する試算です。単一seedの改善を強い因果効果や実際の安全性の予測として扱いません。\"}]}, {\"evidence\": [{\"alias\": \"S1\", \"field\": \"food_meal_units_remaining\", \"value\": \"103\"}]}], \"explanations\": [{\"kind\": \"hypothesis\", \"text\": \"待ちの長さは処理能力に関係する可能性があります。\", \"evidence\": [{\"alias\": \"S1\", \"field\": \"food_meal_units_remaining\", \"value\": \"103\"}]}]}",
+     "reply": {
+      "api_request_count": 1,
+      "cache_hit": false,
+      "estimated_cost_usd": 0.00014,
+      "fallback_used": false,
+      "input_tokens": 10,
+      "model_id": "claude-opus-5-5",
+      "outcome": "recorded",
+      "output_tokens": 5,
+      "text": "{\"claims\": [{\"evidence\": [{\"alias\": \"S2\", \"field\": \"interpretation\", \"value\": \"計算結果は仮定に依存する試算です。単一seedの改善を強い因果効果や実際の安全性の予測として扱いません。\"}]}, {\"evidence\": [{\"alias\": \"S1\", \"field\": \"food_meal_units_remaining\", \"value\": \"103\"}]}], \"explanations\": [{\"kind\": \"hypothesis\", \"text\": \"待ちの長さは処理能力に関係する可能性があります。\", \"evidence\": [{\"alias\": \"S1\", \"field\": \"food_meal_units_remaining\", \"value\": \"103\"}]}]}"
+     },
+     "task_sha256": "55a5907227a9cbeb91c49f02e14ce4f7b445e62d3f18872ad0765f2ab8544118"
+    }
+   ],
+   "name": "question with the LLM {\"question\": \"連絡先 a@b.cc agent A001 は?\", \"run_id\": \"other\"}",
+   "route": "questions",
+   "sha256": "c62cd06376939f7ddb2829f92239b74cbd434415300924814f3d11a093cb5dc6",
+   "status": 200,
+   "text": "{\"answer\":\"AIの解釈・仮説（記録された因果の断定ではありません）: 待ちの長さは処理能力に関係する可能性があります。\\n\\n記録値 · Active model versions and unvalidated assumptions · interpretation = \\\"計算結果は仮定に依存する試算です。単一seedの改善を強い因果効果や実際の安全性の予測として扱いません。\\\"\\n\\n記録値 · Boundary KPI · 480 · 残り食数 = 103\",\"availability\":\"configured\",\"claims\":[{\"evidence\":[{\"alias\":\"S1\",\"field\":\"food_meal_units_remaining\",\"value\":103}],\"text\":\"AIの解釈・仮説（記録された因果の断定ではありません）: 待ちの長さは処理能力に関係する可能性があります。\"},{\"evidence\":[{\"alias\":\"S2\",\"field\":\"interpretation\",\"value\":\"計算結果は仮定に依存する試算です。単一seedの改善を強い因果効果や実際の安全性の予測として扱いません。\"}],\"text\":\"記録値 · Active model versions and unvalidated assumptions · interpretation = \\\"計算結果は仮定に依存する試算です。単一seedの改善を強い因果効果や実際の安全性の予測として扱いません。\\\"\"},{\"evidence\":[{\"alias\":\"S1\",\"field\":\"food_meal_units_remaining\",\"value\":103}],\"text\":\"記録値 · Boundary KPI · 480 · 残り食数 = 103\"}],\"context\":{\"agent_id\":null,\"branch_id\":\"main\",\"captured_minute\":480,\"comparison_branch_ids\":[],\"history_scope\":null,\"project_id\":\"sample\",\"requested_minute\":480,\"run_id\":\"r\"},\"context_id\":\"c4699e571f07a7a3632f65a78afd26643-RANDOM\",\"explanations\":[{\"evidence\":[{\"alias\":\"S1\",\"field\":\"food_meal_units_remaining\",\"value\":103}],\"kind\":\"hypothesis\",\"text\":\"AIの解釈・仮説（記録された因果の断定ではありません）: 待ちの長さは処理能力に関係する可能性があります。\"}],\"facts\":[{\"evidence\":[{\"alias\":\"S2\",\"field\":\"interpretation\",\"value\":\"計算結果は仮定に依存する試算です。単一seedの改善を強い因果効果や実際の安全性の予測として扱いません。\"}],\"text\":\"記録値 · Active model versions and unvalidated assumptions · interpretation = \\\"計算結果は仮定に依存する試算です。単一seedの改善を強い因果効果や実際の安全性の予測として扱いません。\\\"\"},{\"evidence\":[{\"alias\":\"S1\",\"field\":\"food_meal_units_remaining\",\"value\":103}],\"text\":\"記録値 · Boundary KPI · 480 · 残り食数 = 103\"}],\"limitations\":[\"回答は引用したRun・Branch・KPI・Event・モデル根拠に限られます。\",\"質問は読み取り専用で、WorldStateは変更されません。\",\"AIの仮説・提案は保存記録ではなく、引用した数値・イベント以外の因果関係を確認したものではありません。\"],\"mode\":\"record\",\"model\":\"claude-opus-5-5\",\"sources\":[{\"alias\":\"S1\",\"kind\":\"kpi\",\"label\":\"Boundary KPI · 480\",\"reference\":{\"branch_id\":\"main\",\"kind\":\"kpi\",\"minute\":480,\"reference_id\":\"boundary-kpis\",\"run_id\":\"r\",\"status\":\"recorded\"}},{\"alias\":\"S2\",\"kind\":\"model\",\"label\":\"Active model versions and unvalidated assumptions\",\"reference\":{\"branch_id\":\"main\",\"kind\":\"model\",\"minute\":480,\"reference_id\":\"model-configs\",\"run_id\":\"r\",\"status\":\"assumption\"}}],\"usage\":{\"accepted_explanation_count\":1,\"accepted_fact_count\":2,\"answer_fallback_kind\":null,\"api_request_count\":1,\"estimated_cost_usd\":0.00014,\"fallback_used\":false,\"input_tokens\":10,\"outcome\":\"recorded\",\"output_tokens\":5,\"rejected_explanation_batch\":false,\"rejected_fact_batch\":false,\"stage\":\"review\"}}"
+  },
+  {
    "length": 2694,
    "llm": [
     {
@@ -216,6 +246,7 @@
   },
   {
    "document": {
+    "analysis": true,
     "branch_ids": [
      "main",
      "c1"
@@ -240,24 +271,36 @@
      "task_sha256": "8611ef9672d1170a875ded90d4c8801cbff260582fc8a8041709b297732c1b85"
     }
    ],
-   "name": "report with the LLM {\"branch_ids\": [\"main\", \"c1\"], \"minute\": 420}",
+   "name": "report with the LLM {\"branch_ids\": [\"main\", \"c1\"], \"minute\": 420, \"analysis\": true}",
    "route": "pdf-report",
    "sha256": "9a05345e84d4dab4d56203ba56e1db08c4f232ea4e828b33b8354a5811639ce0",
+   "status": 200,
+   "text": null
+  },
+  {
+   "document": {
+    "analysis": false,
+    "branch_ids": [
+     "main",
+     "c1"
+    ],
+    "minute": 420
+   },
+   "length": 25802,
+   "llm": [],
+   "name": "report with the LLM {\"branch_ids\": [\"main\", \"c1\"], \"minute\": 420, \"analysis\": false}",
+   "route": "pdf-report",
+   "sha256": "56099960c641f09151a9ff5e5d079bde72d4accab8403b40e33deedfecb326ae",
    "status": 200,
    "text": null
   }
  ],
  "evidence_sha256": "d169a527361bd32aa13421c1a955a0f7012a63407b0a9602175bc7d1263761f9",
  "stored_questions": [
-  "何が起きた?",
-  "何が起きた?",
-  "x",
-  "トイレの列は?",
-  "この人は?",
-  "連絡先 [[selected entity]edacted-email] [selected entity] は?",
   "記録された値は?",
   "なぜそうなった?",
   "分岐と比べると?",
-  "答えの形が違うと?"
+  "答えの形が違うと?",
+  "連絡先 [[selected entity]edacted-email] [selected entity] は?"
  ]
 }

@@ -11,17 +11,6 @@
   function resetChat() {
     $("chat").replaceChildren(chatWelcome.cloneNode(true));
   }
-  // How the open Run answers questions (its LLM mode), on the report's chat.
-  function showMode(llm) {
-    state.mode = llm?.mode ?? null;
-    $("chat-mode").textContent = !llm
-      ? "回答の作り方は、シナリオを開くと表示します"
-      : llm.mode === "record"
-        ? "Claude APIに接続して回答を生成します"
-        : llm.mode === "replay"
-          ? "記録したAPIの応答を再生して回答します"
-          : "APIキーのない環境のため、質問にはAIの回答を作れません。レポートと記録は確かめられます";
-  }
   async function loadHistory() {
     const lo = lower(),
       hi = upper(),
@@ -59,7 +48,6 @@
     if (scope !== state.scope) return;
     state.report = report;
     state.evidence = evidence;
-    showMode(llm);
     $("report-status").textContent =
       report.status === "rule_fallback"
           ? "規則による代替レポート"
@@ -287,18 +275,26 @@
     const branchIds = state.comparison ? pairIds() : [state.branch],
       minute = state.comparison ? state.comparison.minute : state.minute,
       button = $("save-report");
+    // Opus's analysis only where it is chosen and the API is ON (#582): else no LLM is asked.
+    const analysis = state.llm?.on === true && $("report-analysis").checked;
     button.disabled = true;
     button.setAttribute("aria-busy", "true");
-    note("Opusによる分析を作っています。保存済みのレポートがあれば再利用します…", "loading");
+    note(
+      analysis
+        ? "レポートとOpusの考察を作っています。保存済みのレポートがあれば再利用します…"
+        : "レポートを作っています（Opusの考察なし）…",
+      "loading",
+    );
     let report;
     try {
-      // The report's data, facts and checked analysis (#470), laid out on the print page.
-      report = await api(`${runBase()}/pdf-report`, { branch_ids: branchIds, minute });
+      // The report's data, facts and, where asked, the checked analysis (#470), laid out on the
+      // print page.
+      report = await api(`${runBase()}/pdf-report`, { branch_ids: branchIds, minute, analysis });
     } finally {
       button.removeAttribute("aria-busy");
     }
     note("レポートを開きました。印刷画面で「PDFに保存」を選ぶと、PDFとして保存できます。", "success");
     printReport(report);
   }
-  Object.assign(app, { resetChat, showMode, loadReport, askQuestion, saveReport });
+  Object.assign(app, { resetChat, loadReport, askQuestion, saveReport });
 })();

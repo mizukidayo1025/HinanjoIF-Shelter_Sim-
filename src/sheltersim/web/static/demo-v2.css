@@ -330,6 +330,17 @@ fieldset.needs-api:disabled > :not(.needs-api-note) {
 .needs-api-note[hidden] {
   display: none;
 }
+/* The report's option of Opus's analysis (#582), beside its save button. */
+.report-analysis {
+  max-width: 240px;
+}
+.report-analysis .needs-api-note {
+  margin: 0 0 4px;
+}
+.page-heading .report-analysis label {
+  min-width: 0;
+  align-items: center;
+}
 .speed-label {
   font-size: 9px;
   color: var(--muted);
@@ -3999,6 +4010,12 @@ html.print-report-open {
 .pr-small {
   font-size: 7.5pt;
   color: var(--muted);
+}
+/* A report without Opus's analysis says so at its top (#582). */
+.pr-note {
+  border-left: 3px solid var(--blue);
+  background: var(--blue-light);
+  padding: 4px 8px;
 }
 .pr-prose {
   break-inside: avoid;

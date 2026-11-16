@@ -22,9 +22,8 @@
 // tasks the server's link got (their sha256) and answer as the server did, except that a preview
 // without an accepted plan fails with the reason where the server (its error policy `fallback`)
 // read the text with the rules: the browser stops (#580, #584).
-// Then what only the browser does: a relay that does not let the passphrase in leaves a question
-// without an API key and fails a preview, and one that refuses the call (the day's cap) gives a
-// question the fallback with its reason and fails a preview with it.
+// Then what only the browser does: a relay that does not let the passphrase in, or one that refuses
+// the call (the day's cap), fails a question (#585) and a preview (#584) with the reason.
 
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -171,7 +170,6 @@ async function settle() {
 started = performance.now();
 let browserPreview = null;
 let agent = null;
-let firstContext = null;
 let llmContext = null;
 for (const item of [...fixture.cases, ...withLlm.cases]) {
   let got;
@@ -201,10 +199,9 @@ for (const item of [...fixture.cases, ...withLlm.cases]) {
     got = await get(`/branches/${child}/history`, item.query);
   } else if (item.route === "questions") {
     if (agent === null) agent = JSON.parse((await get(`/branches/main/timeline`, `minute=${minutes}`)).body).people[0].id;
-    const placed = { $AGENT: agent, $CONTEXT: firstContext, $LLM_CONTEXT: llmContext };
+    const placed = { $AGENT: agent, $LLM_CONTEXT: llmContext };
     const document = Object.fromEntries(Object.entries(item.document).map(([key, value]) => [key, Object.hasOwn(placed, value) ? placed[value] : value]));
     got = await post(`/branches/${item.branch}/questions`, JSON.stringify(document), llm);
-    if (firstContext === null && got.status === 200) firstContext = JSON.parse(got.body).context_id;
     if (llm && llmContext === null && got.status === 200) llmContext = JSON.parse(got.body).context_id;
   } else if (item.route === "pdf-report") {
     got = await post("/pdf-report", JSON.stringify(item.document), llm);
@@ -236,15 +233,16 @@ console.log(`${fixture.cases.length + withLlm.cases.length} answers compared wit
   check(JSON.stringify(questions) === JSON.stringify(withLlm.stored_questions), `the questions kept: ${JSON.stringify(questions)}, not ${JSON.stringify(withLlm.stored_questions)}`);
 }
 
-// A relay that does not let the passphrase in is no link: a question's answer without an API key,
-// a preview that fails. One that refuses the call (the day's cap) gives a question the task's
-// fallback with its reason, and fails a preview with it.
+// A relay that does not let the passphrase in is no link, and one that refuses the call (the day's
+// cap) gives the task's fallback: a question fails with the reason in both cases and keeps no turn
+// (#585), and a preview fails with it (#584).
 {
+  const question = JSON.stringify({ question: "合言葉が違うと?" });
+  const turns = async () => JSON.parse((await get("/branches/main/conversations")).body).turns.length;
+  const before = await turns();
   relayRefusal = { status: 401, body: { error: "合言葉が違います。", code: "llm_passphrase_invalid" } };
-  const question = { question: "合言葉が違うと?" };
-  const asked = JSON.parse((await post("/branches/main/questions", JSON.stringify(question), PASSPHRASE)).body);
-  const offline = JSON.parse((await post("/branches/main/questions", JSON.stringify(question))).body);
-  check(asked.mode === offline.mode && asked.answer === offline.answer && asked.mode !== "record", `a passphrase not let in: ${JSON.stringify(asked).slice(0, 300)}`);
+  const refused = await post("/branches/main/questions", question, PASSPHRASE);
+  check(refused.status === 409 && JSON.parse(refused.body).code === "question_llm_failed" && JSON.parse(refused.body).error.includes("合言葉"), `a passphrase not let in: ${refused.body}`);
   const text = JSON.stringify({ minute: fixture.run.fork_minute, text: "仮設トイレを3基置いてほしい" });
   const previewed = await post("/branches/main/intervention-preview", text, PASSPHRASE);
   const notLetIn = JSON.parse(previewed.body);
@@ -253,7 +251,10 @@ console.log(`${fixture.cases.length + withLlm.cases.length} answers compared wit
   const capped = await post("/branches/main/intervention-preview", text, PASSPHRASE);
   const cap = JSON.parse(capped.body);
   check(capped.status === 409 && cap.code === "intervention_compiler_unavailable" && cap.error.includes("予算の上限を超えるため"), `the day's cap: ${capped.body}`);
+  const cappedQuestion = await post("/branches/main/questions", question, PASSPHRASE);
+  check(cappedQuestion.status === 409 && JSON.parse(cappedQuestion.body).error.includes("今日のAPIの上限"), `the day's cap for a question: ${cappedQuestion.body}`);
   relayRefusal = null;
+  check((await turns()) === before, "a question that failed keeps no turn");
 }
 
 // The core's catalog of the operators it schedules (#584), and a typed program the screen's builder

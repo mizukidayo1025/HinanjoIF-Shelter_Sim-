@@ -353,9 +353,10 @@ class ProjectWorkspace:
 
     def question(self, project_id: str, run_id: str, branch_id: str, body: bytes) -> bytes:
         """`POST …/questions`: the request's and the evidence's checks, the answer, and the turn
-        kept in the branch's stored Run (the browser's `questionResponse`). Without an API key the
-        answer is the one without a Provider; with one, the core builds the evidence packet and
-        the task, the configured router answers it, and the core checks the answer (#463)."""
+        kept in the branch's stored Run (the browser's `questionResponse`). The core builds the
+        evidence packet and the task, the configured router answers it, and the core checks the
+        answer (#463). Without an API key the core refuses the question once it passes its checks
+        (409 `question_offline`, #585): no answer is made and no turn is kept."""
         import secrets
         import time
 
@@ -374,36 +375,35 @@ class ProjectWorkspace:
             core.compare_plan(
                 f"branch_ids={','.join(compared)}&minute={minute}", project_id, run_id, *listing
             ).receipts(api.journals(project_id, run_id, compared))
-        random, turn_id = secrets.token_hex(12), f"t-{time.time_ns()}-{secrets.token_hex(4)}"
         link = self.analysis_link(project_id, run_id, "questions", branch_id)
         if link is None:
-            answer, turn = plan.answer(random, turn_id)
-        else:
-            from sheltersim.llm.link import ask
+            plan.offline()
+        from sheltersim.llm.link import ask
 
-            comparison = None
-            if compared:
-                comparison_plan = core.compare_plan(
-                    f"branch_ids={','.join(compared)}&minute={minute}",
-                    project_id,
-                    run_id,
-                    *listing,
-                )
-                comparison_plan.receipts(api.journals(project_id, run_id, compared))
-                records = json.loads(comparison_plan.records_json())
-                comparison = comparison_plan.answer(
-                    run_id, [api.frame(project_id, run_id, item, minute) for item in records]
-                )
-            asking = plan.ask(
-                api.frame(project_id, run_id, record, minute),
-                comparison,
-                files.run_file(project_id, run_id, "evidence.json"),
-                files.run_scenario_bytes(project_id, run_id),
-                files.conversation_pieces(project_id, run_id, branch_id),
-                random,
+        random, turn_id = secrets.token_hex(12), f"t-{time.time_ns()}-{secrets.token_hex(4)}"
+        comparison = None
+        if compared:
+            comparison_plan = core.compare_plan(
+                f"branch_ids={','.join(compared)}&minute={minute}",
+                project_id,
+                run_id,
+                *listing,
             )
-            reply = ask(link, asking.task())
-            answer, turn = asking.answer(reply, link.router.mode.value, turn_id)
+            comparison_plan.receipts(api.journals(project_id, run_id, compared))
+            records = json.loads(comparison_plan.records_json())
+            comparison = comparison_plan.answer(
+                run_id, [api.frame(project_id, run_id, item, minute) for item in records]
+            )
+        asking = plan.ask(
+            api.frame(project_id, run_id, record, minute),
+            comparison,
+            files.run_file(project_id, run_id, "evidence.json"),
+            files.run_scenario_bytes(project_id, run_id),
+            files.conversation_pieces(project_id, run_id, branch_id),
+            random,
+        )
+        reply = ask(link, asking.task())
+        answer, turn = asking.answer(reply, link.router.mode.value, turn_id)
         with files.claim_branch(project_id, run_id, branch_id) as lease, files.transaction():
             files.keep_turn(lease, project_id, run_id, branch_id, turn)
         return answer

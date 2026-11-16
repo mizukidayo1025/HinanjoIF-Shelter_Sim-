@@ -495,7 +495,8 @@ class ProjectAPI:
                 fields(document, set(), {"branch_id"})
                 return self.cancel(project_id, run_id, document.get("branch_id"))
             if action == "pdf-report":
-                # The PDF's bytes; without an API key, the core's refusal (#463).
+                # The report's JSON (#470); an analysis asked without an API key, the core's
+                # refusal (#463, #582).
                 return self.pdf_reports.export(project_id, run_id, body)
             if action == "delete":
                 return self.delete_run(project_id, run_id, body)

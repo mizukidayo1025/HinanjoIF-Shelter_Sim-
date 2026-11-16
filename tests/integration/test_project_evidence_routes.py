@@ -81,15 +81,18 @@ def test_history_outside_the_branch_range_is_refused(evidence_api, start, end):
 
 
 def test_the_conversation_keeps_its_turns_in_the_order_asked_even_if_the_clock_goes_back(
-    evidence_api, monkeypatch
+    evidence_api, monkeypatch, counting_provider
 ):
     """A turn's id holds the wall clock (`t-` and nanoseconds), which can go back (WSL's clock
     under load): the conversation is in the order the questions were asked, not in that of the
     ids. Its order once followed the ids, and the interventions fixture then differed at its
-    first stored question when the tests ran in parallel (#437)."""
+    first stored question when the tests ran in parallel (#437). The questions are asked of a
+    fake Provider: without an API key a question keeps no turn (#585)."""
     api, _ = evidence_api
     branch = ["p", "runs", "r", "branches", "capacity"]
     before = len(api.get([*branch, "conversations"])["turns"])
+    monkeypatch.setenv("SHELTERSIM_LLM_MODE", "record")
+    monkeypatch.setattr("sheltersim.llm.provider.AnthropicProvider", lambda _key: counting_provider)
     clock = iter(range(3_000_000_000_000_000_000, 0, -1_000_000_000))
     monkeypatch.setattr("time.time_ns", lambda: next(clock))
     asked = ["一つ目", "二つ目", "三つ目"]
@@ -98,6 +101,7 @@ def test_the_conversation_keeps_its_turns_in_the_order_asked_even_if_the_clock_g
     monkeypatch.undo()
 
     turns = api.get([*branch, "conversations"])["turns"][before:]
+    assert counting_provider.calls == len(asked)
     assert [turn["question"] for turn in turns] == asked
     stamps = [int(turn["turn_id"].split("-")[1]) for turn in turns]
     assert stamps == sorted(stamps, reverse=True)

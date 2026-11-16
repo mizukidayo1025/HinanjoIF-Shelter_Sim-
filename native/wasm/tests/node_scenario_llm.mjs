@@ -8,10 +8,11 @@
 // The relay is answered here, with the LLM answers of native/core/tests/data/scenario_text_answers.json
 // (tests/support/core_scenario_text.py): the preview's request and source must be what Python's
 // parse made of the same answer (native/core/tests/scenario_text.rs compares every case in the
-// core); an answer with a condition the browser does not compute, a relay that refuses (the day's
-// cap) and a relay out of reach leave the offline read with a note first in `warnings`. The
-// relay gets the passphrase and the text only; the call is recorded in the preparation account
-// and the passphrase is stored nowhere.
+// core); an answer with a condition the browser does not compute leaves the offline read with a
+// note first in `warnings`; a relay that refuses (the day's cap) and a relay out of reach fail the
+// preview with the reason (#583), the text not read by the rules instead. The relay gets the
+// passphrase and the text only; the call is recorded in the preparation account and the
+// passphrase is stored nowhere.
 
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -39,7 +40,7 @@ const decoder = new TextDecoder();
 const sorted = (object) => Object.fromEntries(Object.entries(object).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
 const caseOf = (name) => answers.cases.find((item) => item.name === name);
 
-async function preview(text, relay) {
+async function routesOf(relay) {
   const tree = store.memoryTree();
   await store.createProject(tree, "p");
   const sent = [];
@@ -57,9 +58,25 @@ async function preview(text, relay) {
       return relay(path, init);
     },
   });
+  return { routes, tree, sent };
+}
+
+async function preview(text, relay) {
+  const { routes, tree, sent } = await routesOf(relay);
   const answer = JSON.parse(await routes.preview("p", { text }, { llm: PASSPHRASE }));
   const preparation = JSON.parse(decoder.decode(await tree.read(["p", "preparation.json"])));
   return { answer, sent, tree, preparation };
+}
+
+/// The preview's failure: the error, and the preparation account it left.
+async function failed(text, relay) {
+  const { routes, tree } = await routesOf(relay);
+  const error = await routes.preview("p", { text }, { llm: PASSPHRASE }).then(
+    () => assert.fail("the preview should fail"),
+    (caught) => caught,
+  );
+  const preparation = JSON.parse(decoder.decode(await tree.read(["p", "preparation.json"])));
+  return { error, preparation };
 }
 
 const answered = (output, cost = 0.0123) => async () =>
@@ -97,21 +114,23 @@ for (const name of ["municipality-from-answer", "every-scalar", "stock-from-answ
   checked += 1;
 }
 
-// The day's cap reached, and a relay out of reach: the offline read, with the relay's reason.
+// The day's cap reached, and a relay out of reach: the preview fails with the relay's reason,
+// and the call is recorded.
 {
   const text = caseOf("not-json").text;
-  const capped = await preview(text, async () =>
+  const capped = await failed(text, async () =>
     new Response(JSON.stringify({ error: "今日のAPIの上限（$5）に達しました。日本時間の0時に戻ります。", code: "llm_budget_exceeded", remaining_usd: 0.1 }), { status: 429 }),
   );
-  assert.match(capped.answer.warnings[0], /今日のAPIの上限/);
-  assert.deepEqual(capped.answer.llm_usage, { mode: "record", api_request_count: 0, spent_usd: 0 });
-  assert.equal(capped.answer.scenario.provenance.scenario_input.extraction_source, "rules_fallback");
+  assert.equal(capped.error.status, 429);
+  assert.equal(capped.error.code, "llm_budget_exceeded");
+  assert.match(capped.error.message, /^AIで文章を読み取れませんでした：今日のAPIの上限/);
   assert.equal(capped.preparation.llm_calls[0].outcome, "llm_budget_exceeded");
-  const away = await preview(text, async () => {
+  const away = await failed(text, async () => {
     throw new TypeError("fetch failed");
   });
-  assert.match(away.answer.warnings[0], /中継に接続できなかった/);
-  assert.equal(away.answer.scenario.provenance.scenario_input.extraction_source, "rules_fallback");
+  assert.equal(away.error.code, "llm_relay_unreachable");
+  assert.match(away.error.message, /中継に接続できませんでした/);
+  assert.equal(away.preparation.llm_calls[0].outcome, "relay_unreachable");
   checked += 2;
 }
 

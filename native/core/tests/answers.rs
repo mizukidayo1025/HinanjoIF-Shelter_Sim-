@@ -110,3 +110,24 @@ fn a_question_is_checked_before_its_branch() {
     let mut plan = QuestionPlan::new(Some(br#"{"question":"x","minute":5.0}"#), "p", "r", "b").unwrap();
     assert_eq!(refused(plan.check_branch(&RunFiles::default())), (409, "saved artifact is missing or corrupt".to_owned()));
 }
+
+#[test]
+fn a_report_asks_for_the_analysis_only_where_its_request_does() {
+    use sheltersim_core::answers::pdf::PdfPlan;
+    let branch = br#"{"schema_version":1,"run_id":"r","branch_id":"main","fork_minute":0,"computed_until":10,"checkpoint_hash":"h","status":"completed"}"#;
+    let files = RunFiles { run: Some(br#"{"schema_version":1,"run_id":"r"}"#.to_vec()), branches: vec![("main".to_owned(), branch.to_vec())] };
+    let plan = |body: &str| PdfPlan::new("p", "r", Some(body.as_bytes()), &files);
+    // Left out or false, the analysis is not asked (#582): no link is needed.
+    for body in [r#"{"branch_ids":["main"],"minute":5}"#, r#"{"branch_ids":["main"],"minute":5,"analysis":false}"#] {
+        let plan = plan(body).unwrap();
+        assert!(!plan.analysis_asked() && plan.check_link(false).is_ok(), "{body}");
+    }
+    let asked = plan(r#"{"branch_ids":["main"],"minute":5,"analysis":true}"#).unwrap();
+    assert!(asked.analysis_asked() && asked.check_link(true).is_ok());
+    let (status, error) = refused(asked.check_link(false));
+    assert!(status == 409 && error.starts_with("pdf_analysis_offline: "), "{error}");
+    for value in ["null", "1", "\"true\""] {
+        let (status, error) = refused(plan(&format!(r#"{{"branch_ids":["main"],"minute":5,"analysis":{value}}}"#)));
+        assert!(status == 409 && error.starts_with("pdf_invalid_analysis: "), "{value}: {error}");
+    }
+}

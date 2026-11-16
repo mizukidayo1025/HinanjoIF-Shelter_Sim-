@@ -14,8 +14,10 @@ computed to the end, and its frames and KPI history.
 Then, with an API key (#470), on a server whose Provider is a fake answering each call with the
 next of the case's answers (`LLM_QUESTIONS`, `LLM_PREVIEWS`, `LLM_REPORTS`): the questions,
 previews and analysis reports the browser asks through the site's relay, in
-`interventions_llm.json` (`interventions_llm_fixture`; `interventions.json` stays as it was, as
-the store's tests hold its sha256). Each such case holds,
+`interventions_llm.json` (`interventions_llm_fixture`). The stored Runs `fork_parent` and `fork`
+(native/core/tests/data/stored_runs/) keep `interventions.json`'s bytes as their world's export:
+after writing it again, write them again too (`node_stored_runs.mjs PKG --write`). Each such case
+holds,
 for each call, the sha256 of the core's task (`llm::Task`'s JSON, which the browser must send the
 relay as it is) and the reply the server's link gave (`llm::Reply`'s JSON: the text, the outcome,
 the model, the tokens, the cost) with the text the Provider wrote, which the browser's fake relay
@@ -97,10 +99,9 @@ COMPARISONS: list[tuple[str, str]] = [
 ]
 
 # `questions` once the child is computed (#308): (branch, body). "$AGENT" is a person at the end
-# of main, "$CONTEXT" the context_id of the first answer.
+# of main. Without an API key, a question that passes its checks is refused (#585).
 QUESTIONS: list[tuple[str, dict[str, Any]]] = [
     ("main", {"question": "何が起きた?"}),
-    ("main", {"question": "何が起きた?", "context_id": "$CONTEXT"}),
     ("main", {"question": "x", "context_id": "c" + "0" * 32 + "-" + "0" * 24}),
     ("main", {"question": "トイレの列は?", "minute": 420, "comparison_branch_ids": [CHILD]}),
     (CHILD, {"question": "分岐の後は?", "minute": 450, "comparison_branch_ids": ["main"]}),
@@ -137,6 +138,8 @@ LLM_QUESTIONS: list[tuple[str, dict[str, Any], list[str]]] = [
         ["cite"],
     ),
     ("main", {"question": "答えの形が違うと?"}, ["not json"]),
+    # The question kept and asked with contact details and entity names redacted.
+    ("main", {"question": "連絡先 a@b.cc agent A001 は?", "run_id": "other"}, ["cite"]),
 ]
 
 # `intervention-preview` on main with an API key (#470): (body, answers). The second plan is
@@ -150,7 +153,9 @@ LLM_PREVIEWS: list[tuple[dict[str, Any], list[str]]] = [
 # `pdf-report` with an API key (#470): (body, answers). "prose" is the grounded analysis of
 # `support.reports`.
 LLM_REPORTS: list[tuple[dict[str, Any], list[str]]] = [
-    ({"branch_ids": ["main", CHILD], "minute": 420}, ["prose"]),
+    ({"branch_ids": ["main", CHILD], "minute": 420, "analysis": True}, ["prose"]),
+    # Without the analysis (#582): no call, though there is a link.
+    ({"branch_ids": ["main", CHILD], "minute": 420, "analysis": False}, []),
 ]
 
 
@@ -324,19 +329,20 @@ def _llm_cases(api: Any, heads: Any) -> list[dict[str, Any]]:
     return cases
 
 
-# `pdf-report` of the child and of both branches (#309): the server's checks, then its 409 without
-# an API key.
+# `pdf-report` of the child and of both branches (#309): the server's checks, then the report
+# without the analysis (#582), and its 409 for an analysis asked without an API key.
 PDF_REPORTS: list[dict[str, Any]] = [
     {"branch_ids": ["main", CHILD], "minute": 420},
     {"branch_ids": [CHILD, "main"], "minute": MINUTES},
     {"branch_ids": ["main", CHILD], "minute": FORK_MINUTE - 1},
     {"branch_ids": [CHILD], "minute": FORK_MINUTE - 1},
     {"branch_ids": [CHILD], "minute": FORK_MINUTE},
+    {"branch_ids": ["main", CHILD], "minute": 420, "analysis": True},
 ]
 
 
 def _pdf(api: Any, document: dict[str, Any]) -> tuple[int, str]:
-    """The server's answer to `pdf-report`, which it never makes without an API key."""
+    """The server's answer to `pdf-report`."""
     from support.web import server_answer
 
     return server_answer(
@@ -533,19 +539,11 @@ def _server_answers() -> tuple[dict[str, Any], dict[str, Any]]:
             cases.append({"route": "run", **_case("run after the child", status, text, heads())})
             _, frame = _get(api, [*branch, "main", "timeline"], f"minute={MINUTES}")
             agent = json.loads(frame)["people"][0]["id"]
-            first_context = None
             for branch_id, question in QUESTIONS:
                 document = {
-                    key: agent
-                    if value == "$AGENT"
-                    else first_context
-                    if value == "$CONTEXT"
-                    else value
-                    for key, value in question.items()
+                    key: agent if value == "$AGENT" else value for key, value in question.items()
                 }
                 status, text = _post(api, [*branch, branch_id, "questions"], json.dumps(document))
-                if first_context is None and status == 200:
-                    first_context = json.loads(text)["context_id"]
                 name = f"question {branch_id} {json.dumps(question)[:80]}"
                 cases.append(
                     {
@@ -555,8 +553,6 @@ def _server_answers() -> tuple[dict[str, Any], dict[str, Any]]:
                         **_case(name, status, text, heads()),
                     }
                 )
-            turns = api.get([*branch, "main", "conversations"])["turns"]
-            stored_questions = [turn["question"] for turn in turns]
             for document in PDF_REPORTS:
                 status, text = _pdf(api, document)
                 cases.append(
@@ -608,5 +604,4 @@ def _server_answers() -> tuple[dict[str, Any], dict[str, Any]]:
         },
         "scenario_json": scenario_text,
         "cases": cases,
-        "stored_questions": stored_questions,
     }, with_llm

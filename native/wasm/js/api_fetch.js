@@ -128,9 +128,10 @@
     if (request.method === "POST" && /\/runs\/[^/]+\/resume$/.test(url.pathname)) askToKeep();
     return (async () => {
       const body = request.method === "GET" || request.method === "HEAD" ? null : await request.text();
-      // A Scenario preview carries the relay's passphrase (the home's 「API を有効にする」, #420):
-      // the Worker reads the text with the LLM through the relay (#421). It is never stored there.
-      const llm = request.method === "POST" && /\/scenario-preview$/.test(url.pathname) ? passphrase() : null;
+      // A Scenario preview, a question and an intervention's preview carry the relay's passphrase
+      // (the home's 「API を有効にする」, #420): the Worker asks the LLM through the relay (#421,
+      // #470). It is never stored there.
+      const llm = request.method === "POST" && /\/(scenario-preview|questions|intervention-preview)$/.test(url.pathname) ? passphrase() : null;
       const answer = await ask({ type: "request", method: request.method, path: url.pathname, search: url.search, body, llm });
       return new Response(answer.body, { status: answer.status, headers: { "Content-Type": answer.contentType, "Cache-Control": "no-store" } });
     })();

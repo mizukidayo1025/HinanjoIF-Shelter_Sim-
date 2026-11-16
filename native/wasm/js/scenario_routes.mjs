@@ -39,6 +39,7 @@
 import { ApiError } from "./api_answers.mjs";
 import * as store from "./project_store.mjs";
 import { BrowserUnsupported, PyFloat, pyJson, pyStrip, research, researchRequest } from "./research.mjs";
+import { sameOriginFetch } from "./relay_link.mjs";
 import { SAVE_EVERY } from "./run_store.mjs";
 
 const encoder = new TextEncoder();
@@ -63,7 +64,6 @@ const refused = (message) => new store.ProjectStoreError(message);
 /// The relay's task that reads a Scenario text (deploy/workers/relay_tasks.mjs).
 const RELAY_TASK = "/llm/v1/tasks/scenario_text";
 /// `fetch` of a path of the site the Worker is served from.
-const sameOriginFetch = (path, init) => fetch(new URL(path, globalThis.location?.href ?? "http://localhost/"), init);
 const unsupported = (what) => new ApiError(409, `${UNSUPPORTED}（${what}）`, "browser_unsupported");
 const invalid = () => new ApiError(400, "invalid project request");
 

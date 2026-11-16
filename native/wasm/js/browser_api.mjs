@@ -18,8 +18,11 @@
 //                                            functions the caller gives, `extra`)
 //   POST runs/{run}/resume, POST runs/{run}/cancel   computing in the Worker (js/compute.mjs, #267)
 //   POST runs/{run}/branches/{branch}/intervention-preview, intervention-apply   js/interventions.mjs
-//                                            (#306); GET runs/{run} then holds the fork's `last_fork`
-//   POST runs/{run}/branches/{branch}/questions   js/questions.mjs (#308): the answer without an API key
+//                                            (#306); GET runs/{run} then holds the fork's `last_fork`;
+//                                            a preview's text is read with the LLM through the site's
+//                                            relay when the request carries the passphrase (#470)
+//   POST runs/{run}/branches/{branch}/questions   js/questions.mjs (#308): the answer without an API key,
+//                                            or with the passphrase, the LLM's through the relay (#470)
 //   POST runs/{run}/delete                   the Run removed (#376), as the server's
 //   GET  runs/{run}/branches/{branch}/conversations   the questions and answers kept (#376)
 //   POST runs/{run}/pdf-report               the server's checks, then its answer without an API key:
@@ -53,6 +56,7 @@ import { compareResponse, replayPair } from "./comparison.mjs";
 import { interventionApply, interventionPreview } from "./interventions.mjs";
 import { questionResponse } from "./questions.mjs";
 import { SAVE_EVERY } from "./run_store.mjs";
+import { sameOriginFetch } from "./relay_link.mjs";
 import { bodyDocument, ScenarioRoutes } from "./scenario_routes.mjs";
 
 /// The manifest of the site's sample: {format, version, project_id, bytes, sha256, parts: [{path,
@@ -115,9 +119,11 @@ function queryOf(search) {
 /// task of the queue (a request or a chunk of a computation) holding the store's lock (the page:
 /// a Web Lock), and `branchLock`, `chunkTicks` and `pause` are js/compute.mjs's `Computing`'s.
 export class BrowserApi {
-  constructor({ wasm, tree, quota = async () => null, extra = null, keep = 2, locked = (task) => task(), branchLock, chunkTicks = CHUNK_TICKS, pause, scenario = {} }) {
+  constructor({ wasm, tree, quota = async () => null, extra = null, keep = 2, locked = (task) => task(), branchLock, chunkTicks = CHUNK_TICKS, pause, scenario = {}, relay = sameOriginFetch }) {
     this.wasm = wasm;
     this.tree = tree;
+    // The site's LLM relay: `relay(path, init)` (relay_link.mjs; tests answer it).
+    this.relay = relay;
     this.quota = quota;
     this.history = historyCache(2);
     this.extra = extra ?? {
@@ -143,13 +149,15 @@ export class BrowserApi {
     this.computing = new Computing({ api: this, branchLock, chunkTicks, pause });
     // The Scenario screen's routes (#301); `scenario` holds their `shelterIndex`, `shelterRows`,
     // `fetchJson`, `now` and `newId` (scenario_routes.mjs).
-    this.scenarioRoutes = new ScenarioRoutes({ wasm, tree, ...scenario });
+    this.scenarioRoutes = new ScenarioRoutes({ wasm, tree, relay, ...scenario });
     // "project/run" -> the last fork's outcome (the server's `_fork_outcomes`, #306)
     this.forkOutcomes = new Map();
   }
 
   /// Answers a request: `{ method, path, search, body, llm? }` (body the text of a POST; llm the
-  /// passphrase of the site's relay, for a Scenario preview, #421) to `{ status, type, body }`. Requests are answered one at a time, in the order they came.
+  /// passphrase of the site's relay, for a Scenario preview (#421), a question or an
+  /// intervention's preview (#470)) to `{ status, type, body }`. Requests are answered one at a
+  /// time, in the order they came.
   answer(request) {
     return this.enqueue(() => this.route(request));
   }
@@ -208,10 +216,10 @@ export class BrowserApi {
       return parts[3] === "resume" ? this.computing.resume(parts[0], parts[2], document) : this.computing.cancel(parts[0], parts[2], document);
     }
     if (parts.length === 6 && parts[1] === "runs" && parts[3] === "branches" && (parts[5] === "intervention-preview" || parts[5] === "intervention-apply")) {
-      const answer = parts[5] === "intervention-preview" ? interventionPreview : interventionApply;
-      return answer(this, parts[0], parts[2], parts[4], body);
+      if (parts[5] === "intervention-apply") return interventionApply(this, parts[0], parts[2], parts[4], body);
+      return interventionPreview(this, parts[0], parts[2], parts[4], body, llm);
     }
-    if (parts.length === 6 && parts[1] === "runs" && parts[3] === "branches" && parts[5] === "questions") return questionResponse(this, parts[0], parts[2], parts[4], body);
+    if (parts.length === 6 && parts[1] === "runs" && parts[3] === "branches" && parts[5] === "questions") return questionResponse(this, parts[0], parts[2], parts[4], body, llm);
     if (parts.length === 4 && parts[1] === "runs" && parts[3] === "pdf-report") return this.pdfReport(parts[0], parts[2], body);
     if (parts.length === 4 && parts[1] === "runs" && parts[3] === "delete") return this.deleteRun(parts[0], parts[2], body);
     const route = parts.length >= 6 && parts[1] === "runs" ? parts.slice(3).join("/") : parts.slice(1).join("/");

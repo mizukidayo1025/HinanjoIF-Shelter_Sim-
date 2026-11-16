@@ -14,6 +14,13 @@
 // browser does: a typed `program` is refused as unsupported, the questions' turns are kept in the
 // branch's stored Run, the child's stored Run is of format v6, starts at the fork and reads its
 // parent's pieces up to its base (no copy of them), and it reads back to its digests.
+//
+// Then the questions and previews the server answered with an API key (#470,
+// native/core/tests/data/interventions_llm.json) are asked with the relay's passphrase, the relay
+// answered here with what the server's Provider wrote: the browser must send the relay the core's
+// tasks the server's link got (their sha256) and answer as the server did.
+// Then what only the browser does: a relay that does not let the passphrase in leaves the answer
+// without an API key, and one that refuses the call (the day's cap) the fallback with its reason.
 
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -34,6 +41,7 @@ const { BrowserApi } = await import(join(here, "..", "js", "browser_api.mjs"));
 const runStore = await import(join(here, "..", "js", "run_store.mjs"));
 const raw = readFileSync(join(here, "..", "..", "core", "tests", "data", "interventions.json"));
 const fixture = JSON.parse(raw.toString("utf8"));
+const withLlm = JSON.parse(readFileSync(join(here, "..", "..", "core", "tests", "data", "interventions_llm.json"), "utf8"));
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
@@ -81,7 +89,8 @@ await store.createRun(tree, projectId, {
   scenarioVersion: scenario.scenario_version,
   seed: fixture.run.seed,
   modelVersions: fixture.run.model_versions,
-  evidenceBytes: encoder.encode('{"schema_version":1}'),
+  // The Run's evidence as the browser writes it, which the server's questions held.
+  evidenceBytes: wasm.runEvidence(scenarioBytes),
   createdAt: "2026-11-15T01:30:00Z",
 });
 let started = performance.now();
@@ -89,9 +98,51 @@ const { record } = await store.computeBranch({ wasm, tree, projectId, runId, bra
 await store.setRunStatus(tree, projectId, runId, "completed");
 console.log(`main computed to ${record.computed_until} in ${((performance.now() - started) / 1000).toFixed(2)} s`);
 
-const browser = new BrowserApi({ wasm, tree });
+check(
+  wasm.sha256Hex((await tree.read([projectId, "runs", runId, "evidence.json"])) ?? new Uint8Array(0)) === withLlm.evidence_sha256,
+  "the Run's evidence.json is the server's",
+);
+
+// The site's relay (deploy/workers/relay.mjs): each call answers the next of `relayCalls` (a case's
+// `llm`: the sha256 of the task the server's link got, the Provider's text and the server's reply),
+// or `relayRefusal` where it is set.
+const PASSPHRASE = "abcde-fghjk-mnpqr-stuvw";
+let relayCalls = [];
+let relayRefusal = null;
+let relaySent = 0;
+async function relay(path, init) {
+  relaySent += 1;
+  check(init.headers.Authorization === `Bearer ${PASSPHRASE}`, "the relay gets the passphrase");
+  const body = init.body;
+  check(body.startsWith('{"input":') && body.endsWith("}"), "the relay gets the core's task as it is");
+  const task = body.slice('{"input":'.length, -1);
+  const name = JSON.parse(task).task;
+  check(path === `/llm/v1/tasks/${name}`, `the task's route: ${path}`);
+  if (relayRefusal !== null) return new Response(JSON.stringify(relayRefusal.body), { status: relayRefusal.status, headers: { "content-type": "application/json" } });
+  const call = relayCalls.shift();
+  if (call === undefined) {
+    check(false, `a call the server did not make: ${name}`);
+    return new Response(JSON.stringify({ error: "no", code: "llm_relay_error" }), { status: 500 });
+  }
+  check(wasm.sha256Hex(encoder.encode(task)) === call.task_sha256, `the ${name} task is the one the server's link got`);
+  const { reply } = call;
+  return new Response(
+    JSON.stringify({
+      task: name,
+      prompt_version: JSON.parse(task).prompt_version,
+      model: reply.model_id,
+      output_text: call.output_text,
+      stop_reason: "end_turn",
+      usage: { input_tokens: reply.input_tokens, output_tokens: reply.output_tokens, cost_usd: reply.estimated_cost_usd },
+      remaining_usd: 4.99,
+    }),
+    { status: 200, headers: { "content-type": "application/json" } },
+  );
+}
+
+const browser = new BrowserApi({ wasm, tree, relay });
 const base = `/api/v1/projects/${projectId}/runs/${runId}`;
-const post = (path, body) => browser.answer({ method: "POST", path: `${base}${path}`, body });
+const post = (path, body, llm = null) => browser.answer({ method: "POST", path: `${base}${path}`, body, llm });
 const get = (path, search = "") => browser.answer({ method: "GET", path: `${base}${path}`, search });
 
 async function compare(name, got, expected) {
@@ -117,10 +168,15 @@ started = performance.now();
 let browserPreview = null;
 let agent = null;
 let firstContext = null;
-for (const item of fixture.cases) {
+let llmContext = null;
+for (const item of [...fixture.cases, ...withLlm.cases]) {
   let got;
+  // A case the server answered with an API key is asked with the passphrase.
+  const llm = item.llm ? PASSPHRASE : null;
+  relayCalls = item.llm ? [...item.llm] : [];
+  relaySent = 0;
   if (item.route === "preview") {
-    got = await post("/branches/main/intervention-preview", item.request);
+    got = await post("/branches/main/intervention-preview", item.request, llm);
     if (browserPreview === null && item.status === 200 && item.text?.includes('"can_apply":true')) browserPreview = JSON.parse(got.body);
   } else if (item.route === "apply") {
     // The browser's own preview_id where the server's was ("$PREVIEW").
@@ -141,9 +197,11 @@ for (const item of fixture.cases) {
     got = await get(`/branches/${child}/history`, item.query);
   } else if (item.route === "questions") {
     if (agent === null) agent = JSON.parse((await get(`/branches/main/timeline`, `minute=${minutes}`)).body).people[0].id;
-    const document = Object.fromEntries(Object.entries(item.document).map(([key, value]) => [key, value === "$AGENT" ? agent : value === "$CONTEXT" ? firstContext : value]));
-    got = await post(`/branches/${item.branch}/questions`, JSON.stringify(document));
+    const placed = { $AGENT: agent, $CONTEXT: firstContext, $LLM_CONTEXT: llmContext };
+    const document = Object.fromEntries(Object.entries(item.document).map(([key, value]) => [key, Object.hasOwn(placed, value) ? placed[value] : value]));
+    got = await post(`/branches/${item.branch}/questions`, JSON.stringify(document), llm);
     if (firstContext === null && got.status === 200) firstContext = JSON.parse(got.body).context_id;
+    if (llm && llmContext === null && got.status === 200) llmContext = JSON.parse(got.body).context_id;
   } else if (item.route === "pdf-report") {
     got = await post("/pdf-report", JSON.stringify(item.document));
   } else if (item.route === "compare" || item.route === "replay-frames") {
@@ -152,8 +210,9 @@ for (const item of fixture.cases) {
     throw new Error(`no route ${item.route}`);
   }
   await compare(`${item.route} ${item.name}`, got, item);
+  check(relayCalls.length === 0 && relaySent === (item.llm?.length ?? 0), `${item.name}: the relay got ${relaySent} calls, not ${item.llm?.length ?? 0}`);
 }
-console.log(`${fixture.cases.length} answers compared with the server's in ${((performance.now() - started) / 1000).toFixed(2)} s`);
+console.log(`${fixture.cases.length + withLlm.cases.length} answers compared with the server's in ${((performance.now() - started) / 1000).toFixed(2)} s`);
 
 // Each question answered is kept as a turn in its branch's stored Run, after its end, its question
 // as the server keeps it.
@@ -166,7 +225,26 @@ console.log(`${fixture.cases.length} answers compared with the server's in ${((p
   } finally {
     reader.close();
   }
-  check(JSON.stringify(questions) === JSON.stringify(fixture.stored_questions), `the questions kept: ${JSON.stringify(questions)}, not ${JSON.stringify(fixture.stored_questions)}`);
+  check(JSON.stringify(questions) === JSON.stringify(withLlm.stored_questions), `the questions kept: ${JSON.stringify(questions)}, not ${JSON.stringify(withLlm.stored_questions)}`);
+}
+
+// A relay that does not let the passphrase in is no link: the answer without an API key. One that
+// refuses the call (the day's cap) gives the task's fallback, with its reason.
+{
+  relayRefusal = { status: 401, body: { error: "合言葉が違います。", code: "llm_passphrase_invalid" } };
+  const question = { question: "合言葉が違うと?" };
+  const asked = JSON.parse((await post("/branches/main/questions", JSON.stringify(question), PASSPHRASE)).body);
+  const offline = JSON.parse((await post("/branches/main/questions", JSON.stringify(question))).body);
+  check(asked.mode === offline.mode && asked.answer === offline.answer && asked.mode !== "record", `a passphrase not let in: ${JSON.stringify(asked).slice(0, 300)}`);
+  const text = JSON.stringify({ minute: fixture.run.fork_minute, text: "仮設トイレを3基置いてほしい" });
+  const previewed = JSON.parse((await post("/branches/main/intervention-preview", text, PASSPHRASE)).body);
+  const rules = JSON.parse((await post("/branches/main/intervention-preview", text)).body);
+  check(JSON.stringify({ ...previewed, preview_id: "" }) === JSON.stringify({ ...rules, preview_id: "" }), "a passphrase not let in reads the text without the LLM");
+  relayRefusal = { status: 429, body: { error: "今日のAPIの上限（$5）に達しました。", code: "llm_budget_exceeded", remaining_usd: 0.1 } };
+  const capped = JSON.parse((await post("/branches/main/intervention-preview", text, PASSPHRASE)).body);
+  check(capped.fallback_used === true && capped.usage?.api_request_count === 0, `the day's cap: ${JSON.stringify(capped.usage)}`);
+  check(capped.limitations.some((line) => line.includes("予算の上限を超えるため")), `the day's cap is said: ${JSON.stringify(capped.limitations)}`);
+  relayRefusal = null;
 }
 
 // A typed program is refused as unsupported, after the checks of the minute.

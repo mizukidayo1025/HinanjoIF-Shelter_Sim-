@@ -151,6 +151,8 @@ approved hashは確認した正準ScenarioSpecそのものに結び付きます�
 
 `native/wasm/tests/node_interventions.mjs`が、同じRunで、比較と2つの分岐の再生（受領の`checkpoint_hash`は伏せます）と、質問の答え（`context_id`の乱数の部分は伏せます）と残した質問が、serverと同じになることを確かめます。
 
+ホームで「API を有効にする」を済ませた画面は、質問と介入のプレビューに合言葉を添えます（`api_fetch.js`）。そのときブラウザーは、APIキーのあるserverと同じく、中核が作った作業（質問の`QuestionPlan.ask`、介入の`PreviewPlan.compiling`）をサイトの中継に送り、答えを中核で確かめます（#470、`native/wasm/js/relay_link.mjs`。中継の受け方は[llm-integration.md](llm-integration.md#ブラウザー版の中継419)）。中継が合言葉を通さない・APIキーがないときは、APIキーのない答えです。断ったとき（その日の上限など）は、routerと同じ結果名（`budget_exceeded`など）の代替です。中継への問い合わせの間は、ほかの要求を待たせます（要求は1つずつ答えるため）。`node_interventions.mjs`は、serverが偽のProviderで答えた質問と介入のプレビュー（`native/core/tests/data/interventions_llm.json`。`interventions.json`の後に、同じ`core_interventions.py`が作ります）を、そのProviderの文を返す偽の中継で問い、2つを確かめます。中継に送った作業がserverの口の受けた作業と同じであること、答えがserverと同じbytesであることです。
+
 ## ブラウザーのPDFレポート（#309）
 
 `POST …/runs/{run}/pdf-report`には、APIキーのないVMと同じ答えを返します（中核の`sheltersim_core::answers::routes::pdf_report_answer`。ブラウザーは`native/wasm/js/browser_api.mjs`の`pdfReport`から呼びます。#449）。serverと同じ順に、欄（`branch_ids`と`minute`だけ）、範囲（1つか2つの異なるBranchと0以上の整数分。違えば409の`pdf_invalid_scope`）、Run、各Branch、計算済みの範囲（外なら409の`pdf_uncomputed_range`）を確かめ、通れば409の`pdf_analysis_offline`（「Opusの記録応答またはAPI接続が必要です。」）を返します。APIキーのないVMも分析にOpusが要るのでPDFを作りません。ブラウザーはPDFを作りません。

@@ -26,6 +26,7 @@ FIXTURES: dict[str, str] = {
     "api_answers": "support.core_api_answers:api_answers_fixture",
     "scenario_facility": "support.core_scenario_facility:scenario_facility_fixture",
     "interventions": "support.core_interventions:interventions_fixture",
+    "interventions_llm": "support.core_interventions:interventions_llm_fixture",
     "scenario_request": "support.core_scenario_request:scenario_request_fixture",
     "scenario_population": "support.core_scenario_population:scenario_population_fixture",
     "scenario_conditions": "support.core_scenario_conditions:scenario_conditions_fixture",

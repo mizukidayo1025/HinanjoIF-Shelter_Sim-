@@ -6,8 +6,9 @@
 // For each world of native/core/tests/data/frames.json (the worlds of tick_core.json and
 // `arrivals`), it runs the world in WASM from minute 0 and checks, at each minute the fixture
 // lists, the sha256 of `Simulation.frame` (the frame's canonical JSON bytes) and the world's
-// digest (`stateDigest`) against the fixture's (recorded before #430), as
-// native/core/tests/frames.rs does in native code. A frame given a digest names it.
+// digest (`stateDigest`) against the fixture's (the digests recorded before #430, the frames since
+// #500), as native/core/tests/frames.rs does in native code. A frame given a digest names it, and
+// `replayFrame` is the frame with a null state_hash (#500).
 
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -48,6 +49,8 @@ for (const [name, frames] of Object.entries(fixture.expected)) {
   const last = frames[frames.length - 1][0];
   const named = JSON.parse(new TextDecoder().decode(simulation.frame("run", "main", last, "0".repeat(64))));
   if (named.state_hash !== "0".repeat(64)) problems.push("a frame given a digest does not name it");
+  const replay = JSON.parse(new TextDecoder().decode(simulation.replayFrame("run", "main", last)));
+  if (replay.state_hash !== null || JSON.stringify({ ...replay, state_hash: named.state_hash }) !== JSON.stringify(named)) problems.push("a replay's frame is not the frame without its digest");
   const verdict = problems.length === 0 ? "ok" : "FAILED";
   const seconds = (performance.now() - started) / 1000;
   console.log(`${name}: ${verdict} (${frames.length} frames to minute ${last} in ${seconds.toFixed(2)} s, frames ${framed.toFixed(0)} ms)`);

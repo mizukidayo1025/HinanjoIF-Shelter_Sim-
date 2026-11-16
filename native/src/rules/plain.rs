@@ -27,7 +27,7 @@ use pyo3::prelude::*;
 use pyo3::types::PyBytes;
 use sheltersim_core::archive;
 use sheltersim_core::error::Error;
-use sheltersim_core::frame::Request;
+use sheltersim_core::frame::{Request, StateHash};
 use sheltersim_core::llm::{self, Limits};
 use sheltersim_core::plain;
 
@@ -200,7 +200,16 @@ impl PlainRun {
         computed_until: i64,
         state_hash: Option<&str>,
     ) -> PyResult<Bound<'py, PyBytes>> {
+        let state_hash = state_hash.map_or(StateHash::Digest, StateHash::Given);
         let request = Request { run_id, branch_id, computed_until, state_hash };
+        Ok(PyBytes::new(py, &self.run.frame(&request).or_py()?))
+    }
+
+    /// The frame of the world now as `replay-frames` gives it (#500): `frame`'s, with
+    /// `state_hash` null, as the digest of the whole world would cost most of each frame of a
+    /// replay.
+    fn replay_frame<'py>(&mut self, py: Python<'py>, run_id: &str, branch_id: &str, computed_until: i64) -> PyResult<Bound<'py, PyBytes>> {
+        let request = Request { run_id, branch_id, computed_until, state_hash: StateHash::Omitted };
         Ok(PyBytes::new(py, &self.run.frame(&request).or_py()?))
     }
 

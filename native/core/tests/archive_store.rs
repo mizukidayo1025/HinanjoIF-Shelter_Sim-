@@ -17,7 +17,7 @@ use sheltersim_core::canonical::{state_digest, TREE_CHUNK_ITEMS};
 use sheltersim_core::checkpoint::sha256_hex;
 use sheltersim_core::events::log::EventLog;
 use sheltersim_core::events::packed::{Blocks, Packer, Unpacked};
-use sheltersim_core::frame::Request;
+use sheltersim_core::frame::{Request, StateHash};
 use sheltersim_core::plain::PlainRun;
 use sheltersim_core::world::WorldCell;
 use support::load;
@@ -402,7 +402,8 @@ fn a_run_s_kept_digest_of_its_log_is_the_digest_read_again() {
         for at in *minute + 1..(*minute + 30).min(ticks) {
             again.step().unwrap();
             let frame: serde_json::Value =
-                serde_json::from_slice(&again.frame(&Request { run_id: "run", branch_id: "main", computed_until: at, state_hash: None }).unwrap()).unwrap();
+                serde_json::from_slice(&again.frame(&Request { run_id: "run", branch_id: "main", computed_until: at, state_hash: StateHash::Digest }).unwrap())
+                    .unwrap();
             assert_eq!(frame["state_hash"], uncached_digest(&again).as_str(), "{name} restored, at {at}");
         }
     }

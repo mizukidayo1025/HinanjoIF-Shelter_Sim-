@@ -602,13 +602,18 @@ impl PlainRun {
 
     /// The frame of the world now (`frame::frame`, #264): its canonical JSON, what the API's
     /// timeline gives for this minute. It changes nothing.
-    /// Without the request's `state_hash`, the frame's is `state_digest`.
+    /// Where the request asks for the world's digest, the frame's `state_hash` is `state_digest`
+    /// (which keeps the node of the log between calls).
     pub fn frame(&mut self, request: &crate::frame::Request<'_>) -> Result<Vec<u8>> {
         let digest = match request.state_hash {
-            Some(_) => None,
-            None => Some(self.state_digest()?),
+            crate::frame::StateHash::Digest => Some(self.state_digest()?),
+            _ => None,
         };
-        let request = crate::frame::Request { state_hash: request.state_hash.or(digest.as_deref()), ..*request };
+        let state_hash = match &digest {
+            Some(digest) => crate::frame::StateHash::Given(digest),
+            None => request.state_hash,
+        };
+        let request = crate::frame::Request { state_hash, ..*request };
         crate::frame::frame(&self.loaded.cell, &mut self.host, &request, &self.rng_state)
     }
 

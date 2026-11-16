@@ -116,7 +116,16 @@ impl Simulation {
     /// is how far the branch is computed, and `stateHash` the world's digest where the caller holds
     /// it (a saved world's); without it the frame's is the world's (`stateDigest`).
     pub fn frame(&mut self, run_id: &str, branch_id: &str, computed_until: f64, state_hash: Option<String>) -> Result<Vec<u8>, JsError> {
-        let request = frame::Request { run_id, branch_id, computed_until: minute_of(computed_until)?, state_hash: state_hash.as_deref() };
+        let state_hash = state_hash.as_deref().map_or(frame::StateHash::Digest, frame::StateHash::Given);
+        let request = frame::Request { run_id, branch_id, computed_until: minute_of(computed_until)?, state_hash };
+        self.run.frame(&request).map_err(js_error)
+    }
+
+    /// The frame of the world now as `replay-frames` gives it (#500): `frame`'s, with `state_hash`
+    /// null, as the digest of the whole world would cost most of each frame of a replay.
+    #[wasm_bindgen(js_name = replayFrame)]
+    pub fn replay_frame(&mut self, run_id: &str, branch_id: &str, computed_until: f64) -> Result<Vec<u8>, JsError> {
+        let request = frame::Request { run_id, branch_id, computed_until: minute_of(computed_until)?, state_hash: frame::StateHash::Omitted };
         self.run.frame(&request).map_err(js_error)
     }
 

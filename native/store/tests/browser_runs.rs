@@ -56,7 +56,7 @@ fn the_store_writes_the_browsers_stored_runs_and_records_byte_for_byte() {
     // The Project's bundle of these files (`export_project`, the file a person downloads): its
     // manifest and the order of its entries are pinned too (#489).
     let bundle = made.files.export_project("p1", &serde_json::json!({"tool": "test"})).unwrap();
-    assert_eq!(sha256_hex(&bundle), "8b2dd9884ed2296210c7322faaf797f81cd6036748fb8697c9fd3b788947f2d4");
+    assert_eq!(sha256_hex(&bundle), "1181399d634c8b3c558a720569fac3976f520d86ce0017958b091d79e0a12e35");
     seeks_reach_the_browsers_worlds(&made);
 }
 

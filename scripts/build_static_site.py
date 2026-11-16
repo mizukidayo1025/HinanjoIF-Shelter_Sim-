@@ -83,6 +83,7 @@ SCREEN_FILES = (
     "demo-v2-people.js",
     "demo-v2-comparison.js",
     "demo-v2-report.js",
+    "demo-v2-print.js",
     "demo-v2-detail.js",
 )
 # The browser's API: the page's script, the Worker and the modules it imports.

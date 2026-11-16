@@ -211,7 +211,10 @@ class ProjectStore:
         )
         # A Run's record v2 adds its creation time (#447); one written before is v1.
         run_record = path.name == "run.json" and path.parent.parent.name == "runs"
-        versions = {1, 2} if conversation or run_record else {1}
+        # A kept PDF report v2 holds the route's JSON answer (#470); v1 held a typeset PDF, which
+        # the route reads as not kept and makes again.
+        pdf_report = path.parent.name == "pdf-reports"
+        versions = {1, 2} if conversation or run_record or pdf_report else {1}
         if (
             not isinstance(value, dict)
             or type(value.get("schema_version")) is not int

@@ -684,6 +684,14 @@ impl PdfAnalysis {
         Ok(asking::canonical(&analysis).into_bytes())
     }
 
+    /// The route's answer (#470): the report's data, its facts and the checked analysis (`read`'s),
+    /// `{"analysis", "data", "facts"}` as canonical JSON, which the screen lays out on its print
+    /// page.
+    pub fn report(&self, analysis: &[u8]) -> Answer {
+        let analysis: Value = serde_json::from_slice(analysis).map_err(|_| error("an analysis that is not JSON"))?;
+        Ok(asking::canonical(&json!({"analysis": analysis, "data": self.data, "facts": self.facts})).into_bytes())
+    }
+
     /// The analysis's checks against the facts: each paragraph cites known facts once each, holds
     /// no private text, quantity, quote or causal assertion, and ends as its section asks.
     fn validate(&self, document: &Value) -> Answer<()> {

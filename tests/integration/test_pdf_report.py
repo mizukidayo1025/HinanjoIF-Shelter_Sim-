@@ -1,6 +1,7 @@
 """The PDF report with an API key (#463), through the Project API, with a fake Opus: the core
 builds the report's data and facts from the branches' stored Runs and checks the analysis; the
-server typesets the PDF and keeps it. No test calls a paid API.
+server answers them as JSON (the screen's print page lays them out, #470) and keeps the answer.
+No test calls a paid API.
 
 Without an API key the route answers the core's refusal (409 `pdf_analysis_offline`), the
 browser's, which the core's answer fixtures fix.
@@ -14,6 +15,7 @@ the router's provider sends for it.
 
 from __future__ import annotations
 
+import base64
 import copy
 import hashlib
 import json
@@ -68,23 +70,39 @@ def export(api: ProjectAPI, branch_ids: list[str], minute: int = END) -> bytes:
     return api.answer_post(["p", "runs", "r", "pdf-report"], body)
 
 
+def report_of(answer: bytes) -> dict[str, Any]:
+    """The route's answer read: the core's data, facts and checked analysis, nothing else."""
+    report = json.loads(answer)
+    assert set(report) == {"analysis", "data", "facts"}
+    return report
+
+
 def kept(api: ProjectAPI) -> list[dict[str, Any]]:
+    """The kept reports, each with its answer decoded (`report`)."""
     folder = api.store.root / "p" / "runs" / "r" / "pdf-reports"
-    return [json.loads(path.read_text()) for path in sorted(folder.glob("*.json"))]
+    reports = []
+    for path in sorted(folder.glob("*.json")):
+        item = json.loads(path.read_text())
+        if "answer_base64" in item:
+            item["report"] = json.loads(base64.b64decode(item["answer_base64"]))
+        reports.append({**item, "path": path})
+    return reports
 
 
-def test_a_report_of_two_branches_is_typeset_from_the_core_s_facts_and_kept(
+def test_a_report_of_two_branches_is_answered_from_the_core_s_facts_and_kept(
     report_api, monkeypatch, report_provider
 ):
-    """The analysis Opus wrote cites the core's facts; the PDF is kept, and the same report is
+    """The analysis Opus wrote cites the core's facts; the answer is kept, and the same report is
     answered again without asking."""
     provider = report_provider()
     install(monkeypatch, provider)
-    pdf = export(report_api, ["main", "capacity"])
-    assert pdf.startswith(b"%PDF-")
+    answer = export(report_api, ["main", "capacity"])
+    report = report_of(answer)
     assert provider.calls == 1
-    [artifact] = [item for item in kept(report_api) if len(item["data"]["branches"]) == 2]
-    data, facts = artifact["data"], artifact["facts"]
+    [artifact] = [item for item in kept(report_api) if len(item["report"]["data"]["branches"]) == 2]
+    assert artifact["schema_version"] == 2 and base64.b64decode(artifact["answer_base64"]) == answer
+    assert artifact["identity"]["heads"] == report["data"]["heads"]
+    data, facts = report["data"], report["facts"]
     canonical = json.dumps(data, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
     assert hashlib.sha256(canonical.encode()).hexdigest() == DATA_SHA256
     assert provider.keys == [ANALYSIS_KEY]
@@ -95,16 +113,38 @@ def test_a_report_of_two_branches_is_typeset_from_the_core_s_facts_and_kept(
     capacity = data["branches"][1]
     assert any(item["operator"] == "add_toilet" for item in capacity["interventions"])
     assert facts["B1.interventions"]["recorded_commands"] == 1
-    assert artifact["analysis"]["model_id"].startswith("claude-opus-")
-    assert export(report_api, ["main", "capacity"]) == pdf
+    assert report["analysis"]["model_id"].startswith("claude-opus-")
+    assert report["analysis"]["sections"] == provider.document()
+    assert export(report_api, ["main", "capacity"]) == answer
     assert provider.calls == 1
 
 
-def test_an_analysis_the_checks_refuse_makes_no_pdf(
+def test_a_report_kept_in_another_form_is_asked_again(report_api, monkeypatch, report_provider):
+    """A report kept before #470 (a typeset PDF, form 1) is not answered: the report is made
+    again, the Run's tape answering the same analysis without a call, and kept in form 2."""
+    provider = report_provider()
+    install(monkeypatch, provider)
+    first = report_of(export(report_api, ["main"], 15))
+    [saved] = [item for item in kept(report_api) if item["report"]["data"]["range"] == [0, 15]]
+    path = saved["path"]
+    path.write_text(
+        json.dumps({"schema_version": 1, "identity": saved["identity"], "pdf_base64": "JVBERi0="})
+    )
+    again = report_of(export(report_api, ["main"], 15))
+    assert provider.calls == 1
+    assert again["analysis"]["record"]["cache_hit"] is True
+    assert {**again, "analysis": {**again["analysis"], "record": None}} == {
+        **first,
+        "analysis": {**first["analysis"], "record": None},
+    }
+    assert json.loads(path.read_text())["schema_version"] == 2
+
+
+def test_an_analysis_the_checks_refuse_makes_no_report(
     report_api, monkeypatch, report_provider, prose_document
 ):
-    """A paragraph with a quantity is refused (409 `pdf_analysis_invalid`): no PDF is made, and
-    the next try is a new request."""
+    """A paragraph with a quantity is refused (409 `pdf_analysis_invalid`): no report is made,
+    and the next try is a new request."""
 
     def counted() -> dict[str, Any]:
         document = prose_document()
@@ -148,7 +188,7 @@ def test_the_browser_s_relay_sends_the_analysis_task_as_the_router_does(
     monkeypatch.setattr(RouterLink, "complete", keep)
     install(monkeypatch, Recording())
     # A scope the other tests do not export: no kept report answers it.
-    assert export(report_api, ["capacity"], minute=25).startswith(b"%PDF-")
+    report_of(export(report_api, ["capacity"], minute=25))
     assert [json.loads(task)["task"] for task in tasks] == ["pdf_analysis"]
     [sent] = relay_requests(tasks)
     [request] = requests

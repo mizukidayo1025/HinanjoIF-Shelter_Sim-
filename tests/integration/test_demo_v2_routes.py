@@ -34,6 +34,7 @@ from sheltersim.web.server import _handler_for
         ("/demo-v2-people.js", "text/javascript", b"function openPersonDialog("),
         ("/demo-v2-comparison.js", "text/javascript", b"intervention-apply"),
         ("/demo-v2-report.js", "text/javascript", b"function loadReport("),
+        ("/demo-v2-print.js", "text/javascript", b"function printReport("),
         ("/demo-v2-detail.js", "text/javascript", b"function loadDetail("),
     ],
 )

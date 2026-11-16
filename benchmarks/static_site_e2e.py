@@ -9,8 +9,9 @@ SITE_DIR is the output of scripts/build_static_site.py, served as a static host 
 (scripts/serve_static_site.py). Each browser walks the screen on a fresh profile (an empty OPFS),
 as a person would, in five stages:
 
-1. scenario: on `/?project=e2e#scenario`, 「例文を使う」 → preview → approve (a Run), then
-   one form-input variant → preview → approve (a second Run); then `POST runs` of the first
+1. scenario: on `/?project=e2e#scenario`, the basic conditions (BASIC_FIELDS) → preview →
+   approve (a Run), then one form-input variant with every field → preview → approve (a second
+   Run); the text is the AI's option (#583), not used offline; then `POST runs` of the first
    Scenario under another id, and of another Scenario under that id (409 run_id_conflict).
 2. compute: the first Run computed on the screen to its end with the header's one button (#441):
    「計算する」 at once in the first browser (`--modes`, full); 「計算する」, 「中止」 after a day,
@@ -90,10 +91,19 @@ PROJECT = "e2e"
 SAMPLE_PROJECT, SAMPLE_RUN = site_check.PROJECT, site_check.RUN
 COMPUTE_RUN = site_check.COMPUTE_RUN
 TIMEOUT_MS = site_check.TIMEOUT_MS
-# The screen's 「例文を使う」 (demo-v2.js).
-EXAMPLE_TEXT = "墨田区で地震が発生。避難者100人、7日間。高齢者や子ども連れの支援ニーズも見たい。"
-# The form variant: the fields the harness fills (element id → value) and the request the screen
-# makes of them (demo-v2-scenario.js scenarioRequest), with no text.
+# The basic variant: the required fields and the days of the sample's Scenario (element id →
+# value) and the request the screen makes of them (demo-v2-scenario.js scenarioRequest).
+BASIC_FIELDS = {"municipality": "墨田区", "disaster": "地震", "evacuees": "100", "duration": "7"}
+BASIC_REQUEST = {
+    "municipality": "墨田区",
+    "disaster": "地震",
+    "evacuees": 100,
+    "duration_days": 7,
+    "field_origins": {
+        key: "user" for key in ("municipality", "disaster", "evacuees", "duration_days")
+    },
+}
+# The form variant: every field, with no text.
 FORM_FIELDS = {
     "municipality": "墨田区",
     "disaster": "洪水",
@@ -582,7 +592,7 @@ def _key(*parts: bytes) -> str:
 
 # The version of the Python side's operations (PythonSide's stages): bump it when they change, so
 # answers kept in --work are made again.
-PYTHON_SIDE_VERSION = 1
+PYTHON_SIDE_VERSION = 2
 
 
 def _plan() -> bytes:
@@ -590,7 +600,7 @@ def _plan() -> bytes:
     subjects = (e2e_subject(), sample_subject())
     plan = {
         "version": PYTHON_SIDE_VERSION,
-        "inputs": [EXAMPLE_TEXT, FORM_REQUEST, FORK_MINUTE, SENTENCES[-1]],
+        "inputs": [BASIC_REQUEST, FORM_REQUEST, FORK_MINUTE, SENTENCES[-1]],
         "routes": [
             [route(subject) for route in (scenario_routes, compute_routes, intervention_routes)]
             + [compare_routes(subject), report_routes(subject)]
@@ -797,7 +807,7 @@ class PythonSide:
             "scenario", "create_project", "POST", "/api/v1/projects", {"project_id": s.project}
         )
         for name, body, run in (
-            ("text", {"text": EXAMPLE_TEXT}, s.run),
+            ("basic", {"text": "", "request": BASIC_REQUEST}, s.run),
             ("form", {"text": "", "request": FORM_REQUEST}, s.form_run),
         ):
             self._memo("scenario", f"preview_{name}", "POST", f"{base}/scenario-preview", body)
@@ -809,12 +819,12 @@ class PythonSide:
                 "run_id": run,
             }
             self._memo("scenario", f"approve_{name}", "POST", f"{base}/scenario-approve", approve)
-        text_run = api.get([s.project, "runs", s.run], {})
+        basic_run = api.get([s.project, "runs", s.run], {})
         form_run = api.get([s.project, "runs", s.form_run], {})
         copy = {
             "run_id": s.copy_run,
-            "scenario_id": text_run["scenario_id"],
-            "scenario_version": text_run["scenario_version"],
+            "scenario_id": basic_run["scenario_id"],
+            "scenario_version": basic_run["scenario_version"],
         }
         conflict = {
             **copy,
@@ -882,7 +892,7 @@ def scenario_routes(s: Subject) -> list[tuple[str, str]]:
         ("project", base),
         ("runs", f"{base}/runs"),
     ]
-    for label, run in (("text", s.run), ("form", s.form_run), ("copy", s.copy_run)):
+    for label, run in (("basic", s.run), ("form", s.form_run), ("copy", s.copy_run)):
         routes += [
             (f"run_{label}", _run_path(s.project, run)),
             (f"evidence_{label}", f"{_run_path(s.project, run)}/evidence"),
@@ -1198,29 +1208,29 @@ class Walk:
         stage = "scenario"
         self.open(f"/?project={s.project}#scenario", "scenario")
         base = f"/api/v1/projects/{s.project}"
-        for label, run in (("text", s.run), ("form", s.form_run)):
-            if label == "text":
-                self.page.click("#example")
-            else:
+        for label, run, fields, request in (
+            ("basic", s.run, BASIC_FIELDS, BASIC_REQUEST),
+            ("form", s.form_run, FORM_FIELDS, FORM_REQUEST),
+        ):
+            if label == "form":
                 # The scenario page shows the form for a new Scenario, even with one open (#502).
                 self.page.click("[data-page=scenario]")
                 self.view("scenario")
-                self.page.evaluate(
-                    """(fields) => {
-                      document.getElementById("scenario-text").value = "";
-                      for (const [id, value] of Object.entries(fields)) {
-                        const node = document.getElementById(id);
-                        node.value = value;
-                        node.dispatchEvent(new Event("input", { bubbles: true }));
-                        node.dispatchEvent(new Event("change", { bubbles: true }));
-                      }
-                    }""",
-                    FORM_FIELDS,
-                )
+            self.page.evaluate(
+                """(fields) => {
+                  for (const [id, value] of Object.entries(fields)) {
+                    const node = document.getElementById(id);
+                    node.value = value;
+                    node.dispatchEvent(new Event("input", { bubbles: true }));
+                    node.dispatchEvent(new Event("change", { bubbles: true }));
+                  }
+                }""",
+                fields,
+            )
             since = self.mark()
             self.page.click("#preview")
             preview = self.wait_caught(since, "POST", r"/scenario-preview$")
-            if label == "text":
+            if label == "basic":
                 created = self.caught(since, "POST", r"^/api/v1/projects$")
                 if created is not None:
                     # Compared once the stage is available (Python's pins need its tooling).
@@ -1232,9 +1242,7 @@ class Walk:
                         screen_only=preview is None or _unsupported(preview),
                         expect=_status(200),
                     )
-            body = (
-                {"text": EXAMPLE_TEXT} if label == "text" else {"text": "", "request": FORM_REQUEST}
-            )
+            body = {"text": "", "request": request}
             item = self.check(
                 stage,
                 f"preview_{label}",
@@ -1264,12 +1272,12 @@ class Walk:
         # POST runs: the first Scenario under another id, then another Scenario under that id.
         records = {
             label: json.loads(self.fetch(_run_path(s.project, run))["text"])
-            for label, run in (("text", s.run), ("form", s.form_run))
+            for label, run in (("basic", s.run), ("form", s.form_run))
         }
         copy = {
             "run_id": s.copy_run,
-            "scenario_id": records["text"].get("scenario_id"),
-            "scenario_version": records["text"].get("scenario_version"),
+            "scenario_id": records["basic"].get("scenario_id"),
+            "scenario_version": records["basic"].get("scenario_version"),
         }
         conflict = {
             **copy,

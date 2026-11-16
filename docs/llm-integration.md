@@ -8,6 +8,15 @@ Claude連携は任意です。llm extraを導入し、ANTHROPIC_API_KEYをGit外
 
 Anthropicへ接続するのはsrc/sheltersim/llm/anthropic_adapter.pyだけです。simulation coreにProvider依存はありません。requestはrouter、型付きtask schema、呼出し・token・同時実行・費用上限、usage ledger、cache、response tapeを通ります。
 
+## 画面のON/OFF（#581）
+
+画面は、AIの機能（LLM）がONかどうかを上部とホームに出します。ONの判定は版ごとに次のとおりです。
+
+- ローカル版・VM版：サーバーの設定です（`GET /api/v1/llm`）。APIキーのあるrecord mode（`auto`でkeyがあるときを含む）と、replay modeでONです。offline mode、またはkeyのないrecord modeではOFFです。
+- ブラウザー版：ホームの「API を有効にする」で、中継が合言葉を通し、APIキーを持つときにONです。
+
+LLMが前提の機能をOFFのときにどう見せるかは、機能ごとに#580の各Issueで決めます。
+
 ## 対応する段階
 
 - 準備段階では合成Scenarioやprofile案を作れます。結果はpreviewであり、利用者が確認して同じhashを明示承認します。

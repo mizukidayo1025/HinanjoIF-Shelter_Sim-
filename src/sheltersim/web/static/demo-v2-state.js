@@ -63,6 +63,8 @@
     target: null,
     poll: null,
     mode: null,
+    // Whether the AI's (LLM's) features are ON ({ on }; null until known, #581).
+    llm: null,
     homeVersion: 0,
     forkFrom: null,
     // The minute picked in 「この時刻から分岐を作る」 ({ branch, minute }), when it is not the

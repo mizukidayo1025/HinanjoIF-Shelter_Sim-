@@ -42,6 +42,23 @@ def _content_type(name: str) -> str:
     return _CONTENT_TYPES.get(suffix) or mimetypes.guess_type(name)[0] or "application/octet-stream"
 
 
+def llm_status(settings: Any) -> dict[str, Any]:
+    """`GET /api/v1/llm` (#581): whether the server's AI (LLM) features are ON, from its LLM
+    settings: ON with an API key in record mode, or in replay mode (the recorded answers). The
+    screen shows it at its top and on the home; the browser version asks its relay instead
+    (the home's passphrase). The key itself is never answered."""
+    from sheltersim.llm.config import LLMMode
+
+    mode = settings.effective_mode
+    if mode is LLMMode.OFFLINE:
+        reason = "サーバーがAIを使わない設定（offline）で起動しています。"
+    elif mode is LLMMode.RECORD and not settings.api_key:
+        reason = "サーバーにAPIキーが設定されていません。"
+    else:
+        reason = None
+    return {"available": reason is None, "mode": mode.value, "reason": reason}
+
+
 def serve_inspector(
     runs_directory: str | Path,
     *,
@@ -110,7 +127,13 @@ def _handler_for(projects: ProjectAPI | None = None) -> type[BaseHTTPRequestHand
             parsed = urlsplit(self.path)
             try:
                 if parsed.path.startswith("/api/v1/"):
-                    if parsed.path == "/api/v1/usage/runtime":
+                    if parsed.path == "/api/v1/llm":
+                        if parsed.query:
+                            raise StorageError("the LLM status does not accept query parameters")
+                        from sheltersim.llm.config import LLMSettings
+
+                        payload = llm_status(LLMSettings.from_env())
+                    elif parsed.path == "/api/v1/usage/runtime":
                         if parsed.query:
                             raise StorageError("runtime usage does not accept query parameters")
                         if projects is None:

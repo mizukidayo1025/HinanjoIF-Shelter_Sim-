@@ -86,6 +86,9 @@ const $ = (id) => {
   return elements.get(id);
 };
 const num = (n) => String(n);
+const state = {};
+const window = { HinanjoBrowserApi: {} };
+const api = async () => { throw new Error("the browser version does not ask the server"); };
 let answer;
 const sent = [];
 const fetch = async (url, init) => {
@@ -103,17 +106,87 @@ await refreshApi();
 assert.deepEqual(sent.at(-1), ["/llm/v1/session", "Bearer pass-1"]);
 assert.match($("home-api-status").textContent, /審査員A/);
 assert.equal($("home-api-enable").hidden, true);
+assert.deepEqual(state.llm, { on: true });
+assert.equal($("header-api").textContent, "API ON");
 
 answer = async () => { throw new TypeError("offline"); };
 await refreshApi();
 assert.equal(store.get("hinanjo-if-llm-passphrase"), "pass-1");
 assert.match($("home-api-status").textContent, /接続できません/);
+assert.deepEqual(state.llm, { on: false });
+assert.equal($("header-api").textContent, "API OFF");
 
 answer = json(401, { error: "合言葉が違います。", code: "llm_passphrase_invalid" });
 await refreshApi();
 assert.equal(store.has("hinanjo-if-llm-passphrase"), false);
 assert.equal($("home-api-status").textContent, "合言葉が違います。");
 assert.equal($("home-api-enable").hidden, false);
+"""
+    result = subprocess.run(
+        [node, "--input-type=module", "-e", script, str(source)],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def test_the_server_version_shows_its_llm_settings_as_on_or_off_without_a_passphrase():
+    """The AI's ON/OFF (#581): the server version asks GET /api/v1/llm, shows its answer at the
+    top and on the home, and offers no passphrase; a failed check is OFF."""
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("Node is required for the UI callback regression")
+    source = Path("src/sheltersim/web/static/demo-v2-home.js").resolve()
+    script = r"""
+import fs from "node:fs";
+import assert from "node:assert/strict";
+const source = fs.readFileSync(process.argv[1], "utf8").replaceAll("\r\n", "\n");
+const body = source.split("  const LLM_KEY =")[1].split("  async function enableApi(")[0];
+const elements = new Map();
+const $ = (id) => {
+  if (!elements.has(id)) {
+    const classes = new Set();
+    elements.set(id, { textContent: "", hidden: false, title: "", classes,
+      classList: { toggle: (name, on) => (on ? classes.add(name) : classes.delete(name)) } });
+  }
+  return elements.get(id);
+};
+const localStorage = { getItem: () => null, setItem() {}, removeItem() {} };
+const fetch = async () => { throw new Error("the server version sends no passphrase"); };
+const num = (n) => String(n);
+const state = {};
+const window = {};
+let answer;
+const asked = [];
+const api = async (path) => { asked.push(path); return answer(); };
+const make = eval("(() => { const LLM_KEY =" + body + "; return { refreshApi }; })");
+const { refreshApi } = make();
+
+answer = async () => ({ available: true, mode: "record", reason: null });
+await refreshApi();
+assert.deepEqual(asked, ["/api/v1/llm"]);
+assert.deepEqual(state.llm, { on: true });
+assert.equal($("header-api").textContent, "API ON");
+assert.equal($("header-api").hidden, false);
+assert.ok($("header-api").classes.has("on"));
+assert.match($("home-api-status").textContent, /^ON です/);
+assert.equal($("home-api-enable").hidden, true);
+assert.equal($("home-api-disable").hidden, true);
+assert.match($("home-api-how").textContent, /APIキーつきで起動/);
+
+answer = async () => ({ available: false, mode: "offline", reason: "理由。" });
+await refreshApi();
+assert.deepEqual(state.llm, { on: false });
+assert.equal($("header-api").textContent, "API OFF");
+assert.ok(!$("header-api").classes.has("on"));
+assert.equal($("home-api-status").textContent, "OFF です。理由。");
+
+answer = async () => { throw new Error("HTTP 500"); };
+await refreshApi();
+assert.deepEqual(state.llm, { on: false });
+assert.match($("home-api-status").textContent, /確認できませんでした/);
 """
     result = subprocess.run(
         [node, "--input-type=module", "-e", script, str(source)],

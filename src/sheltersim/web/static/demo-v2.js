@@ -6,12 +6,12 @@
   const app = window.HinanjoApp;
   const {
     state, $, num, el, uiIcon, branchBase, api, note, computeTargets, loading, action, on, show,
-    controls, hits, drawAll, keepPassphrase, showApi, enableApi, openExamples, newScenario,
-    invalidateScenario, previewScenario, approveScenario, stopPlayback, renderKpis, renderKpiStrip,
-    refreshRuns, refreshRun, seek, renderFrame, togglePlayback, computeToEnd, cancelCompute,
-    personSummary, renderPeople, selectPerson, invalidateIntervention, comparing, pickForkTime,
-    previewIntervention, applyIntervention, loadComparison, loadMultiCompare, resetChat, showMode,
-    loadReport, askQuestion, saveReport, copyScenario,
+    controls, hits, drawAll, keepPassphrase, showApi, refreshApi, enableApi, openExamples,
+    newScenario, invalidateScenario, previewScenario, approveScenario, stopPlayback, renderKpis,
+    renderKpiStrip, refreshRuns, refreshRun, seek, renderFrame, togglePlayback, computeToEnd,
+    cancelCompute, personSummary, renderPeople, selectPerson, invalidateIntervention, comparing,
+    pickForkTime, previewIntervention, applyIntervention, loadComparison, loadMultiCompare,
+    resetChat, showMode, loadReport, askQuestion, saveReport, copyScenario,
   } = app;
   document
     .querySelectorAll("[data-page]")
@@ -29,6 +29,7 @@
     show("simulation");
   });
   $("home-fetch").addEventListener("click", () => void openExamples());
+  $("header-api").addEventListener("click", () => show("home"));
   $("home-api-enable").addEventListener("click", () => {
     $("api-dialog-note").textContent = "";
     $("api-dialog").showModal();
@@ -361,6 +362,8 @@
     document.querySelector("main"),
   );
   async function init() {
+    // The top shows whether the AI's features are ON (#581), whichever page opens.
+    void refreshApi();
     const requestedPage = location.hash.slice(1);
     const template = document.querySelector("[data-scene-mode]").parentElement;
     document

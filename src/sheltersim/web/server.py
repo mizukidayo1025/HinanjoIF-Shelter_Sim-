@@ -97,6 +97,7 @@ _STATIC_FILES = {
     "/demo-v2-people.js": "demo-v2-people.js",
     "/demo-v2-comparison.js": "demo-v2-comparison.js",
     "/demo-v2-report.js": "demo-v2-report.js",
+    "/demo-v2-print.js": "demo-v2-print.js",
     "/demo-v2-detail.js": "demo-v2-detail.js",
 }
 
@@ -176,19 +177,6 @@ def _handler_for(projects: ProjectAPI | None = None) -> type[BaseHTTPRequestHand
                 document = json.loads(body.decode("utf-8"))
                 if not isinstance(document, dict):
                     raise StorageError("project request must be an object")
-                if len(parts) == 7 and parts[4] == "runs" and parts[6] == "pdf-report":
-                    payload = projects.answer_post(parts[3:], body)
-                    self.send_response(200)
-                    self.send_header("Content-Type", "application/pdf")
-                    self.send_header(
-                        "Content-Disposition", 'attachment; filename="hinanjo-if-report.pdf"'
-                    )
-                    self.send_header("Content-Length", str(len(payload)))
-                    self.send_header("Cache-Control", "no-store")
-                    self.send_header("X-Content-Type-Options", "nosniff")
-                    self.end_headers()
-                    self.wfile.write(payload)
-                    return
                 self._raw_response(200, projects.answer_post(parts[3:], body))
             except REFUSED as exc:
                 self._raw_response(exc.args[0], exc.args[3])

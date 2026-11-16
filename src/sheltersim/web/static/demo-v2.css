@@ -3861,3 +3861,192 @@ body.is-uncomputed main > .page.active {
     padding-top: 37px;
   }
 }
+
+/* The report's print page (#470, demo-v2-print.js): shown over the page, and alone when printed
+   (A4; the browser's print saves it as a PDF). */
+.print-report {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  overflow: auto;
+  background: #e8eef5;
+  padding: 0 16px 32px;
+}
+.print-report[hidden] {
+  display: none;
+}
+html.print-report-open {
+  overflow: hidden;
+}
+.print-report-bar {
+  position: sticky;
+  top: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  justify-content: flex-end;
+  max-width: 210mm;
+  margin: 0 auto;
+  padding: 12px 0;
+  background: #e8eef5;
+}
+.print-report-bar span {
+  margin-right: auto;
+  color: var(--muted);
+}
+.pr-document {
+  max-width: 210mm;
+  margin: 0 auto;
+  padding: 18mm 15mm;
+  background: var(--paper);
+  color: var(--ink);
+  font-size: 9.5pt;
+  line-height: 1.7;
+  box-shadow: var(--shadow);
+}
+.pr-document p {
+  margin: 0 0 7px;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+.pr-title {
+  font-size: 22pt;
+  font-weight: 700;
+  color: var(--navy);
+  border-top: 3px solid var(--blue);
+  padding-top: 10px;
+}
+.pr-section h2 {
+  font-size: 15pt;
+  color: var(--navy);
+  margin: 18px 0 10px;
+}
+.pr-section h3 {
+  font-size: 11pt;
+  color: var(--teal);
+  margin: 14px 0 6px;
+}
+.pr-small {
+  font-size: 7.5pt;
+  color: var(--muted);
+}
+.pr-prose {
+  break-inside: avoid;
+}
+.pr-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 4px 0 10px;
+  font-size: 8pt;
+}
+.pr-table th {
+  background: var(--blue-light);
+  border-bottom: 1px solid var(--blue);
+  text-align: left;
+}
+.pr-table th,
+.pr-table td {
+  padding: 4px 7px;
+  vertical-align: top;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+.pr-fixed {
+  table-layout: fixed;
+}
+.pr-table tbody tr:nth-child(even) {
+  background: #f7fbfe;
+}
+.pr-table tbody tr:last-child td {
+  border-bottom: 1px solid var(--line);
+}
+.pr-compact td {
+  padding: 2px 7px;
+  font-size: 7.5pt;
+}
+.pr-charts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 16px;
+}
+.pr-chart {
+  margin: 0;
+  break-inside: avoid;
+}
+.pr-chart figcaption {
+  font-size: 9pt;
+  color: var(--navy);
+}
+.pr-chart svg {
+  width: 100%;
+  height: auto;
+  font-size: 7px;
+  fill: var(--muted);
+}
+.pr-chart .pr-grid {
+  stroke: var(--line);
+}
+.pr-chart polyline,
+.pr-chart .pr-dot {
+  fill: none;
+  stroke-width: 1.1;
+}
+.pr-chart .pr-dot {
+  stroke-width: 2;
+}
+.pr-chart .pr-a {
+  stroke: var(--blue);
+}
+.pr-chart .pr-b {
+  stroke: #008f80;
+}
+@media (max-width: 640px) {
+  .pr-document {
+    padding: 16px;
+  }
+  .pr-charts {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@page {
+  size: A4;
+  margin: 16mm 15mm 18mm;
+  @bottom-left {
+    content: "避難所IF！ | シミュレーション分析資料 | 実運用の予測ではありません";
+    font-size: 7.5pt;
+    color: #526783;
+  }
+  @bottom-right {
+    content: counter(page) " / " counter(pages);
+    font-size: 7.5pt;
+    color: #526783;
+  }
+}
+@media print {
+  html.print-report-open body > :not(#print-report) {
+    display: none !important;
+  }
+  html.print-report-open,
+  html.print-report-open body {
+    overflow: visible;
+    background: #fff;
+  }
+  .print-report {
+    position: static;
+    overflow: visible;
+    padding: 0;
+    background: #fff;
+  }
+  .print-report-bar {
+    display: none;
+  }
+  .pr-document {
+    max-width: none;
+    padding: 0;
+    box-shadow: none;
+  }
+  .pr-section + .pr-section {
+    break-before: page;
+  }
+}

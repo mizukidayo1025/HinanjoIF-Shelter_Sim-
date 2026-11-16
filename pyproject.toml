@@ -10,7 +10,6 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "pydantic==2.11.9",
-    "reportlab>=4.4,<5",
 ]
 
 [project.optional-dependencies]
@@ -34,10 +33,7 @@ where = ["src"]
 [tool.setuptools.package-data]
 "sheltersim.contracts" = ["*.json"]
 "sheltersim.storage" = ["*.zdict"]
-"sheltersim.web" = [
-    "fonts/*.ttf", "fonts/OFL.txt",
-    "static/*.html", "static/*.js", "static/*.css", "static/*.jpg",
-]
+"sheltersim.web" = ["static/*.html", "static/*.js", "static/*.css", "static/*.jpg"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

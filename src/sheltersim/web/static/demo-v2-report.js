@@ -6,6 +6,7 @@
     state, reference, lower, upper, $, json, llmModeLabel, time, num, el, uiIcon, runBase,
     branchBase, api, note, drawHistory, drawAll, renderEvents, personSummary, pairIds,
   } = app;
+  const { printReport } = app.later;
   const chatWelcome = $("chat").firstElementChild.cloneNode(true);
   function resetChat() {
     $("chat").replaceChildren(chatWelcome.cloneNode(true));
@@ -288,30 +289,16 @@
       button = $("save-report");
     button.disabled = true;
     button.setAttribute("aria-busy", "true");
-    note("Opusによる分析とPDFの生成中です。保存済みのレポートがあれば再利用します…", "loading");
-    let blob;
+    note("Opusによる分析を作っています。保存済みのレポートがあれば再利用します…", "loading");
+    let report;
     try {
-      const response = await fetch(`${runBase()}/pdf-report`, {
-        method: "POST",
-        headers: { Accept: "application/pdf", "Content-Type": "application/json" },
-        body: JSON.stringify({ branch_ids: branchIds, minute }),
-      });
-      if (!response.ok) {
-        const result = await response.json();
-        throw new Error(result.error || `PDF生成に失敗しました (HTTP ${response.status})`);
-      }
-      if (!response.headers.get("Content-Type")?.startsWith("application/pdf"))
-        throw new Error("PDFを取得できませんでした。再試行してください。");
-      blob = await response.blob();
+      // The report's data, facts and checked analysis (#470), laid out on the print page.
+      report = await api(`${runBase()}/pdf-report`, { branch_ids: branchIds, minute });
     } finally {
       button.removeAttribute("aria-busy");
     }
-    const url = URL.createObjectURL(blob),
-      a = el("a");
-    a.href = url;
-    a.download = `hinanjo-if-${branchIds.join("-vs-")}-${minute}.pdf`;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(url), 5000);
+    note("レポートを開きました。印刷画面で「PDFに保存」を選ぶと、PDFとして保存できます。", "success");
+    printReport(report);
   }
   Object.assign(app, { resetChat, showMode, loadReport, askQuestion, saveReport });
 })();

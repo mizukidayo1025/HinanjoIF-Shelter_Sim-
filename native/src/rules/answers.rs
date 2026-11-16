@@ -717,7 +717,8 @@ impl PyPdfPlan {
 }
 
 /// The PDF report's data and facts, and its analysis asked of an LLM: `task()`, then `read(reply)`
-/// (None where the call failed), the checked analysis or the refusal.
+/// (None where the call failed), the checked analysis or the refusal, then `report(analysis)`, the
+/// route's answer.
 #[pyclass(name = "PdfAnalysis", module = "sheltersim_native.rules.answers")]
 pub struct PyPdfAnalysis {
     analysis: pdf::PdfAnalysis,
@@ -740,6 +741,11 @@ impl PyPdfAnalysis {
     #[pyo3(signature = (reply))]
     fn read<'py>(&self, py: Python<'py>, reply: Option<Vec<u8>>) -> PyResult<Bound<'py, PyBytes>> {
         bytes(py, self.analysis.read(reply.as_deref()))
+    }
+
+    /// The route's answer: the data, the facts and the checked analysis (`read`'s).
+    fn report<'py>(&self, py: Python<'py>, analysis: &[u8]) -> PyResult<Bound<'py, PyBytes>> {
+        bytes(py, self.analysis.report(analysis))
     }
 }
 

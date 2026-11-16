@@ -1,18 +1,20 @@
 """The PDF report of a saved Project Run (#463): the core builds its data, its facts and the
 analysis asked of Opus, and checks the analysis; this module gives the core each branch's Run,
-asks the configured router through the core's port, typesets the PDF (`pdf_render`) and keeps it.
+asks the configured router through the core's port and keeps the answer.
 
-The data and the facts are the core's (`sheltersim_core::answers::pdf`); no evidence is built
-here. Without an API key the route answers the core's refusal (409 `pdf_analysis_offline`), as the
-browser does. A report kept for the same identity (the branches' heads, the Scenario, the minute,
-the versions and the Opus model) is answered again without asking anyone.
+The answer is the core's JSON of the data, the facts and the checked analysis
+(`PdfAnalysis.report`); the screen lays it out on its print page, which the user prints or saves as
+a PDF (#470: no PDF is typeset here, as the browser has no typesetter). The data and the facts are
+the core's (`sheltersim_core::answers::pdf`); no evidence is built here. Without an API key the
+route answers the core's refusal (409 `pdf_analysis_offline`), as the browser does. A report kept
+for the same identity (the branches' heads, the Scenario, the minute, the versions and the Opus
+model) is answered again without asking anyone.
 """
 
 from __future__ import annotations
 
 import base64
 import json
-import math
 import threading
 from dataclasses import replace
 from typing import Any
@@ -21,20 +23,9 @@ from sheltersim.storage.projects import StorageError, digest, safe_document
 
 REPORT_VERSION = "pdf-report-ja-v1"
 PROMPT_VERSION = "pdf-analysis-ja-v1"
-# key, Japanese label, displayed unit, scale, lower-is-better (None = descriptive): the core's
-# `pdf::METRICS`, which the renderer prints.
-METRICS = (
-    ("stress_mean", "平均ストレス", "/100", 100, True),
-    ("toilet_wait_max_minutes", "最大トイレ待ち時間", "分", 1, True),
-    ("staff_load_ratio", "スタッフ稼働率", "%", 100, None),
-    ("unresolved_support_request_count", "未解決の支援要請", "件", 1, True),
-    ("toilet_queue_length", "トイレ待ち人数", "人", 1, True),
-    ("stress_high_count", "高ストレス者数", "人", 1, True),
-)
-
-
-def number(value: Any) -> bool:
-    return type(value) in (int, float) and math.isfinite(value)
+# The kept report's form: 2 holds the route's answer (#470); 1 held a typeset PDF and is asked
+# again.
+KEPT_VERSION = 2
 
 
 class PdfReports:
@@ -45,7 +36,8 @@ class PdfReports:
         self._lock = threading.Lock()
 
     def export(self, project_id: str, run_id: str, body: bytes) -> bytes:
-        """The PDF's bytes, or the refusal (the core's `Refused`, or a StorageError)."""
+        """The report's JSON (the core's `PdfAnalysis.report`), or the refusal (the core's
+        `Refused`, or a StorageError)."""
         from sheltersim.llm.config import LLMSettings
         from sheltersim.llm.link import analysis_link
         from sheltersim.web.projects import answers
@@ -89,15 +81,18 @@ class PdfReports:
         path = store._path(project_id, "runs", run_id, "pdf-reports", f"{key}.json")
         if path.exists():
             saved = store._read(path)
-            if saved.get("identity") == identity:
+            encoded = saved.get("answer_base64")
+            if (
+                saved.get("schema_version") == KEPT_VERSION
+                and saved.get("identity") == identity
+                and isinstance(encoded, str)
+                and digest(encoded) == saved.get("answer_hash")
+            ):
                 try:
-                    pdf = base64.b64decode(saved["pdf_base64"], validate=True)
-                    if pdf.startswith(b"%PDF-") and digest(saved["pdf_base64"]) == saved.get(
-                        "pdf_hash"
-                    ):
-                        return pdf
-                except (ValueError, KeyError):
-                    pass  # Typeset a damaged PDF again, from the kept analysis's tape.
+                    return base64.b64decode(encoded, validate=True)
+                except ValueError:
+                    pass
+            # Another form, or a damaged answer: asked again (the Run's tape answers it).
         scenario = files.run_scenario_bytes(project_id, run_id)
         for record in heads:
             branch_id = record["branch_id"]
@@ -132,7 +127,7 @@ class PdfReports:
         analysis = plan.analysis(scenario, attempt)
         reply = ask(link, analysis.task())
         try:
-            checked = json.loads(analysis.read(reply))
+            checked = analysis.read(reply)
         except core.Refused:
             record = json.loads(reply) if reply is not None else {}
             if record.get("api_request_count") or record.get("cache_hit"):
@@ -141,15 +136,7 @@ class PdfReports:
                 with store.transaction():
                     store._write(attempt_path, {"schema_version": 1, "next_attempt": attempt + 1})
             raise
-        data, facts = json.loads(analysis.data()), json.loads(analysis.facts())
-        from sheltersim.web.pdf_render import render_pdf
-
-        try:
-            pdf = render_pdf(data, checked, facts)
-        except Exception as exc:
-            raise StorageError(
-                "pdf_render_failed: PDFの組版に失敗しました。再試行してください。"
-            ) from exc
+        answer = analysis.report(checked)
         now = core.pdf_plan(
             project_id,
             run_id,
@@ -160,16 +147,15 @@ class PdfReports:
             item["checkpoint_hash"] for item in heads
         ]:
             raise StorageError("pdf_scope_changed: 計算結果が更新されました。再試行してください。")
-        encoded = base64.b64encode(pdf).decode("ascii")
+        # As base64: the answer's bytes kept as they are (the store redacts what looks private in
+        # its strings).
+        encoded = base64.b64encode(answer).decode("ascii")
         artifact = {
-            "schema_version": 1,
+            "schema_version": KEPT_VERSION,
             "identity": identity,
-            "data": data,
-            "facts": facts,
-            "analysis": checked,
-            "pdf_hash": digest(encoded),
-            "pdf_base64": encoded,
+            "answer_hash": digest(encoded),
+            "answer_base64": encoded,
         }
         with store.transaction():
             store._write(path, safe_document(artifact))
-        return pdf
+        return answer

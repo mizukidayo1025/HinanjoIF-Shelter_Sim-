@@ -1,16 +1,17 @@
-//! `POST runs/{run}/pdf-report` with an API key (#463): the PDF report's data, its facts and the
-//! analysis asked of an LLM (Opus), as the Python report made them before #427.
+//! `POST runs/{run}/pdf-report` (#463): the report's data, its facts and, where the request asks
+//! for it (`"analysis": true`, #582), the analysis asked of an LLM (Opus).
 //!
-//! `PdfPlan::new` makes the route's checks (`routes::pdf_report_answer`'s, in its order). For each
-//! branch, the caller restores the branch's Run at the minute and gives it with its frame there,
-//! its KPI table (its stored samples) and its journal (`add_branch`). `analysis` builds the report's
+//! `PdfPlan::new` makes the route's checks; `check_link` refuses an analysis asked without a link
+//! to an LLM. For each branch, the caller restores the branch's Run at the minute and gives it with
+//! its frame there, its KPI table (its stored samples) and its journal (`add_branch`). The report's
 //! data (the conditions of the Scenario, each branch's final KPIs, series, problem windows,
 //! recorded events and interventions, the differences B−A) and the facts the LLM may cite (opaque
-//! aliases: no label, place, id or free text of the user's goes to the Provider), and the task.
-//! `PdfAnalysis::read` checks the reply: Opus, the schema, each paragraph's references and wording
-//! (no quantities, quotes or causal assertions; hypotheses as hypotheses, proposals as proposals).
-//! A reply that does not pass is refused: no PDF is made with an analysis that was not checked.
-//! The caller typesets the PDF from the data, the facts and the analysis.
+//! aliases: no label, place, id or free text of the user's goes to the Provider) are the core's
+//! alone: `report` answers them without an analysis, and no LLM is asked. `analysis` adds the
+//! task; `PdfAnalysis::read` checks the reply: Opus, the schema, each paragraph's references and
+//! wording (no quantities, quotes or causal assertions; hypotheses as hypotheses, proposals as
+//! proposals). A reply that does not pass is refused: no report is made with an analysis that was
+//! not checked. The screen lays out the answer on its print page.
 
 use std::collections::BTreeSet;
 
@@ -218,6 +219,7 @@ pub struct PdfPlan {
     run_id: String,
     ids: Vec<String>,
     minute: i64,
+    asked: bool,
     run: Record,
     records: Vec<Record>,
     branches: Vec<Value>,
@@ -225,11 +227,16 @@ pub struct PdfPlan {
 }
 
 impl PdfPlan {
-    /// The route's checks (`routes::pdf_report_answer`'s): the fields, the scope, the Run, each
-    /// branch, the computed range.
+    /// The route's checks: the fields, whether the analysis is asked (`analysis`, false where it is
+    /// left out), the scope, the Run, each branch, the computed range.
     pub fn new(project_id: &str, run_id: &str, body: Option<&[u8]>, files: &RunFiles) -> Answer<PdfPlan> {
         let document = post_document(body)?;
-        check_fields(&document, &["branch_ids", "minute"], &[])?;
+        check_fields(&document, &["branch_ids", "minute"], &["analysis"])?;
+        let asked = match document.get("analysis") {
+            None => false,
+            Some(Value::Bool(asked)) => *asked,
+            Some(_) => return Err(Refusal::storage("pdf_invalid_analysis: Opusの考察の有無（analysis）は true か false で指定してください。").into()),
+        };
         let scope = || Refusal::storage("pdf_invalid_scope: 単一BranchまたはA/Bの2分岐と整数分を指定してください。");
         let ids: Vec<String> = match &document["branch_ids"] {
             Value::Array(items) if (1..=2).contains(&items.len()) => {
@@ -259,6 +266,7 @@ impl PdfPlan {
             run_id: run_id.to_owned(),
             ids,
             minute: minute as i64,
+            asked,
             run,
             records,
             branches: Vec::new(),
@@ -272,6 +280,21 @@ impl PdfPlan {
 
     pub fn minute(&self) -> i64 {
         self.minute
+    }
+
+    /// Whether the request asks for Opus's analysis.
+    pub fn analysis_asked(&self) -> bool {
+        self.asked
+    }
+
+    /// The refusal (409 `pdf_analysis_offline`) of an analysis asked where there is no link to an
+    /// LLM (`linked` false: no API key, or a relay that does not let the passphrase in). A report
+    /// without the analysis needs none.
+    pub fn check_link(&self, linked: bool) -> Answer<()> {
+        if self.asked && !linked {
+            return Err(Refusal::storage("pdf_analysis_offline: Opusの考察にはAPIの接続が必要です。APIの設定を確かめるか、考察なしで作ってください。").into());
+        }
+        Ok(())
     }
 
     /// The branches' records, in `branch_ids`' order: the report's heads.
@@ -430,9 +453,30 @@ impl PdfPlan {
         Ok((events, interventions, programs.len()))
     }
 
+    /// The route's answer without the analysis, after every branch is given: `{"analysis": null,
+    /// "data", "facts"}` as canonical JSON. No LLM is asked.
+    pub fn report(&self, scenario: &[u8]) -> Answer {
+        let (data, facts) = self.contents(scenario)?;
+        Ok(asking::canonical(&json!({"analysis": null, "data": data, "facts": facts})).into_bytes())
+    }
+
     /// The report's data, its facts and the analysis's task, after every branch is given;
     /// `attempt` the retry's number after a reply that was paid for and refused (0 first).
     pub fn analysis(&self, scenario: &[u8], attempt: i64) -> Answer<PdfAnalysis> {
+        let (data, facts) = self.contents(scenario)?;
+        let prompt = json!({
+            "task": "避難所IF！の自治体向け共有資料を自然な日本語で執筆してください。",
+            "rules": RULES,
+            "evidence": facts,
+        });
+        let state_hash = if attempt == 0 { digest(&facts) } else { digest(&json!({"facts": facts, "attempt": attempt})) };
+        let mut task = asking::review_task(REVIEW, &prompt, state_hash, &output_schema())?;
+        task.input_byte_limit = Some(INPUT_BYTE_LIMIT);
+        Ok(PdfAnalysis { data, facts, task })
+    }
+
+    /// The report's data and its facts, after every branch is given.
+    fn contents(&self, scenario: &[u8]) -> Answer<(Value, Value)> {
         if self.branches.len() != self.ids.len() {
             return Err(error("the report's branches are not all given"));
         }
@@ -498,15 +542,7 @@ impl PdfPlan {
             "heads": self.records,
         });
         let facts = facts(&data);
-        let prompt = json!({
-            "task": "避難所IF！の自治体向け共有資料を自然な日本語で執筆してください。",
-            "rules": RULES,
-            "evidence": facts,
-        });
-        let state_hash = if attempt == 0 { digest(&facts) } else { digest(&json!({"facts": facts, "attempt": attempt})) };
-        let mut task = asking::review_task(REVIEW, &prompt, state_hash, &output_schema())?;
-        task.input_byte_limit = Some(INPUT_BYTE_LIMIT);
-        Ok(PdfAnalysis { data, facts, task })
+        Ok((data, facts))
     }
 }
 
@@ -697,9 +733,9 @@ impl PdfAnalysis {
         Ok(asking::canonical(&analysis).into_bytes())
     }
 
-    /// The route's answer (#470): the report's data, its facts and the checked analysis (`read`'s),
-    /// `{"analysis", "data", "facts"}` as canonical JSON, which the screen lays out on its print
-    /// page.
+    /// The route's answer with the analysis (#470): the report's data, its facts and the checked
+    /// analysis (`read`'s), `{"analysis", "data", "facts"}` as canonical JSON, which the screen
+    /// lays out on its print page.
     pub fn report(&self, analysis: &[u8]) -> Answer {
         let analysis: Value = serde_json::from_slice(analysis).map_err(|_| error("an analysis that is not JSON"))?;
         Ok(asking::canonical(&json!({"analysis": analysis, "data": self.data, "facts": self.facts})).into_bytes())

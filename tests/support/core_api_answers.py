@@ -89,11 +89,16 @@ FOREIGN_CURSORS = [
     ("kind=kpis&end=30&limit=7&text=%21%21", "kind=kpis&end=30&limit=7&text=%21"),
 ]
 # `POST runs/{run}/pdf-report` (#309): the Run and the body. Without an API key the server answers
-# 409 `pdf_analysis_offline` once the request passes its checks, which come first in their order.
+# an analysis asked with 409 `pdf_analysis_offline` once the request passes its checks, which come
+# first in their order. (A report without the analysis, #582, is made from the stored Runs:
+# `core_interventions.py` holds the server's.)
 PDF_CASES: list[tuple[str, str]] = [
-    (RUN_ID, '{"branch_ids":["main"],"minute":100}'),
-    (RUN_ID, f'{{"branch_ids":["main"],"minute":{MINUTES}}}'),
-    (RUN_ID, '{"branch_ids":["main"],"minute":0}'),
+    (RUN_ID, '{"branch_ids":["main"],"minute":100,"analysis":true}'),
+    (RUN_ID, f'{{"branch_ids":["main"],"minute":{MINUTES},"analysis":true}}'),
+    (RUN_ID, '{"analysis":true,"branch_ids":["main"],"minute":0}'),
+    (RUN_ID, '{"branch_ids":["main"],"minute":1,"analysis":"true"}'),
+    (RUN_ID, '{"branch_ids":["main"],"minute":1,"analysis":null}'),
+    (RUN_ID, '{"branch_ids":["main","main"],"minute":1,"analysis":1}'),
     (RUN_ID, f'{{"branch_ids":["main"],"minute":{MINUTES + 1}}}'),
     (RUN_ID, '{"branch_ids":["main"],"minute":-1}'),
     (RUN_ID, '{"branch_ids":["main"],"minute":true}'),
@@ -106,6 +111,7 @@ PDF_CASES: list[tuple[str, str]] = [
     (RUN_ID, '{"branch_ids":[1],"minute":1}'),
     (RUN_ID, '{"branch_ids":["main"]}'),
     (RUN_ID, '{"branch_ids":["main"],"minute":1,"extra":1}'),
+    (RUN_ID, '{"branch_ids":["main"],"minute":-1,"analysis":false}'),
     (RUN_ID, '{"branch_ids":["nope"],"minute":1}'),
     (RUN_ID, '{"branch_ids":["main","nope"],"minute":1}'),
     (RUN_ID, '{"branch_ids":["../x"],"minute":1}'),

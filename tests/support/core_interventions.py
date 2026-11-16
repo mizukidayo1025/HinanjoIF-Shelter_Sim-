@@ -150,7 +150,9 @@ LLM_PREVIEWS: list[tuple[dict[str, Any], list[str]]] = [
 # `pdf-report` with an API key (#470): (body, answers). "prose" is the grounded analysis of
 # `support.reports`.
 LLM_REPORTS: list[tuple[dict[str, Any], list[str]]] = [
-    ({"branch_ids": ["main", CHILD], "minute": 420}, ["prose"]),
+    ({"branch_ids": ["main", CHILD], "minute": 420, "analysis": True}, ["prose"]),
+    # Without the analysis (#582): no call, though there is a link.
+    ({"branch_ids": ["main", CHILD], "minute": 420, "analysis": False}, []),
 ]
 
 
@@ -324,19 +326,20 @@ def _llm_cases(api: Any, heads: Any) -> list[dict[str, Any]]:
     return cases
 
 
-# `pdf-report` of the child and of both branches (#309): the server's checks, then its 409 without
-# an API key.
+# `pdf-report` of the child and of both branches (#309): the server's checks, then the report
+# without the analysis (#582), and its 409 for an analysis asked without an API key.
 PDF_REPORTS: list[dict[str, Any]] = [
     {"branch_ids": ["main", CHILD], "minute": 420},
     {"branch_ids": [CHILD, "main"], "minute": MINUTES},
     {"branch_ids": ["main", CHILD], "minute": FORK_MINUTE - 1},
     {"branch_ids": [CHILD], "minute": FORK_MINUTE - 1},
     {"branch_ids": [CHILD], "minute": FORK_MINUTE},
+    {"branch_ids": ["main", CHILD], "minute": 420, "analysis": True},
 ]
 
 
 def _pdf(api: Any, document: dict[str, Any]) -> tuple[int, str]:
-    """The server's answer to `pdf-report`, which it never makes without an API key."""
+    """The server's answer to `pdf-report`."""
     from support.web import server_answer
 
     return server_answer(

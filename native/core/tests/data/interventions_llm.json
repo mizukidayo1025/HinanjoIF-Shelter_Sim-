@@ -216,6 +216,7 @@
   },
   {
    "document": {
+    "analysis": true,
     "branch_ids": [
      "main",
      "c1"
@@ -240,9 +241,26 @@
      "task_sha256": "8611ef9672d1170a875ded90d4c8801cbff260582fc8a8041709b297732c1b85"
     }
    ],
-   "name": "report with the LLM {\"branch_ids\": [\"main\", \"c1\"], \"minute\": 420}",
+   "name": "report with the LLM {\"branch_ids\": [\"main\", \"c1\"], \"minute\": 420, \"analysis\": true}",
    "route": "pdf-report",
    "sha256": "9a05345e84d4dab4d56203ba56e1db08c4f232ea4e828b33b8354a5811639ce0",
+   "status": 200,
+   "text": null
+  },
+  {
+   "document": {
+    "analysis": false,
+    "branch_ids": [
+     "main",
+     "c1"
+    ],
+    "minute": 420
+   },
+   "length": 25802,
+   "llm": [],
+   "name": "report with the LLM {\"branch_ids\": [\"main\", \"c1\"], \"minute\": 420, \"analysis\": false}",
+   "route": "pdf-report",
+   "sha256": "56099960c641f09151a9ff5e5d079bde72d4accab8403b40e33deedfecb326ae",
    "status": 200,
    "text": null
   }

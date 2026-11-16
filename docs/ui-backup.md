@@ -75,9 +75,8 @@ SHELTERSIM_LLM_MODE=record SHELTERSIM_LLM_ERROR_POLICY=stop \
 | 折れ線グラフ | GET B/history?kind=kpis | 実装済み / tick終了時記録を標本化・ページ取得。マップのtick直前境界と区別 |
 | Branch report・出典・モデル | GET B/report、GET R/evidence、GET B/llm-status | 実装済み / 途中・未生成・fallback・利用不可を区別 |
 | 結果Q&A | POST B/questions | 実装済み / factsとexplanations・出典・制限を区別。offlineは回答生成不可を表示 |
-| レポート保存 | 上記データからJSON書出し | ブラウザー実装 / 記録とモデル根拠を保存 |
+| レポート保存（印刷用ページ・PDF） | POST R/pdf-report | 実装済み / 条件・指標・推移・差分などの記録から、AIなしで印刷用ページを開き、印刷画面でPDFに保存できる。Opusの考察は「Opusの考察を付ける」を選んだときだけ付け、APIがOFFの間は選べない。考察なしのページは「AIの考察：なし」と示す（#470、#582） |
 | 感染症リスク、情報到達率 | 共通の正式KPIなし | 未提供 / 数値や「高・中・低」を捏造しない |
-| PDF出力・チーム共有 | 専用APIなし | 本UIでは提供しない。操作不能な飾りボタンを配置しない |
 
 ## 利用の流れ
 

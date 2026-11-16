@@ -1,11 +1,11 @@
 //! The answers of a branch's routes that read only records and kept documents: `llm-status`,
-//! `conversations`, `pdf-report` and `delete` (#376, #309).
+//! `conversations` and `delete` (#376, #309).
 
 use serde_json::Value;
 
 use super::query::no_query;
 use super::records::RunFiles;
-use super::{check_fields, js_integer, post_document, write_value, Answer, Failure, Obj, Refusal};
+use super::{check_fields, post_document, write_value, Answer, Failure, Obj, Refusal};
 use crate::error::Error;
 use crate::json::write_json_string;
 
@@ -148,45 +148,6 @@ pub fn conversations_answer(pieces: &[&[u8]]) -> Answer {
     }
     out.extend_from_slice(b"],\"coverage\":\"latest_100_turns\",\"history_route\":\"history?kind=conversations\"}");
     Ok(out)
-}
-
-/// `POST runs/{run}/pdf-report` (src/sheltersim/web/pdf_report.py `export`): the server's checks
-/// in its order (the fields, the scope, the Run, each branch, the computed range), then what it
-/// answers without an API key: the analysis needs Opus, so no PDF is made. Always a refusal.
-/// `minute` is taken as JS takes it: 5.0 is 5.
-pub fn pdf_report_answer(project_id: &str, run_id: &str, body: Option<&[u8]>, files: &RunFiles) -> Failure {
-    match pdf_report_checks(project_id, run_id, body, files) {
-        Ok(()) => Refusal::storage("pdf_analysis_offline: Opusの記録応答またはAPI接続が必要です。").into(),
-        Err(failure) => failure,
-    }
-}
-
-fn pdf_report_checks(project_id: &str, run_id: &str, body: Option<&[u8]>, files: &RunFiles) -> Answer<()> {
-    let document = post_document(body)?;
-    check_fields(&document, &["branch_ids", "minute"], &[])?;
-    let scope = || Refusal::storage("pdf_invalid_scope: 単一BranchまたはA/Bの2分岐と整数分を指定してください。");
-    let ids: Vec<&str> = match &document["branch_ids"] {
-        Value::Array(items) if (1..=2).contains(&items.len()) => items.iter().map(Value::as_str).collect::<Option<_>>().ok_or_else(scope)?,
-        _ => return Err(scope().into()),
-    };
-    let distinct = ids.len() < 2 || ids[0] != ids[1];
-    let minute = js_integer(&document["minute"]).filter(|minute| *minute >= 0.0);
-    let (Some(minute), true) = (minute, distinct) else {
-        return Err(scope().into());
-    };
-    files.document(project_id, run_id)?;
-    let mut records = Vec::with_capacity(ids.len());
-    for id in &ids {
-        records.push(files.branch_record(project_id, run_id, id)?);
-    }
-    let within = |record: &super::records::Record| {
-        let at = |key: &str| record.get(key).and_then(super::js_number);
-        matches!((at("fork_minute"), at("computed_until")), (Some(fork), Some(until)) if fork <= minute && minute <= until)
-    };
-    if !records.iter().all(within) {
-        return Err(Refusal::storage("pdf_uncomputed_range: 指定時刻は共通の計算済み範囲外です。").into());
-    }
-    Ok(())
 }
 
 /// `POST runs/{run}/delete` (`ProjectAPI.delete_run` of src/sheltersim/web/projects.py): the Run's

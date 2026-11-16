@@ -233,7 +233,7 @@ fn the_entity_rules_read_the_rows() {
     assert_eq!(entity_rules(&world), Ok(vec![]));
     // An agent's value is read from its row.
     world.rows_mut().unwrap().agents.get_mut("a1").unwrap().stress = 1.5;
-    assert_eq!(entity_rules(&world), Err(refusal("an agent's value is the Python rule's")));
+    assert_eq!(entity_rules(&world), Err(refusal("an agent's stress, trust or times are out of range")));
     world.rows_mut().unwrap().agents.get_mut("a1").unwrap().stress = 0.2;
     // A v5 world with a resource config, or a v6 world without one, is refused.
     let config =
@@ -252,7 +252,7 @@ fn the_entity_rules_read_requests_inventory_counters_and_events() {
     let mut world = world();
     // A settled request names someone unknown.
     world.rows_mut().unwrap().support_requests.get_mut("r1").unwrap().agent_id = text("nobody");
-    assert_eq!(entity_rules(&world), Err(refusal("a request's agent or timing is the Python rule's")));
+    assert_eq!(entity_rules(&world), Err(refusal("a request's agent or timing is invalid")));
     // Only the requests given are read.
     let (absent, routes) = (Held::Absent, Ok(Arc::new(None)));
     let r2 = world.rows().unwrap().support_requests.slot_of("r2").unwrap();
@@ -262,7 +262,7 @@ fn the_entity_rules_read_requests_inventory_counters_and_events() {
     world.rows_mut().unwrap().support_requests.get_mut("r1").unwrap().agent_id = text("a1");
     // The inventory and the counters.
     world.slots.row_mut::<IdMap<i64>>(RESOURCES).unwrap().insert(text("water_ml"), -1);
-    assert_eq!(entity_rules(&world), Err(refusal("the inventory is the Python rule's")));
+    assert_eq!(entity_rules(&world), Err(refusal("the inventory is negative")));
     world.slots.row_mut::<IdMap<i64>>(RESOURCES).unwrap().insert(text("water_ml"), 1);
     // A pending event with no row, then one whose sequence the counter is not past.
     world.queue_mut().unwrap().add(text("e1"), (8, 0, 12), None);
@@ -351,7 +351,7 @@ fn a_written_settled_request_is_read_again_and_a_refusal_keeps_the_memo() {
     // Written by a rule of the core: its slot is marked, the check reads it and turns it down.
     cell.with(|world| world.rows_mut().unwrap().support_requests.get_mut("r2").unwrap().requested_minute = 99).unwrap();
     let before = memo.clone();
-    assert_eq!(check(&cell, &mut memo, &mut Asked::default(), configs), Err(refusal("a request's agent or timing is the Python rule's")));
+    assert_eq!(check(&cell, &mut memo, &mut Asked::default(), configs), Err(refusal("a request's agent or timing is invalid")));
     assert_eq!((memo.requests.clone(), memo.open.clone(), memo.minute), (before.requests, before.open, before.minute));
     // The marks stay for the next check.
     assert!(!cell.try_borrow().unwrap().rows().unwrap().support_requests.marked().is_empty());

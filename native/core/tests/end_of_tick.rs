@@ -95,7 +95,7 @@ fn every_recorded_broken_world_ends_a_tick_with_the_recorded_error() {
             if wanted == found {
                 as_recorded += 1;
             }
-            if stepping.refused.iter().any(|(_, reason)| reason.contains("its kernel did not take it") || reason.contains("are the Python rule's")) {
+            if stepping.refused.iter().any(|(_, reason)| reason.contains("its kernel did not take it") || reason.contains("did not pass their check")) {
                 refused_by_validators += 1;
             }
             checked += 1;
@@ -140,7 +140,7 @@ fn a_broken_body_record_ends_the_tick_with_the_validation_s_error() {
         record.uncertainty = 1.5;
     });
     assert!(matches!(&error, Error::Invariant(text) if text == "invalid simulator extension state"), "{error:?}");
-    assert_eq!(reason, "the rows of the body state are the Python rule's");
+    assert_eq!(reason, "the rows of the body state did not pass their check");
 }
 
 #[test]

@@ -17,10 +17,11 @@ as a person would, in five stages:
    「計算する」 at once in the first browser (`--modes`, full); 「計算する」, 「中止」 after a day,
    「続きから計算する」 to the end in the second (pieces).
 3. intervention: at Day 4 14:00 (minute 5160), 「この時刻から分岐を作る」 opens the comparison
-   page, where the screen previews a few sentences (SENTENCES: the
-   offline parser's add_staff, whose Zone is then picked with the screen's chip, add_toilet,
-   water_outage, one it cannot read, and facility_outage), then applies "Day 4 14:00 toilet_01
-   outage"; the screen computes the child to the end by itself (#441).
+   page, where interventions are built from the core's operators, targets and amounts (BUILDS,
+   #584: add_staff and add_toilet previewed, facility_outage of toilet_01 previewed and applied);
+   the text is the AI's option, not used offline. Python forks with the program the screen built
+   and applied (PythonSide.use_program). The screen computes the child to the end by itself
+   (#441).
 4. compare: the screen's comparison of the two branches as the page opens, then `compare` at
    several minutes and
    two-branch replay windows.
@@ -150,17 +151,15 @@ FORM_REQUEST = {
     },
 }
 FORK_MINUTE = 3 * 1440 + 14 * 60
-# The sentences previewed at FORK_MINUTE, as (label, text, the Zone chip clicked after it): the
-# offline parser's add_staff (which asks for the Zone: the screen's chip previews again with
-# `zone_id:`), add_toilet, water_outage (not simulatable: the example's shelter has no water
-# station), a sentence it cannot read, and facility_outage, which is applied
-# (scripts/build_project_sample.py's intervention).
-SENTENCES = (
-    ("add_staff", "Day 4 14:00 スタッフを2人追加", "staff"),
-    ("add_toilet", "Day 4 14:00 トイレを1基追加", None),
-    ("water_outage", "Day 4 14:00 断水", None),
-    ("unsupported", "避難所の雰囲気を明るくする", None),
-    ("facility_outage", "Day 4 14:00 toilet_01 outage", None),
+# The interventions built at FORK_MINUTE on the comparison page (#584), as (label, operator,
+# target, amounts, minutes it lasts or None for the scenario's end): add_staff and add_toilet are
+# previewed; facility_outage of toilet_01 (scripts/build_project_sample.py's intervention) is
+# previewed and applied. Each build draws one of the screen's ids (its program's), before the
+# child's id (e2e_subject, sample_subject).
+BUILDS = (
+    ("add_staff", "add_staff", "zone:staff", {"count": 2}, None),
+    ("add_toilet", "add_toilet", "zone:toilet", {"count": 1}, None),
+    ("facility_outage", "facility_outage", "facility:toilet_01", {"units": 1}, None),
 )
 QUESTION = "トイレの待ち時間はどう変わりましたか？"
 # Minutes and windows the checks ask for.
@@ -566,14 +565,16 @@ def e2e_subject() -> Subject:
         "e2e",
         PROJECT,
         f"run-{uuid(1)}",
-        f"branch-{uuid(3)}",
+        f"branch-{uuid(3 + len(BUILDS))}",
         form_run=f"run-{uuid(2)}",
         copy_run="run-e2e-copy",
     )
 
 
 def sample_subject() -> Subject:
-    return Subject("sample", SAMPLE_PROJECT, SAMPLE_RUN, f"branch-{uuid(1)}", COMPUTE_RUN)
+    return Subject(
+        "sample", SAMPLE_PROJECT, SAMPLE_RUN, f"branch-{uuid(1 + len(BUILDS))}", COMPUTE_RUN
+    )
 
 
 def _key(*parts: bytes) -> str:
@@ -585,7 +586,7 @@ def _key(*parts: bytes) -> str:
 
 # The version of the Python side's operations (PythonSide's stages): bump it when they change, so
 # answers kept in --work are made again.
-PYTHON_SIDE_VERSION = 2
+PYTHON_SIDE_VERSION = 3
 
 
 def _plan() -> bytes:
@@ -593,7 +594,7 @@ def _plan() -> bytes:
     subjects = (e2e_subject(), sample_subject())
     plan = {
         "version": PYTHON_SIDE_VERSION,
-        "inputs": [BASIC_REQUEST, FORM_REQUEST, FORK_MINUTE, SENTENCES[-1]],
+        "inputs": [BASIC_REQUEST, FORM_REQUEST, FORK_MINUTE, BUILDS[-1]],
         "routes": [
             [route(subject) for route in (scenario_routes, compute_routes, intervention_routes)]
             + [compare_routes(subject), report_routes(subject)]
@@ -761,6 +762,20 @@ class PythonSide:
         assert found is not None
         return found
 
+    def use_program(self, body: Any) -> str | None:
+        """The intervention stage forks with the preview the screen sent for the intervention it
+        applies (`{program, minute}`: the program it built, its id one of the pinned ids), so both
+        sides fork with the same program. Kept with the answers: another browser must send the
+        same, or the difference is returned."""
+        kept = self.state.get("fork_program")
+        if kept is None:
+            self.state["fork_program"] = body
+            self._save()
+            return None
+        if kept != body:
+            return f"the screen built {_answer_text(body)}, not the program Python forked with"
+        return None
+
     def at(self, stage: str) -> None:
         """Do the stages up to `stage` that are not done yet."""
         for each in STAGES[: STAGES.index(stage) + 1]:
@@ -836,14 +851,10 @@ class PythonSide:
     def _stage_intervention(self) -> None:
         s = self.subject
         branch = f"/api/v1/projects/{s.project}/runs/{s.run}/branches/main"
-        text = SENTENCES[-1][1]
-        self._memo(
-            "intervention",
-            "preview_apply",
-            "POST",
-            f"{branch}/intervention-preview",
-            {"text": text, "minute": FORK_MINUTE},
-        )
+        body = self.state.get("fork_program")
+        if body is None:
+            raise RuntimeError("the intervention stage needs the screen's program (use_program)")
+        self._memo("intervention", "preview_apply", "POST", f"{branch}/intervention-preview", body)
         preview = json.loads(self._kept("intervention:preview_apply")[1])
         self._memo(
             "intervention",
@@ -1413,30 +1424,54 @@ class Walk:
         self.page.click("#branch-here")
         self.view("comparison")
         branch = f"{_run_path(s.project, s.run)}/branches/main"
-        preview = None
-        for label, text, choice in SENTENCES:
-            self.page.fill("#intervention-text", text)
-            asks = [(label, text, "#intervention-preview")]
-            if choice:
-                # The screen's chip of the Zone: a preview of the text with `zone_id:`.
-                chip = f"#intervention-result button:has-text('({choice})')"
-                asks.append((f"{label}_zone", f"{text}\nzone_id: {choice}", chip))
-            for name, asked, button in asks:
-                since = self.mark()
-                self.page.click(button)
-                preview = self.wait_caught(since, "POST", r"/intervention-preview$")
-                body = {"text": asked, "minute": FORK_MINUTE}
-                item = self.check(
-                    stage,
-                    f"preview_{name}",
-                    f"{branch}/intervention-preview",
-                    preview,
-                    ask=("POST", f"{branch}/intervention-preview", body),
-                    body=body,
-                    sent=preview and preview["body"],
-                )
-                if self.unavailable(stage, item):
-                    return False
+        route = f"{branch}/intervention-preview"
+        self.wait(
+            "() => document.getElementById('intervention-op').options.length > 0",
+            "the operators' catalog",
+        )
+        # Each intervention built from the screen's choices (#584), previewed.
+        previews = []
+        for label, op, target, amounts, minutes in BUILDS:
+            self.page.select_option("#intervention-op", op)
+            self.page.select_option("#intervention-target", target)
+            for name, value in amounts.items():
+                self.page.fill(f'#intervention-amounts [data-name="{name}"]', str(value))
+            # Shown only for an operator that lasts; left empty, it lasts to the scenario's end.
+            if minutes is not None:
+                self.page.fill("#intervention-duration", str(minutes))
+            since = self.mark()
+            self.page.click("#intervention-preview")
+            caught = self.wait_caught(since, "POST", r"/intervention-preview$")
+            sent = json.loads(caught["body"]) if caught and caught["body"] else None
+            effect = ((sent or {}).get("program") or {}).get("effects", [{}])[0]
+            chosen = f"{effect.get('target_selector', {}).get('kind')}:"
+            chosen += str(effect.get("target_selector", {}).get("target_id"))
+            if sent is not None and (
+                sent.get("minute") != FORK_MINUTE
+                or effect.get("op") != op
+                or chosen != target
+                or {k: effect.get("parameters", {}).get(k) for k in amounts} != amounts
+            ):
+                self.problem(stage, f"{label}: the screen built {_answer_text(sent)}")
+            previews.append((label, caught, sent))
+        # Python forks with the program the screen applies (the last one built).
+        side = self.side()
+        if side is not None and previews[-1][2] is not None:
+            differs = side.use_program(previews[-1][2])
+            if differs:
+                self.problem(stage, differs)
+                return False
+        preview = previews[-1][1]
+        for label, caught, sent in previews:
+            item = self.check(
+                stage,
+                f"preview_{label}",
+                route,
+                caught,
+                ask=("POST", route, sent) if sent is not None else None,
+            )
+            if self.unavailable(stage, item):
+                return False
         self.shot("intervention-preview")
         if preview is None or preview["status"] != 200:
             return False

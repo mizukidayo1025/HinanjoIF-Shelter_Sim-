@@ -55,7 +55,7 @@ pub const RECEIPT_EVENTS: [&str; 5] = [CARE_EVENT, CONTINUITY_EVENT, RECOVERY_EV
 /// What `json.loads` reads, as a `V`.
 pub fn json_value(bytes: &[u8]) -> Result<V> {
     let value: serde_json::Value = serde_json::from_slice(bytes).map_err(|_| Error::unsupported("bytes that are not JSON"))?;
-    V::from_json(&value).ok_or_else(|| Error::unsupported("a number that is not Python's"))
+    V::from_json(&value).ok_or_else(|| Error::unsupported("a number the core cannot read"))
 }
 
 /// Whether an int and a float are equal as Python compares them: exactly.
@@ -797,7 +797,7 @@ pub fn state_holds(world: &World, minute: i64) -> Result<()> {
                 match Receipt::check(&json_value(&item.bytes)?) {
                     Ok(_) => {}
                     Err(Verdict::Invalid) => return Err(Error::value_error(STATE_INVALID)),
-                    Err(Verdict::Unsure) => return Err(Error::unsupported("a receipt only the Python contract can judge")),
+                    Err(Verdict::Unsure) => return Err(Error::unsupported("a receipt its check cannot decide")),
                 }
             }
         }

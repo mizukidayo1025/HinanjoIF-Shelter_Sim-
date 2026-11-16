@@ -164,7 +164,7 @@ pub struct RouteCapacities {
 }
 
 pub const ROUTE_CONFIG_LACKS_CAPACITIES: &str = "the route config lacks its capacities";
-pub const ROUTE_CONFIG_NOT_PLAIN: &str = "the route config is the Python rule's";
+pub const ROUTE_CONFIG_NOT_PLAIN: &str = "the route config has another shape or source";
 
 impl RouteCapacities {
     /// `layout_routing` of the configs (a dict, `read::map`) and the checks of

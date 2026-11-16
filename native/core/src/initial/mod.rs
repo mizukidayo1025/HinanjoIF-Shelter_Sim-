@@ -102,7 +102,7 @@ fn array<'a>(json: &'a Value, what: &str) -> Result<&'a Vec<Value>> {
 }
 
 fn value_of(json: &Value) -> Result<V> {
-    V::from_json(json).ok_or_else(|| bad("a number Python does not read"))
+    V::from_json(json).ok_or_else(|| bad("a number the core cannot read"))
 }
 
 fn map_of(json: &Value, what: &str) -> Result<IndexMap<Arc<str>, V>> {

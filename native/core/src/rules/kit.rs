@@ -709,18 +709,18 @@ pub fn presence_household(presence: Option<&V>, agent_id: &str) -> Result<Option
         return Ok(Some(None));
     };
     let V::Map(people) = people else {
-        return Err(Error::unsupported("the presence state's people are for the Python rule"));
+        return Err(Error::unsupported("the presence state's people are not a dict"));
     };
     let Some(person) = people.get(agent_id) else {
         return Ok(Some(None));
     };
     let V::Map(person) = person else {
-        return Err(Error::unsupported("a presence record is for the Python rule"));
+        return Err(Error::unsupported("a presence record is not a dict"));
     };
     match person.get("household_id") {
         None | Some(V::Null) => Ok(Some(None)),
         Some(V::Str(household)) => Ok(Some(Some(household.clone()))),
-        Some(_) => Err(Error::unsupported("a value is not a str")),
+        Some(_) => Err(Error::unsupported("a presence record's household is not a str")),
     }
 }
 

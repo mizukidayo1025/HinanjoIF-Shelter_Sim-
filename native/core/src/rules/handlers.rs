@@ -202,7 +202,7 @@ fn repr(value: &V) -> Result<String> {
         V::Big(digits) => digits.to_string(),
         V::Float(number) => python_float_repr(*number),
         V::Str(text) => py_repr(text),
-        V::List(_) | V::Map(_) => return Err(Error::unsupported("a value whose repr is Python's")),
+        V::List(_) | V::Map(_) => return Err(Error::unsupported("a list or mapping where a text shows a value")),
     })
 }
 

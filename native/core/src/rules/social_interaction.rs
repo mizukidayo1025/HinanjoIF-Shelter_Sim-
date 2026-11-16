@@ -516,7 +516,7 @@ fn other_typed_event(world: &World, event: &EventRow, interaction: &V, kind: Opt
         Some(_) => failure(NOT_ALLOWED),
         // Another scalar JSON value is in no set of texts and equals none.
         None if matches!(interaction, V::Bool(_) | V::Int(_) | V::Big(_) | V::Float(_)) => failure(NOT_ALLOWED),
-        None => Err(Error::unsupported("another type of interaction is for the Python rule to judge")),
+        None => Err(Error::unsupported("an interaction type that is null, a list or a mapping")),
     }
 }
 
@@ -682,10 +682,10 @@ fn information_reaction(typed: &Typed<'_>) -> Result<Said> {
         };
         // `TypedMessage.from_dict` and `AgentInformationState.from_dict` of the records.
         if row.schema_version != INFORMATION_VERSION {
-            return Err(Error::unsupported("an older state is for the Python rule to read"));
+            return Err(Error::unsupported("the information state has an older schema"));
         }
         if !message.parses() || !belief.parses() {
-            return Err(Error::unsupported("the record is for the Python rule to judge"));
+            return Err(Error::unsupported("a message or belief does not parse"));
         }
         let settled = &*message.truth_status != "false" || &*belief.belief != "heard";
         (settled, row.query_pressure.get(&**agent_id).copied())
@@ -712,7 +712,7 @@ fn information_reaction(typed: &Typed<'_>) -> Result<Said> {
 pub fn pressure_gain(config: &Kept<InformationSpread>) -> Result<f64> {
     let config = match config {
         Ok(config) if config.present => config,
-        _ => return Err(Error::unsupported("the config is for the Python rule to read")),
+        _ => return Err(Error::unsupported("the information spread config is absent or does not parse")),
     };
     match config.query_pressure_per_claim.clone() {
         Ok(value) => Ok(value),

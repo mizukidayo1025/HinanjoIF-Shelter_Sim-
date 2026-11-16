@@ -21,7 +21,7 @@ pub const LIFECYCLE: &str = "action_lifecycle.record_action_proposal";
 /// The label of the refusal of the memory's rule.
 pub const MEMORY: &str = "agent_dynamics.record_proposal";
 /// The refusal of a decision whose next decision is due no later than its own minute.
-pub const NOT_AFTER: &str = "the host has no sink that records in Python";
+pub const NOT_AFTER: &str = "a decision's next decision is not after its minute";
 
 /// A decision and its outcome, as `record_outcome` takes them.
 pub struct Recording<'a> {

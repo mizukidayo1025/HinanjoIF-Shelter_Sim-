@@ -66,7 +66,9 @@ pub fn view_for_proposals<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_,
     let minute = tick.minute;
     let data = match prior {
         Some(Prior::View(prior)) if prior.minute_index == minute => tick.world(|world| view::refresh(&prior, world))?,
-        Some(Prior::Other { minute: Some(at) }) if at == minute => return Err(Error::unsupported("the prior view is Python's").into()),
+        Some(Prior::Other { minute: Some(at) }) if at == minute => {
+            return Err(Error::unsupported("the prior view of this minute was not made by the core").into())
+        }
         _ => tick.build_view(&holding, &gathered)?,
     };
     let data = finish(tick, data, &gathered)?;
@@ -334,7 +336,7 @@ fn seek_of<C: WorldCell, H: Host, R: RunCell>(tick: &mut Tick<'_, C, H, R>, hold
                 },
                 _ => None,
             },
-            held: holding.held(INFORMATION, "the information state is for the Python rule"),
+            held: holding.held(INFORMATION, "the world holds another tree than the information state"),
         }),
     };
     let shared = match holding.is_absent(SHARED) {

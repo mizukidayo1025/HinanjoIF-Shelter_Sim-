@@ -230,7 +230,7 @@ pub fn observed_contacts(world: &World, pairs: &[(&str, &str)], minute: i64) -> 
     let mut records = Vec::with_capacity(pairs.len());
     for (recipient, source) in pairs {
         if recipient == source || !is_plain_id(recipient) || !is_plain_id(source) {
-            return Err(Error::unsupported("a pair the kernel leaves to Python"));
+            return Err(Error::unsupported("a pair of one person or with an ID that is not plain"));
         }
         records.push(RecordWrite {
             key: pair_key(recipient, source),

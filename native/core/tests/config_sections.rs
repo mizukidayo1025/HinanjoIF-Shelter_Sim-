@@ -215,7 +215,7 @@ fn the_policy_of_agent_dynamics_in_the_order_of_its_checks() {
     assert_eq!(canonical_policy(Some(&raw(json!({"policy_version": POLICY_V3, "source_id": 1})))), Ok(Err(MUST_CITE)));
     assert_eq!(policy(&raw(json!({}))), Ok(POLICY_V1));
     assert_eq!(policy(&raw(json!({"agent_dynamics": {"policy_version": POLICY_V2}}))), Ok(POLICY_V2));
-    assert_eq!(refused(policy(&raw(json!({"agent_dynamics": {"x": 1}})))), "a config the Python rule refuses");
+    assert_eq!(refused(policy(&raw(json!({"agent_dynamics": {"x": 1}})))), "the agent dynamics config is not canonical");
     assert_eq!(refused(policy(&raw(json!([])))), "a value is not a plain dict");
 }
 

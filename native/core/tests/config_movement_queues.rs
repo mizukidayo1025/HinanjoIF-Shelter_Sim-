@@ -144,7 +144,7 @@ fn the_route_capacities_up_to_the_edges() {
     for extra in
         [json!({"schema_version": true}), json!({"schema_version": 1.0}), json!({"source_type": "survey"}), json!({"source_id": 5}), json!({"other": 1})]
     {
-        assert_eq!(refused(parse(config(extra))), "the route config is the Python rule's");
+        assert_eq!(refused(parse(config(extra))), "the route config has another shape or source");
     }
     assert_eq!(refused(parse(config(json!({"max_agents_in_transit_by_edge": [1]})))), "a value is not a plain dict");
 }

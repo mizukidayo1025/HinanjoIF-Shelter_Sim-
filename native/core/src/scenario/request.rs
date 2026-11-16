@@ -617,7 +617,7 @@ impl InitialScenarioRequest {
     /// `InitialScenarioRequest.model_validate` of the JSON text of a request.
     pub fn of_json(raw: &[u8]) -> Result<Self, Refusal> {
         let parsed: serde_json::Value = serde_json::from_slice(raw).map_err(|error| Refusal::Invalid(format!("not JSON: {error}")))?;
-        let value = V::from_json(&parsed).ok_or_else(|| Refusal::Invalid("a number Python cannot read".into()))?;
+        let value = V::from_json(&parsed).ok_or_else(|| Refusal::Invalid("a number the core cannot read".into()))?;
         Self::of_value(&value)
     }
 

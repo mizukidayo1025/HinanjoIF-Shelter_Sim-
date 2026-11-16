@@ -455,7 +455,7 @@ fn spaces_pass(state: &V, rows: &Entities) -> Result<bool> {
             || (*active && row.get("end_event_id") != Some(&V::Null))
             || (!*active && !ended)
         {
-            return refuse("a space's values are not what the Python rule passes");
+            return refuse("a space's values are invalid");
         }
         str_of(row, "program_id")?;
         str_of(row, "effect_id")?;
@@ -771,7 +771,7 @@ fn admission_point_after(world: &World, intake: &Intake<'_>, state: &RoomParts<'
     let mut unique: Vec<Pt> = Vec::with_capacity(candidates.len());
     let bits = |value: f64| (value + 0.0).to_bits();
     for point in candidates {
-        let not_plain = || Error::unsupported("a round Python decides");
+        let not_plain = || Error::unsupported("a point that cannot be rounded");
         let key = (bits(py_round(point.x, 8).ok_or_else(not_plain)?), bits(py_round(point.y, 8).ok_or_else(not_plain)?));
         match places.get(&key) {
             Some(&place) => unique[place] = point,
@@ -1605,7 +1605,7 @@ fn transferred_footprint_fits(constraints: &Constraints, facility_id: &str, zone
     }
     // `item.facility_id` of an obstacle raises AttributeError in the transfer's rule: refused.
     if constraints.obstacle_count > 0 {
-        return refuse("the Python rule raises on an obstacle");
+        return refuse("a transfer in a layout with obstacles");
     }
     let others = constraints.footprints.iter().filter(|(id, _)| &**id != facility_id).map(|(_, polygon)| polygon);
     for shape in others {
@@ -2524,7 +2524,7 @@ fn check_overlay_history(history: &[V], minute: i64) -> Result<()> {
             || at > minute
             || previous.is_some_and(|before| before > at)
         {
-            return refuse("a history record is not what the Python rule passes");
+            return refuse("a history record is invalid or out of order");
         }
         previous = Some(at);
     }
@@ -2605,7 +2605,7 @@ fn check_rooms<'a>(rooms: &'a Doc, layout: &Layout, edges: &HashMap<Arc<str>, Ed
             return refuse("a room in an unknown zone");
         };
         if start > minute || (*active && minute > end) || !inside_zone(&zone.polygon, &polygon) {
-            return refuse("a room is not what the Python rule passes");
+            return refuse("a room starts later, has ended or leaves its zone");
         }
         if beds.iter().any(|point| !point_in_polygon(*point, &polygon)) {
             return refuse("a bed lies outside its room");
@@ -2659,7 +2659,7 @@ fn check_facility_points(points: &Doc, layout: &Layout, facility_zones: &HashMap
             return refuse("a move of an unknown facility");
         };
         if at > minute || !point_in_polygon(point, &zone.polygon) {
-            return refuse("a move is not what the Python rule passes");
+            return refuse("a move is later or leaves its zone");
         }
     }
     for service in &layout.service_points {
@@ -2688,7 +2688,7 @@ fn check_partitions(partitions: &Doc, layout: &Layout, minute: i64) -> Result<()
             return refuse("a partition in an unknown zone");
         };
         if !is_identifier(zone_id) || !(3..=64).contains(&polygon.len()) || end <= at || end <= 0 || at > minute || !inside_zone(&zone.polygon, &polygon) {
-            return refuse("a partition is not what the Python rule passes");
+            return refuse("a partition's zone, polygon or times are invalid");
         }
     }
     Ok(())
@@ -2722,7 +2722,7 @@ fn check_route_modifiers(route_modifiers: &Doc, edges: &HashMap<Arc<str>, Edge>,
                 return refuse("accessible is not a bool");
             };
             if end <= at || end <= 0 || at > minute {
-                return refuse("a route modifier is not what the Python rule passes");
+                return refuse("a route modifier's times are invalid");
             }
             closed |= !*accessible;
         }
@@ -2783,7 +2783,7 @@ fn check_reservations(reservations: &Doc, agents: &HashSet<Arc<str>>, sleeping: 
             || at > minute
             || !beds_held.insert((room_id.clone(), index))
         {
-            return refuse("a reservation is not what the Python rule passes");
+            return refuse("a reservation's room, bed, person or time is invalid");
         }
     }
     Ok(())
@@ -2809,7 +2809,7 @@ fn check_admissions(admissions: &Doc, agents: &HashSet<Arc<str>>, room_capacity:
             || !agents.contains(agent_id)
             || !room_capacity.contains_key(&**room_id)
         {
-            return refuse("an admission is not what the Python rule passes");
+            return refuse("an admission's room, person or time is invalid");
         }
         *counts.entry(room_id).or_insert(0) += 1;
     }

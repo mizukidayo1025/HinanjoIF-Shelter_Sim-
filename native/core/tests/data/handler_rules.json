@@ -2786,7 +2786,7 @@
    {
     "error": [
      "Unsupported",
-     "a value the receipt's contract is for the Python rule to judge"
+     "a receipt's ID or support kind is invalid"
     ],
     "transitions": [
      {
@@ -2807,7 +2807,7 @@
    {
     "error": [
      "Unsupported",
-     "a value the receipt's contract is for the Python rule to judge"
+     "a receipt's ID or support kind is invalid"
     ],
     "transitions": [
      {

@@ -197,7 +197,7 @@ fn unit_verdict(value: &V) -> Result<bool> {
     match value {
         V::Float(number) => Ok(number.is_finite() && (0.0..=1.0).contains(number)),
         V::Int(number) => Ok((0..=1).contains(number)),
-        V::Big(_) => Err(Error::unsupported("an int past 64 bits is for the Python rule to judge")),
+        V::Big(_) => Err(Error::unsupported("an int past 64 bits where a unit is read")),
         // A bool, and every value that is no int or float.
         _ => Ok(false),
     }

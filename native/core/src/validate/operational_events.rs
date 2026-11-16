@@ -180,7 +180,7 @@ impl<'v, 'w> Log<'v, 'w> {
 }
 
 fn record_event(log: &crate::events::log::EventLog, index: usize) -> Result<(Arc<EventRow>, bool)> {
-    let record = log.record(index)?.ok_or_else(|| Error::unsupported("a record of the log is only Python's"))?;
+    let record = log.record(index)?.ok_or_else(|| Error::unsupported("a log record's bytes were taken"))?;
     Ok((Arc::new(record.event), log.is_applied(index)))
 }
 

@@ -239,7 +239,7 @@ impl PayloadText {
 fn key_of(value: &V) -> Result<Option<&Arc<str>>> {
     match value {
         V::Str(text) => Ok(Some(text)),
-        V::List(_) | V::Map(_) => Err(Error::unsupported("a key Python cannot hash")),
+        V::List(_) | V::Map(_) => Err(Error::unsupported("a key that is not hashable")),
         _ => Ok(None),
     }
 }

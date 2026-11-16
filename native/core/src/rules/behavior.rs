@@ -281,7 +281,7 @@ fn check_candidate(candidate: &Scored) -> std::result::Result<(), &'static str> 
         || !(0.0..=1.0).contains(&candidate.probability)
         || (!candidate.eligible && candidate.probability != 0.0)
     {
-        return Err("a candidate Python turns down");
+        return Err("a candidate's utility or probability is invalid");
     }
     Ok(())
 }
@@ -298,10 +298,10 @@ fn check_proposal(
         return Err("a proposal has invalid decision timing");
     }
     if !choice_value.is_finite() || !(0.0..1.0).contains(&choice_value) {
-        return Err("a choice value Python turns down");
+        return Err("a choice value is not in [0, 1)");
     }
     if !selection_probability.is_finite() || selection_probability <= 0.0 || selection_probability > 1.0 {
-        return Err("a selected probability Python turns down");
+        return Err("a selected probability is not in (0, 1]");
     }
     let eligible: Vec<f64> = candidates.iter().filter(|item| item.eligible).map(|item| item.probability).collect();
     if eligible.is_empty() || !py_is_close(py_sum(&eligible), 1.0) {

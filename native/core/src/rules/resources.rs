@@ -186,7 +186,7 @@ pub fn apply_operation(world: &mut World, event: &OperationEvent<'_>, operation:
     let ledger_warehouse = {
         let row = world.row::<LedgerRow>(NAME)?;
         if !ledger_passes(world, &row)? {
-            return Err(Error::unsupported("the state is one the Python rule's check turned down").into());
+            return Err(Error::unsupported("the ledger did not pass its check").into());
         }
         row.warehouse_id.clone()
     };
@@ -299,7 +299,7 @@ fn text_repr(text: &str) -> std::result::Result<String, Fail> {
     if text.bytes().all(|byte| (0x20..0x7f).contains(&byte) && byte != b'\\' && byte != b'\'') {
         Ok(quoted(text))
     } else {
-        Err(Error::unsupported("an operation whose repr is Python's").into())
+        Err(Error::unsupported("an operation with a quote, a backslash or a character past printable ASCII").into())
     }
 }
 
@@ -322,7 +322,7 @@ pub fn apply_planned(world: &mut World, planned: &Operation<'_>) -> std::result:
     let (next, change, record_quantity, source_is_new) = {
         let row = world.row::<LedgerRow>(NAME)?;
         if minute < row.audit.last_minute || !ledger_passes(world, &row)? {
-            return Err(Error::unsupported("the state is one the Python rule's check turned down").into());
+            return Err(Error::unsupported("the ledger did not pass its check").into());
         }
         if &*row.warehouse_id != warehouse_id {
             return ledger(format!("unknown resource warehouse ID {}", quoted(warehouse_id)));
@@ -445,7 +445,7 @@ pub fn apply_planned(world: &mut World, planned: &Operation<'_>) -> std::result:
 pub fn metric_values(world: &World) -> Result<[[i64; 6]; 2]> {
     let row = world.row::<LedgerRow>(NAME)?;
     if !ledger_passes(world, &row)? {
-        return Err(Error::unsupported("the state is for the Python rule to judge"));
+        return Err(Error::unsupported("the ledger did not pass its check"));
     }
     let of = |account: &Account| [account.initial, account.delivered, account.served, account.losses, account.remaining, account.reserved];
     Ok([of(row.accounts.of(0)), of(row.accounts.of(1))])

@@ -586,7 +586,7 @@ fn what_the_kernel_turned_down_is_refused_before_anything_changes() {
     let mut partial = data.clone();
     partial.partial = true;
     let error = psychology::update(&world, &partial, &params, MINUTE, true).unwrap_err();
-    assert_eq!(error.to_string(), "a trace reads what a view Python made doesn't fill here");
+    assert_eq!(error.to_string(), "a trace of a partial view");
     let long_term = psychology::long_term_of(&policy).map_err(refused).unwrap();
     let finals = [("A1", 0.5), ("A2", 0.5)];
     let error = psychology::update_long_term(&world, &long_term, &finals, MINUTE - 1, true).unwrap_err();

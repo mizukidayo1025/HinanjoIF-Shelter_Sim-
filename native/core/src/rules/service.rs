@@ -278,7 +278,7 @@ impl Source {
     fn of(manager: &Manager<'_>) -> Result<Self> {
         let source = Self { source_type: manager.text("source_type")?, source_id: manager.text("source_id")?, policy_version: manager.text("policy_version")? };
         if !is_stable_id(&source.source_id) {
-            return Err(Error::unsupported("the source is for the Python rule to judge"));
+            return Err(Error::unsupported("the source ID is not a stable ID"));
         }
         Ok(source)
     }
@@ -633,7 +633,7 @@ fn plan_serve(world: &World, manager: &Manager<'_>, serve: &Serve<'_>, pending: 
     // The head's queue task and what is read of the facility.
     let (agent_id, task_id, task_start, zone_id, configured, active_count) = queue_task(world, facility_name, &head)?;
     if !is_stable_id(&task_id) || !is_stable_id(&agent_id) {
-        return Err(Error::unsupported("an ID is for the Python rule to judge"));
+        return Err(Error::unsupported("a queue task's ID or its person's ID is not a stable ID"));
     }
     let (used, warehouse, available) = ledger_of(world, manager, index, &task_id)?;
     // Whether the service task's ID is free: at once for a facility's own queue, and just before
@@ -674,7 +674,7 @@ fn plan_serve(world: &World, manager: &Manager<'_>, serve: &Serve<'_>, pending: 
         return stop("staff");
     };
     if !is_stable_id(&staff_id) {
-        return Err(Error::unsupported("an ID is for the Python rule to judge"));
+        return Err(Error::unsupported("a staff ID is not a stable ID"));
     }
     let quantity = manager.quantity(serve.resource_id)?;
     if available < quantity {
@@ -1207,11 +1207,11 @@ fn plan_complete(world: &World, manager: &Manager<'_>, event: &EventRow) -> Resu
         _ => return Err(Error::unsupported("not the service's quantity")),
     };
     if *task.id != *task_id || !is_stable_id(task_id) || !is_stable_id(&agent_id) {
-        return Err(Error::unsupported("an ID is for the Python rule to judge"));
+        return Err(Error::unsupported("a task's IDs differ or are not stable IDs"));
     }
     let event_id = event.event_id.clone();
     if !is_stable_id(&event_id) {
-        return Err(Error::unsupported("an ID is for the Python rule to judge"));
+        return Err(Error::unsupported("an event ID is not a stable ID"));
     }
     if quantity <= 0 {
         return Err(Error::unsupported("not a positive quantity"));
@@ -1770,7 +1770,7 @@ fn plan_cancel(world: &World, manager: &Manager<'_>, event_id: &Arc<str>, task_i
         return Err(Error::unsupported("the task has incomplete ownership"));
     };
     if *task.id != *task_id || task.agent_id.as_ref() != Some(&agent_id) {
-        return Err(Error::unsupported("the task's IDs are for the Python rule to judge"));
+        return Err(Error::unsupported("the task's IDs differ from the event's"));
     }
     let task_arc: Arc<str> = Arc::from(task_id);
     let mut next = sequence;

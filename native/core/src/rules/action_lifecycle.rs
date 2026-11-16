@@ -346,7 +346,7 @@ fn receipt(events: &Events<'_>, action: &ActiveAction, change: Transition<'_>, s
     }
     .checked();
     let Some(row) = row else {
-        return Err(Error::unsupported("an event the Python class refuses"));
+        return Err(Error::unsupported("an action event's IDs, numbers or minute are invalid"));
     };
     Ok(Receipt { row, minute, detail: format!("autonomous action {transition}") })
 }

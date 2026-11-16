@@ -407,8 +407,8 @@ fn a_ledger_the_check_turns_down_is_refused() {
     let mut world = ledger_world();
     // `world.resources` no longer holds the ledger's balance.
     world.row_mut::<ResourcesRow>(RESOURCES).unwrap().insert(text("water_ml"), 7);
-    assert_eq!(operate(&mut world, "delivery", water(1), "op-1"), Err(Fail::Error(unsupported("the state is one the Python rule's check turned down"))));
-    assert_eq!(resources::metric_values(&world), Err(unsupported("the state is for the Python rule to judge")));
+    assert_eq!(operate(&mut world, "delivery", water(1), "op-1"), Err(Fail::Error(unsupported("the ledger did not pass its check"))));
+    assert_eq!(resources::metric_values(&world), Err(unsupported("the ledger did not pass its check")));
 }
 
 #[test]

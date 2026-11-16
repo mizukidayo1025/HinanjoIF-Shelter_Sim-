@@ -365,7 +365,7 @@ fn an_older_minute_is_refused() {
     let before = texts::canonical_of(&cell, &entry);
     let delivery = payload(&[("resource_id", text("water_ml")), ("quantity", V::Int(1))]);
     let result = operate(&cell, OperationArg::Text("delivery"), &delivery, &text(SOURCE), "op-7");
-    assert_eq!(result, Err(Fail::Error(Error::Unsupported("the state is one the Python rule's check turned down".into()))));
+    assert_eq!(result, Err(Fail::Error(Error::Unsupported("the ledger did not pass its check".into()))));
     assert_eq!(texts::canonical_of(&cell, &entry), before);
 }
 

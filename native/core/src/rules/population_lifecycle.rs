@@ -450,7 +450,7 @@ pub fn household_of(world: &World, presence: &Held, agent_id: &str) -> Result<Op
             let people = match state.get("people") {
                 None => return Ok(None),
                 Some(V::Map(people)) => people,
-                Some(_) => return refuse("the presence's people are not a dict"),
+                Some(_) => return refuse("the presence state's people are not a dict"),
             };
             match people.get(agent_id) {
                 // `.get(agent_id, {})`, a dict without a household.
@@ -459,7 +459,7 @@ pub fn household_of(world: &World, presence: &Held, agent_id: &str) -> Result<Op
                     return match person.get("household_id") {
                         None | Some(V::Null) => Ok(None),
                         Some(V::Str(household)) => Ok(Some(household.clone())),
-                        Some(_) => refuse("a household is not a str"),
+                        Some(_) => refuse("a presence record's household is not a str"),
                     };
                 }
                 // A record that is no dict: the profile's group.

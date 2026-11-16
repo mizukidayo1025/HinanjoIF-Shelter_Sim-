@@ -776,7 +776,7 @@ pub(crate) fn extensions(world: &mut World, scenario: &Scenario) -> Result<()> {
                 let refused = |reason: String| Error::Refused { label: "agent_dynamics.create_state".to_owned(), reason: reason.into() };
                 let policy = match canonical_policy(configs.get("agent_dynamics")) {
                     Ok(Ok(policy)) => policy,
-                    Ok(Err(_)) | Err(_) => return Err(refused("a config the Python rule refuses".to_owned())),
+                    Ok(Err(_)) | Err(_) => return Err(refused("the agent dynamics config is not canonical".to_owned())),
                 };
                 let known = awareness(&configs_value(scenario)).map_err(|fault| refused(fault.text.to_string()))?;
                 let row = agent_rules::create_state(world, policy, known.as_ref())?;

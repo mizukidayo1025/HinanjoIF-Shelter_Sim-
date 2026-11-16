@@ -489,6 +489,45 @@ fn a_toilet_is_chosen_by_its_folded_kind_what_the_person_knows_and_its_queue() {
     assert_eq!(select(&closed, false), Selected::NoRoute(text("f1")));
 }
 
+/// #571: a toilet out of service had the least load (nobody in it) and was chosen, and those who
+/// chose it waited there to the end of the Run.
+#[test]
+fn a_facility_out_of_service_is_not_chosen_however_light_its_load() {
+    let select = |world: &World, kind: Option<&str>| {
+        let graph = graph(world, RouteCapacities::default());
+        let (geo, section) = (no_plan(), movement(&V::Map(IndexMap::new())));
+        let routing = Routing { graph: &graph, geo: Some(&geo), movement: &section, staff: &Held::Absent };
+        let knows: Kept<bool> = Ok(Arc::new(false));
+        let mut waits = Vec::new();
+        travel::select(world, &routing, &knows, "a1", kind, &mut waits).unwrap()
+    };
+    let stopped = world();
+    stopped.entities.try_borrow_mut().unwrap().facilities.get_mut("f1").unwrap().working_units = 0;
+    assert_eq!(select(&stopped, None), Selected::NoFacility);
+    // A second toilet with someone in its queue is chosen over the empty one out of service.
+    {
+        let mut rows = stopped.entities.try_borrow_mut().unwrap();
+        let mut busy = facility("f2", "toilet", "z2");
+        busy.queue_agent_ids.push(text("a2"));
+        put(&mut rows.facilities, "f2", busy);
+    }
+    assert_eq!(select(&stopped, None), Selected::Found(text("f2"), route("z0", "z2", &["z0", "z1", "z2"], &["e1", "e3"], 6)));
+    // Back in service, the empty toilet is chosen again.
+    stopped.entities.try_borrow_mut().unwrap().facilities.get_mut("f1").unwrap().working_units = 1;
+    assert_eq!(select(&stopped, None), Selected::Found(text("f1"), route("z0", "z1", &["z0", "z1"], &["e1"], 4)));
+    // A resource facility out of service is not chosen either.
+    let water = world();
+    {
+        let mut rows = water.entities.try_borrow_mut().unwrap();
+        let mut station = facility("w1", "water_station", "z1");
+        station.working_units = 0;
+        put(&mut rows.facilities, "w1", station);
+    }
+    assert_eq!(select(&water, Some("water_station")), Selected::NoFacility);
+    water.entities.try_borrow_mut().unwrap().facilities.get_mut("w1").unwrap().working_units = 1;
+    assert_eq!(select(&water, Some("water_station")), Selected::Found(text("w1"), route("z0", "z1", &["z0", "z1"], &["e1"], 4)));
+}
+
 #[test]
 fn without_a_floor_plan_the_approach_takes_no_time() {
     let world = world();

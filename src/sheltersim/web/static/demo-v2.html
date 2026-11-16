@@ -748,38 +748,39 @@
                 <p>
                   「なぜトイレが混雑したのか」<br />「どの介入が有効だったか」
                 </p>
-                <span id="chat-mode" class="badge">回答の作り方は、シナリオを開くと表示します</span>
                 <p class="chat-guide">
                   グラフやマップの気づきを質問できます。回答に引用された記録・時刻と、AIの解釈を並べて確認しましょう。
                 </p>
               </div>
             </div>
-            <form id="question-form">
-              <label class="sr-only" for="question">結果への質問</label>
-              <div class="chat-input">
-                <textarea
-                  id="question"
-                  rows="2"
-                  maxlength="2000"
-                  placeholder="結果について、何でも質問してください…"
-                ></textarea
-                ><button
-                  id="ask"
-                  class="primary"
-                  disabled
-                  aria-label="質問を送信"
-                >
-                  ➤
+            <fieldset class="needs-api" data-needs-api>
+              <form id="question-form">
+                <label class="sr-only" for="question">結果への質問</label>
+                <div class="chat-input">
+                  <textarea
+                    id="question"
+                    rows="2"
+                    maxlength="2000"
+                    placeholder="結果について、何でも質問してください…"
+                  ></textarea
+                  ><button
+                    id="ask"
+                    class="primary"
+                    disabled
+                    aria-label="質問を送信"
+                  >
+                    ➤
+                  </button>
+                </div>
+              </form>
+              <div class="suggestions">
+                <button data-question="なぜトイレが混雑したのか">
+                  トイレ混雑の理由</button
+                ><button data-question="どの介入が有効だったか">
+                  介入の違い
                 </button>
               </div>
-            </form>
-            <div class="suggestions">
-              <button data-question="なぜトイレが混雑したのか">
-                トイレ混雑の理由</button
-              ><button data-question="どの介入が有効だったか">
-                介入の違い
-              </button>
-            </div>
+            </fieldset>
           </aside>
         </div>
       </section>

@@ -238,12 +238,12 @@ async function main() {
     console.log("KPI history keys", Object.keys(history.items[0]));
     const report = await request(`${root}/branches/${child}/report`);
     assert.notEqual(report.status, "not_generated");
-    await page.locator("#question").fill("なぜトイレが混雑したのか");
-    await page.locator("#ask").click();
-    await idle();
-    assert((await page.locator("#chat").innerText()).includes("API未接続"));
+    // Questions need the API (#585): offline, the input is disabled with its note.
+    assert.equal(await page.locator("#question").isDisabled(), true);
     assert(
-      (await page.locator("#chat").innerText()).includes("回答できません"),
+      (await page.locator(".chat-panel .needs-api-note").innerText()).includes(
+        "API を ON にすると使えます",
+      ),
     );
     await shot("report");
     // Offline, the report opens without Opus's analysis (#582): the option cannot be chosen,

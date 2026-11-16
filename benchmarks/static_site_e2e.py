@@ -24,8 +24,9 @@ as a person would, in five stages:
 4. compare: the screen's comparison of the two branches as the page opens, then `compare` at
    several minutes and
    two-branch replay windows.
-5. report: the report page (report, evidence, llm-status, the KPI history), a question (the
-   offline fixed answer) and the report without Opus's analysis (#582), on its print page.
+5. report: the report page (report, evidence, llm-status, the KPI history), a question (its
+   input disabled while the API is OFF, the route's 409 question_offline, as the offline VM's)
+   and the report without Opus's analysis (#582), on its print page.
 
 At each step the JSON the browser answered (the screen's own requests, caught by a wrapper of
 `fetch`, and the checks' requests) is compared with what the Python server answers to the same
@@ -209,10 +210,7 @@ MASKED = {
     "its stored Run's journal line (the line without its piece's place, "
     "docs/project-persistence.md), Python's a Checkpoint's hash",
 }
-CONTEXT_ID = re.compile(r"^(c[0-9a-f]{32}-)[0-9a-f]{24}$")
 NORMALIZED = {
-    "context_id": "a question's context: c<sha256 of the context>-<12 random bytes>; the random "
-    "tail is left out",
     "projects": "the Project list holds only the Project the stage works on (the browser also "
     "holds the site's sample)",
     "sample_branches": "on the site's sample (when the scenario stage is not available), only "
@@ -460,11 +458,6 @@ def _normalize(
         if changed:
             applied.append(NORMALIZED["sample_branches"])
     if isinstance(document, dict):
-        if route.endswith("/questions") and isinstance(document.get("context_id"), str):
-            match = CONTEXT_ID.match(document["context_id"])
-            if match:
-                document = {**document, "context_id": match.group(1) + "…"}
-                applied.append(NORMALIZED["context_id"])
         if route == "/api/v1/projects" and isinstance(document.get("projects"), list):
             document = {
                 **document,
@@ -1500,9 +1493,8 @@ class Walk:
         s = self.subject
         assert s is not None
         stage = "report"
-        side = self.side()
         if self.child_ready:
-            # From the comparison: the question and the PDF are of the two branches.
+            # From the comparison: the PDF is of the two branches.
             self.open_comparison()
         else:
             self.open(f"/?project={s.project}&run={s.run}&branch=main#simulation", "simulation")
@@ -1526,24 +1518,20 @@ class Walk:
             )
         self.screen_error(stage, "report")
         self.shot("report")
-        # A question: the offline fixed answer.
-        self.page.fill("#question", QUESTION)
-        since = self.mark()
-        self.page.click("#ask")
-        asked = self.wait_caught(since, "POST", r"/questions$", timeout_s=120)
-        if asked is not None:
-            route = asked["path"]
-            self.check(
-                stage,
-                "question",
-                route,
-                asked,
-                ask=("POST", route, json.loads(asked["body"])),
-                expect=None if side else _status(200),
-            )
-        else:
-            self.problem(stage, "the screen asked no question")
-        self.screen_error(stage, "question")
+        # A question: the screen offers it only with the API ON (#585); the route refuses it
+        # without the API, as the offline VM does.
+        if not self.page.evaluate("() => document.getElementById('question').matches(':disabled')"):
+            self.problem(stage, "the question can be asked while the API is OFF")
+        route = f"{_run_path(s.project, s.run)}/branches/main/questions"
+        question = {"question": QUESTION}
+        self.check(
+            stage,
+            "question",
+            route,
+            self.post(route.replace(f"/runs/{s.run}", f"/runs/{s.browser(stage)}"), question),
+            ask=("POST", route, question),
+            expect=_code(409, "question_offline"),
+        )
         # The report without Opus's analysis (#582): the API is OFF, so the screen asks none.
         since = self.mark()
         self.page.click("#save-report")

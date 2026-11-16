@@ -238,7 +238,7 @@ python benchmarks/static_site_check.py --site ../hinanjo-if-site --compute piece
 2. 計算（compute）：1つ目のRunを画面で最後まで計算します。1つ目のbrowserは一度に、2つ目は1日で止め、続けて最後までです（`--modes`）。
 3. 介入（intervention）：4日目14:00（5160分）で、offlineの読み取りが作る作用（職員の追加と、画面のZoneの選択肢での選び直し、トイレの追加、断水、施設の停止）と読めない文をプレビューし、「Day 4 14:00 toilet_01 outage」を適用して、子の分岐を最後まで計算します。
 4. 比較（compare）：画面の比較と、いくつかの分の`compare`、2つの分岐の再生の窓です。
-5. 振り返り（report）：レポートの頁（report、evidence、llm-status、指標の時系列）、質問（合言葉がなければAPIキーなしの決まった答え、あれば中継でAIの回答。#470）、分析レポート（APIがOFFなので考察なしの印刷用ページ。#582）です。
+5. 振り返り（report）：レポートの頁（report、evidence、llm-status、指標の時系列）、質問（合言葉がなければ質問の欄が使えないこと、経路はAPIキーのないVMと同じ409 `question_offline`。#585）、分析レポート（APIがOFFなので考察なしの印刷用ページ。#582）です。
 
 各段で、ブラウザーの答え（画面の要求は`fetch`を包んで捕まえ、確かめの要求はページから送ります）を、同じ操作へのPythonのserverの答え（同じプロセスの`ProjectAPI`、`--work`の下の自分のProjectStore、`server.py`と同じ直列化）と、値の型まで比べます。Python側は同じ操作を同じ順に一度だけ行い、その答えを2つのbrowserで使います。比べられるように固定するもの：画面の`crypto.randomUUID`（RunとBranchのID）、地域の調べの時刻（Pythonの`datetime.now`と、ブラウザーのAPIのWorkerの`Date`）、国土地理院の住所検索（両方ともシナリオのコーパス`tests/support/scenario_corpus.py`の記録した答え）。避難所のCSVは、Pythonの調べとサイトの索引・行（`/browser/gsi-shelter-index.json`、`/browser/gsi-shelters/`）に同じファイルを使います。既定はコーパスの合成のもので、`--write-corpus-csv PATH`で書き出し、`scripts/build_static_site.py --shelter-csv PATH`でサイトを作ります（別のファイルなら道具にも`--shelter-csv`で渡します）。索引の取得の時刻とHTTPの情報（`retrieved_at`、`etag`、`last_modified`）はサイトを作ったときのものなので、道具はPythonの調べの値に差し替えて配ります。違って当然の項目（previewとdraftのID、`checkpoint_hash`、質問の`context_id`の乱数の部分、`static_site_check.py`の除く項目）と理由は、結果に書きます。
 

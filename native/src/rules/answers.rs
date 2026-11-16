@@ -571,7 +571,8 @@ fn failed_outcome<'py>(py: Python<'py>, error: &str, refused: bool, code: Option
 
 /// `POST …/questions` (`questions::QuestionPlan`): the request's checks; then the branch's
 /// (`check_branch`), the evidence's (`evidence`, of the Run's Scenario) and the frame's
-/// (`check_frame`); then the answer and the turn to keep.
+/// (`check_frame`); then the question asked of an LLM (`ask`), or the refusal without an API key
+/// (`offline`, #585).
 #[pyclass(name = "QuestionPlan", module = "sheltersim_native.rules.answers")]
 pub struct PyQuestionPlan {
     plan: questions::QuestionPlan,
@@ -604,15 +605,15 @@ impl PyQuestionPlan {
         self.plan.check_frame(frame).map_err(failed)
     }
 
-    /// The answer and the turn to keep: `random` 24 hex digits, `turn_id` the turn's id.
-    fn answer<'py>(&self, py: Python<'py>, random: &str, turn_id: &str) -> (Bound<'py, PyBytes>, Bound<'py, PyBytes>) {
-        let (answer, turn) = self.plan.answer(random, turn_id);
-        (PyBytes::new(py, &answer), PyBytes::new(py, &turn))
+    /// The refusal of a question without an API key (#585): always raises.
+    fn offline(&self) -> PyResult<()> {
+        Err(failed(self.plan.offline()))
     }
 
     /// The question asked of an LLM (#463, `questions::QuestionPlan::ask`): the branch's frame at
     /// `minute`, the comparison's answer (or None), the Run's `evidence.json` (or None), its
-    /// Scenario, the branch's "conversations" pieces (decompressed) and `random` as `answer`'s.
+    /// Scenario, the branch's "conversations" pieces (decompressed) and `random`, 24 hex digits
+    /// for a new context's id.
     #[pyo3(signature = (frame, comparison, evidence, scenario, turns, random))]
     fn ask(&self, frame: &[u8], comparison: Option<Vec<u8>>, evidence: Option<Vec<u8>>, scenario: &[u8], turns: Vec<Vec<u8>>, random: &str) -> PyResult<PyAsking> {
         let pieces: Vec<&[u8]> = turns.iter().map(Vec::as_slice).collect();

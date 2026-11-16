@@ -643,17 +643,17 @@ pub fn failed_outcome(error: &str, refusal_status: Option<u16>, refusal_code: Op
 }
 
 /// `POST …/questions` (`answers::questions::QuestionPlan`): the request's and the evidence's
-/// checks; then the frame's (`checkFrame`); then the answer and the turn.
+/// checks; then the frame's (`checkFrame`); then the question asked through the relay (`ask`), or
+/// the refusal without the relay's passphrase (`offline`, #585).
 #[wasm_bindgen]
 pub struct QuestionPlan {
     plan: answers::questions::QuestionPlan,
-    turn: Vec<u8>,
 }
 
 #[wasm_bindgen(js_name = questionPlan)]
 pub fn question_plan(body: Option<String>, project_id: &str, run_id: &str, branch_id: &str) -> Result<QuestionPlan, JsError> {
     let plan = answers::questions::QuestionPlan::new(body.as_deref().map(str::as_bytes), project_id, run_id, branch_id).map_err(failed)?;
-    Ok(QuestionPlan { plan, turn: Vec::new() })
+    Ok(QuestionPlan { plan })
 }
 
 #[wasm_bindgen]
@@ -679,21 +679,15 @@ impl QuestionPlan {
         self.plan.check_frame(frame.as_bytes()).map_err(failed)
     }
 
-    /// The answer; the turn to keep is then `turn()`.
-    pub fn answer(&mut self, random: &str, turn_id: &str) -> Result<String, JsError> {
-        let (answer, turn) = self.plan.answer(random, turn_id);
-        self.turn = turn;
-        text(answer)
-    }
-
-    pub fn turn(&self) -> Vec<u8> {
-        self.turn.clone()
+    /// The refusal of a question without the relay (#585): always throws.
+    pub fn offline(&self) -> Result<(), JsError> {
+        Err(failed(self.plan.offline()))
     }
 
     /// The question asked of an LLM through the site's relay (#470, `QuestionPlan::ask`): the
     /// branch's frame at the minute, the comparison's answer (or undefined), the Run's
     /// `evidence.json` (or undefined), its Scenario, the branch's "conversations" pieces
-    /// (decompressed) and `random` as `answer`'s.
+    /// (decompressed) and `random`, 24 hex digits for a new context's id.
     pub fn ask(
         &self,
         frame: &str,

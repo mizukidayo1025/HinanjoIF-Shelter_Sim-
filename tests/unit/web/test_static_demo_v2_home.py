@@ -87,6 +87,8 @@ const $ = (id) => {
 };
 const num = (n) => String(n);
 const state = {};
+const document = { querySelectorAll: () => [] };
+const el = () => ({});
 const window = { HinanjoBrowserApi: {} };
 const api = async () => { throw new Error("the browser version does not ask the server"); };
 let answer;
@@ -157,6 +159,8 @@ const localStorage = { getItem: () => null, setItem() {}, removeItem() {} };
 const fetch = async () => { throw new Error("the server version sends no passphrase"); };
 const num = (n) => String(n);
 const state = {};
+const document = { querySelectorAll: () => [] };
+const el = () => ({});
 const window = {};
 let answer;
 const asked = [];
@@ -187,6 +191,64 @@ answer = async () => { throw new Error("HTTP 500"); };
 await refreshApi();
 assert.deepEqual(state.llm, { on: false });
 assert.match($("home-api-status").textContent, /確認できませんでした/);
+"""
+    result = subprocess.run(
+        [node, "--input-type=module", "-e", script, str(source)],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def test_features_that_need_the_api_are_off_with_a_note_until_it_is_on():
+    """#580: each `[data-needs-api]` fieldset is disabled, with one note at its top, while the API
+    is OFF or not yet known, and enabled without the note when it is ON."""
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("Node is required for the UI callback regression")
+    source = Path("src/sheltersim/web/static/demo-v2-home.js").resolve()
+    script = r"""
+import fs from "node:fs";
+import assert from "node:assert/strict";
+const source = fs.readFileSync(process.argv[1], "utf8").replaceAll("\r\n", "\n");
+const body = source.split("  const NEEDS_API_NOTE =")[1].split("  function setLlm(")[0];
+const box = () => ({
+  disabled: false, children: [],
+  prepend(child) { this.children.unshift(child); },
+  querySelector(selector) {
+    assert.equal(selector, ":scope > .needs-api-note");
+    return this.children.find((c) => c.cls === "needs-api-note") || null;
+  },
+});
+const boxes = [box(), box()];
+const document = {
+  querySelectorAll: (selector) => (assert.equal(selector, "[data-needs-api]"), boxes),
+};
+const el = (tag, text, cls) => ({ tag, text, cls, hidden: false });
+const state = { llm: null };
+const make = eval("(() => { const NEEDS_API_NOTE =" + body + "; return { applyLlm }; })");
+const { applyLlm } = make();
+
+applyLlm();
+for (const b of boxes) {
+  assert.equal(b.disabled, true);
+  assert.equal(b.children.length, 1);
+  assert.match(b.children[0].text, /API を ON にすると使えます/);
+  assert.equal(b.children[0].hidden, false);
+}
+state.llm = { on: true };
+applyLlm();
+for (const b of boxes) {
+  assert.equal(b.disabled, false);
+  assert.equal(b.children.length, 1);
+  assert.equal(b.children[0].hidden, true);
+}
+state.llm = { on: false };
+applyLlm();
+assert.equal(boxes[0].disabled, true);
+assert.equal(boxes[0].children[0].hidden, false);
 """
     result = subprocess.run(
         [node, "--input-type=module", "-e", script, str(source)],

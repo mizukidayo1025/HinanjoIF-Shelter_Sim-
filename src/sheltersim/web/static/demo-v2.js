@@ -6,7 +6,7 @@
   const app = window.HinanjoApp;
   const {
     state, $, num, el, uiIcon, branchBase, api, note, computeTargets, loading, action, on, show,
-    controls, hits, drawAll, keepPassphrase, showApi, refreshApi, enableApi, openExamples,
+    controls, hits, drawAll, keepPassphrase, showApi, refreshApi, applyLlm, enableApi, openExamples,
     newScenario, invalidateScenario, previewScenario, approveScenario, stopPlayback, renderKpis,
     renderKpiStrip, refreshRuns, refreshRun, seek, renderFrame, togglePlayback, computeToEnd,
     cancelCompute, personSummary, renderPeople, selectPerson, invalidateIntervention, comparing,
@@ -362,7 +362,9 @@
     document.querySelector("main"),
   );
   async function init() {
-    // The top shows whether the AI's features are ON (#581), whichever page opens.
+    // The top shows whether the AI's features are ON (#581), whichever page opens; until it is
+    // known, the features that need it are off (#580).
+    applyLlm();
     void refreshApi();
     const requestedPage = location.hash.slice(1);
     const template = document.querySelector("[data-scene-mode]").parentElement;

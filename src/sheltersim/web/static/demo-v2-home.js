@@ -220,8 +220,27 @@
   // Whether the AI's (LLM's) features are ON (#581): one state for the whole screen
   // (`state.llm`), shown at the top and on the home. The browser version's comes from its relay
   // (the passphrase), the server's from its LLM settings (GET /api/v1/llm).
+  // The features that need the AI (#580): each is a `<fieldset data-needs-api>` around its
+  // controls. While the API is OFF (or not yet known) the fieldset is disabled, which disables
+  // every control in it without touching the controls' own `disabled`, and a note at its top
+  // says how to turn it ON.
+  const NEEDS_API_NOTE =
+    "AIを使う機能です。API を ON にすると使えます（ホームの「AIの機能（API）」）。";
+  function applyLlm() {
+    const on = state.llm?.on === true;
+    document.querySelectorAll("[data-needs-api]").forEach((box) => {
+      box.disabled = !on;
+      let note = box.querySelector(":scope > .needs-api-note");
+      if (!note) {
+        note = el("p", NEEDS_API_NOTE, "needs-api-note");
+        box.prepend(note);
+      }
+      note.hidden = on;
+    });
+  }
   function setLlm(on, label) {
     state.llm = { on };
+    applyLlm();
     const badge = $("header-api");
     badge.hidden = false;
     badge.textContent = on ? "API ON" : "API OFF";
@@ -407,6 +426,7 @@
   }
   Object.assign(app, {
     runNames, loadHome, keepPassphrase, showApi, refreshApi, enableApi, openExamples,
+    applyLlm,
   });
   Object.defineProperty(app, "fetching", { get: () => fetching });
 })();

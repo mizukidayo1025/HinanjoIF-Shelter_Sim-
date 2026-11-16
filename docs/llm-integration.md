@@ -15,7 +15,7 @@ Anthropicへ接続するのはsrc/sheltersim/llm/anthropic_adapter.pyだけで�
 - ローカル版・VM版：サーバーの設定です（`GET /api/v1/llm`）。APIキーのあるrecord mode（`auto`でkeyがあるときを含む）と、replay modeでONです。offline mode、またはkeyのないrecord modeではOFFです。
 - ブラウザー版：ホームの「API を有効にする」で、中継が合言葉を通し、APIキーを持つときにONです。
 
-LLMが前提の機能をOFFのときにどう見せるかは、機能ごとに#580の各Issueで決めます。
+AIを使う機能は、画面では`<fieldset class="needs-api" data-needs-api>`で操作を囲みます。OFFのとき（確かめる前も）はfieldsetごと操作できなくし、上に「API を ON にすると使えます」と示します（`demo-v2-home.js`の`applyLlm`）。どの機能をこう囲むかは、#580の各Issueで機能ごとに決めます。
 
 ## 対応する段階
 

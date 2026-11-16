@@ -1416,6 +1416,21 @@
       "context_sources": [],
       "calibration_status": "uncalibrated planning assumption",
       "notes": "No public standard sets station counts. Counts use the default generated coefficients through ASM-SERVICE-CAPACITY-PLANNING-V1; a Scenario whose coefficients are changed later is checked by the capacity diagnostic instead. Each station is a separate facility because a facility with a floor-plan point serves one person at a time."
+    },
+    {
+      "id": "ASM-OUT-OF-SERVICE-FACILITY-V1",
+      "source_type": "assumption",
+      "target": "facility choice (rules::travel::select) and facility queues (rules::queues) for a facility with working_units 0",
+      "model_version": "out-of-service-facility-v1",
+      "values": {
+        "out_of_service": "working_units <= 0",
+        "facility_choice": "a facility out of service is not a candidate for a toilet or resource trip",
+        "queue": "everyone in its queue leaves it at the next queue step, whatever the queue policy, need and wait",
+        "retry_delay": "the queue policy's retry delay (facility_queues.retry_delay_minutes; 15 minutes for the reference FIFO); no new coefficient"
+      },
+      "context_sources": [],
+      "calibration_status": "uncalibrated behavioral assumption",
+      "notes": "Assumes that an outage is visible to everyone (for example a posted notice), as the choice of a facility already reads every facility's queue and occupancy. How and when people learn of an outage is not modelled. Before #571 the stopped facility looked the least loaded and was chosen, and a person whose need was past the persistence threshold waited in its queue to the end of the Run."
     }
   ]
 }

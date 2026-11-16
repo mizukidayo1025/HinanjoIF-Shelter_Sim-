@@ -993,7 +993,8 @@ pub fn select(
                 // `"toilet" in kind.casefold()`.
                 None => is_toilet(&facility.kind),
             };
-            if !takes {
+            // A facility out of service serves nobody: whoever chooses sees it (#571).
+            if !takes || facility.is_out_of_service() {
                 continue;
             }
             if configs.is_none() {

@@ -34,9 +34,9 @@
   "conditions": {
    "runs": {
     "run": {
-     "world_hash": "a78ffa0445cda43bb82f5844dfef0323cece03735a1821e37387cf6b1ff79f50",
-     "events_hash": "0a6b9c89f8c4b6b58ceb386a8c99f8ca68c83452f6de932a688722809c242b9a",
-     "metrics_hash": "10b0aca872fb6c0c92bc346817301f71cf84b9e21d22c5c5dbcad43f221e8b7b"
+     "world_hash": "443ae530254ca79425d48714e7be8a558a7d672d5fa6335d01350080bf2abcbf",
+     "events_hash": "3ad117182d2109ab0a1d276ebbad30350b9c9d94b0a2d4439c7539a007e0ef47",
+     "metrics_hash": "9f198eae50774d5fa6835dcea0a5bcb3c5b1f185b5e011a850964ab2b63fac4f"
     },
     "one-worker": {
      "world_hash": "556957072ee2bee84a2a0ed03319c9fb6db886755139f096076b2ed04534b680",
@@ -144,109 +144,109 @@
   "interventions": {
    "runs": {
     "main": {
-     "world_hash": "44e1ad5d7cf6623b2c4f90d144b1402565c20a964bb86b0a77db2a82aa3c2574",
-     "events_hash": "8a19b55363df98262af45e45920781af44df5a1785d33e7c6fbb08b35f6331b7",
-     "metrics_hash": "a0f8bb257b10d137963b757136862155c3647390b4e69fc8a13084ea882b4f9e"
+     "world_hash": "473aeb9ff318f63e2603d4bb482617aeeec34468e3c00ba2b9607d8e54d1b7ee",
+     "events_hash": "d7a3c3caa12c6cd791fee77caf705e22679f68e10ff1e5c42ae202d7a67fdaf0",
+     "metrics_hash": "80c8de03b622c8f039289ce954bf2c59ea079dc3f2c4a4161585d56c4bc7fcbe"
     },
     "add-staff": {
-     "world_hash": "79e1437978407793b19524adaa60d70a1ceb3d9361b2eda7ebd945f63c17debf",
-     "events_hash": "13970213c9fa9d0288b59a9a63594d831e7b389c3df5d4392de3e585e224002f",
-     "metrics_hash": "c619687b617a19ee07a4e7257ed1aad722ec0224d9bdad0198feb0faec775c99"
+     "world_hash": "8ae9342c172dc0905812d821324a007093338403fbc6258107352aec91cd5c88",
+     "events_hash": "1ba1640e4c6ee4b94755ce6fe9362aae6559c5db5da468b62817aeaf2ecf7fc1",
+     "metrics_hash": "3415d38421e1ace1bd313e6580758010364f0524efde2f58d5c1373d3a82eaf4"
     },
     "add-toilets": {
-     "world_hash": "a407643048de0ec01e6de9bc7add53687e483c5ebff0a8969a48c6991735897f",
-     "events_hash": "468aaff8c4058da350c4b71908c569a40783ef7a326d11a0f3804389037a3a09",
-     "metrics_hash": "8049f6abc29d6797e214652be795854c48a098f58d6d29c6a3408615191e5b1b"
+     "world_hash": "377a5f71a56de4f6d8c0e0281dcbdc6b6072009512d84dfa9f4c5439be248026",
+     "events_hash": "68dbe5d4082fda046c0f0f5776d1302b85ab8761607450f8170005787e3f1030",
+     "metrics_hash": "d175f615f089f095f44ba3ef288e45938692d67414fe429d964de7be945eaa0f"
     },
     "outage": {
-     "world_hash": "3867a54172238dc1f61154380c401b97a81573603566864824feabea0be7cfa6",
-     "events_hash": "2cc027603169dad683772085c468393503164fd0140ba704349dea2b89c3f57c",
-     "metrics_hash": "6c29ecb1654c56a186c6a0755395bf4f03fd12249c25937950ac0513d07fbe65"
+     "world_hash": "abe11218a9eb540513466352fc8e84c5086b2603ad67b543b2f2b2af5568b6f6",
+     "events_hash": "0a588378b5a345964eea0d8bde417e21fe04fa5ae0f56064a075add7d062092b",
+     "metrics_hash": "601b78c719a0c960949bfdb1b5cb327482d3f55d76bd64582414d096ff3c6f91"
     },
     "water-outage": {
-     "world_hash": "84b189ff58aa0e48a6edf132b928c00ec661225c631a4464192e574d5886f079",
-     "events_hash": "9bcdad21ae88a49189fcd2c777321157618211e23b5e7732bc056d7141caf621",
-     "metrics_hash": "6c29ecb1654c56a186c6a0755395bf4f03fd12249c25937950ac0513d07fbe65"
+     "world_hash": "a86a2f7cb312060a74b721dfc18ae8c0a49fdfe1db6187cd7a3c858de119c05e",
+     "events_hash": "49c6e04655ed8b4d004514d5b9b662c137ba736d4d6383042ff86d0f2419ab39",
+     "metrics_hash": "601b78c719a0c960949bfdb1b5cb327482d3f55d76bd64582414d096ff3c6f91"
     },
     "availability": {
-     "world_hash": "59ea11075b101a09bd3041513ed36228cb41a5949e352b6df82204098fe66de8",
-     "events_hash": "e767973747dd7112199379f1be1c5dbee085db635ab7017599293d05b72d1d3d",
-     "metrics_hash": "eebfba38ca8da1461c7bdf4bcb0cf56a94b3cb06e6bef97b682bcf4bd6854d47"
+     "world_hash": "fafcb8d960b860f4e8aa3f80e8f48c51ab3c57dbd957ff895f2455b44a894a33",
+     "events_hash": "bddd60626544dca4b1bf27d715c19a0fe2c51a23fe8227f23b71d157df4c13b8",
+     "metrics_hash": "39fdfa0e7813735a762551fe55d3e9594135b47eadda294cb2b942c63eecfa18"
     },
     "delivery": {
-     "world_hash": "d77cf8503f74af93df5f50dc49d7fcbc1c4eeba20a5ab27177d52641e3912470",
-     "events_hash": "db8850eab1e22cb098b7ec39df9c51f9722537790cc2c792f57e3ccf131adc58",
-     "metrics_hash": "06046aeaff48f5fe59dbc094dfca75ec3d48d7d148898a11bcba6ab3092271fe"
+     "world_hash": "8c57026382c3effdf05b8de8b991dadb691aca7b32d1a6ce50c6ae4ec048e8f6",
+     "events_hash": "1065331d6739f0634c71a468d4e35282cef090e91d9a9bf7e815cb00cfe7eb5b",
+     "metrics_hash": "20c940cabe03821af27ddf0d396a154d3be406fcc904ab834b1bcda8585379a5"
     },
     "delay-shipment": {
-     "world_hash": "28a953523914995263d70e1fbbc1c307589662af529e5aaabef3def28937f267",
-     "events_hash": "d1eb0e81d73a1cfd36e2e9da4f3408b9ceb84754c43cb7fdae53bd83afd12403",
-     "metrics_hash": "db286a09682d329d6fa9b08a106759007f6d5aa4dd49c7a3c349c3e1555c4a17"
+     "world_hash": "6db91d5a2883125ce525f59941912435c6e701b239e624578757b7d8aadb1cab",
+     "events_hash": "299d106e010a876e8846181563a30afa0434acceb59be20cf18cae2a7dc64383",
+     "metrics_hash": "6eac1ea266fbf3fae4ff41c0b433005a372e649f06ad5a51b0dd03518e1355dd"
     },
     "staff-away": {
-     "world_hash": "1e2ac9a8a0acdcc49dafc843ae2e0bcff13fa9fb939afb07726cefc4f0e24a77",
-     "events_hash": "6487cb3656e908994e0e8befa36a39bfba7092ce4431eecc7cedd0f04cef0613",
-     "metrics_hash": "71ac1fd6a289e23ac751ce3bdd424e53a42ff06085f15ae1a20f2325e94496e1"
+     "world_hash": "439b0d5e557fc142d75b34a24d1ce4f99eefd43a1e05605da75b3fb8b81ba90b",
+     "events_hash": "eab78ae864d35bcd42c3ee31abbdd4f5a0a46454c29e2942868aee45b59ecce1",
+     "metrics_hash": "40932f892b31da949394a31475d4ab577f66710694255e87294ff3196ff0d125"
     },
     "staff-role": {
-     "world_hash": "c71b880451858e8a077f58611961cd67ae30a96e0765ee2569342f1c747e6608",
-     "events_hash": "437b40589dc52d013b272adb26f63fbf7905562df4046a9fdec259a55125a647",
-     "metrics_hash": "737b38ef7f9908660a79a84585ec894a1ee94f2ddffdbcf930ac4d8809f78bba"
+     "world_hash": "d82a1af80005b2f3713c1c9164ae30e18444eef6c289a7037b79b95c0171c974",
+     "events_hash": "af571128b65fbce72a968ae436b5e9be390ebd8c4f59d82e29f910266f83cc1f",
+     "metrics_hash": "0e52c9e1091a6f2b0ecbe01a8e87f2a2c5bc7bd1738d9524e0e333bf9b823188"
     },
     "noise": {
-     "world_hash": "3be2a38f71e506cc721c06ed1dbcb5dafcc92b641a6de5decbc06374ee4b09d7",
-     "events_hash": "96a7d93af6bb21dce13acd943ce679e994a60e3987ecf18d51138bd2ca20934f",
-     "metrics_hash": "9bf0de29e2e157c136c51556394616f600571243554edb11ae3e3b3e24224cee"
+     "world_hash": "f8cdf6fc276b4a6f9a4ea917e04f32ebbb20f1de1417a88b99141553619c9225",
+     "events_hash": "51054ed026689213feb708fd89febbe3b2f77b48e8d5096d094112bf792536c6",
+     "metrics_hash": "96a54eda0c7c4c369b83a1a43a4f7de4bce1fb5f3cdf31894d59ad161c5469d4"
     },
     "lighting": {
-     "world_hash": "c1d5f28b2b826a2927f477e16c96db96c6333b473de6ac172f44a7ebafeb0575",
-     "events_hash": "3e357b97e7c6b549034b18695b2c145e7ffc20b1a20c0649fe0e38a1b5824742",
-     "metrics_hash": "afee278bfe66d5d8b89242312b544bfd3f14668f9207a1aaa5e3faef403d10e9"
+     "world_hash": "853d5aa6dedbdd53a6f2c3c5969c6de92cc37de44d12deb6a31a1278d8333fd9",
+     "events_hash": "c01019f766debea761898a541704df76e72cc27028b95496630e2ef5862a8059",
+     "metrics_hash": "83f6f82ea63f69912fc0968f9afb3a198b999544febdf7cb447e55f85b240bf9"
     },
     "ventilation": {
-     "world_hash": "2ed351612e3873202f2c8ca0635faeb065663417f3f4dcae0a671deaae8829e3",
-     "events_hash": "b5a28837788637822a0f68be43bfe168ffedacfde3ed53de27539b5a2a048f49",
-     "metrics_hash": "542528cbd412cca9a2ee1420fc85b0edf160f9e9068c6a0000062ae7875e2f30"
+     "world_hash": "921f061a89844266d45d3f076206fae1b951ddea3a43d4a773c13296dbf41ad6",
+     "events_hash": "52bb886e29ccadb4732ebb563d14709373c8a6dfe0a9a285cb8ef7e49c472c0f",
+     "metrics_hash": "dd00e703bc94849f85b091cbc36f6b4b59ffaac27d100fbadc0f7f18fa6e5649"
     },
     "privacy": {
-     "world_hash": "87b4a598b906a9b480d2de619d907a633a1096ecbdb6e655b58f39ced7b1ad9e",
-     "events_hash": "74f1b821db17cc23b0dbb1b1fca2ac562d243740ac375212b56d05fc500d8e00",
-     "metrics_hash": "43554732a26b8f03e55b8509e7f4a460fa9f1a3053e2b996819d5449678c55d2"
+     "world_hash": "bc4372c6a9ee3120c185ee389abe8d5c11b4ae994090494421445b4cf256d8aa",
+     "events_hash": "f5df5787ec5acdfea3b544e169fea6176467686c61be9dceefb1ba919c9dff91",
+     "metrics_hash": "e644079e29c0d1b06c01555486e159a8681a399b4421120e75e284cf3720b2af"
     },
     "temperature": {
-     "world_hash": "382c18214d7b1565d65b66079f2bf15a420df9885eb5eab2776c388ed9704244",
-     "events_hash": "e72dfaf97fde468736a4f1468f8c25d2d387fda76361e64ede2ea8792abae7fe",
-     "metrics_hash": "df0abad6997e867cc43d6dd73099a6e2f64f944ea1687c2da323d0b0ac7c5311"
+     "world_hash": "bbe3e691fbe132aedfae93eb92a803792db6682cff3feea650951b4e3aa0cbc1",
+     "events_hash": "5623f80b17da204b77750c071b4044b0ff84b5f34f8fb19cf4e8f8aa7fe830a4",
+     "metrics_hash": "ea44997d9956b24ec43543fe89fe4f7be5005ca84851bae9c0a71169ed7c997a"
     },
     "demand": {
-     "world_hash": "137e600dd51632ac20b17d2a2ed6d1fead00a23cc07e6bea0d4f96de17507dec",
-     "events_hash": "cdd75e2a082bdbbf510e3f83c39a9876d5ec085daa168915ce6ce77876266b1f",
-     "metrics_hash": "377abbe648d79978c640a69646300234f9f7caa6eb3008e3c8c1099b6fc83c99"
+     "world_hash": "2a0b3d9194fe46c3ac8ee3f1d51fe9dbd1c29f6fcc90cea9d85b2f20f39b8a24",
+     "events_hash": "0031b42baff70c45cba05a39c9dd18f96974c90318bf01ec30ba291dc6f5ea2f",
+     "metrics_hash": "5a82675aada0cfab646eff52f4cfe4a5864a35fb3fc2a6a1de1a6d8678dd3533"
     },
     "trained": {
-     "world_hash": "d1814b8c9b68fffa8f5217d4ca198fd024bef80c74d4f0b4c47c68e39c6a9855",
-     "events_hash": "5106152690de4160aa29283c2b438704b9bc99d0db925747a3077159db549e69",
-     "metrics_hash": "130c51cc233b5fe85727d7ef27c6cadbebfe001558b5f1ae116bd6f7d5de2043"
+     "world_hash": "f5e55d43a3dec9535a134f4ea18ca2a9b5c69a8787d17f9d5e79e693d626f913",
+     "events_hash": "7158c5dcf230cda550460ed9a69f9313daa03d42ab5797ea033e05c87ff58677",
+     "metrics_hash": "2c3ab475260a0398c12e2c63aca6aa980df6cae88df6cc9d7f1719e2f921e8c5"
     },
     "guard-and": {
-     "world_hash": "f20719f328c034fac092041dbb48c3f9dd3d29beac0438f34de3e32cf050890b",
-     "events_hash": "db3be1cf8f9101b12e197b1644766901aca9b8f8928aa4765655129a75aa1e04",
-     "metrics_hash": "eebfba38ca8da1461c7bdf4bcb0cf56a94b3cb06e6bef97b682bcf4bd6854d47"
+     "world_hash": "ec2e12bd29f8e7771ac0fd6accdceb8f5b733e950b6f952b0d6ffa61054b7acd",
+     "events_hash": "d45adf902d45f49c8bbb40000ec70731e4fc28af4359f3c10502122523b25049",
+     "metrics_hash": "39fdfa0e7813735a762551fe55d3e9594135b47eadda294cb2b942c63eecfa18"
     },
     "guard-or-false": {
-     "world_hash": "9ee36e895557e4b5ea5e5a1249b0eae76bf8eb1752428dcd1a82398eb98cc087",
-     "events_hash": "9ea444124a553211738b30d52c73919433183d2edee4e840dfad371b04e0166e",
-     "metrics_hash": "eebfba38ca8da1461c7bdf4bcb0cf56a94b3cb06e6bef97b682bcf4bd6854d47"
+     "world_hash": "5bc5c7e78ae517ecc18e0d14a7e3bfc5c1334739ac24d23a33f63f34884eeea1",
+     "events_hash": "9970e694f5eef78280439bda220384fcc54df25cd8bebe5ab02d4fcb72d2a691",
+     "metrics_hash": "39fdfa0e7813735a762551fe55d3e9594135b47eadda294cb2b942c63eecfa18"
     },
     "guard-zone": {
-     "world_hash": "5b3742b3ec2caf553bdbe0395043d9bbf61e35ace4df583c5ee01b5d6dadb3b3",
-     "events_hash": "222c31b0dc306db15df4b4305db2efe5c6923c8a37383fa9341a65290797f54f",
-     "metrics_hash": "4e11e076278debe408871fd99f0b58a9a984509de18261f82d78568f857c4e76"
+     "world_hash": "f49a50cbd2f67b31bffcc786347a3fe5d70ad7714a0d574954cedefcf4736ce9",
+     "events_hash": "53f3de46bfdae0c9d96f63c6074f9435000c2d24a66c42d37c13d661cc94e37f",
+     "metrics_hash": "a9a4ebba5e63367f7886126eb5c366f47ec8d80c3a697e622c5e80d91a3afbd0"
     },
     "guard-resource": {
-     "world_hash": "f4f1ec42541150450aee08a31f5477e56ad82e74adcfb393aecfbba76756cfee",
-     "events_hash": "2382bf8972859a40172bcea2118aca65318c4ea6a08182ee72c77acbbf2155cf",
-     "metrics_hash": "06046aeaff48f5fe59dbc094dfca75ec3d48d7d148898a11bcba6ab3092271fe"
+     "world_hash": "6d79f26053e4ab865e7c5045f22cff60b3994854aff1a1d35f85c79db2fc48c4",
+     "events_hash": "e3d4a3e91ef4db3ec935af48c0a01d059458671d065b8c56da1b75dee5c478c0",
+     "metrics_hash": "20c940cabe03821af27ddf0d396a154d3be406fcc904ab834b1bcda8585379a5"
     }
    },
    "refused": {}
@@ -704,9 +704,9 @@
      "metrics_hash": "796ae0f4de019bd594fb7a24ad4fd0140d82e1c5e23923b73c3b5ed470c110ff"
     },
     "failure_day3": {
-     "world_hash": "e474f7db65383ea8d505ad965ab693e19334c3805175006688196db893fff290",
-     "events_hash": "2ca191dc91f847a334251fbd2b25444d101522448ccb07a683c312eea1117974",
-     "metrics_hash": "a40b8c84238569d863372d17aeb75a0a2110b88aec67cabfe07fc9a758b98e81"
+     "world_hash": "7617103ffa3b6c94532538dfef1dd64cd99001f8586bf59c988748d7e47032c9",
+     "events_hash": "0fb8c38e00ba485dc849cabc71f46bd933f4724b50236b822e83ee0c6c6d21f0",
+     "metrics_hash": "222a6012870b83741a70c5a7330053a9e34d630ec974ac4f28603ed58b13e2ef"
     },
     "delivery_intervention": {
      "world_hash": "e08afc39f305dd360d0409aa0b95f09bfa524f0b4aa5c70d2f0cab058f4e0f80",
@@ -714,9 +714,9 @@
      "metrics_hash": "ea84d1fe1b676f42d0dbfc0d70c676b9e7025d86ca72818f19cc6f0622139ee8"
     },
     "research_shortage_100_7d": {
-     "world_hash": "59b2f85157966ae83f5c94f48e62e9775536f78fc2e040a583337f45666a3a45",
-     "events_hash": "02e5086dac4482c8c94e4968811d4942d899a4a9df98026256e78b5cd5717228",
-     "metrics_hash": "163f6fb50efbcb44bd8da893421186d8ec34090b0f8ef43da22a76aaba69b3b8"
+     "world_hash": "f09ef7684e59bbd76ddb0f7bbb381395e028dfb4b7cf36fc4434355b682f3799",
+     "events_hash": "93a57ea718ce7da81d4c81fbabc5c4fe451fa5d456d53871e8b1054d826007e6",
+     "metrics_hash": "baa81851899f16eed256779fcb835ad37493d9a44de3cf8103a402aa807c0af4"
     }
    },
    "refused": {}

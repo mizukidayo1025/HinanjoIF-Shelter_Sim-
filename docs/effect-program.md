@@ -8,7 +8,7 @@ EffectProgramの版付き契約（`program::EffectProgram`。読むときは`of_
 
 | Operator | 対象と単位 | 前提と動作 |
 |---|---|---|
-| set_facility_availability | 施設1件、facility_unit。working_unitsは0–1000 | 有効期間中の稼働単位数に上限を設けます。現在の値より稼働可能数を増やさず、使用中の単位数より下げません。 |
+| set_facility_availability | 施設1件、facility_unit。working_unitsは0–1000 | 有効期間中の稼働単位数に上限を設けます。現在の値より稼働可能数を増やさず、使用中の単位数より下げません。0にした施設は向かう先に選ばれず、列にいる人は離れて選び直します（#571、[05](mathematical-models/05-facilities-resources.md)）。 |
 | facility_outage | 施設1件、facility_unit。unitsは1–1000 | 互換用形式で、上限付き稼働単位数を減らします。同じ可逆modifier stackを使います。 |
 | deliver_resource | 資源ID1件、そのIDで定義された単位 | resource_ledger_v1が必要です。正の数量を既存の台帳handlerで一度適用します。 |
 | modify_supply_schedule | 既知のshipment 1件、minute | operational_events_v1が必要です（生成Scenarioは持ちます。#65）。遅らせる納入がない4日未満の生成Scenarioでは、対象がないので適用できません。既存handlerで未到着shipmentを遅らせる一回操作です。 |

@@ -554,6 +554,81 @@ fn someone_past_their_limit_gives_up_with_their_events_and_counts() {
     assert_eq!(written(&mut world), [ID_COUNTERS, METRIC_STATE]);
 }
 
+/// #571: those in the queue of a toilet out of service never gave up when their need was past
+/// the threshold, and waited there to the end of the Run.
+#[test]
+fn everyone_leaves_the_queue_of_a_facility_out_of_service_whatever_the_policy_and_need() {
+    for policy in [need_weighted(), QueuePolicy::Strict] {
+        // Needs past the threshold, waits under the limit: nobody would give up.
+        let world = world([0.9, 0.9, 0.9], 10);
+        let call = prepare(policy.clone(), 10, Held::Absent);
+        assert_eq!(queues::prepare(&world, TOILET, &call, None), Ok(Prepared::Done));
+        assert_eq!(queue_of(&world), [text("a1"), text("a2"), text("a3")]);
+
+        world.rows_mut().unwrap().facilities.get_mut(TOILET).unwrap().working_units = 0;
+        assert_eq!(queues::prepare(&world, TOILET, &call, None), Ok(Prepared::NeedsLeaveInputs));
+        let model = Ok(MovementModel::default());
+        let leave = LeaveInputs { has_geometry: false, model: &model, geo: None, metric_state_held: true };
+        assert_eq!(queues::prepare(&world, TOILET, &call, Some(&leave)), Ok(Prepared::Done));
+        assert!(queue_of(&world).is_empty());
+        let retry = match policy {
+            QueuePolicy::NeedWeighted { retry, .. } => retry,
+            QueuePolicy::Strict => sheltersim_core::config::queues::RETRY_DELAY,
+        };
+        let rows = world.rows().unwrap();
+        for id in ["a1", "a2", "a3"] {
+            let agent = rows.agents.get(id).unwrap();
+            assert_eq!((agent.activity, agent.target_id.clone(), agent.next_decision_at), (Activity::Idle, None, 10 + retry));
+        }
+        assert!(rows.active_tasks.is_empty());
+        drop(rows);
+        let log = world.log().unwrap();
+        let records: Vec<serde_json::Value> = (0..log.len()).map(|index| serde_json::from_slice(log.written(index).unwrap()).unwrap()).collect();
+        drop(log);
+        let ids: Vec<&str> = records.iter().map(|record| record["event"]["event_id"].as_str().unwrap()).collect();
+        assert_eq!(ids, ["facility-queue-abandon-10", "facility-queue-abandon-11", "facility-queue-abandon-12"]);
+        for record in &records {
+            let event = &record["event"];
+            assert_eq!((&event["event_type"], &event["payload"]["reason"]), (&"facility_queue_abandon".into(), &"facility_out_of_service".into()));
+            assert_eq!(event["source_id"], "ASM-OUT-OF-SERVICE-FACILITY-V1");
+            assert_eq!(event["provenance"]["transition"], "leave_out_of_service_queue_then_retry");
+        }
+        assert_eq!(world.metric_state().unwrap().get("facility_queue_abandon_count"), Some(&3.0));
+    }
+}
+
+/// #571, the independent queue of a service point: its people leave it too, the request taken out
+/// of the FIFO with an `abandoned` transition.
+#[test]
+fn everyone_leaves_an_independent_queue_of_a_facility_out_of_service() {
+    let world = world([0.9, 0.9, 0.9], 10);
+    let geo = geo();
+    let left = fifo::point_of(&geo, "q-left").unwrap().clone();
+    fifo::write_enqueue(&world, &left, fifo::NewRequest { request_id: "t1", task_id: "t1", agent_id: "a1", service_kind: "toilet", requested_minute: 0 })
+        .unwrap();
+    let mut call = prepare(need_weighted(), 10, Held::Absent);
+    call.queues = Held::Held;
+    assert_eq!(queues::prepare_independent(&world, "q-left", TOILET, &call, None), Ok(Prepared::Done));
+
+    world.rows_mut().unwrap().facilities.get_mut(TOILET).unwrap().working_units = 0;
+    assert_eq!(queues::prepare_independent(&world, "q-left", TOILET, &call, None), Ok(Prepared::NeedsLeaveInputs));
+    let model = Ok(MovementModel::default());
+    let leave = LeaveInputs { has_geometry: false, model: &model, geo: Some(&geo), metric_state_held: true };
+    assert_eq!(queues::prepare_independent(&world, "q-left", TOILET, &call, Some(&leave)), Ok(Prepared::Done));
+    // a1 left; a2 and a3, in no independent queue, are left alone by this queue's rule.
+    assert_eq!(queue_of(&world), [text("a2"), text("a3")]);
+    let row = fifo::queues(&world, &Held::Held).unwrap().unwrap();
+    assert!(row.queues["q-left"].queued_request_ids.is_empty());
+    assert!(row.requests.is_empty());
+    drop(row);
+    let log = world.log().unwrap();
+    let records: Vec<serde_json::Value> = (0..log.len()).map(|index| serde_json::from_slice(log.written(index).unwrap()).unwrap()).collect();
+    drop(log);
+    let of_type = |name: &str| records.iter().find(|record| record["event"]["event_type"] == name).map(|record| &record["event"]["payload"]);
+    assert_eq!(of_type("facility_queue_transition").unwrap()["transition"], "abandoned");
+    assert_eq!(of_type("facility_queue_abandon").unwrap()["reason"], "facility_out_of_service");
+}
+
 #[test]
 fn someone_who_gives_up_in_a_placed_world_walks_back_to_the_zone_s_middle() {
     let world = world([0.1, 0.9, 0.5], 40);

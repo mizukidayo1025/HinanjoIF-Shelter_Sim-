@@ -26,7 +26,7 @@ from sheltersim.web.projects import ProjectAPI, answers
 END = 30
 FORK_MINUTE = 10
 # The sha256 of the report's data as canonical JSON, and the cache key of the analysis task.
-DATA_SHA256 = "c8159eaade81ad9295129de092c98e1ea6699d3083fd7149bcfa8e7d2f7f4c7e"
+DATA_SHA256 = "e54238a34ce4a0213f04743db09b755f9f77fc33b91e049c9e647b20cbc26598"
 ANALYSIS_KEY = "e7e292de94d0a4d4d414b5c12d58efbe1d7d4ece4ef5af304145f0847a0a2ade"
 
 

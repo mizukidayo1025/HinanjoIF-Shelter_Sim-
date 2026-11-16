@@ -51,6 +51,10 @@ const SLOT_TOLERANCE: f64 = 0.05;
 const NEED_WEIGHTED_ID: &str = "need-weighted-physical-queue-v1";
 const NEED_WEIGHTED_SOURCE: &str = "ASM-NEED-WEIGHTED-PHYSICAL-QUEUE-V1";
 const ABANDON_DETAIL: &str = "Agent left a prolonged low-urgency queue and will reconsider after a bounded delay";
+/// Leaving the queue of a facility out of service (#571): its model id, source id and detail.
+const OUT_OF_SERVICE_ID: &str = "out-of-service-facility-v1";
+const OUT_OF_SERVICE_SOURCE: &str = "ASM-OUT-OF-SERVICE-FACILITY-V1";
+const OUT_OF_SERVICE_DETAIL: &str = "Agent left the queue of a facility out of service and will reconsider after a bounded delay";
 
 fn text(value: &str) -> V {
     V::Str(Arc::from(value))
@@ -204,6 +208,17 @@ fn abandons(policy: &Policy, service: Service, need: f64, waited: i64) -> bool {
     }
 }
 
+/// Why someone in a facility's queue leaves it, if they do: everyone leaves the queue of a facility
+/// out of service, whatever the policy and their need, as nobody is served there (#571); otherwise
+/// the policy says whether they give up (`abandons`).
+fn why_leave(policy: &Policy, service: Service, facility: &FacilityRow, need: f64, waited: i64) -> Option<Why> {
+    if facility.is_out_of_service() {
+        Some(Why::OutOfService)
+    } else {
+        abandons(policy, service, need, waited).then_some(Why::GaveUp)
+    }
+}
+
 fn policy_retry(policy: &Policy) -> i64 {
     match policy {
         Policy::Strict => RETRY_DELAY,
@@ -333,7 +348,8 @@ pub fn prepare(world: &World, facility_id: &str, prepare: &Prepare<'_>, leave: O
                 Policy::Strict => 0.0,
                 Policy::NeedWeighted { .. } => need_of(&agent.needs, service)?,
             };
-            let leaves = abandons(&policy, service, need, waited).then(|| Leaving { agent_id: agent_id.clone(), task_id: task_id.clone(), start });
+            let leaves =
+                why_leave(&policy, service, facility, need, waited).map(|why| Leaving { agent_id: agent_id.clone(), task_id: task_id.clone(), start, why });
             ranked.push((-priority(&policy, need, waited), start, order, agent_id.clone(), leaves));
         }
         // As `sorted` on the tuples: -0.0 equals 0.0, and every value is finite.
@@ -440,8 +456,8 @@ pub fn prepare_independent(world: &World, queue_id: &str, facility_id: &str, pre
                 },
             };
             // The first check of giving up: someone not in the facility's list stays as they are.
-            if abandons(&policy, service, need, waited) && members(facility, resource).contains(agent_id) {
-                leaving.push(Leaving { agent_id: agent_id.clone(), task_id: task.id.clone(), start: task.start_minute });
+            if let Some(why) = why_leave(&policy, service, facility, need, waited).filter(|_| members(facility, resource).contains(agent_id)) {
+                leaving.push(Leaving { agent_id: agent_id.clone(), task_id: task.id.clone(), start: task.start_minute, why });
             }
         }
         leaving
@@ -485,11 +501,34 @@ fn remove_stall(world: &World, facility_id: &str) -> Result<()> {
 
 // ---- _abandon_and_retry --------------------------------------------------------------------------
 
-/// Someone `abandons` picked, in the order the rule goes through them.
+/// Someone `why_leave` picked, in the order the rule goes through them.
 struct Leaving {
     agent_id: Arc<str>,
     task_id: Arc<str>,
     start: i64,
+    why: Why,
+}
+
+/// Why someone leaves a queue.
+#[derive(Clone, Copy)]
+enum Why {
+    /// The policy's limit passed with a need under its threshold (`abandons`).
+    GaveUp,
+    /// The facility is out of service (#571).
+    OutOfService,
+}
+
+impl Why {
+    /// The event's `reason`, its source and policy, the provenance's `transition`, and the
+    /// record's detail.
+    fn texts(self) -> (&'static str, &'static str, &'static str, &'static str, &'static str) {
+        match self {
+            Why::GaveUp => ("need_weighted_wait_threshold", NEED_WEIGHTED_SOURCE, NEED_WEIGHTED_ID, "abandon_queue_then_retry", ABANDON_DETAIL),
+            Why::OutOfService => {
+                ("facility_out_of_service", OUT_OF_SERVICE_SOURCE, OUT_OF_SERVICE_ID, "leave_out_of_service_queue_then_retry", OUT_OF_SERVICE_DETAIL)
+            }
+        }
+    }
 }
 
 /// What giving up (`write_all_leaving`) has in common for those who leave.
@@ -593,12 +632,13 @@ fn plan_leave(world: &World, call: &LeaveCall<'_>, person: &Leaving, sequence: i
     payload.insert(Arc::from("start_minute"), V::Int(person.start));
     payload.insert(Arc::from("wait_minutes"), V::Int(minute - person.start));
     payload.insert(Arc::from("retry_at_minute"), V::Int(retry_at));
-    payload.insert(Arc::from("reason"), text("need_weighted_wait_threshold"));
+    let (reason, source, policy, transition, _) = person.why.texts();
+    payload.insert(Arc::from("reason"), text(reason));
     let mut provenance = IndexMap::with_capacity(4);
     provenance.insert(Arc::from("source_type"), text("assumption"));
-    provenance.insert(Arc::from("source_id"), text(NEED_WEIGHTED_SOURCE));
-    provenance.insert(Arc::from("policy_version"), text(NEED_WEIGHTED_ID));
-    provenance.insert(Arc::from("transition"), text("abandon_queue_then_retry"));
+    provenance.insert(Arc::from("source_id"), text(source));
+    provenance.insert(Arc::from("policy_version"), text(policy));
+    provenance.insert(Arc::from("transition"), text(transition));
     let Some(abandon) = EventRow {
         event_id: abandon_id.clone(),
         kind: EventKind::Endogenous,
@@ -607,7 +647,7 @@ fn plan_leave(world: &World, call: &LeaveCall<'_>, person: &Leaving, sequence: i
         sequence,
         event_type: Arc::from("facility_queue_abandon"),
         payload: V::Map(payload),
-        source_id: Some(Arc::from(NEED_WEIGHTED_SOURCE)),
+        source_id: Some(Arc::from(source)),
         causation_id: Some(person.task_id.clone()),
         provenance: V::Map(provenance),
     }
@@ -821,7 +861,7 @@ fn write_all_leaving(world: &World, call: &LeaveCall<'_>, leaving: &[Leaving]) -
             };
             row.next_decision_at = next;
         }
-        events.record(&plan.abandon, minute, EventStatus::Applied, Some(ABANDON_DETAIL))?;
+        events.record(&plan.abandon, minute, EventStatus::Applied, Some(person.why.texts().4))?;
         match plan.walk {
             Some(LeaveWalk { task_id, destination, due, event, changes }) => {
                 events.allocate_sequence()?;

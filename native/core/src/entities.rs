@@ -285,6 +285,14 @@ entity_row!(FacilityRow {
     resource_queue_agent_ids[v6]: Vec<Arc<str>>,
 });
 
+impl FacilityRow {
+    /// Whether no unit of the facility works (an outage, or availability set to 0): it serves
+    /// nobody, nobody chooses it, and those in its queue leave it (#571).
+    pub fn is_out_of_service(&self) -> bool {
+        self.working_units <= 0
+    }
+}
+
 entity_row!(StaffRow {
     id: Arc<str>,
     zone_id: Arc<str>,

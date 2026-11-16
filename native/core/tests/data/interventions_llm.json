@@ -1,0 +1,231 @@
+{
+ "cases": [
+  {
+   "branch": "main",
+   "document": {
+    "question": "記録された値は?"
+   },
+   "length": 3543,
+   "llm": [
+    {
+     "output_text": "{\"claims\": [{\"evidence\": [{\"alias\": \"S2\", \"field\": \"interpretation\", \"value\": \"計算結果は仮定に依存する試算です。単一seedの改善を強い因果効果や実際の安全性の予測として扱いません。\"}]}, {\"evidence\": [{\"alias\": \"S1\", \"field\": \"food_meal_units_remaining\", \"value\": \"103\"}]}], \"explanations\": [{\"kind\": \"hypothesis\", \"text\": \"待ちの長さは処理能力に関係する可能性があります。\", \"evidence\": [{\"alias\": \"S1\", \"field\": \"food_meal_units_remaining\", \"value\": \"103\"}]}]}",
+     "reply": {
+      "api_request_count": 1,
+      "cache_hit": false,
+      "estimated_cost_usd": 0.00014,
+      "fallback_used": false,
+      "input_tokens": 10,
+      "model_id": "claude-opus-5-5",
+      "outcome": "recorded",
+      "output_tokens": 5,
+      "text": "{\"claims\": [{\"evidence\": [{\"alias\": \"S2\", \"field\": \"interpretation\", \"value\": \"計算結果は仮定に依存する試算です。単一seedの改善を強い因果効果や実際の安全性の予測として扱いません。\"}]}, {\"evidence\": [{\"alias\": \"S1\", \"field\": \"food_meal_units_remaining\", \"value\": \"103\"}]}], \"explanations\": [{\"kind\": \"hypothesis\", \"text\": \"待ちの長さは処理能力に関係する可能性があります。\", \"evidence\": [{\"alias\": \"S1\", \"field\": \"food_meal_units_remaining\", \"value\": \"103\"}]}]}"
+     },
+     "task_sha256": "9147a6329331db06729c572be9db9057005556e59b1e5c87ab3a62e658461dfd"
+    }
+   ],
+   "name": "question with the LLM {\"question\": \"記録された値は?\"}",
+   "route": "questions",
+   "sha256": "c62cd06376939f7ddb2829f92239b74cbd434415300924814f3d11a093cb5dc6",
+   "status": 200,
+   "text": "{\"answer\":\"AIの解釈・仮説（記録された因果の断定ではありません）: 待ちの長さは処理能力に関係する可能性があります。\\n\\n記録値 · Active model versions and unvalidated assumptions · interpretation = \\\"計算結果は仮定に依存する試算です。単一seedの改善を強い因果効果や実際の安全性の予測として扱いません。\\\"\\n\\n記録値 · Boundary KPI · 480 · 残り食数 = 103\",\"availability\":\"configured\",\"claims\":[{\"evidence\":[{\"alias\":\"S1\",\"field\":\"food_meal_units_remaining\",\"value\":103}],\"text\":\"AIの解釈・仮説（記録された因果の断定ではありません）: 待ちの長さは処理能力に関係する可能性があります。\"},{\"evidence\":[{\"alias\":\"S2\",\"field\":\"interpretation\",\"value\":\"計算結果は仮定に依存する試算です。単一seedの改善を強い因果効果や実際の安全性の予測として扱いません。\"}],\"text\":\"記録値 · Active model versions and unvalidated assumptions · interpretation = \\\"計算結果は仮定に依存する試算です。単一seedの改善を強い因果効果や実際の安全性の予測として扱いません。\\\"\"},{\"evidence\":[{\"alias\":\"S1\",\"field\":\"food_meal_units_remaining\",\"value\":103}],\"text\":\"記録値 · Boundary KPI · 480 · 残り食数 = 103\"}],\"context\":{\"agent_id\":null,\"branch_id\":\"main\",\"captured_minute\":480,\"comparison_branch_ids\":[],\"history_scope\":null,\"project_id\":\"sample\",\"requested_minute\":480,\"run_id\":\"r\"},\"context_id\":\"c4699e571f07a7a3632f65a78afd26643-RANDOM\",\"explanations\":[{\"evidence\":[{\"alias\":\"S1\",\"field\":\"food_meal_units_remaining\",\"value\":103}],\"kind\":\"hypothesis\",\"text\":\"AIの解釈・仮説（記録された因果の断定ではありません）: 待ちの長さは処理能力に関係する可能性があります。\"}],\"facts\":[{\"evidence\":[{\"alias\":\"S2\",\"field\":\"interpretation\",\"value\":\"計算結果は仮定に依存する試算です。単一seedの改善を強い因果効果や実際の安全性の予測として扱いません。\"}],\"text\":\"記録値 · Active model versions and unvalidated assumptions · interpretation = \\\"計算結果は仮定に依存する試算です。単一seedの改善を強い因果効果や実際の安全性の予測として扱いません。\\\"\"},{\"evidence\":[{\"alias\":\"S1\",\"field\":\"food_meal_units_remaining\",\"value\":103}],\"text\":\"記録値 · Boundary KPI · 480 · 残り食数 = 103\"}],\"limitations\":[\"回答は引用したRun・Branch・KPI・Event・モデル根拠に限られます。\",\"質問は読み取り専用で、WorldStateは変更されません。\",\"AIの仮説・提案は保存記録ではなく、引用した数値・イベント以外の因果関係を確認したものではありません。\"],\"mode\":\"record\",\"model\":\"claude-opus-5-5\",\"sources\":[{\"alias\":\"S1\",\"kind\":\"kpi\",\"label\":\"Boundary KPI · 480\",\"reference\":{\"branch_id\":\"main\",\"kind\":\"kpi\",\"minute\":480,\"reference_id\":\"boundary-kpis\",\"run_id\":\"r\",\"status\":\"recorded\"}},{\"alias\":\"S2\",\"kind\":\"model\",\"label\":\"Active model versions and unvalidated assumptions\",\"reference\":{\"branch_id\":\"main\",\"kind\":\"model\",\"minute\":480,\"reference_id\":\"model-configs\",\"run_id\":\"r\",\"status\":\"assumption\"}}],\"usage\":{\"accepted_explanation_count\":1,\"accepted_fact_count\":2,\"answer_fallback_kind\":null,\"api_request_count\":1,\"estimated_cost_usd\":0.00014,\"fallback_used\":false,\"input_tokens\":10,\"outcome\":\"recorded\",\"output_tokens\":5,\"rejected_explanation_batch\":false,\"rejected_fact_batch\":false,\"stage\":\"review\"}}"
+  },
+  {
+   "branch": "main",
+   "document": {
+    "context_id": "$LLM_CONTEXT",
+    "question": "なぜそうなった?"
+   },
+   "length": 3543,
+   "llm": [
+    {
+     "output_text": "{\"claims\": [{\"evidence\": [{\"alias\": \"S2\", \"field\": \"interpretation\", \"value\": \"計算結果は仮定に依存する試算です。単一seedの改善を強い因果効果や実際の安全性の予測として扱いません。\"}]}, {\"evidence\": [{\"alias\": \"S1\", \"field\": \"food_meal_units_remaining\", \"value\": \"103\"}]}], \"explanations\": [{\"kind\": \"hypothesis\", \"text\": \"待ちの長さは処理能力に関係する可能性があります。\", \"evidence\": [{\"alias\": \"S1\", \"field\": \"food_meal_units_remaining\", \"value\": \"103\"}]}]}",
+     "reply": {
+      "api_request_count": 1,
+      "cache_hit": false,
+      "estimated_cost_usd": 0.00014,
+      "fallback_used": false,
+      "input_tokens": 10,
+      "model_id": "claude-opus-5-5",
+      "outcome": "recorded",
+      "output_tokens": 5,
+      "text": "{\"claims\": [{\"evidence\": [{\"alias\": \"S2\", \"field\": \"interpretation\", \"value\": \"計算結果は仮定に依存する試算です。単一seedの改善を強い因果効果や実際の安全性の予測として扱いません。\"}]}, {\"evidence\": [{\"alias\": \"S1\", \"field\": \"food_meal_units_remaining\", \"value\": \"103\"}]}], \"explanations\": [{\"kind\": \"hypothesis\", \"text\": \"待ちの長さは処理能力に関係する可能性があります。\", \"evidence\": [{\"alias\": \"S1\", \"field\": \"food_meal_units_remaining\", \"value\": \"103\"}]}]}"
+     },
+     "task_sha256": "edf24c89df2b664df9e52c5e770b23f34f1a31cb22bdc90f5b3a0595880d7e33"
+    }
+   ],
+   "name": "question with the LLM {\"question\": \"なぜそうなった?\", \"context_id\": \"$LLM_CONTEXT\"}",
+   "route": "questions",
+   "sha256": "c62cd06376939f7ddb2829f92239b74cbd434415300924814f3d11a093cb5dc6",
+   "status": 200,
+   "text": "{\"answer\":\"AIの解釈・仮説（記録された因果の断定ではありません）: 待ちの長さは処理能力に関係する可能性があります。\\n\\n記録値 · Active model versions and unvalidated assumptions · interpretation = \\\"計算結果は仮定に依存する試算です。単一seedの改善を強い因果効果や実際の安全性の予測として扱いません。\\\"\\n\\n記録値 · Boundary KPI · 480 · 残り食数 = 103\",\"availability\":\"configured\",\"claims\":[{\"evidence\":[{\"alias\":\"S1\",\"field\":\"food_meal_units_remaining\",\"value\":103}],\"text\":\"AIの解釈・仮説（記録された因果の断定ではありません）: 待ちの長さは処理能力に関係する可能性があります。\"},{\"evidence\":[{\"alias\":\"S2\",\"field\":\"interpretation\",\"value\":\"計算結果は仮定に依存する試算です。単一seedの改善を強い因果効果や実際の安全性の予測として扱いません。\"}],\"text\":\"記録値 · Active model versions and unvalidated assumptions · interpretation = \\\"計算結果は仮定に依存する試算です。単一seedの改善を強い因果効果や実際の安全性の予測として扱いません。\\\"\"},{\"evidence\":[{\"alias\":\"S1\",\"field\":\"food_meal_units_remaining\",\"value\":103}],\"text\":\"記録値 · Boundary KPI · 480 · 残り食数 = 103\"}],\"context\":{\"agent_id\":null,\"branch_id\":\"main\",\"captured_minute\":480,\"comparison_branch_ids\":[],\"history_scope\":null,\"project_id\":\"sample\",\"requested_minute\":480,\"run_id\":\"r\"},\"context_id\":\"c4699e571f07a7a3632f65a78afd26643-RANDOM\",\"explanations\":[{\"evidence\":[{\"alias\":\"S1\",\"field\":\"food_meal_units_remaining\",\"value\":103}],\"kind\":\"hypothesis\",\"text\":\"AIの解釈・仮説（記録された因果の断定ではありません）: 待ちの長さは処理能力に関係する可能性があります。\"}],\"facts\":[{\"evidence\":[{\"alias\":\"S2\",\"field\":\"interpretation\",\"value\":\"計算結果は仮定に依存する試算です。単一seedの改善を強い因果効果や実際の安全性の予測として扱いません。\"}],\"text\":\"記録値 · Active model versions and unvalidated assumptions · interpretation = \\\"計算結果は仮定に依存する試算です。単一seedの改善を強い因果効果や実際の安全性の予測として扱いません。\\\"\"},{\"evidence\":[{\"alias\":\"S1\",\"field\":\"food_meal_units_remaining\",\"value\":103}],\"text\":\"記録値 · Boundary KPI · 480 · 残り食数 = 103\"}],\"limitations\":[\"回答は引用したRun・Branch・KPI・Event・モデル根拠に限られます。\",\"質問は読み取り専用で、WorldStateは変更されません。\",\"AIの仮説・提案は保存記録ではなく、引用した数値・イベント以外の因果関係を確認したものではありません。\"],\"mode\":\"record\",\"model\":\"claude-opus-5-5\",\"sources\":[{\"alias\":\"S1\",\"kind\":\"kpi\",\"label\":\"Boundary KPI · 480\",\"reference\":{\"branch_id\":\"main\",\"kind\":\"kpi\",\"minute\":480,\"reference_id\":\"boundary-kpis\",\"run_id\":\"r\",\"status\":\"recorded\"}},{\"alias\":\"S2\",\"kind\":\"model\",\"label\":\"Active model versions and unvalidated assumptions\",\"reference\":{\"branch_id\":\"main\",\"kind\":\"model\",\"minute\":480,\"reference_id\":\"model-configs\",\"run_id\":\"r\",\"status\":\"assumption\"}}],\"usage\":{\"accepted_explanation_count\":1,\"accepted_fact_count\":2,\"answer_fallback_kind\":null,\"api_request_count\":1,\"estimated_cost_usd\":0.00014,\"fallback_used\":false,\"input_tokens\":10,\"outcome\":\"recorded\",\"output_tokens\":5,\"rejected_explanation_batch\":false,\"rejected_fact_batch\":false,\"stage\":\"review\"}}"
+  },
+  {
+   "branch": "main",
+   "document": {
+    "comparison_branch_ids": [
+     "c1"
+    ],
+    "minute": 420,
+    "question": "分岐と比べると?"
+   },
+   "length": 3237,
+   "llm": [
+    {
+     "output_text": "{\"claims\": [{\"evidence\": [{\"alias\": \"S2\", \"field\": \"interpretation\", \"value\": \"Same Run/seed/time descriptive model comparison. Shared lineage does not establish real-world causation.\"}]}, {\"evidence\": [{\"alias\": \"S1\", \"field\": \"food_meal_units_remaining\", \"value\": \"103\"}]}], \"explanations\": [{\"kind\": \"hypothesis\", \"text\": \"待ちの長さは処理能力に関係する可能性があります。\", \"evidence\": [{\"alias\": \"S1\", \"field\": \"food_meal_units_remaining\", \"value\": \"103\"}]}]}",
+     "reply": {
+      "api_request_count": 1,
+      "cache_hit": false,
+      "estimated_cost_usd": 0.00014,
+      "fallback_used": false,
+      "input_tokens": 10,
+      "model_id": "claude-opus-5-5",
+      "outcome": "recorded",
+      "output_tokens": 5,
+      "text": "{\"claims\": [{\"evidence\": [{\"alias\": \"S2\", \"field\": \"interpretation\", \"value\": \"Same Run/seed/time descriptive model comparison. Shared lineage does not establish real-world causation.\"}]}, {\"evidence\": [{\"alias\": \"S1\", \"field\": \"food_meal_units_remaining\", \"value\": \"103\"}]}], \"explanations\": [{\"kind\": \"hypothesis\", \"text\": \"待ちの長さは処理能力に関係する可能性があります。\", \"evidence\": [{\"alias\": \"S1\", \"field\": \"food_meal_units_remaining\", \"value\": \"103\"}]}]}"
+     },
+     "task_sha256": "97e17fe8c1beff9ae5e00e9a73d298b50676a63aa17d27e7a2b79833e043ac25"
+    }
+   ],
+   "name": "question with the LLM {\"question\": \"分岐と比べると?\", \"minute\": 420, \"comparison_branch_ids\": [\"c1\"]}",
+   "route": "questions",
+   "sha256": "424e7cbb80ae0761c33edb7593e4a08f7a740dc36149b78317077fda1a57d72a",
+   "status": 200,
+   "text": "{\"answer\":\"AIの解釈・仮説（記録された因果の断定ではありません）: 待ちの長さは処理能力に関係する可能性があります。\\n\\n記録値 · Same-minute candidate KPI · interpretation = \\\"Same Run/seed/time descriptive model comparison. Shared lineage does not establish real-world causation.\\\"\\n\\n記録値 · Boundary KPI · 420 · 残り食数 = 103\",\"availability\":\"configured\",\"claims\":[{\"evidence\":[{\"alias\":\"S1\",\"field\":\"food_meal_units_remaining\",\"value\":103}],\"text\":\"AIの解釈・仮説（記録された因果の断定ではありません）: 待ちの長さは処理能力に関係する可能性があります。\"},{\"evidence\":[{\"alias\":\"S2\",\"field\":\"interpretation\",\"value\":\"Same Run/seed/time descriptive model comparison. Shared lineage does not establish real-world causation.\"}],\"text\":\"記録値 · Same-minute candidate KPI · interpretation = \\\"Same Run/seed/time descriptive model comparison. Shared lineage does not establish real-world causation.\\\"\"},{\"evidence\":[{\"alias\":\"S1\",\"field\":\"food_meal_units_remaining\",\"value\":103}],\"text\":\"記録値 · Boundary KPI · 420 · 残り食数 = 103\"}],\"context\":{\"agent_id\":null,\"branch_id\":\"main\",\"captured_minute\":420,\"comparison_branch_ids\":[\"c1\"],\"history_scope\":null,\"project_id\":\"sample\",\"requested_minute\":420,\"run_id\":\"r\"},\"context_id\":\"c590d5afea1e9e142d7ff3abeb78ea3e6-RANDOM\",\"explanations\":[{\"evidence\":[{\"alias\":\"S1\",\"field\":\"food_meal_units_remaining\",\"value\":103}],\"kind\":\"hypothesis\",\"text\":\"AIの解釈・仮説（記録された因果の断定ではありません）: 待ちの長さは処理能力に関係する可能性があります。\"}],\"facts\":[{\"evidence\":[{\"alias\":\"S2\",\"field\":\"interpretation\",\"value\":\"Same Run/seed/time descriptive model comparison. Shared lineage does not establish real-world causation.\"}],\"text\":\"記録値 · Same-minute candidate KPI · interpretation = \\\"Same Run/seed/time descriptive model comparison. Shared lineage does not establish real-world causation.\\\"\"},{\"evidence\":[{\"alias\":\"S1\",\"field\":\"food_meal_units_remaining\",\"value\":103}],\"text\":\"記録値 · Boundary KPI · 420 · 残り食数 = 103\"}],\"limitations\":[\"回答は引用したRun・Branch・KPI・Event・モデル根拠に限られます。\",\"質問は読み取り専用で、WorldStateは変更されません。\",\"AIの仮説・提案は保存記録ではなく、引用した数値・イベント以外の因果関係を確認したものではありません。\"],\"mode\":\"record\",\"model\":\"claude-opus-5-5\",\"sources\":[{\"alias\":\"S1\",\"kind\":\"kpi\",\"label\":\"Boundary KPI · 420\",\"reference\":{\"branch_id\":\"main\",\"kind\":\"kpi\",\"minute\":420,\"reference_id\":\"boundary-kpis\",\"run_id\":\"r\",\"status\":\"recorded\"}},{\"alias\":\"S2\",\"kind\":\"comparison\",\"label\":\"Same-minute candidate KPI\",\"reference\":{\"branch_id\":\"c1\",\"kind\":\"comparison\",\"minute\":420,\"reference_id\":\"boundary-kpis\",\"run_id\":\"r\",\"status\":\"recorded\"}}],\"usage\":{\"accepted_explanation_count\":1,\"accepted_fact_count\":2,\"answer_fallback_kind\":null,\"api_request_count\":1,\"estimated_cost_usd\":0.00014,\"fallback_used\":false,\"input_tokens\":10,\"outcome\":\"recorded\",\"output_tokens\":5,\"rejected_explanation_batch\":false,\"rejected_fact_batch\":false,\"stage\":\"review\"}}"
+  },
+  {
+   "branch": "main",
+   "document": {
+    "question": "答えの形が違うと?"
+   },
+   "length": 1076,
+   "llm": [
+    {
+     "output_text": "not json",
+     "reply": {
+      "api_request_count": 1,
+      "cache_hit": false,
+      "estimated_cost_usd": 0.00014,
+      "fallback_used": true,
+      "input_tokens": 10,
+      "model_id": "claude-opus-5-5",
+      "outcome": "invalid_output",
+      "output_tokens": 5,
+      "text": "{\"claims\": [], \"explanations\": []}"
+     },
+     "task_sha256": "1854c036e6be67aece774b0788da3e4985392c8544ba6a88c3e0d15789559757"
+    }
+   ],
+   "name": "question with the LLM {\"question\": \"答えの形が違うと?\"}",
+   "route": "questions",
+   "sha256": "21c4205f7ef7b4edee38a07bc2e3ae73eab6bf823e8f7ad262a80c34fe0d5a0e",
+   "status": 200,
+   "text": "{\"answer\":\"提示された記録だけでは回答を裏付けられません。\",\"availability\":\"unavailable\",\"claims\":[],\"context\":{\"agent_id\":null,\"branch_id\":\"main\",\"captured_minute\":480,\"comparison_branch_ids\":[],\"history_scope\":null,\"project_id\":\"sample\",\"requested_minute\":480,\"run_id\":\"r\"},\"context_id\":\"c4699e571f07a7a3632f65a78afd26643-RANDOM\",\"explanations\":[],\"facts\":[],\"limitations\":[\"回答は引用したRun・Branch・KPI・Event・モデル根拠に限られます。\",\"質問は読み取り専用で、WorldStateは変更されません。\",\"AIの仮説・提案は保存記録ではなく、引用した数値・イベント以外の因果関係を確認したものではありません。\"],\"mode\":\"record\",\"model\":\"claude-opus-5-5\",\"sources\":[],\"usage\":{\"accepted_explanation_count\":0,\"accepted_fact_count\":0,\"answer_fallback_kind\":null,\"api_request_count\":1,\"estimated_cost_usd\":0.00014,\"fallback_used\":true,\"input_tokens\":10,\"outcome\":\"invalid_output\",\"output_tokens\":5,\"rejected_explanation_batch\":false,\"rejected_fact_batch\":false,\"stage\":\"review\"}}"
+  },
+  {
+   "length": 2694,
+   "llm": [
+    {
+     "output_text": "{\"status\": \"compiled\", \"support_mode\": \"native\", \"mechanism_summary\": \"仮設トイレを2基追加する作用に対応付けました。\", \"effects\": [{\"op\": \"add_toilet\", \"target_kind\": \"zone\", \"target_id\": \"corridor\", \"start_minute\": 400, \"parameters\": {\"count\": 2}}], \"assumptions\": [], \"limitations\": [], \"questions\": [], \"choices\": []}",
+     "reply": {
+      "api_request_count": 1,
+      "cache_hit": false,
+      "estimated_cost_usd": 0.00014,
+      "fallback_used": false,
+      "input_tokens": 10,
+      "model_id": "claude-opus-5-5",
+      "outcome": "recorded",
+      "output_tokens": 5,
+      "text": "{\"status\": \"compiled\", \"support_mode\": \"native\", \"mechanism_summary\": \"仮設トイレを2基追加する作用に対応付けました。\", \"effects\": [{\"op\": \"add_toilet\", \"target_kind\": \"zone\", \"target_id\": \"corridor\", \"start_minute\": 400, \"parameters\": {\"count\": 2}}], \"assumptions\": [], \"limitations\": [], \"questions\": [], \"choices\": []}"
+     },
+     "task_sha256": "1d1a0834ef12bbc7fa9461cac625fe14d928eee031f027b8eed322a77cbd8b52"
+    }
+   ],
+   "name": "preview with the LLM {\"minute\": 400, \"text\": \"仮設トイレを2基置いてほしい\"}",
+   "request": "{\"minute\": 400, \"text\": \"仮設トイレを2基置いてほしい\"}",
+   "route": "preview",
+   "sha256": "ffacabab1ee893f35d7059a4a6d5f472f287f52fc2589905456db08b8dacd9be",
+   "status": 200,
+   "text": "{\"approved_program_hash\":\"147f0d6d26ab7d28f21cbba2cb5bf2cb3eb93c041a5b9c6272e7eb24a3de9b8c\",\"can_apply\":true,\"choices\":[],\"draft_plan\":{\"ambiguities\":[],\"assumptions\":[],\"branch_id\":\"main\",\"compiler_provenance\":{\"compiler_kind\":\"llm\",\"compiler_version\":\"h07-opus-effect-compiler-v1\",\"model_id\":\"claude-opus-5-5\",\"prompt_hash\":\"4d83eec9c10ec119feaa7e97fa0884ca9464ba9fdaafbabfb50b1ca368cb8d5c\"},\"effects\":[{\"assumption_ids\":[],\"causation_id\":null,\"effect_id\":\"effect-01-4be791f422\",\"end_minute\":null,\"guard\":null,\"op\":\"add_toilet\",\"parameters\":{\"count\":2},\"policy_dependencies\":[\"facility_capacity\"],\"reversible\":false,\"source_id\":\"opus-effect-compiler-v1\",\"start_minute\":400,\"target_selector\":{\"candidate_ids\":[],\"kind\":\"zone\",\"target_id\":\"corridor\"},\"units\":\"toilet_stall\"}],\"fork_at_minute\":400,\"narrative\":\"仮設トイレを2基追加する作用に対応付けました。\",\"program_id\":\"opus-54a78f54a255120fd4b3358f\",\"requires_confirmation\":true,\"schema_version\":1,\"simulation_start_minute\":400,\"source_text\":\"仮設トイレを2基置いてほしい\",\"support_mode\":\"native\"},\"fallback_used\":false,\"limitations\":[],\"mechanism_summary\":\"仮設トイレを2基追加する作用に対応付けました。\",\"preview_id\":\"PREVIEW\",\"preview_notice\":\"これは作用のプレビューで、シミュレーションの観測結果ではありません。\",\"program\":{\"assumptions\":[],\"compiler_provenance\":{\"compiler_kind\":\"llm\",\"compiler_version\":\"h07-opus-effect-compiler-v1\",\"model_id\":\"claude-opus-5-5\",\"prompt_hash\":\"4d83eec9c10ec119feaa7e97fa0884ca9464ba9fdaafbabfb50b1ca368cb8d5c\"},\"effects\":[{\"assumption_ids\":[],\"causation_id\":null,\"effect_id\":\"effect-01-4be791f422\",\"end_minute\":null,\"guard\":null,\"op\":\"add_toilet\",\"parameters\":{\"count\":2},\"policy_dependencies\":[\"facility_capacity\"],\"reversible\":false,\"source_id\":\"opus-effect-compiler-v1\",\"start_minute\":400,\"target_selector\":{\"candidate_ids\":[],\"kind\":\"zone\",\"target_id\":\"corridor\"},\"units\":\"toilet_stall\"}],\"narrative\":\"仮設トイレを2基追加する作用に対応付けました。\",\"program_id\":\"opus-54a78f54a255120fd4b3358f\",\"schema_version\":1,\"simulation_start_minute\":400,\"source_text\":\"仮設トイレを2基置いてほしい\",\"support_mode\":\"native\"},\"questions\":[],\"status\":\"compiled\",\"support_mode\":\"native\",\"usage\":{\"api_request_count\":1,\"cache_hit\":false,\"error_kind\":null,\"estimated_cost_usd\":0.00014,\"input_hash\":\"6bf95850acd4fb2b88ff4ad871b8c26b5c43de4d83d410d5d5239be0bd7ee6f7\",\"input_tokens\":10,\"model_id\":\"claude-opus-5-5\",\"output_tokens\":5,\"prompt_hash\":\"4d83eec9c10ec119feaa7e97fa0884ca9464ba9fdaafbabfb50b1ca368cb8d5c\",\"prompt_version\":\"geometry-population-effect-compiler-v2\"},\"validation_issues\":[]}"
+  },
+  {
+   "length": 2689,
+   "llm": [
+    {
+     "output_text": "{\"status\": \"compiled\", \"support_mode\": \"native\", \"mechanism_summary\": \"仮設トイレを2基追加する作用に対応付けました。\", \"effects\": [{\"op\": \"add_toilet\", \"target_kind\": \"zone\", \"target_id\": \"corridor\", \"start_minute\": 400, \"parameters\": {\"count\": 2}, \"end_minute\": 430}], \"assumptions\": [], \"limitations\": [], \"questions\": [], \"choices\": []}",
+     "reply": {
+      "api_request_count": 1,
+      "cache_hit": false,
+      "estimated_cost_usd": 0.00014,
+      "fallback_used": false,
+      "input_tokens": 10,
+      "model_id": "claude-opus-5-5",
+      "outcome": "recorded",
+      "output_tokens": 5,
+      "text": "{\"status\": \"compiled\", \"support_mode\": \"native\", \"mechanism_summary\": \"仮設トイレを2基追加する作用に対応付けました。\", \"effects\": [{\"op\": \"add_toilet\", \"target_kind\": \"zone\", \"target_id\": \"corridor\", \"start_minute\": 400, \"parameters\": {\"count\": 2}, \"end_minute\": 430}], \"assumptions\": [], \"limitations\": [], \"questions\": [], \"choices\": []}"
+     },
+     "task_sha256": "044f68ea220b420ce076baa153c0fa62eb47cf80a4d1412784bc43703ffdb0aa"
+    },
+    {
+     "output_text": "{\"status\": \"compiled\", \"support_mode\": \"native\", \"mechanism_summary\": \"仮設トイレを2基追加する作用に対応付けました。\", \"effects\": [{\"op\": \"add_toilet\", \"target_kind\": \"zone\", \"target_id\": \"corridor\", \"start_minute\": 400, \"parameters\": {\"count\": 2}}], \"assumptions\": [], \"limitations\": [], \"questions\": [], \"choices\": []}",
+     "reply": {
+      "api_request_count": 1,
+      "cache_hit": false,
+      "estimated_cost_usd": 0.00014,
+      "fallback_used": false,
+      "input_tokens": 10,
+      "model_id": "claude-opus-5-5",
+      "outcome": "recorded",
+      "output_tokens": 5,
+      "text": "{\"status\": \"compiled\", \"support_mode\": \"native\", \"mechanism_summary\": \"仮設トイレを2基追加する作用に対応付けました。\", \"effects\": [{\"op\": \"add_toilet\", \"target_kind\": \"zone\", \"target_id\": \"corridor\", \"start_minute\": 400, \"parameters\": {\"count\": 2}}], \"assumptions\": [], \"limitations\": [], \"questions\": [], \"choices\": []}"
+     },
+     "task_sha256": "51f9565d9294137895112479e3500d0296d178a7ec0a4240ad581100a3f1ff7d"
+    }
+   ],
+   "name": "preview with the LLM {\"minute\": 400, \"text\": \"トイレを2基増やしてほしい\"}",
+   "request": "{\"minute\": 400, \"text\": \"トイレを2基増やしてほしい\"}",
+   "route": "preview",
+   "sha256": "b8364fbc7a7ec2ed2c216eaa0041deabd70ec0121ea3fb7e3de4df1aeece6733",
+   "status": 200,
+   "text": "{\"approved_program_hash\":\"1d394812dd7fd7817639404b1ce3c4e594a5afebe4ae7b9989d061eb36da9980\",\"can_apply\":true,\"choices\":[],\"draft_plan\":{\"ambiguities\":[],\"assumptions\":[],\"branch_id\":\"main\",\"compiler_provenance\":{\"compiler_kind\":\"llm\",\"compiler_version\":\"h07-opus-effect-compiler-v1\",\"model_id\":\"claude-opus-5-5\",\"prompt_hash\":\"4d83eec9c10ec119feaa7e97fa0884ca9464ba9fdaafbabfb50b1ca368cb8d5c\"},\"effects\":[{\"assumption_ids\":[],\"causation_id\":null,\"effect_id\":\"effect-01-6384d27b86\",\"end_minute\":null,\"guard\":null,\"op\":\"add_toilet\",\"parameters\":{\"count\":2},\"policy_dependencies\":[\"facility_capacity\"],\"reversible\":false,\"source_id\":\"opus-effect-compiler-v1\",\"start_minute\":400,\"target_selector\":{\"candidate_ids\":[],\"kind\":\"zone\",\"target_id\":\"corridor\"},\"units\":\"toilet_stall\"}],\"fork_at_minute\":400,\"narrative\":\"仮設トイレを2基追加する作用に対応付けました。\",\"program_id\":\"opus-10120c841605d5f30628f8f8\",\"requires_confirmation\":true,\"schema_version\":1,\"simulation_start_minute\":400,\"source_text\":\"トイレを2基増やしてほしい\",\"support_mode\":\"native\"},\"fallback_used\":false,\"limitations\":[],\"mechanism_summary\":\"仮設トイレを2基追加する作用に対応付けました。\",\"preview_id\":\"PREVIEW\",\"preview_notice\":\"これは作用のプレビューで、シミュレーションの観測結果ではありません。\",\"program\":{\"assumptions\":[],\"compiler_provenance\":{\"compiler_kind\":\"llm\",\"compiler_version\":\"h07-opus-effect-compiler-v1\",\"model_id\":\"claude-opus-5-5\",\"prompt_hash\":\"4d83eec9c10ec119feaa7e97fa0884ca9464ba9fdaafbabfb50b1ca368cb8d5c\"},\"effects\":[{\"assumption_ids\":[],\"causation_id\":null,\"effect_id\":\"effect-01-6384d27b86\",\"end_minute\":null,\"guard\":null,\"op\":\"add_toilet\",\"parameters\":{\"count\":2},\"policy_dependencies\":[\"facility_capacity\"],\"reversible\":false,\"source_id\":\"opus-effect-compiler-v1\",\"start_minute\":400,\"target_selector\":{\"candidate_ids\":[],\"kind\":\"zone\",\"target_id\":\"corridor\"},\"units\":\"toilet_stall\"}],\"narrative\":\"仮設トイレを2基追加する作用に対応付けました。\",\"program_id\":\"opus-10120c841605d5f30628f8f8\",\"schema_version\":1,\"simulation_start_minute\":400,\"source_text\":\"トイレを2基増やしてほしい\",\"support_mode\":\"native\"},\"questions\":[],\"status\":\"compiled\",\"support_mode\":\"native\",\"usage\":{\"api_request_count\":2,\"cache_hit\":false,\"error_kind\":null,\"estimated_cost_usd\":0.00028,\"input_hash\":\"7a61fa4ec4a96edcce6ac5167ff3cd7640e7ac9d35b9383cf4cf9c8878e43308\",\"input_tokens\":20,\"model_id\":\"claude-opus-5-5\",\"output_tokens\":10,\"prompt_hash\":\"4d83eec9c10ec119feaa7e97fa0884ca9464ba9fdaafbabfb50b1ca368cb8d5c\",\"prompt_version\":\"geometry-population-effect-compiler-v2\"},\"validation_issues\":[]}"
+  },
+  {
+   "length": 1008,
+   "llm": [
+    {
+     "output_text": "not json",
+     "reply": {
+      "api_request_count": 1,
+      "cache_hit": false,
+      "estimated_cost_usd": 0.00014,
+      "fallback_used": true,
+      "input_tokens": 10,
+      "model_id": "claude-opus-5-5",
+      "outcome": "invalid_output",
+      "output_tokens": 5,
+      "text": "{\"assumptions\":[],\"choices\":[],\"effects\":[],\"limitations\":[\"Opus compiler unavailable; use offline parser only for its recognized forms.\"],\"mechanism_summary\":\"オフライン時の固定応答です。適用可能な案は確定していません。\",\"questions\":[],\"status\":\"not_simulatable\",\"support_mode\":\"not_simulatable\"}"
+     },
+     "task_sha256": "fe64c6c6ef603398f8ea926225810d7a5fa1d0d135f89d6b9ff03b0bdb61f262"
+    }
+   ],
+   "name": "preview with the LLM {\"minute\": 400, \"text\": \"雨漏りの対策をしたい\"}",
+   "request": "{\"minute\": 400, \"text\": \"雨漏りの対策をしたい\"}",
+   "route": "preview",
+   "sha256": "660ccb72a6fe0316cf9d8a1b7c3be5072a09dc5407236ea497429776b76b57d6",
+   "status": 200,
+   "text": "{\"choices\":[],\"draft_plan\":null,\"fallback_used\":true,\"limitations\":[\"Opusの応答が出力schemaの検証に通りませんでした。（理由コード: invalid_output） オフライン判定: この入力に対応するオフライン作用を特定できません。対象・出来事・時刻を指定してください。\"],\"mechanism_summary\":\"利用可能な作用へ変換できる案はありません。\",\"preview_notice\":\"これは作用のプレビューで、シミュレーションの観測結果ではありません。\",\"questions\":[],\"status\":\"not_simulatable\",\"support_mode\":\"not_simulatable\",\"usage\":{\"api_request_count\":1,\"cache_hit\":false,\"error_kind\":\"invalid_output\",\"estimated_cost_usd\":0.00014,\"input_hash\":\"f482a51d0ed9c4efa0716d34deca6a7d0f411147c8eef859704667a8af0f32be\",\"input_tokens\":10,\"model_id\":\"claude-opus-5-5\",\"output_tokens\":5,\"prompt_hash\":\"4d83eec9c10ec119feaa7e97fa0884ca9464ba9fdaafbabfb50b1ca368cb8d5c\",\"prompt_version\":\"geometry-population-effect-compiler-v2\"}}"
+  }
+ ],
+ "evidence_sha256": "d169a527361bd32aa13421c1a955a0f7012a63407b0a9602175bc7d1263761f9",
+ "stored_questions": [
+  "何が起きた?",
+  "何が起きた?",
+  "x",
+  "トイレの列は?",
+  "この人は?",
+  "連絡先 [[selected entity]edacted-email] [selected entity] は?",
+  "記録された値は?",
+  "なぜそうなった?",
+  "分岐と比べると?",
+  "答えの形が違うと?"
+ ]
+}

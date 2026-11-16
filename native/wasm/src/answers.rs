@@ -438,6 +438,53 @@ impl PreviewPlan {
     pub fn draft(&self) -> Option<Vec<u8>> {
         self.draft.clone()
     }
+
+    /// The text read by an LLM through the site's relay (#470, `interpret::Compiling`), of the
+    /// branch's Run at the minute: the compiler's steps, or undefined where no operator the core
+    /// runs is eligible (`answer` then). The browser has no stop policy: without an accepted plan
+    /// the rules read the text.
+    pub fn compiling(&self, simulation: &mut Simulation) -> Result<Option<Compiling>, JsError> {
+        Ok(self.plan.compiling(&mut simulation.run, false).map_err(failed)?.map(|compiling| Compiling { compiling, done: None }))
+    }
+
+    /// The answer of the compiler's result (once `Compiling.read` said it is done), of the
+    /// branch's Run at the minute; the draft to keep is then `draft()`.
+    #[wasm_bindgen(js_name = answerCompiled)]
+    pub fn answer_compiled(&mut self, simulation: &mut Simulation, preview_id: &str, compiling: &Compiling) -> Result<String, JsError> {
+        let compiled = compiling.done.as_deref().ok_or_else(|| JsError::new("the compiler has not given its result"))?;
+        let (answer, draft) = self.plan.answer_compiled(&mut simulation.run, preview_id, compiled).map_err(failed)?;
+        self.draft = draft;
+        text(answer)
+    }
+}
+
+/// An intervention's text read by an LLM (`interpret::Compiling`): `task()` the first task's JSON
+/// for the relay, then `read(reply)` of each reply (`llm::Reply`'s JSON; undefined where the call
+/// failed): the next task's JSON to ask, or undefined once the result is made
+/// (`PreviewPlan.answerCompiled`).
+#[wasm_bindgen]
+pub struct Compiling {
+    compiling: sheltersim_core::interpret::Compiling,
+    done: Option<Vec<u8>>,
+}
+
+#[wasm_bindgen]
+impl Compiling {
+    pub fn task(&self) -> Result<String, JsError> {
+        text(self.compiling.task_json().map_err(|error| JsError::new(&error.to_string()))?)
+    }
+
+    pub fn read(&mut self, reply: Option<String>) -> Result<Option<String>, JsError> {
+        use sheltersim_core::interpret::Step;
+        match self.compiling.read(reply.as_deref().map(str::as_bytes)).map_err(|error| JsError::new(&error.to_string()))? {
+            Step::Ask(task) => Ok(Some(text(task)?)),
+            Step::Done(result) => {
+                self.done = Some(result);
+                Ok(None)
+            }
+            Step::Unavailable(reason) => Err(failed(answers::interventions::PreviewPlan::unavailable(&reason))),
+        }
+    }
 }
 
 /// `POST …/intervention-apply`, its first checks: the draft's id, whose draft the caller reads.
@@ -553,6 +600,50 @@ impl QuestionPlan {
     /// The answer; the turn to keep is then `turn()`.
     pub fn answer(&mut self, random: &str, turn_id: &str) -> Result<String, JsError> {
         let (answer, turn) = self.plan.answer(random, turn_id);
+        self.turn = turn;
+        text(answer)
+    }
+
+    pub fn turn(&self) -> Vec<u8> {
+        self.turn.clone()
+    }
+
+    /// The question asked of an LLM through the site's relay (#470, `QuestionPlan::ask`): the
+    /// branch's frame at the minute, the comparison's answer (or undefined), the Run's
+    /// `evidence.json` (or undefined), its Scenario, the branch's "conversations" pieces
+    /// (decompressed) and `random` as `answer`'s.
+    pub fn ask(
+        &self,
+        frame: &str,
+        comparison: Option<String>,
+        evidence: Option<Vec<u8>>,
+        scenario: &[u8],
+        turns: &Files,
+        random: &str,
+    ) -> Result<Asking, JsError> {
+        let asking =
+            self.plan.ask(frame.as_bytes(), comparison.as_deref().map(str::as_bytes), evidence.as_deref(), scenario, &turns.raws(), random).map_err(failed)?;
+        Ok(Asking { asking, turn: Vec::new() })
+    }
+}
+
+/// A question asked of an LLM: `task()`, the task's JSON for the relay, then `answer(reply, mode,
+/// turnId)` of the relay's reply (`llm::Reply`'s JSON; undefined where the call failed); the turn
+/// to keep is then `turn()`.
+#[wasm_bindgen]
+pub struct Asking {
+    asking: answers::questions::Asking,
+    turn: Vec<u8>,
+}
+
+#[wasm_bindgen]
+impl Asking {
+    pub fn task(&self) -> Result<String, JsError> {
+        answer(self.asking.task_json())
+    }
+
+    pub fn answer(&mut self, reply: Option<String>, mode: &str, turn_id: &str) -> Result<String, JsError> {
+        let (answer, turn) = self.asking.answer(reply.as_deref().map(str::as_bytes), mode, turn_id).map_err(failed)?;
         self.turn = turn;
         text(answer)
     }

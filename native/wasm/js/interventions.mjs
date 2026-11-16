@@ -34,9 +34,20 @@
 // page's Worker (`BrowserApi.forkOutcomes`) as by the server's process
 // (`ProjectAPI._fork_outcomes`): it is gone when the page closes.
 
+//
+// With the relay's passphrase (`llm`, the home's 「API を有効にする」), the preview reads the text with
+// the LLM as the Python server reads it with an API key (#470): the core builds the compiler's task
+// (`PreviewPlan.compiling`: only the operators the core runs, eligible on the branch), the site's
+// relay answers it (relay_link.mjs), the core checks the plan and asks once to repair a plan its
+// checks refuse, and without an accepted plan the rules read the text, saying why
+// (`Compiling.read`, `PreviewPlan.answerCompiled`). The browser has no stop policy. A relay that
+// does not let the passphrase in leaves the answer without an API key. The approval and the fork
+// are the same either way: nothing changes until the user approves the draft.
+
 import { core } from "./api_answers.mjs";
 import { requireCurrentModel } from "./compute.mjs";
 import * as store from "./project_store.mjs";
+import { askRelay } from "./relay_link.mjs";
 
 const draftPath = (projectId, previewId) => [projectId, "drafts", `${previewId}.json`];
 
@@ -45,10 +56,10 @@ function previewId() {
   return crypto.randomUUID().replaceAll("-", "");
 }
 
-/// `POST …/intervention-preview` (`body` the request's text): the answer's JSON text. The core
-/// checks the request and writes the answer and the draft (`answers::interventions`); this reads
-/// the branch's Run at the minute and keeps the draft.
-export async function interventionPreview(api, projectId, runId, branchId, body) {
+/// `POST …/intervention-preview` (`body` the request's text, `llm` the relay's passphrase or
+/// null): the answer's JSON text. The core checks the request and writes the answer and the draft
+/// (`answers::interventions`); this reads the branch's Run at the minute and keeps the draft.
+export async function interventionPreview(api, projectId, runId, branchId, body, llm = null) {
   const { wasm, tree } = api;
   const files = await store.runFiles(wasm, tree, projectId, runId);
   let plan;
@@ -62,12 +73,33 @@ export async function interventionPreview(api, projectId, runId, branchId, body)
     core(() => plan.checkTyped());
     const simulation = await api.simulationAt(projectId, runId, JSON.parse(plan.recordJson()), plan.minute());
     const id = previewId();
-    const answer = core(() => plan.answer(simulation, id));
+    const compiled = llm ? await compileWithLlm(api, plan, simulation, id, llm) : null;
+    const answer = compiled ?? core(() => plan.answer(simulation, id));
     const draft = plan.draft();
     if (draft !== undefined) await tree.write(draftPath(projectId, id), draft);
     return answer;
   } finally {
     plan.free();
+  }
+}
+
+/// The preview's answer of the text read through the relay, or null where no operator the core
+/// runs is eligible or the relay is no link (the answer without an API key then).
+async function compileWithLlm(api, plan, simulation, id, passphrase) {
+  const compiling = core(() => plan.compiling(simulation));
+  if (compiling === undefined) return null;
+  try {
+    let task = core(() => compiling.task());
+    for (let first = true; task !== undefined; first = false) {
+      const reply = await askRelay(api.relay, passphrase, task);
+      // No link at the first task: the answer without an API key; at the repair (the relay
+      // answered the first), a failed call.
+      if (reply === null && first) return null;
+      task = core(() => compiling.read(reply ?? undefined));
+    }
+    return core(() => plan.answerCompiled(simulation, id, compiling));
+  } finally {
+    compiling.free();
   }
 }
 

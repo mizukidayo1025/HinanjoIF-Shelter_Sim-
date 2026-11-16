@@ -25,6 +25,7 @@ pub mod pdf;
 pub mod query;
 pub mod questions;
 pub mod records;
+pub mod relay;
 pub mod report;
 pub mod routes;
 

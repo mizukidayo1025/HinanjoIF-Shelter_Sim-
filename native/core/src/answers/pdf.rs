@@ -31,6 +31,11 @@ use crate::world::WorldCell;
 pub const REPORT_VERSION: &str = "pdf-report-ja-v1";
 /// The analysis's prompt version (`PROMPT_VERSION`).
 pub const PROMPT_VERSION: &str = "pdf-analysis-ja-v1";
+/// The analysis's task, but for its input (also the relay's catalog, `answers::relay`).
+pub(crate) const REVIEW: asking::Review<'static> =
+    asking::Review { task: PDF_ANALYSIS, prompt_version: PROMPT_VERSION, schema_version: 1, fallback_text: "{}", max_output_tokens: 4000 };
+/// The analysis's input byte limit: its facts outgrow the router's generic guard.
+pub(crate) const INPUT_BYTE_LIMIT: i64 = 48_000;
 const SECTIONS: [&str; 5] = ["executive", "interpretation", "hypotheses", "proposals", "limitations"];
 /// key, label, unit, scale, whether lower is better (None: no direction).
 const METRICS: [(&str, &str, &str, i64, Option<bool>); 6] = [
@@ -486,13 +491,8 @@ impl PdfPlan {
             "evidence": facts,
         });
         let state_hash = if attempt == 0 { digest(&facts) } else { digest(&json!({"facts": facts, "attempt": attempt})) };
-        let mut task = asking::review_task(
-            asking::Review { task: PDF_ANALYSIS, prompt_version: PROMPT_VERSION, schema_version: 1, fallback_text: "{}", max_output_tokens: 4000 },
-            &prompt,
-            state_hash,
-            &output_schema(),
-        )?;
-        task.input_byte_limit = Some(48_000);
+        let mut task = asking::review_task(REVIEW, &prompt, state_hash, &output_schema())?;
+        task.input_byte_limit = Some(INPUT_BYTE_LIMIT);
         Ok(PdfAnalysis { data, facts, task })
     }
 }
@@ -610,7 +610,7 @@ fn facts(data: &Value) -> Value {
 }
 
 /// The analysis's output schema.
-fn output_schema() -> Value {
+pub(crate) fn output_schema() -> Value {
     let paragraph = json!({
         "type": "object",
         "additionalProperties": false,

@@ -12,19 +12,17 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-import shutil
 import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-import pytest
+from support.llm_relay import relay_node, run_relay
 
 from sheltersim.llm.config import _OFFICIAL_MODEL_PRICE_FLOORS
 
 ROOT = Path(__file__).parents[3]
 RELAY = ROOT / "deploy" / "workers" / "relay.mjs"
-HARNESS = ROOT / "tests" / "support" / "llm_relay_harness.mjs"
 NEW_PASSPHRASE = ROOT / "deploy" / "workers" / "new_passphrase.mjs"
 KEY = "sk-ant-test-key-never-shown"
 ADMIN_KEY = "owner-key-never-shown-0123456789"
@@ -64,22 +62,6 @@ ANSWER = {
 }
 
 
-def _node() -> str:
-    node = shutil.which("node")
-    if node is None:
-        pytest.skip("node is required for the relay's tests")
-    probe = subprocess.run(
-        [node, "-e", "require('node:sqlite')"],
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        check=False,
-    )
-    if probe.returncode != 0:
-        pytest.skip("the relay's tests need node:sqlite (node 22.5 or later)")
-    return node
-
-
 def _run(
     steps: list[dict[str, Any]],
     *,
@@ -93,19 +75,12 @@ def _run(
         "real_tasks": real_tasks,
         "steps": steps,
     }
-    done = subprocess.run(
-        [_node(), str(HARNESS)],
-        input=json.dumps(script, ensure_ascii=False),
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        check=True,
-        timeout=60,
-    )
+    done = run_relay(script)
     # Neither secret ever leaves the relay: not in an answer, not in a log line.
-    assert KEY not in done.stdout and PASSPHRASE not in done.stdout and OTHER not in done.stdout
-    assert ADMIN_KEY not in done.stdout
-    return json.loads(done.stdout)
+    text = json.dumps(done, ensure_ascii=False)
+    assert KEY not in text and PASSPHRASE not in text and OTHER not in text
+    assert ADMIN_KEY not in text
+    return done
 
 
 def _post(path: str, passphrase: str | None = PASSPHRASE, **step: Any) -> dict[str, Any]:
@@ -197,7 +172,7 @@ def test_requests_that_are_not_the_relay_s_are_refused_and_other_paths_are_the_s
             _post("/llm/v1/session", headers={"Sec-Fetch-Site": "cross-site"}),
             _post("/llm/v1/session", headers={"Origin": "https://hinanjo-if.example"}),
             _post("/llm/v1/session", request={"method": "GET"}),
-            _post("/llm/v1/session", body="x" * (64 * 1024 + 1)),
+            _post("/llm/v1/session", body="x" * (256 * 1024 + 1)),
             _post("/llm/v1/session", body="[1, 2]"),
             _post("/llm/v1/nothing"),
             _post("/demo-v2.css", request={"method": "GET"}),
@@ -342,7 +317,7 @@ def test_failed_calls_settle_at_nothing_or_at_their_reservation() -> None:
 
 def test_new_passphrase_makes_an_entry_the_relay_lets_in() -> None:
     made = subprocess.run(
-        [_node(), str(NEW_PASSPHRASE), "審査員C"],
+        [relay_node(), str(NEW_PASSPHRASE), "審査員C"],
         capture_output=True,
         text=True,
         encoding="utf-8",
@@ -356,15 +331,7 @@ def test_new_passphrase_makes_an_entry_the_relay_lets_in() -> None:
         "env": {"LLM_PASSPHRASES": json.dumps([entry])},
         "steps": [_post("/llm/v1/session", passphrase=passphrase)],
     }
-    done = subprocess.run(
-        [_node(), str(HARNESS)],
-        input=json.dumps(script),
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        check=True,
-    )
-    assert json.loads(done.stdout)["answers"][0]["body"]["recipient"] == "審査員C"
+    assert run_relay(script)["answers"][0]["body"]["recipient"] == "審査員C"
 
 
 def test_the_scenario_text_task_sends_python_s_prompt_and_refuses_what_python_refuses() -> None:
@@ -548,3 +515,123 @@ def test_an_issued_passphrase_works_on_the_session_and_tasks_until_revoked() -> 
     assert revoked["status"] == 200
     assert (after["status"], after["body"]["code"]) == (401, "llm_passphrase_invalid")
     assert [row["recipient"] for row in result["ledger"]["usage"]] == ["審査員C"]
+
+
+# ---- The core's tasks (#470) ----------------------------------------------------------------
+
+CORE_TASKS = ROOT / "native" / "core" / "src" / "answers" / "relay_tasks.json"
+# A schema the task brings itself (the intervention's): floats as Python writes them.
+OWN_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "ratio": {"type": "number", "minimum": 0.0, "maximum": 1e-05},
+        "名": {"enum": ["é"]},
+    },
+    "required": ["ratio"],
+    "additionalProperties": False,
+}
+
+
+def _catalog() -> dict[str, dict[str, Any]]:
+    return {entry["task"]: entry for entry in json.loads(CORE_TASKS.read_text("utf-8"))["tasks"]}
+
+
+def _core_task(name: str, **change: Any) -> dict[str, Any]:
+    """A task of the catalog as the core writes it (`llm::Task::to_json`)."""
+    entry = _catalog()[name]
+    task = {
+        "task": name,
+        "stage": entry["stage"],
+        "prompt_version": entry["prompt_version"],
+        "schema_version": entry["schema_version"],
+        "input_text": json.dumps({"question": "足りた？", "evidence": []}, ensure_ascii=False),
+        "state_hash": "0" * 64,
+        "output_schema": entry["output_schema"] or OWN_SCHEMA,
+        "fallback_text": "{}",
+        "max_output_tokens": entry["max_output_tokens"],
+    }
+    if entry["input_byte_limit"] is not None:
+        task["input_byte_limit"] = entry["input_byte_limit"]
+    task.update(change)
+    return task
+
+
+def _core_step(task: dict[str, Any]) -> dict[str, Any]:
+    """The browser's request: the task's JSON as it is, in `input`."""
+    body = '{"input":' + json.dumps(task, ensure_ascii=False) + "}"
+    return _post(
+        f"/llm/v1/tasks/{task['task']}", body=body, provider={"status": 200, "body": ANSWER}
+    )
+
+
+def test_a_core_task_is_sent_as_python_s_router_sends_it() -> None:
+    """Each task of the core's catalog: the model of its stage, the answer's size with Opus's
+    room for thinking, the system prompt `_system_prompt` writes (the schema's floats and
+    non-ASCII text as Python writes them) and the input text as the one user message."""
+    from sheltersim.llm.config import LLMSettings
+    from sheltersim.llm.link import llm_task
+    from sheltersim.llm.provider import THINKING_HEADROOM_TOKENS, _system_prompt
+
+    names = list(_catalog())
+    assert names == [
+        "result_question",
+        "intervention_compiler",
+        "intervention_repair",
+        "pdf_analysis",
+    ]
+    tasks = [_core_task(name) for name in names]
+    done = _run([_core_step(task) for task in tasks], real_tasks=True)
+    settings = LLMSettings()
+    for task, answer in zip(tasks, done["answers"], strict=True):
+        assert answer["status"] == 200, answer
+        assert answer["body"]["prompt_version"] == task["prompt_version"]
+        asked = llm_task(json.loads(json.dumps(task)))
+        sent = answer["provider_request"]["body"]
+        assert sent["model"] == settings.model_for(task["stage"]) == "claude-opus-5-5"
+        assert sent["max_tokens"] == (
+            min(task["max_output_tokens"], settings.max_output_tokens) + THINKING_HEADROOM_TOKENS
+        )
+        assert sent["system"] == _system_prompt(asked)
+        assert sent["messages"] == [{"role": "user", "content": asked.input_text}]
+        assert "output_config" not in sent and "thinking" not in sent
+    system = done["answers"][1]["provider_request"]["body"]["system"]
+    assert '"maximum":1e-05,"minimum":0.0' in system and '"\\u540d"' in system
+
+
+def test_a_core_task_not_of_the_catalog_is_refused_before_a_call() -> None:
+    """A task of another version (a page older than the relay), with a field more or less, a
+    fixed schema changed, an input that is not a JSON object or is over the router's limit, or a
+    schema of its own over SCHEMA_LIMIT is refused, 400, and nothing is called."""
+    question = _catalog()["result_question"]
+    del_limit = _core_task("pdf_analysis")
+    del del_limit["input_byte_limit"]
+    refused = [
+        _core_task("result_question", prompt_version="read-only-results-chat-v1"),
+        _core_task("result_question", schema_version=1),
+        _core_task("result_question", max_output_tokens=8000),
+        _core_task("result_question", stage="intervention"),
+        _core_task("result_question", extra=1),
+        _core_task("result_question", input_byte_limit=16384),
+        del_limit,
+        _core_task("result_question", output_schema={**question["output_schema"], "required": []}),
+        _core_task("result_question", input_text="not json"),
+        _core_task("result_question", input_text="[1, 2]"),
+        _core_task("result_question", input_text=json.dumps({"q": "あ" * 5462})),
+        _core_task("intervention_compiler", output_schema={"type": "array"}),
+        _core_task(
+            "intervention_compiler",
+            output_schema={"type": "object", "description": "x" * (32 * 1024)},
+        ),
+    ]
+    steps = [_core_step(task) for task in refused]
+    steps.append(_post("/llm/v1/tasks/result_question", body={"input": "text"}))
+    done = _run(steps, real_tasks=True)
+    for answer in done["answers"]:
+        assert (answer["status"], answer["body"]["code"]) == (400, "llm_task_input_invalid"), answer
+        assert "provider_request" not in answer
+    assert done["ledger"]["reservations"] == [] and done["ledger"]["spend"] == []
+    # The largest input the router lets in still fits, though each quote and backslash of it is
+    # written twice as long in the request's body.
+    at_limit = _core_task("intervention_compiler", input_text='{"q":"' + '\\"' * 32_764 + '"}')
+    assert len(at_limit["input_text"].encode()) == 65_536
+    assert _run([_core_step(at_limit)], real_tasks=True)["answers"][0]["status"] == 200

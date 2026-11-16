@@ -283,6 +283,31 @@ hr {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* Whether the AI's features are ON (#581), beside the open scenario's name; it goes to the home's
+   「AIの機能（API）」. On the home (no scenario open) it takes the scenario's place on the right. */
+.header-api {
+  margin-left: auto;
+  flex: none;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #f4f6fa;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+.header-scenario:not([hidden]) ~ .header-api {
+  margin-left: 0;
+}
+.header-api.on {
+  border-color: #9fd9b5;
+  background: #e8f7ee;
+  color: #146c3a;
+}
+.header-api[hidden] {
+  display: none;
+}
 .speed-label {
   font-size: 9px;
   color: var(--muted);
@@ -1491,6 +1516,10 @@ body.is-busy #intervention-apply {
   .app-header #play {
     margin-left: auto;
     padding: 7px;
+  }
+  /* The ON/OFF already takes the free space on the right. */
+  .app-header .header-api:not([hidden]) ~ #play {
+    margin-left: 0;
   }
   .brand strong {
     font-size: 21px;

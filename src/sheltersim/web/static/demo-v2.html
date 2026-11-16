@@ -42,6 +42,7 @@
       <div id="header-scenario" class="header-scenario" hidden>
         <small>シナリオ</small><strong id="scenario-name"></strong>
       </div>
+      <button id="header-api" class="header-api" type="button" hidden></button>
       <label class="speed-label"
         >再生速度<select id="speed">
           <option value="60">1日＝24分</option>
@@ -97,12 +98,13 @@
               このサイトは地域の避難所の一覧を入れずに作られているため、条件から新しいシナリオを作れません。
             </p>
           </article>
-          <article id="home-api" class="panel home-card" hidden>
+          <article id="home-api" class="panel home-card">
             <h2>AIの機能（API）</h2>
             <p class="fine">
-              配布した合言葉を入れると、シナリオ作成の文をAIが読み取ります（ほかのAIの機能は順に対応します）。合言葉はこのブラウザーにだけ保存します。
+              文章からのシナリオの読み取り、介入の文章での指示、結果への質問、分析レポートの考察は、AI（LLM）を使う機能です。使うと、入力した文や結果の記録がAIの提供元（Anthropic）に送られます。
             </p>
-            <p id="home-api-status" class="home-api-status" role="status">まだ有効にしていません。</p>
+            <p id="home-api-how" class="fine"></p>
+            <p id="home-api-status" class="home-api-status" role="status">確認しています…</p>
             <div class="home-actions">
               <button id="home-api-enable" type="button">API を有効にする</button
               ><button id="home-api-disable" type="button" hidden>解除する</button>

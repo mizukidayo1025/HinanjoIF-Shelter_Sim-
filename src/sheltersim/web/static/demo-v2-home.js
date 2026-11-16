@@ -1,4 +1,5 @@
-/* The home: the saved Scenarios, the examples to fetch and the AI's API (passphrase). */
+/* The home: the saved Scenarios, the examples to fetch and the AI's API (its ON/OFF, and the
+   browser version's passphrase). */
 (() => {
   "use strict";
   const app = window.HinanjoApp;
@@ -119,8 +120,7 @@
       ...(rows.length ? rows : [el("p", "まだシナリオはありません。", "quiet-message")]),
     );
     $("home-fetch").hidden = !offered.some((e) => !e.installed);
-    $("home-api").hidden = !browser;
-    if (browser) void refreshApi();
+    void refreshApi();
     $("home-browser-notes").hidden = !browser;
     $("home-new").disabled = site.scenarios === "unavailable";
     $("home-new-note").hidden = site.scenarios !== "unavailable";
@@ -217,17 +217,61 @@
       );
     return body;
   }
+  // Whether the AI's (LLM's) features are ON (#581): one state for the whole screen
+  // (`state.llm`), shown at the top and on the home. The browser version's comes from its relay
+  // (the passphrase), the server's from its LLM settings (GET /api/v1/llm).
+  function setLlm(on, label) {
+    state.llm = { on };
+    const badge = $("header-api");
+    badge.hidden = false;
+    badge.textContent = on ? "API ON" : "API OFF";
+    badge.classList.toggle("on", on);
+    badge.title = `AIの機能（API）：${label}`;
+    $("home-api-status").textContent = label;
+    $("home-api-status").classList.toggle("on", on);
+  }
   function showApi(session, message) {
-    $("home-api-status").textContent = session
-      ? session.available
-        ? `有効です（${session.recipient}）。今日のサイト全体の残り：$${Number(session.remaining_usd).toFixed(2)}`
-        : `合言葉は確認できました（${session.recipient}）が、中継にAPIキーがまだ設定されていません。`
-      : message || "まだ有効にしていません。";
-    $("home-api-status").classList.toggle("on", Boolean(session?.available));
+    setLlm(
+      Boolean(session?.available),
+      session
+        ? session.available
+          ? `有効です（${session.recipient}）。今日のサイト全体の残り：$${Number(session.remaining_usd).toFixed(2)}`
+          : `合言葉は確認できました（${session.recipient}）が、中継にAPIキーがまだ設定されていません。`
+        : message || "まだ有効にしていません。",
+    );
     $("home-api-enable").hidden = Boolean(session);
     $("home-api-disable").hidden = !session;
   }
-  async function refreshApi() {
+  function showServerApi(status) {
+    setLlm(
+      status.available,
+      status.available
+        ? status.mode === "replay"
+          ? "ON です（記録したAIの応答で答えます）。"
+          : "ON です（サーバーにAPIキーが設定されています）。"
+        : `OFF です。${status.reason}`,
+    );
+  }
+  // Asked at the start and on each visit to the home; a check under way is shared.
+  let checking = null;
+  function refreshApi() {
+    return (checking ??= checkApi().finally(() => (checking = null)));
+  }
+  async function checkApi() {
+    const browser = Boolean(window.HinanjoBrowserApi);
+    $("home-api-how").textContent = browser
+      ? "配布した合言葉を入れると ON になります。合言葉はこのブラウザーにだけ保存します。"
+      : "サーバーをAPIキーつきで起動すると ON になります。";
+    if (!browser) {
+      $("home-api-enable").hidden = true;
+      $("home-api-disable").hidden = true;
+      try {
+        showServerApi(await api("/api/v1/llm"));
+      } catch (error) {
+        setLlm(false, `確認できませんでした：${error.message}`);
+      }
+      return;
+    }
     const passphrase = storedPassphrase();
     if (!passphrase) return showApi(null);
     try {
@@ -361,6 +405,8 @@
     }
     await loadHome();
   }
-  Object.assign(app, { runNames, loadHome, keepPassphrase, showApi, enableApi, openExamples });
+  Object.assign(app, {
+    runNames, loadHome, keepPassphrase, showApi, refreshApi, enableApi, openExamples,
+  });
   Object.defineProperty(app, "fetching", { get: () => fetching });
 })();

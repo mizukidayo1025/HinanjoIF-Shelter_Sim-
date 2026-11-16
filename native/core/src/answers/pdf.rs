@@ -279,6 +279,19 @@ impl PdfPlan {
         &self.records
     }
 
+    /// A branch's Run of other model versions (view-only) is read at its saved points only:
+    /// `saved` is its last saved point at or before the minute (0 where it has none); the
+    /// refusal (409 `pdf_saved_point_required`) where it is not the minute.
+    pub fn check_saved_point(&self, saved: i64) -> Answer<()> {
+        if saved == self.minute {
+            return Ok(());
+        }
+        Err(Refusal::storage(format!(
+            "pdf_saved_point_required: このRunは別のモデルの版で計算したため、保存した時点だけを表示します。レポートは保存した時点（{saved}分など）を選んでください。"
+        ))
+        .into())
+    }
+
     /// The first minute the report covers: a single child's fork, or the later fork of two.
     pub fn start(&self) -> i64 {
         let fork = |record: &Record| record.get("fork_minute").and_then(super::js_number).unwrap_or_default() as i64;

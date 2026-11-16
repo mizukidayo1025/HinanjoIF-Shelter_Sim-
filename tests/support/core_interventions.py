@@ -12,9 +12,10 @@ each of `PREVIEWS` (and the server's refusals), `intervention-apply` of the firs
 computed to the end, and its frames and KPI history.
 
 Then, with an API key (#470), on a server whose Provider is a fake answering each call with the
-next of the case's answers (`LLM_QUESTIONS`, `LLM_PREVIEWS`): the questions and previews the
-browser asks through the site's relay, in `interventions_llm.json` (`interventions_llm_fixture`;
-`interventions.json` stays as it was, as the store's tests hold its sha256). Each such case holds,
+next of the case's answers (`LLM_QUESTIONS`, `LLM_PREVIEWS`, `LLM_REPORTS`): the questions,
+previews and analysis reports the browser asks through the site's relay, in
+`interventions_llm.json` (`interventions_llm_fixture`; `interventions.json` stays as it was, as
+the store's tests hold its sha256). Each such case holds,
 for each call, the sha256 of the core's task (`llm::Task`'s JSON, which the browser must send the
 relay as it is) and the reply the server's link gave (`llm::Reply`'s JSON: the text, the outcome,
 the model, the tokens, the cost) with the text the Provider wrote, which the browser's fake relay
@@ -146,6 +147,12 @@ LLM_PREVIEWS: list[tuple[dict[str, Any], list[str]]] = [
     ({"minute": FORK_MINUTE, "text": "雨漏りの対策をしたい"}, ["not json"]),
 ]
 
+# `pdf-report` with an API key (#470): (body, answers). "prose" is the grounded analysis of
+# `support.reports`.
+LLM_REPORTS: list[tuple[dict[str, Any], list[str]]] = [
+    ({"branch_ids": ["main", CHILD], "minute": 420}, ["prose"]),
+]
+
 
 def _scalars(data: Any, prefix: str = "") -> Any:
     for key, value in data.items():
@@ -159,7 +166,12 @@ def _scalars(data: Any, prefix: str = "") -> Any:
 def _llm_answer(kind: str, task: Any) -> str:
     """The fake Provider's text for a task: `cite` a question's answer citing a recorded string
     and number of its evidence; `toilets` a plan adding two toilets to the first zone at the
-    minute asked (`toilets until` with an end minute, which the checks refuse); else `kind`."""
+    minute asked (`toilets until` with an end minute, which the checks refuse); `prose` the PDF
+    report's grounded analysis; else `kind`."""
+    if kind == "prose":
+        from support.reports import _prose_document
+
+        return json.dumps(_prose_document(), ensure_ascii=False)
     payload = json.loads(task.input_text)
     if kind == "cite":
         found = [
@@ -296,6 +308,17 @@ def _llm_cases(api: Any, heads: Any) -> list[dict[str, Any]]:
                     "request": body,
                     "llm": list(calls),
                     **_case(f"preview with the LLM {body}", status, text, heads()),
+                }
+            )
+        for document, answers in LLM_REPORTS:
+            provider.answers, calls[:] = list(answers), []
+            status, text = _pdf(api, document)
+            cases.append(
+                {
+                    "route": "pdf-report",
+                    "document": document,
+                    "llm": list(calls),
+                    **_case(f"report with the LLM {json.dumps(document)}", status, text, heads()),
                 }
             )
     return cases

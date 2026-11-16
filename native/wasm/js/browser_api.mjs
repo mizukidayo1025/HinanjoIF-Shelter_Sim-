@@ -26,7 +26,8 @@
 //   POST runs/{run}/delete                   the Run removed (#376), as the server's
 //   GET  runs/{run}/branches/{branch}/conversations   the questions and answers kept (#376)
 //   POST runs/{run}/pdf-report               the server's checks, then its answer without an API key:
-//                                            409 pdf_analysis_offline (#309)
+//                                            409 pdf_analysis_offline (#309); with the passphrase, the
+//                                            report with the LLM's analysis through the relay (#470)
 //   POST {project}/scenario-preview, scenario-approve, runs   js/scenario_routes.mjs (#301); a preview's
 //                                            text is read with the LLM through the site's relay when the
 //                                            request carries the passphrase (`llm`, #421)
@@ -49,14 +50,14 @@
 // example's sha256 beside the Projects (SAMPLE_MARKER), so a site with another example offers it
 // again.
 
-import { ApiError, core, errorAnswer, historyCache, historyResponse, llmStatusResponse, reportResponse } from "./api_answers.mjs";
+import { ApiError, core, errorAnswer, historyCache, historyResponse, llmStatusResponse, readSamples, reportResponse } from "./api_answers.mjs";
 import { CHUNK_TICKS, Computing, branchModelStatus, postDocument } from "./compute.mjs";
 import * as store from "./project_store.mjs";
 import { compareResponse, replayPair } from "./comparison.mjs";
 import { interventionApply, interventionPreview } from "./interventions.mjs";
 import { questionResponse } from "./questions.mjs";
 import { SAVE_EVERY } from "./run_store.mjs";
-import { sameOriginFetch } from "./relay_link.mjs";
+import { askRelay, sameOriginFetch } from "./relay_link.mjs";
 import { bodyDocument, ScenarioRoutes } from "./scenario_routes.mjs";
 
 /// The manifest of the site's sample: {format, version, project_id, bytes, sha256, parts: [{path,
@@ -155,8 +156,8 @@ export class BrowserApi {
   }
 
   /// Answers a request: `{ method, path, search, body, llm? }` (body the text of a POST; llm the
-  /// passphrase of the site's relay, for a Scenario preview (#421), a question or an
-  /// intervention's preview (#470)) to `{ status, type, body }`. Requests are answered one at a
+  /// passphrase of the site's relay, for a Scenario preview (#421), a question, an intervention's
+  /// preview or the analysis report (#470)) to `{ status, type, body }`. Requests are answered one at a
   /// time, in the order they came.
   answer(request) {
     return this.enqueue(() => this.route(request));
@@ -220,7 +221,7 @@ export class BrowserApi {
       return interventionPreview(this, parts[0], parts[2], parts[4], body, llm);
     }
     if (parts.length === 6 && parts[1] === "runs" && parts[3] === "branches" && parts[5] === "questions") return questionResponse(this, parts[0], parts[2], parts[4], body, llm);
-    if (parts.length === 4 && parts[1] === "runs" && parts[3] === "pdf-report") return this.pdfReport(parts[0], parts[2], body);
+    if (parts.length === 4 && parts[1] === "runs" && parts[3] === "pdf-report") return this.pdfReport(parts[0], parts[2], body, llm);
     if (parts.length === 4 && parts[1] === "runs" && parts[3] === "delete") return this.deleteRun(parts[0], parts[2], body);
     const route = parts.length >= 6 && parts[1] === "runs" ? parts.slice(3).join("/") : parts.slice(1).join("/");
     throw unsupported(route || "POST");
@@ -277,14 +278,61 @@ export class BrowserApi {
   }
 
   /// `POST runs/{run}/pdf-report` (src/sheltersim/web/pdf_report.py `export`): the core's checks
-  /// in the server's order, then what the server answers without an API key: the analysis needs
-  /// Opus, so no PDF is made (`sheltersim_core::answers::routes::pdf_report_answer`).
-  async pdfReport(projectId, runId, body) {
+  /// in the server's order; without the relay's passphrase, what the server answers without an API
+  /// key: the analysis needs Opus, so no report is made
+  /// (`sheltersim_core::answers::routes::pdf_report_answer`). With it (#470), the report as the
+  /// server makes it with an API key: each branch's Run at the minute (a view-only one at a saved
+  /// point only), its frame, stored samples and journal give the core the report's data and facts,
+  /// the site's relay answers the analysis (Opus), and the core checks it and writes the answer
+  /// (`{"analysis", "data", "facts"}`, which the screen lays out on its print page). A relay that
+  /// does not let the passphrase in leaves the answer without an API key. The browser keeps no
+  /// report: each request asks the relay again.
+  async pdfReport(projectId, runId, body, llm = null) {
     const files = await store.runFiles(this.wasm, this.tree, projectId, runId);
+    let plan;
     try {
-      return core(() => this.wasm.pdfReport(projectId, runId, body ?? undefined, files));
+      if (!llm) return core(() => this.wasm.pdfReport(projectId, runId, body ?? undefined, files));
+      plan = core(() => this.wasm.pdfPlan(projectId, runId, body ?? undefined, files));
     } finally {
       files.free();
+    }
+    try {
+      const minute = plan.minute();
+      for (const record of JSON.parse(plan.recordsJson())) {
+        const journal = (await this.tree.read([projectId, "runs", runId, "branches", record.branch_id, "journal.jsonl"])) ?? new Uint8Array(0);
+        // A Run of other model versions is read at its saved points only (D2).
+        const exact = journal.length > 0 && (await this.viewOf(projectId, runId, record)) !== null;
+        if (exact) {
+          const saved = await this.savedMinuteAt(projectId, runId, record, minute);
+          core(() => plan.checkSavedPoint(saved));
+        }
+        const simulation = await this.simulationAt(projectId, runId, record, minute, { exact });
+        const frame = decoder.decode(simulation.frame(runId, record.branch_id, record.computed_until, undefined));
+        const table = await readSamples(this.wasm, this.tree, projectId, runId, record.branch_id);
+        try {
+          core(() => plan.addBranch(simulation, frame, table, journal));
+        } finally {
+          table.free();
+        }
+      }
+      const scenario = await store.runScenarioBytes(this.tree, projectId, runId);
+      const analysis = core(() => plan.analysis(scenario));
+      try {
+        const reply = await askRelay(this.relay, llm, core(() => analysis.task()));
+        if (reply === null) {
+          const again = await store.runFiles(this.wasm, this.tree, projectId, runId);
+          try {
+            return core(() => this.wasm.pdfReport(projectId, runId, body ?? undefined, again));
+          } finally {
+            again.free();
+          }
+        }
+        return core(() => analysis.report(core(() => analysis.read(reply))));
+      } finally {
+        analysis.free();
+      }
+    } finally {
+      plan.free();
     }
   }
 

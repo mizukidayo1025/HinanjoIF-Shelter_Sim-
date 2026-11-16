@@ -106,12 +106,7 @@ class PdfReports:
                     for head in points
                     if head["kind"] != "end" and head["minute"] <= plan.minute
                 )
-                if plan.minute not in saved:
-                    raise StorageError(
-                        "pdf_saved_point_required: このRunは別のモデルの版で計算したため、"
-                        "保存した時点だけを表示します。レポートは保存した時点"
-                        f"（{saved[-1] if saved else 0}分など）を選んでください。"
-                    )
+                plan.check_saved_point(saved[-1] if saved else 0)
                 exact = True
             branch_run = api.live.at(project_id, run_id, record, plan.minute, exact=exact)
             frame = branch_run.frame(run_id, branch_id, record["computed_until"])

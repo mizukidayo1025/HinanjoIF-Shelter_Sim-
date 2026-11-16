@@ -161,4 +161,6 @@ serverと違うのは、`minute`を`5.0`のように小数の形で書いたと�
 
 読めないJSONの本文には、serverと同じく400の`{"error":"invalid project request"}`を返します（`code`の欄はありません）。
 
+合言葉を添えた要求（#470）には、APIキーのあるserverと同じ答え（レポートのデータ・根拠と、中継のOpusの考察を中核が確かめたもの）を返します（[pdf-report-export.md](pdf-report-export.md)）。
+
 `native/wasm/tests/node_api_answers.mjs`が1つの分岐の確かめを、`node_interventions.mjs`が子と2つの分岐（共通の範囲の外を含む）の確かめを、serverの答えと比べます。

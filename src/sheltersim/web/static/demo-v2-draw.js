@@ -155,7 +155,7 @@
         points: raw.filter((r) => typeof r[d.key] === "number"),
       }))
       .filter((d) => d.points.length);
-    ctx.font = "11px sans-serif";
+    ctx.font = "13px sans-serif";
     ctx.fillStyle = "#6783a4";
     if (!series.length) {
       ctx.fillText("この指標の時系列記録はありません", 20, h / 2);
@@ -188,7 +188,7 @@
       ctx.stroke();
       ctx.fillStyle = "#47658f";
       ctx.textAlign = "left";
-      ctx.font = "10px sans-serif";
+      ctx.font = "13px sans-serif";
       ctx.fillText(d.label, legendX + 21, 17);
       legendX += ctx.measureText(d.label).width + 38;
     }
@@ -202,7 +202,7 @@
       ctx.stroke();
       ctx.textAlign = "right";
       ctx.fillStyle = "#7186a8";
-      ctx.font = "10px sans-serif";
+      ctx.font = "13px sans-serif";
       ctx.fillText(num(maxY * (1 - i / 4)), left - 7, y + 4);
     }
     const xOf = (m) => left + ((m - minX) / (maxX - minX)) * pw;
@@ -243,7 +243,7 @@
       }
     }
     ctx.textAlign = "center";
-    ctx.font = "10px sans-serif";
+    ctx.font = "13px sans-serif";
     ctx.fillStyle = "#647fa3";
     for (let i = 0; i <= 3; i++) {
       const m = Math.round(minX + ((maxX - minX) * i) / 3);

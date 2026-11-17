@@ -17,6 +17,16 @@
       $("people-list").append(
         el("span", `同じ記録位置の${group.length}人`, "group-caption"),
       );
+    if (state.selectedGroup?.length) {
+      const all = el("button", "全員の一覧に戻る", "person-chip");
+      all.addEventListener("click", () => {
+        state.selectedGroup = [];
+        state.selected = null;
+        renderPeople();
+        drawAll();
+      });
+      $("people-list").append(all);
+    }
     for (const p of group) {
       const button = el("button", p.id, "person-chip");
       button.classList.toggle("selected", p.id === state.selected);
@@ -24,6 +34,15 @@
         selectPerson(p.id, state.selectedGroup, anchorOf(button)),
       );
       $("people-list").append(button);
+    }
+    if (!state.selectedGroup?.length && f.staff.length) {
+      $("people-list").append(el("span", "スタッフ", "group-caption"));
+      for (const person of f.staff) {
+        const button = el("button", person.id, "person-chip");
+        button.classList.toggle("selected", person.id === state.selected);
+        button.addEventListener("click", () => selectPerson(person.id, [], anchorOf(button)));
+        $("people-list").append(button);
+      }
     }
     if (state.selected) {
       const p = f.people.find((p) => p.id === state.selected);

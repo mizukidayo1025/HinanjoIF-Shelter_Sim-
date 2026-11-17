@@ -401,20 +401,20 @@
             <h1 id="simulation-heading">シミュレーションの状況</h1>
           </div>
         </div>
-        <div id="sim-kpis" class="kpi-grid"></div>
+        <div id="sim-kpis" class="kpi-grid" aria-label="表示中の時刻の指標"></div>
         <div class="simulation-grid">
           <article class="panel map-panel">
             <div class="panel-title">
               <h2>避難所マップ <small id="map-location">合成施設</small></h2>
               <div class="layer-tabs" role="group" aria-label="表示レイヤー">
-                <button data-layer="normal" aria-pressed="true">通常</button
+                <button data-layer="normal" aria-pressed="true">全体</button
                 ><button data-layer="stress" aria-pressed="false">
                   ストレス</button
                 ><button data-layer="crowd" aria-pressed="false">混雑</button
                 ><button data-layer="health" aria-pressed="false">
-                  健康・ニーズ</button
+                  疲労・空腹など</button
                 ><button data-layer="operations" aria-pressed="false">
-                  運営
+                  設備・動線
                 </button>
               </div>
               <div class="map-options">
@@ -423,8 +423,8 @@
                     <option value="normal">通常</option>
                     <option value="stress">ストレス</option>
                     <option value="crowd">混雑</option>
-                    <option value="health">健康・ニーズ</option>
-                    <option value="operations">運営</option>
+                    <option value="health">疲労・空腹など</option>
+                    <option value="operations">設備・動線</option>
                   </select></label
                 >
               </div>
@@ -466,7 +466,7 @@
           </article>
           <aside class="simulation-side">
             <article class="panel">
-              <h2>この時点の課題</h2>
+              <h2>この時点の課題 <small>シミュレーション上の記録</small></h2>
               <p class="fine">
                 いつ何が起きたかは、下の「イベントタイムライン」を参照してください。
               </p>
@@ -474,7 +474,7 @@
             </article>
             <article id="people-panel" class="panel people-panel">
               <div class="people-panel-head">
-                <h2>♟ 避難者・スタッフの状態（抜粋）</h2>
+                <h2>避難者・スタッフの記録</h2>
                 <button id="people-expand" type="button" class="compact">⤢ 大きく表示</button>
               </div>
               <dialog id="person-dialog" class="person-dialog" aria-labelledby="person-dialog-title">
@@ -544,7 +544,7 @@
             <p class="fine">
               計算済みの時刻から、作用・対象・量を選び、検証結果を確かめて分岐を作ります。計算中は作れません。
             </p>
-            <div class="fork-time">
+            <div class="intervention-steps"><div class="fork-time">
               <span id="intervention-base" class="fine"></span>
               <label
                 >1. いつ介入するか<select id="fork-day" aria-label="分岐する日"></select
@@ -563,9 +563,7 @@
               /></label>
               <p id="intervention-op-note" class="fine"></p>
             </div>
-            <button id="intervention-preview" class="primary full" disabled>
-              3. 内容をプレビュー →
-            </button>
+            <div class="intervention-confirm"><strong>3. 内容を確認する</strong><p>選んだ内容を確認してから分岐を作成します。</p><button id="intervention-preview" class="primary full" disabled>内容をプレビュー →</button></div></div>
             <details class="intervention-text-option">
               <summary>文章で指示する（AIが作用に変換）</summary>
               <fieldset class="needs-api" data-needs-api>
@@ -608,7 +606,7 @@
             </div>
           </article>
         </div>
-        <article class="panel">
+        <article class="panel comparison-results">
           <h2>この介入でどう変わるか <small>モデルの正式な指標による比較</small></h2>
           <div id="difference-summary" class="difference-grid">
             <p class="muted">
@@ -625,8 +623,8 @@
               <option value="normal">通常</option>
               <option value="stress">ストレス</option>
               <option value="crowd">混雑</option>
-              <option value="health">健康・ニーズ</option>
-              <option value="operations">運営</option>
+              <option value="health">疲労・空腹など</option>
+              <option value="operations">設備・動線</option>
             </select></label
           ><button data-zoom="in">＋ 両マップ拡大</button
           ><button data-zoom="out">− 両マップ縮小</button
@@ -702,7 +700,7 @@
             ><button id="save-report" disabled>↓ レポート保存</button>
           </div>
         </div>
-        <article class="panel report-highlights"><h2>この結果の要点</h2><p class="fine">表示中の時刻に記録された指標です。</p><div id="report-kpis" class="kpi-strip" aria-label="表示中の時刻の指標"></div></article>
+        <article class="panel report-highlights"><h2>この結果の要点</h2><p class="fine">表示中の時刻の記録です。シミュレーション全期間の診断ではありません。</p><div id="report-highlights" class="highlights-grid"></div><details><summary>すべての指標を見る</summary><div id="report-kpis" class="kpi-strip" aria-label="表示中の時刻の指標"></div></details></article>
         <div class="report-grid">
           <div class="report-main">
             <div class="report-top">
@@ -727,6 +725,7 @@
                   id="history-chart"
                   aria-label="記録された指標の時系列の折れ線グラフ"
                 ></canvas>
+                <p class="chart-guide">「ストレス・スタッフ負荷」は、平均ストレス（100点満点）と対応中のスタッフの割合（%）を、共通の0〜100の目盛りで示します。単独の指標は選択欄から確認できます。</p>
                 <p id="history-note" class="fine">
                   記録を取得すると表示します。
                 </p>
@@ -761,18 +760,14 @@
             <p class="fine">
               記録された根拠と、AIによる解釈を区別して表示します。
             </p>
-            <div id="chat" class="chat">
-              <div class="chat-intro">
-                気になったことを、記録から確かめよう。
-                <p>
-                  「なぜトイレが混雑したのか」<br />「どの介入が有効だったか」
-                </p>
-                <p class="chat-guide">
-                  グラフやマップの気づきを質問できます。回答に引用された記録・時刻と、AIの解釈を並べて確認しましょう。
-                </p>
-              </div>
-            </div>
             <fieldset class="needs-api" data-needs-api>
+              <div class="suggestions">
+                <button data-question="なぜトイレが混雑したのか">
+                  トイレの混雑について</button
+                ><button data-question="どの介入が有効だったか">
+                  介入の違い
+                </button><button type="button" data-question="支援要請の記録について教えてください">支援要請の記録</button><button type="button" data-question="ストレスが高い避難者の記録を教えてください">ストレスの記録</button>
+              </div>
               <form id="question-form">
                 <label class="sr-only" for="question">結果への質問</label>
                 <div class="chat-input">
@@ -792,14 +787,20 @@
                   </button>
                 </div>
               </form>
-              <div class="suggestions">
-                <button data-question="なぜトイレが混雑したのか">
-                  トイレの混雑について</button
-                ><button data-question="どの介入が有効だったか">
-                  介入の違い
-                </button><button type="button" data-question="支援要請の記録について教えてください">支援要請の記録</button><button type="button" data-question="ストレスが高い避難者の記録を教えてください">ストレスの記録</button>
-              </div>
+
             </fieldset>
+            <div id="chat" class="chat">
+              <div class="chat-intro">
+                気になったことを、記録から確かめよう。
+                <p>
+                  「なぜトイレが混雑したのか」<br />「どの介入が有効だったか」
+                </p>
+                <p class="chat-guide">
+                  グラフやマップの気づきを質問できます。回答に引用された記録・時刻と、AIの解釈を並べて確認しましょう。
+                </p>
+              </div>
+            </div>
+
           </aside>
         </div>
       </section>

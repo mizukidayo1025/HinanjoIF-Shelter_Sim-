@@ -115,9 +115,9 @@ def test_the_result_questions_need_the_api_but_their_history_does_not():
     import re
 
     html = Path("src/sheltersim/web/static/demo-v2.html").read_text(encoding="utf-8")
-    box = re.split(r'<fieldset class="needs-api" data-needs-api>\s*<form id="question-form">', html)
+    box = re.split(r'<fieldset class="needs-api" data-needs-api>(?:(?!</fieldset>).)*<form id="question-form">', html, flags=re.S)
     assert len(box) == 2, "the question form opens its own needs-api fieldset"
-    inside = box[1].split("</fieldset>")[0]
+    inside = html[html.rfind('<fieldset class="needs-api" data-needs-api>', 0, html.index('<form id="question-form">')):html.index("</fieldset>", html.index('<form id="question-form">'))]
     assert 'id="question"' in inside and 'id="ask"' in inside
     assert inside.count("data-question=") == html.count("data-question=") == 4
-    assert 'id="chat"' in box[0] and 'id="chat"' not in inside
+    assert 'id="chat"' not in inside and 'id="chat"' in html

@@ -107,3 +107,34 @@ for (const clickable of [true, false]) {
         capture_output=True,
         text=True,
     )
+
+
+def test_report_highlights_follow_the_displayed_frame():
+    """The three prominent facts use the frame's values and do not invent missing data."""
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("Node is required for the UI callback regression")
+    source = Path("src/sheltersim/web/static/demo-v2-simulation.js").resolve()
+    script = r"""
+import fs from 'node:fs';
+import assert from 'node:assert/strict';
+const source = fs.readFileSync(process.argv[1], 'utf8').replaceAll('\r\n','\n');
+const body = source.split('  function renderKpiStrip(container, kpis) {')[1]
+  .split('  // The open Run\'s name')[0];
+const node = (tag, text, cls) => ({tag, text, cls, children:[], append(...v){this.children.push(...v)}, replaceChildren(...v){this.children=v}});
+const highlight = node('div');
+const $ = () => highlight, el = node, uiIcon = () => node('icon');
+const state = {minute: 10}, time = () => '時刻', num = v => v == null ? '—' : String(v);
+const metricDefs = [
+ {key:'stress_mean', factor:100, unit:'/100', label:'平均', note:'平均'},
+ {key:'unresolved_support_request_count', factor:1, unit:'件', label:'相談', note:'相談'},
+ {key:'staff_load_ratio', factor:100, unit:'%', label:'負荷', note:'負荷'},
+];
+const render = eval('(function renderKpiStrip(container, kpis) {' + body + ')');
+const strip = node('div');
+render(strip, {stress_mean:.42, unresolved_support_request_count:3, staff_load_ratio:.5});
+assert.deepEqual(highlight.children.map(c => c.children[1].children[1].text), ['42 /100','3 件','50 %']);
+render(strip, undefined);
+assert.deepEqual(highlight.children.map(c => c.children[1].children[1].text), ['— /100','— 件','— %']);
+"""
+    subprocess.run([node, "--input-type=module", "-e", script, str(source)], check=True)

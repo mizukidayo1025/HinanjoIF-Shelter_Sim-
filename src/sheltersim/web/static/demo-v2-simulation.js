@@ -94,7 +94,7 @@
       card.append(image);
       card.title = d.note;
       const body = el("div");
-      body.append(el("small", container.id === "sim-kpis" ? ({ stress_mean: "避難者の負担", unresolved_support_request_count: "対応待ちの相談", staff_load_ratio: "スタッフの忙しさ" }[d.key] || d.label) : d.label));
+      body.append(el("small", container.id === "sim-kpis" ? ({ stress_mean: "避難者の負担", unresolved_support_request_count: "対応待ちの相談", staff_load_ratio: "スタッフの忙しさ", population: "避難者数", toilet_wait_mean_24h_minutes: "トイレ待ち時間", toilet_queue_length: "トイレ待ち" }[d.key] || d.label) : d.label));
       body.append(
         el(
           "strong",
@@ -112,6 +112,19 @@
   // The report's line of the same indicators (#375): the cards' definitions and values, small,
   // with the minute they are of; the report's chart and summary carry the rest.
   function renderKpiStrip(container, kpis) {
+    const highlights = $("report-highlights");
+    highlights.replaceChildren(...["stress_mean", "unresolved_support_request_count", "staff_load_ratio"].map((key) => {
+      const d = metricDefs.find((metric) => metric.key === key);
+      const card = el("div", undefined, `highlight-card highlight-${key}`);
+      const icon = el("span", undefined, "highlight-icon");
+      icon.append(uiIcon({ stress_mean: "people", unresolved_support_request_count: "alert", staff_load_ratio: "staff" }[key]));
+      const body = el("div");
+      body.append(el("strong", { stress_mean: "避難者の負担", unresolved_support_request_count: "対応待ちの相談", staff_load_ratio: "スタッフの忙しさ" }[key]),
+        el("span", `${num(typeof kpis?.[key] === "number" ? kpis[key] * d.factor : null)} ${d.unit}`),
+        el("small", d.note));
+      card.append(icon, body);
+      return card;
+    }));
     container.replaceChildren(
       el("span", kpis ? `${time(state.minute)}の指標` : "指標", "kpi-strip-when"),
       ...metricDefs.map((d) => {
@@ -277,15 +290,15 @@
     // Shown first and kept while the frame is shown, unlike a notice.
     const viewNote = savedPointNote(frame);
     if (viewNote) issues.push(["閲覧のみのシナリオ", viewNote]);
+    if (frame.kpis.unresolved_support_request_count > 0)
+      issues.push([
+        "対応待ちの支援要請",
+        `${frame.kpis.unresolved_support_request_count}件がスタッフの対応待ちです。`,
+      ]);
     if (frame.kpis.toilet_queue_length > 0)
       issues.push([
         "トイレの待機列",
         `${frame.kpis.toilet_queue_length}人が待機。直近24時間の平均待ち時間 ${num(frame.kpis.toilet_wait_mean_24h_minutes)}分。`,
-      ]);
-    if (frame.kpis.unresolved_support_request_count > 0)
-      issues.push([
-        "未解決の支援要請",
-        `${frame.kpis.unresolved_support_request_count}件がスタッフの対応待ちです。対応が完了すると下の「イベントタイムライン」に青で、対応されないまま時間切れになると赤で表示されます。`,
       ]);
     for (const f of frame.facilities.filter(
       (f) =>
@@ -302,7 +315,7 @@
       ]);
     $("issues").replaceChildren(
       ...(issues.length
-        ? issues.slice(0, 5).map(([a, b]) => {
+        ? issues.map(([a, b]) => {
             const n = el("div", undefined, "issue");
             n.append(el("strong", a), el("span", b));
             return n;
@@ -340,14 +353,8 @@
         `event-item event-${eventTone(e)}`,
       );
       node.append(
-        el(
-          "b",
-          `${eventNames[e.event_type] || e.event_type}${e.count > 1 ? ` ×${e.count}件` : ""}`,
-        ),
-        el(
-          "span",
-          `${time(e.minute)} · ${{ applied: "適用済み", suppressed: "適用抑制", rejected: "却下", failed: "失敗", scheduled: "予定" }[e.status] || e.status}`,
-        ),
+        el("span", `${time(e.minute)} · ${{ applied: "適用済み", suppressed: "適用抑制", rejected: "却下", failed: "失敗", scheduled: "予定" }[e.status] || e.status}`, "event-time"),
+        el("b", `${eventNames[e.event_type] || e.event_type}${e.count > 1 ? ` ×${e.count}件` : ""}`),
       );
       node.title = `${e.event_id} / source: ${e.source_id || "未記録"}`;
       if (clickable) {

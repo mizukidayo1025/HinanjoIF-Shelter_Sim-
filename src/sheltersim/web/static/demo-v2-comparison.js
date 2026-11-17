@@ -553,6 +553,7 @@
     $("compare-time").textContent = time(m);
     $("branch-a-name").textContent = shortBranch(ids[0]);
     $("branch-b-name").textContent = shortBranch(ids[1]);
+    $("branch-b-name").title = `分岐ID: ${ids[1]}`;
     $("branch-b-badge").hidden = false;
     const defs = metricDefs.slice(0, 4);
     renderKpis($("compare-kpis-a"), result.frames[0].kpis, defs);
@@ -569,24 +570,12 @@
         undefined,
         `difference-card ${good ? "good" : bad ? "bad" : ""}`,
       );
+      const label = { stress_mean: "避難者の負担", toilet_wait_mean_24h_minutes: "トイレ待ち時間", staff_load_ratio: "スタッフの忙しさ", unresolved_support_request_count: "対応待ちの相談" }[d.key] || d.label;
       card.append(
-        el("span", d.label),
-        el(
-          "strong",
-          typeof raw === "number"
-            ? `${raw > 0 ? "+" : ""}${num(raw * d.factor)} ${d.unit === "/100" || d.unit === "%" ? "pt" : d.unit}`
-            : "取得不可",
-        ),
-        el(
-          "span",
-          `${num(a * d.factor)} → ${num(b * d.factor)} · ${typeof raw !== "number" ? "未提供" : good ? "改善（減少）" : bad ? "悪化（増加）" : "変化なし"}`,
-        ),
+        el("span", label, "difference-label"),
+        el("strong", `${num(typeof a === "number" ? a * d.factor : null)} → ${num(typeof b === "number" ? b * d.factor : null)} ${d.unit}`, "difference-values"),
+        el("span", typeof raw !== "number" ? "差分は取得できません" : `${good ? "改善" : bad ? "悪化" : "変化なし"}（${raw > 0 ? "+" : ""}${num(raw * d.factor)} ${d.unit === "/100" || d.unit === "%" ? "pt" : d.unit}）`, "difference-change"),
       );
-      const track = el("div", undefined, "difference-track"),
-        bar = el("i");
-      bar.style.width = `${typeof raw === "number" ? Math.min(100, (Math.abs(raw) / Math.max(Math.abs(a), Math.abs(b), 1)) * 100) : 0}%`;
-      track.append(bar);
-      card.append(track);
       $("difference-summary").append(card);
     }
     for (const [index, key] of ["a", "b"].entries()) {
@@ -603,6 +592,10 @@
         sessionStorage.getItem(`hinanjo-if-intervention-${ids[1]}`) || "null",
       );
       if (record) {
+        if (record.text) {
+          $("branch-b-name").textContent = record.text;
+          $("branch-b-name").title = `分岐ID: ${ids[1]}`;
+        }
         $("comparison-instruction").textContent =
           `${time(record.minute)}：${record.text}`;
         $("comparison-effect").replaceChildren(

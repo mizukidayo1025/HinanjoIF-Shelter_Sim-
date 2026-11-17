@@ -104,10 +104,13 @@
           list.append(el("li", recommended[item.action]));
       }
       box.append(list);
-      $("report-summary").insertBefore(box, $("report-summary").children[2]);
+      $("report-summary").insertBefore(box, $("report-summary").children[1]);
     }
-    if (report.status !== "validated")
-      $("report-summary").append(el("p", "AIによる追加の考察はこのレポートでは利用できません。", "fine"));
+    if (report.status !== "validated" || !review?.recommendations?.length) {
+      const ai = el("div", undefined, "report-finding ai-finding");
+      ai.append(el("strong", "AIの見立て"), el("span", "このレポートではAIによる追加の考察はありません。記録と出典を確認してください。"));
+      $("report-summary").insertBefore(ai, $("report-summary").children[1]);
+    }
     if (report.markdown)
       $("report-summary").append(
         el(

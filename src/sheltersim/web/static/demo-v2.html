@@ -398,7 +398,7 @@
         <div class="page-heading">
           <div>
             <small>SIMULATION / 記録された世界をたどる</small>
-            <h1 id="simulation-heading">避難所のいまを、見てみよう。</h1>
+            <h1 id="simulation-heading">シミュレーションの状況</h1>
           </div>
         </div>
         <div id="sim-kpis" class="kpi-grid"></div>
@@ -466,7 +466,7 @@
           </article>
           <aside class="simulation-side">
             <article class="panel">
-              <h2>! 発生中の事象・支援上の課題</h2>
+              <h2>この時点の課題</h2>
               <p class="fine">
                 いつ何が起きたかは、下の「イベントタイムライン」を参照してください。
               </p>
@@ -489,7 +489,7 @@
                   マップの人物をクリックすると、記録された状態を表示します。
                 </p>
               </div>
-              <div id="people-list" class="people-list"></div>
+              <details class="people-directory"><summary>避難者・スタッフを全員見る</summary><div id="people-list" class="people-list"></div></details>
             </article>
           </aside>
         </div>
@@ -514,7 +514,7 @@
               この時刻から分岐を作る →
             </button>
           </div>
-          <h3 class="events-heading">
+          <details class="timeline-details" open><summary>イベントの記録を表示・非表示</summary><h3 class="events-heading">
             発生したスタッフ対応・避難者支援など
             <small
               ><span class="tone tone-resolved">青：完了・解決</span
@@ -522,7 +522,7 @@
               ><span class="tone tone-record">灰：経過の記録</span></small
             >
           </h3>
-          <div id="events" class="events"></div>
+          <div id="events" class="events"></div></details>
         </article>
       </section>
       <section
@@ -547,13 +547,13 @@
             <div class="fork-time">
               <span id="intervention-base" class="fine"></span>
               <label
-                >分岐する時刻<select id="fork-day" aria-label="分岐する日"></select
+                >1. いつ介入するか<select id="fork-day" aria-label="分岐する日"></select
                 ><input id="fork-clock" type="time" step="60" aria-label="分岐する時刻" /></label
               ><span id="fork-range" class="fine"></span>
             </div>
             <div id="intervention-builder" class="intervention-builder">
               <label
-                >作用<select id="intervention-op" aria-label="介入の作用"></select></label
+                >2. 何をするか<select id="intervention-op" aria-label="介入の作用"></select></label
               ><label
                 >対象<select id="intervention-target" aria-label="介入の対象"></select></label
               ><div id="intervention-amounts"></div>
@@ -564,7 +564,7 @@
               <p id="intervention-op-note" class="fine"></p>
             </div>
             <button id="intervention-preview" class="primary full" disabled>
-              介入の作用をプレビュー →
+              3. 内容をプレビュー →
             </button>
             <details class="intervention-text-option">
               <summary>文章で指示する（AIが作用に変換）</summary>
@@ -608,6 +608,17 @@
             </div>
           </article>
         </div>
+        <article class="panel">
+          <h2>この介入でどう変わるか <small>モデルの正式な指標による比較</small></h2>
+          <div id="difference-summary" class="difference-grid">
+            <p class="muted">
+              同じ時刻のAPI結果を取得すると、改善・悪化を表示します。
+            </p>
+          </div>
+          <p class="fine">
+            表示は同じ時刻のシミュレーション条件における比較です。介入の改善を保証するものではありません。同一起点の記述的比較であり、現実の因果効果を証明しません。
+          </p>
+        </article>
         <div class="compare-controls">
           <label
             >レイヤー<select id="compare-layer">
@@ -659,18 +670,6 @@
             <div id="compare-kpis-b" class="branch-kpis"></div>
           </article>
         </div>
-        <article class="panel">
-          <h2>差分の要約 <small>モデルの正式な指標による比較</small></h2>
-          <div id="difference-summary" class="difference-grid">
-            <p class="muted">
-              同じ時刻のAPI結果を取得すると、改善・悪化を表示します。
-            </p>
-          </div>
-          <p class="fine">
-            緑：指標の減少 /
-            赤：増加。介入の改善を保証するものではありません。同一起点の記述的比較であり、現実の因果効果を証明しません。
-          </p>
-        </article>
         <article id="multi-compare" class="panel multi-compare">
           <h2>ほかの分岐とも並べる <small>2〜8の分岐を同じ時刻の指標で比べます</small></h2>
           <div id="multi-compare-choices" class="multi-compare-choices"></div>
@@ -703,7 +702,7 @@
             ><button id="save-report" disabled>↓ レポート保存</button>
           </div>
         </div>
-        <div id="report-kpis" class="kpi-strip" aria-label="表示中の時刻の指標"></div>
+        <article class="panel report-highlights"><h2>この結果の要点</h2><p class="fine">表示中の時刻に記録された指標です。</p><div id="report-kpis" class="kpi-strip" aria-label="表示中の時刻の指標"></div></article>
         <div class="report-grid">
           <div class="report-main">
             <div class="report-top">
@@ -795,10 +794,10 @@
               </form>
               <div class="suggestions">
                 <button data-question="なぜトイレが混雑したのか">
-                  トイレ混雑の理由</button
+                  トイレの混雑について</button
                 ><button data-question="どの介入が有効だったか">
                   介入の違い
-                </button>
+                </button><button type="button" data-question="支援要請の記録について教えてください">支援要請の記録</button><button type="button" data-question="ストレスが高い避難者の記録を教えてください">ストレスの記録</button>
               </div>
             </fieldset>
           </aside>

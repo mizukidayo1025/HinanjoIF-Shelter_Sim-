@@ -62,7 +62,7 @@
     for (const [title, text] of [
       [
         "記録から確認できること",
-        `現在の平均ストレス ${num(state.frame.kpis.stress_mean * 100)}/100。トイレ待機人数 ${num(state.frame.kpis.toilet_queue_length)}人。未解決支援要請 ${num(state.frame.kpis.unresolved_support_request_count)}件。`,
+        `${time(state.minute)}の平均ストレス ${num(state.frame.kpis.stress_mean * 100)}/100。トイレ待機人数 ${num(state.frame.kpis.toilet_queue_length)}人。未解決支援要請 ${num(state.frame.kpis.unresolved_support_request_count)}件。`,
       ],
       [
         "課題と次の検討",
@@ -106,6 +106,8 @@
       box.append(list);
       $("report-summary").insertBefore(box, $("report-summary").children[2]);
     }
+    if (report.status !== "validated")
+      $("report-summary").append(el("p", "AIによる追加の考察はこのレポートでは利用できません。", "fine"));
     if (report.markdown)
       $("report-summary").append(
         el(

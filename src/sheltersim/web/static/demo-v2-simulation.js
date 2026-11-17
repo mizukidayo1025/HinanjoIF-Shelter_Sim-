@@ -77,6 +77,7 @@
     container.replaceChildren();
     for (const d of defs) {
       const card = el("div", undefined, "kpi");
+      card.dataset.metric = d.key;
       const image = el("span", undefined, "kpi-icon");
       image.append(
         uiIcon(
@@ -93,7 +94,7 @@
       card.append(image);
       card.title = d.note;
       const body = el("div");
-      body.append(el("small", d.label));
+      body.append(el("small", container.id === "sim-kpis" ? ({ stress_mean: "避難者の負担", unresolved_support_request_count: "対応待ちの相談", staff_load_ratio: "スタッフの忙しさ" }[d.key] || d.label) : d.label));
       body.append(
         el(
           "strong",

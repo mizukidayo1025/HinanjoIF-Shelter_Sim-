@@ -579,7 +579,7 @@
         ),
         el(
           "span",
-          `${num(a * d.factor)} → ${num(b * d.factor)} · ${typeof raw !== "number" ? "未提供" : good ? "減少" : bad ? "増加" : "変化なし"}`,
+          `${num(a * d.factor)} → ${num(b * d.factor)} · ${typeof raw !== "number" ? "未提供" : good ? "改善（減少）" : bad ? "悪化（増加）" : "変化なし"}`,
         ),
       );
       const track = el("div", undefined, "difference-track"),

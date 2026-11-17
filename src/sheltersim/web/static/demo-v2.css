@@ -4136,3 +4136,45 @@ html.print-report-open {
     break-before: page;
   }
 }
+
+/* 読みやすさと情報の優先順位。マップ本体と操作はそのまま使う。 */
+#page-simulation > .page-heading, #page-comparison > .page-heading {
+  position: static; width: auto; height: auto; overflow: visible; clip-path: none;
+}
+#sim-kpis { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+#sim-kpis .kpi { min-width: 0; padding: 14px; }
+#sim-kpis .kpi[data-metric="stress_mean"] { order: 1; }
+#sim-kpis .kpi[data-metric="unresolved_support_request_count"] { order: 2; }
+#sim-kpis .kpi[data-metric="staff_load_ratio"] { order: 3; }
+#sim-kpis .kpi[data-metric="population"] { order: 4; }
+#sim-kpis .kpi[data-metric="toilet_wait_mean_24h_minutes"] { order: 5; }
+#sim-kpis .kpi[data-metric="toilet_queue_length"] { order: 6; }
+#sim-kpis .kpi small { font-size: 15px; font-weight: 700; }
+#sim-kpis .kpi strong { font-size: 30px; }
+#sim-kpis .kpi em { font-size: 14px; }
+#sim-kpis .kpi .fine { font-size: 13px; color: #405878; line-height: 1.4; }
+#sim-kpis .kpi:nth-child(1), #sim-kpis .kpi:nth-child(3), #sim-kpis .kpi:nth-child(4) { border-top: 4px solid #1378e8; background: #f2f8ff; }
+.simulation-side h2, .timeline-panel h2, #page-comparison h2, #page-report h2 { font-size: 20px; }
+.simulation-side .fine, #page-report .fine, #page-comparison .fine { font-size: 14px; color: #405878; }
+.issue { font-size: 16px; line-height: 1.5; padding: 12px; }
+.people-directory summary, .timeline-details summary { cursor: pointer; padding: 12px 4px; font-weight: 700; font-size: 16px; color: #0759b6; }
+.simulation-side .people-list { max-height: 260px; }
+.timeline-panel #events { height: 180px; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
+.timeline-panel #events .event-item { font-size: 15px; min-height: 70px; padding: 10px 12px; }
+.event-item span { font-size: 14px; }
+.difference-grid { gap: 10px; }
+.difference-card { padding: 16px; font-size: 16px; }
+.difference-card strong { font-size: 26px; }
+.report-highlights { margin-bottom: 12px; }
+.report-highlights h2 { margin-bottom: 4px; }
+.report-highlights .kpi-strip { display: flex; flex-wrap: wrap; gap: 10px; padding: 0; border: 0; }
+.report-highlights .kpi-strip-item { flex: 1 1 150px; padding: 12px; background: #eef6ff; border-radius: 8px; }
+.report-highlights .kpi-strip-item small { font-size: 14px; }
+.report-highlights .kpi-strip-item strong { font-size: 24px; }
+.report-finding { font-size: 16px; line-height: 1.6; padding: 14px; }
+.suggestions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.suggestions button { min-height: 44px; font-size: 15px; white-space: normal; }
+#page-simulation button, #page-comparison button, #page-report button { min-height: 44px; }
+button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-visible, summary:focus-visible { outline: 3px solid #005fcc; outline-offset: 2px; }
+
+@media (max-width: 650px) { #sim-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } .suggestions { grid-template-columns: 1fr; } }

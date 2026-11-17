@@ -119,5 +119,5 @@ def test_the_result_questions_need_the_api_but_their_history_does_not():
     assert len(box) == 2, "the question form opens its own needs-api fieldset"
     inside = box[1].split("</fieldset>")[0]
     assert 'id="question"' in inside and 'id="ask"' in inside
-    assert inside.count("data-question=") == html.count("data-question=") == 2
+    assert inside.count("data-question=") == html.count("data-question=") == 4
     assert 'id="chat"' in box[0] and 'id="chat"' not in inside

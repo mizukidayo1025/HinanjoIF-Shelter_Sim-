@@ -3208,28 +3208,6 @@ h2 {
   font-size: 11px;
 }
 
-/* 発生したスタッフ対応・避難者支援：横スクロールせず、縦横に並べる。
-   高さは2行分で固定し、あふれは中で縦にスクロールする。件数が分ごとに変わっても、
-   再生中にページの高さを動かさない（#377） */
-.timeline-panel #events {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
-  align-content: start;
-  gap: 8px;
-  height: 150px;
-  min-height: 0;
-  overflow-x: hidden;
-  overflow-y: auto;
-  scrollbar-gutter: stable;
-  scrollbar-width: thin;
-}
-.timeline-panel #events .event-item {
-  min-width: 0;
-  max-width: none;
-  font-size: 11px;
-  padding: 7px 10px;
-}
-
 /* ブランドロゴ（家の中に3人）：配布ロゴに合わせた図形 */
 .brand-logo {
   width: 48px;
@@ -4159,7 +4137,6 @@ html.print-report-open {
 .issue { font-size: 16px; line-height: 1.5; padding: 12px; }
 .people-directory summary, .timeline-details summary { cursor: pointer; padding: 12px 4px; font-weight: 700; font-size: 16px; color: #0759b6; }
 .simulation-side .people-list { max-height: 260px; }
-.timeline-panel #events { height: 180px; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
 .timeline-panel #events .event-item { font-size: 15px; min-height: 70px; padding: 10px 12px; }
 .event-item span { font-size: 14px; }
 .difference-grid { gap: 10px; }
@@ -4202,7 +4179,6 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 #issues .issue strong { font-size:17px; }
 .people-panel-head h2 { font-size:18px; }
 .timeline-panel { margin-top:12px; }
-.timeline-panel #events { grid-template-columns:repeat(auto-fill,minmax(210px,1fr)); }
 .timeline-panel #events .event-item { border-radius:8px; text-align:left; }
 
 #page-comparison > .page-heading h1 { font-size:26px; }
@@ -4302,7 +4278,6 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 
 .chart-guide { padding:10px 12px; margin:8px 0; background:#eff7ff; border-radius:8px; color:#25466c; font-size:14px; line-height:1.5; }
 /* ノートPCの拡大表示でもカードを縦書き状にしない。 */
-.timeline-panel #events { height:152px; grid-auto-rows:72px; }
 #page-report .report-analysis.needs-api:disabled > :not(.needs-api-note) { opacity:.55; }
 @media (max-width:1100px) {
   .intervention-steps { grid-template-columns:1fr; }
@@ -4311,5 +4286,69 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
   .comparison-grid .branch-kpis { grid-template-columns:repeat(2,minmax(0,1fr)); }
 }
 @media (max-width:650px) { .difference-grid { grid-template-columns:1fr; } }
-/* 時刻と長いイベント名を切らず、2行ずつスクロールする。 */
-.timeline-panel #events { height:200px; grid-auto-rows:96px; }
+
+/* Playback and the event log have distinct actions. The brief list has no nested scroll. */
+.timeline-panel .playback { display:flex; align-items:center; gap:12px; }
+.timeline-panel #seek-label { font-size:17px; font-weight:750; white-space:nowrap; }
+.timeline-panel #seek { flex:1; min-width:100px; }
+.timeline-records { margin-top:12px; padding-top:12px; border-top:1px solid var(--line); }
+.timeline-records h3 { margin:0; font-size:17px; }
+.timeline-records .fine { margin:2px 0 10px; font-size:14px; color:#405878; }
+.timeline-panel #events {
+  height:auto;
+  display:grid;
+  gap:8px;
+  grid-template-columns:repeat(3, minmax(0, 1fr));
+  overflow:visible;
+}
+.timeline-panel #events:not(.expanded) .event-item:nth-child(n + 4) { display:none; }
+.timeline-panel #events .event-item { display:grid; gap:4px; min-width:0; max-width:none; align-content:start; padding:10px 12px; }
+.timeline-panel #events .event-item:disabled { opacity:1; }
+.timeline-panel #events .event-item b { font-size:16px; }
+.timeline-panel .event-item .event-time { margin:0; }
+.timeline-panel .event-item .event-action { color:#145899; font-size:14px; }
+.timeline-panel .event-item:disabled .event-action { color:#57677d; }
+.timeline-panel .event-item.event-unresolved .event-time { color:#a52139; }
+
+/* The comparison opens on results. The form and extra table expand on demand. */
+#page-comparison .comparison-heading { position:static; width:auto; height:auto; overflow:visible; clip-path:none; display:flex; flex-wrap:wrap; align-items:center; gap:8px 14px; min-height:0; margin-bottom:8px; }
+#comparison-heading { margin:0 auto 0 0; }
+.compare-branch-control, .report-branch-control { display:flex; align-items:center; gap:8px; font-size:14px; font-weight:700; }
+.compare-branch-control select, .report-branch-control select { margin:0; min-height:36px; width:min(26vw, 260px); font-size:14px; }
+#page-comparison .comparison-top:has(> [hidden]) { display:none; }
+#page-comparison .comparison-results { padding:10px 12px; margin-bottom:8px; }
+#page-comparison .comparison-results .panel-title { margin-bottom:8px; }
+#page-comparison .comparison-results .panel-title h2,
+#page-comparison .comparison-results > p { margin:0; }
+#page-comparison .comparison-results > p { margin-top:7px; }
+#page-comparison .difference-card { padding:9px 12px; }
+#page-comparison .difference-card[data-metric="stress_mean"] { background:#fff1f4; }
+#page-comparison .difference-card[data-metric="toilet_wait_mean_24h_minutes"] { background:#eef7fb; }
+#page-comparison .difference-card[data-metric="staff_load_ratio"] { background:#edf5ff; }
+#page-comparison .difference-card[data-metric="unresolved_support_request_count"] { background:#fff6e8; }
+.difference-icon { width:25px; height:25px; display:inline-grid; place-items:center; color:#185da2; }
+.difference-icon svg { width:22px; height:22px; }
+.difference-card .difference-label { display:flex; align-items:center; gap:6px; }
+#page-comparison .difference-values { margin:1px 0 3px; font-size:clamp(18px, 1.65vw, 27px); }
+#page-comparison .compare-controls { margin-block:6px; padding-block:0; min-height:44px; }
+#page-comparison .comparison-map { height:clamp(196px, calc(100vh - 565px), 380px); }
+#page-comparison .branch-kpis { margin-top:6px; }
+#page-comparison .comparison-grid .fine { margin:6px 0 0; font-size:12px; }
+#comparison-details, #multi-compare { margin-top:8px; }
+#comparison-details summary, #multi-compare summary { font-size:14px; font-weight:700; color:#155994; cursor:pointer; }
+#comparison-details pre { max-height:240px; overflow:auto; }
+
+/* Shared labels and line styles remain legible independently of the canvas. */
+.report-branch-control select { width:min(32vw, 280px); }
+.report-chart-controls { display:flex; flex-wrap:wrap; gap:6px 12px; }
+#page-report .report-chart-controls label { flex-wrap:wrap; }
+.history-legend { display:flex; flex-wrap:wrap; gap:4px 14px; margin:8px 0 2px; font-size:14px; }
+.history-legend span { display:inline-flex; align-items:center; gap:6px; }
+.history-legend i { width:26px; border-top:3px solid; }
+@media (max-width:800px) {
+  .timeline-panel #events { grid-template-columns:repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width:550px) {
+  .timeline-panel #events { grid-template-columns:1fr; }
+  .report-branch-control select, .compare-branch-control select { width:auto; max-width:48vw; }
+}

@@ -65,9 +65,8 @@ for (const test of [
     subprocess.run([node, "--input-type=module", "-e", script, str(source)], check=True)
 
 
-def test_timeline_events_scroll_to_the_newest_record():
-    """The timeline's event box has a fixed height (#377), and records are listed oldest
-    first, so each render scrolls the box to its end to keep the newest ones in view."""
+def test_timeline_brief_surfaces_recent_problems_and_allows_seeking():
+    """A recorded problem survives routine events, with time jumps limited to this branch."""
     node = shutil.which("node")
     if node is None:
         pytest.skip("Node is required for the UI callback regression")
@@ -79,9 +78,15 @@ const source = fs.readFileSync(process.argv[1], "utf8").replaceAll("\r\n", "\n")
 const body = source
   .split("  function renderEvents(box, events, clickable = false) {")[1]
   .split("  function replayTime(")[0];
-const el = (tag, text, cls) => ({tag, text, cls, append() {}, addEventListener() {}});
-const eventNames = {}, eventTone = () => "record", time = (m) => String(m);
-const lower = () => 0, upper = () => 100, action = () => {}, seek = () => {};
+const toggle = {};
+const $ = () => toggle;
+const el = (tag, text, cls) => ({
+  tag, text, cls, children: [],
+  append(...nodes) { this.children.push(...nodes); },
+  addEventListener() {},
+});
+const eventNames = {}, eventTone = (e) => e.minute === 12 ? "unresolved" : "record", time = (m) => String(m);
+const lower = () => 13, upper = () => 100, action = () => {}, seek = () => {};
 const renderEvents = eval(
   "(function renderEvents(box, events, clickable = false) {" + body + ")"
 );
@@ -98,7 +103,16 @@ for (const clickable of [true, false]) {
   const b = box();
   renderEvents(b, events, clickable);
   assert.equal(b.children.length, 12);
-  assert.equal(b.scrollTop, b.scrollHeight, `clickable=${clickable}`);
+  if (clickable) {
+    assert.equal(b.children[0].children[0].text, "12 · 課題の記録");
+    assert.equal(b.children[0].disabled, true);
+    assert.equal(b.children[1].children[0].text, "19 · 経過の記録");
+    assert.equal(b.children[1].disabled, false);
+    assert.equal(toggle.hidden, false);
+    assert.equal(b.scrollTop, 0);
+  } else {
+    assert.equal(b.scrollTop, b.scrollHeight);
+  }
 }
 """
     subprocess.run(

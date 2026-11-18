@@ -48,6 +48,8 @@
     state.frame = null;
     state.comparison = null;
     state.history = [];
+    state.overlayHistory = [];
+    $("report-overlay").value = "";
     state.context = null;
     state.selected = null;
     state.selectedGroup = [];
@@ -68,6 +70,8 @@
     $("compare-branch").replaceChildren();
     $("issues").replaceChildren();
     $("events").replaceChildren();
+    $("events-more").hidden = true;
+    $("report-frame-context").textContent = "シナリオを開くと記録を表示します。";
     $("people-list").replaceChildren();
     $("person-detail").replaceChildren();
     showOpenName("");
@@ -79,22 +83,11 @@
       const card = el("div", undefined, "kpi");
       card.dataset.metric = d.key;
       const image = el("span", undefined, "kpi-icon");
-      image.append(
-        uiIcon(
-          {
-            stress_mean: "people",
-            toilet_wait_mean_24h_minutes: "clock",
-            staff_load_ratio: "staff",
-            unresolved_support_request_count: "alert",
-            population: "people",
-            toilet_queue_length: "queue",
-          }[d.key],
-        ),
-      );
+      image.append(uiIcon(d.displayIcon));
       card.append(image);
       card.title = d.note;
       const body = el("div");
-      body.append(el("small", container.id === "sim-kpis" ? ({ stress_mean: "避難者の負担", unresolved_support_request_count: "対応待ちの相談", staff_load_ratio: "スタッフの忙しさ", population: "避難者数", toilet_wait_mean_24h_minutes: "トイレ待ち時間", toilet_queue_length: "トイレ待ち" }[d.key] || d.label) : d.label));
+      body.append(el("small", d.displayLabel));
       body.append(
         el(
           "strong",
@@ -270,6 +263,7 @@
     }
     renderKpis($("sim-kpis"), frame.kpis);
     renderKpiStrip($("report-kpis"), frame.kpis);
+    $("report-frame-context").textContent = `${time(state.minute)} 時点の記録`;
     const geometryOrigin = {
       synthetic: "合成施設",
       measured: "実測形状",
@@ -335,6 +329,7 @@
   }
   function renderEvents(box, events, clickable = false) {
     box.replaceChildren();
+    if (clickable) $("events-more").hidden = true;
     if (!events?.length) {
       box.append(el("p", "この取得範囲にイベント記録はありません。", "fine"));
       return;
@@ -346,27 +341,55 @@
       if (item) item.count++;
       else grouped.set(key, { ...event, count: 1 });
     }
-    for (const e of [...grouped.values()].slice(-12)) {
+    const recent = [...grouped.values()].slice(-12);
+    if (clickable) {
+      recent.reverse();
+      // Feature recorded problems and completed responses, with one card per kind first.
+      const ordered = [...recent].sort((a, b) => Number(eventTone(b) !== "record") - Number(eventTone(a) !== "record"));
+      const types = new Set();
+      const featured = ordered.filter((event) => {
+        if (types.has(event.event_type)) return false;
+        types.add(event.event_type);
+        return true;
+      });
+      const unique = new Set(featured);
+      const brief = [...featured, ...ordered.filter((event) => !unique.has(event))].slice(0, 3);
+      const briefSet = new Set(brief);
+      recent.splice(0, recent.length, ...brief, ...recent.filter((e) => !briefSet.has(e)));
+      $("events-more").hidden = recent.length <= 3;
+    }
+    for (const e of recent) {
       const node = el(
         clickable ? "button" : "div",
         undefined,
         `event-item event-${eventTone(e)}`,
       );
+      const status = {
+        applied: { resolved: "対応完了", unresolved: "課題の記録", record: "経過の記録" }[eventTone(e)],
+        suppressed: "実行を見送り", rejected: "却下", failed: "失敗", scheduled: "予定",
+      }[e.status] || e.status;
       node.append(
-        el("span", `${time(e.minute)} · ${{ applied: "適用済み", suppressed: "適用抑制", rejected: "却下", failed: "失敗", scheduled: "予定" }[e.status] || e.status}`, "event-time"),
-        el("b", `${eventNames[e.event_type] || e.event_type}${e.count > 1 ? ` ×${e.count}件` : ""}`),
+        el("span", `${time(e.minute)} · ${status}`, "event-time"),
+        el("b", `${eventNames[e.event_type] || e.event_type}${e.count > 1 ? `（${e.count}件）` : ""}`),
       );
       node.title = `${e.event_id} / source: ${e.source_id || "未記録"}`;
       if (clickable) {
         node.disabled = e.minute < lower() || e.minute > upper();
+        node.append(el("span", node.disabled ? "この分岐では移動できません" : "この時刻へ →", "event-action"));
         node.addEventListener("click", () =>
-          action("イベントの時刻を取得しています…", () => seek(e.minute)),
+          action("イベントの時刻を取得しています…", async () => {
+            await seek(e.minute);
+            if (state.page === "simulation") {
+              scrollTo(0, 0);
+              $("simulation-map-heading").focus({ preventScroll: true });
+            }
+          }),
         );
       }
       box.append(node);
     }
-    // 欄の高さは固定で、記録は古い順に並ぶ。最新の記録が見えるよう末尾へ送る（#377）
-    box.scrollTop = box.scrollHeight;
+    // The report keeps its compact, chronological log; the simulation shows the brief list.
+    if (!clickable) box.scrollTop = box.scrollHeight;
   }
 
   function replayTime(minute) {

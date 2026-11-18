@@ -11,7 +11,7 @@
     renderKpiStrip, refreshRuns, refreshRun, seek, renderFrame, togglePlayback, computeToEnd,
     cancelCompute, personSummary, renderPeople, selectPerson, invalidateIntervention, comparing,
     pickForkTime, previewIntervention, applyIntervention, loadComparison, loadMultiCompare,
-    resetChat, loadReport, askQuestion, saveReport, copyScenario,
+    resetChat, loadReport, loadHistory, showInterventionForm, askQuestion, saveReport, copyScenario,
   } = app;
   document
     .querySelectorAll("[data-page]")
@@ -124,6 +124,14 @@
     show("comparison");
     scrollTo(0, 0);
     $("intervention-op").focus({ preventScroll: true });
+  });
+  $("events-more").addEventListener("click", () => {
+    const open = $("events").classList.toggle("expanded");
+    $("events-more").setAttribute("aria-expanded", String(open));
+    $("events-more").textContent = open ? "記録を折りたたむ" : "記録をもっと見る";
+  });
+  $("intervention-toggle").addEventListener("click", () => {
+    showInterventionForm($("intervention-panel").hidden);
   });
   on("multi-compare-run", loadMultiCompare);
   $("compare-branch").addEventListener("change", () => {
@@ -336,18 +344,28 @@
       $("question").focus();
     }),
   );
-  $("branch-select").addEventListener("change", () =>
-    action("選択した分岐を取得しています…", () => loading(async () => {
-      state.branch = $("branch-select").value;
-      state.scope++;
-      state.context = null;
-      state.selected = null;
-      state.selectedGroup = [];
-      state.history = [];
-      resetChat();
-      invalidateIntervention();
-      await refreshRun();
-    })),
+  for (const id of ["branch-select", "report-branch"]) {
+    $(id).addEventListener("change", () =>
+      action("選択した分岐を取得しています…", () => loading(async () => {
+        stopPlayback();
+        state.branch = $(id).value;
+        state.scope++;
+        state.context = null;
+        state.selected = null;
+        state.selectedGroup = [];
+        state.history = [];
+        state.overlayHistory = [];
+        state.report = null;
+        if (id === "report-branch") state.comparison = null;
+        resetChat();
+        invalidateIntervention();
+        await refreshRun();
+        if (id === "report-branch") await loadReport();
+      })),
+    );
+  }
+  $("report-overlay").addEventListener("change", () =>
+    action("比較する分岐の推移を読み込んでいます…", loadHistory),
   );
   new ResizeObserver(() => requestAnimationFrame(drawAll)).observe(
     document.querySelector("main"),

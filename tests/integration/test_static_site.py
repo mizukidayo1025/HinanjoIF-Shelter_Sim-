@@ -95,7 +95,13 @@ def test_the_site_holds_the_screen_the_browser_api_and_the_sample_in_parts(
 ) -> None:
     output, bundle, summary = site
     RELATIVE_IMPORT, JS = builder["RELATIVE_IMPORT"], builder["JS"]
-    for name in ("demo-v2.css", "demo-v2.js", "demo-v2-map.js", "demo-v2-logo.jpg", "demo-v2-header-logo.png"):
+    for name in (
+        "demo-v2.css",
+        "demo-v2.js",
+        "demo-v2-map.js",
+        "demo-v2-logo.jpg",
+        "demo-v2-header-logo.png",
+    ):
         assert (output / name).read_bytes() == (STATIC / name).read_bytes()
     server_html = (STATIC / "demo-v2.html").read_text(encoding="utf-8")
     browser_html = (output / "index.html").read_text(encoding="utf-8")

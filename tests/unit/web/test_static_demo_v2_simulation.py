@@ -85,7 +85,8 @@ const el = (tag, text, cls) => ({
   append(...nodes) { this.children.push(...nodes); },
   addEventListener() {},
 });
-const eventNames = {}, eventTone = (e) => e.minute === 12 ? "unresolved" : "record", time = (m) => String(m);
+const eventNames = {}, time = (m) => String(m);
+const eventTone = (e) => e.minute === 12 ? "unresolved" : "record";
 const lower = () => 13, upper = () => 100, action = () => {}, seek = () => {};
 const renderEvents = eval(
   "(function renderEvents(box, events, clickable = false) {" + body + ")"
@@ -135,7 +136,11 @@ import assert from 'node:assert/strict';
 const source = fs.readFileSync(process.argv[1], 'utf8').replaceAll('\r\n','\n');
 const body = source.split('  function renderKpiStrip(container, kpis) {')[1]
   .split('  // The open Run\'s name')[0];
-const node = (tag, text, cls) => ({tag, text, cls, children:[], append(...v){this.children.push(...v)}, replaceChildren(...v){this.children=v}});
+const node = (tag, text, cls) => ({
+  tag, text, cls, children: [],
+  append(...nodes) { this.children.push(...nodes); },
+  replaceChildren(...nodes) { this.children = nodes; },
+});
 const highlight = node('div');
 const $ = () => highlight, el = node, uiIcon = () => node('icon');
 const state = {minute: 10}, time = () => '時刻', num = v => v == null ? '—' : String(v);
@@ -147,8 +152,9 @@ const metricDefs = [
 const render = eval('(function renderKpiStrip(container, kpis) {' + body + ')');
 const strip = node('div');
 render(strip, {stress_mean:.42, unresolved_support_request_count:3, staff_load_ratio:.5});
-assert.deepEqual(highlight.children.map(c => c.children[1].children[1].text), ['42 /100','3 件','50 %']);
+const highlightValues = () => highlight.children.map(card => card.children[1].children[1].text);
+assert.deepEqual(highlightValues(), ['42 /100', '3 件', '50 %']);
 render(strip, undefined);
-assert.deepEqual(highlight.children.map(c => c.children[1].children[1].text), ['— /100','— 件','— %']);
+assert.deepEqual(highlightValues(), ['— /100', '— 件', '— %']);
 """
     subprocess.run([node, "--input-type=module", "-e", script, str(source)], check=True)

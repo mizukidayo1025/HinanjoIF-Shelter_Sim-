@@ -36,7 +36,8 @@ def test_timeline_events_expand_without_an_inner_scroll() -> None:
     events = _declarations(css, ".timeline-panel #events")
     assert events["height"] == "auto"
     assert events["overflow"] == "visible"
-    assert _declarations(css, ".timeline-panel #events:not(.expanded) .event-item:nth-child(n + 4)")["display"] == "none"
+    hidden_cards = ".timeline-panel #events:not(.expanded) .event-item:nth-child(n + 4)"
+    assert _declarations(css, hidden_cards)["display"] == "none"
 
 
 def test_simulation_columns_do_not_grow_with_their_content() -> None:

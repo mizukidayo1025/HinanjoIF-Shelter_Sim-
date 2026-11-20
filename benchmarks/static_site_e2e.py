@@ -974,8 +974,8 @@ SCREEN = """() => ({
   notice: document.getElementById("notice").textContent,
   noticeError: document.getElementById("notice").classList.contains("error")
     && !document.getElementById("notice").hidden,
-  computed: (/([0-9]+)分まで計算済み/.exec(
-    document.getElementById("computed-label").textContent) || [])[1] ?? null,
+  // The seek slider’s upper bound is the last computed minute, even while disabled.
+  computed: Number(document.getElementById("seek").max),
   mode: document.getElementById("play").dataset.mode,
   cancel: document.getElementById("play").dataset.mode === "cancel",
   computeReady: document.getElementById("play").dataset.mode === "compute"
@@ -1338,7 +1338,7 @@ class Walk:
         path = _run_path(project, run)
 
         def computed(at_least: int) -> Callable[[dict[str, Any]], bool]:
-            return lambda state: int(state["computed"] or 0) >= at_least and not state["cancel"]
+            return lambda state: state["computed"] >= at_least and not state["cancel"]
 
         if since is None:
             since = self.mark()
@@ -1363,7 +1363,7 @@ class Walk:
         if self.unavailable(stage, item) or resume is None or resume["status"] != 200:
             return False
         if mode == "pieces":
-            if not self.watch(stage, lambda state: int(state["computed"] or 0) >= 1440, "a day"):
+            if not self.watch(stage, lambda state: state["computed"] >= 1440, "a day"):
                 return False
             since = self.mark()
             self.page.click("#play")

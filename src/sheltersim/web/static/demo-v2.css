@@ -3353,15 +3353,27 @@ h2 {
   border-radius: 12px;
 }
 
-/* 左上のロゴ枠：配布ロゴ画像の中央（家＋「避難所IF！」だけ）をそのまま切り出して表示 */
+.header-brand {
+  display: flex;
+  align-items: center;
+  gap: clamp(6px, 1vw, 16px);
+  min-width: 0;
+}
+.header-brand .brand {
+  flex: none;
+}
 .brand-image {
   display: block;
-  width: 218px;
-  height: 52px;
-  flex-shrink: 0;
-  background: url("/demo-v2-logo.jpg") no-repeat;
-  background-size: 443px auto;
-  background-position: -109.5px -31px;
+  width: clamp(155px, 23vw, 222px);
+  height: 54px;
+  object-fit: cover;
+  object-position: center 44%;
+}
+.header-brand .tagline {
+  display: block;
+  min-width: 0;
+  white-space: normal;
+  line-height: 1.4;
 }
 
 /* ホーム（#371）：最初に開く画面。保存済みのシナリオ（#440）への入口 */
@@ -3637,10 +3649,9 @@ body.is-uncomputed main > .page.active {
     gap: 6px;
   }
   .brand-image {
-    width: 150px;
-    height: 36px;
-    background-size: 305px auto;
-    background-position: -75px -21px;
+    width: clamp(86px, 30vw, 150px);
+    height: 40px;
+    object-fit: contain;
   }
   .app-header #play {
     margin-left: auto;

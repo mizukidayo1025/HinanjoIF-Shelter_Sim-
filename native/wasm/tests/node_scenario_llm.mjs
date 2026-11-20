@@ -11,8 +11,8 @@
 // core); an answer with a condition the browser does not compute leaves the offline read with a
 // note first in `warnings`; a relay that refuses (the day's cap) and a relay out of reach fail the
 // preview with the reason (#583), the text not read by the rules instead. The relay gets the
-// passphrase and the text only; the call is recorded in the preparation account and the
-// passphrase is stored nowhere.
+// passphrase and the text only; calls are recorded in the preparation account, which is bound
+// to the approved Run, and the passphrase is stored nowhere.
 
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -149,6 +149,36 @@ for (const name of ["municipality-from-answer", "every-scalar", "stock-from-answ
   assert.ok(seen.length >= 2);
   assert.ok(seen.every((text) => !text.includes(PASSPHRASE)));
   checked += 1;
+}
+
+// A preview with a recorded AI cost can be approved, including after further previews.
+for (const costs of [[0.0123], [0.0, 0.0123, 0.000002]]) {
+  const item = caseOf("municipality-from-answer");
+  const replies = [...costs];
+  const { routes, tree } = await routesOf(() => answered(item.output, replies.shift())());
+  let reviewed;
+  for (const cost of costs) {
+    reviewed = JSON.parse(await routes.preview("p", { text: item.text }, { llm: PASSPHRASE }));
+    assert.equal(reviewed.can_start, true);
+    assert.equal(reviewed.llm_usage.spent_usd, cost);
+  }
+  const approval = {
+    preview_id: reviewed.preview_id,
+    approved_hash: reviewed.approved_hash,
+    approved: true,
+    run_id: "run-ai-review",
+  };
+  const path = ["p", "preparation.json"];
+  const readPreparation = async () => JSON.parse(decoder.decode(await tree.read(path)));
+  const pending = await readPreparation();
+  const run = JSON.parse(await routes.approve("p", approval));
+  assert.equal(run.run_id, approval.run_id);
+  assert.equal(run.branches[0].computed_until, 0);
+  assert.deepEqual(pending.llm_calls.map((call) => call.estimated_cost_usd), costs);
+  assert.deepEqual(await readPreparation(), { ...pending, status: "bound", run_id: run.run_id });
+  assert.equal(JSON.parse(await routes.approve("p", approval)).run_id, run.run_id);
+  assert.deepEqual(await readPreparation(), { ...pending, status: "bound", run_id: run.run_id });
+  checked += costs.length;
 }
 
 console.log(`node_scenario_llm: ok (${checked} previews)`);

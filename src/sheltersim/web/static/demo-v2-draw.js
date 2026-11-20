@@ -2,7 +2,7 @@
 (() => {
   "use strict";
   const app = window.HinanjoApp;
-  const { state, $, metricDefs, time, num } = app;
+  const { el, shortBranch, state, $, metricDefs, time, num } = app;
   const { motionFraction, comparing } = app.later;
   // Canvas rendering uses geometry, physical points, and recorded staff positions only.
   function surface(canvas) {
@@ -121,14 +121,14 @@
       ? [
           {
             key: "stress_mean",
-            label: "平均ストレス /100",
+            label: "避難者の負担 /100",
             factor: 100,
             color: "#ff365e",
             axis: "left",
           },
           {
             key: "staff_load_ratio",
-            label: "スタッフ負荷 %",
+            label: "スタッフの忙しさ %",
             factor: 100,
             color: "#efa023",
             axis: "left",
@@ -137,6 +137,7 @@
       : [
           {
             ...metricDefs.find((d) => d.key === key),
+            label: metricDefs.find((d) => d.key === key)?.displayLabel,
             color:
               key === "stress_mean"
                 ? "#ff365e"
@@ -146,16 +147,33 @@
             axis: "left",
           },
         ];
-    const raw = state.history
+    const overlay = $("report-overlay").value;
+    const records = (rows) => rows
       .map((row) => row.data || row.snapshot || row)
       .filter((r) => typeof r.minute_index === "number");
-    const series = definitions
-      .map((d) => ({
-        ...d,
-        points: raw.filter((r) => typeof r[d.key] === "number"),
-      }))
+    const mainRows = records(state.history), overlayRows = records(state.overlayHistory || []);
+    const series = (overlay && !overview
+      ? [
+          { ...definitions[0], label: shortBranch(state.branch), color: "#1260b5", rows: mainRows },
+          { ...definitions[0], label: shortBranch(overlay), color: "#9b4c00", dash: [8, 5], rows: overlayRows },
+        ]
+      : definitions.map((d) => ({ ...d, rows: mainRows })))
+      .map((d) => ({ ...d, points: d.rows.filter((r) => typeof r[d.key] === "number") }))
       .filter((d) => d.points.length);
-    ctx.font = "11px sans-serif";
+    $("history-legend").replaceChildren(...series.map((d) => {
+      const label = el("span", d.label);
+      const line = el("i");
+      line.style.borderColor = d.color;
+      line.style.borderTopStyle = d.dash ? "dashed" : "solid";
+      label.prepend(line);
+      return label;
+    }));
+    $("chart-guide").textContent = overlay
+      ? `${definitions[0].displayLabel}（${definitions[0].unit}）を、両分岐に共通する期間で比べています。`
+      : overview
+        ? "避難者の負担（100点満点）とスタッフの忙しさ（対応中の割合・%）を、共通の0〜100の目盛りで示します。"
+        : `${definitions[0].displayLabel}（${definitions[0].unit}）の記録です。`;
+    ctx.font = "13px sans-serif";
     ctx.fillStyle = "#6783a4";
     if (!series.length) {
       ctx.fillText("この指標の時系列記録はありません", 20, h / 2);
@@ -163,10 +181,11 @@
     }
     const left = 43,
       right = 18,
-      top = 40,
+      top = 15,
       bottom = 32,
       pw = w - left - right,
       ph = h - top - bottom;
+    const raw = series.flatMap((d) => d.points);
     const minX = Math.min(...raw.map((p) => p.minute_index)),
       maxX = Math.max(minX + 1, ...raw.map((p) => p.minute_index));
     const leftValues = series
@@ -178,20 +197,6 @@
         : high >= 10
           ? Math.ceil((high * 1.05) / 10) * 10
           : high * 1.1;
-    let legendX = left;
-    for (const d of series) {
-      ctx.strokeStyle = d.color;
-      ctx.lineWidth = 3;
-      ctx.beginPath();
-      ctx.moveTo(legendX, 13);
-      ctx.lineTo(legendX + 16, 13);
-      ctx.stroke();
-      ctx.fillStyle = "#47658f";
-      ctx.textAlign = "left";
-      ctx.font = "10px sans-serif";
-      ctx.fillText(d.label, legendX + 21, 17);
-      legendX += ctx.measureText(d.label).width + 38;
-    }
     ctx.lineWidth = 1;
     for (let i = 0; i <= 4; i++) {
       const y = top + (ph * i) / 4;
@@ -202,7 +207,7 @@
       ctx.stroke();
       ctx.textAlign = "right";
       ctx.fillStyle = "#7186a8";
-      ctx.font = "10px sans-serif";
+      ctx.font = "13px sans-serif";
       ctx.fillText(num(maxY * (1 - i / 4)), left - 7, y + 4);
     }
     const xOf = (m) => left + ((m - minX) / (maxX - minX)) * pw;
@@ -220,7 +225,9 @@
       });
       ctx.strokeStyle = d.color;
       ctx.lineWidth = 2.3;
+      ctx.setLineDash(d.dash || []);
       ctx.stroke();
+      ctx.setLineDash([]);
       if (d.key === "population") {
         const last = pos(d.points.at(-1)),
           first = pos(d.points[0]);
@@ -243,7 +250,7 @@
       }
     }
     ctx.textAlign = "center";
-    ctx.font = "10px sans-serif";
+    ctx.font = "13px sans-serif";
     ctx.fillStyle = "#647fa3";
     for (let i = 0; i <= 3; i++) {
       const m = Math.round(minX + ((maxX - minX) * i) / 3);

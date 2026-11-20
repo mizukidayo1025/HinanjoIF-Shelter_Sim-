@@ -4,7 +4,7 @@
   const app = window.HinanjoApp;
   const {
     state, reference, $, enc, json, metricDefs, zoneNames, supportModeName, time, shortBranch, num,
-    el, base, runBase, branchBase, api, note, loading, action, show, controls, drawAll, renderKpis,
+    el, uiIcon, base, runBase, branchBase, api, note, loading, action, show, controls, drawAll, renderKpis,
     refreshRun, seek, computeToEnd,
   } = app;
   const { resetChat } = app.later;
@@ -476,6 +476,7 @@
     await refreshRun();
     $("compare-branch").value = child;
     await loadComparison();
+    showInterventionForm(false);
     show("comparison");
     // The new branch is computed to the end at once (#441), after this action has ended so
     // 「中止」 can be pressed meanwhile; the comparison follows when it ends.
@@ -549,10 +550,12 @@
     $("compare-seek").min = lo;
     $("compare-seek").max = hi;
     $("compare-seek").value = m;
-    $("comparison-range").textContent = `共通計算済み範囲 ${lo}–${hi} 分`;
+    $("comparison-range").textContent = `比較時刻 ${time(m)}`;
+    $("comparison-details").hidden = false;
     $("compare-time").textContent = time(m);
     $("branch-a-name").textContent = shortBranch(ids[0]);
     $("branch-b-name").textContent = shortBranch(ids[1]);
+    $("branch-b-name").title = `分岐ID: ${ids[1]}`;
     $("branch-b-badge").hidden = false;
     const defs = metricDefs.slice(0, 4);
     renderKpis($("compare-kpis-a"), result.frames[0].kpis, defs);
@@ -569,24 +572,17 @@
         undefined,
         `difference-card ${good ? "good" : bad ? "bad" : ""}`,
       );
+      card.dataset.metric = d.key;
+      const label = el("span", undefined, "difference-label");
+      const icon = el("span", undefined, "difference-icon");
+      icon.setAttribute("aria-hidden", "true");
+      icon.append(uiIcon(d.displayIcon));
+      label.append(icon, el("span", d.displayLabel));
       card.append(
-        el("span", d.label),
-        el(
-          "strong",
-          typeof raw === "number"
-            ? `${raw > 0 ? "+" : ""}${num(raw * d.factor)} ${d.unit === "/100" || d.unit === "%" ? "pt" : d.unit}`
-            : "取得不可",
-        ),
-        el(
-          "span",
-          `${num(a * d.factor)} → ${num(b * d.factor)} · ${typeof raw !== "number" ? "未提供" : good ? "減少" : bad ? "増加" : "変化なし"}`,
-        ),
+        label,
+        el("strong", `${num(typeof a === "number" ? a * d.factor : null)} → ${num(typeof b === "number" ? b * d.factor : null)} ${d.unit}`, "difference-values"),
+        el("span", typeof raw !== "number" ? "差分は取得できません" : `${good ? "↓ 改善" : bad ? "↑ 悪化" : "＝ 変化なし"}（${raw > 0 ? "+" : ""}${num(raw * d.factor)} ${d.unit === "/100" || d.unit === "%" ? "pt" : d.unit}）`, "difference-change"),
       );
-      const track = el("div", undefined, "difference-track"),
-        bar = el("i");
-      bar.style.width = `${typeof raw === "number" ? Math.min(100, (Math.abs(raw) / Math.max(Math.abs(a), Math.abs(b), 1)) * 100) : 0}%`;
-      track.append(bar);
-      card.append(track);
       $("difference-summary").append(card);
     }
     for (const [index, key] of ["a", "b"].entries()) {
@@ -603,6 +599,10 @@
         sessionStorage.getItem(`hinanjo-if-intervention-${ids[1]}`) || "null",
       );
       if (record) {
+        if (record.text) {
+          $("branch-b-name").textContent = record.text;
+          $("branch-b-name").title = `分岐ID: ${ids[1]}`;
+        }
         $("comparison-instruction").textContent =
           `${time(record.minute)}：${record.text}`;
         $("comparison-effect").replaceChildren(
@@ -643,6 +643,7 @@
           );
         }),
       );
+    showInterventionForm(Boolean(state.forkFrom) || !pair);
     $("branch-b-badge").hidden = !comparing();
     if (comparing()) return;
     $("branch-a-name").textContent = shortBranch(state.branch);
@@ -651,19 +652,18 @@
     $("compare-kpis-b").replaceChildren();
     $("compare-conditions-a").textContent = "";
     $("compare-conditions-b").textContent = "";
-    $("comparison-instruction").textContent = state.forkFrom
-      ? `${time(state.forkFrom.minute)}から分岐を作ります。左の欄で作用・対象・量を選んでください。`
-      : pair
-        ? "比べる分岐を読み込んでいます…"
-        : "まだ分岐がありません。左の欄で、この時刻から分岐を作れます。";
-    $("comparison-effect").replaceChildren(
-      el("p", "分岐を作ると、適用した作用と検証結果を表示します。", "muted"),
-    );
+    $("comparison-range").textContent = "";
+    $("comparison-details").hidden = true;
     $("difference-summary").replaceChildren(
-      el("p", "分岐を作って比べると、同じ時刻の指標の違いを表示します。", "muted"),
+      el("p", pair && !state.forkFrom ? "比較結果を読み込んでいます…" : "分岐を作成すると、元の条件との差がここに表示されます。", "muted"),
     );
   }
-  // 2–8 branches at one minute (#376): the branches to set side by side, and the table of their
+  function showInterventionForm(open) {
+    $("intervention-panel").hidden = !open;
+    $("intervention-toggle").setAttribute("aria-expanded", String(open));
+    $("intervention-toggle").textContent = open ? "分岐の作成欄を閉じる" : "＋ 新しい分岐を作る";
+  }
+  // 3–8 branches at one minute (#376): the branches to set side by side, and the table of their
   // indicators from `compare` (its differences are each branch's against the first).
   function renderMultiChoices() {
     // The original Scenario first (the table's differences are against the first), then by the
@@ -698,7 +698,7 @@
         return label;
       }),
     );
-    $("multi-compare").hidden = branches.length < 2;
+    $("multi-compare").hidden = branches.length < 3;
   }
   function multiChosen() {
     return [...$("multi-compare-choices").querySelectorAll("input:checked")].map(
@@ -707,8 +707,8 @@
   }
   async function loadMultiCompare() {
     const ids = multiChosen();
-    if (ids.length < 2 || ids.length > 8)
-      throw new Error("比べる分岐を2〜8つ選んでください。");
+    if (ids.length < 3 || ids.length > 8)
+      throw new Error("比べる分岐を3〜8つ選んでください。");
     const refs = ids.map(reference),
       lo = Math.max(...refs.map((r) => r.fork_minute)),
       hi = Math.min(...refs.map((r) => r.computed_until));
@@ -728,7 +728,7 @@
       head.append(el("th", shortBranch(frame.branch_id)));
     const rows = metricDefs.map((d) => {
       const row = el("tr");
-      row.append(el("th", `${d.label}（${d.unit}）`));
+      row.append(el("th", `${d.displayLabel}（${d.unit}）`));
       result.frames.forEach((frame, index) => {
         const value = frame.kpis[d.key],
           diff = index ? result.differences[index - 1]?.metrics[d.key] : null,
@@ -756,6 +756,6 @@
   Object.assign(app, {
     invalidateIntervention, comparing, renderForkPicker, pickForkTime, previewIntervention,
     applyIntervention, pairIds, loadComparison, openComparison, renderMultiChoices, multiChosen,
-    loadMultiCompare,
+    loadMultiCompare, showInterventionForm,
   });
 })();

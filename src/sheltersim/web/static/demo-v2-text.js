@@ -16,6 +16,8 @@
   const metricDefs = [
     {
       key: "stress_mean",
+      displayLabel: "避難者の負担",
+      displayIcon: "people",
       label: "平均ストレス",
       unit: "/100",
       factor: 100,
@@ -24,6 +26,8 @@
     },
     {
       key: "toilet_wait_mean_24h_minutes",
+      displayLabel: "トイレ待ち時間",
+      displayIcon: "clock",
       label: "平均トイレ待ち時間（24時間）",
       unit: "分",
       factor: 1,
@@ -32,6 +36,8 @@
     },
     {
       key: "staff_load_ratio",
+      displayLabel: "スタッフの忙しさ",
+      displayIcon: "staff",
       label: "スタッフ負荷",
       unit: "%",
       factor: 100,
@@ -40,6 +46,8 @@
     },
     {
       key: "unresolved_support_request_count",
+      displayLabel: "対応待ちの相談",
+      displayIcon: "alert",
       label: "未解決の支援要請",
       unit: "件",
       factor: 1,
@@ -48,6 +56,8 @@
     },
     {
       key: "population",
+      displayLabel: "避難者数",
+      displayIcon: "people",
       label: "現在の避難者数",
       unit: "人",
       factor: 1,
@@ -56,6 +66,8 @@
     },
     {
       key: "toilet_queue_length",
+      displayLabel: "トイレ待ち",
+      displayIcon: "queue",
       label: "トイレ待機人数",
       unit: "人",
       factor: 1,

@@ -16,7 +16,7 @@ The site is served at the root of its domain, as the screen loads `/demo-v2.css`
     /                       index.html: the screen, which opens on its home (#371): the examples
                             fetched, 「計算済みの例を取得する」 (#411), and the licenses
     (a missing path)        404.html, with status 404
-    /demo-v2.css, /demo-v2*.js, /demo-v2-logo.jpg   the screen's files
+    /demo-v2.css, /demo-v2*.js, /demo-v2-header-logo.png   the screen's files
     /admin                  admin.html (ADMIN_PAGE): the LLM relay's owner page, to issue,
                             list and revoke passphrases (deploy/workers/admin.html, #433); not
                             linked from the screen
@@ -66,6 +66,7 @@ JS = ROOT / "native" / "wasm" / "js"
 SCREEN_FILES = (
     "demo-v2.css",
     "demo-v2-logo.jpg",
+    "demo-v2-header-logo.png",
     "demo-v2.js",
     "demo-v2-map.js",
     "demo-v2-scene.js",

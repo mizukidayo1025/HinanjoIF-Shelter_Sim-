@@ -17,6 +17,7 @@ from sheltersim.web.server import _handler_for
     [
         ("/", "text/html", "避難所IF！".encode()),
         ("/demo-v2.css", "text/css", b"--navy"),
+        ("/demo-v2-header-logo.png", "image/png", b"\x89PNG\r\n\x1a\n"),
         ("/demo-v2.js", "text/javascript", b"loading(init)"),
         ("/demo-v2-map.js", "text/javascript", b"Hinanj"),
         ("/demo-v2-scene.js", "text/javascript", b"HinanjoScene"),

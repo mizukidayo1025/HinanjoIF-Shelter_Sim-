@@ -151,6 +151,7 @@
     if (!PAGES.includes(page)) page = "home";
     if (pageBlocked(page))
       page = pageBlocked("simulation") ? "home" : "simulation";
+    const changedPage = state.page !== page;
     state.page = page;
     if (page !== "comparison") state.forkFrom = null;
     document.body.dataset.view = page;
@@ -165,6 +166,7 @@
         n.dataset.page === page ? "page" : "false",
       );
     });
+    if (changedPage) scrollTo(0, 0);
     remember();
     controls();
     requestAnimationFrame(drawAll);
@@ -235,8 +237,11 @@
     const branches = state.data?.branches || [],
       pair = branches.length > 1;
     $("compare-branch").disabled = !pair || working;
+    $("intervention-toggle").disabled = !has || working;
+    $("report-branch").disabled = !has || working;
+    $("report-overlay").disabled = working || $("report-overlay").options.length < 2;
     const many = multiChosen().length;
-    $("multi-compare-run").disabled = many < 2 || many > 8 || working;
+    $("multi-compare-run").disabled = many < 3 || many > 8 || working;
     $("compare-seek").disabled = comparing() ? state.busy : single;
     if (state.page === "comparison" && !comparing() && has) {
       $("compare-seek").min = lower();
@@ -250,7 +255,7 @@
       $("seek").value = state.minute;
       $("seek-label").textContent = time(state.minute);
       $("computed-label").textContent =
-        `実計算の記録 · ${upper()}分まで計算済み`;
+        `${time(upper())}まで閲覧できます`;
     }
   }
   Object.assign(app, { note, computeTargets, setPlayLabels, loading, action, on, show, controls });

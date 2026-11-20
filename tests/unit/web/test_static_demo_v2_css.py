@@ -1,8 +1,7 @@
 """The simulation map of demo-v2 keeps its size while playing (#377).
 
 During playback the page must not change the map's width: the page reserves the vertical
-scrollbar's gutter, and the timeline's event box, whose record count changes every minute,
-has a fixed height and scrolls inside.
+scrollbar's gutter, even when the timeline’s record list grows.
 """
 
 from __future__ import annotations
@@ -32,11 +31,13 @@ def test_page_reserves_the_scrollbar_gutter() -> None:
     assert _declarations(css, "html").get("scrollbar-gutter") == "stable"
 
 
-def test_timeline_events_have_a_fixed_height_and_scroll_inside() -> None:
+def test_timeline_events_expand_without_an_inner_scroll() -> None:
     css = CSS.read_text(encoding="utf-8")
     events = _declarations(css, ".timeline-panel #events")
-    assert re.fullmatch(r"\d+px", events.get("height", "")), events
-    assert events.get("overflow-y") == "auto"
+    assert events["height"] == "auto"
+    assert events["overflow"] == "visible"
+    hidden_cards = ".timeline-panel #events:not(.expanded) .event-item:nth-child(n + 4)"
+    assert _declarations(css, hidden_cards)["display"] == "none"
 
 
 def test_simulation_columns_do_not_grow_with_their_content() -> None:

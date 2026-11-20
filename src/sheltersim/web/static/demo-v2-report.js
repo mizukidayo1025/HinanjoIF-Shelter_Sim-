@@ -3,7 +3,7 @@
   "use strict";
   const app = window.HinanjoApp;
   const {
-    state, reference, lower, upper, $, json, llmModeLabel, time, num, el, uiIcon, runBase,
+    state, reference, duration, shortBranch, $, json, llmModeLabel, time, num, el, uiIcon, runBase,
     branchBase, api, note, drawHistory, drawAll, renderEvents, personSummary, pairIds,
   } = app;
   const { printReport } = app.later;
@@ -11,35 +11,72 @@
   function resetChat() {
     $("chat").replaceChildren(chatWelcome.cloneNode(true));
   }
-  async function loadHistory() {
-    const lo = lower(),
-      hi = upper(),
-      step = Math.max(1, Math.ceil((hi - lo) / 90)),
-      params = new URLSearchParams({
-        kind: "kpis",
-        start: String(lo),
-        end: String(hi),
-        step: String(step),
-        limit: "100",
+  function syncReportBranches() {
+    const branches = (state.data?.branches || []).filter((branch) =>
+      branch.branch_id === state.branch || branch.computed_until >= duration(),
+    );
+    const options = (excludeCurrent) => branches
+      .filter((branch) => !excludeCurrent || branch.branch_id !== state.branch)
+      .map((branch) => {
+        const option = el("option", shortBranch(branch.branch_id));
+        option.value = branch.branch_id;
+        return option;
       });
+    const overlay = $("report-overlay"), previous = overlay.value;
+    $("report-branch").replaceChildren(...options(false));
+    $("report-branch").value = state.branch;
+    overlay.replaceChildren(el("option", "重ねない"), ...options(true));
+    overlay.options[0].value = "";
+    overlay.value = [...overlay.options].some((o) => o.value === previous) ? previous : "";
+  }
+  async function fetchHistory(branch, start, end, step) {
+    const params = new URLSearchParams({ kind: "kpis", start, end, step, limit: "100" });
     const rows = [];
     let cursor = null;
     do {
       if (cursor) params.set("cursor", cursor);
-      const page = await api(`${branchBase()}/history?${params}`);
+      const page = await api(`${branchBase(branch)}/history?${params}`);
       rows.push(...page.items);
       cursor = page.next_cursor;
     } while (cursor && rows.length < 1000);
-    state.history = rows;
-    $("history-note").title =
-      "グラフは各分の計算の後、マップは各分の計算の前の記録です。避難者数の時系列は、今の指標の記録に含まれていません。";
-    $("history-note").textContent = rows.length
-      ? `記録 ${rows.length}点 · ${step}分間隔 · 経過 ${lo}–${hi}分（記録時点の詳細はここにマウスを重ねて確認）`
-      : "指標の記録はまだありません。少なくとも1分計算して更新してください。";
+    return rows;
+  }
+  let historyRequest = 0;
+  async function loadHistory() {
+    const request = ++historyRequest, scope = state.scope, branch = state.branch;
+    const overlay = $("report-overlay").value;
+    const metric = $("chart-metric");
+    metric.options[0].disabled = Boolean(overlay);
+    if (overlay && metric.value === "overview") metric.value = "stress_mean";
+    const series = [branch, overlay].filter(Boolean).map(reference);
+    const start = Math.max(...series.map((ref) => ref.fork_minute));
+    const end = Math.min(...series.map((ref) => ref.computed_until));
+    const step = Math.max(1, Math.ceil((end - start) / 90));
+    state.history = [];
+    state.overlayHistory = [];
+    $("history-note").textContent = "指標の記録を読み込んでいます…";
+    drawHistory();
+    const rows = start < end
+      ? await Promise.allSettled(series.map((ref) => fetchHistory(ref.branch_id, start, end, step)))
+      : series.map(() => ({ status: "fulfilled", value: [] }));
+    if (request !== historyRequest || scope !== state.scope || overlay !== $("report-overlay").value) return;
+    state.history = rows[0].status === "fulfilled" ? rows[0].value : [];
+    state.overlayHistory = rows[1]?.status === "fulfilled" ? rows[1].value : [];
+    const noOverlay = overlay && !state.overlayHistory.length;
+    $("history-note").textContent = rows[0].status === "rejected"
+      ? "レポートの分岐の記録を取得できませんでした。結果を更新してください。"
+      : overlay && start >= end
+        ? "推移を重ねられる共通の期間がありません。「重ねない」に戻すと、この分岐の記録を確認できます。"
+        : noOverlay
+          ? "重ねる分岐の記録を表示できません。"
+          : state.history.length
+            ? `${time(start)}〜${time(end)}の記録（約${step}分間隔）`
+            : "この分岐には指標の記録がありません。";
     drawHistory();
   }
   async function loadReport() {
     const scope = state.scope;
+    syncReportBranches();
     const [report, evidence, llm] = await Promise.all([
       api(`${branchBase()}/report`),
       api(`${runBase()}/evidence`),
@@ -62,7 +99,7 @@
     for (const [title, text] of [
       [
         "記録から確認できること",
-        `現在の平均ストレス ${num(state.frame.kpis.stress_mean * 100)}/100。トイレ待機人数 ${num(state.frame.kpis.toilet_queue_length)}人。未解決支援要請 ${num(state.frame.kpis.unresolved_support_request_count)}件。`,
+        `${time(state.minute)}の平均ストレス ${num(state.frame.kpis.stress_mean * 100)}/100。トイレ待機人数 ${num(state.frame.kpis.toilet_queue_length)}人。未解決支援要請 ${num(state.frame.kpis.unresolved_support_request_count)}件。`,
       ],
       [
         "課題と次の検討",
@@ -104,7 +141,12 @@
           list.append(el("li", recommended[item.action]));
       }
       box.append(list);
-      $("report-summary").insertBefore(box, $("report-summary").children[2]);
+      $("report-summary").insertBefore(box, $("report-summary").children[1]);
+    }
+    if (report.status !== "validated" || !review?.recommendations?.length) {
+      const ai = el("div", undefined, "report-finding ai-finding");
+      ai.append(el("strong", "AIの見立て"), el("span", "このレポートではAIによる追加の考察はありません。記録と出典を確認してください。"));
+      $("report-summary").insertBefore(ai, $("report-summary").children[1]);
     }
     if (report.markdown)
       $("report-summary").append(
@@ -296,5 +338,5 @@
     note("レポートを開きました。印刷画面で「PDFに保存」を選ぶと、PDFとして保存できます。", "success");
     printReport(report);
   }
-  Object.assign(app, { resetChat, loadReport, askQuestion, saveReport });
+  Object.assign(app, { resetChat, loadReport, loadHistory, askQuestion, saveReport });
 })();

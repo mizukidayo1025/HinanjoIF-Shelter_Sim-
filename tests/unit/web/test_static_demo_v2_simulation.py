@@ -65,9 +65,8 @@ for (const test of [
     subprocess.run([node, "--input-type=module", "-e", script, str(source)], check=True)
 
 
-def test_timeline_events_scroll_to_the_newest_record():
-    """The timeline's event box has a fixed height (#377), and records are listed oldest
-    first, so each render scrolls the box to its end to keep the newest ones in view."""
+def test_timeline_brief_surfaces_recent_problems_and_allows_seeking():
+    """A recorded problem survives routine events, with time jumps limited to this branch."""
     node = shutil.which("node")
     if node is None:
         pytest.skip("Node is required for the UI callback regression")
@@ -79,9 +78,16 @@ const source = fs.readFileSync(process.argv[1], "utf8").replaceAll("\r\n", "\n")
 const body = source
   .split("  function renderEvents(box, events, clickable = false) {")[1]
   .split("  function replayTime(")[0];
-const el = (tag, text, cls) => ({tag, text, cls, append() {}, addEventListener() {}});
-const eventNames = {}, eventTone = () => "record", time = (m) => String(m);
-const lower = () => 0, upper = () => 100, action = () => {}, seek = () => {};
+const toggle = {};
+const $ = () => toggle;
+const el = (tag, text, cls) => ({
+  tag, text, cls, children: [],
+  append(...nodes) { this.children.push(...nodes); },
+  addEventListener() {},
+});
+const eventNames = {}, time = (m) => String(m);
+const eventTone = (e) => e.minute === 12 ? "unresolved" : "record";
+const lower = () => 13, upper = () => 100, action = () => {}, seek = () => {};
 const renderEvents = eval(
   "(function renderEvents(box, events, clickable = false) {" + body + ")"
 );
@@ -98,7 +104,16 @@ for (const clickable of [true, false]) {
   const b = box();
   renderEvents(b, events, clickable);
   assert.equal(b.children.length, 12);
-  assert.equal(b.scrollTop, b.scrollHeight, `clickable=${clickable}`);
+  if (clickable) {
+    assert.equal(b.children[0].children[0].text, "12 · 課題の記録");
+    assert.equal(b.children[0].disabled, true);
+    assert.equal(b.children[1].children[0].text, "19 · 経過の記録");
+    assert.equal(b.children[1].disabled, false);
+    assert.equal(toggle.hidden, false);
+    assert.equal(b.scrollTop, 0);
+  } else {
+    assert.equal(b.scrollTop, b.scrollHeight);
+  }
 }
 """
     subprocess.run(
@@ -107,3 +122,39 @@ for (const clickable of [true, false]) {
         capture_output=True,
         text=True,
     )
+
+
+def test_report_highlights_follow_the_displayed_frame():
+    """The three prominent facts use the frame's values and do not invent missing data."""
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("Node is required for the UI callback regression")
+    source = Path("src/sheltersim/web/static/demo-v2-simulation.js").resolve()
+    script = r"""
+import fs from 'node:fs';
+import assert from 'node:assert/strict';
+const source = fs.readFileSync(process.argv[1], 'utf8').replaceAll('\r\n','\n');
+const body = source.split('  function renderKpiStrip(container, kpis) {')[1]
+  .split('  // The open Run\'s name')[0];
+const node = (tag, text, cls) => ({
+  tag, text, cls, children: [],
+  append(...nodes) { this.children.push(...nodes); },
+  replaceChildren(...nodes) { this.children = nodes; },
+});
+const highlight = node('div');
+const $ = () => highlight, el = node, uiIcon = () => node('icon');
+const state = {minute: 10}, time = () => '時刻', num = v => v == null ? '—' : String(v);
+const metricDefs = [
+ {key:'stress_mean', factor:100, unit:'/100', label:'平均', note:'平均'},
+ {key:'unresolved_support_request_count', factor:1, unit:'件', label:'相談', note:'相談'},
+ {key:'staff_load_ratio', factor:100, unit:'%', label:'負荷', note:'負荷'},
+];
+const render = eval('(function renderKpiStrip(container, kpis) {' + body + ')');
+const strip = node('div');
+render(strip, {stress_mean:.42, unresolved_support_request_count:3, staff_load_ratio:.5});
+const highlightValues = () => highlight.children.map(card => card.children[1].children[1].text);
+assert.deepEqual(highlightValues(), ['42 /100', '3 件', '50 %']);
+render(strip, undefined);
+assert.deepEqual(highlightValues(), ['— /100', '— 件', '— %']);
+"""
+    subprocess.run([node, "--input-type=module", "-e", script, str(source)], check=True)

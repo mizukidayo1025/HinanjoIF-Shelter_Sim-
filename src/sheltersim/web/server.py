@@ -97,6 +97,7 @@ _STATIC_FILES = {
     "/": "demo-v2.html",
     "/demo-v2.css": "demo-v2.css",
     "/demo-v2-logo.jpg": "demo-v2-logo.jpg",
+    "/demo-v2-header-logo.png": "demo-v2-header-logo.png",
     "/demo-v2.js": "demo-v2.js",
     "/demo-v2-map.js": "demo-v2-map.js",
     "/demo-v2-scene.js": "demo-v2-scene.js",

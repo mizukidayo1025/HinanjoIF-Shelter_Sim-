@@ -118,6 +118,13 @@ function coreError(error, what) {
   return error;
 }
 
+// JSON.parse drops the distinction between integer and float fields. Restore it for the
+// recorded cost before updating an account with answerJson, including when the cost is zero.
+function decodePreparation(bytes) {
+  return JSON.parse(decoder.decode(bytes), (key, value) =>
+    key === "estimated_cost_usd" && typeof value === "number" ? new PyFloat(value) : value);
+}
+
 const truthy = (value) =>
   value !== undefined && value !== null && value !== false && value !== 0 && value !== "" && !(Array.isArray(value) && value.length === 0) && !(typeof value === "object" && !Array.isArray(value) && Object.keys(value).length === 0);
 
@@ -209,7 +216,7 @@ export class ScenarioRoutes {
     const path = [projectId, "preparation.json"];
     const bytes = await this.tree.read(path);
     if (bytes === null) return;
-    const account = JSON.parse(decoder.decode(bytes));
+    const account = decodePreparation(bytes);
     if (account.account_id !== accountId || account.status !== "pending") return;
     const calls = Array.isArray(account.llm_calls) ? account.llm_calls : [];
     await this.tree.write(path, encoder.encode(`${answerJson({ ...account, llm_calls: [...calls, call] })}\n`));
@@ -237,7 +244,7 @@ export class ScenarioRoutes {
     const path = [projectId, "preparation.json"];
     const bytes = await this.tree.read(path);
     if (bytes === null) return;
-    const pending = JSON.parse(decoder.decode(bytes));
+    const pending = decodePreparation(bytes);
     if (pending.account_id === accountId) {
       await this.tree.write(path, encoder.encode(`${answerJson({ ...pending, status: "bound", run_id: runId })}\n`));
     }

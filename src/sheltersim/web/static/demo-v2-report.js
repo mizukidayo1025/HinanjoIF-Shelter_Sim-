@@ -89,6 +89,7 @@
     if (scope !== state.scope) return;
     state.summary = summary;
     renderReportSummary(summary);
+    showQuestionScope();
     state.report = report;
     state.evidence = evidence;
     // A report the rules made from the record is the browser's every report (#610): no AI is
@@ -226,12 +227,26 @@
     chat.prepend(past);
     chat.scrollTop = chat.scrollHeight;
   }
+  // The minute a question is about (#611): the end of the branch's computed range, so that the
+  // answer reads the record of the whole Run, not the minute shown (a Run opens at minute 0); a
+  // person chosen is asked about at the minute shown, where the frame has them.
+  function questionMinute() {
+    const person = state.selected && state.frame?.people.some((p) => p.id === state.selected);
+    return person ? state.minute : reference(state.branch).computed_until;
+  }
+  // What the questions are answered from, under the panel's title.
+  function showQuestionScope() {
+    const range = reference(state.branch);
+    $("question-scope").textContent = state.selected && state.frame?.people.some((p) => p.id === state.selected)
+      ? `選んだ人物（${state.selected}）について、表示中の時刻（${time(state.minute)}）の記録で答えます。`
+      : `${time(range.fork_minute)}〜${time(range.computed_until)}の記録をもとに答えます。`;
+  }
   async function askQuestion() {
     const question = $("question").value.trim();
     if (!question) throw new Error("質問を入力してください。");
     const version = ++state.chatVersion,
       scope = state.scope,
-      minute = state.minute,
+      minute = questionMinute(),
       branch = state.branch;
     $("chat").querySelector(".chat-intro")?.remove();
     $("chat").append(el("div", question, "chat-bubble user"));
@@ -257,7 +272,7 @@
     if (
       version !== state.chatVersion ||
       scope !== state.scope ||
-      minute !== state.minute ||
+      minute !== questionMinute() ||
       branch !== state.branch
     )
       return;
@@ -321,8 +336,10 @@
     $("question").value = "";
   }
   async function saveReport() {
+    // The comparison's minute, else the end of the branch's computed range (#611): the report and
+    // Opus's analysis are of the whole Run, not of the minute shown.
     const branchIds = state.comparison ? pairIds() : [state.branch],
-      minute = state.comparison ? state.comparison.minute : state.minute,
+      minute = state.comparison ? state.comparison.minute : reference(state.branch).computed_until,
       button = $("save-report");
     // Opus's analysis only where it is chosen and the API is ON (#582): else no LLM is asked.
     const analysis = state.llm?.on === true && $("report-analysis").checked;

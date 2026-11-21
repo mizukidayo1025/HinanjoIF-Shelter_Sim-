@@ -20,7 +20,10 @@ use serde_json::{json, Value};
 use sheltersim_core::answers::questions::QuestionPlan;
 use sheltersim_core::answers::records::RunFiles;
 use sheltersim_core::answers::report::format_g;
+use sheltersim_core::history::KpiTable;
 use sheltersim_core::llm::{check_answer, Reply};
+use sheltersim_core::plain::MetricSamples;
+use sheltersim_core::rules::metrics::MetricSample;
 use sheltersim_core::value::V;
 
 fn schema(value: Value) -> V {
@@ -95,6 +98,11 @@ const SCENARIO: &str = r#"{"duration_minutes":30,"provenance":{"sources":[{"id":
 const FRAME: &str = r#"{"branch_id":"main","kpis":{"minute_index":30,"stress_mean":0.25,"toilet_queue_length":3,"other":1},"people":[{"id":"agent-7","activity":"rest","stress":0.5,"trust":0.75,"needs":{"hunger":0.25},"mobility":"independent"}],"events":[{"event_id":"ev-1","minute":12,"event_type":"social_interaction","status":"applied","actors":["agent-7"]}]}"#;
 
 fn asking(question: &str) -> sheltersim_core::answers::questions::Asking {
+    asking_with(question, &KpiTable::new())
+}
+
+/// The question asked with the branch's stored samples `table`.
+fn asking_with(question: &str, table: &KpiTable) -> sheltersim_core::answers::questions::Asking {
     let body = json!({"question": question, "agent_id": "agent-7"}).to_string();
     let mut plan = QuestionPlan::new(Some(body.as_bytes()), "p", "r", "main").unwrap();
     let branch = br#"{"branch_id":"main","computed_until":30,"fork_minute":0,"checkpoint_hash":"h","schema_version":1,"status":"completed"}"#.to_vec();
@@ -102,7 +110,7 @@ fn asking(question: &str) -> sheltersim_core::answers::questions::Asking {
     plan.evidence(SCENARIO.as_bytes()).unwrap();
     assert!(plan.check_frame(FRAME.as_bytes()).unwrap().is_empty());
     let evidence = r#"{"models":{"behavior":{"id":"m-1","status":"assumption"}},"interpretation":"仮定です。","state_hash":"x"}"#;
-    plan.ask(FRAME.as_bytes(), None, Some(evidence.as_bytes()), SCENARIO.as_bytes(), &[], &"a".repeat(24)).unwrap()
+    plan.ask(FRAME.as_bytes(), table, None, Some(evidence.as_bytes()), SCENARIO.as_bytes(), &[], &"a".repeat(24)).unwrap()
 }
 
 fn reply(text: &Value, fallback_used: bool) -> Vec<u8> {
@@ -131,7 +139,7 @@ fn a_question_s_task_holds_its_evidence_packet() {
     let task: Value = serde_json::from_slice(&asking.task_json().unwrap()).unwrap();
     assert_eq!(task["task"], "result_question");
     assert_eq!(task["stage"], "review");
-    assert_eq!(task["prompt_version"], "read-only-results-chat-v2-grounded-explanations");
+    assert_eq!(task["prompt_version"], "read-only-results-chat-v3-run-summary");
     let input: Value = serde_json::from_str(task["input_text"].as_str().unwrap()).unwrap();
     let evidence = input["evidence"].as_array().unwrap();
     let kinds: Vec<&str> = evidence.iter().map(|item| item["kind"].as_str().unwrap()).collect();
@@ -141,6 +149,69 @@ fn a_question_s_task_holds_its_evidence_packet() {
     assert_eq!(evidence[2]["data"], json!({"models": {"behavior": {"id": "m-1", "status": "assumption"}}, "interpretation": "仮定です。"}));
     assert_eq!(input["scope"]["entity_selected"], true);
     assert_eq!(input["recent_questions_and_answers"], json!([]));
+}
+
+/// The stored samples of a branch whose toilet queue is `queue[minute]` at the minutes 0 to 30.
+fn samples(queue: impl Fn(i64) -> usize) -> KpiTable {
+    let mut packed = MetricSamples::default();
+    for minute in 0..=30 {
+        let sample = MetricSample {
+            toilet_queue_length: queue(minute),
+            toilet_active_users: 0,
+            toilet_working_units: 2,
+            toilet_wait_count: 0.0,
+            toilet_wait_total_minutes: 0.0,
+            toilet_wait_mean_minutes: 0.0,
+            toilet_wait_max_minutes: 0.0,
+            stress_mean: 0.25,
+            stress_high_count: 0,
+            staff_assigned_task_count: 0,
+            staff_busy_count: 0,
+            staff_load_ratio: 0.5,
+            unresolved_support_request_count: 0,
+            source_ids_json: "{}".to_owned(),
+            support_no_qualified_worker_count: 0,
+            support_no_qualified_worker_request_minutes: 0.0,
+            support_fairness_promoted_assignment_count: 0.0,
+            support_wait_staff_busy_request_minutes: 0.0,
+            support_wait_staff_off_shift_request_minutes: 0.0,
+        };
+        packed.push(&sample, minute, None).unwrap();
+    }
+    let (packer, blocks) = packed.store();
+    let mut tables = Vec::new();
+    packer.write_tables(0, 0, &mut tables);
+    let mut table = KpiTable::new();
+    table.read_tables(&tables).unwrap();
+    for block in blocks.blocks() {
+        table.read_block(block).unwrap();
+    }
+    table
+}
+
+#[test]
+fn a_question_s_evidence_holds_the_branch_s_summary_up_to_its_minute() {
+    // #609: the queue was 5 from the minute 10 to 19, and 0 at the minute asked (30).
+    let table = samples(|minute| if (10..20).contains(&minute) { 5 } else { 0 });
+    let asking = asking_with("トイレはいつ混みましたか", &table);
+    let task: Value = serde_json::from_slice(&asking.task_json().unwrap()).unwrap();
+    let input: Value = serde_json::from_str(task["input_text"].as_str().unwrap()).unwrap();
+    let evidence = input["evidence"].as_array().unwrap();
+    let kinds: Vec<&str> = evidence.iter().map(|item| item["kind"].as_str().unwrap()).collect();
+    assert_eq!(kinds, ["kpi", "history", "agent", "model", "source", "event"]);
+    let queue = &evidence[1]["data"]["metrics"]["toilet_queue_length"];
+    assert_eq!((&queue["max"], &queue["max_minute"], &queue["positive_minutes"], &queue["last"]), (&json!(5), &json!(10), &json!(10), &json!(0)));
+    assert_eq!((&evidence[1]["data"]["oldest_minute"], &evidence[1]["data"]["newest_minute"]), (&json!(0), &json!(30)));
+    assert_eq!(input["scope"]["history_coverage"], json!({"kind": "kpi_summary", "start_minute": 0, "end_minute": 30, "samples": 31}));
+    // A claim citing the summary is a fact named by its metric and statistic.
+    let cited = json!({"claims": [{"evidence": [{"alias": "S2", "field": "metrics.toilet_queue_length.max", "value": "5"}]}], "explanations": []});
+    let (answer, _) = answered(&asking, Some(&reply(&cited, false)));
+    let facts: Vec<&str> = answer["facts"].as_array().unwrap().iter().map(|fact| fact["text"].as_str().unwrap()).collect();
+    assert_eq!(facts, ["記録値 · Recorded KPI summary · 0–30 · トイレ待ち人数の最大 = 5"]);
+    // Without samples, there is no summary to give.
+    let task: Value = serde_json::from_slice(&asking_with("x", &KpiTable::new()).task_json().unwrap()).unwrap();
+    let input: Value = serde_json::from_str(task["input_text"].as_str().unwrap()).unwrap();
+    assert_eq!(input["scope"]["history_coverage"], Value::Null);
 }
 
 #[test]

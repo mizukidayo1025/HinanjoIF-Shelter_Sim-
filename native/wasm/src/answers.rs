@@ -692,20 +692,23 @@ impl QuestionPlan {
     }
 
     /// The question asked of an LLM through the site's relay (#470, `QuestionPlan::ask`): the
-    /// branch's frame at the minute, the comparison's answer (or undefined), the Run's
-    /// `evidence.json` (or undefined), its Scenario, the branch's "conversations" pieces
-    /// (decompressed) and `random`, 24 hex digits for a new context's id.
+    /// branch's frame at the minute, its stored samples (#609), the comparison's answer (or
+    /// undefined), the Run's `evidence.json` (or undefined), its Scenario, the branch's
+    /// "conversations" pieces (decompressed) and `random`, 24 hex digits for a new context's id.
+    // Each of the route's inputs, read by the caller.
+    #[allow(clippy::too_many_arguments)]
     pub fn ask(
         &self,
         frame: &str,
+        table: &KpiHistory,
         comparison: Option<String>,
         evidence: Option<Vec<u8>>,
         scenario: &[u8],
         turns: &Files,
         random: &str,
     ) -> Result<Asking, JsError> {
-        let asking =
-            self.plan.ask(frame.as_bytes(), comparison.as_deref().map(str::as_bytes), evidence.as_deref(), scenario, &turns.raws(), random).map_err(failed)?;
+        let comparison = comparison.as_deref().map(str::as_bytes);
+        let asking = self.plan.ask(frame.as_bytes(), &table.table, comparison, evidence.as_deref(), scenario, &turns.raws(), random).map_err(failed)?;
         Ok(Asking { asking, turn: Vec::new() })
     }
 }

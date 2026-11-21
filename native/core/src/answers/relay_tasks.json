@@ -2,8 +2,8 @@
   "schema_version": 1,
   "tasks": [
     {
-      "input_byte_limit": null,
-      "max_input_bytes": 16384,
+      "input_byte_limit": 32768,
+      "max_input_bytes": 32768,
       "max_output_tokens": 900,
       "output_schema": {
         "additionalProperties": false,
@@ -153,7 +153,7 @@
         ],
         "type": "object"
       },
-      "prompt_version": "read-only-results-chat-v2-grounded-explanations",
+      "prompt_version": "read-only-results-chat-v3-run-summary",
       "schema_version": 2,
       "stage": "review",
       "task": "result_question"

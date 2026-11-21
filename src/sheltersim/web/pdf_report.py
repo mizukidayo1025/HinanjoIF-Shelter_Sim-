@@ -167,11 +167,5 @@ class PdfReports:
                 exact = True
             branch_run = api.live.at(project_id, run_id, record, plan.minute, exact=exact)
             frame = branch_run.frame(run_id, branch_id, record["computed_until"])
-            table = core.KpiTable()
-            for kind, raw in files.reader(project_id, run_id, branch_id).sample_pieces():
-                if kind == "sample_tables":
-                    table.read_sample_tables(raw)
-                else:
-                    table.read_sample_block(raw)
-            plan.add_branch(branch_run, frame, table, journal)
+            plan.add_branch(branch_run, frame, api.samples(project_id, run_id, branch_id), journal)
         return scenario

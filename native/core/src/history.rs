@@ -221,4 +221,118 @@ impl KpiTable {
         page.items.push(b']');
         Ok(page)
     }
+
+    /// What each of `keys` (a history row's KPIs, the recent toilet wait among them) did over the
+    /// samples from `start` to `end` (#612): the whole range a report summarises, not one minute.
+    pub fn summary(&self, start: i64, end: i64, keys: &[&'static str]) -> Result<KpiSummary> {
+        let mut summary = KpiSummary { metrics: keys.iter().map(|key| MetricSummary::new(key)).collect(), ..KpiSummary::default() };
+        if start > end {
+            return Ok(summary);
+        }
+        // The minute of the sample before and, for each key, whether it was above 0.
+        let mut previous: Option<(i64, Vec<bool>)> = None;
+        for index in self.first_at(start)..self.minutes.len() {
+            let minute = self.minutes[index];
+            if minute > end {
+                break;
+            }
+            let unpacked = self.sample(index)?.ok_or_else(|| corrupt("a sample is missing"))?;
+            let before = self.last_at_or_before(minute - RECENT_WAIT_MINUTES)?;
+            let row = kpis(&unpacked.sample, minute, Some(recent_toilet_wait_mean(&unpacked.sample, before.as_ref())));
+            let joined = previous.as_ref().filter(|(at, _)| at + 1 == minute);
+            if joined.is_some() {
+                summary.covered_minutes += 1;
+            }
+            let mut positive = Vec::with_capacity(keys.len());
+            for (index, metric) in summary.metrics.iter_mut().enumerate() {
+                if joined.is_some_and(|(_, above)| above[index]) {
+                    metric.positive_minutes += 1;
+                }
+                let value = row.get(metric.key).cloned().unwrap_or(V::Null);
+                positive.push(metric.add(minute, value));
+            }
+            summary.samples += 1;
+            summary.first = summary.first.or(Some(minute));
+            summary.last = Some(minute);
+            previous = Some((minute, positive));
+        }
+        Ok(summary)
+    }
+}
+
+/// What the metrics did over a range of samples (`KpiTable::summary`).
+#[derive(Clone, Debug, Default)]
+pub struct KpiSummary {
+    /// How many samples there were, and the first's and the last's minutes.
+    pub samples: usize,
+    pub first: Option<i64>,
+    pub last: Option<i64>,
+    /// The one-minute intervals with both ends sampled.
+    pub covered_minutes: i64,
+    pub metrics: Vec<MetricSummary>,
+}
+
+/// What one metric did over a range of samples: the mean of its samples, its least and greatest
+/// values (the first minute of the greatest), its last value, and the one-minute intervals with
+/// both ends sampled whose start is above 0 (as the PDF report's problem windows count them).
+#[derive(Clone, Debug)]
+pub struct MetricSummary {
+    pub key: &'static str,
+    pub samples: usize,
+    pub sum: f64,
+    pub min: V,
+    pub max: V,
+    pub max_minute: Option<i64>,
+    pub last: V,
+    pub positive_minutes: i64,
+    pub first_positive_minute: Option<i64>,
+}
+
+impl MetricSummary {
+    fn new(key: &'static str) -> Self {
+        MetricSummary {
+            key,
+            samples: 0,
+            sum: 0.0,
+            min: V::Null,
+            max: V::Null,
+            max_minute: None,
+            last: V::Null,
+            positive_minutes: 0,
+            first_positive_minute: None,
+        }
+    }
+
+    /// The sample's value at `minute`; whether it is above 0.
+    fn add(&mut self, minute: i64, value: V) -> bool {
+        let number = match value {
+            V::Int(number) => number as f64,
+            V::Float(number) if number.is_finite() => number,
+            _ => return false,
+        };
+        let of = |value: &V| match value {
+            V::Int(number) => Some(*number as f64),
+            V::Float(number) => Some(*number),
+            _ => None,
+        };
+        if of(&self.min).is_none_or(|least| number < least) {
+            self.min = value.clone();
+        }
+        if of(&self.max).is_none_or(|greatest| number > greatest) {
+            self.max = value.clone();
+            self.max_minute = Some(minute);
+        }
+        if number > 0.0 && self.first_positive_minute.is_none() {
+            self.first_positive_minute = Some(minute);
+        }
+        self.samples += 1;
+        self.sum += number;
+        self.last = value;
+        number > 0.0
+    }
+
+    /// The mean of its samples, or None without one.
+    pub fn mean(&self) -> Option<f64> {
+        (self.samples > 0).then(|| self.sum / self.samples as f64)
+    }
 }

@@ -6,6 +6,7 @@ use sheltersim_core::events::packed::Packer;
 use sheltersim_core::history::{kpi_row, review_metrics, KpiQuery, KpiTable};
 use sheltersim_core::plain::MetricSamples;
 use sheltersim_core::rules::metrics::MetricSample;
+use sheltersim_core::value::V;
 
 fn sample(stress: f64) -> MetricSample {
     MetricSample {
@@ -179,4 +180,29 @@ fn the_samples_find_where_the_window_starts() {
         [None, Some(3.0), Some(3.0), Some(5.0), Some(5.0), Some(9.0), Some(9.0)]
     );
     assert_eq!(MetricSamples::default().last_at_or_before(0).unwrap(), None);
+}
+
+#[test]
+fn a_summary_is_of_every_sample_of_the_range() {
+    // #612: the main KPIs over the range, not at one minute.
+    let queue = |length: usize| MetricSample { toilet_queue_length: length, ..sample(0.0) };
+    // The minutes 0 to 5 and 8 to 9: the gap 5..8 is not covered.
+    let samples: Vec<(i64, MetricSample)> =
+        [(0, 0), (1, 2), (2, 3), (3, 0), (4, 0), (5, 1), (8, 3), (9, 0)].into_iter().map(|(minute, length)| (minute, queue(length))).collect();
+    let table = table_of(&samples);
+    let summary = table.summary(0, 9, &["toilet_queue_length", "stress_mean", "no_such_metric"]).unwrap();
+    assert_eq!((summary.samples, summary.first, summary.last, summary.covered_minutes), (8, Some(0), Some(9), 6));
+    let [length, stress, missing] = &summary.metrics[..] else { panic!("three metrics") };
+    assert_eq!(length.samples, 8);
+    assert_eq!(length.mean(), Some(9.0 / 8.0));
+    assert_eq!((&length.min, &length.max, length.max_minute, &length.last), (&V::Int(0), &V::Int(3), Some(2), &V::Int(0)));
+    // [1, 2], [2, 3] and [8, 9] are above 0 with both ends sampled; [5, 6] has no end.
+    assert_eq!((length.positive_minutes, length.first_positive_minute), (3, Some(1)));
+    assert_eq!((stress.samples, stress.positive_minutes, &stress.max, stress.max_minute), (8, 0, &V::Float(0.0), Some(0)));
+    assert_eq!((missing.samples, missing.mean(), &missing.max), (0, None, &V::Null));
+    // A part of the range, and a range with no sample.
+    let part = table.summary(2, 5, &["toilet_queue_length"]).unwrap();
+    assert_eq!((part.samples, part.covered_minutes, part.metrics[0].positive_minutes, part.metrics[0].mean()), (4, 3, 1, Some(1.0)));
+    let none = table.summary(6, 7, &["toilet_queue_length"]).unwrap();
+    assert_eq!((none.samples, none.first, none.metrics[0].mean()), (0, None, None));
 }

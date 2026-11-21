@@ -99,7 +99,7 @@ approved hashは確認した正準ScenarioSpecそのものに結び付きます�
 
 ## ブラウザーの時系列・レポート・LLMの状態（#266）
 
-ブラウザー版は、Branchの`GET …/history?kind=kpis`、`GET …/report`、`GET …/llm-status`に、同じRunにローカル版・VM版のserverが返すのと同じbytesのJSONで答えます（中核の`sheltersim_core::answers`。ブラウザーは`native/wasm/js/api_answers.mjs`がファイルを読んで呼びます。#449）。
+ブラウザー版は、Branchの`GET …/history?kind=kpis`（と`kind=summary`、#612）、`GET …/report`、`GET …/llm-status`に、同じRunにローカル版・VM版のserverが返すのと同じbytesのJSONで答えます（中核の`sheltersim_core::answers`。ブラウザーは`native/wasm/js/api_answers.mjs`がファイルを読んで呼びます。#449）。
 
 | 関数 | 答える道 |
 |---|---|
@@ -119,7 +119,8 @@ approved hashは確認した正準ScenarioSpecそのものに結び付きます�
 | 時系列の`anchor_hash`とcursorの`anchor` | Branchの先頭（記録の`checkpoint_hash`）。cursorのほかの中身（`scope`、分、key）は索引のときと同じ |
 | 時系列の`indexed_through_minute` | Branchの`computed_until`（保存したRunは先頭まで標本を持つので、索引の遅れはありません） |
 | 時系列の`first_indexed_checkpoint_minute` | Branchの`fork_minute`（保存したRunの始まり） |
-| `kind`が`kpis`以外の時系列 | 409、`browser_unsupported`（範囲などの確かめの後） |
+| `kind=summary`（#612） | 行の代わりに、`start`から`end`までの標本の要約。主な指標（中核の`SUMMARY_METRICS`：平均ストレス、高ストレス者数、トイレ待機人数、最大トイレ待ち時間、直近24時間の平均トイレ待ち時間、スタッフ負荷、未解決の支援要請）ごとに、標本の数、平均、最小、最大と最初にそれになった分、最後の値、0より大きかった分（両端の標本がある1分の区間を数えます。PDFレポートの問題の継続と同じ数え方）、最初に0より大きくなった分。ほかに`sample_count`、`oldest_minute`、`newest_minute`、`covered_minutes`。値は標本のまま（割合は割合）。`step`、`cursor`、`text`、識別子の欄は付けられません（400の`invalid_input`）。レポート画面の「この結果の要点」が使います |
+| `kind`が`kpis`・`summary`以外の時系列 | 409、`browser_unsupported`（範囲などの確かめの後） |
 | 古い形（v1〜v4）で保存したBranch | どの道でも409、`stored_run_outdated`（「このシナリオの計算結果は古い保存の形（…）で保存されています。…計算し直してください。」。#368の決定7） |
 | 保存したRunのないBranch | `anchor_hash`と`indexed_through_minute`と`first_indexed_checkpoint_minute`が`null`、行なし |
 | レポート | 終わったBranchで最初に聞かれたときに、保存したRunの最後の分から作り（最後の点に戻すので、100人・7日のNodeで約4秒）、Branchのフォルダーに`report.json`として残します。終わっていなければ`{"status":"not_generated"}` |

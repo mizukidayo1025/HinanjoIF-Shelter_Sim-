@@ -23,6 +23,7 @@
     state.history = [];
     state.context = null;
     state.report = null;
+    state.summary = null;
     invalidateIntervention();
     resetChat();
     clearRunView();

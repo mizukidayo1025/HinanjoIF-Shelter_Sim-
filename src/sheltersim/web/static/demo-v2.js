@@ -8,7 +8,7 @@
     state, $, num, el, uiIcon, api, note, computeTargets, loading, action, on, show,
     controls, hits, drawAll, keepPassphrase, showApi, refreshApi, applyLlm, enableApi, openExamples,
     newScenario, invalidateScenario, previewScenario, approveScenario, stopPlayback, renderKpis,
-    renderKpiStrip, refreshRuns, refreshRun, seek, renderFrame, togglePlayback, computeToEnd,
+    renderReportSummary, refreshRuns, refreshRun, seek, renderFrame, togglePlayback, computeToEnd,
     cancelCompute, personSummary, renderPeople, selectPerson, invalidateIntervention, comparing,
     pickForkTime, previewIntervention, applyIntervention, loadComparison, loadMultiCompare,
     resetChat, loadReport, loadHistory, showInterventionForm, askQuestion, saveReport, copyScenario,
@@ -358,6 +358,7 @@
         state.history = [];
         state.overlayHistory = [];
         state.report = null;
+        state.summary = null;
         if (id === "report-branch") state.comparison = null;
         resetChat();
         invalidateIntervention();
@@ -427,7 +428,7 @@
         b.dataset.zoom === "in" ? "＋" : b.dataset.zoom === "out" ? "−" : "⌖";
     });
     renderKpis($("sim-kpis"));
-    renderKpiStrip($("report-kpis"));
+    renderReportSummary(null);
     const projects = await api("/api/v1/projects");
     if (projects.projects.some((p) => p.project_id === state.project)) {
       await refreshRuns();

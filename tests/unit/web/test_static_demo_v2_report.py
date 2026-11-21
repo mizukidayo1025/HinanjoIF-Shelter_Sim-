@@ -60,7 +60,7 @@ const api = async (path) => {
 const branchBase = () => '/b', runBase = () => '/r';
 const syncReportBranches = () => {}, renderReportSummary = () => {}, renderEvents = () => {};
 const loadConversations = async () => {}, loadHistory = async () => {}, drawAll = () => {};
-const personSummary = () => '';
+const personSummary = () => '', showQuestionScope = () => {};
 const loadReport = eval('(async function loadReport() {' + body + ')');
 await loadReport();
 assert.ok(asked.includes('/b/history?kind=summary&start=0&end=10080'), asked.join(' '));
@@ -90,5 +90,74 @@ assert.equal(again[1].children[1].text,
             str((STATIC / "demo-v2-report.js").resolve()),
             str((STATIC / "demo-v2-text.js").resolve()),
         ],
+        check=True,
+    )
+
+
+def test_questions_and_the_report_are_of_the_end_of_the_computed_range():
+    """#611: a Run opens at minute 0, where nothing has happened; a question and the report (with
+    Opus's analysis) are about the end of the branch's computed range, so that they read the record
+    of the whole Run. A person chosen is asked about at the minute shown, where the frame has them;
+    a comparison keeps its minute."""
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("Node is required for the UI callback regression")
+    script = r"""
+import fs from 'node:fs';
+import assert from 'node:assert/strict';
+const source = fs.readFileSync(process.argv[1], 'utf8').replaceAll('\r\n', '\n');
+const between = (from, to) => source.split(from)[1].split(to)[0];
+const node = (tag, text, cls) => ({
+  tag, text, cls, children: [], textContent: '',
+  append(...nodes) { this.children.push(...nodes); },
+  replaceChildren(...nodes) { this.children = nodes; },
+  querySelector() { return null; },
+  setAttribute() {}, removeAttribute() {},
+});
+const nodes = {};
+const $ = (id) => (nodes[id] ??= node('div'));
+const el = node, time = (m) => `${m}分`, llmModeLabel = () => '', json = JSON.stringify;
+const state = { scope: 1, branch: 'main', minute: 0, chatVersion: 0, selected: null,
+  frame: { people: [{ id: 'A001' }] }, comparison: null, llm: { on: true } };
+const reference = () => ({ fork_minute: 0, computed_until: 10080 });
+const sent = [];
+const api = async (path, body) => {
+  sent.push({ path, body });
+  return { context_id: 'c', usage: {} };
+};
+const branchBase = () => '/b', runBase = () => '/r', note = () => {}, printReport = () => {};
+const pairIds = () => ['main', 'c1'];
+const { questionMinute, showQuestionScope } = eval('(() => { function questionMinute() {' +
+  between('  function questionMinute() {', '  async function askQuestion() {') +
+  'return { questionMinute, showQuestionScope }; })()');
+const asking = between('  async function askQuestion() {', '  async function saveReport() {')
+  .split('\n    if (\n      version !== state.chatVersion')[0];
+const ask = eval('(async function askQuestion() {' + asking + '})');
+const saving = between('  async function saveReport() {', '  Object.assign(app,');
+const save = eval('(async function saveReport() {' + saving + ')');
+// At minute 0, with no one chosen: the end of the computed range.
+$('question').value = 'トイレはいつ混みましたか';
+await ask();
+assert.equal(sent.at(-1).body.minute, 10080);
+showQuestionScope();
+assert.equal($('question-scope').textContent, '0分〜10080分の記録をもとに答えます。');
+// A person chosen: the minute shown.
+Object.assign(state, { selected: 'A001', minute: 300 });
+await ask();
+assert.deepEqual([sent.at(-1).body.minute, sent.at(-1).body.agent_id], [300, 'A001']);
+showQuestionScope();
+assert.equal($('question-scope').textContent,
+  '選んだ人物（A001）について、表示中の時刻（300分）の記録で答えます。');
+// The report: the end of the computed range, or the comparison's minute.
+$('report-analysis').checked = true;
+await save();
+assert.deepEqual(sent.at(-1),
+  { path: '/r/pdf-report', body: { branch_ids: ['main'], minute: 10080, analysis: true } });
+state.comparison = { minute: 420 };
+await save();
+assert.deepEqual(sent.at(-1).body, { branch_ids: ['main', 'c1'], minute: 420, analysis: true });
+"""
+    subprocess.run(
+        [node, "--input-type=module", "-e", script, str((STATIC / "demo-v2-report.js").resolve())],
         check=True,
     )

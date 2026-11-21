@@ -4252,6 +4252,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 #report-summary .report-finding { margin:0; border:1px solid #cde0f7; border-radius:8px; font-size:15px; padding:14px; }
 #report-summary .report-finding strong { font-size:17px; }
 #report-summary .ai-finding { background:#fff1f5; border-color:#f4d4df; }
+#report-summary .finding-wide { grid-column:1 / -1; }
 #report-summary > p { grid-column:1 / -1; }
 #page-report .person-row { font-size:14px; line-height:1.5; }
 @media (max-width:1100px) {

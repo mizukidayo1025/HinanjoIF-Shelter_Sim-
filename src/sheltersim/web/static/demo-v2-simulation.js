@@ -5,7 +5,7 @@
   const app = window.HinanjoApp;
   const {
     state, reference, lower, upper, duration, remember, $, enc, metricDefs, eventNames, eventTone,
-    time, shortBranch, runStatusLabel, num, el, uiIcon, base, runBase, branchBase, api, note,
+    time, shortBranch, runStatusLabel, num, el, uiIcon, lasting, base, runBase, branchBase, api, note,
     setPlayLabels, loading, action, show, controls, drawAll, runNames,
   } = app;
   const {
@@ -113,12 +113,6 @@
       return typeof value === "number" ? value * d.factor : null;
     };
     const at = (key) => (typeof metrics[key]?.max_minute === "number" ? `（${time(metrics[key].max_minute)}）` : "");
-    const lasting = (minutes) => {
-      if (typeof minutes !== "number") return "—";
-      if (minutes === 0) return "なし";
-      const parts = [[Math.floor(minutes / 1440), "日"], [Math.floor((minutes % 1440) / 60), "時間"], [minutes % 60, "分"]];
-      return `計 ${parts.filter(([count]) => count > 0).map(([count, unit]) => `${count}${unit}`).join("")}`;
-    };
     const support = "unresolved_support_request_count";
     const cards = [
       ["stress_mean", "避難者の負担", "people", `平均 ${num(scaled("stress_mean", "mean"))} /100`, `最大 ${num(scaled("stress_mean", "max"))} /100${at("stress_mean")}`],

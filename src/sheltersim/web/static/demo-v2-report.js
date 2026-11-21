@@ -3,7 +3,7 @@
   "use strict";
   const app = window.HinanjoApp;
   const {
-    state, reference, duration, shortBranch, $, json, llmModeLabel, time, num, el, uiIcon, runBase,
+    state, reference, duration, shortBranch, $, json, llmModeLabel, time, num, el, uiIcon, lasting, runBase,
     branchBase, api, note, drawHistory, drawAll, renderEvents, personSummary, pairIds, renderReportSummary,
   } = app;
   const { printReport } = app.later;
@@ -91,9 +91,11 @@
     renderReportSummary(summary);
     state.report = report;
     state.evidence = evidence;
+    // A report the rules made from the record is the browser's every report (#610): no AI is
+    // asked for it, which is not a failure.
     $("report-status").textContent =
       report.status === "rule_fallback"
-          ? "規則による代替レポート"
+          ? "記録から作成（AIなし）"
           : report.status === "unavailable"
             ? "レポート生成不可"
             : report.status === "validated"
@@ -102,23 +104,27 @@
     $("report-raw").textContent = report.markdown || json(report);
     $("report-evidence").textContent = json({ evidence, llm });
     $("report-summary").replaceChildren();
-    for (const [title, text] of [
-      [
-        "記録から確認できること",
-        `${time(state.minute)}の平均ストレス ${num(state.frame.kpis.stress_mean * 100)}/100。トイレ待機人数 ${num(state.frame.kpis.toilet_queue_length)}人。未解決支援要請 ${num(state.frame.kpis.unresolved_support_request_count)}件。`,
-      ],
+    // What the record shows over the branch's whole computed range (#610, the summary of #612), not
+    // at the minute shown.
+    const metrics = summary.metrics || {};
+    const waited = (key) => (metrics[key]?.positive_minutes ?? 0) > 0;
+    const recorded = summary.sample_count > 0
+      ? `${time(summary.oldest_minute)}〜${time(summary.newest_minute)}の全体で、避難者の負担は平均 ${num(metrics.stress_mean?.mean * 100)}/100（最大 ${num(metrics.stress_mean?.max * 100)}）。トイレの列は最大 ${num(metrics.toilet_queue_length?.max)}人で、列があった時間は${lasting(metrics.toilet_queue_length?.positive_minutes)}。対応待ちの相談は最大 ${num(metrics.unresolved_support_request_count?.max)}件で、対応待ちがあった時間は${lasting(metrics.unresolved_support_request_count?.positive_minutes)}。`
+      : "この分岐には指標の記録がありません。";
+    for (const [title, text, wide] of [
+      ["記録から確認できること", recorded, true],
       [
         "課題と次の検討",
-        state.frame.kpis.unresolved_support_request_count > 0
-          ? "支援要請とスタッフの資格・稼働の記録を確認し、介入を分岐比較で検討してください。"
-          : "取得範囲に記録された事象を確認し、別条件での結果を比較してください。",
+        waited("unresolved_support_request_count")
+          ? "対応待ちの相談が続いた時間帯の、支援要請とスタッフの資格・稼働の記録を確認し、介入を分岐比較で検討してください。"
+          : "記録された事象を確認し、別の条件での結果と比較してください。",
       ],
       [
         "解釈上の限界",
         "これは合成人物とモデル内の試算です。実測で校正された予測ではありません。感染症リスク・情報到達率など未提供の指標は表示しません。",
       ],
     ]) {
-      const box = el("div", undefined, "report-finding");
+      const box = el("div", undefined, wide ? "report-finding finding-wide" : "report-finding");
       box.append(el("strong", title), el("span", text));
       $("report-summary").append(box);
     }
@@ -148,11 +154,6 @@
       }
       box.append(list);
       $("report-summary").insertBefore(box, $("report-summary").children[1]);
-    }
-    if (report.status !== "validated" || !review?.recommendations?.length) {
-      const ai = el("div", undefined, "report-finding ai-finding");
-      ai.append(el("strong", "AIの見立て"), el("span", "このレポートではAIによる追加の考察はありません。記録と出典を確認してください。"));
-      $("report-summary").insertBefore(ai, $("report-summary").children[1]);
     }
     if (report.markdown)
       $("report-summary").append(

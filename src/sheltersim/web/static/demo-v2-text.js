@@ -273,8 +273,15 @@
     }
     return svg;
   }
+  // A length of time in minutes, as days, hours and minutes (#612): "計 2日5時間", "なし", "—".
+  const lasting = (minutes) => {
+    if (typeof minutes !== "number") return "—";
+    if (minutes === 0) return "なし";
+    const parts = [[Math.floor(minutes / 1440), "日"], [Math.floor((minutes % 1440) / 60), "時間"], [minutes % 60, "分"]];
+    return `計 ${parts.filter(([count]) => count > 0).map(([count, unit]) => `${count}${unit}`).join("")}`;
+  };
   Object.assign(app, {
     $, enc, json, llmModeLabel, metricDefs, zoneNames, eventNames, eventTone, activityNames,
-    disasterName, supportModeName, time, shortBranch, runStatusLabel, num, el, uiIcon,
+    disasterName, supportModeName, time, shortBranch, runStatusLabel, num, el, uiIcon, lasting,
   });
 })();

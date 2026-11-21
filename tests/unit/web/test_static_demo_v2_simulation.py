@@ -147,6 +147,9 @@ const nodes = {};
 const $ = (id) => (nodes[id] ??= node('div'));
 const el = node, uiIcon = () => node('icon');
 const time = (m) => `${m}分`, num = v => v == null ? '—' : String(Math.round(v * 10) / 10);
+// The length of time as the page's text writes it (demo-v2-text.js).
+const text = fs.readFileSync(process.argv[2], 'utf8').replaceAll('\r\n','\n');
+const lasting = eval('(' + text.split('  const lasting = ')[1].split('\n  };\n')[0] + '\n  })');
 const metricDefs = [
  {key:'stress_mean', factor:100, unit:'/100', label:'平均', note:'平均の説明'},
  {key:'unresolved_support_request_count', factor:1, unit:'件', label:'相談', note:'相談の説明'},
@@ -188,4 +191,5 @@ assert.deepEqual(cards(), [
 ]);
 assert.equal(context(), 'シナリオを開くと記録を表示します。');
 """
-    subprocess.run([node, "--input-type=module", "-e", script, str(source)], check=True)
+    text = Path("src/sheltersim/web/static/demo-v2-text.js").resolve()
+    subprocess.run([node, "--input-type=module", "-e", script, str(source), str(text)], check=True)

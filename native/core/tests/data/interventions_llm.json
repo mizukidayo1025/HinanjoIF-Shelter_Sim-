@@ -268,12 +268,59 @@
       "output_tokens": 5,
       "text": "{\"executive\": [{\"text\": \"待機と支援需要を合わせて確認することで、運営上の着眼点を整理できる可能性があります。\", \"refs\": [\"B0.toilet_queue_length\"]}], \"interpretation\": [{\"text\": \"待機の継続には処理能力だけでなく、需要の集中が関係している可能性があります。\", \"refs\": [\"B0.window.toilet_queue_length\"]}], \"hypotheses\": [{\"text\": \"待機と支援需要の重なりが運営上の負担につながる可能性があります。\", \"refs\": [\"B0.unresolved_support_request_count\", \"B0.toilet_queue_length\"]}], \"proposals\": [{\"text\": \"優先的に、需要の時間帯と設備容量をそろえた比較条件で、追加検証することを検討してください。\", \"refs\": [\"B0.toilet_queue_length\"]}, {\"text\": \"代替案として、担当者の配置条件を変えて、待機と支援の推移を比較することを検討してください。\", \"refs\": [\"B0.unresolved_support_request_count\"]}], \"limitations\": [{\"text\": \"現地の集計データとの照合と、異なる条件での反復検証が必要です。\", \"refs\": [\"L\"]}]}"
      },
-     "task_sha256": "8611ef9672d1170a875ded90d4c8801cbff260582fc8a8041709b297732c1b85"
+     "task_sha256": "8571d48e0ce4ef430ee8970dacdbd372784d5b7bc324d297704520f155fb7d21"
     }
    ],
    "name": "report with the LLM {\"branch_ids\": [\"main\", \"c1\"], \"minute\": 420, \"analysis\": true}",
    "route": "pdf-report",
-   "sha256": "9a05345e84d4dab4d56203ba56e1db08c4f232ea4e828b33b8354a5811639ce0",
+   "sha256": "4fb35b4ad528b8a3d9088394488ff0dc3c499a177983ae3c127e9be81d4abf9e",
+   "status": 200,
+   "text": null
+  },
+  {
+   "document": {
+    "analysis": true,
+    "branch_ids": [
+     "c1"
+    ],
+    "minute": 430
+   },
+   "length": 20841,
+   "llm": [
+    {
+     "output_text": "{\"executive\": [{\"text\": \"待機と支援需要を合わせて確認することで、運営上の着眼点を整理できる可能性があります。\", \"refs\": [\"B0.toilet_queue_length\"]}], \"interpretation\": [{\"text\": \"最初に発生した時刻は読み取れないと考えられます。\", \"refs\": [\"B0.window.toilet_queue_length\"]}], \"hypotheses\": [{\"text\": \"待機と支援需要の重なりが運営上の負担につながる可能性があります。\", \"refs\": [\"B0.unresolved_support_request_count\", \"B0.toilet_queue_length\"]}], \"proposals\": [{\"text\": \"優先的に、需要の時間帯と設備容量をそろえた比較条件で、追加検証することを検討してください。\", \"refs\": [\"B0.toilet_queue_length\"]}, {\"text\": \"代替案として、担当者の配置条件を変えて、待機と支援の推移を比較することを検討してください。\", \"refs\": [\"B0.unresolved_support_request_count\"]}], \"limitations\": [{\"text\": \"現地の集計データとの照合と、異なる条件での反復検証が必要です。\", \"refs\": [\"L\"]}]}",
+     "reply": {
+      "api_request_count": 1,
+      "cache_hit": false,
+      "estimated_cost_usd": 0.00014,
+      "fallback_used": false,
+      "input_tokens": 10,
+      "model_id": "claude-opus-5-5",
+      "outcome": "recorded",
+      "output_tokens": 5,
+      "text": "{\"executive\": [{\"text\": \"待機と支援需要を合わせて確認することで、運営上の着眼点を整理できる可能性があります。\", \"refs\": [\"B0.toilet_queue_length\"]}], \"interpretation\": [{\"text\": \"最初に発生した時刻は読み取れないと考えられます。\", \"refs\": [\"B0.window.toilet_queue_length\"]}], \"hypotheses\": [{\"text\": \"待機と支援需要の重なりが運営上の負担につながる可能性があります。\", \"refs\": [\"B0.unresolved_support_request_count\", \"B0.toilet_queue_length\"]}], \"proposals\": [{\"text\": \"優先的に、需要の時間帯と設備容量をそろえた比較条件で、追加検証することを検討してください。\", \"refs\": [\"B0.toilet_queue_length\"]}, {\"text\": \"代替案として、担当者の配置条件を変えて、待機と支援の推移を比較することを検討してください。\", \"refs\": [\"B0.unresolved_support_request_count\"]}], \"limitations\": [{\"text\": \"現地の集計データとの照合と、異なる条件での反復検証が必要です。\", \"refs\": [\"L\"]}]}"
+     },
+     "task_sha256": "d37ea6ca0fd2b74877f66deb6309e125232d75228e8841e1efd00a530cab69fb"
+    },
+    {
+     "output_text": "{\"executive\": [{\"text\": \"待機と支援需要を合わせて確認することで、運営上の着眼点を整理できる可能性があります。\", \"refs\": [\"B0.toilet_queue_length\"]}], \"interpretation\": [{\"text\": \"待機の継続には処理能力だけでなく、需要の集中が関係している可能性があります。\", \"refs\": [\"B0.window.toilet_queue_length\"]}], \"hypotheses\": [{\"text\": \"待機と支援需要の重なりが運営上の負担につながる可能性があります。\", \"refs\": [\"B0.unresolved_support_request_count\", \"B0.toilet_queue_length\"]}], \"proposals\": [{\"text\": \"優先的に、需要の時間帯と設備容量をそろえた比較条件で、追加検証することを検討してください。\", \"refs\": [\"B0.toilet_queue_length\"]}, {\"text\": \"代替案として、担当者の配置条件を変えて、待機と支援の推移を比較することを検討してください。\", \"refs\": [\"B0.unresolved_support_request_count\"]}], \"limitations\": [{\"text\": \"現地の集計データとの照合と、異なる条件での反復検証が必要です。\", \"refs\": [\"L\"]}]}",
+     "reply": {
+      "api_request_count": 1,
+      "cache_hit": false,
+      "estimated_cost_usd": 0.00014,
+      "fallback_used": false,
+      "input_tokens": 10,
+      "model_id": "claude-opus-5-5",
+      "outcome": "recorded",
+      "output_tokens": 5,
+      "text": "{\"executive\": [{\"text\": \"待機と支援需要を合わせて確認することで、運営上の着眼点を整理できる可能性があります。\", \"refs\": [\"B0.toilet_queue_length\"]}], \"interpretation\": [{\"text\": \"待機の継続には処理能力だけでなく、需要の集中が関係している可能性があります。\", \"refs\": [\"B0.window.toilet_queue_length\"]}], \"hypotheses\": [{\"text\": \"待機と支援需要の重なりが運営上の負担につながる可能性があります。\", \"refs\": [\"B0.unresolved_support_request_count\", \"B0.toilet_queue_length\"]}], \"proposals\": [{\"text\": \"優先的に、需要の時間帯と設備容量をそろえた比較条件で、追加検証することを検討してください。\", \"refs\": [\"B0.toilet_queue_length\"]}, {\"text\": \"代替案として、担当者の配置条件を変えて、待機と支援の推移を比較することを検討してください。\", \"refs\": [\"B0.unresolved_support_request_count\"]}], \"limitations\": [{\"text\": \"現地の集計データとの照合と、異なる条件での反復検証が必要です。\", \"refs\": [\"L\"]}]}"
+     },
+     "task_sha256": "30bb7f9967584a9414ea31afd329d883d4cd8f8a58026bdde6e36e388b585bc2"
+    }
+   ],
+   "name": "report with the LLM {\"branch_ids\": [\"c1\"], \"minute\": 430, \"analysis\": true}",
+   "route": "pdf-report",
+   "sha256": "d85d0dbabfec1e24d9c0a089eb832572b3630912d1800d2b7ad6d929f1593c92",
    "status": 200,
    "text": null
   },

@@ -335,7 +335,7 @@
         ],
         "type": "object"
       },
-      "prompt_version": "pdf-analysis-ja-v1",
+      "prompt_version": "pdf-analysis-ja-v2",
       "schema_version": 1,
       "stage": "review",
       "task": "pdf_analysis"

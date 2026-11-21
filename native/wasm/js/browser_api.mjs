@@ -326,10 +326,18 @@ export class BrowserApi {
       }
       const scenario = await store.runScenarioBytes(this.tree, projectId, runId);
       if (!plan.analysisAsked()) return core(() => plan.report(scenario));
-      const analysis = core(() => plan.analysis(scenario));
+      let analysis = core(() => plan.analysis(scenario));
       try {
-        const reply = await askRelay(this.relay, llm, core(() => analysis.task()));
+        let reply = await askRelay(this.relay, llm, core(() => analysis.task()));
         if (reply === null) core(() => plan.checkLink(false));
+        // Once more, told why, where the checks refused Opus's answer (#608).
+        const again = core(() => analysis.retry(reply));
+        if (again !== undefined) {
+          analysis.free();
+          analysis = again;
+          reply = await askRelay(this.relay, llm, core(() => analysis.task()));
+          if (reply === null) core(() => plan.checkLink(false));
+        }
         return core(() => analysis.report(core(() => analysis.read(reply))));
       } finally {
         analysis.free();

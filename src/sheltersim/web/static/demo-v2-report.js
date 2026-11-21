@@ -4,7 +4,7 @@
   const app = window.HinanjoApp;
   const {
     state, reference, duration, shortBranch, $, json, llmModeLabel, time, num, el, uiIcon, runBase,
-    branchBase, api, note, drawHistory, drawAll, renderEvents, personSummary, pairIds,
+    branchBase, api, note, drawHistory, drawAll, renderEvents, personSummary, pairIds, renderReportSummary,
   } = app;
   const { printReport } = app.later;
   const chatWelcome = $("chat").firstElementChild.cloneNode(true);
@@ -77,12 +77,18 @@
   async function loadReport() {
     const scope = state.scope;
     syncReportBranches();
-    const [report, evidence, llm] = await Promise.all([
+    // The summary of the branch's whole computed range (#612), not of the minute shown.
+    const range = reference(state.branch);
+    const whole = new URLSearchParams({ kind: "summary", start: range.fork_minute, end: range.computed_until });
+    const [report, evidence, llm, summary] = await Promise.all([
       api(`${branchBase()}/report`),
       api(`${runBase()}/evidence`),
       api(`${branchBase()}/llm-status`),
+      api(`${branchBase()}/history?${whole}`),
     ]);
     if (scope !== state.scope) return;
+    state.summary = summary;
+    renderReportSummary(summary);
     state.report = report;
     state.evidence = evidence;
     $("report-status").textContent =

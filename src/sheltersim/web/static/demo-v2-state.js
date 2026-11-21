@@ -42,6 +42,8 @@
     comparison: null,
     history: [],
     report: null,
+    // The summary of the report branch's whole computed range (#612, `history?kind=summary`).
+    summary: null,
     evidence: null,
     zoom: 1,
     mapPan: { x: 0, y: 0 },

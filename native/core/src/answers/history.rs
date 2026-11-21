@@ -1,6 +1,9 @@
 //! `GET …/branches/{branch}/history?kind=kpis&start=&end=&step=&limit=&cursor=` (#266): a
 //! branch's KPI history from its stored metric samples (`history::KpiTable`), paged as the history
-//! index of the Python server paged it before #430.
+//! index of the Python server paged it before #430. `kind=summary&start=&end=` (#612) answers what
+//! the main KPIs (`SUMMARY_METRICS`) did over the range instead of its rows: each one's mean,
+//! least and greatest values (and the minute of the greatest), last value and the minutes it was
+//! above 0 (`summary_json`), for a report of the whole computed range rather than of one minute.
 //!
 //! Two steps, so that the samples are read only for a query the server takes: `HistoryPlan::new`
 //! checks the query, the branch's record, the range, the kind and the cursor, in the server's
@@ -13,12 +16,13 @@
 //! only `kind=kpis` is answered (any other kind: `browser_unsupported`), a number of the query
 //! takes ASCII digits only, and a cursor's minute written as 5.0 is taken as 5.
 
-use serde_json::Value;
+use serde_json::{json, Map, Value};
 
 use super::query::Query;
 use super::records::{is_id, Record, RunFiles};
 use super::{code_points, js_integer, js_space, sha256_hex, string, Answer, Failure, Obj, Refusal};
-use crate::history::{KpiQuery, KpiTable};
+use crate::history::{KpiQuery, KpiSummary, KpiTable};
+use crate::value::V;
 
 // The kinds a history query (`HistoryQuery`) takes.
 const KINDS: [&str; 13] =
@@ -33,6 +37,17 @@ const SELECTORS: [(&str, &[&str]); 5] = [
 const IDENTIFIERS: [&str; 9] = ["agent_id", "household_id", "event_id", "staff_id", "conversation_id", "zone_id", "event_type", "source_id", "status"];
 const FIELDS: [&str; 8] = ["kind", "start", "end", "step", "limit", "cursor", "text", "include_related"];
 const MAX_SAFE: i128 = 9_007_199_254_740_991;
+/// The kind of a history query that answers the range's summary (#612), and the KPIs it holds.
+const SUMMARY: &str = "summary";
+pub const SUMMARY_METRICS: [&str; 7] = [
+    "stress_mean",
+    "stress_high_count",
+    "toilet_queue_length",
+    "toilet_wait_max_minutes",
+    crate::rules::metrics::RECENT_TOILET_WAIT,
+    "staff_load_ratio",
+    "unresolved_support_request_count",
+];
 
 /// An int of Python, its value kept to i128 (a larger one is saturated: no check tells them apart)
 /// and its digits as `str(int)` writes them (the cursor's scope holds them).
@@ -127,7 +142,7 @@ impl HistoryQuery {
         let (Some(kind), Some(end), Some(start), Some(step), Some(limit)) = (kind, end, start, step, limit) else {
             return Err(Refusal::invalid_input());
         };
-        if !KINDS.contains(&kind.as_str()) {
+        if !KINDS.contains(&kind.as_str()) && kind != SUMMARY {
             return Err(Refusal::invalid_input());
         }
         let query = HistoryQuery { kind, start, end, step, limit, cursor: given("cursor"), text: given("text"), include_related, identifiers };
@@ -162,6 +177,11 @@ impl HistoryQuery {
             return Err(invalid());
         }
         if self.start.value > self.end.value {
+            return Err(invalid());
+        }
+        // A summary takes its range alone: no step, cursor, text or identity.
+        let paged = self.step.value != 1 || self.cursor.is_some() || self.text.is_some();
+        if self.kind == SUMMARY && (paged || self.identifiers.iter().any(|(_, value)| value.is_some())) {
             return Err(invalid());
         }
         let needs = [("people", "agent_id"), ("households", "household_id"), ("causal", "event_id")];
@@ -320,7 +340,7 @@ impl HistoryPlan {
         if !within {
             return Err(Refusal::storage("history_outside_computed_range").into());
         }
-        if query.kind != "kpis" {
+        if query.kind != "kpis" && query.kind != SUMMARY {
             let text = format!("browser_unsupported: history of kind {} is not answered by the browser version", query.kind);
             return Err(Refusal::storage(text).into());
         }
@@ -343,6 +363,9 @@ impl HistoryPlan {
     pub fn answer(&self, table: &KpiTable) -> Answer {
         let start = self.query.start.value as i64;
         let end = self.query.end.value as i64;
+        if self.query.kind == SUMMARY {
+            return self.summary_answer(table, start, end);
+        }
         let (mut items, mut next, mut coverage) = (b"[]".to_vec(), None, None);
         if self.anchor.is_some() {
             let step = self.query.step.value.min(MAX_SAFE) as i64;
@@ -406,6 +429,70 @@ impl HistoryPlan {
         answer.int("computed_until", computed_until).str("time_semantics", "end_of_tick");
         Ok(answer.finish())
     }
+}
+
+impl HistoryPlan {
+    /// `kind=summary`'s answer: the branch's ids and head, the range and `summary_json` of its
+    /// samples (none for a branch without a head).
+    fn summary_answer(&self, table: &KpiTable, start: i64, end: i64) -> Answer {
+        let summary = match &self.anchor {
+            Some(_) => table.summary(start, end, &SUMMARY_METRICS).map_err(Failure::from)?,
+            None => KpiSummary::default(),
+        };
+        let computed_until = self.record.get("computed_until").and_then(super::js_safe_integer).ok_or_else(not_an_integer)?;
+        let mut answer = summary_json(&summary);
+        let fields = [
+            ("schema_version", json!(1)),
+            ("kind", json!(SUMMARY)),
+            ("run_id", json!(self.run_id)),
+            ("branch_id", json!(self.branch_id)),
+            ("anchor_hash", json!(self.anchor)),
+            ("computed_until", json!(computed_until)),
+            ("requested_range", json!([start, end])),
+            ("time_semantics", json!("end_of_tick")),
+        ];
+        if let Value::Object(object) = &mut answer {
+            object.extend(fields.into_iter().map(|(key, value)| (key.to_owned(), value)));
+        }
+        Ok(super::asking::canonical(&answer).into_bytes())
+    }
+}
+
+/// A range's summary (`KpiTable::summary`) as JSON: `sample_count`, `oldest_minute`,
+/// `newest_minute`, `covered_minutes` (one-minute intervals with both ends sampled) and `metrics`,
+/// each metric's `samples`, `mean`, `min`, `max`, `max_minute` (the first minute of the greatest),
+/// `last`, `positive_minutes` (the covered minutes it was above 0) and `first_positive_minute`.
+/// Values are the samples' (a ratio as a ratio), as a history row writes them.
+pub fn summary_json(summary: &KpiSummary) -> Value {
+    let value = |value: &V| match value {
+        V::Int(number) => json!(number),
+        V::Float(number) => super::asking::float(*number),
+        _ => Value::Null,
+    };
+    let metrics: Map<String, Value> = summary
+        .metrics
+        .iter()
+        .map(|metric| {
+            let item = json!({
+                "samples": metric.samples,
+                "mean": metric.mean().map_or(Value::Null, super::asking::float),
+                "min": value(&metric.min),
+                "max": value(&metric.max),
+                "max_minute": metric.max_minute,
+                "last": value(&metric.last),
+                "positive_minutes": metric.positive_minutes,
+                "first_positive_minute": metric.first_positive_minute,
+            });
+            (metric.key.to_owned(), item)
+        })
+        .collect();
+    json!({
+        "sample_count": summary.samples,
+        "oldest_minute": summary.first,
+        "newest_minute": summary.last,
+        "covered_minutes": summary.covered_minutes,
+        "metrics": metrics,
+    })
 }
 
 fn not_an_integer() -> Failure {

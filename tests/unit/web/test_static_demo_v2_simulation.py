@@ -124,8 +124,10 @@ for (const clickable of [true, false]) {
     )
 
 
-def test_report_highlights_follow_the_displayed_frame():
-    """The three prominent facts use the frame's values and do not invent missing data."""
+def test_report_highlights_are_of_the_whole_computed_range():
+    """#612: the three prominent facts and the indicators' line are the summary of the branch's
+    whole computed range (`history?kind=summary`): means and greatest values with their minutes,
+    and the time support requests waited, not the minute shown; nothing is invented without one."""
     node = shutil.which("node")
     if node is None:
         pytest.skip("Node is required for the UI callback regression")
@@ -134,27 +136,56 @@ def test_report_highlights_follow_the_displayed_frame():
 import fs from 'node:fs';
 import assert from 'node:assert/strict';
 const source = fs.readFileSync(process.argv[1], 'utf8').replaceAll('\r\n','\n');
-const body = source.split('  function renderKpiStrip(container, kpis) {')[1]
+const body = source.split('  function renderReportSummary(summary) {')[1]
   .split('  // The open Run\'s name')[0];
 const node = (tag, text, cls) => ({
   tag, text, cls, children: [],
   append(...nodes) { this.children.push(...nodes); },
   replaceChildren(...nodes) { this.children = nodes; },
 });
-const highlight = node('div');
-const $ = () => highlight, el = node, uiIcon = () => node('icon');
-const state = {minute: 10}, time = () => '時刻', num = v => v == null ? '—' : String(v);
+const nodes = {};
+const $ = (id) => (nodes[id] ??= node('div'));
+const el = node, uiIcon = () => node('icon');
+const time = (m) => `${m}分`, num = v => v == null ? '—' : String(Math.round(v * 10) / 10);
 const metricDefs = [
- {key:'stress_mean', factor:100, unit:'/100', label:'平均', note:'平均'},
- {key:'unresolved_support_request_count', factor:1, unit:'件', label:'相談', note:'相談'},
- {key:'staff_load_ratio', factor:100, unit:'%', label:'負荷', note:'負荷'},
+ {key:'stress_mean', factor:100, unit:'/100', label:'平均', note:'平均の説明'},
+ {key:'unresolved_support_request_count', factor:1, unit:'件', label:'相談', note:'相談の説明'},
+ {key:'staff_load_ratio', factor:100, unit:'%', label:'負荷', note:'負荷の説明'},
+ {key:'population', factor:1, unit:'人', label:'人数', note:'人数の説明'},
 ];
-const render = eval('(function renderKpiStrip(container, kpis) {' + body + ')');
-const strip = node('div');
-render(strip, {stress_mean:.42, unresolved_support_request_count:3, staff_load_ratio:.5});
-const highlightValues = () => highlight.children.map(card => card.children[1].children[1].text);
-assert.deepEqual(highlightValues(), ['42 /100', '3 件', '50 %']);
-render(strip, undefined);
-assert.deepEqual(highlightValues(), ['— /100', '— 件', '— %']);
+const render = eval('(function renderReportSummary(summary) {' + body + ')');
+const metric = (mean, max, maxMinute, positive) =>
+  ({mean, max, max_minute: maxMinute, positive_minutes: positive});
+render({sample_count: 10081, oldest_minute: 0, newest_minute: 10080, metrics: {
+  stress_mean: metric(0.38, 0.519, 10070, 10080),
+  unresolved_support_request_count: metric(2.5, 6, 300, 10079),
+  staff_load_ratio: metric(0.231, 1, 45, 4000),
+}});
+const cards = () => $('report-highlights').children
+  .map(card => card.children[1].children.slice(1, 3).map(n => n.text));
+assert.deepEqual(cards(), [
+  ['平均 38 /100', '最大 51.9 /100（10070分）'],
+  ['最大 6 件', '対応待ちがあった時間：計 6日23時間59分'],
+  ['平均 23.1 %', '最大 100 %（45分）'],
+]);
+// The line holds the indicators the summary has (no population), each mean and greatest value.
+const line = $('report-kpis').children;
+assert.equal(line[0].text, '計算した範囲の平均と最大');
+assert.deepEqual(line.slice(1).map(item => item.children.map(n => n.text)), [
+  ['平均', '38', '/100', '最大 51.9'],
+  ['相談', '2.5', '件', '最大 6'],
+  ['負荷', '23.1', '%', '最大 100'],
+]);
+const context = () => $('report-frame-context').textContent;
+assert.equal(context(), '0分〜10080分の記録の全体（計算した範囲、1分ごと）');
+render({sample_count: 0, metrics: {}});
+assert.equal(context(), 'この分岐には指標の記録がありません。');
+render(null);
+assert.deepEqual(cards(), [
+  ['平均 — /100', '最大 — /100'],
+  ['最大 — 件', '対応待ちがあった時間：—'],
+  ['平均 — %', '最大 — %'],
+]);
+assert.equal(context(), 'シナリオを開くと記録を表示します。');
 """
     subprocess.run([node, "--input-type=module", "-e", script, str(source)], check=True)

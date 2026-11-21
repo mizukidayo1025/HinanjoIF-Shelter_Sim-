@@ -226,6 +226,86 @@
    "branch": "main",
    "pages": [
     {
+     "length": 1439,
+     "sha256": "622e3f60649ea338e50303f5723f4c6f502b3eb6ce681e0e87d4efc096f44041",
+     "status": 200
+    }
+   ],
+   "query": "kind=summary&end=150",
+   "route": "history"
+  },
+  {
+   "branch": "main",
+   "pages": [
+    {
+     "length": 1431,
+     "sha256": "9e45c218558e8e160ebc4e12bef4ac00426ee1433b413d9fb2b71690b08edcc3",
+     "status": 200
+    }
+   ],
+   "query": "kind=summary&start=13&end=140",
+   "route": "history"
+  },
+  {
+   "branch": "main",
+   "pages": [
+    {
+     "length": 1359,
+     "sha256": "86960eba2c735abe273962ad9f9d165c0981a6a2217e0b1e1b30685015250153",
+     "status": 200
+    }
+   ],
+   "query": "kind=summary&start=7&end=7",
+   "route": "history"
+  },
+  {
+   "branch": "main",
+   "pages": [
+    {
+     "body": "{\"code\":\"invalid_input\",\"error\":\"invalid query or saved contract\"}",
+     "status": 400
+    }
+   ],
+   "query": "kind=summary&end=10&step=2",
+   "route": "history"
+  },
+  {
+   "branch": "main",
+   "pages": [
+    {
+     "body": "{\"code\":\"invalid_input\",\"error\":\"invalid query or saved contract\"}",
+     "status": 400
+    }
+   ],
+   "query": "kind=summary&end=10&cursor=e30%3D",
+   "route": "history"
+  },
+  {
+   "branch": "main",
+   "pages": [
+    {
+     "body": "{\"code\":\"invalid_input\",\"error\":\"invalid query or saved contract\"}",
+     "status": 400
+    }
+   ],
+   "query": "kind=summary&end=10&text=toilet",
+   "route": "history"
+  },
+  {
+   "branch": "main",
+   "pages": [
+    {
+     "body": "{\"code\":\"history_outside_computed_range\",\"error\":\"history_outside_computed_range\"}",
+     "status": 409
+    }
+   ],
+   "query": "kind=summary&end=151",
+   "route": "history"
+  },
+  {
+   "branch": "main",
+   "pages": [
+    {
      "length": 4321,
      "sha256": "bceba50eae8329ff11fddabd8bb7e7ef9973dff2df67b8bc242f4e18e26bccb2",
      "status": 200

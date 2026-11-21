@@ -56,6 +56,7 @@
     state.mapPan = { x: 0, y: 0 };
     state.zoom = 1;
     state.report = null;
+    state.summary = null;
     invalidateIntervention();
     resetChat();
     await refreshRuns();
@@ -64,14 +65,13 @@
   // What the screen shows of a Run, emptied when none is open.
   function clearRunView() {
     renderKpis($("sim-kpis"));
-    renderKpiStrip($("report-kpis"));
+    renderReportSummary(null);
     $("seek-label").textContent = "開始前";
     $("branch-select").replaceChildren();
     $("compare-branch").replaceChildren();
     $("issues").replaceChildren();
     $("events").replaceChildren();
     $("events-more").hidden = true;
-    $("report-frame-context").textContent = "シナリオを開くと記録を表示します。";
     $("people-list").replaceChildren();
     $("person-detail").replaceChildren();
     showOpenName("");
@@ -102,38 +102,52 @@
       container.append(card);
     }
   }
-  // The report's line of the same indicators (#375): the cards' definitions and values, small,
-  // with the minute they are of; the report's chart and summary carry the rest.
-  function renderKpiStrip(container, kpis) {
-    const highlights = $("report-highlights");
-    highlights.replaceChildren(...["stress_mean", "unresolved_support_request_count", "staff_load_ratio"].map((key) => {
+  // The report's summary of the branch's whole computed range (#612, the core's
+  // `history?kind=summary`): the three cards and every indicator's mean and greatest value over the
+  // range, not one minute's; `summary` null while none is read.
+  function renderReportSummary(summary) {
+    const metrics = summary?.metrics || {};
+    const scaled = (key, field) => {
       const d = metricDefs.find((metric) => metric.key === key);
+      const value = metrics[key]?.[field];
+      return typeof value === "number" ? value * d.factor : null;
+    };
+    const at = (key) => (typeof metrics[key]?.max_minute === "number" ? `（${time(metrics[key].max_minute)}）` : "");
+    const lasting = (minutes) => {
+      if (typeof minutes !== "number") return "—";
+      if (minutes === 0) return "なし";
+      const parts = [[Math.floor(minutes / 1440), "日"], [Math.floor((minutes % 1440) / 60), "時間"], [minutes % 60, "分"]];
+      return `計 ${parts.filter(([count]) => count > 0).map(([count, unit]) => `${count}${unit}`).join("")}`;
+    };
+    const support = "unresolved_support_request_count";
+    const cards = [
+      ["stress_mean", "避難者の負担", "people", `平均 ${num(scaled("stress_mean", "mean"))} /100`, `最大 ${num(scaled("stress_mean", "max"))} /100${at("stress_mean")}`],
+      [support, "対応待ちの相談", "alert", `最大 ${num(scaled(support, "max"))} 件`, `対応待ちがあった時間：${lasting(metrics[support]?.positive_minutes)}`],
+      ["staff_load_ratio", "スタッフの忙しさ", "staff", `平均 ${num(scaled("staff_load_ratio", "mean"))} %`, `最大 ${num(scaled("staff_load_ratio", "max"))} %${at("staff_load_ratio")}`],
+    ];
+    $("report-highlights").replaceChildren(...cards.map(([key, label, icon, main, detail]) => {
       const card = el("div", undefined, `highlight-card highlight-${key}`);
-      const icon = el("span", undefined, "highlight-icon");
-      icon.append(uiIcon({ stress_mean: "people", unresolved_support_request_count: "alert", staff_load_ratio: "staff" }[key]));
+      const mark = el("span", undefined, "highlight-icon");
+      mark.append(uiIcon(icon));
       const body = el("div");
-      body.append(el("strong", { stress_mean: "避難者の負担", unresolved_support_request_count: "対応待ちの相談", staff_load_ratio: "スタッフの忙しさ" }[key]),
-        el("span", `${num(typeof kpis?.[key] === "number" ? kpis[key] * d.factor : null)} ${d.unit}`),
-        el("small", d.note));
-      card.append(icon, body);
+      body.append(el("strong", label), el("span", main), el("small", detail), el("small", metricDefs.find((metric) => metric.key === key).note));
+      card.append(mark, body);
       return card;
     }));
-    container.replaceChildren(
-      el("span", kpis ? `${time(state.minute)}の指標` : "指標", "kpi-strip-when"),
-      ...metricDefs.map((d) => {
+    $("report-kpis").replaceChildren(
+      el("span", summary ? "計算した範囲の平均と最大" : "指標", "kpi-strip-when"),
+      ...metricDefs.filter((d) => !summary || metrics[d.key]).map((d) => {
         const item = el("span", undefined, "kpi-strip-item");
         item.title = d.note;
-        item.append(
-          el("small", d.label),
-          el(
-            "strong",
-            num(typeof kpis?.[d.key] === "number" ? kpis[d.key] * d.factor : null),
-          ),
-          el("em", d.unit),
-        );
+        item.append(el("small", d.label), el("strong", num(scaled(d.key, "mean"))), el("em", d.unit), el("small", `最大 ${num(scaled(d.key, "max"))}`));
         return item;
       }),
     );
+    $("report-frame-context").textContent = !summary
+      ? "シナリオを開くと記録を表示します。"
+      : summary.sample_count > 0
+        ? `${time(summary.oldest_minute)}〜${time(summary.newest_minute)}の記録の全体（計算した範囲、1分ごと）`
+        : "この分岐には指標の記録がありません。";
   }
   // The open Run's name in the header, the one place it is shown (#442): as the home names it,
   // one's own told apart from Runs of the same conditions. Nothing is shown while no Run is open.
@@ -262,8 +276,6 @@
         );
     }
     renderKpis($("sim-kpis"), frame.kpis);
-    renderKpiStrip($("report-kpis"), frame.kpis);
-    $("report-frame-context").textContent = `${time(state.minute)} 時点の記録`;
     const geometryOrigin = {
       synthetic: "合成施設",
       measured: "実測形状",
@@ -544,7 +556,7 @@
     }
   }
   Object.assign(app, {
-    stopPlayback, openRun, openRunInPlace, clearRunView, renderKpis, renderKpiStrip, refreshRuns,
+    stopPlayback, openRun, openRunInPlace, clearRunView, renderKpis, renderReportSummary, refreshRuns,
     refreshRun, seek, renderFrame, renderEvents, motionFraction, togglePlayback, computeToEnd,
     cancelCompute,
   });

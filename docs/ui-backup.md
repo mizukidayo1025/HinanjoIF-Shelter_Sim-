@@ -74,6 +74,7 @@ SHELTERSIM_LLM_MODE=record SHELTERSIM_LLM_ERROR_POLICY=stop \
 | 両分岐を先へ計算 | POST R/resumeを順番に実行 | 実装済み / 共通の目標まで計算後compareを取得 |
 | KPI差分 | compare.differences | 実装済み / ストレス、トイレ待ち時間の直近24時間平均、稼働比率、未解決支援要請の符号付き差分 |
 | 折れ線グラフ | GET B/history?kind=kpis | 実装済み / tick終了時記録を標本化・ページ取得。マップのtick直前境界と区別 |
+| この結果の要点 | GET B/history?kind=summary | レポートの分岐の計算した範囲の全体（#612）。避難者の負担とスタッフの忙しさは平均と最大（その時刻）、対応待ちの相談は最大と対応待ちがあった時間の合計。「すべての指標を見る」は各指標の平均と最大。表示中の時刻には左右されない |
 | Branch report・出典・モデル | GET B/report、GET R/evidence、GET B/llm-status | 実装済み / 途中・未生成・fallback・利用不可を区別 |
 | 結果Q&A | POST B/questions | 実装済み / factsとexplanations・出典・制限を区別。API が ON のときだけ使える（#585）：質問の欄と候補のボタンは`<fieldset data-needs-api>`の中で、OFF のときは操作できず「API を ON にすると使えます」を出す。ON なのに中継・APIが答えないときは理由を出して失敗にする（決まった答えに切り替えない） |
 | レポート保存（印刷用ページ・PDF） | POST R/pdf-report | 実装済み / 条件・指標・推移・差分などの記録から、AIなしで印刷用ページを開き、印刷画面でPDFに保存できる。Opusの考察は「Opusの考察を付ける」を選んだときだけ付け、APIがOFFの間は選べない。考察なしのページは「AIの考察：なし」と示す（#470、#582） |

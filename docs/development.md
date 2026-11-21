@@ -138,7 +138,7 @@ python benchmarks/wasm_trial_measure.py --bundle samples/sample.shelterproj --pk
 | `GET`（一覧）、`POST`（作る）、`GET {project}`、`GET runs`、`GET runs/{run}`、`GET runs/{run}/evidence` | OPFSの記録（#265）。`project_store.mjs`が記録のファイルを読み、中核の`sheltersim_core::answers`が答えを書きます（#449） |
 | `GET …/branches/{branch}/timeline?minute=` | その分のframe（中核、#264）。`state_hash`は世界のdigest。確かめは中核の答え（#449） |
 | `GET runs/{run}/replay-frames`（1つの分岐） | 1〜8分のframe（`state_hash`は`null`、#500）。確かめと答えの形は中核（#449） |
-| `GET …/history?kind=kpis`、`report`、`llm-status` | 中核の答え（#449）。読むのは`native/wasm/js/api_answers.mjs`（上の段落）。`history`の`kpis`以外の`kind`は「未対応」 |
+| `GET …/history?kind=kpis`、`report`、`llm-status` | 中核の答え（#449）。読むのは`native/wasm/js/api_answers.mjs`（上の段落）。`history`は`kpis`と範囲の要約の`summary`（#612）のほかの`kind`は「未対応」 |
 | `POST runs/{run}/resume`、`POST runs/{run}/cancel` | Workerで計算する・止める（`native/wasm/js/compute.mjs`、#267、下） |
 | `POST …/branches/{branch}/intervention-preview`、`intervention-apply` | APIキーのないVMと同じ介入のプレビューと、子の分岐を作る適用（#306）。確かめ、答え、下書き、`last_fork`は中核（#449）。`native/wasm/js/interventions.mjs`はファイルとRunを読みます。子を作る手順は中核の`Procedure.fork`です（#476）。`GET runs/{run}`は`last_fork`も返します |
 | `GET runs/{run}/compare`、2つの分岐の`GET runs/{run}/replay-frames` | 比較（#307）。確かめ、分岐の受領の読み取り、差と答えの形は中核（`sheltersim_core::answers::frames`、#449）。`native/wasm/js/comparison.mjs`は分岐のjournalを読み、frameを作ります |

@@ -153,9 +153,9 @@ FORM_REQUEST = {
 FORK_MINUTE = 3 * 1440 + 14 * 60
 # The interventions built at FORK_MINUTE on the comparison page (#584), as (label, operator,
 # target, amounts, minutes it lasts or None for the scenario's end): add_staff and add_toilet are
-# previewed; facility_outage of toilet_01 (scripts/build_project_sample.py's intervention) is
-# previewed and applied. Each build draws one of the screen's ids (its program's), before the
-# child's id (e2e_subject, sample_subject).
+# previewed; facility_outage of toilet_01 (the intervention of the single example before there
+# were three) is previewed and applied. Each build draws one of the screen's ids (its
+# program's), before the child's id (e2e_subject, sample_subject).
 BUILDS = (
     ("add_staff", "add_staff", "zone:staff", {"count": 2}, None),
     ("add_toilet", "add_toilet", "zone:toilet", {"count": 1}, None),

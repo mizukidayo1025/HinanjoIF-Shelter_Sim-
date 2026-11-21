@@ -70,7 +70,7 @@ approved hashは確認した正準ScenarioSpecそのものに結び付きます�
 | `projectsResponse`、`projectResponse`、`runsResponse`、`runResponse`、`evidenceResponse` | 道の答え（JSONの文字列） |
 | `exportProject`、`importProject`、`readBundle`、`packBundle` | 1つのファイル |
 
-計算済みの例は`scripts/build_project_sample.py --bundle`で作ります（[development.md](development.md#ブラウザー向けのwasm試作)）。
+計算済みの例（3つ）は`scripts/build_project_sample.py --bundles`で、例ごとに1つのファイルに作ります（[development.md](development.md#ブラウザー向けのwasm試作)）。
 
 ### ブラウザーで計算するBranchの先頭（#267）
 

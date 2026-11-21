@@ -54,12 +54,13 @@ sys.path.insert(0, str(ROOT / "scripts"))
 import serve_static_site  # noqa: E402 - the local server of the site, a script
 from browser_profiles import FreshBrowser  # noqa: E402 - next to this script
 
-PROJECT, RUN, BRANCH = "sample", "run-sample-toilet-outage", "main"
+PROJECT, RUN, BRANCH = "sample", "run-minato-arrivals", "main"
 # The Run of the sample's Scenario the check makes and computes (3): the site offered one until
 # #411; now the check makes it as a person's own Run is made, through `POST runs`.
 COMPUTE_RUN = "run-check-compute"
-# What the home's list of examples says of the sample (build_project_sample.py: 墨田区).
-EXAMPLE_PLACE = "墨田区"
+# What the home's list of examples says of the sample, the first example (build_project_sample.py's
+# EXAMPLES: 東京都港区).
+EXAMPLE_PLACE = "東京都港区"
 COMPUTE_PATH = f"/api/v1/projects/{PROJECT}/runs/{COMPUTE_RUN}"
 RUN_PATH = f"/api/v1/projects/{PROJECT}/runs/{RUN}"
 BRANCH_PATH = f"{RUN_PATH}/branches/{BRANCH}"
@@ -351,7 +352,8 @@ def browse(
     started = time.perf_counter()
     page.click("[data-page=report]")
     page.wait_for_function(
-        "() => /記録 [0-9]+点/.test(document.getElementById('history-note').textContent)",
+        "() => /の記録（約[0-9]+分間隔）/"
+        ".test(document.getElementById('history-note').textContent)",
         timeout=TIMEOUT_MS,
     )
     steps["report_s"] = round(time.perf_counter() - started, 2)

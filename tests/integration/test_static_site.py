@@ -47,13 +47,13 @@ def server_module() -> dict[str, Any]:
     return runpy.run_path(str(ROOT / "scripts" / "serve_static_site.py"))
 
 
-def _bundle(path: Path, size: int) -> bytes:
-    """A file with a project bundle's header and manifest (Project `sample`, one Run), padded."""
+def _bundle(path: Path, size: int, project_id: str = "sample") -> bytes:
+    """A file with a project bundle's header and manifest (the Project, one Run), padded."""
     manifest = json.dumps(
         {
             "format": "sheltersim-project-bundle",
             "version": 2,
-            "project_id": "sample",
+            "project_id": project_id,
             "source": None,
             "entries": [
                 {"path": "project.json", "length": 0, "sha256": "0" * 64},
@@ -83,9 +83,14 @@ def site(builder: dict[str, Any], tmp_path: Path) -> tuple[Path, bytes, dict[str
     (pkg / "sheltersim_wasm.js").write_text("export default async function init() {}\n")
     (pkg / "sheltersim_wasm_bg.wasm").write_bytes(b"\0asm\1\0\0\0")
     bundle = _bundle(tmp_path / "sample.shelterproj", 2 * 2**20 + 12345)
+    _bundle(tmp_path / "sample-2.shelterproj", 3000, "sample-2")
     output = tmp_path / "site"
     summary = builder["build"](
-        output, pkg=pkg, bundle=tmp_path / "sample.shelterproj", part_mib=1, notices=NOTICES
+        output,
+        pkg=pkg,
+        bundles=[tmp_path / "sample.shelterproj", tmp_path / "sample-2.shelterproj"],
+        part_mib=1,
+        notices=NOTICES,
     )
     return output, bundle, summary
 
@@ -115,7 +120,7 @@ def test_the_site_holds_the_screen_the_browser_api_and_the_sample_in_parts(
     added = [line for line in browser_html.splitlines() if line not in server_html.splitlines()]
     assert added == [
         '    <script src="/browser/api_fetch.js" data-worker="/browser/api_worker.mjs"'
-        ' data-examples="/sample/examples.json" data-example-project="sample"'
+        ' data-examples="/sample/examples.json"'
         # Built without the shelter index, the site cannot make Scenarios and says so (#372).
         ' data-scenarios="unavailable"></script>',
     ]
@@ -149,9 +154,29 @@ def test_the_site_holds_the_screen_the_browser_api_and_the_sample_in_parts(
     assert [hashlib.sha256(part).hexdigest() for part in parts] == [
         part["sha256"] for part in manifest["parts"]
     ]
-    # The list of examples the home offers to fetch (#411): the sample's manifest and what the
-    # bundle says of itself (this one holds no Scenario).
+    # Each example in its own files, named by its Project.
+    second = json.loads((output / "sample" / "sample-2.json").read_text(encoding="utf-8"))
+    assert second["project_id"] == "sample-2"
+    assert [part["path"] for part in second["parts"]] == ["sample-2.shelterproj.000"]
+    assert (output / "sample" / "sample-2.shelterproj.000").read_bytes() == (
+        output.parent / "sample-2.shelterproj"
+    ).read_bytes()
+    # The list of examples the home offers to fetch (#411), in the bundles' order: each one's
+    # manifest and what its bundle says of itself (these hold no Scenario).
     examples = json.loads((output / "sample" / "examples.json").read_text(encoding="utf-8"))
+    assert examples["examples"][1] == {
+        "manifest": "sample-2.json",
+        "project_id": "sample-2",
+        "bytes": second["bytes"],
+        "sha256": second["sha256"],
+        "runs": 1,
+        "branches": 1,
+        "municipality": None,
+        "disaster": None,
+        "people": None,
+        "duration_minutes": None,
+    }
+    del examples["examples"][1]
     assert examples == {
         "format": "sheltersim-site-examples",
         "version": 1,
@@ -171,6 +196,7 @@ def test_the_site_holds_the_screen_the_browser_api_and_the_sample_in_parts(
         ],
     }
     assert summary["open"] == "/?project=sample&run=run-x&branch=main#simulation"
+    assert [item["project_id"] for item in summary["samples"]] == ["sample", "sample-2"]
     assert "compute" not in summary
     # `/` is the screen itself, which opens on its home: the examples (fetched when chosen,
     # api_fetch.js), one's own Scenarios, and the licenses the site holds.
@@ -307,7 +333,7 @@ def test_the_site_is_built_only_outside_the_repository_into_an_empty_directory(
     output, _, _ = site
     arguments: dict[str, Any] = {
         "pkg": output / "browser" / "pkg",
-        "bundle": tmp_path / "sample.shelterproj",
+        "bundles": [tmp_path / "sample.shelterproj"],
         "notices": NOTICES,
     }
     with pytest.raises(ValueError, match="outside the repository"):
@@ -321,6 +347,19 @@ def test_the_site_is_built_only_outside_the_repository_into_an_empty_directory(
     with pytest.raises(ValueError, match="notices"):
         builder["build"](
             tmp_path / "fourth", **(arguments | {"notices": {"THIRD-PARTY-NOTICES.txt": b""}})
+        )
+    # The examples' Projects are `sample` and `sample-…` (the screen takes those for examples),
+    # each once.
+    with pytest.raises(ValueError, match="at least one example"):
+        builder["build"](tmp_path / "fifth", **(arguments | {"bundles": []}))
+    _bundle(tmp_path / "mine.shelterproj", 3000, "backup-1")
+    with pytest.raises(ValueError, match="is not `sample` or `sample-…`"):
+        builder["build"](
+            tmp_path / "sixth", **(arguments | {"bundles": [tmp_path / "mine.shelterproj"]})
+        )
+    with pytest.raises(ValueError, match="not distinct"):
+        builder["build"](
+            tmp_path / "seventh", **(arguments | {"bundles": [tmp_path / "sample.shelterproj"] * 2})
         )
     assert not (ROOT / "site-out").exists()
 
@@ -351,12 +390,12 @@ def test_the_site_holds_the_shelter_index_and_rows_the_browser_s_research_reads(
     assert {rows["sha256"] for rows in files["rows"].values()} == {made["sha256"]}
     arguments = {
         "pkg": output / "browser" / "pkg",
-        "bundle": tmp_path / "sample.shelterproj",
+        "bundles": [tmp_path / "sample.shelterproj"],
         "notices": NOTICES,
     }
     with_index = builder["build"](tmp_path / "with-index", shelters=files, **arguments)
     page = (tmp_path / "with-index" / "index.html").read_text(encoding="utf-8")
-    assert 'data-example-project="sample"></script>' in page
+    assert 'data-examples="/sample/examples.json"></script>' in page
     assert "data-scenarios" not in page
     browser = tmp_path / "with-index" / "browser"
     assert json.loads((browser / "gsi-shelter-index.json").read_text(encoding="utf-8")) == made

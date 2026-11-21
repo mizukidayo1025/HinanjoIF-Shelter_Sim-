@@ -90,44 +90,50 @@ def _setup_paths() -> dict[str, str]:
     return values
 
 
-def test_the_landing_page_links_each_slot_to_the_sample_the_builder_names(
+def _summary(example: Any, opened: str, **fields: Any) -> dict[str, Any]:
+    """An example's summary in the builder's shape."""
+    return {
+        "project_id": example.project_id,
+        "run_id": example.run_id,
+        "open_branch_id": opened,
+        "agent_count": 100,
+        "duration_minutes": 10080,
+        "fork_minute": example.fork_minute,
+        "intervention": {"text": example.label},
+        "branches": [
+            {"branch_id": "main", "parent_branch_id": None},
+            {"branch_id": example.child_id, "parent_branch_id": "main"},
+        ],
+        **fields,
+    }
+
+
+def test_the_landing_page_links_each_slot_to_the_first_example_the_builder_names(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """The summary's shape here is the builder's (integration/test_project_sample.py
     renders the page from a real build's summary)."""
     builder = _builder()
-    project, run, child = builder["PROJECT_ID"], builder["RUN_ID"], builder["CHILD_ID"]
-    opened = builder["OPEN_BRANCH_ID"]
+    examples, opened = builder["EXAMPLES"], builder["OPEN_BRANCH_ID"]
     summary = tmp_path / "sample-build.json"
     summary.write_text(
-        json.dumps(
-            {
-                "project_id": project,
-                "run_id": run,
-                "open_branch_id": opened,
-                "agent_count": 100,
-                "duration_minutes": 10080,
-                "fork_minute": builder["FORK_MINUTE"],
-                "intervention": {"text": builder["intervention_text"](builder["FORK_MINUTE"])},
-                "branches": [
-                    {"branch_id": "main", "parent_branch_id": None},
-                    {"branch_id": child, "parent_branch_id": "main"},
-                ],
-            }
-        ),
+        json.dumps({"examples": [_summary(example, opened) for example in examples]}),
         encoding="utf-8",
     )
     page = _landing(["a<b>.example", "2", str(summary)], monkeypatch, capsys)
-    path = builder["open_path"](project, run, opened)
+    first = examples[0]
+    path = builder["open_path"](first.project_id, first.run_id, opened)
     for n in (1, 2):
         href = html.escape(f"https://s{n}.a<b>.example{path}")
         assert f'<a href="{href}">計算済みの例をすぐ見る</a>' in page
-    assert "4日目14:00" in page
+    assert "1日目18:00" in page
+    assert html.escape(first.label) in page
+    assert f"ホームには、ほかに{len(examples) - 1}つの例があります。" in page
     assert "計算済みの例" not in _landing(["example", "2"], monkeypatch, capsys)
 
 
 def test_setup_builds_the_sample_where_reset_slot_and_the_slots_read_it() -> None:
-    builder = _builder()
+    examples = _builder()["EXAMPLES"]
     setup = (KIT / "setup.sh").read_text(encoding="utf-8")
     reset = (KIT / "reset-slot.sh").read_text(encoding="utf-8")
     paths = _setup_paths()
@@ -139,10 +145,15 @@ def test_setup_builds_the_sample_where_reset_slot_and_the_slots_read_it() -> Non
     # It is rebuilt only when --check does not answer current (or with SAMPLE=rebuild).
     assert 'SAMPLE_STATE="$(sample_builder "$SAMPLE_DIR" --check || true)"' in setup
     assert "if [[ $SAMPLE_STATE != current ]]; then" in setup
-    # The build directory becomes SAMPLE_DIR; its Project is what both scripts copy.
-    template = f"{paths['SAMPLE_DIR']}/projects/{builder['PROJECT_ID']}"
-    assert f"sample={template}\n" in reset
-    assert f'cp -a "$SAMPLE_DIR/projects/{builder["PROJECT_ID"]}"' in setup
+    # The build directory becomes SAMPLE_DIR; its example Projects (sample, sample-…, which
+    # are the builder's) are what both scripts copy.
+    assert all(e.project_id == "sample" or e.project_id.startswith("sample-") for e in examples)
+    assert f"samples={paths['SAMPLE_DIR']}/projects\n" in reset
+    assert 'for sample in "$samples"/sample "$samples"/sample-*; do' in reset
+    assert (
+        'for template in "$SAMPLE_DIR"/projects/sample "$SAMPLE_DIR"/projects/sample-*; do' in setup
+    )
+    assert 'cp -a "$template" "$DATA/slot$n/sample.copy"' in setup
     assert 'SAMPLE_SUMMARY=("$SAMPLE_DIR/sample-build.json")' in setup
     # Both copy into the store that each slot's service opens.
     unit = (KIT / "sheltersim@.service").read_text(encoding="utf-8")
@@ -156,7 +167,7 @@ def test_setup_builds_the_sample_where_reset_slot_and_the_slots_read_it() -> Non
     assert "projects=$DATA/slot$n/runs/.projects\n" in setup
     assert "slot=/var/lib/sheltersim/slot$n\n" in reset
     assert 'mkdir -p "$slot/runs/.projects"' in reset
-    assert 'cp -a "$sample" "$slot/runs/.projects/sample"' in reset
+    assert 'cp -a "$sample" "$slot/runs/.projects/${sample##*/}"' in reset
     # The fixed replay of the older screens is gone (#376); the slots no longer copy it.
     assert "demo_replay" not in setup + reset + unit
     assert "--demo-scenario" not in unit
@@ -165,22 +176,26 @@ def test_setup_builds_the_sample_where_reset_slot_and_the_slots_read_it() -> Non
 def test_the_landing_page_gives_the_computing_time_this_vm_measured(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """The sample build on the VM computed 7 days and the branch from its fork minute; its
-    build_seconds give the time per day, rounded up. Without a build, a fixed estimate."""
+    """The examples' build on the VM computed each one's days and its branch from its fork
+    minute; their build_seconds over those minutes give the time per day, rounded up. Without a
+    build, a fixed estimate."""
     builder = _builder()
+    first, second = builder["EXAMPLES"][:2]
+    opened = builder["OPEN_BRANCH_ID"]
     summary = tmp_path / "sample-build.json"
     summary.write_text(
         json.dumps(
             {
-                "project_id": builder["PROJECT_ID"],
-                "run_id": builder["RUN_ID"],
-                "open_branch_id": builder["OPEN_BRANCH_ID"],
-                "agent_count": 100,
-                "duration_minutes": 10080,
-                "fork_minute": 5160,
-                "intervention": {"text": "Day 4 14:00 toilet_01 outage"},
-                # 15000 computed minutes: 432 s is 41.5 s a day and 290 s for 7 days.
-                "build_seconds": 432.0,
+                "examples": [
+                    # 2 * 7200 - 4320 and 2 * 2880 - 840 computed minutes, 15000 in all: 432 s
+                    # is 41.5 s a day and 290 s for 7 days.
+                    _summary(
+                        first, opened, duration_minutes=7200, fork_minute=4320, build_seconds=300.0
+                    ),
+                    _summary(
+                        second, opened, duration_minutes=2880, fork_minute=840, build_seconds=132.0
+                    ),
+                ]
             }
         ),
         encoding="utf-8",

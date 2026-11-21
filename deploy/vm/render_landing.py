@@ -1,9 +1,10 @@
 """Print the judges' landing page: python3 render_landing.py <domain> <slots> [sample-build.json].
 
-With the summary that scripts/build_project_sample.py wrote, each slot also links to the
-precomputed sample in the new screen, and the page gives the computing time per day measured
-on this VM by that build: its build_seconds over the minutes it computed (the main branch and
-the branch from its fork minute). Without it, the page gives a time measured elsewhere.
+With the summary that scripts/build_project_sample.py wrote, each slot also links to the first
+precomputed example in the new screen (the home lists the others), and the page gives the
+computing time per day measured on this VM by that build: the examples' build_seconds over the
+minutes they computed (each main branch and the branch from its fork minute). Without it, the
+page gives a time measured elsewhere.
 """
 
 import html
@@ -38,7 +39,8 @@ domain, slots = sys.argv[1], int(sys.argv[2])
 sample_path, sample_note = None, ""
 seconds_per_day, measured = FALLBACK_SECONDS_PER_DAY, False
 if len(sys.argv) > 3:
-    sample = json.loads(Path(sys.argv[3]).read_text(encoding="utf-8"))
+    examples = json.loads(Path(sys.argv[3]).read_text(encoding="utf-8"))["examples"]
+    sample = examples[0]
     query = urlencode(
         {
             "project": sample["project_id"],
@@ -54,10 +56,12 @@ if len(sys.argv) > 3:
         f"{fork % 1440 // 60:02d}:{fork % 60:02d}に「{sample['intervention']['text']}」"
         "を承認した分岐を、あらかじめ計算した結果です。計算を待たずに再生でき、"
         "分岐比較の画面で「比較を更新」を押すと2つを比べられます。"
+        + (f"ホームには、ほかに{len(examples) - 1}つの例があります。" if len(examples) > 1 else "")
     )
-    computed = 2 * sample["duration_minutes"] - fork
-    if sample.get("build_seconds") and computed > 0:
-        seconds_per_day, measured = sample["build_seconds"] * 1440 / computed, True
+    computed = sum(2 * item["duration_minutes"] - item["fork_minute"] for item in examples)
+    seconds = sum(item.get("build_seconds") or 0 for item in examples)
+    if seconds and computed > 0:
+        seconds_per_day, measured = seconds * 1440 / computed, True
 
 
 def slot_item(n: int) -> str:

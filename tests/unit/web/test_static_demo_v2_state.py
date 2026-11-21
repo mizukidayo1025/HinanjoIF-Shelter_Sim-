@@ -66,7 +66,7 @@ const body = source.split("  const askedProject = ")[1].split("  const state = {
 const run = (search, saved) => {
   let made = 0;
   const crypto = {randomUUID: () => `u${++made}`};
-  const query = new URLSearchParams(search), exampleProject = "sample";
+  const query = new URLSearchParams(search), isExample = (id) => /^sample(-|$)/.test(id);
   const own = eval(`(() => { const askedProject = ${body}; return [() => ownId, ownProject]; })()`);
   return {made: () => made, ownId: own[0], ownProject: own[1]};
 };
@@ -79,6 +79,10 @@ assert.equal(example.made(), 1);
 assert.equal(run("?project=e2e", {}).ownId(), "e2e");
 assert.equal(run("", {own: "backup-x"}).ownId(), "backup-x");
 assert.equal(run("?project=sample", {project: "mine"}).ownId(), "mine");
+// Every example's Project (`sample-…`) is an example's, not one's own.
+assert.equal(run("?project=sample-2&run=r2", {}).ownId(), null);
+assert.equal(run("", {project: "sample-3"}).ownId(), null);
+assert.equal(run("?project=samples", {}).ownId(), "samples");
 """
     subprocess.run(
         [node, "--input-type=module", "-e", script, str(source)],

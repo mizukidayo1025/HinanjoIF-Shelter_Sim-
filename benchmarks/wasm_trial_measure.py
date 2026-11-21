@@ -21,8 +21,8 @@ computes to the next and checks that it is the one stored.
 With --project (#265) it opens `project.html` once per world: the page computes the world into a
 Project of OPFS (native/wasm/js/project_store.mjs), exports it to one bundle, empties OPFS, imports
 the bundle and checks that the digests and the routes' answers are the same. With --bundle FILE it
-imports that bundle (scripts/build_project_sample.py --bundle) into an empty OPFS and checks each
-branch's digests; --worlds is not needed then.
+imports that bundle (one of scripts/build_project_sample.py --bundles) into an empty OPFS and
+checks each branch's digests; --worlds is not needed then.
 
 Playwright and its browsers are not dependencies of the project: install them where you measure
 (`python -m playwright install chromium firefox`).

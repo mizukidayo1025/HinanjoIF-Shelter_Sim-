@@ -4,7 +4,7 @@
   "use strict";
   const app = window.HinanjoApp;
   const {
-    site, exampleProject, state, remember, $, enc, disasterName, time, num, el, api, action, show,
+    site, isExample, state, remember, $, enc, disasterName, time, num, el, api, action, show,
   } = app;
   const { openRun, clearRunView, refreshRuns, invalidateIntervention, resetChat } = app.later;
   // A Run's name on the home and in the header: where, what disaster, how many people, how long.
@@ -97,13 +97,12 @@
     const scope = ++state.homeVersion,
       browser = window.HinanjoBrowserApi,
       offered = browser ? await browser.examples() : [],
+      listed = (await api("/api/v1/projects")).projects.map((p) => p.project_id),
+      // The browser's in its list's order; the server's by their ids (`sample` first).
       exampleIds = browser
         ? offered.filter((e) => e.installed).map((e) => e.project_id)
-        : [exampleProject],
-      listed = new Set(
-        (await api("/api/v1/projects")).projects.map((p) => p.project_id),
-      ),
-      read = async (id) => (listed.has(id) ? api(`/api/v1/projects/${enc(id)}`) : null),
+        : listed.filter(isExample).sort(),
+      read = async (id) => (listed.includes(id) ? api(`/api/v1/projects/${enc(id)}`) : null),
       [examples, own] = await Promise.all([
         Promise.all(exampleIds.map(async (id) => [id, await read(id)])),
         !app.ownId || exampleIds.includes(app.ownId) ? null : read(app.ownId),

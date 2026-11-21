@@ -116,17 +116,17 @@ APIキーなしの介入の読み取り（画面の「この時刻から分岐�
 node native/wasm/tests/node_interpret.mjs wasm-pkg
 ~~~
 
-計算済みの例をブラウザーの形で作るには、VMの例と同じ`scripts/build_project_sample.py`に`--bundle`を付けます（#427で1つの道具にまとめました）。VMの例と同じく、画面の道（ProjectAPI）で、例文（100人、7日、seed 2026）のScenarioを作って最後まで計算し、mainの5160分に「Day 4 14:00 toilet_01 outage」をプレビューし、適用し、子のBranch（`branch-toilet01-outage`）を最後まで計算します（#310）。ローカル版・VM版はブラウザーと同じ形（今はv6）で保存するので、そのProjectを、ブラウザーが読み込む1つのファイル（`.shelterproj`、Rustの`ProjectFiles.export_project`）に書きます。子は親の保存したRunを、分岐の世界を戻した親の途中の点まで参照し、写しません（#368）。ファイルは生成物なので、リポジトリーの外に置きます。
+計算済みの例をブラウザーの形で作るには、VMの例と同じ`scripts/build_project_sample.py`に`--bundles`を付けます（#427で1つの道具にまとめました）。VMの例と同じく、画面の道（ProjectAPI）で、3つの例（[demo-guide.md](demo-guide.md)の「計算済みの例」）ごとに、Scenarioを作って最後まで計算し、分岐の時刻に介入（分岐比較の画面が組み立てるのと同じ型付きのprogram）をプレビューし、適用し、子のBranchを最後まで計算します（#310）。ローカル版・VM版はブラウザーと同じ形（今はv6）で保存するので、各例のProjectを、ブラウザーが読み込む1つのファイル（`<Project>.shelterproj`、Rustの`ProjectFiles.export_project`）に書きます。子は親の保存したRunを、分岐の世界を戻した親の途中の点まで参照し、写しません（#368）。ファイルは生成物なので、リポジトリーの外に置きます。
 
 ~~~shell
-SHELTERSIM_LLM_MODE=offline python scripts/build_project_sample.py sample-projects --bundle sample.shelterproj
+SHELTERSIM_LLM_MODE=offline python scripts/build_project_sample.py sample-projects --bundles samples
 ~~~
 
 ブラウザーでの書き出しと読み込みは、`benchmarks/wasm_trial/project.html`で確かめます。`--project`は、試しの世界ごとにOPFSのProjectへ計算し、書き出し、OPFSを消してから読み込み、digestとProjectの道の答えが同じかを確かめます。`--bundle`は、道具が作ったファイルを空のOPFSに読み込み、各Branchのdigestを確かめます。
 
 ~~~shell
 python benchmarks/wasm_trial_measure.py --worlds wasm-trial --pkg wasm-web --project
-python benchmarks/wasm_trial_measure.py --bundle sample.shelterproj --pkg wasm-web
+python benchmarks/wasm_trial_measure.py --bundle samples/sample.shelterproj --pkg wasm-web
 ~~~
 
 ### ブラウザー版のAPI（#266）
@@ -150,7 +150,7 @@ python benchmarks/wasm_trial_measure.py --bundle sample.shelterproj --pkg wasm-w
 
 分ごとのframeは、分岐ごとに1つ手元に置いたSimulationから作ります。後の分は、手元のSimulationを進めるほうが途中の点から戻すより安いとき（手元の分がその分以前の一番近い点以後か、差が360分以内）は進め、それ以外は`RunReader.seek`で途中の点に戻してから計算します（#251）。再生（`replay-frames`）は手元のSimulationを進めるだけで、戻しません。手元に置くSimulationは2つまでで、置き換えるものは先に解放します（WASMのメモリーは縮まないため）。digestは、Runが持つログのhashの途中の状態に増えた記録だけを足して求めます（上の段落）。
 
-ページを開いただけでは、計算済みの例を取り寄せません（#411）。Workerは起動時に、サイトの例の一覧（`/sample/examples.json`。形は`browser_api.mjs`の`EXAMPLES_FORMAT`）だけを読みます。一覧の各項目は、例の目録（`sample.json`。形は`SAMPLE_FORMAT`）の場所、Project、大きさ、sha256と、取り寄せる前に画面が出す中身（Runと分岐の数、最初のScenarioの自治体・災害・人数・分）です。ホームの「計算済みの例を取得する」が一覧を出し、選ばれた例だけを取り寄せます。取り寄せた例（`scripts/build_project_sample.py --bundle`の1つのファイルを分けたもの）は、各部分と全体のsha256を確かめてから読み込みます（`importProject`）。その間は、選ぶ画面に進み具合を出します。読み込んだ例のsha256は、Projectごとに`projects/`の隣（`site-sample.json`の`examples`。#411の前の形`{sha256, project_id}`も読みます）に残します。サイトが上げ直されて例が変わったとき、または一覧から消えたときは、起動時にその例のProjectを消し、ホームはもう一度取得できるようにします。例はサイトのもので、利用者のシナリオではないためです（#411の前も、例が変わると開いたときに置き換えていました）。ホームの一覧で例のRunをすべて削除したときも、その例は取り寄せていないものとして扱い、ホームはもう一度取得できるようにします。取り寄せ直すと、例のProjectに読み込み直します（`browser_api.mjs`の`exampleHeld`、#440）。`native/wasm/tests/node_browser_api.mjs`は、メモリーの置き場で、記録の答え、保存した点・その間・前に戻る分のtimeline、続く再生の窓のframeが止めずに進めたRunのframeと同じbytesになること（再生の窓では戻さないこと）、Pythonと同じ誤り、未対応の道、`api_answers.mjs`の道をつないだこと、例の部分の確かめと読み込み、例の一覧とsha256の記録の形を確かめます。CIの`ブラウザー版の計算`のjobも動かします。
+ページを開いただけでは、計算済みの例を取り寄せません（#411）。Workerは起動時に、サイトの例の一覧（`/sample/examples.json`。形は`browser_api.mjs`の`EXAMPLES_FORMAT`）だけを読みます。一覧の各項目（サイトを作ったときの`--bundle`の順。ホームもその順に出します）は、例の目録（`<Project>.json`。形は`SAMPLE_FORMAT`）の場所、Project、大きさ、sha256と、取り寄せる前に画面が出す中身（Runと分岐の数、最初のScenarioの自治体・災害・人数・分）です。ホームの「計算済みの例を取得する」が一覧を出し、選ばれた例だけを取り寄せます。取り寄せた例（`scripts/build_project_sample.py --bundle`の1つのファイルを分けたもの）は、各部分と全体のsha256を確かめてから読み込みます（`importProject`）。その間は、選ぶ画面に進み具合を出します。読み込んだ例のsha256は、Projectごとに`projects/`の隣（`site-sample.json`の`examples`。#411の前の形`{sha256, project_id}`も読みます）に残します。サイトが上げ直されて例が変わったとき、または一覧から消えたときは、起動時にその例のProjectを消し、ホームはもう一度取得できるようにします。例はサイトのもので、利用者のシナリオではないためです（#411の前も、例が変わると開いたときに置き換えていました）。ホームの一覧で例のRunをすべて削除したときも、その例は取り寄せていないものとして扱い、ホームはもう一度取得できるようにします。取り寄せ直すと、例のProjectに読み込み直します（`browser_api.mjs`の`exampleHeld`、#440）。`native/wasm/tests/node_browser_api.mjs`は、メモリーの置き場で、記録の答え、保存した点・その間・前に戻る分のtimeline、続く再生の窓のframeが止めずに進めたRunのframeと同じbytesになること（再生の窓では戻さないこと）、Pythonと同じ誤り、未対応の道、`api_answers.mjs`の道をつないだこと、例の部分の確かめと読み込み、例の一覧とsha256の記録の形を確かめます。CIの`ブラウザー版の計算`のjobも動かします。
 
 ~~~shell
 node native/wasm/tests/node_browser_api.mjs wasm-pkg
@@ -171,11 +171,11 @@ node native/wasm/tests/node_browser_api.mjs wasm-pkg
 
 計算の途中でページを閉じると、Workerも止まります。分岐の記録は最後に進めた先頭のままで、保存したRunにはその後の行（や、途中で切れた行）が残ることがあります。次に開いたとき、Workerは、`running`のままでWeb Lockを誰も持っていない分岐とRunを`interrupted`にします（Pythonのserverの起動時と同じ）。先頭の分までは読め、「計算」で先頭から続けられます。
 
-`native/wasm/tests/node_compute.mjs`は、メモリーの置き場（OPFSと同じく、1つのファイルを同時に1つしか開けない）で、Pythonと同じ誤りとJSON、区切りの間の答えと先頭のframe、止める、ページを閉じた後の`interrupted`と続きを確かめ、こうして何回にも分けて計算したRunの世界・ログ・標本のdigestとframeと時系列が、止めずに計算した例のRunと同じになることを確かめます。CIの`ブラウザー版の計算`のjobも動かします。2つ目の引数に例のファイル（`build_project_sample.py --bundle`）を渡すと、100人・7日の例で同じことを確かめます。
+`native/wasm/tests/node_compute.mjs`は、メモリーの置き場（OPFSと同じく、1つのファイルを同時に1つしか開けない）で、Pythonと同じ誤りとJSON、区切りの間の答えと先頭のframe、止める、ページを閉じた後の`interrupted`と続きを確かめ、こうして何回にも分けて計算したRunの世界・ログ・標本のdigestとframeと時系列が、止めずに計算した例のRunと同じになることを確かめます。CIの`ブラウザー版の計算`のjobも動かします。2つ目の引数に例のファイル（`build_project_sample.py --bundles`の1つ）を渡すと、その例（墨田区の例なら100人・7日）で同じことを確かめます。
 
 ~~~shell
 node native/wasm/tests/node_compute.mjs wasm-pkg
-node native/wasm/tests/node_compute.mjs wasm-pkg sample.shelterproj
+node native/wasm/tests/node_compute.mjs wasm-pkg samples/sample-2.shelterproj
 ~~~
 
 ### ブラウザー版の静的サイト（#266）
@@ -186,12 +186,13 @@ node native/wasm/tests/node_compute.mjs wasm-pkg sample.shelterproj
 cargo build --manifest-path native/Cargo.toml -p sheltersim_wasm --target wasm32-unknown-unknown --release
 wasm-bindgen --target nodejs --out-dir wasm-pkg native/target/wasm32-unknown-unknown/release/sheltersim_wasm.wasm
 wasm-bindgen --target web --out-dir wasm-web native/target/wasm32-unknown-unknown/release/sheltersim_wasm.wasm
-SHELTERSIM_LLM_MODE=offline python scripts/build_project_sample.py sample-projects --bundle sample.shelterproj
-python scripts/build_static_site.py ../hinanjo-if-site --pkg wasm-web --bundle sample.shelterproj --fetch-shelters
+SHELTERSIM_LLM_MODE=offline python scripts/build_project_sample.py sample-projects --bundles samples
+python scripts/build_static_site.py ../hinanjo-if-site --pkg wasm-web --bundle samples/sample.shelterproj \
+  --bundle samples/sample-2.shelterproj --bundle samples/sample-3.shelterproj --fetch-shelters
 python scripts/serve_static_site.py ../hinanjo-if-site --port 8000
 ~~~
 
-最後のcommandは、手元で確かめるためのserverです（127.0.0.1だけ）。`http://127.0.0.1:8000/`を開くと、画面のホームに、例のRun（`/?project=sample&run=run-sample-toilet-outage&branch=main#simulation`）が出ます（ブラウザー版では、「計算済みの例を取得する」で例を取り寄せた後）。標準ライブラリーの`http.server`は`/demo-v2`を`demo-v2.html`で答えないので、このscriptを使います。
+最後のcommandは、手元で確かめるためのserverです（127.0.0.1だけ）。`http://127.0.0.1:8000/`を開くと、画面のホームに、例のRun（最初の例なら`/?project=sample&run=run-minato-arrivals&branch=main#simulation`）が出ます（ブラウザー版では、「計算済みの例を取得する」で例を取り寄せた後）。標準ライブラリーの`http.server`は`/demo-v2`を`demo-v2.html`で答えないので、このscriptを使います。
 
 サイトの中身：
 
@@ -205,7 +206,7 @@ python scripts/serve_static_site.py ../hinanjo-if-site --port 8000
 | `/THIRD-PARTY-NOTICES-rust-library.html` | WASMに入るRustの標準ライブラリーの表示（rustcの`share/doc/rust/COPYRIGHT-library.html`をそのまま写したもの） |
 | `/browser/` | `api_fetch.js`、`api_worker.mjs`、それが読むmodule、`pkg/`（WASM）、`gsi-shelter-index.json`と`gsi-shelters/<自治体コード>.json`（下の段落） |
 | `/sample/examples.json` | 例の一覧（#411）。ホームが「計算済みの例を取得する」で出します |
-| `/sample/sample.json`、`/sample/sample.shelterproj.000`… | 例の目録と、`--part-mib`（既定16 MiB）以下に分けた部分。選ばれたときだけ取り寄せます |
+| `/sample/<Project>.json`、`/sample/<Project>.shelterproj.000`… | 例ごとの目録と、`--part-mib`（既定16 MiB）以下に分けた部分（例えば`sample.json`、`sample-2.json`）。選ばれたときだけ取り寄せます。例のProjectは`sample`か`sample-…`で（画面はこの名前のProjectを例として扱います）、サイトの道具はほかの名前の例と、同じProjectの例が2つあるのを断ります |
 | `/version.json` | サイトを作ったcommitと、そのとき追跡しているファイルにcommitしていない変更があったか（`{"format": "sheltersim-site-version", "version": 1, "commit": "…", "modified": false}`、#563）。追跡していないファイル（作ったものなど）は数えません。gitの作業ツリーの外で作ると`commit`は`null`です。公開しているサイトがどのcommitかを、このファイルで確かめられます |
 | ないファイルの道 | `404.html`（status 404） |
 
@@ -222,7 +223,7 @@ python scripts/serve_static_site.py ../hinanjo-if-site --port 8000
 - サーバーの機能（認証）はありません。LLMは、同じWorkerの中継（下の「LLMの中継」、#419）を通して使います。
 - 例は、ホームで選んだときに、そのファイル全体を取り寄せてブラウザーのOPFSに保存します（大きさと時間は#266）。OPFSを使えないブラウザー（設定やprivateの窓によっては。PlaywrightのWebKitの使い捨てのcontextでは`navigator.storage.getDirectory()`が`UnknownError`になります）では、Workerが最初にOPFSを開いて失敗を見分け、APIは503の`browser_storage_unavailable`で、お知らせ欄は「このブラウザーでは、計算の結果を保存する場所（OPFS）を使えません。…通常のウインドウで開いてください。」と答えます（#393）。ほかの準備の失敗は`browser_unavailable`です。どちらのときも、画面は「URLのproject/run指定を確認」の文を付けません。
 
-サイトが画面の道に正しく答えるかは、`benchmarks/static_site_check.py`で確かめます。サイトを上のserverで配り、PlaywrightのChromiumとFirefoxで、それぞれ空のOPFSから開きます。`/`のホームで「計算済みの例を取得する」から例を選んで読み込み、時刻の帯で分へ飛び、240×で数秒再生し、レポートの頁の時系列のグラフが出ること、ページの誤り・consoleの誤り・お知らせ欄の誤りがないことを確かめます。`--python-projects`に、`scripts/build_project_sample.py`で作ったProjectStore（例のmainと同じScenarioをPythonのProjectの経路で計算したもの）を渡すと、記録、保存した点とその間の分のtimeline、飛んだ後と続く再生の窓、いくつかの`step`とページ送りの時系列、report、llm-statusについて、ブラウザーの答えのJSONとPythonのserverの答え（同じプロセスの`ProjectAPI`）を、値の型まで比べます。違って当然の項目（置き場の大きさ、Branchの`checkpoint_hash`と時系列の`anchor_hash`・cursorの中のanchor）は除き、除いた項目と理由を結果に書きます。Runの記録とRunの一覧も、そのまま比べます。0分の`state_hash`も比べます。Scenarioから作った世界は、0分から乱数の名前（`rng_state`、`CounterRNG`の`algorithm`と`seed`）を持つので（#281）、PythonのProjectの経路の最初の保存と、ブラウザーが始める書き出した世界は同じです。PlaywrightとそのbrowserはProjectの依存ではないので、確かめる環境に入れます。計った時間は#266に記録しています。
+サイトが画面の道に正しく答えるかは、`benchmarks/static_site_check.py`で確かめます。サイトを上のserverで配り、PlaywrightのChromiumとFirefoxで、それぞれ空のOPFSから開きます。`/`のホームで「計算済みの例を取得する」から最初の例（東京都港区）を選んで読み込み、時刻の帯で分へ飛び、240×で数秒再生し、レポートの頁の時系列のグラフが出ること、ページの誤り・consoleの誤り・お知らせ欄の誤りがないことを確かめます。`--python-projects`に、`scripts/build_project_sample.py`で作ったProjectStore（例のmainと同じScenarioをPythonのProjectの経路で計算したもの。比べるのはProject `sample`）を渡すと、記録、保存した点とその間の分のtimeline、飛んだ後と続く再生の窓、いくつかの`step`とページ送りの時系列、report、llm-statusについて、ブラウザーの答えのJSONとPythonのserverの答え（同じプロセスの`ProjectAPI`）を、値の型まで比べます。違って当然の項目（置き場の大きさ、Branchの`checkpoint_hash`と時系列の`anchor_hash`・cursorの中のanchor）は除き、除いた項目と理由を結果に書きます。Runの記録とRunの一覧も、そのまま比べます。0分の`state_hash`も比べます。Scenarioから作った世界は、0分から乱数の名前（`rng_state`、`CounterRNG`の`algorithm`と`seed`）を持つので（#281）、PythonのProjectの経路の最初の保存と、ブラウザーが始める書き出した世界は同じです。PlaywrightとそのbrowserはProjectの依存ではないので、確かめる環境に入れます。計った時間は#266に記録しています。
 
 `--compute pieces full`を付けると、ブラウザーで計算するRunも確かめます（#267）。どちらも空のOPFSから始め、例を取り寄せてから、例のScenarioのRun（`run-check-compute`）を`POST runs`で作ります。`pieces`は、「計算する」を押し、1日を過ぎたら「中止」で止め、「続きから計算する」で続け、3日を過ぎたらページを閉じ、開き直して`interrupted`と先頭の分を確かめ、最後まで続けます。`full`は7日を一度に計算して時間を計ります。計算中に計算済みの分が進み、最後まで計算するまで画面が薄いこと、計算したRunで分へ飛ぶ・再生する・時系列のグラフが出ること、1分・4321分・10080分のframeとKPIの時系列が例のRunとRunのID以外同じ（同じScenarioとseedから同じ世界になる）ことを確かめます。計った時間は#267に記録しています。
 

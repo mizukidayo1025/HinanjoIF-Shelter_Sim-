@@ -50,7 +50,7 @@ jobs:
             exit 1
           fi
 
-  # The sample comes from Python (scripts/build_project_sample.py --bundle, #427), which
+  # The examples come from Python (scripts/build_project_sample.py --bundles, #427), which
   # needs the native kernel; the profile ci gives the same bytes as release (#217).
   kernel:
     name: Rustのkernelを作る
@@ -142,12 +142,15 @@ jobs:
           python -m pip install --no-index --find-links native-dist sheltersim-native
           python -c "import sheltersim.native"
       - name: 例のRunを作る
-        run: python scripts/build_project_sample.py "$RUNNER_TEMP/sample-projects" --bundle "$RUNNER_TEMP/sample.shelterproj"
+        run: python scripts/build_project_sample.py "$RUNNER_TEMP/sample-projects" --bundles "$RUNNER_TEMP/samples"
       # The site is generated outside the repository (scripts/build_static_site.py refuses inside).
       - name: サイトを組み立てる
         run: |
           python scripts/build_static_site.py "$RUNNER_TEMP/site" --pkg "$RUNNER_TEMP/wasm/web" \
-            --bundle "$RUNNER_TEMP/sample.shelterproj" --fetch-shelters > "$RUNNER_TEMP/site-build.json"
+            --bundle "$RUNNER_TEMP/samples/sample.shelterproj" \
+            --bundle "$RUNNER_TEMP/samples/sample-2.shelterproj" \
+            --bundle "$RUNNER_TEMP/samples/sample-3.shelterproj" \
+            --fetch-shelters > "$RUNNER_TEMP/site-build.json"
           cat "$RUNNER_TEMP/site-build.json"
           # The site says it is this commit, with no tracked file changed (/version.json, #563).
           python - "$RUNNER_TEMP/site/version.json" "$GITHUB_SHA" <<'PY'
@@ -201,6 +204,7 @@ jobs:
           check /browser/api_worker.mjs "200 text/javascript"
           check /browser/pkg/sheltersim_wasm_bg.wasm "200 application/wasm"
           check /sample/sample.json "200 application/json"
+          check /sample/sample-3.json "200 application/json"
           rows=("$RUNNER_TEMP"/site/browser/gsi-shelters/*.json)
           check "/browser/gsi-shelters/${rows[0]##*/}" "200 application/json"
           # The LLM relay (#419) answers its own paths: a session without a passphrase is refused.

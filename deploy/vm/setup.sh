@@ -124,8 +124,8 @@ BASIC_USER="$(sed -n 1p "$ETC/basic-auth")"
 BASIC_PASS="$(sed -n 2p "$ETC/basic-auth")"
 BASIC_HASH="$(caddy hash-password --plaintext "$BASIC_PASS")"
 
-# The precomputed sample: a 7-day Run of the new screen's example Scenario and its
-# Day 4 toilet outage branch, which the new screen opens without computing. It is built as the sheltersim user,
+# The precomputed examples (Projects sample, sample-…): each a Run and a branch with an
+# intervention, which the new screen opens without computing. They are built as the sheltersim user,
 # offline, without the API key and away from the shared usage ledger, and built again only
 # when a build now would give another result (the builder's --check: plan, Scenario hash,
 # model signatures), or with SAMPLE=rebuild (docs/vm-deploy.md).
@@ -184,12 +184,16 @@ for n in $(seq 1 "$SLOTS"); do
   projects=$DATA/slot$n/runs/.projects
   if [[ ! -d $DATA/slot$n/runs ]]; then
     /opt/sheltersim/reset-slot.sh "$n" --no-restart
-  elif [[ -d $SAMPLE_DIR && ! -e $projects/sample ]]; then
-    # Copied beside the store and moved in, so a running slot never lists half a copy.
-    rm -rf "$DATA/slot$n/sample.copy"
-    cp -a "$SAMPLE_DIR/projects/sample" "$DATA/slot$n/sample.copy"
-    mkdir -p "$projects"
-    mv "$DATA/slot$n/sample.copy" "$projects/sample"
+  else
+    for template in "$SAMPLE_DIR"/projects/sample "$SAMPLE_DIR"/projects/sample-*; do
+      name=${template##*/}
+      [[ -d $template && ! -e $projects/$name ]] || continue
+      # Copied beside the store and moved in, so a running slot never lists half a copy.
+      rm -rf "$DATA/slot$n/sample.copy"
+      cp -a "$template" "$DATA/slot$n/sample.copy"
+      mkdir -p "$projects"
+      mv "$DATA/slot$n/sample.copy" "$projects/$name"
+    done
   fi
 done
 chown -R sheltersim:sheltersim "$DATA"

@@ -5,15 +5,15 @@
 // requests go to the real fetch. The screen's JS is unchanged.
 //
 // The script's attributes: `data-worker` the Worker's URL (/browser/api_worker.mjs by default),
-// `data-examples` the site's list of examples (/sample/examples.json), `data-example-project` the
-// example's Project, which the screen's home lists (#371), and `data-scenarios="unavailable"` on a
-// site that cannot make Scenarios (built without the shelter index; the screen then says so,
-// #372). Opening the page fetches no example (#411): the home lists the site's examples
-// (`examples()`) and fetches the one chosen (`install`).
-// `window.HinanjoBrowserApi` has `ready` (a Promise of { ms }), `site` ({ exampleProject,
-// scenarios }), `examples()` (a Promise of the list, each with `installed`), `install(projectId,
-// progress)` (a Promise of { installed, ms }; `progress({ phase, bytes, total })` as it goes,
-// phase "fetch", "import" or "done") and `stats()` for checks.
+// `data-examples` the site's list of examples (/sample/examples.json), whose Projects the screen's
+// home lists (#371), and `data-scenarios="unavailable"` on a site that cannot make Scenarios
+// (built without the shelter index; the screen then says so, #372). Opening the page fetches no
+// example (#411): the home lists the site's examples (`examples()`) and fetches the one chosen
+// (`install`).
+// `window.HinanjoBrowserApi` has `ready` (a Promise of { ms }), `site` ({ scenarios }),
+// `examples()` (a Promise of the list, each with `installed`), `install(projectId, progress)`
+// (a Promise of { installed, ms }; `progress({ phase, bytes, total })` as it goes, phase
+// "fetch", "import" or "done") and `stats()` for checks.
 //
 // The first time the screen starts a computation (`POST …/runs/{run}/resume`, #267) the page asks
 // the browser to keep the store (`navigator.storage.persist()`, the decision on #265: once, when
@@ -26,7 +26,6 @@
   const workerUrl = script?.dataset.worker || "/browser/api_worker.mjs";
   const examplesUrl = new URL(script?.dataset.examples || "/sample/examples.json", location.href).href;
   const site = {
-    exampleProject: script?.dataset.exampleProject || "sample",
     scenarios: script?.dataset.scenarios || "available",
   };
   const realFetch = window.fetch.bind(window);

@@ -163,7 +163,7 @@ python benchmarks/gate_all_paths.py --output 出力先 --determinism
 
 1. `tests/unit/web/`の`test_static_*.py`と、`tests/integration/test_static_site.py`・`test_demo_v2_routes.py`が通ります。
 2. 静的サイト（[開発環境](development.md#ブラウザー版の静的サイト266)の「ブラウザー版の静的サイト」）を、それぞれのcommitで同じ例のファイルと避難所のCSVから作り、`benchmarks/static_site_e2e.py --site … --work … --python-projects … --require-all --output …`を流します。画面の操作を最初から最後まで通し、ブラウザーの答えをPythonのserverと比べる道具です。前後のどちらも、すべての段がすべてのbrowserで通り、結果のJSONの各段の確かめ（`checks`の`name`と`verdict`）の並びが同じになります。
-3. 2と同じ例のProjectStore（`scripts/build_project_sample.py`の出力）の写しを`--runs-dir`の`.projects`に置いてローカル版のserverを起動し（`python -m sheltersim web --runs-dir … --port 8878`）、`scripts/review_demo_v2_gameplay.py --project sample --run run-sample-toilet-outage --branch branch-toilet01-outage --output …`を流します。前後の`recorded-frames.json`が同じbytesで、`results.json`の`recorded_audit`が同じになります。再生の速さやFPSのような実時間の値は比べず、道具の中の確かめが通ることだけを見ます。
+3. 2と同じ例のProjectStore（`scripts/build_project_sample.py`の出力）の写しを`--runs-dir`の`.projects`に置いてローカル版のserverを起動し（`python -m sheltersim web --runs-dir … --port 8878`）、`scripts/review_demo_v2_gameplay.py --project sample --run run-minato-arrivals --branch branch-arrive --output …`を流します。前後の`recorded-frames.json`が同じbytesで、`results.json`の`recorded_audit`が同じになります。再生の速さやFPSのような実時間の値は比べず、道具の中の確かめが通ることだけを見ます。
 4. 画面の見た目は、2と3が書く画面の写しを前後で並べて見比べます。描画の時刻で画素が変わるため、写しのbytesは比べません。
 
 ## 不具合を見つけたとき

@@ -1,14 +1,15 @@
 """Build the browser version of the screen as a static site (#266, stage A of #263).
 
-    python scripts/build_static_site.py OUTPUT_DIR --pkg PKG_DIR --bundle SAMPLE.shelterproj
+    python scripts/build_static_site.py OUTPUT_DIR --pkg PKG_DIR --bundle SAMPLE.shelterproj \
+        [--bundle SAMPLE-2.shelterproj ...]
 
-PKG_DIR is the output of `wasm-bindgen --target web` for sheltersim_wasm.wasm, and the bundle the
-sample of scripts/build_project_sample.py --bundle (docs/development.md,
-"ブラウザー版の静的サイト"). The
+PKG_DIR is the output of `wasm-bindgen --target web` for sheltersim_wasm.wasm, and the bundles the
+examples of scripts/build_project_sample.py --bundles, in the order the home lists them
+(docs/development.md, "ブラウザー版の静的サイト"). The
 screen's files (src/sheltersim/web/static/demo-v2*) are copied unchanged; the site's index.html is
 the server's demo-v2.html with one more line: the script that wraps `fetch` and answers the
 screen's `/api/v1/...` in a Worker from the browser's store and WASM (native/wasm/js/api_fetch.js),
-and names the list of examples and the example's Project for the screen's home.
+and names the list of examples for the screen's home.
 
 The site is served at the root of its domain, as the screen loads `/demo-v2.css` and the like and
 `history.replaceState`s to `/?…` (the screen's address since #376):
@@ -34,8 +35,9 @@ The site is served at the root of its domain, as the screen loads `/demo-v2.css`
                             each municipality code, read when a lookup needs them, #332)
     /sample/examples.json   the list of examples (browser_api.mjs's EXAMPLES_FORMAT): each one's
                             manifest and what the home says of it before it is fetched (#411)
-    /sample/sample.json     the sample's manifest (browser_api.mjs's SAMPLE_FORMAT) and its parts,
-                            sample.shelterproj.000, .001, … of at most --part-mib MiB each
+    /sample/PROJECT.json    each example's manifest (browser_api.mjs's SAMPLE_FORMAT; PROJECT its
+                            Project, `sample` or `sample-…`) and its parts,
+                            PROJECT.shelterproj.000, .001, … of at most --part-mib MiB each
     /version.json           the commit the site was built from, and whether the work tree had
                             changes to tracked files not committed then (VERSION_FORMAT, #563)
 
@@ -117,12 +119,15 @@ EXAMPLES_VERSION = 1
 VERSION_FILE = "version.json"
 VERSION_FORMAT = "sheltersim-site-version"
 # The line the browser build adds to demo-v2.html, before the screen's first script: the script
-# that answers the API, with the list of examples and the example's Project (the home), and on a
-# site without the shelter index, that it cannot make Scenarios (#372).
+# that answers the API, with the list of examples (the home), and on a site without the shelter
+# index, that it cannot make Scenarios (#372).
 SHIM = (
     '<script src="/browser/api_fetch.js" data-worker="/browser/api_worker.mjs"'
-    f' data-examples="/sample/{EXAMPLES}" data-example-project="{{project}}"{{scenarios}}></script>'
+    f' data-examples="/sample/{EXAMPLES}"{{scenarios}}></script>'
 )
+# The examples' Projects: `sample` and `sample-…`, as the screen tells them from one's own
+# (demo-v2-state.js's isExample).
+EXAMPLE_PROJECT = re.compile(r"sample(-[A-Za-z0-9_.-]+)?")
 NO_SCENARIOS = ' data-scenarios="unavailable"'
 FIRST_SCRIPT = '<script src="/demo-v2-scene.js" defer></script>'
 # The owner's page of the LLM relay (#433): its source, and the path the site serves it at (the
@@ -148,16 +153,12 @@ HEADER = len(MAGIC) + 4 + 4 + 32
 LIMIT_MIB = 20
 
 
-def browser_html(server_html: str, project_id: str, *, scenarios: bool = True) -> str:
+def browser_html(server_html: str, *, scenarios: bool = True) -> str:
     """The server's demo-v2.html with the browser version's script before the screen's;
     `scenarios` is False on a site that cannot make Scenarios (no shelter index)."""
     if server_html.count(FIRST_SCRIPT) != 1:
         raise ValueError(f"demo-v2.html has not exactly one {FIRST_SCRIPT}")
-    if not re.fullmatch(r"[A-Za-z0-9_.-]+", project_id):
-        raise ValueError(f"the sample's Project id {project_id!r} is not a plain id")
-    shim = SHIM.replace("{project}", project_id).replace(
-        "{scenarios}", "" if scenarios else NO_SCENARIOS
-    )
+    shim = SHIM.replace("{scenarios}", "" if scenarios else NO_SCENARIOS)
     return server_html.replace(FIRST_SCRIPT, f"{shim}\n    {FIRST_SCRIPT}")
 
 
@@ -226,14 +227,15 @@ NOT_FOUND = (
 
 
 def split_bundle(bundle: Path, directory: Path, part_bytes: int) -> dict[str, Any]:
-    """Write the bundle's parts and their manifest to `directory`; the manifest."""
+    """Write the bundle's parts and their manifest to `directory` (PROJECT.shelterproj.NNN and
+    PROJECT.json, PROJECT the bundle's Project); the manifest."""
     project_id, _ = bundle_project(bundle)
     whole = hashlib.sha256()
     parts = []
     total = 0
     with bundle.open("rb") as file:
         while chunk := file.read(part_bytes):
-            name = f"sample.shelterproj.{len(parts):03d}"
+            name = f"{project_id}.shelterproj.{len(parts):03d}"
             (directory / name).write_bytes(chunk)
             whole.update(chunk)
             parts.append(
@@ -248,7 +250,9 @@ def split_bundle(bundle: Path, directory: Path, part_bytes: int) -> dict[str, An
         "sha256": whole.hexdigest(),
         "parts": parts,
     }
-    (directory / "sample.json").write_text(json.dumps(manifest, indent=1) + "\n", encoding="utf-8")
+    (directory / f"{project_id}.json").write_text(
+        json.dumps(manifest, indent=1) + "\n", encoding="utf-8"
+    )
     return manifest
 
 
@@ -435,7 +439,7 @@ def build(
     output: Path,
     *,
     pkg: Path,
-    bundle: Path,
+    bundles: list[Path],
     run_id: str | None = None,
     branch_id: str = "main",
     part_mib: int = 16,
@@ -443,9 +447,11 @@ def build(
     notices: dict[str, bytes],
     version: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Assemble the site in `output`; a summary of what it holds. `shelters` is what
-    shelter_files() makes; `notices` are the files third_party_notices() writes, by name;
-    `version` is what /version.json says (source_version() of this repository by default)."""
+    """Assemble the site in `output`; a summary of what it holds. `bundles` are the examples, in
+    the order the home lists them; `run_id` and `branch_id` are the first one's that the summary's
+    `open` names. `shelters` is what shelter_files() makes; `notices` are the files
+    third_party_notices() writes, by name; `version` is what /version.json says (source_version()
+    of this repository by default)."""
     output = output.resolve()
     if output == ROOT or ROOT in output.parents:
         raise ValueError("the site is generated: write it outside the repository")
@@ -453,7 +459,15 @@ def build(
         raise ValueError(f"{output} is not empty")
     if not 1 <= part_mib <= LIMIT_MIB:
         raise ValueError(f"--part-mib must be from 1 to {LIMIT_MIB}")
-    project_id, runs = bundle_project(bundle)
+    if not bundles:
+        raise ValueError("the site needs at least one example (--bundle)")
+    projects = [bundle_project(bundle)[0] for bundle in bundles]
+    for project in projects:
+        if not EXAMPLE_PROJECT.fullmatch(project):
+            raise ValueError(f"the example's Project {project!r} is not `sample` or `sample-…`")
+    if len(set(projects)) != len(projects):
+        raise ValueError(f"the examples' Projects {projects} are not distinct")
+    project_id, runs = bundle_project(bundles[0])
     if run_id is None:
         if len(runs) != 1:
             raise ValueError(f"the bundle has the Runs {runs}: name one with --run")
@@ -464,9 +478,7 @@ def build(
     for name in SCREEN_FILES:
         shutil.copyfile(STATIC / name, output / name)
     page = browser_html(
-        (STATIC / "demo-v2.html").read_text(encoding="utf-8"),
-        project_id,
-        scenarios=shelters is not None,
+        (STATIC / "demo-v2.html").read_text(encoding="utf-8"), scenarios=shelters is not None
     )
     # `/` is the screen, which opens on its home (#371); the earlier /demo-v2 is not kept (#434).
     (output / "index.html").write_text(page, encoding="utf-8")
@@ -489,15 +501,17 @@ def build(
                 encoding="utf-8",
             )
     (output / "sample").mkdir()
-    manifest = split_bundle(bundle, output / "sample", part_mib * 2**20)
-    # The list of examples the home offers (#411); the browser fetches one when it is chosen.
+    manifests = [split_bundle(bundle, output / "sample", part_mib * 2**20) for bundle in bundles]
+    # The list of examples the home offers (#411), in the bundles' order; the browser fetches one
+    # when it is chosen.
     examples = {
         "format": EXAMPLES_FORMAT,
         "version": EXAMPLES_VERSION,
         "examples": [
-            {"manifest": "sample.json"}
+            {"manifest": f"{manifest['project_id']}.json"}
             | {key: manifest[key] for key in ("project_id", "bytes", "sha256")}
             | describe_bundle(bundle)
+            for manifest, bundle in zip(manifests, bundles, strict=True)
         ],
     }
     (output / "sample" / EXAMPLES).write_text(
@@ -547,8 +561,11 @@ def build(
             "path": str(largest.relative_to(output)),
             "bytes": largest.stat().st_size,
         },
-        "sample": {key: manifest[key] for key in ("project_id", "bytes", "sha256")}
-        | {"parts": len(manifest["parts"])},
+        "samples": [
+            {key: manifest[key] for key in ("project_id", "bytes", "sha256")}
+            | {"parts": len(manifest["parts"])}
+            for manifest in manifests
+        ],
         "shelter_index": None
         if shelters is None
         else {
@@ -571,9 +588,13 @@ def main() -> int:
         "--pkg", type=Path, required=True, help="the output of wasm-bindgen --target web"
     )
     parser.add_argument(
-        "--bundle", type=Path, required=True, help="the sample (build_project_sample.py --bundle)"
+        "--bundle",
+        type=Path,
+        action="append",
+        required=True,
+        help="an example (build_project_sample.py --bundles), once for each in the home's order",
     )
-    parser.add_argument("--run", help="the Run the index page opens (the bundle's only one)")
+    parser.add_argument("--run", help="the first example's Run (its only one) the summary opens")
     parser.add_argument("--branch", default="main", help="the branch the index page opens")
     parser.add_argument(
         "--part-mib", type=int, default=16, help="the largest part of the sample, in MiB"
@@ -607,7 +628,7 @@ def main() -> int:
         summary = build(
             arguments.output,
             pkg=arguments.pkg,
-            bundle=arguments.bundle,
+            bundles=arguments.bundle,
             run_id=arguments.run,
             branch_id=arguments.branch,
             part_mib=arguments.part_mib,

@@ -14,19 +14,19 @@
   } catch {
     /* Invalid local preference only. */
   }
-  // The browser version (native/wasm/js/api_fetch.js) marks itself: its example Project, which it
-  // fetches only when the home's 「計算済みの例を取得する」 is chosen from (#411). The server's
-  // example is the Project `sample` (scripts/build_project_sample.py), when it has one.
+  // The browser version (native/wasm/js/api_fetch.js) marks itself. The examples' Projects are
+  // `sample` and `sample-…` (scripts/build_project_sample.py's EXAMPLES): the browser version
+  // fetches one only when the home's 「計算済みの例を取得する」 is chosen from (#411); the server's
+  // are in its store when it has them.
   const site = window.HinanjoBrowserApi?.site || {};
-  const exampleProject = site.exampleProject || "sample";
-  // The Project of the person's own Scenarios: new ones are made there, never in the example.
-  // A Project the address names is it, unless it is the example's.
+  const isExample = (id) => /^sample(-|$)/.test(id);
+  // The Project of the person's own Scenarios: new ones are made there, never in an example's.
+  // A Project the address names is it, unless it is an example's.
   const askedProject = query.get("project");
   let ownId =
-    askedProject && askedProject !== exampleProject
+    askedProject && !isExample(askedProject)
       ? askedProject
-      : saved.own ||
-        (saved.project && saved.project !== exampleProject ? saved.project : null);
+      : saved.own || (saved.project && !isExample(saved.project) ? saved.project : null);
   // A new id is made only when a Scenario is first made: opening a Run uses no random id (the
   // browser checks pin crypto.randomUUID's sequence for the Run and branch ids).
   const ownProject = () => (ownId ??= `backup-${crypto.randomUUID()}`);
@@ -108,7 +108,7 @@
     history.replaceState(null, "", `/${search}${hash}`);
   }
   Object.assign(app, {
-    site, exampleProject, ownProject, state, reference, lower, upper, duration, remember,
+    site, isExample, ownProject, state, reference, lower, upper, duration, remember,
   });
   Object.defineProperty(app, "ownId", { get: () => ownId });
 })();

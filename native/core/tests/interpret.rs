@@ -64,3 +64,18 @@ fn kpi_differences_keep_ints_and_floats() {
     let got = sheltersim_core::interpret::kpi_differences(base, other).unwrap();
     assert_eq!(String::from_utf8(got).unwrap(), r#"{"a":2,"b":1.0,"c":0.5,"d":0.19999999999999998,"h":2.0}"#);
 }
+
+#[test]
+fn a_pdf_paragraph_s_issue_is_the_first_text_refused() {
+    use sheltersim_core::interpret::{pdf_prose_issue, PDF_UNSUPPORTED_WORDS};
+    // The words the analysis's rules name (#608) are each refused, inside any phrase.
+    for word in PDF_UNSUPPORTED_WORDS {
+        let text = format!("避難所の記録では{word}ように見えると考えられます。");
+        assert_eq!(pdf_prose_issue(&text).unwrap().as_deref(), Some(word), "{word}");
+    }
+    assert_eq!(pdf_prose_issue("最初に発生した時刻は読み取れないと考えられます。").unwrap().as_deref(), Some("発生した"));
+    assert_eq!(pdf_prose_issue("待機が3人を超えた可能性があります。").unwrap().as_deref(), Some("3"));
+    assert_eq!(pdf_prose_issue("「待機」が続いた可能性があります。").unwrap().as_deref(), Some("「"));
+    assert_eq!(pdf_prose_issue("plain ascii only").unwrap().as_deref(), Some(""));
+    assert_eq!(pdf_prose_issue("待機と支援需要を合わせて確認する必要があると考えられます。").unwrap(), None);
+}

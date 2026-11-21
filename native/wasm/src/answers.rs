@@ -254,8 +254,9 @@ impl PdfPlan {
 }
 
 /// The report's analysis asked of an LLM: `task()`, the task's JSON for the relay, then
-/// `read(reply)` of its reply (`llm::Reply`'s JSON; undefined where the call failed), the checked
-/// analysis or the refusal, then `report(analysis)`, the route's answer.
+/// `retry(reply)` of its reply (`llm::Reply`'s JSON; undefined where the call failed): the analysis
+/// to ask once more where the checks refused an answer of Opus (#608), else undefined; then
+/// `read(reply)`, the checked analysis or the refusal, then `report(analysis)`, the route's answer.
 #[wasm_bindgen]
 pub struct PdfAnalysis {
     analysis: answers::pdf::PdfAnalysis,
@@ -265,6 +266,10 @@ pub struct PdfAnalysis {
 impl PdfAnalysis {
     pub fn task(&self) -> Result<String, JsError> {
         answer(self.analysis.task_json())
+    }
+
+    pub fn retry(&self, reply: Option<String>) -> Result<Option<PdfAnalysis>, JsError> {
+        Ok(self.analysis.retry(reply.as_deref().map(str::as_bytes)).map_err(failed)?.map(|analysis| PdfAnalysis { analysis }))
     }
 
     pub fn read(&self, reply: Option<String>) -> Result<String, JsError> {

@@ -9,9 +9,10 @@ which the user prints or saves as a PDF (#470: no PDF is typeset here, as the br
 typesetter). The data and the facts are the core's (`sheltersim_core::answers::pdf`); no evidence
 is built here. A report without the analysis asks no LLM and is not kept: it is made again from the
 stored Runs each time, and a kept report is never answered for it. An analysis asked without an API
-key is the core's refusal (409 `pdf_analysis_offline`), as the browser's. A report with the analysis
-kept for the same identity (the branches' heads, the Scenario, the minute, the versions and the
-Opus model) is answered again without asking anyone.
+key is the core's refusal (409 `pdf_analysis_offline`), as the browser's. An answer the core's
+checks refuse is asked once more with the reason (`PdfAnalysis.retry`, #608). A report with the
+analysis kept for the same identity (the branches' heads, the Scenario, the minute, the versions
+and the Opus model) is answered again without asking anyone.
 """
 
 from __future__ import annotations
@@ -25,7 +26,7 @@ from typing import Any
 from sheltersim.storage.projects import StorageError, digest, safe_document
 
 REPORT_VERSION = "pdf-report-ja-v1"
-PROMPT_VERSION = "pdf-analysis-ja-v1"
+PROMPT_VERSION = "pdf-analysis-ja-v2"
 # The kept report's form: 2 holds the route's answer (#470); 1 held a typeset PDF and is asked
 # again.
 KEPT_VERSION = 2
@@ -105,6 +106,10 @@ class PdfReports:
         attempt = store._read(attempt_path)["next_attempt"] if attempt_path.exists() else 0
         analysis = plan.analysis(scenario, attempt)
         reply = ask(link, analysis.task())
+        # Once more, told why, where the checks refused Opus's answer (#608).
+        again = analysis.retry(reply)
+        if again is not None:
+            analysis, reply = again, ask(link, again.task())
         try:
             checked = analysis.read(reply)
         except core.Refused:

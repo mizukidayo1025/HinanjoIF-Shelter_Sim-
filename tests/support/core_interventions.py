@@ -154,6 +154,8 @@ LLM_PREVIEWS: list[tuple[dict[str, Any], list[str]]] = [
 # `support.reports`.
 LLM_REPORTS: list[tuple[dict[str, Any], list[str]]] = [
     ({"branch_ids": ["main", CHILD], "minute": 420, "analysis": True}, ["prose"]),
+    # An answer the checks refuse, then the one retry told why (#608): the report is made.
+    ({"branch_ids": [CHILD], "minute": 430, "analysis": True}, ["prose_refused", "prose"]),
     # Without the analysis (#582): no call, though there is a link.
     ({"branch_ids": ["main", CHILD], "minute": 420, "analysis": False}, []),
 ]
@@ -172,11 +174,16 @@ def _llm_answer(kind: str, task: Any) -> str:
     """The fake Provider's text for a task: `cite` a question's answer citing a recorded string
     and number of its evidence; `toilets` a plan adding two toilets to the first zone at the
     minute asked (`toilets until` with an end minute, which the checks refuse); `prose` the PDF
-    report's grounded analysis; else `kind`."""
-    if kind == "prose":
+    report's grounded analysis, `prose_refused` the same with a word its checks refuse; else
+    `kind`."""
+    if kind in ("prose", "prose_refused"):
         from support.reports import _prose_document
 
-        return json.dumps(_prose_document(), ensure_ascii=False)
+        document = _prose_document()
+        if kind == "prose_refused":
+            refused = "最初に発生した時刻は読み取れないと考えられます。"
+            document["interpretation"][0]["text"] = refused
+        return json.dumps(document, ensure_ascii=False)
     payload = json.loads(task.input_text)
     if kind == "cite":
         found = [
@@ -281,6 +288,9 @@ def _llm_cases(api: Any, heads: Any) -> list[dict[str, Any]]:
     cases: list[dict[str, Any]] = []
     with pytest.MonkeyPatch.context() as monkeypatch:
         monkeypatch.setenv("SHELTERSIM_LLM_MODE", "record")
+        # The Run's allowance holds every call of the cases (10 by default; #608's retry adds
+        # calls).
+        monkeypatch.setenv("SHELTERSIM_LLM_MAX_API_CALLS", "20")
         monkeypatch.setattr("sheltersim.llm.provider.AnthropicProvider", lambda _key: provider)
         monkeypatch.setattr(RouterLink, "complete", keep)
         context = None

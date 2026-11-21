@@ -734,9 +734,10 @@ impl PyPdfPlan {
     }
 }
 
-/// The PDF report's data and facts, and its analysis asked of an LLM: `task()`, then `read(reply)`
-/// (None where the call failed), the checked analysis or the refusal, then `report(analysis)`, the
-/// route's answer.
+/// The PDF report's data and facts, and its analysis asked of an LLM: `task()`, then `retry(reply)`
+/// (None where the call failed): the analysis to ask once more where the checks refused an answer
+/// of Opus (#608), else None; then `read(reply)`, the checked analysis or the refusal, then
+/// `report(analysis)`, the route's answer.
 #[pyclass(name = "PdfAnalysis", module = "sheltersim_native.rules.answers")]
 pub struct PyPdfAnalysis {
     analysis: pdf::PdfAnalysis,
@@ -754,6 +755,11 @@ impl PyPdfAnalysis {
 
     fn task<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyBytes>> {
         bytes(py, self.analysis.task_json())
+    }
+
+    #[pyo3(signature = (reply))]
+    fn retry(&self, reply: Option<Vec<u8>>) -> PyResult<Option<PyPdfAnalysis>> {
+        Ok(self.analysis.retry(reply.as_deref()).map_err(failed)?.map(|analysis| PyPdfAnalysis { analysis }))
     }
 
     #[pyo3(signature = (reply))]

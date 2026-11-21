@@ -1073,8 +1073,39 @@ static PDF_UNSUPPORTED: text::Pattern = text::Pattern::new(
 );
 static JAPANESE: text::Pattern = text::Pattern::new(r"[ぁ-んァ-ン一-龥]", false);
 
-/// Whether a PDF analysis's paragraph says what the program prints instead (`PDF_UNSUPPORTED`: a
-/// quantity, a quote, a causal or effect assertion), or holds no Japanese.
-pub fn pdf_prose_refused(raw: &str) -> Result<bool> {
-    Ok(text::found(PDF_UNSUPPORTED.get()?, raw)? || !text::found(JAPANESE.get()?, raw)?)
+/// The words `PDF_UNSUPPORTED` refuses in a PDF analysis's paragraph, in its order: the analysis's
+/// rules name them to the model (#608), so that it can write around them.
+pub const PDF_UNSUPPORTED_WORDS: [&str; 22] = [
+    "原因である",
+    "原因です",
+    "起因する",
+    "証明",
+    "実証",
+    "必ず",
+    "確実に",
+    "改善した",
+    "改善しました",
+    "悪化した",
+    "悪化しました",
+    "発生した",
+    "発生しました",
+    "効果がある",
+    "効果があります",
+    "解消する",
+    "解消します",
+    "保証",
+    "反映されていません",
+    "モデル化されていません",
+    "考慮されていません",
+    "運営側の働きかけがない",
+];
+
+/// What a PDF analysis's paragraph says that the program prints instead (`PDF_UNSUPPORTED`: a
+/// quantity, a quote, a causal or effect assertion), as the first such text found, or that it
+/// holds no Japanese (an empty text); None where the paragraph passes.
+pub fn pdf_prose_issue(raw: &str) -> Result<Option<String>> {
+    if let Some(found) = text::search(PDF_UNSUPPORTED.get()?, raw)? {
+        return Ok(Some(found.get(0).map(|found| found.as_str().to_owned()).unwrap_or_default()));
+    }
+    Ok((!text::found(JAPANESE.get()?, raw)?).then(String::new))
 }

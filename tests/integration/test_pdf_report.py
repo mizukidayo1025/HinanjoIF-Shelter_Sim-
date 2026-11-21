@@ -34,7 +34,7 @@ END = 30
 FORK_MINUTE = 10
 # The sha256 of the report's data as canonical JSON, and the cache key of the analysis task.
 DATA_SHA256 = "e54238a34ce4a0213f04743db09b755f9f77fc33b91e049c9e647b20cbc26598"
-ANALYSIS_KEY = "e7e292de94d0a4d4d414b5c12d58efbe1d7d4ece4ef5af304145f0847a0a2ade"
+ANALYSIS_KEY = "110356fa4ffb7f6fbe161238a43ad3eee121abf54df15801c69197b837596bc2"
 
 
 @pytest.fixture(scope="module")
@@ -166,11 +166,12 @@ def test_a_report_kept_in_another_form_is_asked_again(report_api, monkeypatch, r
     assert json.loads(path.read_text())["schema_version"] == 2
 
 
-def test_an_analysis_the_checks_refuse_makes_no_report(
+def test_an_analysis_the_checks_refuse_twice_makes_no_report(
     report_api, monkeypatch, report_provider, prose_document
 ):
-    """A paragraph with a quantity is refused (409 `pdf_analysis_invalid`): no report is made,
-    and the next try is a new request."""
+    """A paragraph with a quantity is refused (409 `pdf_analysis_invalid`, naming the paragraph
+    and why): Opus is asked once more, told why (#608), and where that answer is refused too, no
+    report is made, and the next try is a new request."""
 
     def counted() -> dict[str, Any]:
         document = prose_document()
@@ -182,9 +183,52 @@ def test_an_analysis_the_checks_refuse_makes_no_report(
     with pytest.raises(answers().Refused) as refused:
         export(report_api, ["main"], 20)
     assert (refused.value.args[0], refused.value.args[2]) == (409, "pdf_analysis_invalid")
-    assert provider.calls == 1
+    assert "要旨・着眼点の1段落目：使えない表現『3』があります" in refused.value.args[1]
+    assert provider.calls == 2
     attempts = report_api.store.root / "p" / "runs" / "r" / "pdf-attempts"
     assert [json.loads(path.read_text())["next_attempt"] for path in attempts.glob("*.json")] == [1]
+
+
+def test_an_analysis_the_checks_refuse_once_is_asked_again_with_the_reason(
+    report_api, monkeypatch, report_provider, prose_document
+):
+    """#608: where the checks refuse Opus's first answer (a word they refuse in a harmless phrase,
+    as Opus wrote on the site), the same request asks once more with the reason in the rules, and
+    the second answer makes the report."""
+    answers_given: list[dict[str, Any]] = []
+
+    def first_refused() -> dict[str, Any]:
+        document = prose_document()
+        if not answers_given:
+            document["interpretation"][0]["text"] = (
+                "最初に発生した時刻は、記録からは読み取れないと考えられます。"
+            )
+        answers_given.append(document)
+        return document
+
+    tasks: list[Any] = []
+    provider = report_provider(first_refused)
+    complete = provider.complete
+
+    def keep(*, model_id, task, **kwargs):
+        tasks.append(task)
+        return complete(model_id=model_id, task=task, **kwargs)
+
+    provider.complete = keep
+    install(monkeypatch, provider)
+    report = report_of(export(report_api, ["main"], 27))
+    assert provider.calls == 2
+    assert report["analysis"]["sections"] == prose_document()
+    first, second = (json.loads(task.input_text)["rules"] for task in tasks)
+    assert any("発生した" in rule and "解消する" in rule for rule in first)
+    assert second[: len(first)] == first
+    assert second[len(first) :] == [
+        "前回の答えは、次の理由で使えませんでした："
+        "結果の解釈の1段落目：使えない表現『発生した』があります。"
+        "すべての段落を規則と照らして見直し、答え全体を書き直してください。"
+    ]
+    assert tasks[0].state_hash != tasks[1].state_hash
+    assert report["analysis"]["record"]["state_hash"] == tasks[1].state_hash
 
 
 def test_the_browser_s_relay_sends_the_analysis_task_as_the_router_does(

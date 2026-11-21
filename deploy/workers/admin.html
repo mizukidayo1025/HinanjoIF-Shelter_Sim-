@@ -171,7 +171,7 @@
     <main>
       <h1>合言葉の管理</h1>
       <p class="fine">
-        ブラウザー版のAIの機能（中継）を使える相手の合言葉を、発行・確認・停止します。使うには、中継に設定した管理用の鍵が要ります。鍵はこのページを開いている間だけ使い、どこにも保存しません。
+        ブラウザー版のAIの機能（中継）を使える相手の合言葉を、発行・確認・停止します。公開デモでは、合言葉なしで使える公開モードを切り替えます。使うには、中継に設定した管理用の鍵が要ります。鍵はこのページを開いている間だけ使い、どこにも保存しません。
       </p>
 
       <section aria-labelledby="key-heading">
@@ -182,6 +182,16 @@
           <button id="forget" type="button">鍵を消す</button>
         </form>
         <p id="key-note" class="note" role="status"></p>
+      </section>
+
+      <section id="open-section" aria-labelledby="open-heading" hidden>
+        <h2 id="open-heading">公開モード</h2>
+        <p id="open-status" class="fine">読んでいます…</p>
+        <button id="open-toggle" type="button" class="primary">公開モードを ON にする</button>
+        <p class="fine">
+          ON の間は、合言葉がなくても、サイトを開いた誰もがAIの機能を使えます（公開デモ用）。使えるのは、その日の合計が公開モードの上限に達するまでで、残りは合言葉を持つ人のために残ります。OFF にすると、次の要求から使えなくなります。
+        </p>
+        <p id="open-note" class="note" role="status"></p>
       </section>
 
       <section id="issue-section" aria-labelledby="issue-heading" hidden>
@@ -237,6 +247,7 @@
         // Issuing and the list show only once the relay has taken the key; a key it refuses, or
         // one forgotten, hides them again with what they showed.
         function unlock(on) {
+          $("open-section").hidden = !on;
           $("issue-section").hidden = !on;
           $("list-section").hidden = !on;
           if (on) return;
@@ -283,7 +294,15 @@
           if (cls) td.className = cls;
           return td;
         }
+        let open = false;
         function render(data) {
+          open = data.open === true;
+          $("open-status").textContent = open
+            ? `ON です。公開モードの今日の残り：${money(data.open_remaining_usd)} / ${money(data.open_cap_usd)}`
+            : `OFF です（ON にすると、その日の合計が ${money(data.open_cap_usd)} になるまで使えます）。`;
+          $("open-status").className = open ? "note ok" : "fine";
+          $("open-toggle").textContent = open ? "公開モードを OFF にする" : "公開モードを ON にする";
+          $("open-toggle").className = open ? "danger" : "primary";
           $("summary").textContent = `${data.day}（日本時間）のサイト全体の残り：${money(data.remaining_usd)} / ${money(data.cap_usd)}`;
           $("rows").replaceChildren(
             ...data.recipients.map((item) => {
@@ -300,8 +319,8 @@
               }
               tr.append(
                 cell(item.label, null),
-                cell(item.source === "secret" ? "secret" : "発行", "種類"),
-                cell(item.active ? (item.issued_at ? `有効（${when(item.issued_at)} 発行）` : "有効") : `停止（${when(item.revoked_at)}）`, "状態"),
+                cell({ secret: "secret", issued: "発行", open: "公開モード" }[item.source] ?? item.source, "種類"),
+                cell(item.source === "open" ? (item.active ? "ON" : "OFF") : item.active ? (item.issued_at ? `有効（${when(item.issued_at)} 発行）` : "有効") : `停止（${when(item.revoked_at)}）`, "状態"),
                 cell(`${item.today.calls}回 · ${money(item.today.spent_usd)}`, "今日", "num"),
                 cell(`${item.total.calls}回 · ${money(item.total.spent_usd)}`, "累計", "num"),
                 action,
@@ -326,6 +345,20 @@
           }
         }
 
+        $("open-toggle").addEventListener("click", async () => {
+          const next = !open;
+          if (next && !confirm("公開モードを ON にします。合言葉がなくても、サイトを開いた誰もがAIの機能を使えるようになります。よろしいですか？")) return;
+          $("open-toggle").disabled = true;
+          try {
+            await call("open", { open: next });
+            note("open-note", next ? "公開モードを ON にしました。" : "公開モードを OFF にしました。", "ok");
+            await load();
+          } catch (error) {
+            note("open-note", error.message, "error");
+          } finally {
+            $("open-toggle").disabled = false;
+          }
+        });
         $("key-form").addEventListener("submit", async (event) => {
           event.preventDefault();
           setKey($("key").value);

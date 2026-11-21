@@ -11,14 +11,15 @@
 // `budget_exceeded` (the site's day cap), `rate_limited` (the API busy), `input_token_limit` (an
 // input the relay finds too large), `api_error` (anything else; counted as a request where the
 // call reached the API). A relay that does not let the passphrase in (wrong, revoked, too many
-// wrong ones) or has no API key is no link at all: `askRelay` answers null, and the route answers
+// wrong ones, or the open mode's token after the open mode was turned off) or has no API key is
+// no link at all: `askRelay` answers null, and the route answers
 // as without an API key, as the Python server does without one. The passphrase is never stored.
 
 /// The relay's route of a task.
 export const RELAY_TASKS = "/llm/v1/tasks/";
 
 /// The relay's refusals that mean there is no link: the answer without an API key.
-const NO_LINK = new Set(["llm_passphrase_required", "llm_passphrase_invalid", "llm_passphrase_locked", "llm_relay_unconfigured"]);
+const NO_LINK = new Set(["llm_passphrase_required", "llm_passphrase_invalid", "llm_passphrase_locked", "llm_open_closed", "llm_relay_unconfigured"]);
 /// The router's outcome of each refusal of the relay (others: `api_error`).
 const OUTCOMES = { llm_budget_exceeded: "budget_exceeded", llm_provider_busy: "rate_limited", llm_task_input_too_large: "input_token_limit" };
 /// The refusals of a call that reached the API (the relay counted it).

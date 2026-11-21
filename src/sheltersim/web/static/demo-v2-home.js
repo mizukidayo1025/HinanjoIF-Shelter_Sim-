@@ -190,6 +190,14 @@
       /* Not kept: it is asked again on the next visit. */
     }
   }
+  // The open mode of the relay (#601): for a public demo the owner lets anyone in at /admin. A
+  // browser without a passphrase asks the relay with this token in its place; while the relay
+  // lets it in, `HinanjoLlmOpen` tells api_fetch.js to send the token with the AI's requests.
+  // The token is kept nowhere.
+  const OPEN_TOKEN = "open";
+  const PASSPHRASE_HOW = "配布した合言葉を入れると ON になります。合言葉はこのブラウザーにだけ保存します。";
+  const OPEN_HOW =
+    "API 公開モード中です。合言葉なしで、どなたでもAIの機能を使えます。入力した文はAIの提供元に送られるので、個人情報は入れないでください。合言葉をお持ちの方は「API を有効にする」から入れられます。";
   async function llmSession(passphrase) {
     let response;
     try {
@@ -250,16 +258,35 @@
     $("home-api-status").classList.toggle("on", on);
   }
   function showApi(session, message) {
+    const open = session?.open === true;
+    const remaining = `$${Number(session?.remaining_usd).toFixed(2)}`;
+    // The header says only API ON / OFF; the home's card says that the open mode is on.
+    $("home-api-how").textContent = open ? OPEN_HOW : PASSPHRASE_HOW;
     setLlm(
       Boolean(session?.available),
       session
         ? session.available
-          ? `有効です（${session.recipient}）。今日のサイト全体の残り：$${Number(session.remaining_usd).toFixed(2)}`
+          ? open
+            ? `有効です（API 公開モード）。今日の公開モードの残り：${remaining}`
+            : `有効です（${session.recipient}）。今日のサイト全体の残り：${remaining}`
           : `合言葉は確認できました（${session.recipient}）が、中継にAPIキーがまだ設定されていません。`
         : message || "まだ有効にしていません。",
     );
-    $("home-api-enable").hidden = Boolean(session);
-    $("home-api-disable").hidden = !session;
+    // In the open mode a passphrase can still be entered (it has its own room in the day's cap).
+    $("home-api-enable").hidden = Boolean(session) && !open;
+    $("home-api-disable").hidden = !session || open;
+  }
+  // Without a passphrase: ON while the relay's open mode lets the token in, otherwise OFF with
+  // `message`.
+  async function checkOpen(message) {
+    try {
+      const session = await llmSession(OPEN_TOKEN);
+      window.HinanjoLlmOpen = session.open === true;
+      showApi(window.HinanjoLlmOpen ? session : null, message);
+    } catch {
+      window.HinanjoLlmOpen = false;
+      showApi(null, message);
+    }
   }
   function showServerApi(status) {
     setLlm(
@@ -279,7 +306,7 @@
   async function checkApi() {
     const browser = Boolean(window.HinanjoBrowserApi);
     $("home-api-how").textContent = browser
-      ? "配布した合言葉を入れると ON になります。合言葉はこのブラウザーにだけ保存します。"
+      ? PASSPHRASE_HOW
       : "サーバーをAPIキーつきで起動すると ON になります。";
     if (!browser) {
       $("home-api-enable").hidden = true;
@@ -292,13 +319,16 @@
       return;
     }
     const passphrase = storedPassphrase();
-    if (!passphrase) return showApi(null);
+    if (!passphrase) return checkOpen();
     try {
       showApi(await llmSession(passphrase));
     } catch (error) {
-      // A passphrase no longer let in is forgotten; a relay out of reach keeps it.
-      if (["llm_passphrase_invalid", "llm_passphrase_required"].includes(error.code))
+      // A passphrase no longer let in is forgotten (and the open mode tried); a relay out of
+      // reach keeps it.
+      if (["llm_passphrase_invalid", "llm_passphrase_required"].includes(error.code)) {
         keepPassphrase("");
+        return checkOpen(error.message);
+      }
       showApi(null, error.message);
     }
   }

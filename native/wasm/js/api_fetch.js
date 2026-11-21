@@ -81,13 +81,16 @@
   };
   worker.postMessage({ type: "start", examplesUrl });
 
-  // The passphrase the home keeps (demo-v2-home.js's LLM_KEY), or null.
+  // The passphrase the home keeps (demo-v2-home.js's LLM_KEY); without one, the open mode's token
+  // while the home found the relay's open mode on (`HinanjoLlmOpen`, #601); otherwise null.
   function passphrase() {
+    let kept = null;
     try {
-      return localStorage.getItem("hinanjo-if-llm-passphrase") || null;
+      kept = localStorage.getItem("hinanjo-if-llm-passphrase") || null;
     } catch {
-      return null;
+      kept = null;
     }
+    return kept ?? (window.HinanjoLlmOpen === true ? "open" : null);
   }
 
   const ASKED = "sheltersim-storage-persist-asked";

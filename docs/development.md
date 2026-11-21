@@ -271,7 +271,7 @@ python benchmarks/static_site_e2e.py --url https://hinanjo-if.water7.workers.dev
 
 #### LLMの中継（#419）
 
-ブラウザー版でLLMを使う機能のため、同じWorkerのscript（`deploy/workers/relay.mjs`）が`/llm/*`に答えます（決めたことは#287）。AnthropicのAPIキーは中継だけが持ち、画面には渡しません。使えるのは、こちらが配った合言葉を入れた人だけです。サイト全体の費用は、日本時間の1日で$5までです。道、合言葉の形、費用の数え方は`relay.mjs`の冒頭と`docs/llm-integration.md`の「ブラウザー版の中継」に書きます。作業（プロンプト）は`deploy/workers/relay_tasks.mjs`に置きます。いまある作業は、シナリオ作成の文を読む`scenario_text`（#421）と、中核の作業（結果への質問、介入の文章の読み取りとその修正、PDFレポートの考察。#470）です。中核の作業は、中核が書き出した作業目録`native/core/src/answers/relay_tasks.json`と照らして受けます。中核の作業を変えて目録が古くなると`cargo test -p sheltersim_core`が失敗するので、`SHELTERSIM_WRITE_RELAY_TASKS=1 cargo test -p sheltersim_core --test core llm_answers::`で書き直します。作業の中身はPythonから書いた`native/core/src/scenario/scenario_text_task.json`を読みます（`SHELTERSIM_LLM_MODE=offline python native/core/tools/scenario_text_task.py`で書き直します）。ホームで「API を有効にする」を済ませた画面は、「文章から条件を読み取る（AI）」に文があるとき、シナリオのプレビューの要求に合言葉を添え（`api_fetch.js`）、WorkerがこのWorkerの中継に文を送って、答えを中核で読みます。中継が答えないときは、理由を示してプレビューを失敗にします（#583）。`node native/wasm/tests/node_scenario_llm.mjs wasm-pkg`が、中継を差し替えて確かめます（CIの`ブラウザー版の計算`のjobも動かします）。
+ブラウザー版でLLMを使う機能のため、同じWorkerのscript（`deploy/workers/relay.mjs`）が`/llm/*`に答えます（決めたことは#287）。AnthropicのAPIキーは中継だけが持ち、画面には渡しません。使えるのは、こちらが配った合言葉を入れた人だけです。公開デモの間は、`/admin`で公開モードを ON にすると、合言葉なしで誰でも使えます（#601）。サイト全体の費用は、日本時間の1日で$50までで、公開モードの分は$40までです。道、合言葉の形、費用の数え方は`relay.mjs`の冒頭と`docs/llm-integration.md`の「ブラウザー版の中継」に書きます。作業（プロンプト）は`deploy/workers/relay_tasks.mjs`に置きます。いまある作業は、シナリオ作成の文を読む`scenario_text`（#421）と、中核の作業（結果への質問、介入の文章の読み取りとその修正、PDFレポートの考察。#470）です。中核の作業は、中核が書き出した作業目録`native/core/src/answers/relay_tasks.json`と照らして受けます。中核の作業を変えて目録が古くなると`cargo test -p sheltersim_core`が失敗するので、`SHELTERSIM_WRITE_RELAY_TASKS=1 cargo test -p sheltersim_core --test core llm_answers::`で書き直します。作業の中身はPythonから書いた`native/core/src/scenario/scenario_text_task.json`を読みます（`SHELTERSIM_LLM_MODE=offline python native/core/tools/scenario_text_task.py`で書き直します）。ホームで「API を有効にする」を済ませた画面は、「文章から条件を読み取る（AI）」に文があるとき、シナリオのプレビューの要求に合言葉を添え（`api_fetch.js`）、WorkerがこのWorkerの中継に文を送って、答えを中核で読みます。中継が答えないときは、理由を示してプレビューを失敗にします（#583）。`node native/wasm/tests/node_scenario_llm.mjs wasm-pkg`が、中継を差し替えて確かめます（CIの`ブラウザー版の計算`のjobも動かします）。
 
 ブラウザーに保存した準備段階のAI利用記録は、プレビューをやり直すときや承認したRunへひも付けるときも、小数の費用を保持します。上記のテストは、模擬応答を使って記録の追記と承認後の値を確認します。
 
@@ -292,7 +292,7 @@ node deploy/workers/new_passphrase.mjs --admin-key                              
 npx wrangler@4.161.0 secret put LLM_ADMIN_KEY --config deploy/workers/wrangler.jsonc       # 聞かれたら上の鍵を貼る
 ~~~
 
-それからは、サイトの`/admin`（#433）で合言葉を扱います。頁で管理用の鍵を入れて「鍵を確かめる」を押すと、中継が鍵を受け付けたときだけ、発行の欄と、相手ごとの今日と累計の回数・費用の一覧が出ます（鍵を入れる前と、鍵が違うときは出しません）。「合言葉を発行する」に相手の名前を入れると、中継が合言葉を作って一度だけ表示します（中継はSHA-256だけをDurable Objectの`recipients`の表に残します）。「停止」を押すと、その合言葉は次の要求から断られます。止めた名前で発行し直すこともできます。管理用の鍵は頁を開いている間だけ使い、どこにも保存しません。管理の道（`POST /llm/v1/admin/recipients`、`issue`、`revoke`）の形は`relay.mjs`の冒頭にあります。
+それからは、サイトの`/admin`（#433）で合言葉を扱います。頁で管理用の鍵を入れて「鍵を確かめる」を押すと、中継が鍵を受け付けたときだけ、発行の欄と、相手ごとの今日と累計の回数・費用の一覧が出ます（鍵を入れる前と、鍵が違うときは出しません）。「合言葉を発行する」に相手の名前を入れると、中継が合言葉を作って一度だけ表示します（中継はSHA-256だけをDurable Objectの`recipients`の表に残します）。「停止」を押すと、その合言葉は次の要求から断られます。止めた名前で発行し直すこともできます。「公開モード」の欄のボタンで、合言葉なしで使える公開モードを ON / OFF にします（公開デモの始めに ON、終わったら OFF）。ON の間の使用量は、一覧に相手「公開」として出ます。管理用の鍵は頁を開いている間だけ使い、どこにも保存しません。管理の道（`POST /llm/v1/admin/recipients`、`issue`、`revoke`、`open`）の形は`relay.mjs`の冒頭にあります。
 
 コマンドで配ることもできます（前からの道。secretの一覧は`/admin`からは止められません）。
 

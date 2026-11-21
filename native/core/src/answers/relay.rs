@@ -53,7 +53,7 @@ pub fn catalog() -> Value {
     json!({
         "schema_version": 1,
         "tasks": [
-            review(questions::REVIEW, None, questions::output_schema()),
+            review(questions::REVIEW, Some(questions::INPUT_BYTE_LIMIT), questions::output_schema()),
             compiler(INTERVENTION_COMPILER, crate::interpret::OPUS_COMPILER_PROMPT_VERSION),
             compiler(INTERVENTION_REPAIR, asked::REPAIR_PROMPT_VERSION),
             review(pdf::REVIEW, Some(pdf::INPUT_BYTE_LIMIT), pdf::output_schema()),

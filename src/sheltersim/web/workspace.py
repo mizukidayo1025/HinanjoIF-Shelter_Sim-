@@ -396,6 +396,7 @@ class ProjectWorkspace:
             )
         asking = plan.ask(
             api.frame(project_id, run_id, record, minute),
+            api.samples(project_id, run_id, branch_id),
             comparison,
             files.run_file(project_id, run_id, "evidence.json"),
             files.run_scenario_bytes(project_id, run_id),

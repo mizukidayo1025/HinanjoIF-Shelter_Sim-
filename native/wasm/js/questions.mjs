@@ -26,7 +26,7 @@
 // API busy or failing), the question fails with the reason (409 `question_llm_failed`): no
 // fixed answer is made in its place and no turn is kept (#580).
 
-import { ApiError, core } from "./api_answers.mjs";
+import { ApiError, core, readSamples } from "./api_answers.mjs";
 import { comparisonContext, compareResponse } from "./comparison.mjs";
 import * as store from "./project_store.mjs";
 import { askRelay } from "./relay_link.mjs";
@@ -84,7 +84,13 @@ async function askLlm(api, projectId, runId, branchId, plan, { frame, compared, 
   const turns = await store.conversationPieces(wasm, tree, projectId, runId, branchId);
   let asking;
   try {
-    asking = core(() => plan.ask(frame, comparison, evidence, scenario, turns, random));
+    // The branch's samples: the evidence holds their summary up to the minute (#609).
+    const table = await readSamples(wasm, tree, projectId, runId, branchId);
+    try {
+      asking = core(() => plan.ask(frame, table, comparison, evidence, scenario, turns, random));
+    } finally {
+      table.free();
+    }
   } finally {
     turns.free();
   }

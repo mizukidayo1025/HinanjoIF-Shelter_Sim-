@@ -613,13 +613,25 @@ impl PyQuestionPlan {
     }
 
     /// The question asked of an LLM (#463, `questions::QuestionPlan::ask`): the branch's frame at
-    /// `minute`, the comparison's answer (or None), the Run's `evidence.json` (or None), its
-    /// Scenario, the branch's "conversations" pieces (decompressed) and `random`, 24 hex digits
-    /// for a new context's id.
-    #[pyo3(signature = (frame, comparison, evidence, scenario, turns, random))]
-    fn ask(&self, frame: &[u8], comparison: Option<Vec<u8>>, evidence: Option<Vec<u8>>, scenario: &[u8], turns: Vec<Vec<u8>>, random: &str) -> PyResult<PyAsking> {
+    /// `minute`, its stored samples (#609), the comparison's answer (or None), the Run's
+    /// `evidence.json` (or None), its Scenario, the branch's "conversations" pieces (decompressed)
+    /// and `random`, 24 hex digits for a new context's id.
+    #[pyo3(signature = (frame, table, comparison, evidence, scenario, turns, random))]
+    // Kept (#493): a Python function, whose arguments are the Python call's keyword arguments.
+    #[allow(clippy::too_many_arguments)]
+    fn ask(
+        &self,
+        frame: &[u8],
+        table: &PyKpiTable,
+        comparison: Option<Vec<u8>>,
+        evidence: Option<Vec<u8>>,
+        scenario: &[u8],
+        turns: Vec<Vec<u8>>,
+        random: &str,
+    ) -> PyResult<PyAsking> {
         let pieces: Vec<&[u8]> = turns.iter().map(Vec::as_slice).collect();
-        Ok(PyAsking { asking: self.plan.ask(frame, comparison.as_deref(), evidence.as_deref(), scenario, &pieces, random).map_err(failed)? })
+        let asking = self.plan.ask(frame, &table.table, comparison.as_deref(), evidence.as_deref(), scenario, &pieces, random).map_err(failed)?;
+        Ok(PyAsking { asking })
     }
 }
 

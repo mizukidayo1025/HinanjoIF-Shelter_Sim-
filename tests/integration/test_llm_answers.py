@@ -28,9 +28,9 @@ from sheltersim.experiments.scenario import ScenarioSpec
 from sheltersim.web.projects import ProjectAPI
 
 END = 30
-QUESTION_VERSION = "read-only-results-chat-v2-grounded-explanations"
+QUESTION_VERSION = "read-only-results-chat-v3-run-summary"
 REVIEW_VERSION = "evidence-review-v1"
-QUESTION_KEY = "35085c37876657596793b896eef2f4fd336efb364899b681707aec4f4434c348"
+QUESTION_KEY = "786301cfa13ebfe07684294e74a015ec34d896f45153149a9338127927d4397e"
 REVIEW_KEY = "ad5f34b6442a3def1f881135e9d87d98ea426a23c5dbdc573d0980e07e325146"
 COMPILER_KEY = "ee3939e1a4e39805baf9e106414704bd2344ee3e6b6770bec19f106a7f7974f3"
 REPAIR_KEY = "631ff3fd30d1dd3376d534beec770079cff1bfe1300a5d1c5efb1469741552b7"

@@ -378,14 +378,18 @@ class ProjectAPI:
     def kpi_table(self, project_id: str, run_id: str, branch_id: str, plan: Any) -> Any:
         """The branch's metric samples a history plan reads (`KpiTable`): those of its head,
         none for a branch without one."""
+        if plan.anchor() is None:
+            return answers().KpiTable()
+        return self.samples(project_id, run_id, branch_id)
+
+    def samples(self, project_id: str, run_id: str, branch_id: str) -> Any:
+        """The branch's stored metric samples, read back (`KpiTable`)."""
         table = answers().KpiTable()
-        if plan.anchor() is not None:
-            reader = self.files.reader(project_id, run_id, branch_id)
-            for kind, raw in reader.sample_pieces():
-                if kind == "sample_tables":
-                    table.read_sample_tables(raw)
-                else:
-                    table.read_sample_block(raw)
+        for kind, raw in self.files.reader(project_id, run_id, branch_id).sample_pieces():
+            if kind == "sample_tables":
+                table.read_sample_tables(raw)
+            else:
+                table.read_sample_block(raw)
         return table
 
     def frame(

@@ -1099,8 +1099,15 @@ fn walk<'a>(value: Option<&'a V>, parts: &[&str]) -> Option<&'a V> {
     current
 }
 
-/// What the receipt's one state change reads now, as `check_changes` walks to it.
-fn observed(world: &World, kind: &str, entity: &str, field_path: &str) -> Result<Option<V>> {
+/// The `model_state` namespaces a receipt's changes read, each read once (#604): a namespace's row
+/// as its canonical JSON reads back, or None for a namespace the world has no row of. A receipt of
+/// a patrol reads three fields of each person in a zone from `body_state_v1`, so reading the whole
+/// row again for each change made one receipt cost the people times the row.
+type Namespaces = Vec<(String, Option<V>)>;
+
+/// What the receipt's one state change reads now, as `check_changes` walks to it. The world is not
+/// changed between the changes of one receipt, so a namespace read once is what each reads.
+fn observed(world: &World, namespaces: &mut Namespaces, kind: &str, entity: &str, field_path: &str) -> Result<Option<V>> {
     let parts: Vec<&str> = field_path.split('.').collect();
     let item = |map: &V| -> Result<Option<V>> {
         match map {
@@ -1116,17 +1123,24 @@ fn observed(world: &World, kind: &str, entity: &str, field_path: &str) -> Result
             if path.is_empty() {
                 return Err(Error::value_error("model_state change needs namespace, collection and field path"));
             }
-            let Some(slot) = world.slots.get(namespace_name) else {
-                return Ok(None);
-            };
-            let state = {
-                let slot = slot.try_borrow()?;
-                match &slot.row {
-                    None => return Ok(None),
-                    Some(row) => row_value(&**row)?,
+            let index = match namespaces.iter().position(|(name, _)| name == namespace_name) {
+                Some(index) => index,
+                None => {
+                    let state = match world.slots.get(namespace_name) {
+                        None => None,
+                        Some(slot) => {
+                            let slot = slot.try_borrow()?;
+                            match &slot.row {
+                                None => None,
+                                Some(row) => Some(row_value(&**row)?),
+                            }
+                        }
+                    };
+                    namespaces.push(((*namespace_name).to_owned(), state));
+                    namespaces.len() - 1
                 }
             };
-            let V::Map(state) = &state else {
+            let Some(V::Map(state)) = &namespaces[index].1 else {
                 return Ok(None);
             };
             let Some(items) = state.get(*collection) else {
@@ -1171,8 +1185,9 @@ fn observed(world: &World, kind: &str, entity: &str, field_path: &str) -> Result
 
 /// The observed state changes: each change's after-value is what the world holds now.
 pub fn check_changes(world: &World, changes: &[Change]) -> Result<()> {
+    let mut namespaces = Namespaces::new();
     for change in changes {
-        let same = match observed(world, &change.entity_kind, &change.entity_id, &change.field_path)? {
+        let same = match observed(world, &mut namespaces, &change.entity_kind, &change.entity_id, &change.field_path)? {
             Some(V::Float(number)) => number == change.after,
             Some(V::Int(number)) => {
                 if number.unsigned_abs() >= 1 << 53 {

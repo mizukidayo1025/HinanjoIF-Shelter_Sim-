@@ -20,6 +20,7 @@
 //   /llm/v1/admin/issue    { label } → a new passphrase for the label, answered once and kept
 //                          nowhere (only its SHA-256, in the ledger)
 //   /llm/v1/admin/revoke   { label } → the issued passphrase of the label is no longer let in
+//   /llm/v1/admin/open     { open } → the open mode (below) on (true) or off (false): { open }
 //   The admin routes take the owner's key (the secret LLM_ADMIN_KEY) as `Authorization: Bearer
 //   <key>` instead of a passphrase; too many wrong keys from one address are refused for a while,
 //   counted apart from wrong passphrases. The page /admin (admin.html) calls them.
@@ -33,6 +34,13 @@
 // passphrase's digest is compared with every entry in full (no early exit). Too many wrong passphrases from one address
 // (FAILURE_LIMIT in FAILURE_WINDOW_MS) are refused for the rest of the window.
 //
+// Open mode (a public demo, where handing out passphrases is too much work): while the owner has
+// turned it on at /admin, the token OPEN_TOKEN in place of a passphrase is let in as the recipient
+// OPEN_LABEL, so anyone on the site can use the AI. Its calls may bring the day's sums only up to
+// OPEN_CAP_USD; the rest of DAILY_CAP_USD stays for holders of a passphrase (the presenter). Off,
+// the token is refused as `llm_open_closed` (not counted as a wrong passphrase). The state is kept
+// in the ledger, so turning it off takes effect on the next request.
+//
 // Spending (as Python's LLMRouter, src/sheltersim/llm/provider.py): before a call the ledger
 // reserves the most it can cost (the UTF-8 bytes of the prompt plus 256, which overestimate its
 // tokens, at the 1-hour cache-write price, and max_tokens at the output price); after it the
@@ -44,8 +52,16 @@
 import { DurableObject } from "cloudflare:workers";
 import { TASKS } from "./relay_tasks.mjs";
 
-/// The whole site's spending per day (00:00–24:00 Japan time), in USD (decided on #287).
-export const DAILY_CAP_USD = 5;
+/// The whole site's spending per day (00:00–24:00 Japan time), in USD ($5 on #287; $50 for the
+/// public demo of the open mode).
+export const DAILY_CAP_USD = 50;
+/// The most the open mode's calls may bring the day's sums to, in USD; the rest of DAILY_CAP_USD
+/// stays for holders of a passphrase.
+export const OPEN_CAP_USD = 40;
+/// What the page sends in place of a passphrase in the open mode, and the recipient it is let in
+/// as. The token is not of a passphrase's form (PASSPHRASE_ALPHABET in four groups).
+export const OPEN_TOKEN = "open";
+export const OPEN_LABEL = "公開";
 /// USD per million tokens, the same as Python's `_OFFICIAL_MODEL_PRICE_FLOORS`
 /// (src/sheltersim/llm/config.py; tests/unit/llm/test_relay.py keeps them equal).
 export const PRICES = Object.freeze({
@@ -70,10 +86,11 @@ export const LABEL_LIMIT = 40;
 /// 99 bits), as new_passphrase.mjs makes them.
 export const PASSPHRASE_ALPHABET = "abcdefghjkmnpqrstuvwxyz23456789";
 const ADMIN = "/llm/v1/admin/";
-const ADMIN_ROUTES = new Set(["recipients", "issue", "revoke"]);
+const ADMIN_ROUTES = new Set(["recipients", "issue", "revoke", "open"]);
 const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
 const ANTHROPIC_VERSION = "2023-06-01";
 const CAP_MICRO = DAILY_CAP_USD * 1_000_000;
+const OPEN_CAP_MICRO = OPEN_CAP_USD * 1_000_000;
 const encoder = new TextEncoder();
 
 /// The day (Japan time, UTC+9 without summer time) of a moment, as YYYY-MM-DD.
@@ -133,7 +150,7 @@ export function parsePassphrases(secret) {
   for (const entry of list) {
     const label = entry?.label;
     const digest = entry?.sha256;
-    if (typeof label !== "string" || !label || label.length > LABEL_LIMIT || typeof digest !== "string" || !/^[0-9a-f]{64}$/.test(digest)) {
+    if (typeof label !== "string" || !label || label.length > LABEL_LIMIT || label === OPEN_LABEL || typeof digest !== "string" || !/^[0-9a-f]{64}$/.test(digest)) {
       console.error(JSON.stringify({ event: "llm_relay_passphrase_entry_skipped" }));
       continue;
     }
@@ -247,23 +264,33 @@ export function createWorker({ now = () => Date.now(), fetchProvider = (url, ini
     const auth = request.headers.get("Authorization") ?? "";
     const passphrase = auth.startsWith("Bearer ") ? auth.slice(7) : "";
     if (!passphrase) return refuse(401, "llm_passphrase_required", "合言葉を入れてください。");
-    const address = hex(await sha256(`address:${request.headers.get("CF-Connecting-IP") ?? "unknown"}`)).slice(0, 32);
-    if (await ledger.locked(address, at)) {
-      return refuse(429, "llm_passphrase_locked", "合言葉の誤りが続いたため、しばらく受け付けません。15分ほど後に、もう一度試してください。");
+    let recipient;
+    if (passphrase === OPEN_TOKEN) {
+      if (!(await ledger.isOpen())) return refuse(401, "llm_open_closed", "公開モードは終わりました。合言葉があれば、ホームの「API を有効にする」から使えます。");
+      recipient = { label: OPEN_LABEL, open: true };
+    } else {
+      const address = hex(await sha256(`address:${request.headers.get("CF-Connecting-IP") ?? "unknown"}`)).slice(0, 32);
+      if (await ledger.locked(address, at)) {
+        return refuse(429, "llm_passphrase_locked", "合言葉の誤りが続いたため、しばらく受け付けません。15分ほど後に、もう一度試してください。");
+      }
+      recipient = await recipientFor(passphrase, [...parsePassphrases(env.LLM_PASSPHRASES), ...fromHex(await ledger.activeRecipients())]);
+      if (!recipient) {
+        await ledger.failed(address, at);
+        return refuse(401, "llm_passphrase_invalid", "合言葉が違います。");
+      }
     }
-    const recipient = await recipientFor(passphrase, [...parsePassphrases(env.LLM_PASSPHRASES), ...fromHex(await ledger.activeRecipients())]);
-    if (!recipient) {
-      await ledger.failed(address, at);
-      return refuse(401, "llm_passphrase_invalid", "合言葉が違います。");
-    }
+    // The recipient's cap: the open mode's calls stop at OPEN_CAP_USD of the day's sums.
+    const capMicro = recipient.open ? OPEN_CAP_MICRO : CAP_MICRO;
+    const capUsd = recipient.open ? OPEN_CAP_USD : DAILY_CAP_USD;
 
     if (session) {
       const used = await ledger.used(day);
       return answer(200, {
         recipient: recipient.label,
+        open: Boolean(recipient.open),
         day,
-        cap_usd: DAILY_CAP_USD,
-        remaining_usd: usd(CAP_MICRO - used),
+        cap_usd: capUsd,
+        remaining_usd: usd(capMicro - used),
         available: Boolean(env.ANTHROPIC_API_KEY),
       });
     }
@@ -284,9 +311,10 @@ export function createWorker({ now = () => Date.now(), fetchProvider = (url, ini
     const thinking = task.model.startsWith("claude-opus") ? THINKING_HEADROOM_TOKENS : 0;
     const maxTokens = task.maxOutputTokens + thinking;
     const reserved = reservationMicro(price, promptBytes, maxTokens);
-    const held = await ledger.reserve({ day, recipient: recipient.label, task: taskName, micro: reserved, at });
+    const held = await ledger.reserve({ day, recipient: recipient.label, task: taskName, micro: reserved, at, capMicro });
     if (!held.ok) {
-      return refuse(429, "llm_budget_exceeded", `今日のAPIの上限（$${DAILY_CAP_USD}）に達しました。日本時間の0時に戻ります。それまでは、APIキーなしの動きで続けてください。`, {
+      const what = recipient.open ? "公開モードの今日のAPIの上限" : "今日のAPIの上限";
+      return refuse(429, "llm_budget_exceeded", `${what}（$${capUsd}）に達しました。日本時間の0時に戻ります。それまでは、APIキーなしの動きで続けてください。`, {
         remaining_usd: usd(held.remaining_micro),
       });
     }
@@ -309,7 +337,7 @@ export function createWorker({ now = () => Date.now(), fetchProvider = (url, ini
       return refuse(502, "llm_provider_unreachable", "APIにつながりませんでした。APIキーなしの動きで続けてください。");
     }
     if (!response.ok) {
-      const remaining = await ledger.settle({ id: held.id, micro: 0, outcome: `http_${response.status}` });
+      const remaining = await ledger.settle({ id: held.id, micro: 0, outcome: `http_${response.status}`, capMicro });
       log({ recipient: recipient.label, task: taskName, outcome: `http_${response.status}`, micro: 0 });
       const busy = response.status === 429 || response.status === 529;
       return refuse(busy ? 503 : 502, busy ? "llm_provider_busy" : "llm_provider_error", busy ? "APIが混み合っています。少し待ってから試すか、APIキーなしの動きで続けてください。" : "APIが誤りを返しました。APIキーなしの動きで続けてください。", { remaining_usd: usd(remaining) });
@@ -324,6 +352,7 @@ export function createWorker({ now = () => Date.now(), fetchProvider = (url, ini
     const remaining = await ledger.settle({
       id: held.id,
       micro,
+      capMicro,
       inputTokens: Number(data?.usage?.input_tokens ?? 0),
       outputTokens: Number(data?.usage?.output_tokens ?? 0),
       outcome: data ? "answered" : "unreadable",
@@ -366,6 +395,12 @@ export function createWorker({ now = () => Date.now(), fetchProvider = (url, ini
       return refuse(401, "llm_admin_key_invalid", "管理用の鍵が違います。");
     }
     const secretLabels = new Set(parsePassphrases(env.LLM_PASSPHRASES).map((entry) => entry.label));
+    if (route === "open") {
+      if (typeof body.open !== "boolean") return refuse(400, "llm_admin_open_invalid", "公開モードは true（入れる）か false（切る）で指定してください。");
+      const open = await ledger.setOpen({ open: body.open, at });
+      console.log(JSON.stringify({ event: "llm_relay_admin", action: open ? "open" : "close" }));
+      return answer(200, { open });
+    }
     if (route === "recipients") {
       const listed = await ledger.recipientList(day);
       const sums = (rows, label) => {
@@ -378,15 +413,29 @@ export function createWorker({ now = () => Date.now(), fetchProvider = (url, ini
         };
       };
       const time = (ms) => (ms === null || ms === undefined ? null : new Date(Number(ms)).toISOString());
+      const open = await ledger.isOpen();
+      // The open mode's calls are listed as one recipient (source "open") once it has been on.
+      const openUsed = open || listed.total.some((row) => row.recipient === OPEN_LABEL);
       const recipients = [
         ...[...secretLabels].map((label) => ({ label, source: "secret", issued_at: null, revoked_at: null, active: true })),
         ...listed.issued.map((row) => ({ label: row.label, source: "issued", issued_at: time(row.issued_at), revoked_at: time(row.revoked_at), active: row.revoked_at === null })),
+        ...(openUsed ? [{ label: OPEN_LABEL, source: "open", issued_at: null, revoked_at: null, active: open }] : []),
       ].map((item) => ({ ...item, today: sums(listed.today, item.label), total: sums(listed.total, item.label) }));
-      return answer(200, { day, cap_usd: DAILY_CAP_USD, remaining_usd: usd(CAP_MICRO - (await ledger.used(day))), recipients });
+      const used = await ledger.used(day);
+      return answer(200, {
+        day,
+        cap_usd: DAILY_CAP_USD,
+        remaining_usd: usd(CAP_MICRO - used),
+        open,
+        open_cap_usd: OPEN_CAP_USD,
+        open_remaining_usd: usd(OPEN_CAP_MICRO - used),
+        recipients,
+      });
     }
     const label = checkLabel(body.label);
     if (!label) return refuse(400, "llm_admin_label_invalid", `相手の名前は、1〜${LABEL_LIMIT}文字で入れてください。`);
     if (route === "issue") {
+      if (label === OPEN_LABEL) return refuse(409, "llm_admin_label_taken", `「${OPEN_LABEL}」は公開モードの記録に使う名前です。別の名前にしてください。`);
       if (secretLabels.has(label)) return refuse(409, "llm_admin_label_taken", "この名前は secret LLM_PASSPHRASES の一覧にあります。別の名前にしてください。");
       const passphrase = newPassphrase();
       const issued = await ledger.issue({ label, sha256: hex(await sha256(passphrase)), at });
@@ -434,6 +483,7 @@ function log({ recipient, task, outcome, micro }) {
 ///   failures(address, window_start, count)          wrong passphrases (and, under "admin:", wrong
 ///                                                   owner's keys) per hashed address
 ///   recipients(id, label, sha256, issued_at, revoked_at)   passphrases issued on /admin (#433)
+///   open_mode(id = 1, opened_at)                    a row while the open mode is on
 export class LlmLedger extends DurableObject {
   constructor(ctx, env) {
     super(ctx, env);
@@ -443,6 +493,21 @@ export class LlmLedger extends DurableObject {
     this.sql.exec("CREATE TABLE IF NOT EXISTS usage (day TEXT NOT NULL, recipient TEXT NOT NULL, calls INTEGER NOT NULL, spent_micro INTEGER NOT NULL, input_tokens INTEGER NOT NULL, output_tokens INTEGER NOT NULL, PRIMARY KEY (day, recipient))");
     this.sql.exec("CREATE TABLE IF NOT EXISTS failures (address TEXT PRIMARY KEY, window_start INTEGER NOT NULL, count INTEGER NOT NULL)");
     this.sql.exec("CREATE TABLE IF NOT EXISTS recipients (id INTEGER PRIMARY KEY AUTOINCREMENT, label TEXT NOT NULL, sha256 TEXT NOT NULL, issued_at INTEGER NOT NULL, revoked_at INTEGER)");
+    this.sql.exec("CREATE TABLE IF NOT EXISTS open_mode (id INTEGER PRIMARY KEY CHECK (id = 1), opened_at INTEGER NOT NULL)");
+  }
+
+  /// Whether the open mode is on.
+  isOpen() {
+    return this.sql.exec("SELECT opened_at FROM open_mode WHERE id = 1").toArray().length > 0;
+  }
+
+  /// Turns the open mode on (kept with the moment it was turned on) or off.
+  setOpen({ open, at }) {
+    this.ctx.storage.transactionSync(() => {
+      if (open) this.sql.exec("INSERT INTO open_mode (id, opened_at) VALUES (1, ?) ON CONFLICT (id) DO NOTHING", at);
+      else this.sql.exec("DELETE FROM open_mode");
+    });
+    return this.isOpen();
   }
 
   /// The issued passphrases not revoked: [{ label, sha256 }].
@@ -493,21 +558,22 @@ export class LlmLedger extends DurableObject {
     return this.usedSync(day);
   }
 
-  /// Reserves `micro` for a call when the day's sums stay within the cap: { ok, id,
-  /// remaining_micro } or { ok: false, remaining_micro }.
-  reserve({ day, recipient, task, micro, at }) {
+  /// Reserves `micro` for a call when the day's sums stay within the recipient's cap (`capMicro`:
+  /// the whole site's, or the open mode's): { ok, id, remaining_micro } or { ok: false,
+  /// remaining_micro }.
+  reserve({ day, recipient, task, micro, at, capMicro = CAP_MICRO }) {
     return this.ctx.storage.transactionSync(() => {
       const used = this.usedSync(day);
-      if (used + micro > CAP_MICRO) return { ok: false, remaining_micro: CAP_MICRO - used };
+      if (used + micro > capMicro) return { ok: false, remaining_micro: capMicro - used };
       const id = crypto.randomUUID();
       this.sql.exec("INSERT INTO reservations (id, day, recipient, task, micro, at) VALUES (?, ?, ?, ?, ?, ?)", id, day, recipient, task, micro, at);
-      return { ok: true, id, remaining_micro: CAP_MICRO - used - micro };
+      return { ok: true, id, remaining_micro: capMicro - used - micro };
     });
   }
 
-  /// Settles a reservation at `micro`, adds it to the day's and the recipient's sums; the day's
-  /// remaining micro-dollars.
-  settle({ id, micro, inputTokens = 0, outputTokens = 0 }) {
+  /// Settles a reservation at `micro`, adds it to the day's and the recipient's sums; what remains
+  /// of the recipient's cap (`capMicro`) today, in micro-dollars.
+  settle({ id, micro, inputTokens = 0, outputTokens = 0, capMicro = CAP_MICRO }) {
     return this.ctx.storage.transactionSync(() => {
       const rows = this.sql.exec("SELECT day, recipient FROM reservations WHERE id = ?", id).toArray();
       if (rows.length === 0) return 0;
@@ -522,7 +588,7 @@ export class LlmLedger extends DurableObject {
         inputTokens,
         outputTokens,
       );
-      return CAP_MICRO - this.usedSync(day);
+      return capMicro - this.usedSync(day);
     });
   }
 

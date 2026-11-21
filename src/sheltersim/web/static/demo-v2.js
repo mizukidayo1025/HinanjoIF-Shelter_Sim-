@@ -38,6 +38,8 @@
   $("home-api-disable").addEventListener("click", () => {
     keepPassphrase("");
     showApi(null, "解除しました。");
+    // During a public demo the open mode turns it ON again (#601).
+    void refreshApi();
   });
   $("api-form").addEventListener("submit", (event) => void enableApi(event));
   $("api-dialog-close").addEventListener("click", () => $("api-dialog").close());

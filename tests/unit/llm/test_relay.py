@@ -125,9 +125,10 @@ def test_a_passphrase_given_out_is_let_in_and_others_are_not() -> None:
     assert first["status"] == 200 and first["type"] == "application/json; charset=utf-8"
     assert first["body"] == {
         "recipient": "審査員A",
+        "open": False,
         "day": "2026-11-15",
-        "cap_usd": 5,
-        "remaining_usd": 5,
+        "cap_usd": 50,
+        "remaining_usd": 50,
         "available": True,
     }
     assert second["body"]["recipient"] == "審査員B"
@@ -218,7 +219,7 @@ def test_a_task_builds_its_prompt_reserves_calls_and_settles_at_its_usage() -> N
         "output_text": '{"ok": true}',
         "stop_reason": "end_turn",
         "usage": {"input_tokens": 100, "output_tokens": 50, "cost_usd": cost_micro / 1e6},
-        "remaining_usd": 5 - cost_micro / 1e6,
+        "remaining_usd": 50 - cost_micro / 1e6,
     }
     ledger = result["ledger"]
     assert ledger["reservations"] == []
@@ -260,9 +261,9 @@ def test_tasks_refuse_what_they_cannot_build_and_the_unknown() -> None:
 
 
 def test_the_daily_cap_counts_reservations_and_comes_back_at_midnight_in_japan() -> None:
-    # The first call costs $4 (200,000 output tokens on Opus); the next one's reservation
-    # (its prompt and up to 50,000 + 4,096 tokens, about $1.08) would pass $5.
-    costly = ANSWER | {"usage": USAGE | {"input_tokens": 0, "output_tokens": 200_000}}
+    # The first call costs $49 (2,450,000 output tokens on Opus); the next one's reservation
+    # (its prompt and up to 50,000 + 4,096 tokens, about $1.08) would pass $50.
+    costly = ANSWER | {"usage": USAGE | {"input_tokens": 0, "output_tokens": 2_450_000}}
     big = TASK | {"maxOutputTokens": 50_000}
     result = _run(
         [
@@ -277,14 +278,14 @@ def test_the_daily_cap_counts_reservations_and_comes_back_at_midnight_in_japan()
     assert first["body"]["remaining_usd"] == 1
     assert (refused["status"], refused["body"]["code"]) == (429, "llm_budget_exceeded")
     assert refused["body"]["remaining_usd"] == 1 and "provider_request" not in refused
-    assert "$5" in refused["body"]["error"] and "0時" in refused["body"]["error"]
+    assert "$50" in refused["body"]["error"] and "0時" in refused["body"]["error"]
     assert session["body"]["remaining_usd"] == 1
     assert next_day["status"] == 200
     assert [row["day"] for row in result["ledger"]["spend"]] == ["2026-11-15", "2026-11-16"]
 
 
 def test_a_single_call_above_the_cap_is_never_sent() -> None:
-    answers = _run([_task()], probe=TASK | {"maxOutputTokens": 300_000})["answers"]
+    answers = _run([_task()], probe=TASK | {"maxOutputTokens": 3_000_000})["answers"]
     assert answers[0]["status"] == 429 and "provider_request" not in answers[0]
 
 
@@ -431,7 +432,7 @@ def test_the_owner_issues_lists_and_revokes_in_one_ledger() -> None:
         (400, "llm_admin_label_invalid"),
     ]
     listed = a[6]["body"]
-    assert listed["day"] == "2026-11-15" and listed["cap_usd"] == 5
+    assert listed["day"] == "2026-11-15" and listed["cap_usd"] == 50
     by_label = {item["label"]: item for item in listed["recipients"]}
     assert [item["source"] for item in listed["recipients"]] == ["secret", "secret", "issued"]
     assert by_label["審査員A"]["today"]["calls"] == 1
@@ -445,7 +446,7 @@ def test_the_owner_issues_lists_and_revokes_in_one_ledger() -> None:
     }
     assert by_label["審査員C"]["active"] is True and by_label["審査員C"]["revoked_at"] is None
     assert by_label["審査員C"]["issued_at"] == "2026-11-15T14:59:00.000Z"
-    assert listed["remaining_usd"] == 5 - (100 * 4 + 50 * 20) / 1e6
+    assert listed["remaining_usd"] == 50 - (100 * 4 + 50 * 20) / 1e6
     assert codes[7:12] == [
         (409, "llm_admin_secret_entry"),  # the secret's entries are not revoked here
         (404, "llm_admin_label_unknown"),
@@ -635,3 +636,77 @@ def test_a_core_task_not_of_the_catalog_is_refused_before_a_call() -> None:
     at_limit = _core_task("intervention_compiler", input_text='{"q":"' + '\\"' * 32_764 + '"}')
     assert len(at_limit["input_text"].encode()) == 65_536
     assert _run([_core_step(at_limit)], real_tasks=True)["answers"][0]["status"] == 200
+
+
+def test_the_open_mode_lets_anyone_in_only_while_the_owner_has_it_on() -> None:
+    # #601: for a public demo the owner turns the open mode on at /admin; the page sends the
+    # token "open" in place of a passphrase and is let in as the recipient 「公開」.
+    result = _run(
+        [
+            _post("/llm/v1/session", passphrase="open"),
+            _admin("open", body={"open": True}),
+            _post("/llm/v1/session", passphrase="open"),
+            _task(passphrase="open"),
+            _admin("recipients"),
+            _admin("issue", body={"label": "公開"}),
+            _admin("open", body={"open": "yes"}),
+            _admin("open", body={"open": False}),
+            _task(passphrase="open"),
+            _admin("recipients"),
+        ],
+        env=ADMIN_ENV,
+    )
+    a = result["answers"]
+    assert (a[0]["status"], a[0]["body"]["code"]) == (401, "llm_open_closed")
+    assert a[1]["body"] == {"open": True}
+    assert a[2]["body"] == {
+        "recipient": "公開",
+        "open": True,
+        "day": "2026-11-15",
+        "cap_usd": 40,
+        "remaining_usd": 40,
+        "available": True,
+    }
+    cost = (100 * 4 + 50 * 20) / 1e6
+    assert a[3]["status"] == 200 and a[3]["body"]["remaining_usd"] == 40 - cost
+    listed = a[4]["body"]
+    assert (listed["open"], listed["open_cap_usd"], listed["cap_usd"]) == (True, 40, 50)
+    assert listed["open_remaining_usd"] == 40 - cost
+    by_label = {item["label"]: item for item in listed["recipients"]}
+    assert by_label["公開"]["source"] == "open" and by_label["公開"]["active"] is True
+    assert by_label["公開"]["today"]["calls"] == 1
+    assert (a[5]["status"], a[5]["body"]["code"]) == (409, "llm_admin_label_taken")
+    assert (a[6]["status"], a[6]["body"]["code"]) == (400, "llm_admin_open_invalid")
+    assert a[7]["body"] == {"open": False}
+    # Off, the token is refused before any call and is not a wrong passphrase.
+    assert (a[8]["status"], a[8]["body"]["code"]) == (401, "llm_open_closed")
+    assert "provider_request" not in a[8]
+    assert result["ledger"]["failures"] == []
+    # The calls made while it was on stay listed.
+    after = {item["label"]: item for item in a[9]["body"]["recipients"]}
+    assert after["公開"]["active"] is False and after["公開"]["total"]["calls"] == 1
+    actions = [json.loads(line) for line in result["logs"] if "llm_relay_admin" in line]
+    assert [x["action"] for x in actions] == ["open", "close"]
+
+
+def test_the_open_mode_stops_at_its_cap_and_leaves_the_rest_for_passphrases() -> None:
+    # A passphrase's call costs $39.5 (1,975,000 output tokens on Opus); the open mode's next
+    # reservation (about $1.08) would pass its $40, a passphrase's stays within the day's $50.
+    costly = ANSWER | {"usage": USAGE | {"input_tokens": 0, "output_tokens": 1_975_000}}
+    big = TASK | {"maxOutputTokens": 50_000}
+    result = _run(
+        [
+            _admin("open", body={"open": True}),
+            _task(provider={"status": 200, "body": costly}),
+            _task(passphrase="open"),
+            _task(),
+        ],
+        env=ADMIN_ENV,
+        probe=big,
+    )
+    _, first, open_refused, passphrase_call = result["answers"]
+    assert first["status"] == 200
+    assert (open_refused["status"], open_refused["body"]["code"]) == (429, "llm_budget_exceeded")
+    assert "公開モード" in open_refused["body"]["error"] and "$40" in open_refused["body"]["error"]
+    assert open_refused["body"]["remaining_usd"] == 0.5 and "provider_request" not in open_refused
+    assert passphrase_call["status"] == 200

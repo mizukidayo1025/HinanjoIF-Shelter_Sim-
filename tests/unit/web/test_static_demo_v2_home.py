@@ -61,14 +61,9 @@ for (const name of runNames(runs, scenarios).values()) {
     )
 
 
-def test_the_api_passphrase_is_sent_only_to_the_relay_and_forgotten_when_refused():
-    """「API を有効にする」 (#420): the passphrase goes to /llm/v1/session as a Bearer token; one
-    the relay no longer lets in is forgotten, one kept while the relay is out of reach."""
-    node = shutil.which("node")
-    if node is None:
-        pytest.skip("Node is required for the UI callback regression")
-    source = Path("src/sheltersim/web/static/demo-v2-home.js").resolve()
-    script = r"""
+# The home's API part (from LLM_KEY to enableApi) in node, with a fake page, localStorage and
+# relay: `answer` is what the relay answers next, `sent` what the page sent it.
+_API_HARNESS = r"""
 import fs from "node:fs";
 import assert from "node:assert/strict";
 const source = fs.readFileSync(process.argv[1], "utf8").replaceAll("\r\n", "\n");
@@ -102,6 +97,29 @@ const make = eval(wrapped);
 const { refreshApi, keepPassphrase } = make();
 const json = (status, value) => async () => ({ ok: status < 400, status, json: async () => value });
 
+"""
+
+
+def _run_api_script(asserts: str) -> None:
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("Node is required for the UI callback regression")
+    source = Path("src/sheltersim/web/static/demo-v2-home.js").resolve()
+    result = subprocess.run(
+        [node, "--input-type=module", "-e", _API_HARNESS + asserts, str(source)],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def test_the_api_passphrase_is_sent_only_to_the_relay_and_forgotten_when_refused():
+    """「API を有効にする」 (#420): the passphrase goes to /llm/v1/session as a Bearer token; one
+    the relay no longer lets in is forgotten, one kept while the relay is out of reach."""
+    _run_api_script(
+        r"""
 keepPassphrase("pass-1");
 answer = json(200, { recipient: "審査員A", remaining_usd: 4.5, available: true });
 await refreshApi();
@@ -124,14 +142,42 @@ assert.equal(store.has("hinanjo-if-llm-passphrase"), false);
 assert.equal($("home-api-status").textContent, "合言葉が違います。");
 assert.equal($("home-api-enable").hidden, false);
 """
-    result = subprocess.run(
-        [node, "--input-type=module", "-e", script, str(source)],
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        check=False,
     )
-    assert result.returncode == 0, result.stderr
+
+
+def test_without_a_passphrase_the_relay_s_open_mode_turns_the_api_on():
+    """The open mode (#601): without a passphrase the home asks the relay with the token "open";
+    while it is let in the header says API ON, the home's card says the open mode is on, a
+    passphrase can still be entered, and api_fetch.js is told to send the token. Off, it is OFF."""
+    _run_api_script(
+        r"""
+answer = json(200, { recipient: "公開", open: true, remaining_usd: 39.5, available: true });
+await refreshApi();
+assert.deepEqual(sent.at(-1), ["/llm/v1/session", "Bearer open"]);
+assert.equal($("header-api").textContent, "API ON");
+assert.deepEqual(state.llm, { on: true });
+assert.match($("home-api-how").textContent, /^API 公開モード中です。/);
+assert.match($("home-api-status").textContent, /公開モード.*\$39\.50/);
+assert.equal($("home-api-enable").hidden, false);
+assert.equal($("home-api-disable").hidden, true);
+assert.equal(window.HinanjoLlmOpen, true);
+assert.equal(store.size, 0);
+
+answer = json(401, { error: "公開モードは終わりました。", code: "llm_open_closed" });
+await refreshApi();
+assert.equal($("header-api").textContent, "API OFF");
+assert.equal(window.HinanjoLlmOpen, false);
+assert.doesNotMatch($("home-api-how").textContent, /公開モード/);
+
+// A passphrase kept here is used in place of the open mode.
+keepPassphrase("pass-1");
+answer = json(200, { recipient: "審査員A", open: false, remaining_usd: 49, available: true });
+await refreshApi();
+assert.deepEqual(sent.at(-1), ["/llm/v1/session", "Bearer pass-1"]);
+assert.equal(sent.filter(([, auth]) => auth === "Bearer pass-1").length, 1);
+assert.match($("home-api-status").textContent, /審査員A/);
+"""
+    )
 
 
 def test_the_server_version_shows_its_llm_settings_as_on_or_off_without_a_passphrase():

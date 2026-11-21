@@ -334,7 +334,7 @@ Deploymentは公開のjobの始めに作られ、そのjobが失敗するとfail
 - 同時に動く公開は1つだけです。後から起動したものは、前のものが終わるのを待ちます。
 - 公開の後に、次の2つを確かめます。どちらかが通らないと、workflowは失敗します。
   1. 道ごとの答え：`/browser/gsi-shelter-index.json`（サイトを作った時刻を持ちます）が今回作ったものになるまで待ち（最大5分）、`/version.json`がこの実行のcommitを答えるまで待ち（最大5分。#563の最初の公開では、索引が新しくなった後も、`/version.json`が一度404を返しました）、それが200の`application/json`であること、`/`が200の`text/html`、ないファイル（`/nope`）が404の`text/html`、`/browser/api_worker.mjs`が`text/javascript`、`/browser/pkg/sheltersim_wasm_bg.wasm`が`application/wasm`、`/sample/sample.json`と自治体コードごとの避難所の行（`/browser/gsi-shelters/`の最初のファイル）が`application/json`であること。
-  2. 画面：公開したURLを`benchmarks/static_site_e2e.py --url`で、PlaywrightのChromiumとFirefoxで、それぞれ空のOPFSから開いて、すべての段を画面で通すこと（Pythonとは比べません）。ブラウザーごとに別のjobで同時に確かめます。Chromiumは一度に最後まで計算し（`--modes full`）、Firefoxは途中で止めて続けます（`--modes pieces`）。
+  2. 画面：公開したURLを`benchmarks/static_site_e2e.py --url`で、PlaywrightのChromiumとFirefoxで、それぞれ空のOPFSから開いて、すべての段を画面で通すこと（Pythonとは比べません）。ブラウザーごとに別のjobで同時に確かめます。Chromiumは一度に最後まで計算し（`--modes full`）、Firefoxは途中で止めて続けます（`--modes pieces`）。確かめるブラウザーからは、AIの中継（`/llm/*`）に要求を送りません。中継への要求には、公開モードがOFFのときの中継と同じ答え（401 `llm_open_closed`）を返します（`close_relay`）。そのため、公開モード（#601）がONのサイトでも画面はAPIなしの状態で確かめ、質問も409 `question_offline`になり、APIの費用はかかりません。以前は、公開モードがONの間に公開すると、確かめの質問が中継に届いて費用がかかり、「APIがOFFなのに質問できる」として失敗していました。
 - サイトを作った要約（`site-build.json`）はrunのartifact `deploy-browser-site`に、画面の確かめの結果（`e2e-url.json`、画面の写し）は`deploy-browser-screen-chromium`と`deploy-browser-screen-firefox`に、30日残します。
 - 公開した版を戻すときは、Cloudflareのdashboardか`wrangler rollback`で前の版に戻すか、戻したいcommitを`main`に入れて公開し直します。
 

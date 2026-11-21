@@ -57,6 +57,11 @@ of them, once).
 "not available yet") and the screen must show no error; nothing is compared with Python and
 nothing is pinned (the GSI address search is the live one).
 
+The checks' browsers never reach the site's LLM relay (`close_relay`): each `/llm/` request is
+answered as the relay answers while its open mode is off (401 `llm_open_closed`), so the screen is
+the one without the API whether or not the site's open mode is on (#601), and no check spends the
+API.
+
 Playwright and its browsers are not dependencies of the project (see static_site_check.py). Run
 it under a memory cap (docs/development.md).
 """
@@ -407,6 +412,29 @@ def pin_browser(context: Any, index: dict[str, Any] | None, notes: list[str]) ->
     context.route("**/browser/api_worker.mjs", worker)
     context.route("**/browser/gsi-shelter-index.json", shelters)
     context.route("https://msearch.gsi.go.jp/**", address)
+
+
+def close_relay(context: Any) -> None:
+    """Every request to the site's LLM relay (deploy/workers/relay.mjs, `/llm/*`) answered as the
+    relay answers while its open mode is off and no passphrase is kept: the home finds no API, the
+    screen asks the checks' questions without one (409 `question_offline`, as the offline VM), and
+    no call reaches the API. While the site's open mode is on (#601), the screen would otherwise
+    be the one with the API, and a check's question would be a paid call."""
+
+    def closed(route: Any) -> None:
+        route.fulfill(
+            status=401,
+            headers={"content-type": "application/json; charset=utf-8"},
+            body=json.dumps({"error": RELAY_CLOSED, "code": "llm_open_closed"}, ensure_ascii=False),
+        )
+
+    context.route("**/llm/**", closed)
+
+
+# The relay's refusal of the open mode's token while the mode is off (relay.mjs).
+RELAY_CLOSED = (
+    "公開モードは終わりました。合言葉があれば、ホームの「API を有効にする」から使えます。"
+)
 
 
 # ---- Comparing ---------------------------------------------------------------------------------
@@ -1693,6 +1721,7 @@ def check(
                 errors: list[str] = []
                 try:
                     context.add_init_script(PAGE_INIT)
+                    close_relay(context)
                     if python is not None:
                         try:
                             pin_browser(context, shelter_index, results["notes"])

@@ -409,7 +409,7 @@ def pin_browser(context: Any, index: dict[str, Any] | None, notes: list[str]) ->
             body=json.dumps(document, ensure_ascii=False),
         )
 
-    context.route("**/browser/api_worker.mjs", worker)
+    context.route(re.compile(r"/browser/api_worker\.mjs(?:\?.*)?$"), worker)
     context.route("**/browser/gsi-shelter-index.json", shelters)
     context.route("https://msearch.gsi.go.jp/**", address)
 
@@ -1717,6 +1717,22 @@ def check_deploy_now(walker: Walk, requests: list[str]) -> dict[str, Any]:
     page.click("[data-page=comparison]")
     walker.view("comparison")
     assert not page.locator(".intervention-text-option").is_visible()
+    page.locator("#compare-kpis-b .kpi").first.wait_for(state="visible")
+    page.locator("#compare-seek").evaluate(
+        "(seek) => { seek.value = 2100; seek.dispatchEvent(new Event('change')); }"
+    )
+    page.wait_for_function(
+        "() => document.getElementById('compare-time').textContent.includes('11:00')"
+    )
+    page.click("#play")
+    page.wait_for_function("() => Number(document.getElementById('compare-seek').value) > 2100")
+    page.click("#play")
+    page.locator("#compare-seek").evaluate(
+        "(seek) => { seek.value = 1920; seek.dispatchEvent(new Event('change')); }"
+    )
+    page.wait_for_function(
+        "() => document.getElementById('compare-time').textContent.includes('08:00')"
+    )
     page.click("[data-page=report]")
     walker.view("report")
     assert not page.locator(".chat-panel").is_visible()

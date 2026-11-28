@@ -449,6 +449,7 @@ def test_deploy_now_requires_one_example_and_shelters_and_omits_the_relay_admin(
     summary = build(output, shelters=shelters, **arguments)
     assert summary["admin_page"] is None
     assert not (output / "admin.html").exists()
+    assert not (output / ".nojekyll").exists()
     html = (output / "index.html").read_text(encoding="utf-8")
     assert (
         'data-worker="/browser/api_worker.mjs?llm=disabled"'

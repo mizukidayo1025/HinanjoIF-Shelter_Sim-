@@ -19,7 +19,7 @@ OPFS は公開先のオリジンごとに分かれます。Cloudflare 版の保�
 2. 実行結果の **Artifacts → deploy-now-site** をダウンロードして展開します。展開先の直下に `index.html`、`browser/`、`sample/` が並ぶフォルダーが公開物です。
 3. **deploy-now-build-info** の `site-build.json` で、合計バイト数、ファイル数、最大ファイル、元コミット、避難所索引とサンプルの情報を確認します。ビルドは 100,000,000 バイト未満を要求します。
 
-このワークフローは、GitHub Actions 上でネイティブカーネル、WASM、江戸川区の例、全国データを生成し、静的成果物を保存します。公開は次の手順で行います。GitHub Actions にデプロイナウの認証情報を登録する必要はありません。
+このワークフローは、GitHub Actions 上でネイティブカーネル、WASM、江戸川区の例、全国データを生成します。保存した成果物を、Chromium と Firefox で確認します。公開は次の手順で行います。GitHub Actions にデプロイナウの認証情報を登録する必要はありません。
 
 ## 手元で作る
 
@@ -90,6 +90,8 @@ python -m playwright install chromium firefox
 SHELTERSIM_LLM_MODE=offline python benchmarks/static_site_e2e.py \
   --url https://YOUR-SUBDOMAIN.lolipop-now.app --deploy-now --require-all
 ```
+
+ローカルで Python 版との同値性も確認する場合は、同じ CSV で組み立てたサイトについて `--site "$work/site" --work "$work/e2e" --shelter-csv /path/to/mergeFromCity_1.csv` を `--url` の代わりに指定します。このモードは国土地理院の住所検索の記録済み応答を使います。
 
 ## 更新とロールバック
 

@@ -566,7 +566,8 @@ def build(
         version = source_version()
     (output / VERSION_FILE).write_text(json.dumps(version, indent=1) + "\n", encoding="utf-8")
     # GitHub Pages: serve the files as they are, without Jekyll.
-    (output / ".nojekyll").write_bytes(b"")
+    if not deploy_now:
+        (output / ".nojekyll").write_bytes(b"")
     files = sorted(path for path in output.rglob("*") if path.is_file())
     largest = max(files, key=lambda path: path.stat().st_size)
     if largest.stat().st_size > LIMIT_MIB * 2**20:

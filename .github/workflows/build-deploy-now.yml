@@ -68,3 +68,47 @@ jobs:
             ${{ runner.temp }}/sample-build.json
           if-no-files-found: error
           retention-days: 30
+
+  browser:
+    name: 静的サイトを確認 (${{ matrix.browser }})
+    needs: site
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - browser: chromium
+            mode: full
+          - browser: firefox
+            mode: pieces
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@v4
+        with:
+          name: deploy-now-site
+          path: ${{ runner.temp }}/site
+      - name: Playwright を準備
+        run: |
+          python -m pip install "playwright==1.64.1"
+          python -m playwright install --with-deps "${{ matrix.browser }}"
+      - name: WASM・再生・シナリオ作成・分岐・レポートを確認
+        run: |
+          python scripts/serve_static_site.py "$RUNNER_TEMP/site" --port 8123 &
+          server=$!
+          trap 'kill "$server"' EXIT
+          curl --fail --silent --show-error --retry 5 --retry-connrefused \
+            http://127.0.0.1:8123/version.json
+          python benchmarks/static_site_e2e.py --url http://127.0.0.1:8123 --deploy-now \
+            --require-all --browsers "${{ matrix.browser }}" --modes "${{ matrix.mode }}" \
+            --output "$RUNNER_TEMP/e2e.json"
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: deploy-now-e2e-${{ matrix.browser }}
+          path: ${{ runner.temp }}/e2e.json
+          if-no-files-found: warn
+          retention-days: 30

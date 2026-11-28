@@ -1347,6 +1347,10 @@ class Walk:
             if made["status"] != 200:
                 self.problem(stage, f"the Run to compute was not made: {made['status']}")
                 return False
+        # Prepare the Python reference before the browser starts. Otherwise the first resume
+        # comparison can wait for all seven days on Python while the browser finishes its run.
+        if self.mode == "pieces" and (side := self.side()) is not None:
+            side.at(stage)
         self.open(f"/?project={s.project}&run={run}&branch=main#simulation", "simulation")
         record = json.loads(self.fetch(_run_path(s.project, run))["text"])
         if record["branches"][0]["computed_until"] < 10080:
@@ -1394,13 +1398,18 @@ class Walk:
             if not self.watch(stage, lambda state: state["computed"] >= 1440, "a day"):
                 return False
             since = self.mark()
-            self.page.click("#play")
-            self.wait_caught(since, "POST", r"/cancel$", timeout_s=60)
+            self.page.click('#play[data-mode="cancel"]', timeout=10_000)
+            cancel = self.wait_caught(since, "POST", r"/cancel$", timeout_s=60)
+            if cancel is None or cancel["status"] != 200:
+                self.problem(stage, f"the cancel request failed: {cancel}")
+                return False
             if not self.watch(stage, lambda state: state["computeReady"], "cancel"):
                 return False
-            status = json.loads(self.fetch(path)["text"]).get("status")
-            if status != "paused":
-                self.problem(stage, f"cancelled: the Run is {status}")
+            record = json.loads(self.fetch(path)["text"])
+            reached = next(b for b in record["branches"] if b["branch_id"] == branch)
+            if record["status"] != "paused" or not 1440 <= reached["computed_until"] < 10080:
+                self.problem(stage, f"cancelled: {record['status']} at {reached['computed_until']}")
+                return False
             self.page.click("#play")
         if not self.watch(stage, computed(10080), "the end"):
             return False

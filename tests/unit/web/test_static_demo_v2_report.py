@@ -57,6 +57,7 @@ const api = async (path) => {
   if (path.endsWith('/report')) return answers.report;
   return {};
 };
+const document = { body: { dataset: {} } };
 const branchBase = () => '/b', runBase = () => '/r';
 const syncReportBranches = () => {}, renderReportSummary = () => {}, renderEvents = () => {};
 const loadConversations = async () => {}, loadHistory = async () => {}, drawAll = () => {};

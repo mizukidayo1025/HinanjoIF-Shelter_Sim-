@@ -28,6 +28,8 @@ the research record says so with a fixed date.
 also writes each example as one file the browser imports (`BUNDLE_DIR/<project>.shelterproj`,
 #265): the site's examples (scripts/build_static_site.py --bundle, in EXAMPLES' order).
 
+Use --example PROJECT_ID to build or check only the named example.
+
 The same texts, seeds and model give the same hashes on every build. A JSON summary (each
 example's ids, Scenario, minutes, heads and the core's digests, size) is printed and written to
 `<OUTPUT>/../sample-build.json` unless --summary names another file. Open an example with
@@ -519,7 +521,17 @@ def main() -> int:
         action="store_true",
         help="compute nothing; exit 0 if the examples in OUTPUT are what a build now would give",
     )
+    parser.add_argument(
+        "--example",
+        choices=[example.project_id for example in EXAMPLES],
+        help="build or check just this example (default: all examples)",
+    )
     arguments = parser.parse_args()
+    selected = tuple(
+        example
+        for example in EXAMPLES
+        if arguments.example is None or arguments.example == example.project_id
+    )
     output = arguments.output.resolve()
     summary_path = (arguments.summary or output.parent / "sample-build.json").resolve()
     with tempfile.TemporaryDirectory(prefix="sheltersim-sample-") as scratch:
@@ -535,10 +547,10 @@ def main() -> int:
             except (OSError, ValueError) as exc:
                 print(f"rebuild: no readable summary ({exc})")
                 return 3
-            reason = samples_difference(output, built)
+            reason = samples_difference(output, built, selected)
             print("current" if reason is None else f"rebuild: {reason}")
             return 0 if reason is None else 3
-        examples = [build_sample(output, example) for example in EXAMPLES]
+        examples = [build_sample(output, example) for example in selected]
         if arguments.bundles is not None:
             for item in examples:
                 path = arguments.bundles.resolve() / f"{item['project_id']}.shelterproj"

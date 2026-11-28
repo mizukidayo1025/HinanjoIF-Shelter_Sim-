@@ -23,6 +23,7 @@
 (() => {
   "use strict";
   const script = document.currentScript;
+  const llmEnabled = script?.dataset.llm !== "disabled";
   const workerUrl = script?.dataset.worker || "/browser/api_worker.mjs";
   const examplesUrl = new URL(script?.dataset.examples || "/sample/examples.json", location.href).href;
   const site = {
@@ -133,7 +134,7 @@
       // A Scenario preview, a question, an intervention's preview and the analysis report carry the
       // relay's passphrase (the home's 「API を有効にする」, #420): the Worker asks the LLM through
       // the relay (#421, #470). It is never stored there.
-      const llm = request.method === "POST" && /\/(scenario-preview|questions|intervention-preview|pdf-report)$/.test(url.pathname) ? passphrase() : null;
+      const llm = llmEnabled && request.method === "POST" && /\/(scenario-preview|questions|intervention-preview|pdf-report)$/.test(url.pathname) ? passphrase() : null;
       const answer = await ask({ type: "request", method: request.method, path: url.pathname, search: url.search, body, llm });
       return new Response(answer.body, { status: answer.status, headers: { "Content-Type": answer.contentType, "Cache-Control": "no-store" } });
     })();

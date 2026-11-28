@@ -80,10 +80,11 @@
     // The summary of the branch's whole computed range (#612), not of the minute shown.
     const range = reference(state.branch);
     const whole = new URLSearchParams({ kind: "summary", start: range.fork_minute, end: range.computed_until });
+    const llmEnabled = document.body.dataset.llm !== "disabled";
     const [report, evidence, llm, summary] = await Promise.all([
       api(`${branchBase()}/report`),
       api(`${runBase()}/evidence`),
-      api(`${branchBase()}/llm-status`),
+      llmEnabled ? api(`${branchBase()}/llm-status`) : null,
       api(`${branchBase()}/history?${whole}`),
     ]);
     if (scope !== state.scope) return;
@@ -103,7 +104,7 @@
               ? "AIレポート生成済み"
               : report.status || "取得済み";
     $("report-raw").textContent = report.markdown || json(report);
-    $("report-evidence").textContent = json({ evidence, llm });
+    $("report-evidence").textContent = json(llmEnabled ? { evidence, llm } : { evidence });
     $("report-summary").replaceChildren();
     // What the record shows over the branch's whole computed range (#610, the summary of #612), not
     // at the minute shown.
@@ -198,7 +199,7 @@
       $("report-people").append(row);
     }
     renderEvents($("report-events"), state.frame.events);
-    await loadConversations();
+    if (llmEnabled) await loadConversations();
     await loadHistory();
     drawAll();
   }
@@ -348,7 +349,9 @@
     note(
       analysis
         ? "レポートとOpusの考察を作っています。保存済みのレポートがあれば再利用します…"
-        : "レポートを作っています（Opusの考察なし）…",
+        : document.body.dataset.llm === "disabled"
+          ? "レポートを作っています…"
+          : "レポートを作っています（Opusの考察なし）…",
       "loading",
     );
     let report;

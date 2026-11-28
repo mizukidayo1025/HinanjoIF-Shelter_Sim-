@@ -29,20 +29,22 @@
     show("simulation");
   });
   $("home-fetch").addEventListener("click", () => void openExamples());
-  $("header-api").addEventListener("click", () => show("home"));
-  $("home-api-enable").addEventListener("click", () => {
-    $("api-dialog-note").textContent = "";
-    $("api-dialog").showModal();
-    $("api-passphrase").focus();
-  });
-  $("home-api-disable").addEventListener("click", () => {
-    keepPassphrase("");
-    showApi(null, "解除しました。");
-    // During a public demo the open mode turns it ON again (#601).
-    void refreshApi();
-  });
-  $("api-form").addEventListener("submit", (event) => void enableApi(event));
-  $("api-dialog-close").addEventListener("click", () => $("api-dialog").close());
+  if (document.body.dataset.llm !== "disabled") {
+    $("header-api").addEventListener("click", () => show("home"));
+    $("home-api-enable").addEventListener("click", () => {
+      $("api-dialog-note").textContent = "";
+      $("api-dialog").showModal();
+      $("api-passphrase").focus();
+    });
+    $("home-api-disable").addEventListener("click", () => {
+      keepPassphrase("");
+      showApi(null, "解除しました。");
+      // During a public demo the open mode turns it ON again (#601).
+      void refreshApi();
+    });
+    $("api-form").addEventListener("submit", (event) => void enableApi(event));
+    $("api-dialog-close").addEventListener("click", () => $("api-dialog").close());
+  }
   $("examples-dialog-close").addEventListener("click", () => {
     if (!app.fetching) $("examples-dialog").close();
   });

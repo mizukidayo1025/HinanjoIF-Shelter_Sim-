@@ -41,8 +41,11 @@ The site is served at the root of its domain, as the screen loads `/demo-v2.css`
     /version.json           the commit the site was built from, and whether the work tree had
                             changes to tracked files not committed then (VERSION_FORMAT, #563)
 
-No file is larger than --part-mib (16 MiB by default; Cloudflare Workers' static assets take at most
-25 MiB a file).
+With --profile deploy-now, the page and Worker disable the LLM, the admin page is omitted,
+and the build requires one example, the shelter index and less than 100 MB of files.
+
+Sample parts are at most --part-mib (16 MiB by default). Cloudflare Workers' static assets take
+at most 25 MiB a file.
 OUTPUT_DIR must be outside the repository and empty or missing: the site is generated, never
 committed. scripts/serve_static_site.py serves it locally for checks.
 """
@@ -122,8 +125,8 @@ VERSION_FORMAT = "sheltersim-site-version"
 # that answers the API, with the list of examples (the home), and on a site without the shelter
 # index, that it cannot make Scenarios (#372).
 SHIM = (
-    '<script src="/browser/api_fetch.js" data-worker="/browser/api_worker.mjs"'
-    f' data-examples="/sample/{EXAMPLES}"{{scenarios}}></script>'
+    '<script src="/browser/api_fetch.js" data-worker="/browser/api_worker.mjs{worker_query}"'
+    f' data-examples="/sample/{EXAMPLES}"{{scenarios}}{{llm}}></script>'
 )
 # The examples' Projects: `sample` and `sample-…`, as the screen tells them from one's own
 # (demo-v2-state.js's isExample).
@@ -151,14 +154,23 @@ TREE_LINE = re.compile(r"(\S+) v(\S+)(?: \([^*)][^)]*\))?(?: \(\*\))?")
 MAGIC = b"\x89SHELTERSIM-PRJ\n"
 HEADER = len(MAGIC) + 4 + 4 + 32
 LIMIT_MIB = 20
+DEPLOY_NOW_LIMIT_BYTES = 100_000_000
+PROFILES = ("cloudflare", "deploy-now")
 
 
-def browser_html(server_html: str, *, scenarios: bool = True) -> str:
+def browser_html(server_html: str, *, scenarios: bool = True, llm: bool = True) -> str:
     """The server's demo-v2.html with the browser version's script before the screen's;
     `scenarios` is False on a site that cannot make Scenarios (no shelter index)."""
     if server_html.count(FIRST_SCRIPT) != 1:
         raise ValueError(f"demo-v2.html has not exactly one {FIRST_SCRIPT}")
-    shim = SHIM.replace("{scenarios}", "" if scenarios else NO_SCENARIOS)
+    shim = SHIM.format(
+        scenarios="" if scenarios else NO_SCENARIOS,
+        worker_query="" if llm else "?llm=disabled",
+        llm="" if llm else ' data-llm="disabled"',
+    )
+    if not llm:
+        server_html = server_html.replace("<body data-view", '<body data-llm="disabled" data-view')
+        server_html = server_html.replace("レポート・質問</button>", "レポート</button>")
     return server_html.replace(FIRST_SCRIPT, f"{shim}\n    {FIRST_SCRIPT}")
 
 
@@ -446,12 +458,20 @@ def build(
     shelters: dict[str, Any] | None = None,
     notices: dict[str, bytes],
     version: dict[str, Any] | None = None,
+    profile: str = "cloudflare",
 ) -> dict[str, Any]:
     """Assemble the site in `output`; a summary of what it holds. `bundles` are the examples, in
     the order the home lists them; `run_id` and `branch_id` are the first one's that the summary's
     `open` names. `shelters` is what shelter_files() makes; `notices` are the files
     third_party_notices() writes, by name; `version` is what /version.json says (source_version()
     of this repository by default)."""
+    if profile not in PROFILES:
+        raise ValueError(f"unknown site profile: {profile}")
+    deploy_now = profile == "deploy-now"
+    if deploy_now and shelters is None:
+        raise ValueError("deploy-now requires shelter data (--fetch-shelters or --shelter-csv)")
+    if deploy_now and len(bundles) != 1:
+        raise ValueError("deploy-now requires one example (--bundle)")
     output = output.resolve()
     if output == ROOT or ROOT in output.parents:
         raise ValueError("the site is generated: write it outside the repository")
@@ -478,7 +498,9 @@ def build(
     for name in SCREEN_FILES:
         shutil.copyfile(STATIC / name, output / name)
     page = browser_html(
-        (STATIC / "demo-v2.html").read_text(encoding="utf-8"), scenarios=shelters is not None
+        (STATIC / "demo-v2.html").read_text(encoding="utf-8"),
+        scenarios=shelters is not None,
+        llm=not deploy_now,
     )
     # `/` is the screen, which opens on its home (#371); the earlier /demo-v2 is not kept (#434).
     (output / "index.html").write_text(page, encoding="utf-8")
@@ -537,9 +559,8 @@ def build(
         (output / name).write_bytes(data)
     # The owner's page of the relay (#433), served at /ADMIN_PAGE as the host answers a path without
     # its .html (deploy/workers/wrangler.jsonc's html_handling).
-    admin = output / f"{ADMIN_PAGE}.html"
-    admin.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(ADMIN_SOURCE, admin)
+    if not deploy_now:
+        shutil.copyfile(ADMIN_SOURCE, output / f"{ADMIN_PAGE}.html")
     # The site's own version (#563), read after a publish to tell which build a host serves.
     if version is None:
         version = source_version()
@@ -550,13 +571,19 @@ def build(
     largest = max(files, key=lambda path: path.stat().st_size)
     if largest.stat().st_size > LIMIT_MIB * 2**20:
         raise ValueError(f"{largest} is larger than {LIMIT_MIB} MiB")
+    total_bytes = sum(path.stat().st_size for path in files)
+    if deploy_now and total_bytes >= DEPLOY_NOW_LIMIT_BYTES:
+        raise ValueError(
+            f"deploy-now size is {total_bytes:,} bytes; "
+            f"it must be under {DEPLOY_NOW_LIMIT_BYTES:,} bytes"
+        )
     return {
         "output": str(output),
         "open": target,
-        "admin_page": f"/{ADMIN_PAGE}",
+        "admin_page": None if deploy_now else f"/{ADMIN_PAGE}",
         "version": version,
         "files": len(files),
-        "bytes": sum(path.stat().st_size for path in files),
+        "bytes": total_bytes,
         "largest": {
             "path": str(largest.relative_to(output)),
             "bytes": largest.stat().st_size,
@@ -594,6 +621,7 @@ def main() -> int:
         required=True,
         help="an example (build_project_sample.py --bundles), once for each in the home's order",
     )
+    parser.add_argument("--profile", choices=PROFILES, default="cloudflare")
     parser.add_argument("--run", help="the first example's Run (its only one) the summary opens")
     parser.add_argument("--branch", default="main", help="the branch the index page opens")
     parser.add_argument(
@@ -634,6 +662,7 @@ def main() -> int:
             part_mib=arguments.part_mib,
             shelters=shelters,
             notices=notices,
+            profile=arguments.profile,
         )
     except (OSError, ValueError) as error:
         print(error, file=sys.stderr)

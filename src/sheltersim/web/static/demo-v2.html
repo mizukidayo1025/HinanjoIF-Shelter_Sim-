@@ -46,7 +46,7 @@
       <div id="header-scenario" class="header-scenario" hidden>
         <small>シナリオ</small><strong id="scenario-name"></strong>
       </div>
-      <button id="header-api" class="header-api" type="button" hidden></button>
+      <button id="header-api" data-llm-only class="header-api" type="button" hidden></button>
       <label class="speed-label"
         >再生速度<select id="speed">
           <option value="60">1日＝24分</option>
@@ -102,7 +102,7 @@
               このサイトは地域の避難所の一覧を入れずに作られているため、条件から新しいシナリオを作れません。
             </p>
           </article>
-          <article id="home-api" class="panel home-card">
+          <article id="home-api" data-llm-only class="panel home-card">
             <h2>AIの機能（API）</h2>
             <p class="fine">
               文章からのシナリオの読み取り、介入の文章での指示、結果への質問、分析レポートの考察は、AI（LLM）を使う機能です。使うと、入力した文や結果の記録がAIの提供元（Anthropic）に送られます。
@@ -125,7 +125,7 @@
             >Rustの標準ライブラリー</a
           >）
         </p>
-        <dialog id="api-dialog" class="examples-dialog" aria-labelledby="api-dialog-title">
+        <dialog id="api-dialog" data-llm-only class="examples-dialog" aria-labelledby="api-dialog-title">
           <div class="examples-head">
             <h2 id="api-dialog-title">API を有効にする</h2>
             <button id="api-dialog-close" type="button" aria-label="閉じる">×</button>
@@ -280,8 +280,8 @@
                   食料・水は初期在庫です。1日あたりの供給量や施設数からは推定しません。一般トイレ数は生成仮定としてプレビューに表示します。
                 </p>
               </details>
-              <h3>文章から条件を読み取る（AI）</h3>
-              <fieldset class="needs-api" data-needs-api>
+              <h3 data-llm-only>文章から条件を読み取る（AI）</h3>
+              <fieldset class="needs-api" data-needs-api data-llm-only>
                 <p class="fine">
                   文章に書いた条件をAIが読み取り、項目にない条件を足します。項目に入力した値を優先します。
                 </p>
@@ -557,7 +557,7 @@
               <p id="intervention-op-note" class="fine"></p>
             </div>
             <div class="intervention-confirm"><strong>3. 内容を確認する</strong><p>選んだ内容を確認してから分岐を作成します。</p><button id="intervention-preview" class="primary full" disabled>内容をプレビュー →</button></div></div>
-            <details class="intervention-text-option">
+            <details class="intervention-text-option" data-llm-only>
               <summary>文章で指示する（AIが作用に変換）</summary>
               <fieldset class="needs-api" data-needs-api>
                 <label for="intervention-text">介入の指示</label
@@ -674,7 +674,7 @@
           <div class="button-row">
             <span id="report-status" class="badge">未生成</span
             ><button id="report-refresh" disabled>↻ 結果を更新</button
-            ><fieldset class="needs-api report-analysis" data-needs-api>
+            ><fieldset class="needs-api report-analysis" data-needs-api data-llm-only>
               <label class="checkbox"
                 ><input id="report-analysis" type="checkbox" />Opusの考察を付ける</label
               >
@@ -740,7 +740,7 @@
               </article>
             </div>
           </div>
-          <aside class="panel chat-panel">
+          <aside class="panel chat-panel" data-llm-only>
             <h2>✧ 結果について質問する</h2>
             <p class="fine">
               記録された根拠と、AIによる解釈を区別して表示します。<span id="question-scope"></span>
@@ -844,7 +844,7 @@
             <h2>介入で使える作用</h2>
             <div id="detail-effects"></div>
           </article>
-          <article class="panel">
+          <article class="panel" data-llm-only>
             <h2>AI（LLM）の利用</h2>
             <dl id="detail-llm" class="detail-facts"></dl>
           </article>

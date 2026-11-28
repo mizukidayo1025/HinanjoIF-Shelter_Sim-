@@ -123,11 +123,12 @@ function queryOf(search) {
 /// task of the queue (a request or a chunk of a computation) holding the store's lock (the page:
 /// a Web Lock), and `branchLock`, `chunkTicks` and `pause` are js/compute.mjs's `Computing`'s.
 export class BrowserApi {
-  constructor({ wasm, tree, quota = async () => null, extra = null, keep = 2, locked = (task) => task(), branchLock, chunkTicks = CHUNK_TICKS, pause, scenario = {}, relay = sameOriginFetch }) {
+  constructor({ wasm, tree, quota = async () => null, extra = null, keep = 2, locked = (task) => task(), branchLock, chunkTicks = CHUNK_TICKS, pause, scenario = {}, relay = sameOriginFetch, llmEnabled = true }) {
     this.wasm = wasm;
     this.tree = tree;
     // The site's LLM relay: `relay(path, init)` (relay_link.mjs; tests answer it).
     this.relay = relay;
+    this.llmEnabled = llmEnabled;
     this.quota = quota;
     this.history = historyCache(2);
     this.extra = extra ?? {
@@ -195,6 +196,7 @@ export class BrowserApi {
   }
 
   async post(parts, body, llm = null) {
+    if (!this.llmEnabled) llm = null;
     if (parts.length === 0) {
       let document;
       try {
@@ -211,7 +213,12 @@ export class BrowserApi {
     if (parts.length === 2 && ["scenario-preview", "scenario-approve", "runs"].includes(parts[1])) {
       const document = bodyDocument(body);
       const routes = this.scenarioRoutes;
-      if (parts[1] === "scenario-preview") return routes.preview(parts[0], document, { llm });
+      if (parts[1] === "scenario-preview") {
+        if (!this.llmEnabled && document.text !== "" && typeof document.text === "string") {
+          throw unsupported("文章によるシナリオ作成");
+        }
+        return routes.preview(parts[0], document, { llm });
+      }
       if (parts[1] === "scenario-approve") return routes.approve(parts[0], document);
       return routes.runs(parts[0], document);
     }
@@ -221,6 +228,7 @@ export class BrowserApi {
     }
     if (parts.length === 6 && parts[1] === "runs" && parts[3] === "branches" && (parts[5] === "intervention-preview" || parts[5] === "intervention-apply")) {
       if (parts[5] === "intervention-apply") return interventionApply(this, parts[0], parts[2], parts[4], body);
+      if (!this.llmEnabled && !postDocument(body).program) throw unsupported("文章による介入");
       return interventionPreview(this, parts[0], parts[2], parts[4], body, llm);
     }
     if (parts.length === 6 && parts[1] === "runs" && parts[3] === "branches" && parts[5] === "questions") return questionResponse(this, parts[0], parts[2], parts[4], body, llm);

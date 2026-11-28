@@ -1690,6 +1690,7 @@ def check_deploy_now(walker: Walk, requests: list[str]) -> dict[str, Any]:
     assert page.locator("body").get_attribute("data-llm") == "disabled"
     assert page.locator("#home-new").is_enabled()
     initial_requests = len(requests)
+    assert initial_requests <= 10, f"{initial_requests} requests on the first visit"
     page.click("#home-fetch")
     examples = page.locator("#examples-list .examples-item")
     examples.first.wait_for(state="visible")

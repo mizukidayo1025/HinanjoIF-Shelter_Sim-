@@ -42,7 +42,8 @@ The site is served at the root of its domain, as the screen loads `/demo-v2.css`
                             changes to tracked files not committed then (VERSION_FORMAT, #563)
 
 With --profile deploy-now, the page and Worker disable the LLM, the admin page is omitted,
-and the build requires one example, the shelter index and less than 100 MB of files.
+and the build requires one example, the shelter index and less than 100 MB of files. The screen's
+scripts and the Worker modules are bundled to reduce requests on the first visit (esbuild on PATH).
 
 Sample parts are at most --part-mib (16 MiB by default). Cloudflare Workers' static assets take
 at most 25 MiB a file.
@@ -133,6 +134,7 @@ SHIM = (
 EXAMPLE_PROJECT = re.compile(r"sample(-[A-Za-z0-9_.-]+)?")
 NO_SCENARIOS = ' data-scenarios="unavailable"'
 FIRST_SCRIPT = '<script src="/demo-v2-scene.js" defer></script>'
+SCREEN_SCRIPT = re.compile(r'^    <script src="/(demo-v2[^"/]*\.js)" defer></script>\n', re.M)
 # The owner's page of the LLM relay (#433): its source, and the path the site serves it at (the
 # one place that names it; the tests and the deploy workflow's check read it from here or from the
 # build's summary). Not under /llm/ (the relay's).
@@ -172,6 +174,30 @@ def browser_html(server_html: str, *, scenarios: bool = True, llm: bool = True) 
         server_html = server_html.replace("<body data-view", '<body data-llm="disabled" data-view')
         server_html = server_html.replace("レポート・質問</button>", "レポート</button>")
     return server_html.replace(FIRST_SCRIPT, f"{shim}\n    {FIRST_SCRIPT}")
+
+
+def bundle_browser_scripts(page: str, output: Path) -> str:
+    """Keep classic screen scripts in HTML order and bundle the Worker's static imports."""
+    scripts = SCREEN_SCRIPT.findall(page)
+    if not scripts or scripts[-1] != "demo-v2.js":
+        raise ValueError("could not find the screen scripts in index.html")
+    (output / "demo-v2.js").write_text(
+        "\n;\n".join((STATIC / name).read_text(encoding="utf-8") for name in scripts),
+        encoding="utf-8",
+    )
+    browser = output / "browser"
+    shutil.copyfile(JS / "api_fetch.js", browser / "api_fetch.js")
+    _output(
+        "esbuild",
+        str(JS / "api_worker.mjs"),
+        "--bundle",
+        "--platform=browser",
+        "--format=esm",
+        f"--outfile={browser / 'api_worker.mjs'}",
+    )
+    return SCREEN_SCRIPT.sub("", page).replace(
+        "  </head>", '    <script src="/demo-v2.js" defer></script>\n  </head>', 1
+    )
 
 
 def _bundle_manifest(bundle: Path) -> tuple[dict[str, Any], int]:
@@ -494,19 +520,22 @@ def build(
         run_id = runs[0]
     elif run_id not in runs:
         raise ValueError(f"the bundle has no Run {run_id}")
-    output.mkdir(parents=True, exist_ok=True)
+    (output / "browser" / "pkg").mkdir(parents=True)
     for name in SCREEN_FILES:
-        shutil.copyfile(STATIC / name, output / name)
+        if not deploy_now or not name.endswith(".js"):
+            shutil.copyfile(STATIC / name, output / name)
     page = browser_html(
         (STATIC / "demo-v2.html").read_text(encoding="utf-8"),
         scenarios=shelters is not None,
         llm=not deploy_now,
     )
+    if deploy_now:
+        page = bundle_browser_scripts(page, output)
+    else:
+        for name in browser_modules():
+            shutil.copyfile(JS / name, output / "browser" / name)
     # `/` is the screen, which opens on its home (#371); the earlier /demo-v2 is not kept (#434).
     (output / "index.html").write_text(page, encoding="utf-8")
-    (output / "browser" / "pkg").mkdir(parents=True)
-    for name in browser_modules():
-        shutil.copyfile(JS / name, output / "browser" / name)
     for name in PKG_FILES:
         shutil.copyfile(pkg / name, output / "browser" / "pkg" / name)
     if shelters is not None:

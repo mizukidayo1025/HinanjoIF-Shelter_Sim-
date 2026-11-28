@@ -23,7 +23,7 @@ OPFS は公開先のオリジンごとに分かれます。Cloudflare 版の保�
 
 ## 手元で作る
 
-Python 3.12 以上、Rust stable、`wasm32-unknown-unknown` ターゲット、WASM クレートと同じ版の `wasm-bindgen` CLI が必要です。CI が検証する CLI の版と SHA-256 はワークフローを参照してください。
+Python 3.12 以上、Rust stable、`wasm32-unknown-unknown` ターゲット、WASM クレートと同じ版の `wasm-bindgen` CLI、Node.js 22 と esbuild が必要です。CI が検証する CLI の版と SHA-256 はワークフローを参照してください。
 
 リポジトリー直下の Bash で実行します。
 
@@ -34,6 +34,8 @@ python -m pip install -e . 'maturin>=1.7,<2'
 rustup target add wasm32-unknown-unknown
 cargo install wasm-bindgen-cli --version 0.2.129 --locked
 work="$(mktemp -d)"
+npm install --prefix "$work/build-tools" esbuild@0.27.3
+export PATH="$work/build-tools/node_modules/.bin:$PATH"
 
 maturin build --locked --profile ci -m native/Cargo.toml --out "$work/wheels"
 python -m pip install --no-index --find-links "$work/wheels" sheltersim-native
@@ -105,4 +107,4 @@ lolipop deploy --project PROJECT_ID --dir /path/to/deploy-now-site
 
 ## 無料枠
 
-2026 年 11 月 28 日時点の公式プラン表は、CLI・ファイルアップロードが 100 MB、展開後は 10 GiB、CDN 帯域は月 100 GB、月間リクエスト数は 100 万、ピークは秒間 10 リクエストとしています。サンプルの分割ファイルは、利用者が例を選んだ時点で取得します。端末の OPFS が例を保持するため、再生のたびにサンプル全体を再取得しません。ピーク制限の CDN キャッシュへの適用はプラン表に記載がないため、実公開後に初回ロードの応答と管理画面の使用量を確認します。[公式プラン表](https://deploy.lolipop.jp/docs/plans)
+2026 年 11 月 28 日時点の公式プラン表は、CLI・ファイルアップロードが 100 MB、展開後は 10 GiB、CDN 帯域は月 100 GB、月間リクエスト数は 100 万、ピークは秒間 10 リクエストとしています。デプロイナウ版は画面と Worker の JavaScript をまとめ、初回のリクエスト数を抑えています。サンプルの分割ファイルは、利用者が例を選んだ時点で取得します。端末の OPFS が例を保持するため、再生のたびにサンプル全体を再取得しません。ピーク制限の CDN キャッシュへの適用はプラン表に記載がないため、実公開後に初回ロードの応答と管理画面の使用量を確認します。[公式プラン表](https://deploy.lolipop.jp/docs/plans)

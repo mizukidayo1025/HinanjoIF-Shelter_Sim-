@@ -45,8 +45,13 @@ jobs:
           cargo build --locked --manifest-path native/Cargo.toml -p sheltersim_wasm --target wasm32-unknown-unknown --release
           "$RUNNER_TEMP/$archive/wasm-bindgen" --target web --out-dir "$RUNNER_TEMP/wasm-web" \
             native/target/wasm32-unknown-unknown/release/sheltersim_wasm.wasm
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
       - name: 江戸川区の例と全国の避難所データを入れる
         run: |
+          npm install --prefix "$RUNNER_TEMP/build-tools" esbuild@0.27.3
+          export PATH="$RUNNER_TEMP/build-tools/node_modules/.bin:$PATH"
           python scripts/build_project_sample.py "$RUNNER_TEMP/projects" --example sample-3 --bundles "$RUNNER_TEMP/samples"
           python scripts/build_static_site.py "$RUNNER_TEMP/site" --profile deploy-now \
             --pkg "$RUNNER_TEMP/wasm-web" --bundle "$RUNNER_TEMP/samples/sample-3.shelterproj" \

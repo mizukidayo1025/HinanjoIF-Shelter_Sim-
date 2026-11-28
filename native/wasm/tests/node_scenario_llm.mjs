@@ -31,6 +31,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const data = join(here, "..", "..", "core", "tests", "data");
 const answers = JSON.parse(readFileSync(join(data, "scenario_text_answers.json"), "utf8"));
 const recorded = JSON.parse(readFileSync(join(data, "research_cases.json"), "utf8"));
+const { BrowserApi } = await import(join(here, "..", "js", "browser_api.mjs"));
 const { ScenarioRoutes } = await import(join(here, "..", "js", "scenario_routes.mjs"));
 const store = await import(join(here, "..", "js", "project_store.mjs"));
 const research = await import(join(here, "..", "js", "research.mjs"));
@@ -179,6 +180,40 @@ for (const costs of [[0.0123], [0.0, 0.0123, 0.000002]]) {
   assert.equal(JSON.parse(await routes.approve("p", approval)).run_id, run.run_id);
   assert.deepEqual(await readPreparation(), { ...pending, status: "bound", run_id: run.run_id });
   checked += costs.length;
+}
+
+// The static profile refuses prose requests even if a caller supplies a relay passphrase.
+{
+  const tree = store.memoryTree();
+  await store.createProject(tree, "p");
+  const api = new BrowserApi({
+    wasm,
+    tree,
+    llmEnabled: false,
+    relay: () => assert.fail("the offline profile contacted the relay"),
+    scenario: {
+      shelterIndex: async () => recorded.indexes.corpus,
+      shelterRows: async (code) => recorded.rows.corpus[code],
+      fetchJson: async () => [],
+    },
+  });
+  const post = (path, body) => api.answer({
+    method: "POST", path: `/api/v1/projects/p/${path}`, body: JSON.stringify(body), llm: PASSPHRASE,
+  });
+  for (const path of ["scenario-preview", "runs/r/branches/main/intervention-preview"]) {
+    const response = await post(path, { text: caseOf("municipality-from-answer").text });
+    assert.equal(response.status, 409);
+    assert.equal(JSON.parse(response.body).code, "browser_unsupported");
+  }
+  const response = await post("scenario-preview", {
+    text: "",
+    request: { municipality: "墨田区", disaster: "洪水", evacuees: 10 },
+  });
+  assert.equal(response.status, 200, response.body);
+  const preview = JSON.parse(response.body);
+  assert.equal(preview.can_start, true);
+  assert.equal(preview.scenario.provenance.scenario_input.extraction_source, "structured_form");
+  assert.equal(preview.llm_usage.api_request_count, 0);
 }
 
 console.log(`node_scenario_llm: ok (${checked} previews)`);

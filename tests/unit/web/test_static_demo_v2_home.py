@@ -82,7 +82,7 @@ const $ = (id) => {
 };
 const num = (n) => String(n);
 const state = {};
-const document = { querySelectorAll: () => [] };
+const document = { body: { dataset: {} }, querySelectorAll: () => [] };
 const el = () => ({});
 const window = { HinanjoBrowserApi: {} };
 const api = async () => { throw new Error("the browser version does not ask the server"); };
@@ -205,7 +205,7 @@ const localStorage = { getItem: () => null, setItem() {}, removeItem() {} };
 const fetch = async () => { throw new Error("the server version sends no passphrase"); };
 const num = (n) => String(n);
 const state = {};
-const document = { querySelectorAll: () => [] };
+const document = { body: { dataset: {} }, querySelectorAll: () => [] };
 const el = () => ({});
 const window = {};
 let answer;
@@ -270,6 +270,7 @@ const box = () => ({
 });
 const boxes = [box(), box()];
 const document = {
+  body: { dataset: {} },
   querySelectorAll: (selector) => (assert.equal(selector, "[data-needs-api]"), boxes),
 };
 const el = (tag, text, cls) => ({ tag, text, cls, hidden: false });

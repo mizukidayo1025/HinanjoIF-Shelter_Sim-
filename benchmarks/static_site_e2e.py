@@ -409,7 +409,7 @@ def pin_browser(context: Any, index: dict[str, Any] | None, notes: list[str]) ->
             body=json.dumps(document, ensure_ascii=False),
         )
 
-    context.route("**/browser/api_worker.mjs", worker)
+    context.route(re.compile(r"/browser/api_worker\.mjs(?:\?.*)?$"), worker)
     context.route("**/browser/gsi-shelter-index.json", shelters)
     context.route("https://msearch.gsi.go.jp/**", address)
 
@@ -1347,6 +1347,10 @@ class Walk:
             if made["status"] != 200:
                 self.problem(stage, f"the Run to compute was not made: {made['status']}")
                 return False
+        # Prepare the Python reference before the browser starts. Otherwise the first resume
+        # comparison can wait for all seven days on Python while the browser finishes its run.
+        if self.mode == "pieces" and (side := self.side()) is not None:
+            side.at(stage)
         self.open(f"/?project={s.project}&run={run}&branch=main#simulation", "simulation")
         record = json.loads(self.fetch(_run_path(s.project, run))["text"])
         if record["branches"][0]["computed_until"] < 10080:
@@ -1394,13 +1398,18 @@ class Walk:
             if not self.watch(stage, lambda state: state["computed"] >= 1440, "a day"):
                 return False
             since = self.mark()
-            self.page.click("#play")
-            self.wait_caught(since, "POST", r"/cancel$", timeout_s=60)
+            self.page.click('#play[data-mode="cancel"]', timeout=10_000)
+            cancel = self.wait_caught(since, "POST", r"/cancel$", timeout_s=60)
+            if cancel is None or cancel["status"] != 200:
+                self.problem(stage, f"the cancel request failed: {cancel}")
+                return False
             if not self.watch(stage, lambda state: state["computeReady"], "cancel"):
                 return False
-            status = json.loads(self.fetch(path)["text"]).get("status")
-            if status != "paused":
-                self.problem(stage, f"cancelled: the Run is {status}")
+            record = json.loads(self.fetch(path)["text"])
+            reached = next(b for b in record["branches"] if b["branch_id"] == branch)
+            if record["status"] != "paused" or not 1440 <= reached["computed_until"] < 10080:
+                self.problem(stage, f"cancelled: {record['status']} at {reached['computed_until']}")
+                return False
             self.page.click("#play")
         if not self.watch(stage, computed(10080), "the end"):
             return False
@@ -1613,6 +1622,12 @@ class Walk:
             self.problem(stage, "the screen asked for no PDF")
         self.screen_error(stage, "pdf")
         # The print page is shown over the screen; closed as a person closes it.
+        if self.page.locator("body").get_attribute("data-llm") == "disabled":
+            self.page.locator("#print-report").wait_for(state="visible")
+            if "分析レポート" not in self.page.locator("#print-report").inner_text():
+                self.problem(stage, "the print page is missing the analysis report")
+            if self.name == "chromium" and not self.page.pdf().startswith(b"%PDF-"):
+                self.problem(stage, "Chromium did not generate a PDF")
         self.page.keyboard.press("Escape")
         self.probes(stage, report_routes(s, child=self.child_ready))
         return True
@@ -1675,6 +1690,74 @@ def walk(walker: Walk, stages: list[str], sample_ok: bool) -> None:
             walker.subject = None
 
 
+def check_deploy_now(walker: Walk, requests: list[str]) -> dict[str, Any]:
+    """Check the offline profile independently of the new-scenario walk."""
+    page = walker.page
+    page.goto(walker.base + "/")
+    page.evaluate("window.HinanjoBrowserApi.ready")
+    walker.idle()
+    assert page.locator("body").get_attribute("data-llm") == "disabled"
+    assert page.locator("#home-new").is_enabled()
+    initial_requests = len(requests)
+    assert initial_requests <= 10, f"{initial_requests} requests on the first visit"
+    page.click("#home-fetch")
+    examples = page.locator("#examples-list .examples-item")
+    examples.first.wait_for(state="visible")
+    assert examples.count() == 1
+    assert "江戸川区" in examples.first.inner_text()
+    examples.first.locator("button").click()
+    path = "/?project=sample-3&run=run-edogawa-water-outage&branch=main#simulation"
+    page.wait_for_url(walker.base + path, timeout=TIMEOUT_MS)
+    walker.view("simulation")
+    page.wait_for_function("() => !document.getElementById('seek').disabled")
+    assert walker.screen()["computed"] == 7200
+    page.locator("#seek").evaluate(
+        "(seek) => { seek.value = 3000; seek.dispatchEvent(new Event('change')); }"
+    )
+    page.wait_for_function(
+        "() => document.getElementById('seek-label').textContent.includes('3日目')"
+    )
+    page.click("#play")
+    page.wait_for_function("() => Number(document.getElementById('seek').value) > 3000")
+    page.click("#play")
+    page.reload()
+    walker.view("simulation")
+    page.wait_for_function("() => !document.getElementById('seek').disabled")
+    assert walker.screen()["computed"] == 7200
+    page.click("[data-page=comparison]")
+    walker.view("comparison")
+    assert not page.locator(".intervention-text-option").is_visible()
+    page.locator("#compare-kpis-b .kpi").first.wait_for(state="visible")
+    page.locator("#compare-seek").evaluate(
+        "(seek) => { seek.value = 2100; seek.dispatchEvent(new Event('change')); }"
+    )
+    page.wait_for_function(
+        "() => document.getElementById('compare-time').textContent.includes('11:00')"
+    )
+    page.click("#play")
+    page.wait_for_function("() => Number(document.getElementById('compare-seek').value) > 2100")
+    page.click("#play")
+    page.locator("#compare-seek").evaluate(
+        "(seek) => { seek.value = 1920; seek.dispatchEvent(new Event('change')); }"
+    )
+    page.wait_for_function(
+        "() => document.getElementById('compare-time').textContent.includes('08:00')"
+    )
+    page.click("[data-page=report]")
+    walker.view("report")
+    assert not page.locator(".chat-panel").is_visible()
+    assert not page.locator("fieldset.report-analysis").is_visible()
+    assert not page.locator("#header-api").is_visible()
+    page.click("[data-page=scenario]")
+    walker.view("scenario")
+    assert not page.locator("#scenario-text").is_visible()
+    page.click("[data-page=home]")
+    walker.view("home")
+    assert not page.locator("#home-api").is_visible()
+    assert page.locator(".needs-api-note").count() == 0
+    return {"initial_requests": initial_requests, "example": "sample-3"}
+
+
 def check(
     *,
     site: Path | None,
@@ -1687,6 +1770,7 @@ def check(
     shelter_csv: Path | None,
     screenshots: Path | None,
     fresh: bool,
+    deploy_now: bool = False,
 ) -> dict[str, Any]:
     from playwright.sync_api import sync_playwright
 
@@ -1719,6 +1803,10 @@ def check(
                 browser = FreshBrowser(playwright, name)
                 context = browser.new_context()
                 errors: list[str] = []
+                requests: list[str] = []
+                profile: dict[str, Any] = {}
+                if deploy_now:
+                    context.on("request", lambda request: requests.append(request.url))
                 try:
                     context.add_init_script(PAGE_INIT)
                     close_relay(context)
@@ -1735,13 +1823,26 @@ def check(
                     page.set_default_timeout(TIMEOUT_MS)
                     site_check._attach(page, errors)
                     walker = Walk(name, page, base, python, screenshots, mode)
+                    if deploy_now:
+                        try:
+                            profile = check_deploy_now(walker, requests)
+                        except Exception as error:
+                            errors.append(f"deploy-now profile: {type(error).__name__}: {error}")
                     walk(walker, stages, sample_ok=python is None or sample_projects is not None)
+                    if deploy_now:
+                        relay_calls = [
+                            url for url in requests if urlsplit(url).path.startswith("/llm/")
+                        ]
+                        if relay_calls:
+                            errors.append(f"deploy-now contacted the LLM relay: {relay_calls}")
+                        profile["relay_requests"] = len(relay_calls)
                 finally:
                     browser.close()
                 results["browsers"][name] = {
                     "mode": mode,
                     "errors": errors,
                     "stages": walker.stages,
+                    **({"deploy_now": profile} if deploy_now else {}),
                 }
     finally:
         if python is not None:
@@ -1807,6 +1908,9 @@ def main() -> int:
     parser.add_argument("--output", type=Path)
     parser.add_argument("--screenshots", type=Path)
     parser.add_argument("--fresh", action="store_true", help="do the Python side again")
+    parser.add_argument(
+        "--deploy-now", action="store_true", help="also check the Deploy Now profile"
+    )
     parser.add_argument("--require-all", action="store_true", help="fail unless every stage passed")
     arguments = parser.parse_args()
     if arguments.write_corpus_csv:
@@ -1828,6 +1932,7 @@ def main() -> int:
         shelter_csv=arguments.shelter_csv.resolve() if arguments.shelter_csv else None,
         screenshots=arguments.screenshots,
         fresh=arguments.fresh,
+        deploy_now=arguments.deploy_now,
     )
     results["started"] = started.isoformat(timespec="seconds")
     if arguments.output:

@@ -189,6 +189,7 @@ async function start(examplesUrl) {
     quota: async () => (await navigator.storage.estimate()).quota ?? null,
     locked,
     branchLock,
+    llmEnabled: new URL(import.meta.url).searchParams.get("llm") !== "disabled",
     scenario: { shelterIndex, shelterRows },
   });
   return { api, wasm, listed, install, ms: performance.now() - started };

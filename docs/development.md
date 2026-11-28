@@ -254,6 +254,8 @@ python benchmarks/static_site_e2e.py --url https://hinanjo-if.water7.workers.dev
 
 ### ブラウザー版の公開（#289）
 
+LLM を無効にした静的サイトの構成と公開手順は[デプロイナウ版のビルドと公開](deploy-now.md)を参照してください。
+
 ブラウザー版は、Cloudflare Workersの静的なファイルの配信（static assets）に`wrangler deploy`で置きます（`https://hinanjo-if.water7.workers.dev/`、#286）。ふだんはGitHub Actionsから公開します（下の「GitHub Actionsで公開する」）。Pagesは使いません（wrangler 4.161では、`wrangler pages project create`も、新しい静的なサイトをWorkersに作ります）。設定は`deploy/workers/wrangler.jsonc`です。
 
 | 項目 | 値 | 理由 |

@@ -234,6 +234,12 @@
   const NEEDS_API_NOTE =
     "AIを使う機能です。API を ON にすると使えます（ホームの「AIの機能（API）」）。";
   function applyLlm() {
+    if (document.body.dataset.llm === "disabled") {
+      document.querySelectorAll("[data-needs-api]").forEach((box) => {
+        box.disabled = true;
+      });
+      return;
+    }
     const on = state.llm?.on === true;
     document.querySelectorAll("[data-needs-api]").forEach((box) => {
       box.disabled = !on;
@@ -300,6 +306,7 @@
   // Asked at the start and on each visit to the home; a check under way is shared.
   let checking = null;
   function refreshApi() {
+    if (document.body.dataset.llm === "disabled") return;
     return (checking ??= checkApi().finally(() => (checking = null)));
   }
   async function checkApi() {

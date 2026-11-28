@@ -4364,3 +4364,12 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
   .timeline-panel #events { grid-template-columns:1fr; }
   .report-branch-control select, .compare-branch-control select { width:auto; max-width:48vw; }
 }
+
+/* The static profile with no LLM relay. Keep the report and saved scenarios full width. */
+body[data-llm="disabled"] [data-llm-only] {
+  display: none !important;
+}
+body[data-llm="disabled"] .home-grid,
+body[data-llm="disabled"] #page-report .report-grid {
+  grid-template-columns: minmax(0, 1fr);
+}

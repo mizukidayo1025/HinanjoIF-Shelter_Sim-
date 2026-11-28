@@ -418,6 +418,68 @@ def test_the_site_holds_the_shelter_index_and_rows_the_browser_s_research_reads(
         builder["shelter_files"](csv_path=csv_path)
 
 
+def test_deploy_now_requires_one_example_and_shelters_and_omits_the_relay_admin(
+    site: tuple[Path, bytes, dict[str, Any]],
+    builder: dict[str, Any],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from support.core_research import EXTRA_CSV
+
+    csv_path = tmp_path / "shelters.csv"
+    csv_path.write_text(EXTRA_CSV, encoding="utf-8")
+    shelters = builder["shelter_files"](csv_path=csv_path)
+    bundle = tmp_path / "sample-3.shelterproj"
+    _bundle(bundle, 3000, "sample-3")
+    build = builder["build"]
+    arguments = {
+        "pkg": site[0] / "browser" / "pkg",
+        "bundles": [bundle],
+        "notices": NOTICES,
+        "profile": "deploy-now",
+    }
+    with pytest.raises(ValueError, match="requires shelter data"):
+        build(tmp_path / "without-shelters", **arguments)
+    with pytest.raises(ValueError, match="requires one example"):
+        build(
+            tmp_path / "two-examples",
+            **(arguments | {"shelters": shelters, "bundles": [bundle, bundle]}),
+        )
+
+    def esbuild_stub(*command: str) -> str:
+        assert command[:2] == ("esbuild", str(builder["JS"] / "api_worker.mjs"))
+        Path(command[-1].removeprefix("--outfile=")).write_text("// bundled worker\n")
+        return ""
+
+    monkeypatch.setitem(build.__globals__, "_output", esbuild_stub)
+    arguments["version"] = {"commit": "fixture", "modified": False}
+    output = tmp_path / "deploy-now"
+    summary = build(output, shelters=shelters, **arguments)
+    assert summary["admin_page"] is None
+    assert not (output / "admin.html").exists()
+    assert not (output / ".nojekyll").exists()
+    html = (output / "index.html").read_text(encoding="utf-8")
+    assert (
+        'data-worker="/browser/api_worker.mjs?llm=disabled"'
+        ' data-examples="/sample/examples.json" data-llm="disabled"'
+    ) in html
+    assert '<body data-llm="disabled"' in html
+    assert "data-scenarios" not in html
+    assert '<script src="/demo-v2.js" defer></script>' in html
+    assert "/demo-v2-scene.js" not in html
+    screen = (output / "demo-v2.js").read_text(encoding="utf-8")
+    assert screen.startswith((STATIC / "demo-v2-scene.js").read_text(encoding="utf-8"))
+    assert screen.endswith((STATIC / "demo-v2.js").read_text(encoding="utf-8"))
+    assert (output / "browser" / "api_worker.mjs").is_file()
+    assert not (output / "browser" / "browser_api.mjs").exists()
+    assert [sample["project_id"] for sample in summary["samples"]] == ["sample-3"]
+    assert summary["shelter_index"]["municipality_codes"] > 0
+    assert (output / "browser" / "gsi-shelter-index.json").is_file()
+    monkeypatch.setitem(build.__globals__, "DEPLOY_NOW_LIMIT_BYTES", summary["bytes"])
+    with pytest.raises(ValueError, match="it must be under"):
+        build(tmp_path / "too-big", shelters=shelters, **arguments)
+
+
 def _package(root: Path, name: str, version: str, files: dict[str, str], **fields: Any) -> dict:
     """A package of `cargo metadata` whose directory holds `files`."""
     directory = root / f"{name}-{version}"

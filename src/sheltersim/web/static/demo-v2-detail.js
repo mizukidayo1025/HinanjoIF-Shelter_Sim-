@@ -69,13 +69,14 @@
     );
   }
   async function loadDetail() {
+    const llmEnabled = document.body.dataset.llm !== "disabled";
     const scope = state.scope,
       [run, evidence, llm, contracts, usage] = await Promise.all([
         api(runBase()),
         api(`${runBase()}/evidence`),
-        api(`${branchBase()}/llm-status`),
+        llmEnabled ? api(`${branchBase()}/llm-status`) : null,
         api(`${base()}/contracts`),
-        optional(`${runBase()}/usage`),
+        llmEnabled ? optional(`${runBase()}/usage`) : null,
       ]);
     if (scope !== state.scope) return;
     const scenario = state.scenario;
@@ -151,16 +152,18 @@
         return row;
       }),
     );
-    facts($("detail-llm"), [
-      ["回答の作り方", llmModeLabel(llm.mode)],
-      ["代替処理の回数", String(llm.outcomes?.fallback_count ?? "—")],
-      [
-        "APIの呼び出し",
-        usage
-          ? `${usage.totals?.calls ?? 0}回 · 入力 ${num(usage.totals?.input_tokens ?? 0)} / 出力 ${num(usage.totals?.output_tokens ?? 0)} トークン`
-          : "ブラウザー版はAPIを呼びません",
-      ],
-    ]);
+    if (llm) {
+      facts($("detail-llm"), [
+        ["回答の作り方", llmModeLabel(llm.mode)],
+        ["代替処理の回数", String(llm.outcomes?.fallback_count ?? "—")],
+        [
+          "APIの呼び出し",
+          usage
+            ? `${usage.totals?.calls ?? 0}回 · 入力 ${num(usage.totals?.input_tokens ?? 0)} / 出力 ${num(usage.totals?.output_tokens ?? 0)} トークン`
+            : "ブラウザー版はAPIを呼びません",
+        ],
+      ]);
+    }
   }
   Object.assign(app, { copyScenario, loadDetail });
 })();
